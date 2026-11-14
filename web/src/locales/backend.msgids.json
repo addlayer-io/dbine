@@ -5,6 +5,9 @@
  "\n-- Dremio no tiene WITH GRANT OPTION: poder otorgar es MANAGE GRANTS sobre la carpeta.\nGRANT MANAGE GRANTS ON {0} TO {1};": [
   "crates/drivers/dremio/src/security.rs"
  ],
+ "\n// Filtro de {0}\n{1}\n": [
+  "crates/drivers/powerbi/src/objects.rs"
+ ],
  "\n// Índices y restricciones\n": [
   "crates/drivers/neo4j/src/lib.rs"
  ],
@@ -298,6 +301,9 @@
  ],
  "(SELECT con.contype::text FROM pg_constraint con WHERE con.conindid = ix.indexrelid AND con.conrelid = ix.indrelid\n                AND con.contype IN ('u', 'x') LIMIT 1) AS ctype,\n             CASE WHEN k.ord = 1 THEN (SELECT pg_get_constraintdef(con.oid) FROM pg_constraint con WHERE con.conindid = ix.indexrelid\n                AND con.conrelid = ix.indrelid AND con.contype IN ('u', 'x') LIMIT 1) END AS cdef": [
   "crates/drivers/postgres/src/structure.rs"
+ ],
+ "(UTC+07:00) SE Asia Standard Time": [
+  "crates/drivers/powerbi/src/refresh/timezones.rs"
  ],
  "(automática)": [
   "crates/drivers/postgres/src/design.rs"
@@ -641,6 +647,9 @@
  "/* «{0}»: no hay cambios que guardar. */\n": [
   "crates/drivers/orientdb/src/scheduler/mod.rs"
  ],
+ "// (sin permiso para ver la expresión)": [
+  "crates/drivers/powerbi/src/objects.rs"
+ ],
  "// API REST del servicio de backup de Couchbase (puerto 8097, o /_p/backup en el puerto de administración).": [
   "crates/drivers/couchbase/src/backup/mod.rs"
  ],
@@ -659,14 +668,32 @@
  "// En Neo4j los permisos se otorgan a roles; un usuario los tiene por sus roles.\n{0}": [
   "crates/drivers/neo4j/src/security.rs"
  ],
+ "// Filtro de seguridad: {0}\n": [
+  "crates/drivers/powerbi/src/objects.rs"
+ ],
+ "// Grupo de cálculo {0}{1}\n": [
+  "crates/drivers/powerbi/src/objects.rs"
+ ],
+ "// Jerarquía {0}\n": [
+  "crates/drivers/powerbi/src/objects.rs"
+ ],
  "// Las credenciales se ocultaron (***): completalas antes de ejecutarlo.\n": [
   "crates/drivers/couchdb/src/jobs.rs"
  ],
  "// No se pudo leer el plan «{0}»: crealo antes que el repositorio.\n\n": [
   "crates/drivers/couchbase/src/jobs.rs"
  ],
+ "// Para usarla en un cálculo:\n// USERELATIONSHIP({0}, {1})\n": [
+  "crates/drivers/powerbi/src/objects.rs"
+ ],
+ "// Partición «{0}» ({1}{2})\n": [
+  "crates/drivers/powerbi/src/objects.rs"
+ ],
  "// Propiedades (muestra de 100):\n": [
   "crates/drivers/neo4j/src/lib.rs"
+ ],
+ "// Relación {0}\n": [
+  "crates/drivers/powerbi/src/objects.rs"
  ],
  "// Replicación transitoria: CouchDB no guarda su definición. Este script se arma con el origen y el destino que informa el planificador (sin credenciales ni filtros).\nPOST /_replicate\n{0}\n": [
   "crates/drivers/couchdb/src/jobs.rs"
@@ -809,8 +836,14 @@
  "1 contraseña": [
   "crates/drivers/redis/src/security.rs"
  ],
+ "1 hora": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "1 para un servidor de un solo nodo; vacío usa el valor del clúster.": [
   "crates/drivers/mysql/src/design.rs"
+ ],
+ "15 minutos": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "1: escribe sin fsync": [
   "crates/drivers/tdengine/src/create_db.rs",
@@ -834,6 +867,9 @@
  "2 días": [
   "crates/drivers/bigquery/src/properties.rs"
  ],
+ "2 horas": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "2: lo que cambió desde el nivel 1": [
   "crates/drivers/odbc/src/backup.rs"
  ],
@@ -842,6 +878,12 @@
  ],
  "3 días": [
   "crates/drivers/bigquery/src/properties.rs"
+ ],
+ "3 horas": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "30 minutos": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "4 días": [
   "crates/drivers/bigquery/src/properties.rs"
@@ -935,6 +977,13 @@
  ],
  "API NoSQL. Para la API de MongoDB de Cosmos DB usá el driver MongoDB con la cadena de conexión de la cuenta.": [
   "crates/drivers/cosmosdb/src/lib.rs"
+ ],
+ "API de consultas": [
+  "crates/drivers/powerbi/src/lib.rs",
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
+ "API de consultas desconocida": [
+  "crates/drivers/powerbi/src/config.rs"
  ],
  "APOC no cambia un job: al guardar se vuelve a crear (con el mismo nombre, APOC cancela el anterior y programa el nuevo; con otro nombre, se programa el nuevo y se cancela el anterior).": [
   "crates/drivers/neo4j/src/scheduler/mod.rs"
@@ -1091,6 +1140,9 @@
  "Abend del sistema": [
   "crates/drivers/odbc/src/jobs/db2.rs"
  ],
+ "Abf": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
  "Abierta ahora": [
   "crates/drivers/oracle/src/scheduler/window.rs"
  ],
@@ -1136,6 +1188,7 @@
   "crates/drivers/neo4j/src/neptune.rs",
   "crates/drivers/orientdb/src/lib.rs",
   "crates/drivers/orientdb/src/transfer.rs",
+  "crates/drivers/powerbi/src/http.rs",
   "crates/drivers/snowflake/src/lib.rs",
   "crates/drivers/snowflake/src/transfer.rs",
   "src-tauri/src/secret_sources/bitwarden.rs",
@@ -1346,6 +1399,9 @@
  "Activa más vieja (OAT)": [
   "crates/drivers/firebird/src/properties.rs"
  ],
+ "Activada": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Activala si el cluster tiene la autenticación IAM habilitada: firma cada pedido con las credenciales de abajo.": [
   "crates/drivers/neo4j/src/lib.rs"
  ],
@@ -1379,6 +1435,7 @@
   "crates/drivers/oracle/src/monitor.rs",
   "crates/drivers/phoenix/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
   "crates/drivers/redis/src/monitor.rs",
   "crates/drivers/snowflake/src/monitor.rs",
   "crates/drivers/solr/src/monitor.rs",
@@ -1414,11 +1471,21 @@
  "Actualizaciones o borrados que fallaron porque otra transacción ya había cambiado la fila (conflicto de actualización).": [
   "crates/drivers/firebird/src/monitor.rs"
  ],
+ "Actualización": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "Actualización completa": [
   "crates/drivers/databricks/src/scheduler/form.rs"
  ],
  "Actualización completa de los pipelines": [
   "crates/drivers/databricks/src/scheduler/run.rs"
+ ],
+ "Actualización de caché (DirectQuery)": [
+  "crates/drivers/powerbi/src/refresh/mod.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Actualización programada": [
+  "crates/drivers/powerbi/src/refresh/mod.rs"
  ],
  "Actualizada": [
   "crates/drivers/bigquery/src/jobs.rs",
@@ -1429,12 +1496,21 @@
   "crates/drivers/couchbase/src/backup/repo.rs",
   "crates/drivers/postgres/src/monitor.rs"
  ],
+ "Actualizar ahora…": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Actualizar el modelo": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
+ ],
  "Actualizar estadísticas": [
   "crates/drivers/odbc/src/jobs/dameng.rs",
   "crates/drivers/odbc/src/scheduler/dameng.rs"
  ],
  "Actualizar estadísticas (AUTO_UPDATE_STATISTICS)": [
   "crates/drivers/sqlserver/src/properties.rs"
+ ],
+ "Actualizar la caché": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
  ],
  "Actualizar la versión de intercalación registrada (REFRESH COLLATION VERSION)": [
   "crates/drivers/postgres/src/properties.rs"
@@ -1468,7 +1544,9 @@
   "crates/drivers/postgres/src/index_usage.rs"
  ],
  "Admin": [
-  "crates/drivers/odbc/src/security/sqlstd.rs"
+  "crates/drivers/odbc/src/security/sqlstd.rs",
+  "crates/drivers/powerbi/src/admin/mod.rs",
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "Administrado por": [
   "crates/drivers/dynamodb/src/backup.rs"
@@ -1477,7 +1555,8 @@
   "crates/drivers/spanner/src/properties.rs"
  ],
  "Administrador": [
-  "crates/drivers/influxdb/src/security.rs"
+  "crates/drivers/influxdb/src/security.rs",
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "Administrador del clúster": [
   "crates/drivers/postgres/src/security/risingwave.rs"
@@ -1819,6 +1898,9 @@
  "Alertas que reconoce: {0} de {1} activas. Ya no ejecutan las acciones de su disparador.": [
   "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
  ],
+ "Algunas cosas no se revisaron": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "Algunos dnodes todavía no reportaron a taosKeeper.": [
   "crates/drivers/tdengine/src/lib.rs"
  ],
@@ -2088,6 +2170,12 @@
   "crates/drivers/odbc/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs"
  ],
+ "Aplicación para iniciar sesión": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
+ "Aplicar la actualización incremental": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Aplicar la retención a los backups que ya hay": [
   "crates/drivers/couchbase/src/backup/repo.rs"
  ],
@@ -2099,6 +2187,10 @@
  ],
  "Aplicar u# a {0}.{1} falla si la columna tiene valores repetidos.": [
   "crates/drivers/kdb/src/attrs.rs"
+ ],
+ "App": [
+  "crates/drivers/powerbi/src/admin/mod.rs",
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "April": [
   "src-tauri/src/tasks/os.rs"
@@ -2553,6 +2645,7 @@
   "crates/drivers/oracle/src/properties.rs",
   "crates/drivers/oracle/src/security.rs",
   "crates/drivers/postgres/src/cloud_auth.rs",
+  "crates/drivers/powerbi/src/lib.rs",
   "crates/drivers/snowflake/src/lib.rs",
   "crates/drivers/snowflake/src/security.rs",
   "crates/drivers/solr/src/security.rs",
@@ -2602,6 +2695,16 @@
  ],
  "Autoescalado máx.": [
   "crates/drivers/bigquery/src/monitor.rs"
+ ],
+ "Automatic": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Automática": [
+  "crates/drivers/powerbi/src/lib.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Automática usa executeDaxQueries donde el modelo lo admite y si no executeQueries, que devuelve como máximo 100.000 filas por consulta.": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Automático": [
   "crates/drivers/databricks/src/scheduler/form.rs",
@@ -2672,7 +2775,8 @@
   "crates/drivers/bigquery/src/scheduler.rs"
  ],
  "Avisar por correo si falla": [
-  "crates/drivers/odbc/src/scheduler/virtuoso.rs"
+  "crates/drivers/odbc/src/scheduler/virtuoso.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Avisar por net send": [
   "crates/drivers/odbc/src/scheduler/dameng.rs"
@@ -2693,7 +2797,9 @@
   "crates/drivers/databricks/src/scheduler/form.rs"
  ],
  "Aviso": [
-  "crates/drivers/odbc/src/scheduler/virtuoso.rs"
+  "crates/drivers/odbc/src/scheduler/virtuoso.rs",
+  "crates/drivers/powerbi/src/refresh/jobs.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Aviso de errores": [
   "crates/drivers/elasticsearch/src/scheduler/lifecycle.rs"
@@ -2712,12 +2818,15 @@
   "crates/drivers/couchbase/src/backup/repo.rs"
  ],
  "Azure CLI devolvió algo que no es JSON": [
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Azure CLI no devolvió un token": [
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Azure CLI no dijo cuándo vence el token": [
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Azure Cosmos DB es un servicio HTTP sin estado: no expone sesiones ni consultas en curso que listar o cancelar": [
@@ -2730,12 +2839,15 @@
   "crates/drivers/databricks/src/scheduler/form.rs"
  ],
  "Azure Developer CLI devolvió algo que no es JSON": [
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Azure Developer CLI no devolvió un token": [
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Azure Developer CLI no dijo cuándo vence el token": [
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Azure Key Vault no devolvió un valor para «{0}»": [
@@ -3406,6 +3518,11 @@
  "Binario sin límite como LONG VARBINARY: Vertica guarda hasta 32 MB por valor.": [
   "crates/dbine-schema/src/dialect/vertica.rs"
  ],
+ "Binary": [
+  "crates/dbine-schema/src/dialect/powerbi.rs",
+  "crates/drivers/powerbi/src/meta/mod.rs",
+  "crates/drivers/powerbi/src/query/arrow.rs"
+ ],
  "Binlog": [
   "crates/drivers/mysql/src/backup.rs"
  ],
@@ -3699,6 +3816,11 @@
   "crates/drivers/clickhouse/src/schema.rs",
   "crates/drivers/clickhouse/src/transfer.rs"
  ],
+ "Boolean": [
+  "crates/dbine-schema/src/dialect/powerbi.rs",
+  "crates/drivers/powerbi/src/meta/mod.rs",
+  "crates/drivers/powerbi/src/query/arrow.rs"
+ ],
  "Booleano": [
   "crates/drivers/orientdb/src/scheduler/mod.rs"
  ],
@@ -3988,6 +4110,9 @@
  "Borrar snapshots viejos": [
   "crates/drivers/elasticsearch/src/scheduler/sm.rs"
  ],
+ "Borrar valores": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Borrarlo al terminar": [
   "crates/drivers/odbc/src/scheduler/dameng_dbms.rs",
   "crates/drivers/oracle/src/scheduler/job.rs"
@@ -4065,7 +4190,9 @@
   "crates/drivers/odbc/src/monitor.rs"
  ],
  "Build": [
-  "crates/drivers/iotdb/src/monitor.rs"
+  "crates/drivers/iotdb/src/monitor.rs",
+  "crates/drivers/powerbi/src/admin/mod.rs",
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "Builtin": [
   "crates/drivers/iotdb/src/scheduler/plugin.rs",
@@ -4744,6 +4871,9 @@
  "CUBRID respalda con la herramienta cubrid backupdb, no con SQL": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "Cached": [
+  "crates/drivers/powerbi/src/auth/mod.rs"
+ ],
  "Caches": [
   "src-tauri/src/identifier.rs"
  ],
@@ -4863,6 +4993,7 @@
   "crates/drivers/oracle/src/scheduler/calendar.rs",
   "crates/drivers/oracle/src/scheduler/timing.rs",
   "crates/drivers/postgres/src/monitor.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "crates/drivers/snowflake/src/scheduler/mod.rs",
   "crates/drivers/sqlserver/src/agent/schedule.rs"
  ],
@@ -4930,7 +5061,8 @@
   "crates/drivers/elasticsearch/src/scheduler/monitor.rs",
   "crates/drivers/elasticsearch/src/scheduler/os_transform.rs",
   "crates/drivers/elasticsearch/src/scheduler/watch.rs",
-  "crates/drivers/odbc/src/scheduler/hive.rs"
+  "crates/drivers/odbc/src/scheduler/hive.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Cada consulta aparece al terminar su job; las que no nombran ningún dataset también se muestran.": [
   "crates/drivers/bigquery/src/profiler.rs"
@@ -5130,6 +5262,9 @@
  "Calcular con baja latencia (LOW_LATENCY_CALC)": [
   "crates/drivers/tdengine/src/scheduler/mod.rs"
  ],
+ "Calculate": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Calendario": [
   "crates/drivers/odbc/src/jobs/ase.rs",
   "crates/drivers/odbc/src/scheduler/ase.rs",
@@ -5269,6 +5404,9 @@
  ],
  "Cambia la credencial {0}.": [
   "crates/drivers/oracle/src/scheduler/credential.rs"
+ ],
+ "Cambia la descripción del modelo para todos los que lo usan.": [
+  "crates/drivers/powerbi/src/properties.rs"
  ],
  "Cambia la hora local (.z.P, .z.T, .z.D) de todo el proceso, hasta que se reinicie.": [
   "crates/drivers/kdb/src/props.rs"
@@ -5495,6 +5633,9 @@
  "Cancela el job de APOC «{0}» y lo quita de la lista del servidor.": [
   "crates/drivers/neo4j/src/scheduler/mod.rs"
  ],
+ "Cancela la actualización mejorada en curso. Las programadas y las del portal no se cancelan por la API.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Cancela la cuenta regresiva de APOC «{0}» y la quita de la lista del servidor, si todavía no terminó su primera ejecución.": [
   "crates/drivers/neo4j/src/scheduler/mod.rs"
  ],
@@ -5511,6 +5652,9 @@
   "crates/drivers/neo4j/src/scheduler/mod.rs",
   "crates/drivers/odbc/src/lib.rs"
  ],
+ "Cancelar la actualización en curso": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Cancelar transacciones con el log lleno (abort tran on log full)": [
   "crates/drivers/odbc/src/properties.rs"
  ],
@@ -5520,7 +5664,9 @@
  "Cancelled": [
   "crates/drivers/clickhouse/src/jobs.rs",
   "crates/drivers/drill/src/processes.rs",
-  "crates/drivers/flightsql/src/lib.rs"
+  "crates/drivers/flightsql/src/lib.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs"
  ],
  "Cannot execute query on non idempotent": [
   "crates/drivers/orientdb/src/lib.rs"
@@ -5549,7 +5695,10 @@
   "crates/drivers/cosmosdb/src/monitor.rs",
   "crates/drivers/databricks/src/monitor.rs",
   "crates/drivers/dynamodb/src/monitor.rs",
-  "crates/drivers/postgres/src/monitor.rs"
+  "crates/drivers/postgres/src/monitor.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
+  "crates/drivers/powerbi/src/properties.rs",
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
  ],
  "Capacidad (RPU)": [
   "crates/drivers/postgres/src/monitor.rs"
@@ -5565,6 +5714,9 @@
  ],
  "Capacidad del índice {0}": [
   "crates/drivers/dynamodb/src/lib.rs"
+ ],
+ "Cardinality": [
+  "crates/drivers/powerbi/src/meta/stats.rs"
  ],
  "Carga": [
   "crates/drivers/odbc/src/monitor.rs",
@@ -6188,6 +6340,9 @@
  "ClickHouse: carga interrumpida con un envío sin respuesta; el servidor todavía puede guardarlo": [
   "crates/drivers/clickhouse/src/transfer.rs"
  ],
+ "Client ID de la aplicación": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Client secret": [
   "crates/drivers/databricks/src/lib.rs"
  ],
@@ -6200,6 +6355,9 @@
  ],
  "Cliente (obsoleto)": [
   "crates/drivers/databricks/src/scheduler/form.rs"
+ ],
+ "Cliente de Azure CLI": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Clientes bloqueados": [
   "crates/drivers/redis/src/monitor.rs"
@@ -6469,6 +6627,9 @@
   "crates/drivers/oracle/src/scheduler/chain.rs",
   "crates/drivers/oracle/src/scheduler/timing.rs"
  ],
+ "Colaborador": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
  "Colecciones": [
   "crates/dbine-driver/src/info.rs",
   "crates/drivers/couchbase/src/lib.rs",
@@ -6562,6 +6723,9 @@
  "Columnas NULL por defecto (allow nulls by default)": [
   "crates/drivers/odbc/src/properties.rs"
  ],
+ "Columnas calculadas en tablas de más de un millón de filas": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "Columnas coincidentes": [
   "crates/drivers/odbc/src/plan.rs"
  ],
@@ -6586,6 +6750,9 @@
  "Columnas de salida": [
   "crates/drivers/sqlserver/src/plan.rs"
  ],
+ "Columnas de texto largo o de muchos valores distintos (identificadores, fechas con hora) ocupan mucho. Si no se usan en informes, quitarlas del modelo, o separar fecha y hora, lo achica.": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "Columnas escritas": [
   "crates/drivers/spanner/src/monitor.rs"
  ],
@@ -6606,6 +6773,9 @@
  ],
  "Columnas que escribe": [
   "crates/drivers/ksqldb/src/scheduler.rs"
+ ],
+ "Columnas que ocupan más del 10 % de la memoria del modelo": [
+  "crates/drivers/powerbi/src/health.rs"
  ],
  "Columnas que reparten las filas entre particiones. No se cambia con ALTER.": [
   "crates/drivers/mysql/src/design.rs"
@@ -6856,6 +7026,9 @@
  "Compilado": [
   "crates/drivers/influxdb/src/monitor.rs"
  ],
+ "Completa": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Completado": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
@@ -6864,6 +7037,11 @@
  ],
  "Completando acciones": [
   "crates/drivers/sqlserver/src/jobs.rs"
+ ],
+ "Completed": [
+  "crates/drivers/powerbi/src/health.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs"
  ],
  "Completo": [
   "crates/drivers/clickhouse/src/backup.rs",
@@ -7045,6 +7223,9 @@
  "Con if_seq_no / if_primary_term de la respuesta del primer PUT (DBine los agrega al guardar).": [
   "crates/drivers/elasticsearch/src/scheduler/lifecycle.rs"
  ],
+ "Con la confirmación por lotes Power BI no admite la actualización incremental: se envía applyRefreshPolicy en false y las tablas con esa política se actualizan enteras.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Con la cuenta bloqueada nadie puede iniciar sesión como este usuario (las sesiones abiertas siguen); los objetos del esquema siguen accesibles para quienes tengan permisos sobre ellos.": [
   "crates/drivers/oracle/src/properties.rs"
  ],
@@ -7069,6 +7250,12 @@
  "Con logs archivados": [
   "crates/drivers/mysql/src/backup.rs"
  ],
+ "Con los permisos de esta conexión solo se leen tablas y columnas (COLUMNSTATISTICS): las medidas, relaciones, jerarquías, roles y definiciones necesitan executeDaxQueries (capacidad Premium o Fabric) o permiso de escritura en el modelo (API de definición de Fabric).": [
+  "crates/drivers/powerbi/src/meta/stats.rs"
+ ],
+ "Con los permisos de esta conexión solo se leen tablas y columnas: ni relaciones ni expresiones DAX, así que no se pueden buscar dependencias.": [
+  "crates/drivers/powerbi/src/dependencies.rs"
+ ],
  "Con más de un calendario, cada uno lleva su nombre.": [
   "crates/drivers/odbc/src/scheduler/sqla.rs"
  ],
@@ -7083,6 +7270,9 @@
  ],
  "Con parámetros del job, el workspace cambia al ejecutarlo solo los del job, no los de cada tarea: las tareas los reciben (las de parámetros clave-valor, solas; las demás, con {job.parameters.<nombre>}).": [
   "crates/drivers/databricks/src/scheduler/run.rs"
+ ],
+ "Con permiso de escritura en el modelo trae medidas, relaciones y jerarquías también en áreas de trabajo Pro. Pide el permiso SemanticModel.ReadWrite.All y solo lo usa para leer.": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Con plantilla ISM: se crea la política nueva sin la plantilla, se borra la vieja y después se le agrega la plantilla a la nueva (ISM no deja dos plantillas con los mismos patrones y la misma prioridad).": [
   "crates/drivers/elasticsearch/src/scheduler/lifecycle.rs"
@@ -7101,6 +7291,9 @@
  ],
  "Con un nivel más viejo la base no usa las mejoras del optimizador. Subirlo puede cambiar planes: probalo antes en otro ambiente.": [
   "crates/drivers/sqlserver/src/health.rs"
+ ],
+ "Con un token pegado no se usa la API de Fabric (definición, nombre y descripción del modelo).": [
+  "crates/drivers/powerbi/src/auth/service.rs"
  ],
  "Con un token, el encabezado Authorization de «{0}» sale del campo Token: sacalo de los encabezados.": [
   "crates/drivers/couchdb/src/replication/doc.rs"
@@ -7762,6 +7955,12 @@
  "Configuración del clúster": [
   "crates/drivers/postgres/src/scheduler/crdb.rs"
  ],
+ "Configurado por": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
+ "Confirmación": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Confirmar": [
   "src-tauri/src/commands/projects_git.rs"
  ],
@@ -7973,6 +8172,9 @@
  "Consulta programada «{0}» de Hive": [
   "crates/drivers/odbc/src/scheduler/hive.rs"
  ],
+ "Consultando como {0}: los resultados se filtran con su seguridad por filas.": [
+  "crates/drivers/powerbi/src/query/mod.rs"
+ ],
  "Consultas": [
   "crates/drivers/clickhouse/src/monitor.rs",
   "crates/drivers/couchbase/src/lib.rs",
@@ -7994,6 +8196,12 @@
  "Consultas (último minuto)": [
   "crates/drivers/postgres/src/monitor.rs",
   "crates/drivers/spanner/src/monitor.rs"
+ ],
+ "Consultas DAX de solo lectura. Cada consulta empieza con EVALUATE <expresión de tabla>\n(una tabla, SUMMARIZECOLUMNS, FILTER, TOPN…; un valor va entre llaves: EVALUATE {0}).\nDEFINE antes del primer EVALUATE declara MEASURE, VAR, TABLE, COLUMN o FUNCTION que valen\npara todos los EVALUATE que siguen. ORDER BY y START AT ordenan y paginan el resultado.\nComentarios: //, -- y /* */. Las tablas van entre comillas simples ('Ventas') y las columnas\ny medidas entre corchetes ('Ventas'[Importe], [Total ventas]).": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
+ "Consultas DAX que DBine mandó con esta cuenta en los últimos 60 segundos. Power BI admite 120 por minuto por usuario (40 con executeDaxQueries en Pro y Premium por usuario); cerca del máximo, las consultas esperan.": [
+  "crates/drivers/powerbi/src/monitor.rs"
  ],
  "Consultas Flux que el controlador de consultas está ejecutando ahora. Si se mantienen en el límite (query-concurrency), las siguientes esperan en cola.": [
   "crates/drivers/influxdb/src/monitor.rs"
@@ -8056,6 +8264,9 @@
  ],
  "Consultas continuas y pipes": [
   "crates/drivers/iotdb/src/scheduler/mod.rs"
+ ],
+ "Consultas de DBine en el último minuto": [
+  "crates/drivers/powerbi/src/monitor.rs"
  ],
  "Consultas de esta base que se están ejecutando ahora, sin la del monitor.": [
   "crates/drivers/spanner/src/monitor.rs"
@@ -8447,6 +8658,10 @@
  ],
  "Contraseña vence": [
   "crates/drivers/oracle/src/properties.rs"
+ ],
+ "Contributor": [
+  "crates/drivers/powerbi/src/admin/mod.rs",
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "Conversión implícita que afecta el plan: {0}": [
   "crates/drivers/sqlserver/src/plan.rs"
@@ -8966,6 +9181,7 @@
   "crates/drivers/postgres/src/jobs/cockroach.rs",
   "crates/drivers/postgres/src/jobs/pgagent.rs",
   "crates/drivers/postgres/src/scheduler/pgagent.rs",
+  "crates/drivers/powerbi/src/properties.rs",
   "crates/drivers/snowflake/src/scheduler/graph.rs",
   "crates/drivers/snowflake/src/security.rs",
   "crates/drivers/sqlserver/src/jobs.rs",
@@ -9038,6 +9254,9 @@
  ],
  "Credencial del correo": [
   "crates/drivers/oracle/src/scheduler/global.rs"
+ ],
+ "Credencial predeterminada (variables de entorno, identidad administrada, Azure CLI)": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Credenciales": [
   "crates/drivers/bigquery/src/scheduler.rs",
@@ -9185,6 +9404,9 @@
  "Cuenta de servicio del Agente SQL Server": [
   "crates/drivers/sqlserver/src/agent/choices.rs"
  ],
+ "Cuenta para el límite de 8 actualizaciones por día de la capacidad compartida.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Cuenta regresiva (apoc.periodic.countdown)": [
   "crates/drivers/neo4j/src/scheduler/mod.rs"
  ],
@@ -9196,6 +9418,9 @@
  ],
  "Cuenta regresiva: se repite cada {0} s (terminada)": [
   "crates/drivers/neo4j/src/scheduler/mod.rs"
+ ],
+ "Culture": [
+  "crates/drivers/powerbi/src/meta/info.rs"
  ],
  "Cuota (bytes)": [
   "crates/drivers/odbc/src/monitor.rs"
@@ -9280,6 +9505,9 @@
  ],
  "Cuántas sesiones estuvieron en promedio trabajando o esperando algo que no es el cliente durante el último minuto (DB time por segundo). Si supera la cantidad de CPU, hay sesiones esperando CPU, disco o bloqueos. En una PDB queda vacío: Oracle no informa V$SYSMETRIC ahí.": [
   "crates/drivers/oracle/src/monitor.rs"
+ ],
+ "Cuántas tablas o particiones se procesan a la vez.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Cuántas transacciones de carga pueden correr a la vez.": [
   "crates/drivers/mysql/src/properties.rs"
@@ -9405,6 +9633,9 @@
  "Código de error": [
   "crates/drivers/mysql/src/backup.rs",
   "crates/drivers/odbc/src/scheduler/dameng.rs"
+ ],
+ "Código de error de Power BI: {0}. Revisá las credenciales de los orígenes y el historial en Programadas › En los servidores.": [
+  "crates/drivers/powerbi/src/health.rs"
  ],
  "Código de error de la última": [
   "crates/drivers/odbc/src/scheduler/altibase.rs"
@@ -9589,6 +9820,9 @@
  "DBine no crea claves foráneas en DSQL: se omiten las de {0}.": [
   "crates/drivers/dsql/src/sync.rs"
  ],
+ "DBine no crea tablas en un modelo semántico de Power BI: es un destino de solo lectura (sus tablas se publican desde Power BI Desktop o Fabric).": [
+  "crates/dbine-schema/src/dialect/powerbi.rs"
+ ],
  "DBine no encuentra el schedule de la TTL de esta tabla (o tu usuario no puede ver los schedules).": [
   "crates/drivers/postgres/src/scheduler/crdb.rs"
  ],
@@ -9677,6 +9911,9 @@
  ],
  "DBine solo otorga permisos de Phoenix sobre un esquema": [
   "crates/drivers/phoenix/src/ddl.rs"
+ ],
+ "DBine solo permite lecturas por MCP: la consulta tiene un comando {0}": [
+  "src-tauri/src/mcp/tools.rs"
  ],
  "DBine solo permite lecturas por MCP: la consulta tiene una sentencia {0}": [
   "src-tauri/src/mcp/tools.rs"
@@ -9778,6 +10015,9 @@
  ],
  "Dashboards": [
   "crates/drivers/influxdb/src/monitor.rs"
+ ],
+ "Data": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
  ],
  "Data Guard": [
   "crates/drivers/oracle/src/monitor.rs"
@@ -10302,6 +10542,9 @@
  "De salida": [
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
  ],
+ "De {0} modelos no se pudo leer la programación (permisos, o modelos que no se actualizan).": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
+ ],
  "Deadlock": [
   "crates/drivers/odbc/src/scheduler/sqla.rs"
  ],
@@ -10359,13 +10602,20 @@
   "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
  ],
  "Decimal": [
-  "crates/dbine-schema/src/dialect/clickhouse.rs"
+  "crates/dbine-schema/src/dialect/clickhouse.rs",
+  "crates/dbine-schema/src/dialect/powerbi.rs",
+  "crates/drivers/powerbi/src/meta/mod.rs",
+  "crates/drivers/powerbi/src/query/arrow.rs",
+  "crates/drivers/powerbi/src/query/json.rs"
  ],
  "Decimal como scaled_float con factor 10^{0}: exacto hasta {1} decimales.": [
   "crates/dbine-schema/src/dialect/elasticsearch.rs"
  ],
  "Decimal de {0} dígitos como NUMBER (sin límite de precisión).": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
+ ],
+ "Decimal fijo de Power BI: cuatro decimales.": [
+  "crates/dbine-schema/src/dialect/powerbi.rs"
  ],
  "Decimal sin decimales ({0} dígitos) como LONG.": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
@@ -10414,6 +10664,9 @@
   "crates/drivers/clickhouse/src/scheduler/refresh.rs",
   "crates/drivers/mysql/src/scheduler/doris.rs",
   "crates/drivers/mysql/src/scheduler/events.rs"
+ ],
+ "Defragment": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Dejar de saltearlo (SKIP = FALSE)": [
   "crates/drivers/oracle/src/scheduler/action.rs"
@@ -10589,6 +10842,9 @@
  "Desactivarla deja de enviar los cambios a las réplicas.": [
   "crates/drivers/firebird/src/properties.rs"
  ],
+ "Desactivarla envía solo «enabled: false» (Power BI no acepta nada más junto con eso): los días y horarios quedan guardados como estaban.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Desalojos de caché": [
   "crates/drivers/elasticsearch/src/monitor.rs",
   "crates/drivers/solr/src/monitor.rs"
@@ -10652,6 +10908,8 @@
   "crates/drivers/oracle/src/scheduler/watcher.rs",
   "crates/drivers/oracle/src/scheduler/window.rs",
   "crates/drivers/orientdb/src/plan.rs",
+  "crates/drivers/powerbi/src/properties.rs",
+  "crates/drivers/powerbi/src/security.rs",
   "crates/drivers/sqlserver/src/agent/job.rs",
   "crates/drivers/sqlserver/src/agent/proxy.rs",
   "crates/drivers/sqlserver/src/backup.rs"
@@ -10672,6 +10930,7 @@
   "crates/drivers/mysql/src/functions.rs",
   "crates/drivers/odbc/src/jobs/iris.rs",
   "crates/drivers/odbc/src/scheduler/iris.rs",
+  "crates/drivers/powerbi/src/meta/info.rs",
   "crates/drivers/trino/src/functions.rs"
  ],
  "Descriptores abiertos": [
@@ -10778,6 +11037,9 @@
  "Desfase del paso": [
   "crates/drivers/tdengine/src/scheduler/mod.rs",
   "crates/drivers/tdengine/src/scheduler/stream.rs"
+ ],
+ "Desfragmentar": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Deshabilita": [
   "crates/drivers/influxdb/src/scheduler/trigger.rs"
@@ -11153,6 +11415,9 @@
  "Dirección de envío de red": [
   "crates/drivers/sqlserver/src/agent/operator.rs"
  ],
+ "Dirección web": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
  "Directorio": [
   "crates/drivers/couchbase/src/backup/repo.rs",
   "crates/drivers/oracle/src/scheduler/watcher.rs"
@@ -11177,7 +11442,9 @@
   "crates/drivers/odbc/src/tls.rs"
  ],
  "Disabled": [
-  "crates/drivers/clickhouse/src/jobs.rs"
+  "crates/drivers/clickhouse/src/jobs.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs"
  ],
  "Disco": [
   "crates/drivers/clickhouse/src/backup.rs",
@@ -11573,7 +11840,10 @@
   "crates/drivers/postgres/src/health.rs"
  ],
  "Double": [
-  "crates/drivers/mongodb/src/shell.rs"
+  "crates/dbine-schema/src/dialect/powerbi.rs",
+  "crates/drivers/mongodb/src/shell.rs",
+  "crates/drivers/powerbi/src/meta/mod.rs",
+  "crates/drivers/powerbi/src/query/arrow.rs"
  ],
  "Dragonfly": [
   "crates/drivers/redis/src/lib.rs",
@@ -11858,6 +12128,7 @@
   "crates/drivers/odbc/src/scheduler/informix.rs",
   "crates/drivers/oracle/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
   "crates/drivers/snowflake/src/monitor.rs",
   "crates/drivers/sqlserver/src/babelfish.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
@@ -12010,6 +12281,8 @@
   "crates/drivers/odbc/src/scheduler/hive.rs",
   "crates/drivers/odbc/src/scheduler/informix.rs",
   "crates/drivers/odbc/src/scheduler/iris.rs",
+  "crates/drivers/powerbi/src/refresh/jobs.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "crates/drivers/sqlserver/src/agent/schedule.rs"
  ],
  "Días de Time Travel (DATA_RETENTION_TIME_IN_DAYS)": [
@@ -12065,6 +12338,9 @@
  ],
  "Días relativos del mes": [
   "crates/drivers/odbc/src/jobs/db2i.rs"
+ ],
+ "Días y horarios": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Días y horas (DAY_HOUR)": [
   "crates/drivers/mysql/src/scheduler/events.rs"
@@ -12376,6 +12652,9 @@
  "El CREATE TABLE de la tabla de resultados; el planificador lo corre si la tabla no existe.": [
   "crates/drivers/odbc/src/scheduler/informix.rs"
  ],
+ "El Client ID de la entidad de servicio, o el de una identidad administrada asignada por el usuario (vacío: la del sistema).": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "El Cloud ID no es válido.": [
   "crates/drivers/elasticsearch/src/lib.rs"
  ],
@@ -12483,6 +12762,9 @@
  ],
  "El _id del documento en _replicator; vacío: lo elige CouchDB. No se puede cambiar después.": [
   "crates/drivers/couchdb/src/replication/doc.rs"
+ ],
+ "El acceso condicional de tu organización bloqueó el inicio de sesión (AADSTS53003). Pedile a un administrador que permita esta aplicación para Power BI.": [
+  "crates/drivers/powerbi/src/auth/browser.rs"
  ],
  "El agente del Scheduler (destino externo) que se conecta a la base remota.": [
   "crates/drivers/oracle/src/scheduler/destination.rs"
@@ -12680,6 +12962,9 @@
  ],
  "El cierre de la ventana": [
   "crates/drivers/oracle/src/scheduler/program.rs"
+ ],
+ "El cliente de Azure CLI no tiene permiso para Power BI en este inquilino ({0}). Pedile a un administrador que apruebe la aplicación de DBine y elegí «DBine» en Opciones avanzadas.": [
+  "crates/drivers/powerbi/src/auth/browser.rs"
  ],
  "El cliente de Oracle no pudo leer la respuesta ({0}). Si el resultado tiene TIMESTAMP WITH TIME ZONE con región, convertilo con TO_CHAR(…, 'YYYY-MM-DD HH24:MI:SS.FF TZR').": [
   "crates/drivers/oracle/src/lib.rs"
@@ -13021,6 +13306,9 @@
  "El filtro de la lectura no puede escribir (`{0}`).": [
   "crates/drivers/neo4j/src/transfer.rs"
  ],
+ "El filtro en ambas direcciones puede dar resultados ambiguos y hace más lentas las consultas. Preferí una dirección y CROSSFILTER en las medidas que lo necesiten.": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "El filtro está escrito en el SQL del origen": [
   "crates/dbine-schema/src/convert.rs"
  ],
@@ -13074,6 +13362,9 @@
  ],
  "El grupo «{0}» tiene tareas ({1}): pasalas a otro grupo antes de borrarlo.": [
   "crates/drivers/odbc/src/scheduler/informix.rs"
+ ],
+ "El historial de actualizaciones necesita permiso de escritura en el modelo.": [
+  "crates/drivers/powerbi/src/monitor.rs"
  ],
  "El historial de consultas todavía no tiene las métricas de: {0} (se muestra el plan estimado)": [
   "crates/drivers/databricks/src/lib.rs"
@@ -13255,8 +13546,32 @@
  "El mismo día, «Hasta la hora» no puede ser anterior a «Desde la hora».": [
   "crates/drivers/odbc/src/scheduler/ase.rs"
  ],
+ "El modelo está cerca del límite de memoria de la capacidad": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
+ "El modelo exige una identidad efectiva (seguridad por filas): quien no esté en ningún rol no ve datos. Agregá los miembros en Power BI (Seguridad del modelo).": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "El modelo integrado": [
   "crates/dbine-ai/src/embedded.rs"
+ ],
+ "El modelo no tiene roles de seguridad por filas: «Probar como usuario» no filtra nada y los totales son los de todo el modelo.": [
+  "crates/drivers/powerbi/src/query/mod.rs"
+ ],
+ "El modelo que se abre al conectar: su nombre, o su ID para un modelo compartido con vos sin acceso a su área de trabajo.": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
+ "El modelo se actualiza solo cuando alguien lo pide. Si es intencional, no hay nada que hacer.": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
+ "El modelo tiene la etiqueta de confidencialidad «{0}».": [
+  "crates/drivers/powerbi/src/query/mod.rs"
+ ],
+ "El modelo tiene tablas de fecha automáticas": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
+ "El modelo ya se llama «{0}»: no se envió nada.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
  ],
  "El modo SQL con el que corre la instrucción: el evento lo guarda al crearse o al cambiar la instrucción.": [
   "crates/drivers/mysql/src/scheduler/events.rs"
@@ -13463,6 +13778,9 @@
  ],
  "El paquete de CA de Amazon RDS/DocumentDB (global-bundle.pem), descargable desde la documentación de AWS.": [
   "crates/drivers/mongodb/src/lib.rs"
+ ],
+ "El paralelismo máximo": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "El parámetro {0} es BOOLEAN: tiene que ser TRUE o FALSE.": [
   "crates/drivers/hana/src/scheduler/mod.rs"
@@ -14085,6 +14403,12 @@
  "El tiempo de CPU de las sentencias se muestra como parte de los núcleos del servidor, y MySQL solo informa cuántos son con el contador cpu_n de InnoDB: en Aurora o Cloud SQL, agregá cpu_n a innodb_monitor_enable en el grupo de parámetros (o en las marcas de la instancia).": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
+ "El tiempo máximo de consulta va de 1 a 3600 segundos.": [
+  "crates/drivers/powerbi/src/config.rs"
+ ],
+ "El tiempo máximo va de 1 segundo a 24 horas.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "El tipo JSON necesita ClickHouse 24.8 o posterior.": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
  ],
@@ -14105,6 +14429,15 @@
  ],
  "El token de «{0}» no puede tener saltos de línea.": [
   "crates/drivers/couchdb/src/replication/doc.rs"
+ ],
+ "El token pegado no es para Power BI: su audiencia es «{0}» y tiene que ser {1}.": [
+  "crates/drivers/powerbi/src/auth/service.rs"
+ ],
+ "El token pegado venció o no es para Power BI: pegá uno nuevo.": [
+  "crates/drivers/powerbi/src/auth/mod.rs"
+ ],
+ "El token pegado venció: pegá uno nuevo.": [
+  "crates/drivers/powerbi/src/auth/service.rs"
  ],
  "El topic {0} queda con lo que tenía; la consulta nueva escribe en {1}.": [
   "crates/drivers/ksqldb/src/scheduler.rs"
@@ -14407,6 +14740,9 @@
  "Elegí al menos un día de la semana.": [
   "crates/drivers/odbc/src/scheduler/ase.rs"
  ],
+ "Elegí al menos un día.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Elegí al menos un permiso.": [
   "crates/drivers/etcd/src/security.rs",
   "crates/drivers/redis/src/security.rs"
@@ -14508,6 +14844,13 @@
  "Elegí un keyspace para ver sus consultas.": [
   "crates/drivers/cassandra/src/profiler.rs"
  ],
+ "Elegí un modelo semántico en la conexión para ver su memoria y sus actualizaciones.": [
+  "crates/drivers/powerbi/src/monitor.rs"
+ ],
+ "Elegí un modelo semántico: esta sesión no tiene uno abierto.": [
+  "crates/drivers/powerbi/src/catalog.rs",
+  "crates/drivers/powerbi/src/meta/service.rs"
+ ],
  "Elegí una base de datos para ver sus objetos.": [
   "crates/drivers/tdengine/src/lib.rs"
  ],
@@ -14541,6 +14884,9 @@
  "Email": [
   "crates/drivers/dremio/src/security.rs",
   "crates/drivers/snowflake/src/security.rs"
+ ],
+ "Embedded {0}": [
+  "crates/drivers/powerbi/src/catalog.rs"
  ],
  "Emma": [
   "src-tauri/src/commands/datagen.rs"
@@ -14596,6 +14942,15 @@
  ],
  "En Memgraph, {0} lleva una sola propiedad.": [
   "crates/drivers/neo4j/src/ddl.rs"
+ ],
+ "En Power BI el modelo se va a llamar «{0}».": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "En Power BI el modelo se va a llamar «{0}»: el área de trabajo y el sufijo [id] que DBine agrega en la lista no son parte del nombre.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "En Power BI los permisos son del modelo entero.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
  ],
  "En RAC, el servicio (y con él las instancias) donde se ejecutan sus jobs.": [
   "crates/drivers/oracle/src/scheduler/class.rs"
@@ -14660,6 +15015,15 @@
  "En bytes: un archivo más chico no se toma en cuenta.": [
   "crates/drivers/oracle/src/scheduler/watcher.rs"
  ],
+ "En capacidad compartida el modelo se actualiza como máximo 8 veces por día, contando las programadas.": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
+ ],
+ "En capacidad compartida las actualizaciones, programadas o no, son como máximo 8 por día.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "En capacidad compartida se pide una actualización estándar: cuenta para el límite de 8 por día y no se puede cancelar.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "En cola": [
   "crates/drivers/snowflake/src/monitor.rs"
  ],
@@ -14709,6 +15073,9 @@
  ],
  "En el servidor. Con carpeta, el nombre es el del archivo (se le agrega .fdb si no tiene extensión). Vacía: el nombre es la ruta completa o un alias de databases.conf.": [
   "crates/drivers/firebird/src/create_db.rs"
+ ],
+ "En esta nube hace falta una aplicación propia registrada en ella (Opciones avanzadas: Aplicación para iniciar sesión).": [
+  "crates/drivers/powerbi/src/config.rs"
  ],
  "En esta versión de ClickHouse las vistas refrescables son experimentales: DBine las crea y las cambia con allow_experimental_refreshable_materialized_view = 1.": [
   "crates/drivers/clickhouse/src/scheduler/mod.rs"
@@ -15032,6 +15399,9 @@
  "Entero de 8 bytes sin signo como decimal(20, 0).": [
   "crates/dbine-schema/src/dialect/mssql.rs"
  ],
+ "Entero de más de 64 bits como Double: los valores grandes se redondean.": [
+  "crates/dbine-schema/src/dialect/powerbi.rs"
+ ],
  "Entero de más de 8 bytes como decimal (Decimal128).": [
   "crates/dbine-schema/src/dialect/mongodb.rs"
  ],
@@ -15044,6 +15414,12 @@
  "Entero sin signo grande como double: pierde precisión pasados los 15 dígitos.": [
   "crates/dbine-schema/src/dialect/elasticsearch.rs",
   "crates/dbine-schema/src/dialect/kdb.rs"
+ ],
+ "Entidad de servicio": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
+ "Entidad de servicio (Client ID y secreto)": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Entidad de servicio: el ID de la aplicación registrada. Identidad administrada (también en la predeterminada): el client ID de una identidad asignada por el usuario; vacío, la del sistema. En los demás casos, opcional.": [
   "crates/drivers/sqlserver/src/variant.rs"
@@ -15178,6 +15554,7 @@
   "crates/drivers/postgres/src/jobs/cockroach.rs",
   "crates/drivers/postgres/src/monitor.rs",
   "crates/drivers/postgres/src/scheduler/crdb.rs",
+  "crates/drivers/powerbi/src/health.rs",
   "crates/drivers/solr/src/backup.rs",
   "crates/drivers/sqlserver/src/agent/logs.rs",
   "crates/drivers/trino/src/monitor.rs",
@@ -15279,6 +15656,9 @@
  ],
  "Es un scheduler job de SAP HANA (esquema o usuario del sistema): no se cambia desde DBine.": [
   "crates/drivers/hana/src/scheduler/mod.rs"
+ ],
+ "Es una actualización mejorada: se puede cancelar mientras corre.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Es una categoría del sistema: no se puede cambiar ni borrar.": [
   "crates/drivers/sqlserver/src/agent/category.rs"
@@ -15492,8 +15872,18 @@
  "Ese día el job no se ejecuta (a ninguna hora si no hay hora).": [
   "crates/drivers/postgres/src/scheduler/pgagent.rs"
  ],
+ "Ese modelo no está en la lista de esta conexión.": [
+  "crates/drivers/powerbi/src/refresh/mod.rs"
+ ],
+ "Ese modelo no tiene una programación de caché de DirectQuery.": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
+ ],
  "Ese método de Microsoft Entra ID no está en DBine: elegí otro al conectar.": [
   "crates/dbine-core/src/conn_import/mod.rs"
+ ],
+ "Ese trabajo es de otro tipo de programación.": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Espacio": [
   "crates/drivers/clickhouse/src/health.rs",
@@ -15835,6 +16225,9 @@
  "Esperando a": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
+ "Esperando el límite de consultas de Power BI ({0} por minuto)…": [
+  "crates/drivers/powerbi/src/query/mod.rs"
+ ],
  "Esperando para reintentar": [
   "crates/drivers/sqlserver/src/jobs.rs"
  ],
@@ -16053,6 +16446,7 @@
  ],
  "Esta respuesta no corresponde al inicio de sesión de DBine.": [
   "crates/drivers/databricks/src/u2m.rs",
+  "crates/drivers/powerbi/src/auth/browser.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Esta sesión": [
@@ -16215,6 +16609,7 @@
   "crates/drivers/postgres/src/monitor.rs",
   "crates/drivers/postgres/src/scheduler/crdb.rs",
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
   "crates/drivers/snowflake/src/monitor.rs",
   "crates/drivers/snowflake/src/scheduler/logs.rs",
   "crates/drivers/spanner/src/properties.rs",
@@ -16337,6 +16732,9 @@
  ],
  "Estadísticas en tiempo real": [
   "crates/drivers/odbc/src/monitor.rs"
+ ],
+ "Estas medidas no se pueden calcular (una columna o medida que usan cambió o se borró): los informes que las usan muestran error.": [
+  "crates/drivers/powerbi/src/health.rs"
  ],
  "Estas tablas tienen autovacuum_enabled = off: nadie limpia sus filas muertas ni actualiza sus estadísticas, salvo un VACUUM manual.": [
   "crates/drivers/postgres/src/health.rs"
@@ -16713,6 +17111,9 @@
   "crates/drivers/neo4j/src/ddl.rs",
   "crates/drivers/odbc/src/monitor.rs"
  ],
+ "Etiqueta de confidencialidad": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
  "Etiqueta o tipo de relación": [
   "crates/drivers/neo4j/src/ddl.rs"
  ],
@@ -16895,6 +17296,9 @@
  "Expires": [
   "crates/drivers/odbc/src/scheduler/iris.rs"
  ],
+ "Explore": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
  "Exportación Data Pump": [
   "crates/drivers/oracle/src/backup.rs"
  ],
@@ -16903,6 +17307,7 @@
   "src-tauri/src/tasks/steps.rs"
  ],
  "Expresiones": [
+  "crates/drivers/powerbi/src/lib.rs",
   "crates/drivers/snowflake/src/plan.rs"
  ],
  "Expresiones cron": [
@@ -16911,6 +17316,9 @@
  "Expresión": [
   "crates/drivers/influxdb/src/plan.rs",
   "crates/drivers/oracle/src/scheduler/timing.rs"
+ ],
+ "Expresión M": [
+  "crates/drivers/powerbi/src/objects.rs"
  ],
  "Expresión cron": [
   "crates/drivers/clickhouse/src/scheduler/task.rs",
@@ -16948,7 +17356,11 @@
  ],
  "Expression": [
   "crates/drivers/mysql/src/index_usage.rs",
+  "crates/drivers/powerbi/src/meta/info.rs",
   "crates/drivers/sqlserver/src/plan.rs"
+ ],
+ "Extension": [
+  "crates/drivers/powerbi/src/properties.rs"
  ],
  "Extensiones": [
   "crates/drivers/postgres/src/monitor.rs"
@@ -16984,6 +17396,12 @@
  "FLASHBACK_TIME = SYSTIMESTAMP: todas las tablas como estaban al empezar.": [
   "crates/drivers/oracle/src/backup.rs"
  ],
+ "Fabric (prueba)": [
+  "crates/drivers/powerbi/src/catalog.rs"
+ ],
+ "Fabric no aceptó el cambio del modelo": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "Fabric no borra usuarios con T-SQL: el acceso se quita en los roles del área de trabajo o los permisos del almacén; acá se le pueden revocar los permisos": [
   "crates/drivers/sqlserver/src/security.rs"
  ],
@@ -16998,6 +17416,13 @@
  ],
  "Fabric renombra tablas y columnas con sp_rename. El código que las nombra se repone con CREATE OR ALTER. El script no corre en una transacción: si una sentencia falla, lo anterior queda hecho.": [
   "crates/drivers/sqlserver/src/rename.rs"
+ ],
+ "Fabric respondió con una dirección de seguimiento inesperada": [
+  "crates/drivers/powerbi/src/http.rs"
+ ],
+ "Fabric {0}": [
+  "crates/drivers/powerbi/src/catalog.rs",
+  "crates/drivers/powerbi/src/monitor.rs"
  ],
  "Factor de escala": [
   "crates/drivers/elasticsearch/src/ddl.rs"
@@ -17017,7 +17442,11 @@
   "crates/drivers/bigquery/src/health.rs"
  ],
  "Failed": [
-  "crates/drivers/postgres/src/jobs/timescale.rs"
+  "crates/drivers/postgres/src/jobs/timescale.rs",
+  "crates/drivers/powerbi/src/definition/mod.rs",
+  "crates/drivers/powerbi/src/health.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs"
  ],
  "Falla de una región (REGION)": [
   "crates/drivers/postgres/src/create_db.rs",
@@ -17127,6 +17556,9 @@
  "Falta \"{0}\" en {1}": [
   "crates/drivers/dynamodb/src/admin.rs"
  ],
+ "Falta EVALUATE después de DEFINE": [
+  "crates/drivers/powerbi/src/dax/split.rs"
+ ],
  "Falta cada cuánto se dispara el trigger.": [
   "crates/drivers/influxdb/src/scheduler/trigger.rs"
  ],
@@ -17140,6 +17572,12 @@
   "crates/drivers/cosmosdb/src/ddl.rs",
   "crates/drivers/dynamodb/src/admin.rs"
  ],
+ "Falta cerrar un comentario /* */.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "Falta cerrar una cadena entre comillas (y no puede tener saltos de línea).": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "Falta cerrar {0} en: {1}": [
   "crates/drivers/spanner/src/backup.rs"
  ],
@@ -17148,6 +17586,9 @@
  ],
  "Falta el ARN del backup.": [
   "crates/drivers/dynamodb/src/backup.rs"
+ ],
+ "Falta el Client ID de la aplicación propia (Opciones avanzadas).": [
+  "crates/drivers/powerbi/src/config.rs"
  ],
  "Falta el ID de acceso al servicio de claves.": [
   "crates/drivers/couchbase/src/backup/repo.rs"
@@ -17188,6 +17629,9 @@
  ],
  "Falta el id del transform.": [
   "crates/drivers/elasticsearch/src/scheduler/es_transform.rs"
+ ],
+ "Falta el inquilino (tenant): la entidad de servicio lo necesita.": [
+  "crates/drivers/powerbi/src/config.rs"
  ],
  "Falta el intervalo del disparador.": [
   "crates/drivers/elasticsearch/src/scheduler/watch.rs"
@@ -17238,6 +17682,9 @@
  "Falta el nombre del índice.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
  ],
+ "Falta el nombre nuevo del modelo.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "Falta el plugin que ejecuta el trigger.": [
   "crates/drivers/influxdb/src/scheduler/trigger.rs"
  ],
@@ -17268,6 +17715,10 @@
  ],
  "Falta el tipo del campo «{0}».": [
   "crates/drivers/solr/src/ddl.rs"
+ ],
+ "Falta el token de acceso.": [
+  "crates/drivers/powerbi/src/auth/service.rs",
+  "crates/drivers/powerbi/src/config.rs"
  ],
  "Falta el token de «{0}».": [
   "crates/drivers/couchdb/src/replication/doc.rs"
@@ -17413,7 +17864,8 @@
  "Falta {0}.": [
   "crates/drivers/mysql/src/backup.rs",
   "crates/drivers/odbc/src/scheduler/dameng.rs",
-  "crates/drivers/odbc/src/scheduler/sqla.rs"
+  "crates/drivers/odbc/src/scheduler/sqla.rs",
+  "crates/drivers/powerbi/src/admin/mod.rs"
  ],
  "Falta «Acción».": [
   "crates/drivers/odbc/src/scheduler/dameng_dbms.rs"
@@ -17463,6 +17915,9 @@
  ],
  "Falta «Unidades»: cuántas tiene el recurso.": [
   "crates/drivers/oracle/src/scheduler/resource.rs"
+ ],
+ "Faltan el Client ID o el secreto de la entidad de servicio.": [
+  "crates/drivers/powerbi/src/config.rs"
  ],
  "Faltan estadísticas": [
   "crates/drivers/odbc/src/plan.rs"
@@ -17576,6 +18031,9 @@
  "Fecha del último error": [
   "crates/drivers/ksqldb/src/jobs.rs"
  ],
+ "Fecha efectiva": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Fecha omitida": [
   "crates/drivers/odbc/src/scheduler/db2i.rs"
  ],
@@ -17663,6 +18121,7 @@
   "crates/drivers/hana/src/monitor.rs",
   "crates/drivers/odbc/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
   "crates/drivers/snowflake/src/monitor.rs",
   "crates/drivers/snowflake/src/properties.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
@@ -17884,11 +18343,17 @@
   "crates/drivers/dynamodb/src/plan.rs",
   "crates/drivers/oracle/src/scheduler/job.rs"
  ],
+ "Filtro de filas: {0}": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
  "Filtro del profiler (filter)": [
   "crates/drivers/mongodb/src/properties.rs"
  ],
  "Filtro previo (PRE_FILTER)": [
   "crates/drivers/tdengine/src/scheduler/mod.rs"
+ ],
+ "Filtros": [
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "Fin": [
   "crates/drivers/athena/src/monitor.rs",
@@ -17935,6 +18400,9 @@
  "Finalize": [
   "crates/drivers/dsql/src/plan.rs",
   "crates/drivers/postgres/src/plan.rs"
+ ],
+ "Finanzas": [
+  "crates/drivers/powerbi/src/meta/fake.rs"
  ],
  "Finished": [
   "crates/drivers/clickhouse/src/jobs.rs",
@@ -18075,6 +18543,9 @@
  "Formato de Quartz: segundo, minuto, hora, día del mes, mes, día de la semana y año (opcional).": [
   "crates/drivers/odbc/src/scheduler/hive.rs"
  ],
+ "Formato de almacenamiento": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
  "Formato de almacenamiento (store)": [
   "crates/drivers/neo4j/src/properties.rs"
  ],
@@ -18175,7 +18646,9 @@
   "crates/drivers/odbc/src/scheduler/iris.rs",
   "crates/drivers/oracle/src/scheduler/timing.rs",
   "crates/drivers/postgres/src/scheduler/crdb.rs",
-  "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
+  "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs",
+  "crates/drivers/powerbi/src/refresh/jobs.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Frecuencia de checkpoint (barreras)": [
   "crates/drivers/postgres/src/create_db.rs",
@@ -18194,6 +18667,8 @@
   "crates/drivers/odbc/src/jobs/sqla.rs",
   "crates/drivers/odbc/src/scheduler/ase.rs",
   "crates/drivers/odbc/src/scheduler/sqla.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "src-tauri/src/tasks/os.rs"
  ],
  "Frontend líder": [
@@ -18223,6 +18698,9 @@
  "Fuera de línea (offline)": [
   "crates/drivers/odbc/src/properties.rs"
  ],
+ "Full": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Full index scan": [
   "crates/drivers/mysql/src/plan.rs"
  ],
@@ -18239,7 +18717,8 @@
   "crates/drivers/couchdb/src/monitor.rs",
   "crates/drivers/dremio/src/scheduler/reflection.rs",
   "crates/drivers/hana/src/properties.rs",
-  "crates/drivers/kdb/src/lib.rs"
+  "crates/drivers/kdb/src/lib.rs",
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Funciones de usuario (Query)": [
   "crates/drivers/couchbase/src/backup/plan.rs"
@@ -18269,6 +18748,9 @@
  ],
  "Físico (PHYSICAL)": [
   "crates/drivers/bigquery/src/properties.rs"
+ ],
+ "GCC High, DoD y China necesitan una aplicación propia registrada en esa nube (Aplicación para iniciar sesión: Propia).": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "GET /metrics: Σ object_store_transfer_bytes_total{0} with result=\"success\" or no result label": [
   "crates/drivers/influxdb/src/monitor.rs"
@@ -18351,6 +18833,7 @@
   "crates/drivers/postgres/src/scheduler/mod.rs",
   "crates/drivers/postgres/src/scheduler/pgagent.rs",
   "crates/drivers/postgres/src/scheduler/timescale.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "crates/drivers/snowflake/src/scheduler/alert.rs",
   "crates/drivers/snowflake/src/scheduler/graph.rs",
   "crates/drivers/snowflake/src/scheduler/task.rs",
@@ -18414,6 +18897,15 @@
  ],
  "Globex": [
   "src-tauri/src/commands/datagen.rs"
+ ],
+ "Gobierno de EE. UU. (DoD)": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
+ "Gobierno de EE. UU. (GCC High)": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
+ "Gobierno de EE. UU. (GCC)": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "González": [
   "src-tauri/src/commands/datagen.rs"
@@ -18564,11 +19056,16 @@
  "GreptimeDB solo tiene índices INVERTED, FULLTEXT y SKIPPING (índice «{0}»)": [
   "crates/drivers/mysql/src/design.rs"
  ],
+ "Group": [
+  "crates/drivers/powerbi/src/admin/mod.rs",
+  "crates/drivers/powerbi/src/security.rs"
+ ],
  "Grupo": [
   "crates/drivers/databricks/src/scheduler/form.rs",
   "crates/drivers/odbc/src/scheduler/informix.rs",
   "crates/drivers/odbc/src/security/sqlstd.rs",
   "crates/drivers/postgres/src/security.rs",
+  "crates/drivers/powerbi/src/security.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
  "Grupo RAFT": [
@@ -18623,6 +19120,9 @@
   "crates/drivers/databricks/src/security.rs",
   "crates/drivers/elasticsearch/src/scheduler/os_transform.rs",
   "crates/drivers/odbc/src/scheduler/informix.rs"
+ ],
+ "Grupos de cálculo": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Grupos de destinos": [
   "crates/drivers/oracle/src/scheduler/mod.rs"
@@ -19051,6 +19551,12 @@
  "Hay una transacción abierta: confirmala (:commit) o deshacela (:rollback) antes de cambiar de base.": [
   "crates/drivers/neo4j/src/lib.rs"
  ],
+ "Hay varios modelos «{0}»: elegí uno de la lista ({1}).": [
+  "crates/drivers/powerbi/src/catalog.rs"
+ ],
+ "Hay {0}: Power BI Desktop crea una tabla de fechas oculta por cada columna de fecha, y agrandan el modelo. Desactivá «Fecha y hora automáticas» en Archivo › Opciones › Carga de datos de Power BI Desktop y usá una tabla de fechas propia.": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "Heap (bytes)": [
   "crates/drivers/hana/src/monitor.rs"
  ],
@@ -19291,6 +19797,9 @@
  "Hora (HOUR)": [
   "crates/drivers/dremio/src/scheduler/reflection.rs"
  ],
+ "Hora como fecha y hora (el día queda en 1899-12-30).": [
+  "crates/dbine-schema/src/dialect/powerbi.rs"
+ ],
  "Hora de fin": [
   "crates/drivers/odbc/src/scheduler/iris.rs",
   "crates/drivers/odbc/src/scheduler/sqla.rs"
@@ -19317,6 +19826,13 @@
  "Horario fijo": [
   "crates/drivers/postgres/src/jobs/timescale.rs",
   "crates/drivers/postgres/src/scheduler/timescale.rs"
+ ],
+ "Horarios": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Horarios por día": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
  ],
  "Horas": [
   "crates/drivers/couchbase/src/backup/plan.rs",
@@ -19458,6 +19974,9 @@
  "ID del clúster": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
+ "ID del modelo": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
  "ID del proyecto": [
   "crates/drivers/bigquery/src/gcp.rs"
  ],
@@ -19474,6 +19993,7 @@
   "crates/drivers/odbc/src/properties.rs"
  ],
  "IDENTITY_ENDPOINT no es una dirección válida": [
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "IN en la clave de partición: una consulta por valor": [
@@ -19484,6 +20004,9 @@
  ],
  "INACTIVE (transacción abierta)": [
   "crates/drivers/oracle/src/processes.rs"
+ ],
+ "INFO.VIEW devolvió menos resultados de los pedidos": [
+  "crates/drivers/powerbi/src/meta/info.rs"
  ],
  "INIT (FORMAT en una URL). Si no, el backup se agrega al archivo (NOINIT).": [
   "crates/drivers/sqlserver/src/backup.rs"
@@ -19608,6 +20131,9 @@
   "crates/drivers/bigquery/src/security.rs",
   "crates/drivers/databricks/src/ddl.rs"
  ],
+ "Identidad administrada de Azure": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Identidad con secuencia bit-reversed: los valores son únicos pero no consecutivos.": [
   "crates/dbine-schema/src/dialect/spanner.rs"
  ],
@@ -19619,6 +20145,10 @@
  ],
  "Identificador de la cuenta (org-cuenta o localizador.región), o la URL completa.": [
   "crates/drivers/snowflake/src/lib.rs"
+ ],
+ "Identificador de modelo no válido.": [
+  "crates/drivers/powerbi/src/admin/mod.rs",
+  "crates/drivers/powerbi/src/definition/mod.rs"
  ],
  "Identificadores": [
   "crates/drivers/neo4j/src/plan.rs"
@@ -19883,6 +20413,9 @@
  "Indexes": [
   "crates/drivers/clickhouse/src/plan.rs"
  ],
+ "Indicá al menos un horario.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Indicá al menos una tabla.": [
   "crates/drivers/cassandra/src/backup.rs"
  ],
@@ -20134,6 +20667,9 @@
  "Iniciar desde…": [
   "crates/drivers/elasticsearch/src/scheduler/mod.rs"
  ],
+ "Iniciaste sesión con otra cuenta que la del campo Usuario de la conexión: volvé a intentar e iniciá sesión con esa cuenta, o cambiá el usuario.": [
+  "crates/drivers/powerbi/src/auth/mod.rs"
+ ],
  "Inicio": [
   "crates/drivers/databricks/src/monitor.rs",
   "crates/drivers/elasticsearch/src/scheduler/es_transform.rs",
@@ -20158,6 +20694,7 @@
   "crates/drivers/postgres/src/monitor.rs",
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs",
   "crates/drivers/postgres/src/scheduler/pgagent.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
   "crates/drivers/snowflake/src/monitor.rs",
   "crates/drivers/spanner/src/monitor.rs"
  ],
@@ -20196,6 +20733,9 @@
  ],
  "Inmutable": [
   "crates/drivers/neo4j/src/security.rs"
+ ],
+ "Inquilino (tenant)": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Inquilino de Entra ID (tenant)": [
   "crates/drivers/postgres/src/cloud_auth.rs"
@@ -20440,6 +20980,9 @@
  "Intervalo mínimo entre disparos en s (USER_TASK_MINIMUM_TRIGGER_INTERVAL_IN_SECONDS)": [
   "crates/drivers/snowflake/src/properties.rs"
  ],
+ "Invalid": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "Invalida la caché de últimos valores de todos los vnodes: las consultas la recargan desde disco.": [
   "crates/drivers/tdengine/src/properties.rs"
  ],
@@ -20608,6 +21151,9 @@
  "Java": [
   "crates/drivers/cassandra/src/monitor.rs",
   "crates/drivers/orientdb/src/monitor.rs"
+ ],
+ "Jerarquías": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Job": [
   "crates/drivers/databricks/src/jobs.rs",
@@ -20932,8 +21478,57 @@
  "LOCAL es esta base (o este host).": [
   "crates/drivers/oracle/src/scheduler/destination.rs"
  ],
+ "La API Arrow (executeDaxQueries) no está disponible para este modelo: activá «Allow XMLA endpoints and Analyze in Excel with on-premises semantic models» en el portal de administración, o las consultas siguen por executeQueries, con sus límites (100.000 filas por consulta).": [
+  "crates/drivers/powerbi/src/query/mod.rs"
+ ],
+ "La API REST de Power BI no informa CPU, sesiones ni consultas en curso: la app Fabric Capacity Metrics los muestra.": [
+  "crates/drivers/powerbi/src/monitor.rs"
+ ],
  "La API SQL de Snowflake no acepta contraseña: usá un PAT o un par de claves.": [
   "crates/drivers/snowflake/src/lib.rs"
+ ],
+ "La API de Fabric aceptó el pedido sin decir dónde seguirlo.": [
+  "crates/drivers/powerbi/src/definition/mod.rs"
+ ],
+ "La API de Fabric devolvió la definición en TMDL en lugar de TMSL.": [
+  "crates/drivers/powerbi/src/definition/mod.rs"
+ ],
+ "La API de Fabric no pudo leer la definición del modelo: {0}": [
+  "crates/drivers/powerbi/src/definition/mod.rs"
+ ],
+ "La API de Fabric solo está disponible en la nube pública.": [
+  "crates/drivers/powerbi/src/auth/mod.rs",
+  "crates/drivers/powerbi/src/http.rs"
+ ],
+ "La API de Fabric tardó más de 5 minutos en entregar la definición del modelo.": [
+  "crates/drivers/powerbi/src/definition/mod.rs"
+ ],
+ "La API de Power BI devuelve como máximo 100.000 filas o 1.000.000 de valores (15 MB) por consulta; el resultado está cortado.": [
+  "crates/drivers/powerbi/src/query/json.rs"
+ ],
+ "La API de Power BI no agrega ni quita el permiso Write: se da con un rol del área de trabajo (Colaborador o superior).": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "La API de Power BI no agrega ni quita el permiso Write: se da con un rol del área de trabajo.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "La API de Power BI no agrega ni quita el permiso Write: se quita cambiando el rol en el área de trabajo.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "La API de Power BI no cambia los permisos de las entidades de servicio: se dan con su rol en el área de trabajo.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "La API de definición de Fabric necesita el área de trabajo del modelo.": [
+  "crates/drivers/powerbi/src/definition/mod.rs"
+ ],
+ "La API de definición de Fabric no se usa con los modelos de «Mi área de trabajo» ni con los compartidos sin acceso a su área de trabajo.": [
+  "crates/drivers/powerbi/src/meta/mod.rs"
+ ],
+ "La API de definición de Fabric respondió {0}.": [
+  "crates/drivers/powerbi/src/definition/mod.rs"
+ ],
+ "La API de definición de Fabric solo está en la nube pública.": [
+  "crates/drivers/powerbi/src/meta/mod.rs"
  ],
  "La API no reconoce sola la acción «{0}»: toma ese nombre como todas las acciones o como otra ruta. «Reconocer las acciones del watch» las reconoce todas.": [
   "crates/drivers/elasticsearch/src/scheduler/watch.rs"
@@ -20992,6 +21587,21 @@
  "La actualización completa vacía y vuelve a calcular las tablas de los pipelines del job: lo que sus fuentes ya no tengan se pierde.": [
   "crates/drivers/databricks/src/scheduler/run.rs"
  ],
+ "La actualización de la caché de DirectQuery no se cancela.": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
+ ],
+ "La actualización en curso no se puede cancelar: solo se cancelan las actualizaciones mejoradas (pedidas por la API con opciones), no las programadas ni las del portal.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "La actualización en curso no tiene un identificador válido.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "La actualización programada está desactivada": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
+ "La actualización se detiene y el modelo queda como estaba antes de empezarla (o con lo confirmado, si es por lotes).": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "La agregó {0}: Db2 for z/OS solo deja cambiarla, borrarla o detenerla a quien la agregó o a quien tenga SYSOPR, SYSADM o SYSCTRL; si no es tu caso, el servidor lo rechaza (código de retorno 12).": [
   "crates/drivers/odbc/src/scheduler/db2zos.rs"
  ],
@@ -21037,6 +21647,9 @@
  ],
  "La apertura de la ventana": [
   "crates/drivers/oracle/src/scheduler/program.rs"
+ ],
+ "La aplicación de DBine todavía no tiene permiso para Power BI en este inquilino ({0}). Pedile a un administrador que la apruebe, o elegí «Cliente de Azure CLI» en Opciones avanzadas.": [
+  "crates/drivers/powerbi/src/auth/browser.rs"
  ],
  "La auditoría de ScyllaDB está en «{0}»: para ver las consultas hace falta «audit: table» en scylla.yaml (requiere reiniciar el nodo).": [
   "crates/drivers/cassandra/src/profiler.rs"
@@ -21153,6 +21766,15 @@
  "La búsqueda superó el tiempo límite": [
   "crates/drivers/elasticsearch/src/plan.rs"
  ],
+ "La caché de DirectQuery no tiene acciones: se actualiza sola según su programación.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "La caché de DirectQuery se actualiza sola según esta programación; no tiene historial en la API.": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
+ ],
+ "La caché de DirectQuery se actualiza sola según su programación: la API no la actualiza a pedido.": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
+ ],
  "La caché y sus aciertos son de la conexión del monitor, no de las otras pestañas.": [
   "crates/drivers/sqlite/src/lib.rs"
  ],
@@ -21197,6 +21819,9 @@
  ],
  "La capacidad consumida y los throttles están en CloudWatch (ConsumedRead/WriteCapacityUnits, ThrottledRequests), que no se consulta: GetMetricData se cobra por métrica pedida y el monitor se actualiza cada pocos segundos.": [
   "crates/drivers/dynamodb/src/monitor.rs"
+ ],
+ "La capacidad del área de trabajo está en pausa o no está activa ({0}): Power BI no puede consultar el modelo hasta que se reanude.": [
+  "crates/drivers/powerbi/src/query/mod.rs"
  ],
  "La capacidad «{0}» no es un número entero positivo.": [
   "crates/drivers/dynamodb/src/ddl.rs"
@@ -21438,6 +22063,9 @@
  "La conexión con el servidor había quedado inutilizable y se abrió una nueva. Se perdió el estado de la sesión anterior (transacción abierta, tablas #temp y SET): volvé a ejecutar.": [
   "crates/drivers/sqlserver/src/lib.rs"
  ],
+ "La conexión es de solo lectura: no se cambia nada en Power BI.": [
+  "crates/drivers/powerbi/src/http.rs"
+ ],
  "La conexión es de solo lectura: no se permite cambiar las propiedades de la base.": [
   "crates/drivers/libsql/src/lib.rs"
  ],
@@ -21446,6 +22074,12 @@
  ],
  "La conexión es de solo lectura: no se permite {0}.": [
   "crates/drivers/libsql/src/lib.rs"
+ ],
+ "La conexión es de solo lectura: se ven las actualizaciones y sus programaciones, pero no se ejecutan ni se cambian.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "La conexión es de solo lectura: {0} no se hace desde ella. Desmarcá «Solo lectura» en la conexión para hacerlo.": [
+  "crates/drivers/powerbi/src/meta/service.rs"
  ],
  "La conexión verifica también el nombre del servidor en el certificado, más estricta que la cadena (verify-ca).": [
   "crates/dbine-core/src/conn_import/mod.rs"
@@ -21525,6 +22159,9 @@
  "La consulta falló durante la ejecución; Drill no informa el detalle por REST (mirá el perfil de la consulta).": [
   "crates/drivers/drill/src/lib.rs"
  ],
+ "La consulta falló: la función requiere permisos de administrador del modelo": [
+  "crates/drivers/powerbi/src/meta/fake.rs"
+ ],
  "La consulta necesita GROUP BY time(…): el intervalo en el que se ejecuta.": [
   "crates/drivers/influxdb/src/scheduler/cq.rs"
  ],
@@ -21589,11 +22226,17 @@
  "La cuenta de Entra ID (usuario@dominio): obligatoria con la integrada, opcional con la interactiva.": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
+ "La cuenta inició sesión en otro inquilino ({0}) que el de la conexión ({1}).": [
+  "crates/drivers/powerbi/src/auth/mod.rs"
+ ],
  "La de las columnas de texto que se creen sin una.": [
   "crates/drivers/snowflake/src/create_db.rs"
  ],
  "La de los jobs y ventanas que no dicen la suya.": [
   "crates/drivers/oracle/src/scheduler/global.rs"
+ ],
+ "La definición completa (API de Fabric) necesita permiso de escritura en el modelo.": [
+  "crates/drivers/powerbi/src/meta/mod.rs"
  ],
  "La definición de «{0}» no es solo la de ese objeto ({1}): no se renombra.": [
   "crates/drivers/oracle/src/rename.rs"
@@ -21604,11 +22247,26 @@
  "La definición de «{0}» no tiene un CREATE.": [
   "crates/drivers/oracle/src/rename.rs"
  ],
+ "La definición del modelo llegó en un formato que DBine no lee.": [
+  "crates/drivers/powerbi/src/definition/mod.rs"
+ ],
+ "La definición del modelo no es base64 válido.": [
+  "crates/drivers/powerbi/src/definition/mod.rs"
+ ],
+ "La definición del modelo no trae model.bim.": [
+  "crates/drivers/powerbi/src/definition/mod.rs"
+ ],
+ "La definición del modelo pasa de 64 MB: DBine no la lee.": [
+  "crates/drivers/powerbi/src/definition/mod.rs"
+ ],
  "La definición leída del servidor no es JSON válido: {0}": [
   "crates/drivers/elasticsearch/src/rename.rs"
  ],
  "La definición leída del servidor no tiene el formato esperado.": [
   "crates/drivers/elasticsearch/src/rename.rs"
+ ],
+ "La definición no es un modelo TMSL (falta «model»).": [
+  "crates/drivers/powerbi/src/definition/tmsl.rs"
  ],
  "La definición tiene un «;» o un comentario sin cerrar: el script no sería una sola instrucción.": [
   "crates/drivers/clickhouse/src/scheduler/mod.rs"
@@ -21625,11 +22283,20 @@
  "La del «Usuario», hasta 24 caracteres. No se lee del servidor: con un usuario, Db2 la pide al crear la tarea y en cada cambio.": [
   "crates/drivers/odbc/src/scheduler/db2zos.rs"
  ],
+ "La descripción": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "La descripción de un plan tiene hasta {0} caracteres.": [
   "crates/drivers/couchbase/src/backup/plan.rs"
  ],
+ "La descripción del modelo en Power BI y Fabric.": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
  "La ejecuta el trigger «{0}»": [
   "src-tauri/src/commands/rename.rs"
+ ],
+ "La entidad de servicio necesita el inquilino, el Client ID y el secreto.": [
+  "crates/drivers/powerbi/src/auth/service.rs"
  ],
  "La entrada se agrega liberada y se retiene con otro comando: si ese falla, queda liberada y va a enviar el trabajo.": [
   "crates/drivers/odbc/src/scheduler/db2i.rs"
@@ -21657,6 +22324,9 @@
  ],
  "La extensión timescaledb no está instalada en esta base: no hay hypertables que mostrar.": [
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "La fecha que la actualización incremental toma como hoy (vacío: hoy).": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "La fecha se guarda como segundos Unix de 32 bits sin signo: solo entre 1970 y 2106.": [
   "crates/dbine-schema/src/dialect/manticore.rs"
@@ -21694,6 +22364,9 @@
  ],
  "La fila {0} {1}.": [
   "crates/drivers/redis/src/transfer.rs"
+ ],
+ "La frecuencia va de 15 minutos a 3 horas (15, 30, 60, 120 o 180).": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "La funcionalidad": [
   "crates/drivers/elasticsearch/src/scheduler/slm.rs"
@@ -21749,6 +22422,12 @@
  "La key necesita un nombre.": [
   "crates/drivers/redis/src/ddl.rs"
  ],
+ "La lectura de la definición completa (API de Fabric) está desactivada en la conexión.": [
+  "crates/drivers/powerbi/src/meta/mod.rs"
+ ],
+ "La lectura de «{0}» llegó al límite de {1} filas que pidió: la tabla creció durante la lectura; volvé a intentar.": [
+  "crates/drivers/powerbi/src/transfer.rs"
+ ],
  "La lectura no tiene columnas.": [
   "crates/drivers/spanner/src/transfer.rs"
  ],
@@ -21766,6 +22445,9 @@
  ],
  "La memoria de CPU y GPU está en information_schema.memory_summary: conectate a la base information_schema para verla.": [
   "crates/drivers/odbc/src/monitor.rs"
+ ],
+ "La memoria del modelo se lee con funciones INFO de administrador del modelo, en capacidad Premium o Fabric.": [
+  "crates/drivers/powerbi/src/monitor.rs"
  ],
  "La memoria residente dividida por la usada, por 100: 100 es que el proceso ocupa en RAM justo lo que guarda. Arriba de 150 hay memoria fragmentada que no se reusa; por debajo de 100, parte del proceso está en swap. Con muy pocos datos da valores altos sin importancia.": [
   "crates/drivers/redis/src/monitor.rs"
@@ -21821,6 +22503,9 @@
  ],
  "La programación": [
   "crates/drivers/postgres/src/scheduler/pgagent.rs"
+ ],
+ "La programación de la caché de DirectQuery no se activa ni se desactiva: se cambia su frecuencia en el programador.": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
  ],
  "La programación la usan {0} job(s) ({1}): DBMS_SCHEDULER no la cambia, y para crearla de nuevo no tiene que usarla ninguno.": [
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
@@ -21927,6 +22612,9 @@
  "La regla cron no puede tener saltos de línea.": [
   "crates/drivers/orientdb/src/scheduler/mod.rs"
  ],
+ "La relación {0} {1}.": [
+  "crates/drivers/powerbi/src/objects.rs"
+ ],
  "La replicación ya había terminado: al guardar el cambio, CouchDB la ejecuta de nuevo.": [
   "crates/drivers/couchdb/src/replication/doc.rs"
  ],
@@ -21935,6 +22623,12 @@
  ],
  "La respuesta de Databricks no dice cuántos bloques tiene el resultado; no se copia una tabla que podría quedar incompleta.": [
   "crates/drivers/databricks/src/transfer.rs"
+ ],
+ "La respuesta de Power BI es demasiado grande": [
+  "crates/drivers/powerbi/src/http.rs"
+ ],
+ "La respuesta de la API de Fabric no trae la definición.": [
+  "crates/drivers/powerbi/src/definition/mod.rs"
  ],
  "La respuesta no trajo la sección debug": [
   "crates/drivers/solr/src/plan.rs"
@@ -22290,6 +22984,9 @@
  "La zona horaria en la que pg_cron lee las programaciones (cron.timezone, de la configuración del servidor).": [
   "crates/drivers/postgres/src/scheduler/cron.rs"
  ],
+ "La última actualización falló": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "La última sentencia borra la base vieja solo si quedó vacía; si apareció algo mientras corría el script, falla a propósito con «Table '…DBine: la base no quedó vacía y no se borra' doesn't exist» y la base queda para revisarla.": [
   "crates/drivers/mysql/src/rename_db.rs"
  ],
@@ -22314,6 +23011,9 @@
  ],
  "Las acciones del watch que esperan un reconocimiento; al menos una.": [
   "crates/drivers/elasticsearch/src/scheduler/watch.rs"
+ ],
+ "Las actualizaciones están al día": [
+  "crates/drivers/powerbi/src/health.rs"
  ],
  "Las alertas activas del monitor; al menos una.": [
   "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
@@ -22382,6 +23082,9 @@
  "Las conexiones y la configuración del servidor (GET /server) requieren un usuario del servidor, como root: {0}": [
   "crates/drivers/orientdb/src/monitor.rs"
  ],
+ "Las consultas DAX nunca cambian el modelo. Desmarcado permite actualizar el modelo, cambiar sus programaciones y sus permisos, renombrarlo y borrarlo.": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Las consultas en curso están en sys.impala_query_live solo desde Impala 4.4 con enable_workload_mgmt; si no, se ven en la interfaz web del impalad (puerto 25000).": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
@@ -22402,6 +23105,9 @@
  ],
  "Las consultas recientes son las que superaron el umbral de system:completed_requests (1 s por defecto).": [
   "crates/drivers/couchbase/src/lib.rs"
+ ],
+ "Las consultas se filtran con la seguridad por filas de ese usuario. Hace falta permiso de escritura en el modelo (executeQueries) o ser administrador del área de trabajo (executeDaxQueries).": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Las contraseñas y claves de los pipes se ocultan (******): el script no las trae y hay que agregarlas antes de ejecutarlo.": [
   "crates/drivers/iotdb/src/jobs.rs"
@@ -22445,6 +23151,9 @@
  "Las filas fuera del orden de la sort key obligan a leer más bloques. VACUUM las reordena y recupera el espacio de las borradas.": [
   "crates/drivers/postgres/src/health.rs"
  ],
+ "Las funciones INFO no respondieron con los permisos de esta cuenta ({0}).": [
+  "crates/drivers/powerbi/src/meta/mod.rs"
+ ],
  "Las hijas pueden superponerse con la ejecución siguiente": [
   "crates/drivers/snowflake/src/scheduler/mod.rs"
  ],
@@ -22486,6 +23195,15 @@
  ],
  "Las partes separadas no se consultan pero siguen ocupando disco en detached/. Las que el servidor apartó (broken, unexpected…) pueden ser datos que faltan en la tabla: revisalas antes de borrarlas. Las separadas a mano se vuelven a sumar con ATTACH PART.": [
   "crates/drivers/clickhouse/src/health.rs"
+ ],
+ "Las programaciones no se crean ni se borran: cada modelo tiene la suya, que se activa o se desactiva.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Las programaciones no se crean.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Las programaciones no se crean: cada modelo tiene una. Elegí el modelo en la lista.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Las programaciones que se quitan y ningún otro job usa se borran: {0}.": [
   "crates/drivers/sqlserver/src/agent/job.rs"
@@ -22589,6 +23307,9 @@
  ],
  "Las tablas columnares no necesitan estadísticas, pero las virtuales (de una fuente remota) sí: sin ellas el optimizador no sabe cuántas filas trae y puede elegir mal dónde hacer los joins. Crear una de tipo HISTOGRAM sobre las columnas de filtro ayuda más.": [
   "crates/drivers/hana/src/health.rs"
+ ],
+ "Las tablas con actualización incremental refrescan solo sus particiones recientes.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Las tablas de {0} no tienen intervalos: queda como texto.": [
   "crates/dbine-schema/src/dialect/dremio.rs"
@@ -22716,7 +23437,8 @@
   "crates/drivers/etcd/src/lib.rs"
  ],
  "Lector": [
-  "crates/drivers/mysql/src/monitor.rs"
+  "crates/drivers/mysql/src/monitor.rs",
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "Lector de cola de replicación": [
   "crates/drivers/sqlserver/src/agent/job.rs",
@@ -22869,6 +23591,9 @@
  "Leer el registro del Agente SQL Server requiere el rol securityadmin (o, desde SQL Server 2022, VIEW SERVER STATE o VIEW ANY ERROR LOG).": [
   "crates/drivers/sqlserver/src/agent/logs.rs"
  ],
+ "Leer la definición completa del modelo (API de Fabric)": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Leer los eventos del servicio de backup requiere Couchbase Server 7.1 o posterior y el permiso de ver los eventos del cluster (Read-Only Admin, Backup Full Admin o Full Admin).": [
   "crates/drivers/couchbase/src/backup/logs.rs"
  ],
@@ -22906,6 +23631,9 @@
  "Leído hasta": [
   "crates/drivers/mysql/src/scheduler/doris.rs"
  ],
+ "Leídos con": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
  "Liam": [
   "src-tauri/src/commands/datagen.rs"
  ],
@@ -22921,6 +23649,9 @@
  ],
  "Lima": [
   "src-tauri/src/commands/datagen.rs"
+ ],
+ "Limitación": [
+  "crates/drivers/powerbi/src/properties.rs"
  ],
  "Limpieza de versiones": [
   "crates/drivers/firebird/src/monitor.rs"
@@ -22972,6 +23703,7 @@
  ],
  "Listo": [
   "crates/drivers/databricks/src/u2m.rs",
+  "crates/drivers/powerbi/src/auth/browser.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Listá los clientes con más de 5 pedidos en 2025.": [
@@ -23027,6 +23759,9 @@
  ],
  "Lo que ejecuta la tarea: un INSERT … SELECT … o un CREATE TABLE … AS SELECT ….": [
   "crates/drivers/mysql/src/scheduler/starrocks.rs"
+ ],
+ "Lo que el modelo ocupa en memoria (diccionarios y segmentos de VertiPaq). Cerca del máximo de la capacidad, las actualizaciones y las consultas fallan.": [
+  "crates/drivers/powerbi/src/monitor.rs"
  ],
  "Lo que el proceso manda a un cliente que no lee (un suscriptor lento) se acumula en su memoria hasta que lo lee: puede crecer hasta 'wsfull. Revisá ese cliente; cerrar su conexión (desde el Monitor) libera la cola.": [
   "crates/drivers/kdb/src/health.rs"
@@ -23114,7 +23849,8 @@
   "crates/drivers/sqlserver/src/jobs.rs"
  ],
  "Location": [
-  "crates/drivers/mysql/src/backup.rs"
+  "crates/drivers/mysql/src/backup.rs",
+  "crates/drivers/powerbi/src/http.rs"
  ],
  "Lock": [
   "crates/drivers/odbc/src/plan.rs",
@@ -23276,6 +24012,9 @@
  "Los códigos de tipo de alerta, tipo de error y tipo de sentencia son los que toma SP_CREATE_ALERT (ver el manual de DM).": [
   "crates/drivers/odbc/src/scheduler/dameng.rs"
  ],
+ "Los datos del modelo pueden estar viejos: los informes muestran lo que tenía en la última actualización correcta.": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "Los datos más viejos que esto no se recalculan.": [
   "crates/drivers/tdengine/src/scheduler/mod.rs"
  ],
@@ -23369,6 +24108,9 @@
  "Los incrementales piden el parámetro TRACKMOD de la base en YES.": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "Los informes conectados siguen al modelo por su ID; las conexiones XMLA o de Excel que lo nombran dejan de encontrarlo.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "Los jobs de APOC viven en la memoria del servidor: no sobreviven a un reinicio, y APOC no guarda su consulta ni un historial de sus ejecuciones.": [
   "crates/drivers/neo4j/src/scheduler/mod.rs"
  ],
@@ -23401,6 +24143,9 @@
  ],
  "Los minutos de cada hora en que se dispara (0 a 59), separados por comas.": [
   "crates/drivers/elasticsearch/src/scheduler/watch.rs"
+ ],
+ "Los modelos de «Mi área de trabajo» no se renombran ni se describen desde DBine: la API de Fabric pide el área de trabajo.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
  ],
  "Los nombres de las columnas del resultado, en orden (opcional).": [
   "crates/drivers/tdengine/src/scheduler/mod.rs"
@@ -23483,8 +24228,14 @@
   "crates/drivers/mysql/src/scheduler/doris.rs",
   "crates/drivers/mysql/src/scheduler/starrocks.rs"
  ],
+ "Los reintentos": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Los repositorios cifrados son de Couchbase Server 8.0 en adelante.": [
   "crates/drivers/couchbase/src/backup/repo.rs"
+ ],
+ "Los roles y CUSTOMDATA de prueba solo se aplican con executeDaxQueries; executeQueries prueba solo el usuario.": [
+  "crates/drivers/powerbi/src/query/mod.rs"
  ],
  "Los roles y permisos de Memgraph requieren la edición Enterprise. ({0})": [
   "crates/drivers/neo4j/src/security.rs"
@@ -23512,6 +24263,9 @@
  ],
  "Los tamaños de tablas salen de las estadísticas (RUNSTATS): pueden estar desactualizados.": [
   "crates/drivers/odbc/src/monitor.rs"
+ ],
+ "Los tipos de las columnas se deducen de sus valores mínimo y máximo: las numéricas figuran como Double, porque así no se distingue un número entero de uno decimal.": [
+  "crates/drivers/powerbi/src/meta/stats.rs"
  ],
  "Los tipos espaciales requieren el Spatial DataBlade de Informix registrado en la base.": [
   "crates/dbine-schema/src/dialect/informix.rs"
@@ -24029,6 +24783,9 @@
   "crates/drivers/mysql/src/jobs/doris.rs",
   "crates/drivers/mysql/src/jobs/starrocks.rs"
  ],
+ "Max": [
+  "crates/drivers/powerbi/src/meta/stats.rs"
+ ],
  "MaxDB admite hasta 38 dígitos: no entran los valores de 39.": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
  ],
@@ -24089,13 +24846,22 @@
   "crates/drivers/odbc/src/backup.rs"
  ],
  "Medidas": [
-  "crates/drivers/dremio/src/scheduler/reflection.rs"
+  "crates/drivers/dremio/src/scheduler/reflection.rs",
+  "crates/drivers/powerbi/src/lib.rs",
+  "crates/drivers/powerbi/src/properties.rs"
  ],
  "Medidas (agregada)": [
   "crates/drivers/dremio/src/scheduler/reflection.rs"
  ],
+ "Medidas con errores": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "Medium": [
   "crates/drivers/snowflake/src/scheduler/mod.rs"
+ ],
+ "Member": [
+  "crates/drivers/powerbi/src/admin/mod.rs",
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "Memgraph": [
   "crates/drivers/neo4j/src/functions.rs",
@@ -24163,6 +24929,8 @@
   "crates/drivers/oracle/src/monitor.rs",
   "crates/drivers/phoenix/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs",
+  "crates/drivers/powerbi/src/health.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
   "crates/drivers/redis/src/monitor.rs",
   "crates/drivers/solr/src/monitor.rs",
   "crates/drivers/sqlite/src/lib.rs",
@@ -24183,7 +24951,8 @@
  ],
  "Memoria (bytes)": [
   "crates/drivers/firebird/src/monitor.rs",
-  "crates/drivers/hana/src/monitor.rs"
+  "crates/drivers/hana/src/monitor.rs",
+  "crates/drivers/powerbi/src/monitor.rs"
  ],
  "Memoria (réplica más cargada)": [
   "crates/drivers/postgres/src/monitor.rs"
@@ -24353,6 +25122,9 @@
   "crates/drivers/odbc/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs",
   "crates/drivers/redis/src/monitor.rs"
+ ],
+ "Memoria del modelo": [
+  "crates/drivers/powerbi/src/monitor.rs"
  ],
  "Memoria del proceso": [
   "crates/drivers/sqlserver/src/monitor.rs"
@@ -24884,11 +25656,13 @@
  ],
  "Metadata": [
   "crates/drivers/postgres/src/cloud_auth.rs",
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Metadatos": [
   "crates/drivers/dremio/src/properties.rs",
-  "crates/drivers/elasticsearch/src/scheduler/watch.rs"
+  "crates/drivers/elasticsearch/src/scheduler/watch.rs",
+  "crates/drivers/powerbi/src/properties.rs"
  ],
  "Metadatos (_meta)": [
   "crates/drivers/elasticsearch/src/scheduler/es_transform.rs",
@@ -24902,11 +25676,17 @@
   "crates/drivers/sqlserver/src/agent/job.rs",
   "crates/drivers/sqlserver/src/agent/proxy.rs"
  ],
+ "Mi área de trabajo": [
+  "crates/drivers/powerbi/src/catalog.rs"
+ ],
  "Mia": [
   "src-tauri/src/commands/datagen.rs"
  ],
  "Microsegundos (us)": [
   "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "Microsoft Entra ID (navegador, con MFA)": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Microsoft Entra ID no dijo para quién es el token": [
   "src-tauri/src/secret_sources/azure.rs"
@@ -24915,8 +25695,15 @@
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Microsoft Entra ID rechazó el inicio de sesión: {0}": [
+  "crates/drivers/powerbi/src/auth/browser.rs",
   "crates/drivers/sqlserver/src/entra.rs",
   "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "Microsoft Entra ID renovó la sesión con otra cuenta que la de esta conexión: volvé a intentar para iniciar sesión de nuevo.": [
+  "crates/drivers/powerbi/src/auth/mod.rs"
+ ],
+ "Microsoft Entra ID respondió HTTP {0} sin un token": [
+  "crates/drivers/powerbi/src/auth/mod.rs"
  ],
  "Microsoft Entra ID: entidad de servicio": [
   "crates/drivers/sqlserver/src/variant.rs"
@@ -24928,7 +25715,8 @@
   "crates/drivers/sqlserver/src/variant.rs"
  ],
  "Miembro": [
-  "crates/drivers/etcd/src/lib.rs"
+  "crates/drivers/etcd/src/lib.rs",
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "Miembro (data sharing)": [
   "crates/drivers/odbc/src/scheduler/db2zos.rs"
@@ -24936,12 +25724,16 @@
  "Miembro JCL": [
   "crates/drivers/odbc/src/scheduler/db2zos.rs"
  ],
+ "Miembro del rol": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
  "Miembros": [
   "crates/drivers/couchdb/src/properties.rs",
   "crates/drivers/neo4j/src/security.rs",
   "crates/drivers/odbc/src/security.rs",
   "crates/drivers/odbc/src/security/ibm.rs",
   "crates/drivers/oracle/src/scheduler/destination.rs",
+  "crates/drivers/powerbi/src/security.rs",
   "crates/drivers/sqlserver/src/agent/category.rs"
  ],
  "Miembros del cluster": [
@@ -24986,6 +25778,9 @@
  ],
  "Mimer restaura copiando el archivo del backup en lugar del databank y aplicando el log con ALTER DATABANK … RESTORE: la copia no se hace por SQL": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "Min": [
+  "crates/drivers/powerbi/src/meta/stats.rs"
  ],
  "Minutes": [
   "crates/drivers/elasticsearch/src/scheduler/os_transform.rs"
@@ -25064,6 +25859,13 @@
  "Modalidad": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
+ "Mode": [
+  "crates/drivers/powerbi/src/meta/info.rs"
+ ],
+ "Modelo": [
+  "crates/drivers/powerbi/src/health.rs",
+  "crates/drivers/powerbi/src/monitor.rs"
+ ],
  "Modelo FULL sin ningún backup de log": [
   "crates/drivers/sqlserver/src/health.rs"
  ],
@@ -25078,8 +25880,14 @@
   "crates/drivers/sqlserver/src/create_db.rs",
   "crates/drivers/sqlserver/src/properties.rs"
  ],
+ "Modelo semántico": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Modelo {0} KEY({1}): las columnas de la clave van primero en la tabla.": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
+ "Modelos semánticos": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Modificada": [
   "crates/drivers/bigquery/src/scheduler.rs",
@@ -25192,6 +26000,9 @@
  "Modo tenido": [
   "crates/drivers/oracle/src/monitor.rs"
  ],
+ "Modos de almacenamiento": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
  "Momento": [
   "crates/drivers/odbc/src/scheduler/informix.rs",
   "crates/drivers/odbc/src/scheduler/vertica.rs"
@@ -25212,6 +26023,8 @@
   "crates/drivers/odbc/src/jobs/sqla.rs",
   "crates/drivers/odbc/src/scheduler/ase.rs",
   "crates/drivers/odbc/src/scheduler/sqla.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "src-tauri/src/tasks/os.rs"
  ],
  "Moneda como DECIMAL(19, 4).": [
@@ -25747,6 +26560,7 @@
   "crates/drivers/odbc/src/jobs/iris.rs",
   "crates/drivers/odbc/src/processes.rs",
   "crates/drivers/odbc/src/scheduler/iris.rs",
+  "crates/drivers/powerbi/src/meta/info.rs",
   "crates/drivers/sqlserver/src/plan.rs",
   "src-tauri/src/secret_sources/aws.rs",
   "src-tauri/src/secret_sources/ssm.rs"
@@ -25942,6 +26756,9 @@
  "Ninguna acción del watch «{0}» espera un reconocimiento: se reconoce una acción que se ejecutó porque se cumplió la condición.": [
   "crates/drivers/elasticsearch/src/scheduler/watch.rs"
  ],
+ "Ninguna actualización correcta en 7 días": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "Ninguna falló": [
   "crates/drivers/databricks/src/scheduler/form.rs"
  ],
@@ -26002,6 +26819,7 @@
   "crates/drivers/postgres/src/properties.rs"
  ],
  "Nivel de compatibilidad": [
+  "crates/drivers/powerbi/src/properties.rs",
   "crates/drivers/sqlserver/src/create_db.rs",
   "crates/drivers/sqlserver/src/plan.rs",
   "crates/drivers/sqlserver/src/properties.rs"
@@ -26330,6 +27148,9 @@
  "No hay un keyspace seleccionado.": [
   "crates/drivers/cassandra/src/lib.rs"
  ],
+ "No hay un modelo «{0}» en la lista.": [
+  "crates/drivers/powerbi/src/meta/fake.rs"
+ ],
  "No hay un paso «{0}».": [
   "crates/drivers/odbc/src/scheduler/dameng.rs"
  ],
@@ -26338,6 +27159,9 @@
  ],
  "No hay un índice Mango llamado «{0}».": [
   "crates/drivers/couchdb/src/lib.rs"
+ ],
+ "No hay una actualización en curso.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "No hay una base de datos seleccionada.": [
   "crates/drivers/influxdb/src/v1.rs",
@@ -26434,6 +27258,19 @@
  ],
  "No se encontró el id del bucket «{0}».": [
   "crates/drivers/influxdb/src/properties.rs"
+ ],
+ "No se encontró el modelo o el área de trabajo, o tu cuenta no tiene acceso": [
+  "crates/drivers/powerbi/src/http.rs",
+  "crates/drivers/powerbi/src/meta/fake.rs"
+ ],
+ "No se encontró el modelo «{0}», o tu cuenta no tiene acceso a él.": [
+  "crates/drivers/powerbi/src/catalog.rs"
+ ],
+ "No se encontró el modelo «{0}».": [
+  "crates/drivers/powerbi/src/catalog.rs"
+ ],
+ "No se encontró el área de trabajo «{0}», o tu cuenta no tiene acceso a ella.": [
+  "crates/drivers/powerbi/src/catalog.rs"
  ],
  "No se encontró la colección de la consulta (FROM <colección>).": [
   "crates/drivers/solr/src/lib.rs"
@@ -26654,6 +27491,9 @@
  "No se pudieron leer los permisos del job (hace falta CAN_MANAGE): se dejan como están.": [
   "crates/drivers/databricks/src/scheduler/form.rs"
  ],
+ "No se pudieron leer los permisos del modelo «{0}»: hace falta el permiso ReadWriteReshare en él ({1}).": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "No se pudieron leer los procesos (hace falta el rol MONITORING): {0}": [
   "crates/drivers/hana/src/processes.rs"
  ],
@@ -26693,6 +27533,9 @@
  "No se pudieron leer los índices (SHOW INDEXES): {0}. Se listan solo los de las restricciones, sin contadores.": [
   "crates/drivers/neo4j/src/index_usage.rs"
  ],
+ "No se pudieron leer: {0}": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
  "No se pudieron leer: {0}.": [
   "crates/drivers/solr/src/lib.rs"
  ],
@@ -26723,8 +27566,16 @@
  "No se pudo bajar tidb_slow_log_threshold a 0 ({0}): se muestrean las consultas en curso.": [
   "crates/drivers/mysql/src/profiler.rs"
  ],
+ "No se pudo cambiar la programación": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "No se pudo cambiar {0} de ScyllaDB: {1}": [
   "crates/drivers/cassandra/src/profiler.rs"
+ ],
+ "No se pudo cancelar la actualización": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "No se pudo confirmar cómo terminó la consulta {0} de Athena ({1}): si era un INSERT, puede haber cargado sus filas. Revisá la tabla antes de reanudar la carga.": [
   "crates/drivers/athena/src/transfer.rs"
@@ -26758,6 +27609,7 @@
  ],
  "No se pudo iniciar sesión": [
   "crates/drivers/databricks/src/u2m.rs",
+  "crates/drivers/powerbi/src/auth/browser.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "No se pudo leer ({0}).": [
@@ -26948,6 +27800,9 @@
  ],
  "No se pudo leer la definición de «{0}»: sin los tipos de sus argumentos Snowflake no sabe cuál renombrar.": [
   "crates/drivers/snowflake/src/rename.rs"
+ ],
+ "No se pudo leer la definición del modelo con la API de Fabric ({0}).": [
+  "crates/drivers/powerbi/src/meta/mod.rs"
  ],
  "No se pudo leer la estructura de la base ({0}): se copia solo «{1}», sin seguir claves foráneas.": [
   "src-tauri/src/commands/subset/mod.rs"
@@ -27218,6 +28073,9 @@
  "No se renombra {0}: sus funciones y enlaces quedan atados a {1} por nombre y en {2} dejarían de andar. Son: ": [
   "crates/drivers/kdb/src/rename.rs"
  ],
+ "No se revisaron {0}.": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "No tiene: lo tiene cada contenedor, o la cuenta es serverless. No hay nada para cambiar acá.": [
   "crates/drivers/cosmosdb/src/properties.rs"
  ],
@@ -27476,6 +28334,7 @@
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs",
   "crates/drivers/postgres/src/scheduler/pgagent.rs",
   "crates/drivers/postgres/src/scheduler/timescale.rs",
+  "crates/drivers/powerbi/src/security.rs",
   "crates/drivers/snowflake/src/scheduler/alert.rs",
   "crates/drivers/snowflake/src/scheduler/graph.rs",
   "crates/drivers/snowflake/src/scheduler/task.rs",
@@ -27728,7 +28587,8 @@
  "None": [
   "crates/drivers/cosmosdb/src/plan.rs",
   "crates/drivers/databricks/src/plan.rs",
-  "crates/drivers/dynamodb/src/transfer.rs"
+  "crates/drivers/dynamodb/src/transfer.rs",
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "Normal": [
   "crates/drivers/dremio/src/scheduler/reflection.rs",
@@ -27807,7 +28667,8 @@
  ],
  "Nube": [
   "crates/drivers/couchbase/src/jobs.rs",
-  "crates/drivers/postgres/src/monitor.rs"
+  "crates/drivers/postgres/src/monitor.rs",
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Nueva clase": [
   "crates/drivers/orientdb/src/ddl.rs"
@@ -28354,6 +29215,9 @@
  "Obligatorio": [
   "crates/drivers/mongodb/src/ddl.rs"
  ],
+ "Obligatorio con una entidad de servicio. Vacío: el inquilino de la cuenta con la que inicies sesión.": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Obligatorio para la entidad de servicio. Con los demás métodos, opcional: sin él vale el inquilino de la cuenta.": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
@@ -28413,6 +29277,9 @@
  ],
  "Oculto": [
   "crates/drivers/elasticsearch/src/security.rs"
+ ],
+ "Ocupa {0} MB de {1} MB. Una actualización completa necesita memoria extra y puede fallar: conviene achicar el modelo o usar una capacidad más grande.": [
+  "crates/drivers/powerbi/src/health.rs"
  ],
  "Oferta (offer)": [
   "crates/drivers/cosmosdb/src/properties.rs"
@@ -28501,6 +29368,9 @@
   "crates/drivers/odbc/src/tls.rs",
   "crates/drivers/phoenix/src/lib.rs"
  ],
+ "Opcional: la cuenta con la que se inicia sesión. Las conexiones sin usuario de la misma nube, inquilino y aplicación comparten una sola cuenta: para usar otra, escribila acá.": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Opcional: la cuenta de gcloud que pide el token. Vacía: la activa en gcloud (gcloud auth login), las credenciales predeterminadas de la aplicación o la cuenta de servicio de la máquina.": [
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
@@ -28509,6 +29379,9 @@
  ],
  "Opcional: nombre del tenant cuando el puerto es el de SYSTEMDB (3<instancia>13).": [
   "crates/drivers/hana/src/lib.rs"
+ ],
+ "Opcional: nombre o ID. Con muchas áreas de trabajo conviene indicar una: listar todas pide una llamada por área.": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Opcional: reemplaza el código del archivo de este trigger en el servidor. Vacío: el archivo queda como está (InfluxDB no permite leerlo).": [
   "crates/drivers/influxdb/src/scheduler/trigger.rs"
@@ -28833,6 +29706,9 @@
  "Ordered": [
   "crates/drivers/sqlserver/src/plan.rs"
  ],
+ "Ordinal": [
+  "crates/drivers/powerbi/src/meta/info.rs"
+ ],
  "Organizaciones": [
   "crates/drivers/influxdb/src/monitor.rs"
  ],
@@ -28892,6 +29768,9 @@
   "crates/drivers/mysql/src/security/databend.rs",
   "crates/drivers/odbc/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
+  "crates/drivers/powerbi/src/properties.rs",
+  "crates/drivers/powerbi/src/security.rs",
   "crates/drivers/snowflake/src/scheduler/logs.rs",
   "crates/drivers/trino/src/monitor.rs"
  ],
@@ -28913,6 +29792,9 @@
  "Orígenes": [
   "crates/drivers/ksqldb/src/monitor.rs",
   "crates/drivers/ksqldb/src/plan.rs"
+ ],
+ "Orígenes de datos": [
+  "crates/drivers/powerbi/src/properties.rs"
  ],
  "Orígenes externos": [
   "crates/drivers/tdengine/src/jobs.rs"
@@ -29085,6 +29967,9 @@
  "Para borrar un índice de Neo4j hace falta su nombre.": [
   "crates/drivers/neo4j/src/ddl.rs"
  ],
+ "Para borrar «{0}» hace falta permiso de escritura en el modelo.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "Para cada elemento": [
   "crates/drivers/databricks/src/scheduler/form.rs"
  ],
@@ -29210,6 +30095,9 @@
  ],
  "Paralelismo": [
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "Paralelismo máximo": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Paralelismo máximo por nodo": [
   "crates/drivers/dremio/src/lib.rs"
@@ -29357,6 +30245,7 @@
   "crates/drivers/hana/src/scheduler/mod.rs",
   "crates/drivers/orientdb/src/scheduler/mod.rs",
   "crates/drivers/postgres/src/monitor.rs",
+  "crates/drivers/powerbi/src/objects.rs",
   "crates/drivers/snowflake/src/scheduler/mod.rs"
  ],
  "Parámetros": [
@@ -29729,6 +30618,9 @@
   "crates/drivers/databricks/src/scheduler/form.rs",
   "crates/drivers/databricks/src/scheduler/spec.rs"
  ],
+ "Permiso en el modelo": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
  "Permiso inválido: {0}. Elegí READ, WRITE o READWRITE.": [
   "crates/drivers/etcd/src/security.rs"
  ],
@@ -29788,6 +30680,9 @@
  "Persona": [
   "crates/drivers/neo4j/src/ddl.rs",
   "crates/drivers/orientdb/src/ddl.rs"
+ ],
+ "Perspectivas": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Período": [
   "crates/drivers/couchbase/src/backup/plan.rs"
@@ -30215,7 +31110,8 @@
   "crates/drivers/hana/src/schema.rs"
  ],
  "Por lotes": [
-  "crates/drivers/odbc/src/scheduler/iris.rs"
+  "crates/drivers/odbc/src/scheduler/iris.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Por net send": [
   "crates/drivers/odbc/src/scheduler/dameng.rs"
@@ -30384,9 +31280,101 @@
  "Potential": [
   "crates/drivers/cosmosdb/src/plan.rs"
  ],
+ "Power BI Desktop o Fabric (los modelos se publican, no se crean desde DBine)": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
+ "Power BI actualiza un modelo por vez: si ya hay una actualización en curso, rechaza esta.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Power BI corta cada consulta de executeQueries y una sola fila de «{0}» ya pasa ese límite: usá un área de trabajo con capacidad (executeDaxQueries).": [
+  "crates/drivers/powerbi/src/transfer.rs"
+ ],
+ "Power BI cortó el resultado (la API devuelve una cantidad limitada de filas por consulta): no se escribe un resultado parcial. Limitá la consulta o usá un área de trabajo con capacidad (executeDaxQueries).": [
+  "crates/drivers/powerbi/src/query/mod.rs"
+ ],
+ "Power BI devolvió columnas inesperadas al leer «{0}» por partes.": [
+  "crates/drivers/powerbi/src/transfer.rs"
+ ],
+ "Power BI está limitando las solicitudes (HTTP 429): volvé a intentar en {0} s.": [
+  "crates/drivers/powerbi/src/http.rs"
+ ],
+ "Power BI está limitando las solicitudes ({0}): volvé a intentar en un minuto.": [
+  "crates/drivers/powerbi/src/http.rs"
+ ],
+ "Power BI no aceptó el cambio de permisos": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "Power BI no aceptó el token ({0}): volvé a iniciar sesión.": [
+  "crates/drivers/powerbi/src/http.rs"
+ ],
+ "Power BI no aceptó la actualización": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Power BI no aceptó la actualización (HTTP 429). En capacidad compartida el límite es de 8 actualizaciones por día, contando las programadas.": [
+  "crates/drivers/powerbi/src/http.rs"
+ ],
+ "Power BI no borró el modelo": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "Power BI no crea usuarios, roles ni contraseñas desde DBine: las identidades son de Microsoft Entra ID y los roles de seguridad (RLS) son parte del modelo.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "Power BI no pudo responder ahora ({0}){1}; volvé a intentar en unos minutos.": [
+  "crates/drivers/powerbi/src/http.rs"
+ ],
+ "Power BI no respondió a tiempo al {0}": [
+  "crates/drivers/powerbi/src/http.rs"
+ ],
+ "Power BI no respondió en {0} s al buscar el modelo": [
+  "crates/drivers/powerbi/src/catalog.rs"
+ ],
+ "Power BI no respondió en {0} s al buscar el modelo entre las áreas de trabajo: indicá el área de trabajo en la conexión, o el ID del modelo.": [
+  "crates/drivers/powerbi/src/catalog.rs"
+ ],
+ "Power BI no tiene objetos «{0}» en su programador.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Power BI rechazó la consulta": [
+  "crates/drivers/powerbi/src/query/arrow.rs",
+  "crates/drivers/powerbi/src/query/json.rs"
+ ],
+ "Power BI rechazó la consulta ({0}){1}. Revisá que tengas permiso de compilación (Build) en el modelo y acceso a su área de trabajo, que el inquilino tenga activada «Semantic Model Execute Queries REST API» y, con una entidad de servicio, que el modelo no tenga RLS ni SSO.": [
+  "crates/drivers/powerbi/src/http.rs"
+ ],
+ "Power BI rechazó la solicitud ({0}){1}": [
+  "crates/drivers/powerbi/src/http.rs"
+ ],
+ "Power BI rechazó la solicitud ({0}){1}: tu cuenta no tiene permiso para esto.": [
+  "crates/drivers/powerbi/src/http.rs"
+ ],
+ "Power BI respondió JSON donde se esperaba Arrow": [
+  "crates/drivers/powerbi/src/query/mod.rs"
+ ],
+ "Power BI respondió algo que no es JSON": [
+  "crates/drivers/powerbi/src/http.rs"
+ ],
+ "Power BI respondió algo que no se pudo leer: {0}": [
+  "crates/drivers/powerbi/src/query/json.rs"
+ ],
+ "Power BI respondió más de lo que su API devuelve por consulta": [
+  "crates/drivers/powerbi/src/query/mod.rs"
+ ],
+ "Power BI respondió un resultado Arrow que no se pudo leer: {0}": [
+  "crates/drivers/powerbi/src/query/arrow.rs"
+ ],
+ "Power BI respondió {0} {1}": [
+  "crates/drivers/powerbi/src/meta/fake.rs"
+ ],
+ "Power BI solo ejecuta consultas DAX: cada consulta empieza con DEFINE o EVALUATE.": [
+  "crates/drivers/powerbi/src/query/mod.rs"
+ ],
  "PowerShell": [
   "crates/drivers/sqlserver/src/agent/job.rs",
   "crates/drivers/sqlserver/src/agent/proxy.rs"
+ ],
+ "Precedence": [
+  "crates/drivers/powerbi/src/meta/info.rs"
  ],
  "Precisión al mostrar números (\\P)": [
   "crates/drivers/kdb/src/props.rs"
@@ -30438,6 +31426,14 @@
  ],
  "Premium": [
   "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "Premium por usuario": [
+  "crates/drivers/powerbi/src/catalog.rs",
+  "crates/drivers/powerbi/src/monitor.rs"
+ ],
+ "Premium {0}": [
+  "crates/drivers/powerbi/src/catalog.rs",
+  "crates/drivers/powerbi/src/monitor.rs"
  ],
  "Presto": [
   "crates/drivers/trino/src/lib.rs",
@@ -30510,6 +31506,15 @@
  "Priority": [
   "crates/drivers/odbc/src/jobs/iris.rs",
   "crates/drivers/odbc/src/scheduler/iris.rs"
+ ],
+ "Pro (capacidad compartida)": [
+  "crates/drivers/powerbi/src/catalog.rs"
+ ],
+ "Probar como usuario (RLS)": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
+ "Probar con roles (RLS)": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Problema": [
   "crates/drivers/couchbase/src/jobs.rs"
@@ -30700,6 +31705,9 @@
  "Programaciones compartidas": [
   "crates/drivers/sqlserver/src/agent/job.rs"
  ],
+ "Programaciones de actualización": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Programación": [
   "crates/drivers/bigquery/src/scheduler.rs",
   "crates/drivers/bigquery/src/scheduler/backfill.rs",
@@ -30882,6 +31890,7 @@
   "crates/drivers/postgres/src/scheduler/crdb.rs",
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs",
   "crates/drivers/postgres/src/scheduler/timescale.rs",
+  "crates/drivers/powerbi/src/refresh/jobs.rs",
   "crates/drivers/sqlserver/src/agent/job.rs",
   "crates/drivers/sqlserver/src/agent/schedule.rs"
  ],
@@ -31188,6 +32197,9 @@
  "Pérez": [
   "src-tauri/src/commands/datagen.rs"
  ],
+ "Pública (api.powerbi.com)": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Quedó roto": [
   "crates/drivers/oracle/src/scheduler/job.rs"
  ],
@@ -31201,9 +32213,14 @@
   "crates/drivers/elasticsearch/src/plan.rs",
   "crates/drivers/iotdb/src/jobs.rs",
   "crates/drivers/mysql/src/plan.rs",
+  "crates/drivers/powerbi/src/refresh/jobs.rs",
   "crates/drivers/snowflake/src/plan.rs",
   "crates/drivers/spanner/src/plan.rs",
   "crates/drivers/trino/src/plan.rs"
+ ],
+ "Query (": [
+  "crates/drivers/powerbi/src/query/json.rs",
+  "crates/drivers/powerbi/src/query/mod.rs"
  ],
  "Query DSL que filtra los documentos de origen (data_selection_query).": [
   "crates/drivers/elasticsearch/src/scheduler/os_transform.rs"
@@ -31421,10 +32438,15 @@
  ],
  "Read": [
   "crates/drivers/cosmosdb/src/ddl.rs",
-  "crates/drivers/postgres/src/plan.rs"
+  "crates/drivers/postgres/src/plan.rs",
+  "crates/drivers/powerbi/src/admin/mod.rs",
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "Read ": [
   "crates/drivers/postgres/src/plan.rs"
+ ],
+ "ReadWriteReshare en el modelo": [
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "Reanuda": [
   "crates/drivers/mysql/src/scheduler/doris.rs"
@@ -31452,6 +32474,9 @@
  ],
  "Recalcula el stream «{0}» de TDengine entre {1} y {2}.": [
   "crates/drivers/tdengine/src/scheduler/recalc.rs"
+ ],
+ "Recalcular": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Recalcular al borrar datos (DELETE_RECALC)": [
   "crates/drivers/tdengine/src/scheduler/mod.rs"
@@ -31775,6 +32800,9 @@
   "crates/drivers/databricks/src/scheduler/form.rs",
   "crates/drivers/databricks/src/scheduler/spec.rs"
  ],
+ "Referencia cultural": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
  "Referencias a globales": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
@@ -31977,6 +33005,7 @@
   "crates/drivers/dynamodb/src/monitor.rs",
   "crates/drivers/mysql/src/backup.rs",
   "crates/drivers/postgres/src/monitor.rs",
+  "crates/drivers/powerbi/src/properties.rs",
   "crates/drivers/snowflake/src/monitor.rs"
  ],
  "Región (datacenter)": [
@@ -32065,6 +33094,7 @@
   "crates/drivers/postgres/src/jobs/scheduler.rs",
   "crates/drivers/postgres/src/jobs/timescale.rs",
   "crates/drivers/postgres/src/scheduler/timescale.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "crates/drivers/sqlserver/src/agent/job.rs"
  ],
  "Reintentos (retry)": [
@@ -32091,7 +33121,10 @@
  "Relaciones": [
   "crates/drivers/neo4j/src/lib.rs",
   "crates/drivers/neo4j/src/monitor.rs",
-  "crates/drivers/neo4j/src/properties.rs"
+  "crates/drivers/neo4j/src/properties.rs",
+  "crates/drivers/powerbi/src/health.rs",
+  "crates/drivers/powerbi/src/lib.rs",
+  "crates/drivers/powerbi/src/properties.rs"
  ],
  "Relaciones (aristas) del grafo según el resumen de estadísticas de Neptune, que se recalcula cada tanto y no en cada escritura.": [
   "crates/drivers/neo4j/src/monitor.rs"
@@ -32099,11 +33132,20 @@
  "Relaciones (tipo)": [
   "crates/drivers/neo4j/src/ddl.rs"
  ],
+ "Relaciones de muchos a muchos": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "Relaciones del grafo en la base actual.": [
   "crates/drivers/neo4j/src/monitor.rs"
  ],
  "Relaciones del grafo en la base actual. Neo4j las cuenta con su almacén de conteos, sin recorrer el grafo.": [
   "crates/drivers/neo4j/src/monitor.rs"
+ ],
+ "Relaciones inactivas": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
+ "Relaciones que filtran en ambas direcciones": [
+  "crates/drivers/powerbi/src/health.rs"
  ],
  "Relación": [
   "crates/drivers/postgres/src/monitor.rs",
@@ -32150,6 +33192,9 @@
  ],
  "Renombrar un campo reescribe cada documento de «{0}» que lo tiene: en una colección grande tarda. No es atómico: si se corta, volver a correrlo termina el trabajo.": [
   "crates/drivers/couchbase/src/rename.rs"
+ ],
+ "Renombrar un modelo o cambiar su descripción usa la API de Fabric, que solo está en la nube pública.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
  ],
  "Renombrar una columna necesita una tabla Delta con column mapping (delta.columnMapping.mode = 'name' o 'id'); si no lo tiene, Databricks rechaza la sentencia y el script se detiene antes de tocar nada. Se activa con ALTER TABLE … SET TBLPROPERTIES ('delta.columnMapping.mode' = 'name'), que puede afectar a quienes leen la tabla por streaming o con change data feed.": [
   "crates/drivers/databricks/src/rename.rs"
@@ -32314,6 +33359,10 @@
  "Reservas de slots": [
   "crates/drivers/bigquery/src/monitor.rs"
  ],
+ "Reshare": [
+  "crates/drivers/powerbi/src/admin/mod.rs",
+  "crates/drivers/powerbi/src/security.rs"
+ ],
  "Residual": [
   "crates/drivers/sqlserver/src/plan.rs"
  ],
@@ -32328,6 +33377,7 @@
  ],
  "Respuesta inesperada": [
   "crates/drivers/databricks/src/u2m.rs",
+  "crates/drivers/powerbi/src/auth/browser.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Respuesta inesperada de CouchDB: JSON inválido cerca del byte {0}": [
@@ -32668,6 +33718,9 @@
  "Rol de replicación": [
   "crates/drivers/neo4j/src/monitor.rs"
  ],
+ "Rol de seguridad (RLS)": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
  "Rol del sistema: lo tienen todos los roles": [
   "crates/drivers/spanner/src/security.rs"
  ],
@@ -32676,6 +33729,9 @@
  ],
  "Rol del sistema: ve las tablas SPANNER_SYS": [
   "crates/drivers/spanner/src/security.rs"
+ ],
+ "Rol en el área de trabajo": [
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "Rol integrado": [
   "crates/drivers/neo4j/src/security.rs"
@@ -32718,6 +33774,9 @@
  "Roles de msdb": [
   "crates/drivers/sqlserver/src/agent/proxy.rs"
  ],
+ "Roles de seguridad sin miembros": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "Roles de servidor": [
   "crates/drivers/sqlserver/src/agent/proxy.rs"
  ],
@@ -32726,6 +33785,9 @@
  ],
  "Roles que tiene": [
   "crates/drivers/snowflake/src/security.rs"
+ ],
+ "Roles separados por comas (solo executeDaxQueries).": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Rollbacks": [
   "crates/drivers/postgres/src/monitor.rs",
@@ -32761,7 +33823,8 @@
  "Running": [
   "crates/drivers/clickhouse/src/jobs.rs",
   "crates/drivers/iotdb/src/monitor.rs",
-  "crates/drivers/postgres/src/jobs/timescale.rs"
+  "crates/drivers/postgres/src/jobs/timescale.rs",
+  "crates/drivers/powerbi/src/meta/fake.rs"
  ],
  "Ruta": [
   "crates/drivers/influxdb/src/scheduler/trigger.rs"
@@ -32993,6 +34056,9 @@
  ],
  "SCRIPT: SQL con estructura y datos (se restaura desde DBine)": [
   "crates/drivers/postgres/src/backup.rs"
+ ],
+ "SE Asia Standard Time": [
+  "crates/drivers/powerbi/src/refresh/timezones.rs"
  ],
  "SELECT … INTO … GROUP BY time(…)": [
   "crates/drivers/influxdb/src/scheduler/cq.rs"
@@ -33359,6 +34425,8 @@
   "crates/drivers/odbc/src/jobs/sqla.rs",
   "crates/drivers/odbc/src/scheduler/ase.rs",
   "crates/drivers/odbc/src/scheduler/sqla.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "src-tauri/src/tasks/os.rs"
  ],
  "Scan": [
@@ -33380,7 +34448,8 @@
   "crates/drivers/postgres/src/scheduler/crdb.rs"
  ],
  "Scheduled": [
-  "crates/drivers/clickhouse/src/jobs.rs"
+  "crates/drivers/clickhouse/src/jobs.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs"
  ],
  "Scheduled event": [
   "crates/drivers/orientdb/src/jobs.rs"
@@ -33603,6 +34672,12 @@
  "Se borró el programa de backup «{0}» para cambiar su tipo, pero Spanner no aceptó crearlo de nuevo: {1}": [
   "crates/drivers/spanner/src/scheduler.rs"
  ],
+ "Se calculan en cada actualización y no se comprimen tan bien como las importadas: calcularlas en el origen o en Power Query las hace más baratas.": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
+ "Se cambió la descripción del modelo «{0}».": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "Se canceló la tarea.": [
   "src-tauri/src/tasks/mod.rs"
  ],
@@ -33681,7 +34756,8 @@
   "crates/drivers/spanner/src/scheduler.rs"
  ],
  "Se guarda como texto.": [
-  "crates/dbine-schema/src/dialect/influxdb.rs"
+  "crates/dbine-schema/src/dialect/influxdb.rs",
+  "crates/dbine-schema/src/dialect/powerbi.rs"
  ],
  "Se guarda con SET CLUSTER SETTING (en UTC); CockroachDB la pasa al schedule enseguida.": [
   "crates/drivers/postgres/src/scheduler/crdb.rs"
@@ -33783,6 +34859,9 @@
  "Se muestran los primeros {0} streams.": [
   "crates/drivers/tdengine/src/jobs.rs"
  ],
+ "Se muestran {0} de {1} modelos: con muchas áreas de trabajo conviene indicar una en la conexión.": [
+  "crates/drivers/powerbi/src/refresh/mod.rs"
+ ],
  "Se omitieron los datos de COPY … FROM stdin: DBine no los envía (usá Importar datos).": [
   "crates/drivers/postgres/src/session.rs"
  ],
@@ -33835,6 +34914,9 @@
  "Se programó el job nuevo, pero no se pudo cancelar el anterior: {0}": [
   "crates/drivers/neo4j/src/scheduler/mod.rs"
  ],
+ "Se puede actualizar": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
  "Se puede borrar (ALLOW_DROP)": [
   "crates/drivers/tdengine/src/properties.rs"
  ],
@@ -33864,6 +34946,12 @@
  ],
  "Se renombra con sp_rename. Las claves foráneas, los índices y las restricciones siguen al objeto solos; el texto de las vistas, procedimientos, funciones y triggers que lo nombran no cambia, así que se reescribe y se repone con CREATE OR ALTER, que conserva los permisos.": [
   "crates/drivers/sqlserver/src/rename.rs"
+ ],
+ "Se renombra el modelo semántico en Power BI. Los informes conectados lo siguen por su ID, pero las conexiones que lo nombran (XMLA, Excel) dejan de encontrarlo.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "Se renombró el modelo «{0}» a «{1}».": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
  ],
  "Se repite (apoc.periodic.repeat)": [
   "crates/drivers/neo4j/src/jobs.rs",
@@ -33972,6 +35060,9 @@
  "Secreto de la aplicación": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
+ "Secreto del cliente": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Secuencia de cambios (update_seq)": [
   "crates/drivers/couchdb/src/properties.rs"
  ],
@@ -34067,6 +35158,7 @@
   "crates/drivers/firebird/src/properties.rs",
   "crates/drivers/kdb/src/health.rs",
   "crates/drivers/mysql/src/properties.rs",
+  "crates/drivers/powerbi/src/health.rs",
   "crates/drivers/tdengine/src/properties.rs"
  ],
  "Seguridad por filas (row_security)": [
@@ -34996,6 +36088,9 @@
  "Si termina bien, ir a": [
   "crates/drivers/odbc/src/scheduler/dameng.rs"
  ],
+ "Si tu inquilino todavía no aprobó la aplicación de DBine, el cliente de Azure CLI suele estar permitido.": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Si un paso falla, «{0}» queda bloqueado para escritura; se desbloquea con PUT /{1}/_settings y el cuerpo {\"index.blocks.write\": false}.": [
   "crates/drivers/elasticsearch/src/rename.rs"
  ],
@@ -35100,6 +36195,9 @@
  "Sin TLS, usuarios, contraseñas y datos viajan sin cifrar entre el cliente y el proceso.": [
   "crates/drivers/kdb/src/health.rs"
  ],
+ "Sin acceso": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
  "Sin acceso a V$SESSION / V$SQL_PLAN_STATISTICS_ALL (SELECT_CATALOG_ROLE): se muestran los planes estimados.": [
   "crates/drivers/oracle/src/lib.rs"
  ],
@@ -35120,6 +36218,9 @@
  ],
  "Sin autovacuum las filas muertas no se limpian, las estadísticas envejecen y la base se acerca al límite de transacciones (wraparound). Necesita también track_counts. En un servicio administrado se cambia en los parámetros de la instancia.": [
   "crates/drivers/postgres/src/health.rs"
+ ],
+ "Sin aviso": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Sin checkpoint al recuperar (no chkpt on recovery)": [
   "crates/drivers/odbc/src/properties.rs"
@@ -35351,11 +36452,23 @@
  "Sin permiso": [
   "crates/drivers/couchbase/src/jobs.rs"
  ],
+ "Sin permiso de administrador del modelo, las funciones INFO no muestran jerarquías, roles, perspectivas, particiones, expresiones ni funciones del modelo; de los grupos de cálculo se ven solo sus elementos.": [
+  "crates/drivers/powerbi/src/meta/info.rs"
+ ],
  "Sin permiso de administrador del servidor no se pueden leer: {0}.": [
   "crates/drivers/couchdb/src/monitor.rs"
  ],
  "Sin permiso de administrador del workspace, el historial muestra solo tus consultas.": [
   "crates/drivers/databricks/src/monitor.rs"
+ ],
+ "Sin permiso de escritura en el modelo no se ve su historial.": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
+ ],
+ "Sin permiso de escritura en el modelo no se ven las expresiones DAX: se muestran solo las relaciones y las jerarquías.": [
+  "crates/drivers/powerbi/src/dependencies.rs"
+ ],
+ "Sin permiso de escritura en el modelo, INFO.VIEW no devuelve las expresiones: las medidas y las tablas calculadas se ven sin su DAX.": [
+  "crates/drivers/powerbi/src/meta/info.rs"
  ],
  "Sin permiso de lectura sobre mysql.user: se ve solo la cuenta propia": [
   "crates/drivers/mysql/src/security.rs"
@@ -35496,6 +36609,9 @@
  ],
  "Sin un warehouse en la conexión, solo se muestran los warehouses y los bloqueos.": [
   "crates/drivers/snowflake/src/monitor.rs"
+ ],
+ "Sin un área de trabajo en la conexión solo se listan los modelos con permiso de escritura ({0} quedaron fuera): indicá una para verlos todos.": [
+  "crates/drivers/powerbi/src/refresh/mod.rs"
  ],
  "Sin usar (KB)": [
   "crates/drivers/sqlite/src/monitor.rs"
@@ -35893,6 +37009,9 @@
  "Solo cuentan tus consultas: para ver las de todos hace falta el permiso bigquery.jobs.listAll en el proyecto.": [
   "crates/drivers/bigquery/src/index_usage.rs"
  ],
+ "Solo datos": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Solo del coordinador: cada segmento lleva sus propias estadísticas.": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
@@ -35908,8 +37027,24 @@
  "Solo el dueño del job (o un superusuario) puede cambiarlo.": [
   "crates/drivers/postgres/src/scheduler/timescale.rs"
  ],
+ "Solo el propietario de un modelo puede cambiar su programación.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Solo el propietario del job o un miembro de sysadmin puede cambiarlo.": [
   "crates/drivers/sqlserver/src/agent/job.rs"
+ ],
+ "Solo el propietario del modelo ({0}) puede cambiar su programación.": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Solo el propietario del modelo ({0}) puede cambiar su programación: si no sos vos, Power BI rechaza el cambio.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Solo el propietario del modelo puede cambiar su programación.": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
+ ],
+ "Solo el propietario del modelo puede cambiar su programación: si no sos vos, Power BI rechaza el cambio.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Solo el rol propietario de la alerta (y los roles que lo heredan) puede cambiarla o borrarla: el rol de la sesión no lo tiene.": [
   "crates/drivers/snowflake/src/scheduler/alert.rs"
@@ -35952,6 +37087,9 @@
  ],
  "Solo estos dos quedan guardados en el archivo; TRUNCATE, PERSIST, MEMORY y OFF valen solo para la conexión que los pone.": [
   "crates/drivers/sqlite/src/properties.rs"
+ ],
+ "Solo filtran en las medidas que las activan con USERELATIONSHIP.": [
+  "crates/drivers/powerbi/src/health.rs"
  ],
  "Solo hace falta declarar los atributos que son clave de la tabla o de un índice; el resto de los atributos de cada ítem es libre.": [
   "crates/drivers/dynamodb/src/ddl.rs"
@@ -36054,6 +37192,9 @@
  ],
  "Solo se puede subir: el proceso lo fijó con -w al iniciar.": [
   "crates/drivers/kdb/src/props.rs"
+ ],
+ "Solo se pueden detener las actualizaciones mejoradas (pedidas por la API con opciones), no las programadas ni las del portal.": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
  ],
  "Solo se renombran índices y alias.": [
   "crates/drivers/elasticsearch/src/rename.rs"
@@ -36223,6 +37364,9 @@
  ],
  "Son sentencias sueltas, sin transacción: si la creación falla, el evento queda borrado.": [
   "crates/drivers/odbc/src/scheduler/sqla.rs"
+ ],
+ "Son {0} horarios: este modelo admite hasta {1} por día.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Sort": [
   "crates/drivers/odbc/src/plan.rs"
@@ -36479,7 +37623,8 @@
   "crates/drivers/mysql/src/processes.rs",
   "crates/drivers/mysql/src/profiler.rs",
   "crates/drivers/mysql/src/scheduler/doris.rs",
-  "crates/drivers/odbc/src/monitor.rs"
+  "crates/drivers/odbc/src/monitor.rs",
+  "crates/drivers/powerbi/src/meta/info.rs"
  ],
  "Statement": [
   "crates/drivers/iotdb/src/monitor.rs",
@@ -36562,8 +37707,11 @@
  ],
  "String": [
   "crates/dbine-schema/src/dialect/clickhouse.rs",
+  "crates/dbine-schema/src/dialect/powerbi.rs",
   "crates/drivers/clickhouse/src/schema.rs",
   "crates/drivers/clickhouse/src/transfer.rs",
+  "crates/drivers/powerbi/src/meta/mod.rs",
+  "crates/drivers/powerbi/src/query/arrow.rs",
   "crates/drivers/redis/src/ddl.rs",
   "src-tauri/src/secret_sources/ssm.rs"
  ],
@@ -36638,7 +37786,9 @@
   "crates/drivers/tdengine/src/lib.rs"
  ],
  "Succeeded": [
-  "crates/drivers/drill/src/profiler.rs"
+  "crates/drivers/drill/src/profiler.rs",
+  "crates/drivers/powerbi/src/definition/mod.rs",
+  "crates/drivers/powerbi/src/meta/fake.rs"
  ],
  "Success": [
   "crates/drivers/duckdb/src/lib.rs",
@@ -36697,6 +37847,8 @@
   "crates/drivers/odbc/src/jobs/sqla.rs",
   "crates/drivers/odbc/src/scheduler/ase.rs",
   "crates/drivers/odbc/src/scheduler/sqla.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "src-tauri/src/tasks/os.rs"
  ],
  "Supertablas": [
@@ -37032,6 +38184,7 @@
   "crates/drivers/phoenix/src/monitor.rs",
   "crates/drivers/postgres/src/monitor.rs",
   "crates/drivers/postgres/src/scheduler/crdb.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
   "crates/drivers/snowflake/src/monitor.rs",
   "crates/drivers/spanner/src/monitor.rs"
  ],
@@ -37104,6 +38257,9 @@
   "crates/drivers/postgres/src/monitor.rs",
   "crates/drivers/postgres/src/properties.rs",
   "crates/drivers/postgres/src/scheduler/crdb.rs",
+  "crates/drivers/powerbi/src/lib.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
+  "crates/drivers/powerbi/src/properties.rs",
   "crates/drivers/snowflake/src/properties.rs",
   "crates/drivers/sqlite/src/properties.rs",
   "crates/drivers/tdengine/src/lib.rs",
@@ -37213,12 +38369,16 @@
  "Tablas y modo de capacidad": [
   "crates/drivers/cassandra/src/monitor.rs"
  ],
+ "Tablas y particiones": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Tablas y tamaños": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
  "Table": [
   "crates/drivers/duckdb/src/plan.rs",
   "crates/drivers/flightsql/src/plan.rs",
+  "crates/drivers/powerbi/src/meta/info.rs",
   "crates/drivers/sqlserver/src/plan.rs"
  ],
  "Table ": [
@@ -37570,6 +38730,9 @@
   "crates/drivers/snowflake/src/scheduler/graph.rs",
   "crates/drivers/snowflake/src/scheduler/task.rs"
  ],
+ "Tamaño por tabla": [
+  "crates/drivers/powerbi/src/monitor.rs"
+ ],
  "Tamaño promedio de fila (B)": [
   "crates/drivers/sqlserver/src/plan.rs"
  ],
@@ -37918,6 +39081,8 @@
   "crates/drivers/odbc/src/jobs/sqla.rs",
   "crates/drivers/odbc/src/scheduler/ase.rs",
   "crates/drivers/odbc/src/scheduler/sqla.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "src-tauri/src/tasks/os.rs"
  ],
  "TiDB cuenta consultas: «seeks» son las que leyeron menos del 10% de las filas de la tabla por el índice y «scans», el resto. «updates» son las filas modificadas desde el último ANALYZE. La clave primaria agrupada no lleva contadores.": [
@@ -38271,7 +39436,8 @@
  "Tiempo máximo": [
   "crates/drivers/databricks/src/scheduler/form.rs",
   "crates/drivers/databricks/src/scheduler/spec.rs",
-  "crates/drivers/elasticsearch/src/scheduler/sm.rs"
+  "crates/drivers/elasticsearch/src/scheduler/sm.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Tiempo máximo (TIMEOUT)": [
   "crates/drivers/clickhouse/src/jobs.rs",
@@ -38289,6 +39455,9 @@
  ],
  "Tiempo máximo de consulta": [
   "crates/drivers/influxdb/src/monitor.rs"
+ ],
+ "Tiempo máximo de consulta (s)": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Tiempo máximo de consulta: {0} s (\\T)": [
   "crates/drivers/kdb/src/health.rs"
@@ -38583,6 +39752,8 @@
   "crates/drivers/postgres/src/security.rs",
   "crates/drivers/postgres/src/security/h2.rs",
   "crates/drivers/postgres/src/security/risingwave.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
+  "crates/drivers/powerbi/src/security.rs",
   "crates/drivers/redis/src/ddl.rs",
   "crates/drivers/snowflake/src/monitor.rs",
   "crates/drivers/snowflake/src/properties.rs",
@@ -38800,6 +39971,7 @@
   "crates/drivers/databricks/src/lib.rs"
  ],
  "Token de acceso": [
+  "crates/drivers/powerbi/src/lib.rs",
   "crates/drivers/sqlserver/src/variant.rs"
  ],
  "Token de acceso personal": [
@@ -38901,6 +40073,9 @@
  ],
  "Trabajos servidores de base de datos (QZDASOINIT) que ejecutan una sentencia SQL ahora, incluido el del monitor.": [
   "crates/drivers/odbc/src/monitor.rs"
+ ],
+ "Transaccional (todo o nada)": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Transacciones": [
   "crates/drivers/etcd/src/lib.rs",
@@ -39179,6 +40354,9 @@
  "Tráfico": [
   "crates/drivers/ksqldb/src/monitor.rs"
  ],
+ "Tu aplicación no tiene los permisos delegados de Power BI aprobados en este inquilino ({0}). Pedile a un administrador que los apruebe.": [
+  "crates/drivers/powerbi/src/auth/browser.rs"
+ ],
  "Tu usuario no es admin: los backups programados piden el privilegio BACKUP, los changefeeds el privilegio CHANGEFEED en sus tablas, la TTL de una tabla poder modificarla y la programación de los schedules del clúster MODIFYCLUSTERSETTING; el servidor rechaza lo que falte.": [
   "crates/drivers/postgres/src/scheduler/crdb.rs"
  ],
@@ -39294,6 +40472,8 @@
   "crates/drivers/odbc/src/jobs/sqla.rs",
   "crates/drivers/odbc/src/scheduler/ase.rs",
   "crates/drivers/odbc/src/scheduler/sqla.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "src-tauri/src/tasks/os.rs"
  ],
  "Tuplas muertas": [
@@ -39314,6 +40494,7 @@
   "crates/drivers/odbc/src/jobs/iris.rs",
   "crates/drivers/odbc/src/plan.rs",
   "crates/drivers/odbc/src/scheduler/iris.rs",
+  "crates/drivers/powerbi/src/meta/info.rs",
   "src-tauri/src/secret_sources/ssm.rs"
  ],
  "Tyrell": [
@@ -39854,6 +41035,9 @@
  "Un timespan de q es una duración en nanosegundos: un intervalo con meses o años no entra.": [
   "crates/dbine-schema/src/dialect/kdb.rs"
  ],
+ "Un token para Power BI de la nube elegida. DBine no lo renueva: cuando vence hay que pegar otro.": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Un token para https://database.windows.net/ (por ejemplo, de `az account get-access-token --resource https://database.windows.net/`). Vence en una hora.": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
@@ -39947,6 +41131,9 @@
  "Una alerta sobre datos nuevos evalúa la condición cuando cambian las tablas que lee; con una plantilla, sin programación usa la de la plantilla. Snowflake no deja cambiar de una a otra.": [
   "crates/drivers/snowflake/src/scheduler/alert.rs"
  ],
+ "Una aplicación cliente pública con permisos delegados de Power BI y la URI de redirección http://localhost.": [
+  "crates/drivers/powerbi/src/lib.rs"
+ ],
  "Una base de tipo «{0}» no se modifica con ALTER DATABASE.": [
   "crates/drivers/neo4j/src/properties.rs"
  ],
@@ -40009,6 +41196,12 @@
  ],
  "Una duración: 30s, 10m, 1h, 1d.": [
   "crates/drivers/influxdb/src/scheduler/trigger.rs"
+ ],
+ "Una entidad de servicio no recibe correos: solo «Sin aviso».": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Una entidad de servicio solo puede programar con «Sin aviso».": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Una entrada de una sola vez queda guardada después de enviar el trabajo.": [
   "crates/drivers/odbc/src/scheduler/db2i.rs"
@@ -40192,6 +41385,9 @@
  "Una programación por tiempo no se puede cambiar a una por evento (ni al revés): creá otra.": [
   "crates/drivers/oracle/src/scheduler/schedule.rs"
  ],
+ "Una programación tiene hasta 8 horarios por día en capacidad compartida (Pro) y hasta 48 en capacidad Premium o Fabric.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Una reflexión RAW necesita al menos una columna.": [
   "crates/drivers/dremio/src/scheduler/reflection.rs"
  ],
@@ -40203,6 +41399,9 @@
  ],
  "Una región (SingleRegionStrategy)": [
   "crates/drivers/cassandra/src/create_db.rs"
+ ],
+ "Una relación de muchos a muchos suma valores repetidos si no se piensa con cuidado; suele convenir una tabla puente.": [
+  "crates/drivers/powerbi/src/health.rs"
  ],
  "Una replicación transitoria no se puede cambiar: no tiene documento. Borrarla la cancela.": [
   "crates/drivers/couchdb/src/replication/doc.rs"
@@ -40348,6 +41547,9 @@
  "Unavailable": [
   "crates/drivers/flightsql/src/lib.rs"
  ],
+ "Undefined": [
+  "crates/drivers/powerbi/src/definition/mod.rs"
+ ],
  "Une en uno los {0} backups del repositorio «{1}» hechos entre el {2} y el {3}: de {4} a {5} días atrás, en el calendario de los nodos de backup.": [
   "crates/drivers/couchbase/src/backup/repo.rs"
  ],
@@ -40426,7 +41628,10 @@
   "crates/drivers/mysql/src/jobs/clock.rs"
  ],
  "Unknown": [
-  "crates/drivers/drill/src/profiler.rs"
+  "crates/drivers/drill/src/profiler.rs",
+  "crates/drivers/powerbi/src/meta/mod.rs",
+  "crates/drivers/powerbi/src/objects.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs"
  ],
  "Uno o más nodos de contacto, separados por comas.": [
   "crates/drivers/cassandra/src/lib.rs"
@@ -40451,6 +41656,12 @@
  ],
  "Uno por línea, clave=valor. Se suman a los parámetros base de cada notebook y ganan sobre ellos; quitar una línea no quita el de la tarea.": [
   "crates/drivers/databricks/src/scheduler/run.rs"
+ ],
+ "Uno por línea, en punto o y media (HH:00 o HH:30). Hasta 48 por día en capacidad Premium o Fabric.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Uno por línea, en punto o y media (HH:00 o HH:30). Hasta 8 por día en capacidad compartida.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Uno por línea, nombre=valor: parámetros que el job no declara, solo para esta ejecución.": [
   "crates/drivers/databricks/src/scheduler/run.rs"
@@ -40518,6 +41729,8 @@
   "crates/drivers/mysql/src/security.rs",
   "crates/drivers/odbc/src/presets.rs",
   "crates/drivers/postgres/src/processes.rs",
+  "crates/drivers/powerbi/src/admin/mod.rs",
+  "crates/drivers/powerbi/src/security.rs",
   "crates/drivers/sqlserver/src/jobs.rs"
  ],
  "User is ": [
@@ -40671,6 +41884,7 @@
   "crates/drivers/postgres/src/security.rs",
   "crates/drivers/postgres/src/security/h2.rs",
   "crates/drivers/postgres/src/security/risingwave.rs",
+  "crates/drivers/powerbi/src/security.rs",
   "crates/drivers/snowflake/src/monitor.rs",
   "crates/drivers/solr/src/security.rs",
   "crates/drivers/sqlserver/src/babelfish.rs",
@@ -41359,6 +42573,9 @@
  "Vacío: todas. Solo las elegidas, sin las que dependen de ellas (para eso está «Iniciar en el paso…»).": [
   "crates/drivers/databricks/src/scheduler/run.rs"
  ],
+ "Vacío: todo el modelo.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Vacío: todos los buckets del cluster.": [
   "crates/drivers/couchbase/src/backup/repo.rs"
  ],
@@ -41409,6 +42626,9 @@
   "crates/drivers/redis/src/ddl.rs",
   "crates/drivers/snowflake/src/scheduler/mod.rs",
   "crates/drivers/sqlserver/src/agent/alert.rs"
+ ],
+ "Valor de CUSTOMDATA()": [
+  "crates/drivers/powerbi/src/lib.rs"
  ],
  "Valor del parámetro": [
   "crates/drivers/odbc/src/scheduler/informix.rs"
@@ -41481,6 +42701,10 @@
  ],
  "Variación al azar (RANDOMIZE FOR)": [
   "crates/drivers/clickhouse/src/scheduler/refresh.rs"
+ ],
+ "Variant": [
+  "crates/drivers/powerbi/src/meta/mod.rs",
+  "crates/drivers/powerbi/src/query/arrow.rs"
  ],
  "Varias veces": [
   "crates/drivers/odbc/src/scheduler/iris.rs"
@@ -41663,6 +42887,9 @@
  "Ventanas": [
   "crates/drivers/oracle/src/scheduler/mod.rs",
   "crates/drivers/oracle/src/scheduler/window.rs"
+ ],
+ "Ventas": [
+  "crates/drivers/powerbi/src/meta/fake.rs"
  ],
  "Ver las propiedades de un esquema necesita leer DBA_USERS (SELECT_CATALOG_ROLE o un usuario DBA).": [
   "crates/drivers/oracle/src/properties.rs"
@@ -41923,6 +43150,10 @@
  "View": [
   "crates/drivers/clickhouse/src/lib.rs"
  ],
+ "Viewer": [
+  "crates/drivers/powerbi/src/admin/mod.rs",
+  "crates/drivers/powerbi/src/security.rs"
+ ],
  "Virtuoso": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
  ],
@@ -42111,6 +43342,8 @@
   "crates/drivers/odbc/src/jobs/sqla.rs",
   "crates/drivers/odbc/src/scheduler/ase.rs",
   "crates/drivers/odbc/src/scheduler/sqla.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "src-tauri/src/tasks/os.rs"
  ],
  "Windows": [
@@ -42170,6 +43403,10 @@
   "crates/drivers/databricks/src/lib.rs",
   "crates/drivers/databricks/src/scheduler/form.rs"
  ],
+ "Write": [
+  "crates/drivers/powerbi/src/admin/mod.rs",
+  "crates/drivers/powerbi/src/security.rs"
+ ],
  "X-Large": [
   "crates/drivers/snowflake/src/scheduler/mod.rs"
  ],
@@ -42206,6 +43443,18 @@
  ],
  "XML como unitext (las funciones XML de ASE trabajan sobre texto).": [
   "crates/dbine-schema/src/dialect/sybase.rs"
+ ],
+ "XMLA (la API REST no lista sesiones)": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
+ "XMLA (las copias de seguridad de un modelo no están en la API REST)": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
+ "XMLA (las restauraciones no están en la API REST)": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
+ "XMLA (las trazas no están en la API REST)": [
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "Ya existe el programa de backup «{0}» en la base «{1}».": [
   "crates/drivers/spanner/src/scheduler.rs"
@@ -42270,6 +43519,9 @@
  "Ya hay un ítem con la clave {0} (en la tabla o antes en los mismos datos): la carga nunca reemplaza ítems.": [
   "crates/drivers/dynamodb/src/transfer.rs"
  ],
+ "Ya hay una actualización en curso: Power BI actualiza un modelo por vez.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "Ya hay una clase de job llamada «{0}».": [
   "crates/drivers/postgres/src/scheduler/pgagent.rs"
  ],
@@ -42290,6 +43542,7 @@
  ],
  "Ya iniciaste sesión: podés cerrar esta ventana y volver a DBine.": [
   "crates/drivers/databricks/src/u2m.rs",
+  "crates/drivers/powerbi/src/auth/browser.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "Ya se habían escrito {0} filas, que quedan en la tabla. {1}": [
@@ -42435,6 +43688,8 @@
   "crates/drivers/postgres/src/monitor.rs",
   "crates/drivers/postgres/src/scheduler/cron.rs",
   "crates/drivers/postgres/src/scheduler/timescale.rs",
+  "crates/drivers/powerbi/src/refresh/jobs.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "crates/drivers/snowflake/src/scheduler/mod.rs",
   "crates/drivers/spanner/src/jobs.rs",
   "crates/drivers/spanner/src/scheduler.rs",
@@ -42590,6 +43845,10 @@
  "actualizaciones": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
+ "actualización": [
+  "crates/drivers/powerbi/src/objects.rs",
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
+ ],
  "actualización de tabla": [
   "crates/drivers/databricks/src/jobs.rs"
  ],
@@ -42598,6 +43857,10 @@
  ],
  "actualizado": [
   "crates/drivers/mysql/src/monitor.rs"
+ ],
+ "actualizar el modelo": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "actualizá git a 2.27 o confirmá tus cambios antes del Pull": [
   "src-tauri/src/commands/projects_git.rs"
@@ -42693,6 +43956,9 @@
   "crates/drivers/neo4j/src/monitor.rs",
   "crates/drivers/tdengine/src/lib.rs"
  ],
+ "aplicación de inicio de sesión desconocida": [
+  "crates/drivers/powerbi/src/config.rs"
+ ],
  "aprobaciones de archivos": [
   "src-tauri/src/notebook/access.rs"
  ],
@@ -42701,6 +43967,7 @@
  ],
  "argumentos no válidos": [
   "crates/drivers/postgres/src/cloud_auth.rs",
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "arreglo de {0}": [
@@ -42730,8 +43997,12 @@
  "auto.offset.reset: desde dónde lee su entrada una consulta nueva o recreada. Un reemplazo en el lugar sigue desde donde estaba.": [
   "crates/drivers/ksqldb/src/scheduler.rs"
  ],
+ "automática": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
  "automático": [
-  "crates/drivers/mysql/src/design.rs"
+  "crates/drivers/mysql/src/design.rs",
+  "crates/drivers/powerbi/src/objects.rs"
  ],
  "avance (%)": [
   "crates/drivers/cassandra/src/monitor.rs"
@@ -42816,6 +44087,9 @@
  "borrando el índice": [
   "crates/drivers/dynamodb/src/admin.rs"
  ],
+ "borrar el modelo": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "borrándose": [
   "crates/drivers/dynamodb/src/admin.rs"
  ],
@@ -42851,6 +44125,9 @@
  "caché de DuckDB envenenada": [
   "crates/drivers/duckdb/src/lib.rs"
  ],
+ "caché de consultas": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
+ ],
  "caché del último dato": [
   "crates/drivers/tdengine/src/create_db.rs",
   "crates/drivers/tdengine/src/properties.rs"
@@ -42869,6 +44146,16 @@
  ],
  "calendario": [
   "crates/drivers/odbc/src/scheduler/ase.rs"
+ ],
+ "cambiar el modelo": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "cambiar el modelo ni sus permisos": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "cambiar la programación": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "cambio en las tablas base": [
   "crates/drivers/mysql/src/jobs/doris.rs"
@@ -42894,12 +44181,19 @@
  "cancelada": [
   "crates/drivers/neo4j/src/monitor.rs"
  ],
+ "cancelar una actualización": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
+ ],
  "cancelar una consulta (ALTER SYSTEM CANCEL SQL) requiere Oracle 18c o posterior: {0}": [
   "crates/drivers/oracle/src/processes.rs"
  ],
  "cancelándose": [
   "crates/drivers/elasticsearch/src/processes.rs",
   "crates/drivers/postgres/src/backup.rs"
+ ],
+ "capacidad (sin permiso para ver el SKU)": [
+  "crates/drivers/powerbi/src/catalog.rs",
+  "crates/drivers/powerbi/src/monitor.rs"
  ],
  "carga": [
   "crates/drivers/cassandra/src/monitor.rs"
@@ -43120,6 +44414,9 @@
  ],
  "compañia": [
   "src-tauri/src/commands/datagen.rs"
+ ],
+ "compilación": [
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "completadas": [
   "crates/drivers/cassandra/src/monitor.rs"
@@ -43519,6 +44816,9 @@
  "decimal sin precisión fija": [
   "crates/dbine-schema/src/logical.rs"
  ],
+ "definición del modelo (API de Fabric)": [
+  "crates/drivers/powerbi/src/meta/mod.rs"
+ ],
  "deja de saltearlo (SKIP = FALSE)": [
   "crates/drivers/oracle/src/scheduler/action.rs"
  ],
@@ -43631,6 +44931,7 @@
   "crates/drivers/orientdb/src/transfer.rs",
   "crates/drivers/phoenix/src/transfer.rs",
   "crates/drivers/postgres/src/transfer.rs",
+  "crates/drivers/powerbi/src/transfer.rs",
   "crates/drivers/redis/src/transfer.rs",
   "crates/drivers/snowflake/src/transfer.rs",
   "crates/drivers/solr/src/transfer.rs",
@@ -43684,7 +44985,12 @@
  ],
  "dirección de inicio de sesión inesperada": [
   "crates/drivers/databricks/src/u2m.rs",
+  "crates/drivers/powerbi/src/auth/browser.rs",
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "dirección de inicio de sesión no válida": [
+  "crates/drivers/powerbi/src/auth/browser.rs",
+  "crates/drivers/powerbi/src/auth/mod.rs"
  ],
  "dirección de subida inválida: {0}": [
   "crates/drivers/bigquery/src/transfer.rs"
@@ -43765,6 +45071,9 @@
   "crates/drivers/mongodb/src/monitor.rs",
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/solr/src/monitor.rs"
+ ],
+ "domingo": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "dos columnas del DataFrame van a «{0}»": [
   "src-tauri/src/notebook/write.rs"
@@ -44507,6 +45816,7 @@
   "crates/drivers/mongodb/src/ddl.rs",
   "crates/drivers/neo4j/src/ddl.rs",
   "crates/drivers/orientdb/src/ddl.rs",
+  "crates/drivers/powerbi/src/dax/browse.rs",
   "crates/drivers/solr/src/ddl.rs"
  ],
  "el filtro de «{0}» necesita un valor": [
@@ -44524,6 +45834,7 @@
   "crates/drivers/mysql/src/design.rs",
   "crates/drivers/neo4j/src/ddl.rs",
   "crates/drivers/orientdb/src/ddl.rs",
+  "crates/drivers/powerbi/src/dax/browse.rs",
   "crates/drivers/solr/src/ddl.rs"
  ],
  "el filtro del índice {0} no es válido: {1}": [
@@ -44550,8 +45861,12 @@
  "el filtro tiene un texto, un nombre entre comillas o un comentario sin cerrar": [
   "crates/drivers/bigquery/src/transfer.rs"
  ],
+ "el gráfico agrupa en el servidor una consulta con un solo EVALUATE": [
+  "crates/drivers/powerbi/src/dax/aggregate.rs"
+ ],
  "el gráfico agrupa en el servidor una sola consulta": [
-  "crates/dbine-driver/src/aggregate.rs"
+  "crates/dbine-driver/src/aggregate.rs",
+  "crates/drivers/powerbi/src/dax/aggregate.rs"
  ],
  "el gráfico necesita entre 1 y {0} medidas": [
   "crates/dbine-driver/src/aggregate.rs"
@@ -44586,11 +45901,17 @@
  "el inicio de sesión en el navegador solo funciona con la dirección de un workspace de Databricks (*.cloud.databricks.com, *.gcp.databricks.com, *.azuredatabricks.net, *.databricks.azure.us, *.databricks.azure.cn, *.cloud.databricks.us o *.cloud.databricks.mil); para otros hosts usá un token": [
   "crates/drivers/databricks/src/u2m.rs"
  ],
+ "el inicio de sesión no terminó": [
+  "crates/drivers/powerbi/src/auth/browser.rs"
+ ],
  "el inicio de sesión no terminó a tiempo": [
   "src-tauri/src/enterprise/signin.rs"
  ],
  "el inquilino (tenant ID) no es válido": [
   "crates/drivers/sqlserver/src/variant.rs"
+ ],
+ "el inquilino (tenant) no es válido": [
+  "crates/drivers/powerbi/src/config.rs"
  ],
  "el inquilino de Microsoft Entra no es válido (su ID o su dominio)": [
   "crates/dbine-core/src/secret_accounts.rs",
@@ -44684,6 +46005,9 @@
  "el mensaje quedó vacío": [
   "src-tauri/src/tasks/message.rs"
  ],
+ "el modelo": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "el modelo configurado en Codex": [
   "crates/dbine-ai/src/detect.rs"
  ],
@@ -44707,6 +46031,9 @@
  ],
  "el motor": [
   "crates/drivers/clickhouse/src/sync.rs"
+ ],
+ "el motor cortó el resultado de {0}: no se comparan resultados parciales": [
+  "src-tauri/src/commands/data_compare_whole.rs"
  ],
  "el motor de IA": [
   "crates/dbine-ai/src/embedded.rs"
@@ -44791,6 +46118,9 @@
  ],
  "el nombre no puede contener «$$»": [
   "crates/drivers/snowflake/src/security.rs"
+ ],
+ "el nombre nuevo": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
  ],
  "el nombre nuevo es igual al actual": [
   "crates/drivers/kdb/src/rename.rs",
@@ -45085,6 +46415,9 @@
  ],
  "el resultado agrupado no tiene las columnas esperadas": [
   "crates/dbine-driver/src/aggregate.rs"
+ ],
+ "el resultado de {0} no trae la columna «{1}»: volvé a leer sus columnas": [
+  "src-tauri/src/commands/data_compare_whole.rs"
  ],
  "el rol actual no ve ninguna tarea: Snowflake muestra solo aquellas sobre las que tiene algún privilegio": [
   "crates/drivers/snowflake/src/jobs.rs"
@@ -45438,6 +46771,9 @@
  "el token es del inquilino {0}, no de {1}": [
   "src-tauri/src/secret_sources/azure.rs"
  ],
+ "el token no es un JWT": [
+  "crates/drivers/powerbi/src/auth/mod.rs"
+ ],
  "el transform {0} se ejecuta al iniciarlo: «Ejecutar ahora» es para los continuos ya iniciados (Elasticsearch 8.7 o posterior)": [
   "crates/drivers/elasticsearch/src/jobs.rs"
  ],
@@ -45466,8 +46802,14 @@
  "el uso más reciente puede no figurar todavía, así que un índice recién creado o recién usado puede verse sin uso hasta el próximo volcado, y la última lectura es la hora del volcado que la registró, no la del acceso.": [
   "crates/drivers/oracle/src/index_usage.rs"
  ],
+ "el usuario": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "el usuario de la cuenta no es válido": [
   "crates/dbine-core/src/secret_accounts.rs"
+ ],
+ "el usuario o grupo": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
  ],
  "el usuario que lo creó": [
   "crates/drivers/sqlserver/src/clone.rs"
@@ -45513,6 +46855,9 @@
  ],
  "el valor de «{0}»": [
   "crates/drivers/influxdb/src/transfer.rs"
+ ],
+ "el valor del parámetro no es válido": [
+  "crates/dbine-driver/src/params.rs"
  ],
  "el valor editado no es un nodo o relación en JSON": [
   "crates/drivers/neo4j/src/ddl.rs"
@@ -45686,8 +47031,15 @@
   "crates/dbine-driver/src/write.rs",
   "src-tauri/src/notebook/write.rs"
  ],
+ "elegí la conexión de {0}": [
+  "src-tauri/src/commands/data_compare_query.rs"
+ ],
  "elegí la tabla de destino": [
   "src-tauri/src/notebook/write.rs"
+ ],
+ "elegí las columnas que identifican cada fila (la clave)": [
+  "src-tauri/src/commands/data_compare_query.rs",
+  "src-tauri/src/commands/data_compare_whole.rs"
  ],
  "elegí o escribí el login": [
   "crates/drivers/odbc/src/security/sybase.rs",
@@ -45829,6 +47181,9 @@
  "en Phoenix un esquema no tiene dueño: otorgá permisos sobre él": [
   "crates/drivers/phoenix/src/ddl.rs"
  ],
+ "en Power BI se leen por lotes las tablas del modelo": [
+  "crates/drivers/powerbi/src/transfer.rs"
+ ],
  "en Redis solo se renombran claves": [
   "crates/drivers/redis/src/rename.rs"
  ],
@@ -45891,6 +47246,7 @@
  "en curso": [
   "crates/drivers/couchdb/src/processes.rs",
   "crates/drivers/postgres/src/backup.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
   "crates/drivers/redis/src/backup.rs"
  ],
  "en disco": [
@@ -46055,8 +47411,14 @@
  "error leyendo el archivo: {0}": [
   "src-tauri/src/commands/imports.rs"
  ],
+ "error sin código": [
+  "crates/drivers/powerbi/src/refresh/mod.rs"
+ ],
  "error sin detalle": [
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "es de muchos a muchos": [
+  "crates/drivers/powerbi/src/objects.rs"
  ],
  "es demasiado chico para {0} (se cargaría como 0)": [
   "crates/drivers/athena/src/transfer.rs"
@@ -46187,6 +47549,9 @@
  "escribí el scope con su bucket, «bucket.scope» (por ejemplo «mibucket.{0}»)": [
   "crates/drivers/couchbase/src/ddl.rs"
  ],
+ "escribí la consulta de {0}": [
+  "src-tauri/src/commands/data_compare_query.rs"
+ ],
  "escribí la contraseña del usuario": [
   "crates/drivers/cassandra/src/security.rs",
   "crates/drivers/clickhouse/src/security.rs",
@@ -46284,6 +47649,9 @@
  "esquemas (no tiene ALTER SCHEMA)": [
   "crates/drivers/dsql/src/rename.rs"
  ],
+ "esquemas (un modelo no los tiene)": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
  "esta base no informa roles (el emulador de Spanner no tiene el control de acceso detallado): {0}": [
   "crates/drivers/spanner/src/security.rs"
  ],
@@ -46311,6 +47679,12 @@
  "esta conexión usa solo el protocolo simple de consultas: no se puede asegurar una sola sentencia de solo lectura": [
   "crates/drivers/postgres/src/session.rs"
  ],
+ "esta consulta no es la vista de una tabla del modelo: el filtro se aplica a las filas cargadas": [
+  "crates/drivers/powerbi/src/dax/browse.rs"
+ ],
+ "esta consulta no es la vista de una tabla del modelo: se ordenan las filas cargadas": [
+  "crates/drivers/powerbi/src/dax/browse.rs"
+ ],
  "esta consulta programada es del namespace «{0}» y la sesión trabaja en «{1}»": [
   "crates/drivers/odbc/src/jobs/hive.rs"
  ],
@@ -46336,6 +47710,9 @@
  "esta versión de CockroachDB solo ejecuta en el momento los schedules de backup (EXECUTE SCHEDULE llegó en la 26.1)": [
   "crates/drivers/postgres/src/jobs/cockroach.rs",
   "crates/drivers/postgres/src/scheduler/crdb.rs"
+ ],
+ "esta versión de DBine no conoce el lenguaje de este motor: actualizala para usar parámetros": [
+  "crates/dbine-driver/src/params.rs"
  ],
  "esta versión de DBine no sabe ejecutar pasos «{0}»": [
   "src-tauri/src/tasks/steps.rs"
@@ -46432,6 +47809,9 @@
  ],
  "estadísticas": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
+ ],
+ "estadísticas de columnas (COLUMNSTATISTICS)": [
+  "crates/drivers/powerbi/src/meta/mod.rs"
  ],
  "estadísticas extendidas (CREATE STATISTICS)": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
@@ -47002,6 +48382,9 @@
  "está fuera de rango": [
   "crates/drivers/solr/src/transfer.rs"
  ],
+ "está inactiva: solo filtra con USERELATIONSHIP": [
+  "crates/drivers/powerbi/src/objects.rs"
+ ],
  "está inactivo": [
   "crates/drivers/postgres/src/jobs/cron.rs"
  ],
@@ -47070,6 +48453,15 @@
  ],
  "events_statements_history_long está desactivado y la conexión es de solo lectura": [
   "crates/drivers/mysql/src/profiler.rs"
+ ],
+ "executeDaxQueries no está disponible": [
+  "crates/drivers/powerbi/src/meta/fake.rs"
+ ],
+ "executeDaxQueries no está disponible en esta área de trabajo (capacidad compartida): las consultas van por executeQueries, que devuelve como máximo 100.000 filas por consulta.": [
+  "crates/drivers/powerbi/src/query/mod.rs"
+ ],
+ "executeDaxQueries o executeQueries (automática)": [
+  "crates/drivers/powerbi/src/catalog.rs"
  ],
  "expresión regular sin cerrar": [
   "crates/drivers/mongodb/src/shell.rs"
@@ -47452,6 +48844,9 @@
  "falta la columna «{0}» en el destino": [
   "crates/dbine-transfer/src/check.rs"
  ],
+ "falta la condición DAX del filtro de «{0}»": [
+  "crates/drivers/powerbi/src/dax/browse.rs"
+ ],
  "falta la contraseña de Delinea": [
   "src-tauri/src/secret_sources/accounts.rs"
  ],
@@ -47553,6 +48948,9 @@
  "faltan el tenant ID, el client ID o el client secret": [
   "crates/drivers/databricks/src/lib.rs"
  ],
+ "faltan las columnas del resultado de la consulta": [
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
  "familias de columnas: {0} / {1}": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
@@ -47606,6 +49004,15 @@
  ],
  "filas mínimas": [
   "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "filtra en ambas direcciones": [
+  "crates/drivers/powerbi/src/objects.rs"
+ ],
+ "filtro de seguridad (RLS)": [
+  "crates/drivers/powerbi/src/dependencies.rs"
+ ],
+ "filtro de {0}": [
+  "crates/drivers/powerbi/src/dependencies.rs"
  ],
  "filtro del índice {0}: JSON inválido ({1})": [
   "crates/drivers/couchdb/src/ddl.rs"
@@ -47896,7 +49303,8 @@
   "crates/drivers/tdengine/src/lib.rs"
  ],
  "id de comparación no válido": [
-  "src-tauri/src/commands/data_compare.rs"
+  "src-tauri/src/commands/data_compare.rs",
+  "src-tauri/src/commands/data_compare_query.rs"
  ],
  "id de ejecución no válido": [
   "src-tauri/src/results_store.rs"
@@ -47948,6 +49356,9 @@
  ],
  "imagen inválida: {0}": [
   "src-tauri/src/commands/health.rs"
+ ],
+ "importación": [
+  "crates/drivers/powerbi/src/objects.rs"
  ],
  "inactiva (s)": [
   "crates/drivers/redis/src/monitor.rs"
@@ -48026,6 +49437,9 @@
  ],
  "inserciones": [
   "crates/drivers/mongodb/src/monitor.rs"
+ ],
+ "inserción": [
+  "crates/drivers/powerbi/src/objects.rs"
  ],
  "instalado · usa tu cuenta de {0}": [
   "crates/dbine-ai/src/detect.rs"
@@ -48124,6 +49538,9 @@
  "juego de caracteres: «{0}» no es un valor válido": [
   "crates/drivers/firebird/src/create_db.rs",
   "crates/drivers/firebird/src/properties.rs"
+ ],
+ "jueves": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "kdb+ anunció un mensaje de {0} bytes, más de lo que permite su protocolo": [
   "crates/drivers/kdb/src/conn.rs"
@@ -48746,6 +50163,9 @@
  "la columna «{0}» ({1}) toma valores de una secuencia propia y ese tipo no tiene serial equivalente": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
+ "la columna «{0}» / «{1}» no está en los dos resultados": [
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
  "la columna «{0}» de la clave admite NULL: una fila con la clave en NULL no cae en ningún grupo ni se empareja con la del otro lado, así que no se puede sincronizar por filas (la clave tiene que ser NOT NULL en origen y destino)": [
   "crates/drivers/sqlserver/src/delta.rs"
  ],
@@ -48785,6 +50205,9 @@
  ],
  "la columna «{0}» no existe en la tabla de destino": [
   "crates/drivers/snowflake/src/transfer.rs"
+ ],
+ "la columna «{0}» se compara dos veces": [
+  "src-tauri/src/commands/data_compare_whole.rs"
  ],
  "la columna «{0}» sigue tomando valores de la misma secuencia que el original ({1})": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
@@ -48912,6 +50335,36 @@
  "la confirmación de la escritura ya no vale: ejecutá la celda de nuevo": [
   "src-tauri/src/notebook/write.rs"
  ],
+ "la consulta": [
+  "src-tauri/src/commands/data_compare_query.rs"
+ ],
+ "la consulta de {0} devuelve dos columnas «{1}»: poneles un alias": [
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
+ "la consulta de {0} devuelve más de un resultado: dejá una sola consulta": [
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
+ "la consulta de {0} devuelve más de una columna sin nombre: poneles un alias": [
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
+ "la consulta de {0} falló: {1}": [
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
+ "la consulta de {0} no devolvió un resultado con columnas": [
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
+ "la consulta de {0} trae filas más rápido de lo que DBine las puede guardar para compararlas: acotala (menos filas o columnas) o compará la tabla o la vista": [
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
+ "la consulta devuelve dos columnas «{0}»: poneles un alias": [
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
+ "la consulta devuelve más de un resultado: dejá una sola consulta": [
+  "src-tauri/src/commands/data_compare_query.rs"
+ ],
+ "la consulta devuelve más de una columna sin nombre: poneles un alias": [
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
  "la consulta está vacía": [
   "src-tauri/src/notebook/local.rs",
   "src-tauri/src/tasks/steps.rs"
@@ -48933,11 +50386,23 @@
  "la consulta no devolvió la columna «{0}»": [
   "crates/dbine-driver/src/aggregate.rs"
  ],
+ "la consulta no devolvió un resultado con columnas": [
+  "src-tauri/src/commands/data_compare_query.rs"
+ ],
+ "la consulta no tiene una expresión de tabla": [
+  "crates/drivers/powerbi/src/dax/aggregate.rs"
+ ],
  "la consulta programada «{0}» no se está ejecutando": [
   "crates/drivers/odbc/src/jobs/hive.rs"
  ],
  "la consulta superó el límite de {0} s y se canceló": [
   "src-tauri/src/mcp/tools.rs"
+ ],
+ "la consulta usa START AT: el gráfico agrupa las filas en DBine": [
+  "crates/drivers/powerbi/src/dax/aggregate.rs"
+ ],
+ "la consulta ya ordena: se ordenan las filas cargadas": [
+  "crates/drivers/powerbi/src/dax/browse.rs"
  ],
  "la consulta ya terminó": [
   "src-tauri/src/link.rs"
@@ -49077,6 +50542,10 @@
  "la del tipo": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
+ "la derecha": [
+  "src-tauri/src/commands/data_compare_query.rs",
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
  "la descarga quedó incompleta ({0} de {1} bytes): reintentá para retomarla": [
   "crates/dbine-ai/src/embedded.rs"
  ],
@@ -49107,6 +50576,9 @@
  ],
  "la especificación y el cuerpo": [
   "crates/drivers/oracle/src/rename.rs"
+ ],
+ "la estructura del modelo (no se pudo leer)": [
+  "crates/drivers/powerbi/src/health.rs"
  ],
  "la fecha hasta la que se pide el acceso ya pasó": [
   "src-tauri/src/enterprise/mod.rs"
@@ -49201,6 +50673,7 @@
   "src-tauri/src/commands/connections.rs"
  ],
  "la identidad administrada no dio un token: {0}": [
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "la identidad de «{0}» no quedó como la del original ({1} en el original, {2} en el clon); no se clona": [
@@ -49227,11 +50700,18 @@
  "la intercalación (collation) no es válida: {0}": [
   "crates/drivers/mongodb/src/ddl.rs"
  ],
+ "la izquierda": [
+  "src-tauri/src/commands/data_compare_query.rs",
+  "src-tauri/src/commands/data_compare_whole.rs"
+ ],
  "la key no tiene la columna {0}": [
   "crates/drivers/redis/src/transfer.rs"
  ],
  "la lectura de la base de KeePass se interrumpió: {0}": [
   "src-tauri/src/secret_sources/keepass.rs"
+ ],
+ "la lectura de la tabla devolvió más de un resultado": [
+  "crates/drivers/powerbi/src/transfer.rs"
  ],
  "la lectura de la tabla no trae la columna «{0}»": [
   "src-tauri/src/commands/data_compare_whole.rs"
@@ -49272,7 +50752,8 @@
   "crates/drivers/spanner/src/transfer.rs"
  ],
  "la lectura terminó": [
-  "crates/dbine-plugin/src/remote.rs"
+  "crates/dbine-plugin/src/remote.rs",
+  "src-tauri/src/commands/data_compare_whole.rs"
  ],
  "la lectura terminó con estado «{0}»": [
   "crates/drivers/couchbase/src/transfer.rs"
@@ -49321,6 +50802,9 @@
  ],
  "la memoria (duckdb_memory)": [
   "crates/drivers/duckdb/src/monitor.rs"
+ ],
+ "la memoria (hacen falta permisos de administrador del modelo y capacidad Premium o Fabric)": [
+  "crates/drivers/powerbi/src/health.rs"
  ],
  "la migración está corriendo": [
   "src-tauri/src/commands/migration.rs"
@@ -49643,7 +51127,8 @@
  "la tabla «{0}» no tiene la columna «{1}»": [
   "crates/drivers/athena/src/rename.rs",
   "crates/drivers/dremio/src/rename.rs",
-  "crates/drivers/mysql/src/rename.rs"
+  "crates/drivers/mysql/src/rename.rs",
+  "crates/drivers/powerbi/src/transfer.rs"
  ],
  "la tabla «{0}» ya existe: elegila como tabla existente": [
   "src-tauri/src/notebook/write.rs"
@@ -49692,6 +51177,9 @@
  ],
  "la tarea «{0}» ya terminó o no existe": [
   "crates/drivers/couchdb/src/processes.rs"
+ ],
+ "la tolerancia tiene que ser un número mayor o igual a cero": [
+  "src-tauri/src/commands/data_compare_query.rs"
  ],
  "la transferencia no existe": [
   "crates/dbine-transfer/src/engine.rs",
@@ -49776,6 +51264,9 @@
  ],
  "las URLs se leen con `read_text`": [
   "crates/dbine-core/src/conn_import/mod.rs"
+ ],
+ "las actualizaciones (hace falta permiso de escritura en el modelo)": [
+  "crates/drivers/powerbi/src/health.rs"
  ],
  "las actualizaciones atómicas de Solr necesitan el uniqueKey de la colección para identificar el documento": [
   "crates/drivers/solr/src/ddl.rs"
@@ -49888,6 +51379,9 @@
  "las regiones y la supervivencia necesitan una región principal (PRIMARY REGION)": [
   "crates/drivers/postgres/src/create_db.rs"
  ],
+ "las relaciones, medidas y roles (con estos permisos solo se leen tablas y columnas)": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "las réplicas de Always On": [
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
@@ -49967,11 +51461,17 @@
  "lectura sin pedido": [
   "crates/drivers/couchdb/src/transfer.rs"
  ],
+ "lectura y actualización": [
+  "crates/drivers/powerbi/src/objects.rs"
+ ],
  "lecturas": [
   "crates/drivers/cassandra/src/monitor.rs"
  ],
  "leer el registro del planificador": [
   "crates/drivers/snowflake/src/scheduler/logs.rs"
+ ],
+ "leer la respuesta": [
+  "crates/drivers/powerbi/src/http.rs"
  ],
  "libSQL / Turso no expone las conexiones ni las consultas en curso: cada pedido Hrana es independiente y el servidor no tiene una vista ni una API para listarlas o cancelarlas": [
   "crates/drivers/libsql/src/lib.rs"
@@ -50159,6 +51659,9 @@
  "los roles de Ocient son predefinidos: no se borran": [
   "crates/drivers/odbc/src/security/misc.rs"
  ],
+ "los roles {0}": [
+  "crates/drivers/powerbi/src/query/mod.rs"
+ ],
  "los saltos de «{0}» forman un bucle: {1} → {2}": [
   "src-tauri/src/ssh_config.rs"
  ],
@@ -50216,6 +51719,9 @@
  "low (más concurrencia)": [
   "crates/drivers/oracle/src/lib.rs"
  ],
+ "lunes": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "líder": [
   "crates/drivers/etcd/src/lib.rs",
   "crates/drivers/mysql/src/monitor.rs",
@@ -50250,11 +51756,17 @@
  "macOS no aceptó la tarea programada: {0}": [
   "src-tauri/src/tasks/os.rs"
  ],
+ "manual con entrenamiento": [
+  "crates/drivers/powerbi/src/refresh/mod.rs"
+ ],
  "mapa sin clave y valor: {0}": [
   "crates/drivers/flightsql/src/transfer.rs"
  ],
  "mapa sin entradas: {0}": [
   "crates/drivers/flightsql/src/transfer.rs"
+ ],
+ "martes": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "maxmemory no está configurado: el tope de memoria que se muestra es la memoria del host.": [
   "crates/drivers/redis/src/monitor.rs"
@@ -50356,12 +51868,23 @@
   "crates/drivers/etcd/src/lib.rs",
   "crates/drivers/mongodb/src/monitor.rs"
  ],
+ "miembro de roles de seguridad (RLS)": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
  "mientras se creaba la tabla de paso": [
   "crates/dbine-transfer/src/retry.rs"
  ],
+ "mié": [
+  "crates/drivers/powerbi/src/refresh/mod.rs"
+ ],
  "miércoles": [
   "crates/drivers/odbc/src/jobs/dameng.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "crates/drivers/sqlserver/src/jobs.rs"
+ ],
+ "model.bim no es JSON válido.": [
+  "crates/drivers/powerbi/src/definition/mod.rs"
  ],
  "modelo de facturación": [
   "crates/drivers/bigquery/src/properties.rs"
@@ -50373,6 +51896,9 @@
  "modelo del catálogo": [
   "crates/dbine-ai/examples/ask.rs"
  ],
+ "modelo pequeño": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
  "modificador no soportado: .{0}()": [
   "crates/drivers/mongodb/src/shell.rs"
  ],
@@ -50381,6 +51907,9 @@
  ],
  "modo de actualización: «{0}» no es un valor válido": [
   "crates/drivers/dremio/src/properties.rs"
+ ],
+ "modo de autenticación desconocido": [
+  "crates/drivers/powerbi/src/config.rs"
  ],
  "modo de throughput: «{0}» no es un valor válido": [
   "crates/drivers/cosmosdb/src/properties.rs"
@@ -50583,9 +52112,11 @@
   "crates/drivers/cassandra/src/ddl.rs"
  ],
  "no está instalada": [
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET": [
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no existe el archivo HTML del cuerpo {0}": [
@@ -50957,6 +52488,7 @@
  ],
  "no hay números aleatorios del sistema: {0}": [
   "crates/drivers/databricks/src/u2m.rs",
+  "crates/drivers/powerbi/src/auth/browser.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no hay propiedades para identificar el elemento": [
@@ -51069,6 +52601,7 @@
  ],
  "no respondió en {0} s": [
   "crates/dbine-plugin/src/remote.rs",
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no schema scripted": [
@@ -51146,6 +52679,7 @@
   "crates/dbine-transfer/src/clone_table.rs"
  ],
  "no se encontró una identidad administrada: esta opción solo funciona si DBine corre en una VM o servicio de Azure": [
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no se encontró «{0}» o no tiene columnas": [
@@ -51259,6 +52793,7 @@
  ],
  "no se pudo abrir el navegador para iniciar sesión: {0}": [
   "crates/drivers/databricks/src/u2m.rs",
+  "crates/drivers/powerbi/src/auth/browser.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no se pudo abrir el navegador: {0}": [
@@ -51670,6 +53205,7 @@
   "crates/dbine-ai/src/cli.rs"
  ],
  "no se pudo ejecutar: {0}": [
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no se pudo elegir un nombre libre para la tabla de historial del clon (la tabla es temporal, con SYSTEM_VERSIONING); elegí otro nombre para la tabla": [
@@ -51701,6 +53237,7 @@
  ],
  "no se pudo esperar la respuesta del navegador: {0}": [
   "crates/drivers/databricks/src/u2m.rs",
+  "crates/drivers/powerbi/src/auth/browser.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no se pudo examinar {0}: {1}": [
@@ -51962,6 +53499,9 @@
  "no se pudo leer la lista de procesos": [
   "crates/drivers/mysql/src/processes.rs"
  ],
+ "no se pudo leer la respuesta de Microsoft Entra ID: {0}": [
+  "crates/drivers/powerbi/src/auth/mod.rs"
+ ],
  "no se pudo leer la secuencia {0}": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
@@ -52032,6 +53572,7 @@
   "crates/drivers/orientdb/src/transfer.rs"
  ],
  "no se pudo llegar a la identidad administrada: {0}": [
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "no se pudo llegar al controlador de dominio (KDC)": [
@@ -52046,6 +53587,9 @@
  ],
  "no se pudo obtener un token de Microsoft Entra ID con la autenticación predeterminada. Se probó:\n{0}": [
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "no se pudo obtener un token de Microsoft Entra ID con la credencial predeterminada. Se probó:\n{0}": [
+  "crates/drivers/powerbi/src/auth/service.rs"
  ],
  "no se pudo obtener un token de {0}. Se probó:\n{1}": [
   "crates/drivers/postgres/src/cloud_auth.rs"
@@ -52154,6 +53698,9 @@
  ],
  "no se pudo volver a poner la restricción {0} en el clon: {1}": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
+ ],
+ "no se pudo {0} de Power BI: {1}": [
+  "crates/drivers/powerbi/src/http.rs"
  ],
  "no se puede borrar el catálogo «{0}»: es el de la sesión actual": [
   "crates/drivers/databricks/src/lib.rs"
@@ -52745,6 +54292,7 @@
   "crates/drivers/databricks/src/u2m.rs"
  ],
  "pasaron 5 minutos sin completar el inicio de sesión en el navegador; volvé a conectar": [
+  "crates/drivers/powerbi/src/auth/browser.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "pausa la cadena antes del paso (PAUSE_BEFORE)": [
@@ -52793,6 +54341,9 @@
  ],
  "performance_schema no respondió a tiempo": [
   "crates/drivers/tdengine/src/processes.rs"
+ ],
+ "permiso de escritura en el modelo": [
+  "crates/drivers/powerbi/src/security.rs"
  ],
  "permiso de escritura sobre el archivo (la base está abierta en solo lectura)": [
   "crates/drivers/duckdb/src/permissions.rs"
@@ -53023,7 +54574,11 @@
   "crates/drivers/oracle/src/scheduler/schedule.rs",
   "crates/drivers/postgres/src/jobs/pgagent.rs",
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "crates/drivers/sqlserver/src/agent/mod.rs"
+ ],
+ "programación de caché": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "progreso": [
   "crates/drivers/cassandra/src/monitor.rs"
@@ -53249,6 +54804,7 @@
   "crates/drivers/redis/src/transfer.rs"
  ],
  "respuesta inesperada de Microsoft Entra ID": [
+  "crates/drivers/powerbi/src/auth/browser.rs",
   "crates/drivers/sqlserver/src/variant.rs"
  ],
  "respuesta inesperada de Neptune: {0}": [
@@ -53370,8 +54926,12 @@
  "ruta de dispositivo inesperada: {0}": [
   "crates/dbine-transfer/src/clone_table/timeseries.rs"
  ],
+ "ruta de la API no válida": [
+  "crates/drivers/powerbi/src/http.rs"
+ ],
  "ruta del programa no válida": [
   "crates/drivers/postgres/src/cloud_auth.rs",
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "ruta en Keeper": [
@@ -53379,6 +54939,7 @@
  ],
  "ruta o argumentos del programa no válidos": [
   "crates/drivers/postgres/src/cloud_auth.rs",
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "rápido": [
@@ -53442,6 +55003,7 @@
  ],
  "salida no válida": [
   "crates/drivers/postgres/src/cloud_auth.rs",
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "salir informando éxito": [
@@ -53466,7 +55028,6 @@
   "src-tauri/src/tasks/headless.rs"
  ],
  "script de {0}": [
-  "src-tauri/src/notebook/headless.rs",
   "src-tauri/src/tasks/mod.rs"
  ],
  "script en uso": [
@@ -53697,6 +55258,9 @@
  "se suspende a los {0} s": [
   "crates/drivers/snowflake/src/health.rs"
  ],
+ "se ven con permiso de escritura en el modelo": [
+  "crates/drivers/powerbi/src/properties.rs"
+ ],
  "se ven en sus permisos": [
   "crates/drivers/databricks/src/security.rs"
  ],
@@ -53802,6 +55366,9 @@
  "sin acceso a system.query_log: de cada vista se ve solo el último refresco": [
   "crates/drivers/clickhouse/src/jobs.rs"
  ],
+ "sin aviso": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
+ ],
  "sin carpeta de usuario": [
   "src-tauri/src/tasks/os.rs"
  ],
@@ -53830,8 +55397,12 @@
   "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
  ],
+ "sin código": [
+  "crates/drivers/powerbi/src/health.rs"
+ ],
  "sin detalle": [
-  "crates/dbine-transfer/src/lib.rs"
+  "crates/dbine-transfer/src/lib.rs",
+  "crates/drivers/powerbi/src/definition/mod.rs"
  ],
  "sin entrada o salida": [
   "crates/dbine-plugin/src/remote.rs"
@@ -54119,8 +55690,13 @@
  "systemd no aceptó la tarea programada: {0}": [
   "src-tauri/src/tasks/os.rs"
  ],
+ "sáb": [
+  "crates/drivers/powerbi/src/refresh/mod.rs"
+ ],
  "sábado": [
   "crates/drivers/odbc/src/jobs/dameng.rs",
+  "crates/drivers/powerbi/src/refresh/mod.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "crates/drivers/sqlserver/src/jobs.rs"
  ],
  "sí, por {0}": [
@@ -54242,6 +55818,7 @@
  ],
  "terminó con {0}": [
   "crates/drivers/postgres/src/cloud_auth.rs",
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "texto de hasta {0}": [
@@ -54427,6 +56004,9 @@
  ],
  "todas las particiones": [
   "crates/drivers/cosmosdb/src/plan.rs"
+ ],
+ "todas las áreas de trabajo": [
+  "crates/drivers/powerbi/src/catalog.rs"
  ],
  "todavía no hay conversión de esquemas para el motor «{0}»": [
   "crates/dbine-schema/src/convert.rs"
@@ -54753,8 +56333,20 @@
  "una carpeta no puede ir dentro de sí misma": [
   "crates/dbine-core/src/state.rs"
  ],
+ "una celda inconsistente": [
+  "crates/drivers/powerbi/src/query/arrow.rs"
+ ],
  "una colección capped necesita el tamaño máximo en bytes": [
   "crates/drivers/mongodb/src/ddl.rs"
+ ],
+ "una comparación de consultas no genera script: una consulta no es una tabla": [
+  "src-tauri/src/commands/data_compare.rs"
+ ],
+ "una conexión que no sea de solo lectura": [
+  "crates/drivers/powerbi/src/security.rs"
+ ],
+ "una dirección": [
+  "crates/drivers/powerbi/src/objects.rs"
  ],
  "una exportación Markdown con gráficos necesita la ruta del archivo": [
   "src-tauri/src/commands/notebook.rs"
@@ -54796,6 +56388,9 @@
  ],
  "una inserción terminó con un error inesperado: {0}": [
   "crates/drivers/trino/src/transfer.rs"
+ ],
+ "una lectura de solo lectura en Power BI es una consulta DAX con un solo EVALUATE": [
+  "crates/drivers/powerbi/src/query/mod.rs"
  ],
  "una lectura de solo lectura es una sola sentencia de q": [
   "crates/drivers/kdb/src/lib.rs"
@@ -54996,6 +56591,7 @@
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
  "variables de entorno": [
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "vence según Dremio": [
@@ -55018,6 +56614,9 @@
  ],
  "ventana": [
   "crates/drivers/oracle/src/scheduler/mod.rs"
+ ],
+ "ventana de consultas de DBine (executeQueries / executeDaxQueries)": [
+  "crates/drivers/powerbi/src/monitor.rs"
  ],
  "ver en qué tarea falló el grafo": [
   "crates/drivers/snowflake/src/scheduler/logs.rs"
@@ -55064,6 +56663,9 @@
  ],
  "vida máxima": [
   "crates/drivers/couchbase/src/create_db.rs"
+ ],
+ "viernes": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "view query (control de acceso)": [
   "crates/drivers/trino/src/permissions.rs"
@@ -55286,6 +56888,7 @@
  ],
  "{0} (¿falta {1}?)": [
   "crates/drivers/postgres/src/cloud_auth.rs",
+  "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "{0} = 1 (estaba en {1})": [
@@ -55422,6 +57025,9 @@
  "{0} de PartiQL necesita la clave primaria completa en el WHERE: DynamoDB lo rechazará": [
   "crates/drivers/dynamodb/src/plan.rs"
  ],
+ "{0} de estos modelos son de otro propietario: solo él puede cambiar su programación.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "{0} de {1} ({2} fallidos)": [
   "crates/drivers/elasticsearch/src/backup.rs"
  ],
@@ -55541,6 +57147,9 @@
  ],
  "{0} modelo(s) · local, nada sale de esta máquina": [
   "crates/dbine-ai/src/detect.rs"
+ ],
+ "{0} modelos sin permiso de escritura: su historial no se ve y no se pueden actualizar desde DBine.": [
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
  ],
  "{0} mutaciones sin terminar hace más de {1} h": [
   "crates/drivers/clickhouse/src/health.rs"
@@ -55839,6 +57448,9 @@
  "{0} no puede tener espacios, comillas, comas ni «;».": [
   "crates/drivers/mysql/src/backup.rs"
  ],
+ "{0} no puede tener saltos de línea ni caracteres de control.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "{0} no recibe parámetros aparte del texto desde DBine": [
   "crates/drivers/mysql/src/session.rs"
  ],
@@ -55940,6 +57552,9 @@
   "crates/drivers/postgres/src/delta.rs",
   "crates/drivers/postgres/src/lib.rs",
   "src-tauri/src/commands/migration.rs"
+ ],
+ "{0} no tenía esos permisos en «{1}»: no se envió nada.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
  ],
  "{0} no tiene COPY FROM STDIN": [
   "crates/drivers/postgres/src/session.rs",
@@ -56072,6 +57687,9 @@
  ],
  "{0} pasa de {1} a {2}: hay que borrarlo y crearlo de nuevo; se deja como está.": [
   "crates/drivers/ksqldb/src/sync.rs"
+ ],
+ "{0} pasa de {1} caracteres.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
  ],
  "{0} por clave de partición": [
   "crates/drivers/cassandra/src/plan.rs"
@@ -56262,6 +57880,12 @@
  "{0} terminó con error ({1}): {2}": [
   "crates/dbine-ai/src/cli.rs"
  ],
+ "{0} tiene el permiso Write en el modelo, que la API de Power BI no quita: se quita cambiando su rol en el área de trabajo.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "{0} tiene el rol {1} en el área de trabajo, que le da esos permisos: se quitan cambiando su rol, no desde el modelo.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "{0} tiene fracciones de segundo y una columna {1} guarda segundos enteros: se perderían": [
   "crates/drivers/clickhouse/src/transfer.rs"
  ],
@@ -56298,6 +57922,9 @@
  "{0} usa el entorno «{1}», que no está en el job.": [
   "crates/drivers/databricks/src/scheduler/spec.rs"
  ],
+ "{0} va de {1} a {2}.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "{0} warehouses que no se suspenden pronto": [
   "crates/drivers/snowflake/src/health.rs"
  ],
@@ -56309,6 +57936,9 @@
  ],
  "{0} y {1} documentados en {2}": [
   "src-tauri/src/tasks/steps.rs"
+ ],
+ "{0} ya tenía {1} en «{2}»: no se envió nada.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
  ],
  "{0} ya tiene filas, y Phoenix no permite cargarla sin pisar las de igual clave ({1}); vaciala antes de copiar": [
   "crates/drivers/phoenix/src/transfer.rs"
@@ -56440,6 +58070,7 @@
  ],
  "{0}. Podés cerrar esta ventana.": [
   "crates/drivers/databricks/src/u2m.rs",
+  "crates/drivers/powerbi/src/auth/browser.rs",
   "crates/drivers/sqlserver/src/entra.rs"
  ],
  "{0}.{1} ({2} % sin ordenar)": [
@@ -56666,6 +58297,9 @@
  ],
  "{0}: Otros atributos del entorno (JSON)": [
   "crates/drivers/databricks/src/scheduler/spec.rs"
+ ],
+ "{0}: Power BI respondió {1}": [
+  "crates/drivers/powerbi/src/meta/service.rs"
  ],
  "{0}: REPLACE COLUMNS no cambia los archivos: CSV se lee por posición, así que las columnas que quedan tienen que coincidir con las de los archivos.": [
   "crates/drivers/athena/src/sync.rs"
@@ -56948,6 +58582,9 @@
  "{0}: pasar de tabla a supertabla (o al revés) requiere recrearla; se deja como está.": [
   "crates/drivers/tdengine/src/sync.rs"
  ],
+ "{0}: permisos en «{1}» → {2}.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "{0}: pg_proc listed no functions": [
   "crates/drivers/postgres/src/functions.rs"
  ],
@@ -57063,7 +58700,8 @@
   "crates/drivers/snowflake/src/create_db.rs"
  ],
  "{0}: «{1}» no es un número entero.": [
-  "crates/drivers/databricks/src/scheduler/lines.rs"
+  "crates/drivers/databricks/src/scheduler/lines.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "{0}: «{1}» no es un número entre 0 y {2}": [
   "crates/drivers/snowflake/src/properties.rs"
@@ -57166,6 +58804,9 @@
  ],
  "«Biblioteca JCL»: «{0}» no es un nombre de data set válido.": [
   "crates/drivers/odbc/src/scheduler/db2zos.rs"
+ ],
+ "«Borrar valores» deja las tablas sin datos hasta la próxima actualización completa.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "«Cada (segundos)» tiene que estar entre 1 y {0}.": [
   "crates/drivers/neo4j/src/scheduler/mod.rs"
@@ -57661,6 +59302,9 @@
  "«{0}» apunta a {1} (esta computadora, la red local o un servicio interno de la nube): los mensajes van solo a servidores públicos": [
   "src-tauri/src/tasks/message.rs"
  ],
+ "«{0}» cambió durante la lectura (se esperaban {1} filas y hubo {2}): volvé a intentar.": [
+  "crates/drivers/powerbi/src/transfer.rs"
+ ],
  "«{0}» coincide con varios objetos: {1}. Indicá el esquema.": [
   "src-tauri/src/mcp/tools.rs"
  ],
@@ -57839,6 +59483,9 @@
  "«{0}» lleva una firma o un token en la URL (X-Amz-Signature, sig=, token=…): las credenciales nunca van en el notebook; escribí la URL sin firma y DBine usa la sesión de la nube de esta computadora ({1})": [
   "src-tauri/src/notebook/remote.rs"
  ],
+ "«{0}» lleva «{1}», el separador entre área de trabajo y modelo de la lista de DBine: escribí solo el nombre del modelo (renombrarlo no lo cambia de área de trabajo).": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "«{0}» necesita credenciales y no hay una sesión que sirva: {1} ({2})": [
   "src-tauri/src/notebook/remote.rs"
  ],
@@ -57999,6 +59646,7 @@
   "crates/drivers/odbc/src/scheduler/db2i.rs",
   "crates/drivers/odbc/src/scheduler/informix.rs",
   "crates/drivers/odbc/src/scheduler/sqla.rs",
+  "crates/drivers/powerbi/src/refresh/scheduler.rs",
   "crates/drivers/sqlserver/src/agent/operator.rs"
  ],
  "«{0}» no es un día del mes.": [
@@ -58045,6 +59693,9 @@
  ],
  "«{0}» no es un grupo del planificador.": [
   "crates/drivers/odbc/src/scheduler/informix.rs"
+ ],
+ "«{0}» no es un horario HH:MM en punto o y media.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "«{0}» no es un id de alerta de Snowflake": [
   "crates/drivers/snowflake/src/scheduler/mod.rs"
@@ -58310,6 +59961,9 @@
  "«{0}» no es un modo de SQL SECURITY (DEFINER o NONE).": [
   "crates/drivers/clickhouse/src/scheduler/refresh.rs"
  ],
+ "«{0}» no es un modo de confirmación.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "«{0}» no es un modo de disparo de TDengine.": [
   "crates/drivers/tdengine/src/scheduler/stream.rs"
  ],
@@ -58542,6 +60196,12 @@
  "«{0}» no es un permiso de Trino": [
   "crates/drivers/trino/src/security.rs"
  ],
+ "«{0}» no es un permiso de un modelo: Read, Build o Reshare.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "«{0}» no es un permiso de un modelo: Read, Build, Reshare o Write.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "«{0}» no es un permiso de {1}": [
   "crates/drivers/mysql/src/security/common.rs"
  ],
@@ -58592,6 +60252,12 @@
  ],
  "«{0}» no es un tema de Pub/Sub (projects/<proyecto>/topics/<tema>).": [
   "crates/drivers/bigquery/src/scheduler.rs"
+ ],
+ "«{0}» no es un tiempo hh:mm:ss.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "«{0}» no es un tipo de actualización.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "«{0}» no es un tipo de alerta.": [
   "crates/drivers/sqlserver/src/agent/alert.rs"
@@ -58703,6 +60369,9 @@
  "«{0}» no es un tipo de tarea del grafo.": [
   "crates/drivers/snowflake/src/scheduler/task.rs"
  ],
+ "«{0}» no es un trabajo de Power BI.": [
+  "crates/drivers/powerbi/src/refresh/mod.rs"
+ ],
  "«{0}» no es un valor de UNION": [
   "crates/drivers/flightsql/src/transfer.rs"
  ],
@@ -58711,6 +60380,9 @@
  ],
  "«{0}» no es un valor de «Leer desde» (earliest o latest).": [
   "crates/drivers/ksqldb/src/scheduler.rs"
+ ],
+ "«{0}» no es un valor que DAX pueda comparar": [
+  "crates/drivers/powerbi/src/dax/quote.rs"
  ],
  "«{0}» no es un valor válido": [
   "crates/drivers/odbc/src/backup.rs"
@@ -58802,6 +60474,9 @@
  ],
  "«{0}» no es una acción de las políticas de refresco de tablas de Dremio: la que hay es refrescar sus reflexiones.": [
   "crates/drivers/dremio/src/scheduler/policy.rs"
+ ],
+ "«{0}» no es una acción de las programaciones de Power BI.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "«{0}» no es una acción de los streams de esta versión de TDengine": [
   "crates/drivers/tdengine/src/scheduler/mod.rs"
@@ -58904,6 +60579,9 @@
  "«{0}» no es una fecha": [
   "crates/drivers/ksqldb/src/transfer.rs"
  ],
+ "«{0}» no es una fecha AAAA-MM-DD.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
  "«{0}» no es una fecha del mes.": [
   "crates/drivers/odbc/src/scheduler/ase.rs"
  ],
@@ -58944,6 +60622,9 @@
  ],
  "«{0}» no es una forma de programar una tarea (every o cron).": [
   "crates/drivers/influxdb/src/scheduler/task.rs"
+ ],
+ "«{0}» no es una frecuencia.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "«{0}» no es una función (config jsonb) de esta base.": [
   "crates/drivers/postgres/src/scheduler/timescale.rs"
@@ -58990,6 +60671,9 @@
  ],
  "«{0}» no es una opción de ON_FAILURE (drop o pause).": [
   "crates/drivers/tdengine/src/scheduler/stream.rs"
+ ],
+ "«{0}» no es una opción de aviso.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "«{0}» no es una opción de históricos.": [
   "crates/drivers/tdengine/src/scheduler/stream.rs"
@@ -59047,6 +60731,9 @@
  ],
  "«{0}» no es una vista (diseño/nombre).": [
   "crates/drivers/couchdb/src/replication/doc.rs"
+ ],
+ "«{0}» no es una zona horaria de Windows.": [
+  "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "«{0}» no es una zona horaria válida (por ejemplo UTC o America/Argentina/Buenos_Aires).": [
   "crates/drivers/snowflake/src/scheduler/mod.rs"
@@ -59127,6 +60814,9 @@
  "«{0}» no respondió en {1} s": [
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
+ "«{0}» no se cambia desde DBine: de un modelo solo se cambia la descripción.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
  "«{0}» no se clona: es una proyección o una composición, sin texto de función propio.": [
   "crates/drivers/kdb/src/clone.rs"
  ],
@@ -59138,6 +60828,9 @@
  ],
  "«{0}» no se clona: {1}": [
   "crates/drivers/kdb/src/clone.rs"
+ ],
+ "«{0}» no se espera en un comando de Power BI.": [
+  "crates/drivers/powerbi/src/admin/mod.rs"
  ],
  "«{0}» no se pudo ejecutar: {1}": [
   "crates/drivers/postgres/src/cloud_auth.rs"
@@ -59164,6 +60857,9 @@
   "src-tauri/src/commands/datagen.rs",
   "src-tauri/src/commands/subset/mod.rs"
  ],
+ "«{0}» no tiene columnas por las que ordenar para leerla por partes con executeQueries.": [
+  "crates/drivers/powerbi/src/transfer.rs"
+ ],
  "«{0}» no tiene la hora en un formato que HANA lea de una sola forma (HH:MM[:SS[.f]], con zona Z o ±HH:MM opcional); con AM/PM o un nombre de zona podría guardarse otra hora": [
   "crates/drivers/hana/src/transfer.rs"
  ],
@@ -59175,6 +60871,9 @@
  ],
  "«{0}» no tiene servidor": [
   "src-tauri/src/notebook/remote.rs"
+ ],
+ "«{0}» no tiene una columna única y la API JSON corta en 100.000 filas por consulta: sus {1} filas no se pueden leer enteras de forma confiable. Usá un área de trabajo con capacidad (executeDaxQueries).": [
+  "crates/drivers/powerbi/src/transfer.rs"
  ],
  "«{0}» no tiene {1} elementos": [
   "crates/drivers/flightsql/src/transfer.rs"
@@ -59762,6 +61461,12 @@
  "Área": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
+ "Área de trabajo": [
+  "crates/drivers/powerbi/src/lib.rs",
+  "crates/drivers/powerbi/src/monitor.rs",
+  "crates/drivers/powerbi/src/properties.rs",
+  "crates/drivers/powerbi/src/refresh/jobs.rs"
+ ],
  "Áreas de almacenamiento (bloques)": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
@@ -59988,6 +61693,9 @@
  ],
  "Última vez que se cumplió": [
   "crates/drivers/elasticsearch/src/jobs.rs"
+ ],
+ "Últimas actualizaciones": [
+  "crates/drivers/powerbi/src/monitor.rs"
  ],
  "Último": [
   "crates/drivers/sqlserver/src/agent/schedule.rs"

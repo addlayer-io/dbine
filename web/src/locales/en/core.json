@@ -43,6 +43,7 @@
   },
   "format": {
     "redis": "Redis commands go one per line: there's nothing to format.",
+    "dax": "DBine doesn't format DAX yet: there's no formatter that works inside the app, and the ones on the internet would receive your code.",
     "unavailable": "There's no formatter for this language yet."
   },
   "copy": {

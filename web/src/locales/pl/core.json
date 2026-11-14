@@ -43,6 +43,7 @@
   },
   "format": {
     "redis": "Polecenia Redis są zapisywane po jednym w wierszu: nie ma czego formatować.",
+    "dax": "DBine nie formatuje jeszcze DAX: w aplikacji nie ma działającego formatera, a te z internetu otrzymałyby Twój kod.",
     "unavailable": "Dla tego języka nie ma jeszcze formatera."
   },
   "copy": {

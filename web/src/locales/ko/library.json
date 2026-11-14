@@ -109,7 +109,7 @@
     "noGit": "이 컴퓨터에서 git을 찾을 수 없습니다",
     "noGitHelp": "git-scm.com에서 설치하세요(macOS에서는 Command Line Tools에도 포함되어 있습니다). 그런 다음 이 창을 다시 여세요.",
     "help": "라이브러리를 git 저장소(GitHub, GitLab, Azure DevOps…)에 백업하거나 공유하기 위해 저장합니다.",
-    "helpFiles": "각 스크립트는 해당 언어의 확장자를 가진 파일로 폴더에 저장됩니다: {sql}, {js}(MongoDB), {json}, {cql}, {redis}, {flux} 또는 {cypher}.",
+    "helpFiles": "각 스크립트는 해당 언어의 확장자를 가진 파일로 폴더에 저장됩니다: {sql}, {js}(MongoDB), {json}, {cql}, {redis}, {flux}, {cypher} 또는 {dax}(Power BI).",
     "repository": "저장소",
     "repositoryPlaceholder": "git@github.com:company/dba-scripts.git 또는 https://…",
     "branch": "브랜치",

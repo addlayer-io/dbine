@@ -109,7 +109,7 @@
     "noGit": "在这台电脑上未找到 git",
     "noGitHelp": "请从 git-scm.com 安装（在 macOS 上，它也包含在 Command Line Tools 中），然后重新打开此窗口。",
     "help": "将库保存在 git 仓库（GitHub、GitLab、Azure DevOps…）中，用于备份或共享。",
-    "helpFiles": "每个脚本在其文件夹中存为一个文件，扩展名取决于其语言：{sql}、{js}（MongoDB）、{json}、{cql}、{redis}、{flux} 或 {cypher}。",
+    "helpFiles": "每个脚本在其文件夹中存为一个文件，扩展名取决于其语言：{sql}、{js}（MongoDB）、{json}、{cql}、{redis}、{flux}、{cypher} 或 {dax}（Power BI）。",
     "repository": "仓库",
     "repositoryPlaceholder": "git@github.com:company/dba-scripts.git 或 https://…",
     "branch": "分支",

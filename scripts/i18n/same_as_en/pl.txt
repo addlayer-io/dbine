@@ -199,3 +199,39 @@ backend:h2: no version: {0}
 backend:risingwave: no version: {0}
 backend:s SIN(float_exp) -> FLOAT
 backend:{0}: pg_proc listed no functions
+backend:Abf
+backend:App
+backend:Automatic
+backend:Binary
+backend:Boolean
+backend:Cached
+backend:Calculate
+backend:Cardinality
+backend:Completed
+backend:Contributor
+backend:Culture
+backend:Data
+backend:Defragment
+backend:Embedded {0}
+backend:Explore
+backend:Extension
+backend:Fabric {0}
+backend:Full
+backend:Group
+backend:Invalid
+backend:Max
+backend:Member
+backend:Min
+backend:Mode
+backend:Ordinal
+backend:Precedence
+backend:Premium {0}
+backend:Reshare
+backend:SE Asia Standard Time
+backend:Undefined
+backend:Variant
+backend:Viewer
+backend:Write
+snippets.json:families.dax
+backend:Modelo
+backend:importación

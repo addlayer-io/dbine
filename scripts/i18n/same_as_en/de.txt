@@ -407,3 +407,4 @@ backend:h2: no version: {0}
 backend:risingwave: no version: {0}
 backend:s SIN(float_exp) -> FLOAT
 backend:{0}: pg_proc listed no functions
+snippets.json:families.dax

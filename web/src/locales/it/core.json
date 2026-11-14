@@ -43,6 +43,7 @@
   },
   "format": {
     "redis": "I comandi Redis vanno uno per riga: non c'è nulla da formattare.",
+    "dax": "DBine non formatta ancora il DAX: non c'è un formattatore che funzioni dentro l'applicazione, e quelli su internet riceverebbero il tuo codice.",
     "unavailable": "Non esiste ancora un formattatore per questo linguaggio."
   },
   "copy": {

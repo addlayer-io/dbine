@@ -43,6 +43,7 @@
   },
   "format": {
     "redis": "Perintah Redis ditulis satu per baris: tidak ada yang perlu diformat.",
+    "dax": "DBine belum memformat DAX: tidak ada pemformat yang berfungsi di dalam aplikasi, dan yang ada di internet akan menerima kode Anda.",
     "unavailable": "Belum ada pemformat untuk bahasa ini."
   },
   "copy": {

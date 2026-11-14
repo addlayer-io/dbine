@@ -109,7 +109,7 @@
     "noGit": "このマシンに git が見つかりません",
     "noGitHelp": "git-scm.com からインストールしてください(macOS ではコマンドラインツールにも含まれています)。その後、このウィンドウをもう一度開いてください。",
     "help": "ライブラリを git リポジトリ(GitHub、GitLab、Azure DevOps など)に保存して、バックアップや共有に使えます。",
-    "helpFiles": "各スクリプトは、その言語の拡張子のファイルとしてフォルダーに保存されます: {sql}、{js}(MongoDB)、{json}、{cql}、{redis}、{flux}、{cypher}。",
+    "helpFiles": "各スクリプトは、その言語の拡張子のファイルとしてフォルダーに保存されます: {sql}、{js}(MongoDB)、{json}、{cql}、{redis}、{flux}、{cypher}、{dax}(Power BI)。",
     "repository": "リポジトリ",
     "repositoryPlaceholder": "git@github.com:company/dba-scripts.git または https://…",
     "branch": "ブランチ",

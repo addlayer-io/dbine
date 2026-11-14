@@ -127,7 +127,7 @@
     "noGit": "Na tym komputerze nie znaleziono git",
     "noGitHelp": "Zainstaluj go z git-scm.com (w macOS jest też w Command Line Tools) i ponownie otwórz to okno.",
     "help": "Zapisz bibliotekę w repozytorium git (GitHub, GitLab, Azure DevOps…) jako kopię zapasową lub aby ją udostępnić.",
-    "helpFiles": "Każdy skrypt jest plikiem w swoim folderze, z rozszerzeniem odpowiednim dla swojego języka: {sql}, {js} (MongoDB), {json}, {cql}, {redis}, {flux} lub {cypher}.",
+    "helpFiles": "Każdy skrypt jest plikiem w swoim folderze, z rozszerzeniem odpowiednim dla swojego języka: {sql}, {js} (MongoDB), {json}, {cql}, {redis}, {flux}, {cypher} lub {dax} (Power BI).",
     "repository": "Repozytorium",
     "repositoryPlaceholder": "git@github.com:firma/skrypty-dba.git lub https://…",
     "branch": "Gałąź",
