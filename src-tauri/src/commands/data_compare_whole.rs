@@ -592,12 +592,14 @@ fn hash_of(p: &[Value], nk: usize) -> (i64, i64) {
 /// `rules` keep of each compared non-key column ([`Layout`]).
 fn cells(side: usize, n: u64, p: &[Value], nk: usize, rules: &dyn Rules) -> Vec<Cell> {
     let (h1, h2) = hash_of(p, nk);
-    let (k1, k2) = key_hash(&key_with(rules, p, nk));
+    let k = key_with(rules, p, nk);
+    let (k1, k2) = key_hash(&k);
     let mut c = vec![
         Cell::Int(side as i64),
         Cell::Int(n as i64),
         Cell::Int(k1),
         Cell::Int(k2),
+        Cell::Text(k),
         Cell::Text(order_key(&p[..nk])),
         Cell::Int(h1),
         Cell::Int(h2),
@@ -669,13 +671,15 @@ const CUT_WINDOW: usize = 64;
 const JOIN_ON: &str = "l.k1 = r.k1 AND l.k2 = r.k2";
 
 /// The scratch table: the side (`s`), the order read (`n`), the key's hash
-/// (`k1`, `k2`, [`key_hash`]: what rows are matched by), the order key
+/// (`k1`, `k2`, [`key_hash`]: what rows are matched by), the key (`k`,
+/// only to break ties of the order key in [`Scratch::cut`]), the order key
 /// (`o`, [`order_key`]), the values' hash (`h1`, `h2`) and the row (`v`).
-const COLUMNS: [(&str, &str); 8] = [
+const COLUMNS: [(&str, &str); 9] = [
     ("s", "BIGINT"),
     ("n", "BIGINT"),
     ("k1", "BIGINT"),
     ("k2", "BIGINT"),
+    ("k", "VARCHAR"),
     ("o", "VARCHAR"),
     ("h1", "BIGINT"),
     ("h2", "BIGINT"),
@@ -1686,7 +1690,7 @@ impl Scratch {
             self.exec(
                 ctl,
                 &format!(
-                    "CREATE TEMP VIEW {view} AS SELECT k1, k2, o, h1, h2, v{extra} FROM {ALIAS}.main.rows WHERE s = {side}{first}"
+                    "CREATE TEMP VIEW {view} AS SELECT k1, k2, k, o, h1, h2, v{extra} FROM {ALIAS}.main.rows WHERE s = {side}{first}"
                 ),
             )
             .await?;
@@ -1760,15 +1764,16 @@ impl Scratch {
             .and_then(as_u64)
             .unwrap_or(0);
         let rows = if total > max as u64 {
-            // Their order keys (the left's, as the lists sort), in the
-            // encrypted file: they can be long. Semi joins, so only `d`'s
-            // narrow rows are held while each side streams by.
+            // What the lists sort by ([`finish`]: the order key, then the
+            // key; the left's, as the lists take it), in the encrypted file:
+            // it can be long. Semi joins, so only `d`'s narrow rows are held
+            // while each side streams by.
             self.exec(
                 ctl,
                 "CREATE TABLE main.g AS \
-                 SELECT k1, k2, o FROM l SEMI JOIN (SELECT k1, k2 FROM d WHERE kind <> 1) d USING (k1, k2) \
+                 SELECT k1, k2, o || k AS o FROM l SEMI JOIN (SELECT k1, k2 FROM d WHERE kind <> 1) d USING (k1, k2) \
                  UNION ALL \
-                 SELECT k1, k2, o FROM r SEMI JOIN (SELECT k1, k2 FROM d WHERE kind = 1) d USING (k1, k2)",
+                 SELECT k1, k2, o || k AS o FROM r SEMI JOIN (SELECT k1, k2 FROM d WHERE kind = 1) d USING (k1, k2)",
             )
             .await?;
             self.cut(ctl, max as u64).await?;
@@ -1812,13 +1817,16 @@ impl Scratch {
         Ok(std::mem::take(&mut sink.lists))
     }
 
-    /// Of the differing rows (`main.g`, their order keys), the first `max`
-    /// by order key into `pick`, sorting [`CUT_WINDOW`] characters of it at
-    /// a time: the rows whose window sorts before the `max`-th row's are
+    /// Of the differing rows (`main.g`: each one's order key followed by its
+    /// key), the first `max` into `pick`, sorting [`CUT_WINDOW`] characters
+    /// at a time: the rows whose window sorts before the `max`-th row's are
     /// in; the rows that tie it go on to the next window, until all that tie
-    /// are needed. Rows whose whole order key ties come back together, and
-    /// [`finish`] cuts them by key. Order keys sort character by character
-    /// ([`order_key`]), so window by window is the same order.
+    /// are needed. An order key always ends in its separator, so the order
+    /// key then the key, concatenated, sort as [`finish`] sorts them (order
+    /// key first, key on a tie), and character by character is the same as
+    /// window by window. Keys that tie on their whole order key (text that
+    /// differs only in case, numbers past `f64`'s precision) are cut by key,
+    /// so at most `max` rows come back.
     async fn cut(&mut self, ctl: &Ctl, max: u64) -> CommandResult<()> {
         self.exec(ctl, "CREATE TEMP TABLE pick (k1 BIGINT, k2 BIGINT)")
             .await?;
@@ -1850,7 +1858,7 @@ impl Scratch {
                 row.first().and_then(as_u64).unwrap_or(0),
                 row.get(1).and_then(as_u64).unwrap_or(0),
             );
-            // The order keys ended: those left tie whole.
+            // Order key and key ended: those left are the same key.
             let ended = row.get(2).and_then(Value::as_bool).unwrap_or(true);
             let take = if tied <= need - before || ended {
                 "<="
