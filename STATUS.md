@@ -21,7 +21,7 @@ _None._
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
-| claude-security, release v1.6.0 | 2026-11-14 | e50a062f..bbb180dc, from the end of the v1.5.0 scan to the 1.6.0 candidate, every changed file (docs, changelog translations, icons and agent files skipped as text or images), which also covers 8d440027 (#75), the commit 1.5.0 shipped unscanned; bbb180dc..8385a377 in web, the fix for the one LOW finding, the only code that range changes | 0 open | release-notes and translation text |
+| claude-security, release v1.6.1 | 2026-11-15 | 74e258a2..6af975fe, everything 1.6.1 adds after the v1.6.0 scan (the pkcs8 feature pins, the data compare fix for #107, the version and release notes); 18b8f0d7..d07468f8, the follow-up that cuts order-key ties by key (#109) | 0 open | 7a9a6f91, the release commit rebased onto main: the same version and notes as 6af975fe |
 | codeql | 2026-11-15 | Rust, TypeScript/Vue and workflows | 0 open | — |
 | osv | 2026-11-15 | every lockfile (Cargo, npm) at [`306f38faa`](https://github.com/addlayer-io/dbine/commit/306f38faa580) | 0 open | — |
 | scorecard | 2026-11-15 | repository settings and workflows at [`18b8f0d74`](https://github.com/addlayer-io/dbine/commit/18b8f0d74252) | score 7.5/10 | — |

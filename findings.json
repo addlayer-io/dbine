@@ -1,26 +1,6 @@
 {
   "scans": [
     {
-      "source": "claude-security",
-      "release": "v1.6.0",
-      "scan_id": "359e42f8-a802-46ff-8f3c-5ff09728e70e",
-      "date": "2026-11-14",
-      "revision": "bbb180dc5e86",
-      "kind": "changes",
-      "scope": "e50a062fe839fb4441737d33e90ff9a36ac53193..bbb180dc5e86507c7c0b647a79444e459db1cbd8",
-      "found": 1
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.6.0",
-      "scan_id": "b99bf4bb-8a72-4559-a094-960c71e19738",
-      "date": "2026-11-14",
-      "revision": "8385a3777d95",
-      "kind": "changes",
-      "scope": "bbb180dc5e86507c7c0b647a79444e459db1cbd8..8385a3777d95ac7eff31140d13e6bfb86f2d35c9",
-      "found": 0
-    },
-    {
       "source": "osv",
       "date": "2026-11-15",
       "revision": "306f38faa580",
@@ -51,6 +31,26 @@
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.5
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.6.1",
+      "scan_id": "73babe55-f267-46dd-9e38-f25c893260ac",
+      "date": "2026-11-15",
+      "revision": "6af975fe9908",
+      "kind": "changes",
+      "scope": "whole repository",
+      "found": 0
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.6.1",
+      "scan_id": "f4e23d6a-94cd-4226-ab29-9b096a3cd762",
+      "date": "2026-11-15",
+      "revision": "d07468f858c5",
+      "kind": "changes",
+      "scope": "whole repository",
+      "found": 0
     }
   ],
   "findings": [
@@ -4525,8 +4525,8 @@
     }
   ],
   "claude_coverage": {
-    "release": "v1.6.0",
-    "scanned": "e50a062f..bbb180dc, from the end of the v1.5.0 scan to the 1.6.0 candidate, every changed file (docs, changelog translations, icons and agent files skipped as text or images), which also covers 8d440027 (#75), the commit 1.5.0 shipped unscanned; bbb180dc..8385a377 in web, the fix for the one LOW finding, the only code that range changes",
-    "not_covered": "release-notes and translation text"
+    "release": "v1.6.1",
+    "scanned": "74e258a2..6af975fe, everything 1.6.1 adds after the v1.6.0 scan (the pkcs8 feature pins, the data compare fix for #107, the version and release notes); 18b8f0d7..d07468f8, the follow-up that cuts order-key ties by key (#109)",
+    "not_covered": "7a9a6f91, the release commit rebased onto main: the same version and notes as 6af975fe"
   }
 }
