@@ -23,7 +23,7 @@
     {
       "source": "osv",
       "date": "2026-11-15",
-      "revision": "18b8f0d74252",
+      "revision": "306f38faa580",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -31,7 +31,7 @@
     {
       "source": "trivy",
       "date": "2026-11-15",
-      "revision": "18b8f0d74252",
+      "revision": "306f38faa580",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -46,8 +46,8 @@
     },
     {
       "source": "scorecard",
-      "date": "2026-11-14",
-      "revision": "edcf64635440",
+      "date": "2026-11-15",
+      "revision": "18b8f0d74252",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.5
@@ -4458,6 +4458,17 @@
       "status": "open"
     },
     {
+      "id": "SC-CI-Tests",
+      "source": "scorecard",
+      "severity": "LOW",
+      "kind": "Repository practice",
+      "title": "CI-Tests: 6/10 — 4 out of 6 merged PRs checked by a CI test -- score normalized to 6",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
+      "found": "2026-11-15",
+      "status": "open"
+    },
+    {
       "id": "SC-CII-Best-Practices",
       "source": "scorecard",
       "severity": "LOW",
@@ -4473,7 +4484,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/5 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/6 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",
@@ -4506,7 +4517,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Signed-Releases: 8/10 — 5 out of the last 5 releases have a total of 7 signed artifacts.",
+      "title": "Signed-Releases: 9/10 — 5 out of the last 5 releases have a total of 8 signed artifacts.",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases",
       "found": "2026-10-21",
