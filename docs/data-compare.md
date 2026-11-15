@@ -85,9 +85,12 @@ for instance), read-only: see [Comparing two queries](#comparing-two-queries).
   makes DuckDB spill), extensions off and its configuration locked: the same
   setup as the [results store](results-store.md), checked the same way before
   anything is written. DuckDB takes at most 512 MB of memory and works on
-  its temp files past it. Each row goes as its canonical key, a 128-bit hash
-  of its canonical values (equal rows have equal hashes) and the row itself;
-  the comparison is one join in DuckDB; only the rows that differ come back.
+  its temp files past it. Each row goes as a 128-bit hash of its canonical
+  key, a 128-bit hash of its canonical values (equal rows have equal hashes)
+  and the row itself; the comparison is one join in DuckDB on the key's
+  hash, so a key as long as a long text column fits that memory, and the
+  first differences in key order are picked a few characters of the key at a
+  time, never sorting whole keys; only the rows that differ come back.
   The reads wait while DuckDB is behind (at most 64 MB queued), and that wait
   is on the task that reads, never on a driver host's reader thread, so
   comparing DuckDB or file connections, whose host also runs the local

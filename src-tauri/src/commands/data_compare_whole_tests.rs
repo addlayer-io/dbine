@@ -262,6 +262,49 @@ async fn past_the_limit_both_keep_the_first_differences_in_key_order() {
     assert_eq!(leftovers(&root.0), Vec::<String>::new());
 }
 
+/// Keys longer than the cut's window, sharing a long prefix, and pairs
+/// whose order keys tie whole (they differ only in case): past the limit,
+/// DuckDB's cut window by window keeps the same rows as the memory path.
+#[tokio::test(flavor = "multi_thread")]
+async fn long_keys_past_the_limit_cut_as_in_memory() {
+    let rows = |table: &str, changed: &str, gap: &str| {
+        format!(
+            "CREATE TABLE {table} (name VARCHAR, v INTEGER);
+INSERT INTO {table} SELECT repeat('x', 150) || lpad(i::VARCHAR, 5, '0'), i{changed} FROM range(1, 2001) r(i){gap};
+INSERT INTO {table} SELECT repeat('X', 150) || lpad(i::VARCHAR, 5, '0'), i{changed} FROM range(1, 61) r(i){gap};"
+        )
+    };
+    let left = rows("t", "", "");
+    let right = rows(
+        "\"T\"",
+        " + CASE WHEN i % 3 = 0 THEN 1 ELSE 0 END",
+        " WHERE i % 7 <> 0",
+    );
+    let root = temp_dir("longcut");
+    let mut got = Vec::new();
+    for in_memory_rows in [1_000_000, 50] {
+        let ctl = Arc::new(Ctl::default());
+        let c = run(
+            &left,
+            &right,
+            &["name"],
+            &opts(in_memory_rows, 100, &root.0),
+            &ctl,
+            &quiet,
+        )
+        .await
+        .unwrap();
+        assert!(c.diff_truncated);
+        assert_eq!(
+            c.only_left.len() + c.only_right.len() + c.changed.len(),
+            100
+        );
+        got.push(summary(&c));
+    }
+    assert_eq!(got[0], got[1]);
+    assert_eq!(leftovers(&root.0), Vec::<String>::new());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_one_column_key_keeps_each_sides_last_key_by_value() {
     let root = temp_dir("last");
@@ -692,7 +735,7 @@ async fn the_scratch_database_is_encrypted_and_goes_when_it_closes() {
     local_duckdb::exec(
         s.session(),
         &format!(
-            "INSERT INTO main.rows SELECT i % 2, i, 'k' || (i // 2), 'o' || (i // 2), i, i, '{MARK} ' || i || repeat('x', 300) FROM range(500000) r(i)"
+            "INSERT INTO main.rows SELECT i % 2, i, i // 2, 0, 'o' || (i // 2), i, i, '{MARK} ' || i || repeat('x', 300) FROM range(500000) r(i)"
         ),
     )
     .await
@@ -700,7 +743,9 @@ async fn the_scratch_database_is_encrypted_and_goes_when_it_closes() {
     for i in 0..3 {
         local_duckdb::exec(
             s.session(),
-            &format!("INSERT INTO main.rows VALUES (0, -{i}, 'w{i}', 'w', 0, 0, '{MARK} wal {i}')"),
+            &format!(
+                "INSERT INTO main.rows VALUES (0, -{i}, -{i} - 1, 0, 'w', 0, 0, '{MARK} wal {i}')"
+            ),
         )
         .await
         .unwrap();
@@ -806,7 +851,7 @@ async fn the_scratch_compares_tables_far_bigger_than_its_memory() {
     // Rows as the compare writes them: key, order key, hash, the row.
     let side = |side: u8, extra: &str, filter: &str| {
         format!(
-            "INSERT INTO main.rows SELECT {side}, i, 'k' || i, '0' || lpad(i::VARCHAR, 16, '0'), i, i{extra}, '[' || i || ',\"value ' || i || '\"]' FROM range({N}) r(i){filter}"
+            "INSERT INTO main.rows SELECT {side}, i, i, 0, '0' || lpad(i::VARCHAR, 16, '0'), i, i{extra}, '[' || i || ',\"value ' || i || '\"]' FROM range({N}) r(i){filter}"
         )
     };
     local_duckdb::exec(s.session(), &side(0, "", ""))
@@ -983,4 +1028,72 @@ fn equal_rows_hash_alike_by_their_canonical_values() {
         key_of(&[json!(1), json!("1.00")], 2),
         key_of(&[json!("1"), json!(1)], 2)
     );
+}
+
+/// Keys as long as a long text column (2,000 characters, sharing a long
+/// prefix) over 1,000,000 rows a side, at the app's memory limit: the
+/// counts and the differences join and group by the key's hash, and the
+/// cut past the limit sorts short windows of the order key (issue #107:
+/// DuckDB ran out of memory on the whole keys). Repeated keys, every key
+/// changed, and more differing rows than the list keeps.
+///
+/// Ignored by default (about 5 GB on disk while it runs):
+/// `cargo test -p dbine --lib -- --ignored long_keys_fit --nocapture`
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "heavy: 2,000,000 rows of 2 KB keys on disk"]
+async fn long_keys_fit_the_scratch_memory() {
+    const N: i64 = 1_000_000;
+    for (groups, max) in [(N / 4, 1_000_000), (N, 1_000_000), (N, 100_000)] {
+        let root = temp_dir("longkeys");
+        let ctl = Arc::new(Ctl::default());
+        let started = std::time::Instant::now();
+        let mut s = Scratch::open(Some(&root.0), &ctl, None, MEMORY_LIMIT)
+            .await
+            .expect("opens");
+        s.create(&ctl).await.unwrap();
+        // Each key `groups` apart repeats; every row differs from its pair.
+        for side in 0..2 {
+            local_duckdb::exec(
+                s.session(),
+                &format!(
+                    "INSERT INTO main.rows SELECT {side}, i, (hash(k) >> 1)::BIGINT, 0, '1' || k, i + {side}, i, \
+                     '[' || i || ',\"' || repeat('x', 200) || '\"]' \
+                     FROM (SELECT i, repeat('k', 2000) || lpad((i % {groups})::VARCHAR, 7, '0') AS k FROM range({N}) r(i))"
+                ),
+            )
+            .await
+            .unwrap();
+        }
+        let (counts, dups) = s.counts(&ctl).await.unwrap();
+        assert_eq!(
+            (counts.changed, dups),
+            (groups as u64, 2 * (N - groups) as u64)
+        );
+        let projection = Arc::new(Projection {
+            columns: vec![("id".into(), "id".into()), ("v".into(), "v".into())],
+            nk: 1,
+            bools: [vec![false; 2], vec![false; 2]],
+            only_left_columns: Vec::new(),
+            only_right_columns: Vec::new(),
+        });
+        let job = Arc::new(Job::new(ctl.clone(), projection, &opts(1, max, &root.0)));
+        let lists = s.differences(&ctl, &job, 1, max).await.unwrap();
+        // Past the limit, the first `max` by order key: keys 0 to max - 1.
+        assert_eq!(lists.changed.len(), max.min(groups as usize));
+        if max < groups as usize {
+            let mut ids: Vec<i64> = lists
+                .changed
+                .iter()
+                .map(|r| r.left[0].as_i64().unwrap())
+                .collect();
+            ids.sort_unstable();
+            assert_eq!(ids, (0..max as i64).collect::<Vec<_>>());
+        }
+        s.close().await;
+        eprintln!(
+            "{N} rows a side, {groups} keys, list of {max}: {:?}",
+            started.elapsed()
+        );
+        assert_eq!(leftovers(&root.0), Vec::<String>::new());
+    }
 }
