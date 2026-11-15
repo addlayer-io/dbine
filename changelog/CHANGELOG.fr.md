@@ -1,5 +1,10 @@
 # Modifications
 
+## [1.6.1] - 2026-11-15
+
+### Corrections
+- **Comparer les données par une clé longue:** sur les grandes tables, **Comparer les données…** manquait de mémoire quand la clé était une longue colonne de texte. Les tables se comparent désormais par n'importe quelle clé, aussi longue soit-elle.
+
 ## [1.6.0] - 2026-11-14
 
 ### Nouveautés

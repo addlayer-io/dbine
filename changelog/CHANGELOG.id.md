@@ -1,6 +1,11 @@
 # Perubahan
 
 
+## [1.6.1] - 2026-11-15
+
+### Perbaikan
+- **Membandingkan data dengan kunci panjang:** pada tabel besar, **Bandingkan data…** kehabisan memori ketika kuncinya berupa kolom teks panjang. Kini tabel dapat dibandingkan dengan kunci apa pun, sepanjang apa pun.
+
 ## [1.6.0] - 2026-11-14
 
 ### Baru
