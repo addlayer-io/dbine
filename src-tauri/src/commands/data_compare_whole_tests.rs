@@ -735,7 +735,7 @@ async fn the_scratch_database_is_encrypted_and_goes_when_it_closes() {
     local_duckdb::exec(
         s.session(),
         &format!(
-            "INSERT INTO main.rows SELECT i % 2, i, i // 2, 0, 'o' || (i // 2), i, i, '{MARK} ' || i || repeat('x', 300) FROM range(500000) r(i)"
+            "INSERT INTO main.rows SELECT i % 2, i, i // 2, 0, 'k' || (i // 2), 'o' || (i // 2), i, i, '{MARK} ' || i || repeat('x', 300) FROM range(500000) r(i)"
         ),
     )
     .await
@@ -744,7 +744,7 @@ async fn the_scratch_database_is_encrypted_and_goes_when_it_closes() {
         local_duckdb::exec(
             s.session(),
             &format!(
-                "INSERT INTO main.rows VALUES (0, -{i}, -{i} - 1, 0, 'w', 0, 0, '{MARK} wal {i}')"
+                "INSERT INTO main.rows VALUES (0, -{i}, -{i} - 1, 0, 'w{i}', 'w', 0, 0, '{MARK} wal {i}')"
             ),
         )
         .await
@@ -851,7 +851,7 @@ async fn the_scratch_compares_tables_far_bigger_than_its_memory() {
     // Rows as the compare writes them: key, order key, hash, the row.
     let side = |side: u8, extra: &str, filter: &str| {
         format!(
-            "INSERT INTO main.rows SELECT {side}, i, i, 0, '0' || lpad(i::VARCHAR, 16, '0'), i, i{extra}, '[' || i || ',\"value ' || i || '\"]' FROM range({N}) r(i){filter}"
+            "INSERT INTO main.rows SELECT {side}, i, i, 0, 'k' || i, '0' || lpad(i::VARCHAR, 16, '0'), i, i{extra}, '[' || i || ',\"value ' || i || '\"]' FROM range({N}) r(i){filter}"
         )
     };
     local_duckdb::exec(s.session(), &side(0, "", ""))
@@ -1030,6 +1030,50 @@ fn equal_rows_hash_alike_by_their_canonical_values() {
     );
 }
 
+/// Keys that tie on their whole order key (here 300 keys with one order key,
+/// as numbers past `f64`'s precision or text that differs only in case
+/// give): past the limit, the cut breaks the tie by key and DuckDB hands
+/// back exactly the first `max`, as the memory path would keep.
+#[tokio::test(flavor = "multi_thread")]
+async fn order_key_ties_are_cut_by_key() {
+    let root = temp_dir("ties");
+    let ctl = Arc::new(Ctl::default());
+    let mut s = Scratch::open(Some(&root.0), &ctl, None, MEMORY_LIMIT)
+        .await
+        .expect("opens");
+    s.create(&ctl).await.unwrap();
+    for side in 0..2 {
+        local_duckdb::exec(
+            s.session(),
+            &format!(
+                "INSERT INTO main.rows SELECT {side}, i, i, 0, 'k' || lpad(i::VARCHAR, 3, '0'), 'same', i + {side}, i, \
+                 '[' || i || ',\"x\"]' FROM range(300) r(i)"
+            ),
+        )
+        .await
+        .unwrap();
+    }
+    let projection = Arc::new(Projection {
+        columns: vec![("id".into(), "id".into()), ("v".into(), "v".into())],
+        nk: 1,
+        bools: [vec![false; 2], vec![false; 2]],
+        only_left_columns: Vec::new(),
+        only_right_columns: Vec::new(),
+    });
+    let job = Arc::new(Job::new(ctl.clone(), projection, &opts(1, 10, &root.0)));
+    s.counts(&ctl).await.unwrap();
+    let lists = s.differences(&ctl, &job, 1, 10).await.unwrap();
+    let mut ids: Vec<i64> = lists
+        .changed
+        .iter()
+        .map(|r| r.left[0].as_i64().unwrap())
+        .collect();
+    ids.sort_unstable();
+    assert_eq!(ids, (0..10).collect::<Vec<_>>());
+    s.close().await;
+    assert_eq!(leftovers(&root.0), Vec::<String>::new());
+}
+
 /// Keys as long as a long text column (2,000 characters, sharing a long
 /// prefix) over 1,000,000 rows a side, at the app's memory limit: the
 /// counts and the differences join and group by the key's hash, and the
@@ -1056,7 +1100,7 @@ async fn long_keys_fit_the_scratch_memory() {
             local_duckdb::exec(
                 s.session(),
                 &format!(
-                    "INSERT INTO main.rows SELECT {side}, i, (hash(k) >> 1)::BIGINT, 0, '1' || k, i + {side}, i, \
+                    "INSERT INTO main.rows SELECT {side}, i, (hash(k) >> 1)::BIGINT, 0, k, '1' || k, i + {side}, i, \
                      '[' || i || ',\"' || repeat('x', 200) || '\"]' \
                      FROM (SELECT i, repeat('k', 2000) || lpad((i % {groups})::VARCHAR, 7, '0') AS k FROM range({N}) r(i))"
                 ),
