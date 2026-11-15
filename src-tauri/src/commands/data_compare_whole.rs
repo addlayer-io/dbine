@@ -14,13 +14,16 @@
 //!   DuckDB on disk (`local_duckdb`: encrypted file and temp files,
 //!   extensions off, configuration locked), with a key made for this compare
 //!   and kept in memory only. It starts opening at half the limits, so the
-//!   reads rarely wait for it. Each row goes as its canonical key (`k`), an
-//!   order key for the lists (`o`), a 128-bit hash of its canonical values
-//!   (`h1`, `h2`) and the row itself as JSON text (`v`, an exact round
-//!   trip). The counts come from one join over the whole tables; only the
-//!   rows that differ come back, up to [`Options::max_diff_rows`] in key
-//!   order, and the scratch files are deleted when the compare ends, however
-//!   it ends.
+//!   reads rarely wait for it. Each row goes as a 128-bit hash of its
+//!   canonical key (`k1`, `k2`: what rows are matched, counted and grouped
+//!   by, so a key as long as a text column still fits DuckDB's memory,
+//!   issue #107), an order key for the lists (`o`), a 128-bit hash of its
+//!   canonical values (`h1`, `h2`) and the row itself as JSON text (`v`, an
+//!   exact round trip). The counts come from one join over the whole tables;
+//!   only the rows that differ come back, up to [`Options::max_diff_rows`]
+//!   in key order (picked without sorting whole order keys,
+//!   [`Scratch::cut`]), and the scratch files are deleted when the compare
+//!   ends, however it ends.
 //!
 //! A read waits (its sink blocks) while the scratch DuckDB opens and while
 //! the loader is behind. That wait never holds a driver host's reader
@@ -556,6 +559,19 @@ pub(crate) fn order_key(key: &[Value]) -> String {
     o
 }
 
+/// 128 bits of SHA-256 over a row's key as compared ([`key_with`]): what
+/// the scratch DuckDB joins, counts and groups the keys by. The key's text
+/// can be as long as its columns (a long `nvarchar`, several columns), and
+/// DuckDB's joins and distinct counts over keys that long didn't fit its
+/// memory (issue #107); 16 bytes a row always do.
+fn key_hash(k: &str) -> (i64, i64) {
+    let d = Sha256::digest(k.as_bytes());
+    let half = |r: std::ops::Range<usize>| {
+        i64::from_le_bytes(d[r].try_into().expect("8 bytes of a 32-byte digest"))
+    };
+    (half(0..8), half(8..16))
+}
+
 /// 128 bits of SHA-256 over the canonical non-key values: two rows of the
 /// same key are equal exactly when their hashes are.
 fn hash_of(p: &[Value], nk: usize) -> (i64, i64) {
@@ -576,10 +592,12 @@ fn hash_of(p: &[Value], nk: usize) -> (i64, i64) {
 /// `rules` keep of each compared non-key column ([`Layout`]).
 fn cells(side: usize, n: u64, p: &[Value], nk: usize, rules: &dyn Rules) -> Vec<Cell> {
     let (h1, h2) = hash_of(p, nk);
+    let (k1, k2) = key_hash(&key_with(rules, p, nk));
     let mut c = vec![
         Cell::Int(side as i64),
         Cell::Int(n as i64),
-        Cell::Text(key_with(rules, p, nk)),
+        Cell::Int(k1),
+        Cell::Int(k2),
         Cell::Text(order_key(&p[..nk])),
         Cell::Int(h1),
         Cell::Int(h2),
@@ -643,10 +661,21 @@ impl Layout {
 /// Two rows of the same key are the same by their hashes.
 const HASHES_SAME: &str = "(l.h1 = r.h1 AND l.h2 = r.h2)";
 
-const COLUMNS: [(&str, &str); 7] = [
+/// Characters of the order key [`Scratch::cut`] sorts at a time: short
+/// enough for any number of rows to sort in the scratch memory.
+const CUT_WINDOW: usize = 64;
+
+/// The two sides' rows of the same key, by its hash ([`key_hash`]).
+const JOIN_ON: &str = "l.k1 = r.k1 AND l.k2 = r.k2";
+
+/// The scratch table: the side (`s`), the order read (`n`), the key's hash
+/// (`k1`, `k2`, [`key_hash`]: what rows are matched by), the order key
+/// (`o`, [`order_key`]), the values' hash (`h1`, `h2`) and the row (`v`).
+const COLUMNS: [(&str, &str); 8] = [
     ("s", "BIGINT"),
     ("n", "BIGINT"),
-    ("k", "VARCHAR"),
+    ("k1", "BIGINT"),
+    ("k2", "BIGINT"),
     ("o", "VARCHAR"),
     ("h1", "BIGINT"),
     ("h2", "BIGINT"),
@@ -1632,7 +1661,7 @@ impl Scratch {
         let out = self
             .exec(
                 ctl,
-                "SELECT s, count(*), count(DISTINCT k) FROM main.rows GROUP BY s",
+                "SELECT s, count(*), count(DISTINCT (k1, k2)) FROM main.rows GROUP BY s",
             )
             .await?;
         let mut per = [(0u64, 0u64); 2];
@@ -1649,7 +1678,7 @@ impl Scratch {
         }
         for (side, view) in ["l", "r"].into_iter().enumerate() {
             let first = if per[side].0 > per[side].1 {
-                " QUALIFY row_number() OVER (PARTITION BY k ORDER BY n) = 1"
+                " QUALIFY row_number() OVER (PARTITION BY k1, k2 ORDER BY n) = 1"
             } else {
                 ""
             };
@@ -1657,7 +1686,7 @@ impl Scratch {
             self.exec(
                 ctl,
                 &format!(
-                    "CREATE TEMP VIEW {view} AS SELECT k, o, h1, h2, v{extra} FROM {ALIAS}.main.rows WHERE s = {side}{first}"
+                    "CREATE TEMP VIEW {view} AS SELECT k1, k2, o, h1, h2, v{extra} FROM {ALIAS}.main.rows WHERE s = {side}{first}"
                 ),
             )
             .await?;
@@ -1672,12 +1701,12 @@ impl Scratch {
                 ctl,
                 &format!(
                     "SELECT \
-                     count(*) FILTER (WHERE (l.k IS NOT NULL AND r.k IS NOT NULL AND {same}) \
-                         OR (r.k IS NULL AND {lone_l}) OR (l.k IS NULL AND {lone_r})), \
-                     count(*) FILTER (WHERE l.k IS NOT NULL AND r.k IS NOT NULL AND NOT {same}), \
-                     count(*) FILTER (WHERE r.k IS NULL AND NOT {lone_l}), \
-                     count(*) FILTER (WHERE l.k IS NULL AND NOT {lone_r}) \
-                     FROM l FULL OUTER JOIN r ON l.k = r.k"
+                     count(*) FILTER (WHERE (l.k1 IS NOT NULL AND r.k1 IS NOT NULL AND {same}) \
+                         OR (r.k1 IS NULL AND {lone_l}) OR (l.k1 IS NULL AND {lone_r})), \
+                     count(*) FILTER (WHERE l.k1 IS NOT NULL AND r.k1 IS NOT NULL AND NOT {same}), \
+                     count(*) FILTER (WHERE r.k1 IS NULL AND NOT {lone_l}), \
+                     count(*) FILTER (WHERE l.k1 IS NULL AND NOT {lone_r}) \
+                     FROM l FULL OUTER JOIN r ON {JOIN_ON}"
                 ),
             )
             .await?;
@@ -1695,7 +1724,13 @@ impl Scratch {
         Ok((counts, dups))
     }
 
-    /// The first `max` differing rows in key order, back as projected rows.
+    /// The first `max` differing rows in key order, back as projected rows
+    /// in no particular order ([`finish`] orders and cuts them).
+    ///
+    /// No step sorts whole order keys: DuckDB's sort didn't fit long keys
+    /// (a long text column) in the scratch memory (issue #107). With at most
+    /// `max` differing rows they all come back; with more, [`Scratch::cut`]
+    /// picks the first `max` by short windows of the order key.
     async fn differences(
         &mut self,
         ctl: &Ctl,
@@ -1705,19 +1740,42 @@ impl Scratch {
     ) -> CommandResult<Lists> {
         let same = self.same_sql();
         let (lone_l, lone_r) = (self.lone_same_sql("l"), self.lone_same_sql("r"));
+        let differing = format!(
+            "FROM l FULL OUTER JOIN r ON {JOIN_ON} \
+             WHERE (r.k1 IS NULL AND NOT {lone_l}) OR (l.k1 IS NULL AND NOT {lone_r}) \
+                 OR (l.k1 IS NOT NULL AND r.k1 IS NOT NULL AND NOT {same})"
+        );
+        // Which list and the key's hash: 20 bytes a row, whatever the key.
         self.exec(
             ctl,
             &format!(
                 "CREATE TEMP TABLE d AS \
-                 SELECT CASE WHEN r.k IS NULL THEN 0 WHEN l.k IS NULL THEN 1 ELSE 2 END AS kind, \
-                 coalesce(l.o, r.o) AS o, coalesce(l.k, r.k) AS k \
-                 FROM l FULL OUTER JOIN r ON l.k = r.k \
-                 WHERE (r.k IS NULL AND NOT {lone_l}) OR (l.k IS NULL AND NOT {lone_r}) \
-                     OR (l.k IS NOT NULL AND r.k IS NOT NULL AND NOT {same}) \
-                 ORDER BY o, k LIMIT {max}"
+                 SELECT CASE WHEN r.k1 IS NULL THEN 0 WHEN l.k1 IS NULL THEN 1 ELSE 2 END AS kind, \
+                 coalesce(l.k1, r.k1) AS k1, coalesce(l.k2, r.k2) AS k2 {differing}"
             ),
         )
         .await?;
+        let out = self.exec(ctl, "SELECT count(*) FROM d").await?;
+        let total = local_duckdb::first_value(&out)
+            .and_then(as_u64)
+            .unwrap_or(0);
+        let rows = if total > max as u64 {
+            // Their order keys (the left's, as the lists sort), in the
+            // encrypted file: they can be long. Semi joins, so only `d`'s
+            // narrow rows are held while each side streams by.
+            self.exec(
+                ctl,
+                "CREATE TABLE main.g AS \
+                 SELECT k1, k2, o FROM l SEMI JOIN (SELECT k1, k2 FROM d WHERE kind <> 1) d USING (k1, k2) \
+                 UNION ALL \
+                 SELECT k1, k2, o FROM r SEMI JOIN (SELECT k1, k2 FROM d WHERE kind = 1) d USING (k1, k2)",
+            )
+            .await?;
+            self.cut(ctl, max as u64).await?;
+            "(SELECT d.* FROM d JOIN pick ON pick.k1 = d.k1 AND pick.k2 = d.k2)"
+        } else {
+            "d"
+        };
         let sink = Arc::new(Mutex::new(DiffSink {
             nk,
             job: job.clone(),
@@ -1729,9 +1787,14 @@ impl Scratch {
             ..Default::default()
         };
         let s = self.session();
+        let first = format!(
+            "SELECT d.kind, l.v, r.v FROM {rows} d \
+             LEFT JOIN l ON l.k1 = d.k1 AND l.k2 = d.k2 \
+             LEFT JOIN r ON r.k1 = d.k1 AND r.k2 = d.k2"
+        );
         let r = tokio::select! {
             r = s.execute(
-                "SELECT d.kind, l.v, r.v FROM d LEFT JOIN l ON l.k = d.k LEFT JOIN r ON r.k = d.k",
+                &first,
                 usize::MAX,
                 &mut out,
             ) => r,
@@ -1747,6 +1810,67 @@ impl Scratch {
             return Err(CommandError::Internal(e));
         }
         Ok(std::mem::take(&mut sink.lists))
+    }
+
+    /// Of the differing rows (`main.g`, their order keys), the first `max`
+    /// by order key into `pick`, sorting [`CUT_WINDOW`] characters of it at
+    /// a time: the rows whose window sorts before the `max`-th row's are
+    /// in; the rows that tie it go on to the next window, until all that tie
+    /// are needed. Rows whose whole order key ties come back together, and
+    /// [`finish`] cuts them by key. Order keys sort character by character
+    /// ([`order_key`]), so window by window is the same order.
+    async fn cut(&mut self, ctl: &Ctl, max: u64) -> CommandResult<()> {
+        self.exec(ctl, "CREATE TEMP TABLE pick (k1 BIGINT, k2 BIGINT)")
+            .await?;
+        let mut need = max;
+        let mut at = 1;
+        while need > 0 {
+            let w = format!("substr(g.o, {at}, {CUT_WINDOW})");
+            // The window of the `need`-th row (`g` has at least `need`).
+            self.exec(
+                ctl,
+                &format!(
+                    "CREATE OR REPLACE TEMP TABLE t AS \
+                     SELECT {w} AS w FROM g ORDER BY w LIMIT 1 OFFSET {}",
+                    need - 1
+                ),
+            )
+            .await?;
+            let out = self
+                .exec(
+                    ctl,
+                    &format!(
+                        "SELECT count(*) FILTER (WHERE {w} < t.w), \
+                         count(*) FILTER (WHERE {w} = t.w), any_value(t.w) = '' FROM g, t"
+                    ),
+                )
+                .await?;
+            let row = local_duckdb::first_row(&out);
+            let (before, tied) = (
+                row.first().and_then(as_u64).unwrap_or(0),
+                row.get(1).and_then(as_u64).unwrap_or(0),
+            );
+            // The order keys ended: those left tie whole.
+            let ended = row.get(2).and_then(Value::as_bool).unwrap_or(true);
+            let take = if tied <= need - before || ended {
+                "<="
+            } else {
+                "<"
+            };
+            self.exec(
+                ctl,
+                &format!("INSERT INTO pick SELECT g.k1, g.k2 FROM g, t WHERE {w} {take} t.w"),
+            )
+            .await?;
+            if take == "<=" || before + tied == 0 {
+                break;
+            }
+            need -= before;
+            self.exec(ctl, &format!("DELETE FROM g USING t WHERE {w} <> t.w"))
+                .await?;
+            at += CUT_WINDOW;
+        }
+        Ok(())
     }
 
     /// Close the session and delete the folder (database, WAL, temp files).
