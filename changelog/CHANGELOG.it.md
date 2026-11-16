@@ -1,5 +1,10 @@
 # Modifiche
 
+## [1.6.1] - 2026-11-15
+
+### Correzioni
+- **Confrontare i dati per una chiave lunga:** sulle tabelle grandi, **Confronta i dati…** esauriva la memoria quando la chiave era una colonna di testo lungo. Ora le tabelle si confrontano per qualsiasi chiave, per quanto lunga.
+
 ## [1.6.0] - 2026-11-14
 
 ### Novità

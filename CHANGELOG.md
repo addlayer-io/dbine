@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-11-15
+
 ### Fixes
 
 - **Comparing data by a long key:** on big tables, **Compare data…** ran out of memory when the key was a long text column. Tables now compare by any key, however long.

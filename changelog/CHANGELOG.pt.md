@@ -1,5 +1,10 @@
 # Alterações
 
+## [1.6.1] - 2026-11-15
+
+### Correções
+- **Comparar dados por uma chave longa:** em tabelas grandes, **Comparar dados…** ficava sem memória quando a chave era uma coluna de texto longo. Agora as tabelas são comparadas por qualquer chave, por mais longa que seja.
+
 ## [1.6.0] - 2026-11-14
 
 ### Novidades

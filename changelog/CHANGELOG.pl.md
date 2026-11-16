@@ -1,6 +1,11 @@
 # Zmiany
 
 
+## [1.6.1] - 2026-11-15
+
+### Poprawki
+- **Porównywanie danych według długiego klucza:** w dużych tabelach **Porównaj dane…** zużywało całą pamięć, gdy kluczem była długa kolumna tekstowa. Tabele można teraz porównywać według dowolnego klucza, bez względu na jego długość.
+
 ## [1.6.0] - 2026-11-14
 
 ### Nowości

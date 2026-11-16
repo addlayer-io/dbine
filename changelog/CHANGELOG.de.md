@@ -1,5 +1,10 @@
 # Änderungen
 
+## [1.6.1] - 2026-11-15
+
+### Korrekturen
+- **Daten über einen langen Schlüssel vergleichen:** bei großen Tabellen ging **Daten vergleichen…** der Arbeitsspeicher aus, wenn der Schlüssel eine lange Textspalte war. Tabellen lassen sich jetzt über jeden Schlüssel vergleichen, egal wie lang er ist.
+
 ## [1.6.0] - 2026-11-14
 
 ### Neu
