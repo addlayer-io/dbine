@@ -41,7 +41,8 @@
     "loadingDifferences": "Buscando as linhas diferentes…",
     "rows": "Origem: {{left}} linhas · Destino: {{right}} linhas",
     "differences": "{{n}} linhas diferentes carregadas",
-    "cancelling": "Cancelando…"
+    "cancelling": "Cancelando…",
+    "loadingEqual": "Buscando as linhas iguais…"
   },
   "duplicates_one": "1 linha com a chave repetida foi comparada uma só vez.",
   "duplicates_many": "{{count}} linhas com a chave repetida foram comparadas uma só vez.",
@@ -150,5 +151,18 @@
     "readingColumns": "Lendo as colunas dos resultados…",
     "reading": "Lendo os resultados…",
     "duplicatesHint": "Se a chave se repete, provavelmente falta uma coluna."
+  },
+  "equal": {
+    "option": "Incluir as linhas iguais",
+    "optionHint": "Além de contá-las, traz as linhas iguais para você vê-las e filtrá-las, na ordem da chave. Elas não entram em nenhum script.",
+    "notListed": "Para vê-las, marque «Incluir as linhas iguais» e compare novamente.",
+    "truncated": "Há {{total}} linhas iguais: as primeiras {{limit}} são listadas, na ordem da chave. O total é exato."
+  },
+  "toQueries": {
+    "button": "Passar para consultas",
+    "hint": "Passa para a comparação de consultas, com a que lê cada tabela inteira já escrita, para você adicionar um WHERE (ou o filtro do seu mecanismo) e comparar apenas essas linhas. A comparação de consultas é somente leitura: não gera script.",
+    "replace": "As consultas que estavam no modo Consultas são substituídas pelas que leem estas tabelas.",
+    "replaceOk": "Substituir",
+    "done": "Cada lado tem a consulta que lê a sua tabela inteira. Adicione um WHERE para comparar apenas algumas linhas e clique em Comparar."
   }
 }

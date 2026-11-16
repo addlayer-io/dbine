@@ -626,6 +626,7 @@ pub async fn data_compare_ai_filter(
         }
         RowKind::OnlyLeft => "rows only on the left",
         RowKind::OnlyRight => "rows only on the right",
+        RowKind::Equal => "rows that are the same on both sides",
     };
     let _ = writeln!(text, "list: {kind}");
     let _ = writeln!(text, "columns:");
@@ -797,6 +798,7 @@ mod tests {
             only_left: vec![vec![json!(11)], vec![json!(12)], vec![json!(3)]],
             only_right: Vec::new(),
             changed,
+            equal: Vec::new(),
             left_types: ["int", "timestamp", "numeric(10,2)", "text", "boolean"]
                 .iter()
                 .map(|s| s.to_string())

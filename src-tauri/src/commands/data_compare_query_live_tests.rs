@@ -272,6 +272,7 @@ async fn compare_only(
         in_memory_rows,
         in_memory_bytes: IN_MEMORY_BYTES,
         max_diff_rows: MAX_DIFF_ROWS,
+        max_equal_rows: 0,
         scratch: Some(root.clone()),
         duckdb: None,
     };

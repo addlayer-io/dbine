@@ -41,7 +41,8 @@
     "loadingDifferences": "Recupero delle righe diverse…",
     "rows": "Origine: {{left}} righe · Destinazione: {{right}} righe",
     "differences": "{{n}} righe diverse recuperate",
-    "cancelling": "Annullamento…"
+    "cancelling": "Annullamento…",
+    "loadingEqual": "Recupero delle righe uguali…"
   },
   "duplicates_one": "1 riga con chiave ripetuta è stata confrontata una sola volta.",
   "duplicates_many": "{{count}} righe con chiave ripetuta sono state confrontate una sola volta.",
@@ -150,5 +151,18 @@
     "readingColumns": "Lettura delle colonne dei risultati…",
     "reading": "Lettura dei risultati…",
     "duplicatesHint": "Se la chiave si ripete, probabilmente manca una colonna."
+  },
+  "equal": {
+    "option": "Includi le righe uguali",
+    "optionHint": "Oltre a contarle, recupera le righe uguali per vederle e filtrarle, nell'ordine della chiave. Non entrano in nessuno script.",
+    "notListed": "Per vederle, seleziona «Includi le righe uguali» e confronta di nuovo.",
+    "truncated": "Ci sono {{total}} righe uguali: vengono elencate le prime {{limit}}, nell'ordine della chiave. Il totale è esatto."
+  },
+  "toQueries": {
+    "button": "Passa alle query",
+    "hint": "Passa al confronto di query, con quella che legge ogni tabella intera già scritta, per aggiungere un WHERE (o il filtro del tuo motore) e confrontare solo quelle righe. Il confronto di query è di sola lettura: non genera script.",
+    "replace": "Le query della modalità Query vengono sostituite da quelle che leggono queste tabelle.",
+    "replaceOk": "Sostituisci",
+    "done": "Ogni lato ha la query che legge la sua tabella intera. Aggiungi un WHERE per confrontare solo alcune righe e premi Confronta."
   }
 }

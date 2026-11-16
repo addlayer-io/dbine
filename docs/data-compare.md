@@ -20,7 +20,8 @@ for instance), read-only: see [Comparing two queries](#comparing-two-queries).
   different rows), the time elapsed and **Cancel**, which stops both reads
   and the work on disk. Then it shows how many rows were compared on each
   side and:
-  - the **same** rows (only the count);
+  - the **same** rows: the count, and their list with **Include equal
+    rows** (see [The equal rows](#the-equal-rows));
   - the **different** ones, with each differing value marked (the left one on
     top, the right one below);
   - those **only on the left** and **only on the right**.
@@ -109,6 +110,38 @@ for instance), read-only: see [Comparing two queries](#comparing-two-queries).
   all of them (up to the 1,000,000 above).
 - If a key repeats on one side, the first row read is compared once and the
   result says so.
+
+## The equal rows
+
+The equal rows are always counted. To see them too, check **Include equal
+rows** next to **Compare** (tables or queries), then compare: the
+count of equal rows becomes a list of its own, next to the differences.
+
+- It lists the first **100,000** equal rows in key order, with the left
+  side's values (or the right's, in a query compare, for a row only that
+  side has that counts as the same under NULL as BLANK). Past that the
+  count is still exact and the result says how many are listed.
+- It sorts and filters like the differences, over all the rows listed.
+- It has no arrows and never goes into a script: there's nothing to sync.
+- Listing them takes longer and more memory on big tables, so it's off by
+  default, and the tab remembers the choice. On the local DuckDB, the equal
+  rows are picked after the differences, the same way and in the same
+  order.
+
+## Narrowing a table compare with a query
+
+**Switch to queries**, next to **Compare** in a table compare, turns it
+into a [compare of two queries](#comparing-two-queries): each side gets the
+query that reads its table whole, in that engine's language (the driver's
+own browse query without its limit: `SELECT * FROM [dbo].[Orders]`,
+`db.orders.find({})`…), on the same connection and database, and the
+table compare's key becomes the key in the column table once the columns
+are read. Add a `WHERE` (or the engine's own filter) on either side, or
+both, and **Compare**: only those rows are compared.
+
+A query compare is read-only, so the result has no arrows and no script.
+If the **Queries** mode already had queries, it asks before replacing
+them.
 
 ## Sorting and filtering the differences
 
@@ -305,15 +338,17 @@ one side has shows in its own list.
 
 ## Commands
 
-- `data_compare { left, right, key, columns, run }` → the totals, the sample
-  rows, `duplicate_keys`, `diff_truncated` and `diff_limit` (more rows differ
-  than the lists hold), `listed` (rows of each kind in the lists) and an
-  `id`. `run` is the UI's id for that comparison. `limit`, which older UIs
+- `data_compare { left, right, key, columns, run, equal }` → the totals, the
+  sample rows, `duplicate_keys`, `diff_truncated` and `diff_limit` (more rows
+  differ than the lists hold), `listed` (rows of each kind in the lists) and
+  an `id`. With `equal: true`, also `equal` (the first equal rows) and
+  `equal_limit` (how many are listed at most; 0 when not asked for), and
+  `listed.equal`. `run` is the UI's id for that comparison. `limit`, which older UIs
   send, is ignored; `truncated_left` and `truncated_right` are always false
   and `ordered` always true.
 - `data-compare-progress` (event) `{ run, side: "left" | "right", rows,
-  phase: "reading" | "preparing" | "comparing" | "loading_differences",
-  differences }`: about four times a second per side while it changes
+  phase: "reading" | "preparing" | "comparing" | "loading_differences" |
+  "loading_equal", differences }`: about four times a second per side while it changes
   (`preparing`: a read waits while the local DuckDB opens).
 - `data_compare_cancel { run }` stops that comparison: both reads (as
   `cancel_query` does, on its sessions `dcmp:<run>:left` and

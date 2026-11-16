@@ -2,6 +2,10 @@
 
 ## [1.6.2] - 2026-11-16
 
+### Miglioramenti
+- **Vedere le righe uguali in Confronta i dati:** **Includi le righe uguali**, accanto a **Confronta**, elenca le righe che sono uguali su entrambi i lati, non solo il loro numero. Il numero diventa un elenco accanto alle differenze, nell'ordine della chiave, che puoi ordinare e filtrare come loro, per tabelle e per query. Vengono elencate fino a 100.000 righe; il numero resta esatto oltre questo limite.
+- **Confrontare solo alcune righe di due tabelle:** **Passa alle query** trasforma un confronto di tabelle in un confronto di due query, con la query di ciascun lato che legge l'intera tabella già scritta, su qualsiasi motore, e la stessa chiave. Aggiungi un `WHERE` su uno dei due lati e confronta di nuovo per vedere solo quelle righe.
+
 ### Correzioni
 - **Parametri della query da non digitare di nuovo:** **Parametri della query** ora ha **Non chiedere più in questa scheda: usa questi valori**: le esecuzioni successive della scheda li compilano senza chiedere. **Modifica parametri…**, nel menu dell'editor, li modifica. L'altra opzione, ora **Non sono parametri: esegui il testo così com'è**, è più chiara: serve per i testi in cui `:name` è sintassi propria del motore. Prima era facile scambiarla per «mantieni i miei valori», e la query falliva con `:name` ancora dentro.
 

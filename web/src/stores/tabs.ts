@@ -128,6 +128,8 @@ export interface ComparePicks {
   /** A data compare's mode: tables (the default) or two queries' results. */
   mode?: 'tables' | 'queries';
   queries?: { left: QueryComparePick; right: QueryComparePick };
+  /** A data compare also lists the equal rows (issue #115). */
+  equal?: boolean;
 }
 
 export interface CompareTab extends TabBase {

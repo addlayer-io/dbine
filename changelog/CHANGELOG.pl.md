@@ -3,6 +3,10 @@
 
 ## [1.6.2] - 2026-11-16
 
+### Ulepszenia
+- **Takie same wiersze w funkcji Porównaj dane:** **Uwzględnij takie same wiersze**, obok **Porównaj**, wyświetla listę wierszy identycznych po obu stronach, a nie tylko ich liczbę. Liczba zamienia się w listę obok różnic, w kolejności klucza, którą można sortować i filtrować tak jak różnice, dla tabel i dla zapytań. Wyświetlanych jest do 100 000 wierszy; liczba pozostaje dokładna także powyżej tego progu.
+- **Porównywanie tylko wybranych wierszy dwóch tabel:** **Przełącz na zapytania** zamienia porównanie tabel w porównanie dwóch zapytań, w których zapytanie każdej strony czytające całą jej tabelę jest już napisane, w dowolnym silniku i z tym samym kluczem. Dodaj `WHERE` po dowolnej stronie i porównaj ponownie, aby zobaczyć tylko te wiersze.
+
 ### Poprawki
 - **Parametry zapytania, których nie trzeba wpisywać ponownie:** W oknie **Parametry zapytania** jest teraz **Nie pytaj ponownie na tej karcie: użyj tych wartości**: kolejne uruchomienia na karcie wstawiają wartości bez pytania. Zmienia je **Edytuj parametry…** w menu edytora. Druga opcja, teraz **To nie parametry: uruchom tekst bez zmian**, jest bardziej czytelna: służy do tekstu, w którym `:name` to własna składnia silnika. Wcześniej łatwo było wziąć ją za „zachowaj moje wartości”, a zapytanie kończyło się błędem, bo `:name` nadal w nim było.
 

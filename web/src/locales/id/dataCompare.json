@@ -39,7 +39,8 @@
     "loadingDifferences": "Mengambil baris yang berbeda…",
     "rows": "Sumber: {{left}} baris · Tujuan: {{right}} baris",
     "differences": "{{n}} baris berbeda diambil",
-    "cancelling": "Membatalkan…"
+    "cancelling": "Membatalkan…",
+    "loadingEqual": "Mengambil baris yang sama…"
   },
   "duplicates_other": "{{count}} baris dengan kunci berulang dibandingkan hanya sekali.",
   "onlyLeftColumns": "Kolom yang hanya ada di kiri (tidak dibandingkan): {{list}}",
@@ -138,5 +139,18 @@
     "readingColumns": "Membaca kolom hasil…",
     "reading": "Membaca hasil…",
     "duplicatesHint": "Jika kunci berulang, kemungkinan ada kolom yang kurang."
+  },
+  "equal": {
+    "option": "Sertakan baris yang sama",
+    "optionHint": "Selain menghitungnya, mengambil baris yang sama agar dapat dilihat dan difilter, menurut urutan kunci. Baris ini tidak masuk ke skrip mana pun.",
+    "notListed": "Untuk melihatnya, centang “Sertakan baris yang sama” lalu bandingkan lagi.",
+    "truncated": "Ada {{total}} baris yang sama: {{limit}} baris pertama ditampilkan, menurut urutan kunci. Totalnya akurat."
+  },
+  "toQueries": {
+    "button": "Beralih ke kueri",
+    "hint": "Beralih ke perbandingan kueri, dengan kueri yang membaca seluruh tabel sudah tertulis di tiap sisi, sehingga dapat menambahkan WHERE (atau filter mesin Anda) dan hanya membandingkan baris tersebut. Perbandingan kueri bersifat hanya baca: tidak menghasilkan skrip.",
+    "replace": "Kueri pada mode Kueri akan diganti dengan kueri yang membaca tabel-tabel ini.",
+    "replaceOk": "Ganti",
+    "done": "Setiap sisi memiliki kueri yang membaca seluruh tabelnya. Tambahkan WHERE untuk membandingkan sebagian baris saja, lalu klik Bandingkan."
   }
 }

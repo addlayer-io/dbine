@@ -41,7 +41,8 @@
     "loadingDifferences": "Trayendo las filas distintas…",
     "rows": "Origen: {{left}} filas · Destino: {{right}} filas",
     "differences": "{{n}} filas distintas traídas",
-    "cancelling": "Cancelando…"
+    "cancelling": "Cancelando…",
+    "loadingEqual": "Trayendo las filas iguales…"
   },
   "duplicates_one": "1 fila con la clave repetida se comparó una sola vez.",
   "duplicates_many": "{{count}} filas con la clave repetida se compararon una sola vez.",
@@ -150,5 +151,18 @@
     "readingColumns": "Leyendo las columnas de los resultados…",
     "reading": "Leyendo los resultados…",
     "duplicatesHint": "Si la clave se repite, probablemente le falta una columna."
+  },
+  "equal": {
+    "option": "Incluir las filas iguales",
+    "optionHint": "Además de contarlas, trae las filas iguales para verlas y filtrarlas, en el orden de la clave. No entran en ningún script.",
+    "notListed": "Para verlas, marcá «Incluir las filas iguales» y volvé a comparar.",
+    "truncated": "Hay {{total}} filas iguales: se listan las primeras {{limit}}, en el orden de la clave. El total es exacto."
+  },
+  "toQueries": {
+    "button": "Pasar a consultas",
+    "hint": "Pasa a comparar consultas, con la que lee cada tabla entera ya escrita, para agregarle un WHERE (o el filtro de su motor) y comparar solo esas filas. La comparación de consultas es de solo lectura: no genera script.",
+    "replace": "Las consultas que había en el modo Consultas se reemplazan por las que leen estas tablas.",
+    "replaceOk": "Reemplazar",
+    "done": "Cada lado tiene la consulta que lee su tabla entera. Agregale un WHERE para comparar solo algunas filas y tocá Comparar."
   }
 }
