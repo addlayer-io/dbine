@@ -17,6 +17,8 @@
     "number": "No es un número.",
     "date": "Escribí la fecha como AAAA-MM-DD, con la hora opcional (hh:mm o hh:mm:ss)."
   },
-  "disable": "No pedir parámetros en esta pestaña",
-  "disableTip": "Ejecuta el texto tal como está y deja de buscar parámetros en esta pestaña. Se vuelve a activar desde el menú del editor."
+  "disable": "No son parámetros: ejecutar el texto tal cual",
+  "disableTip": "Para cuando :nombre es sintaxis del motor y no un parámetro: ejecuta el texto tal como está y deja de buscar parámetros en esta pestaña. Se vuelve a activar desde el menú del editor.",
+  "remember": "No volver a preguntar en esta pestaña: usar estos valores",
+  "rememberTip": "Las próximas ejecuciones de esta pestaña usan estos valores sin abrir esta ventana; solo pregunta por un parámetro nuevo. Se cambian desde «Editar parámetros…» en el menú del editor."
 }

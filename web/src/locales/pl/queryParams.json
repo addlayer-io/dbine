@@ -17,6 +17,8 @@
     "number": "To nie jest liczba.",
     "date": "Wpisz datę jako RRRR-MM-DD, z opcjonalną godziną (gg:mm lub gg:mm:ss)."
   },
-  "disable": "Nie pytaj o parametry na tej karcie",
-  "disableTip": "Uruchamia tekst bez zmian i przestaje szukać parametrów na tej karcie. Ponownie włączysz to z menu edytora."
+  "disable": "To nie parametry: uruchom tekst bez zmian",
+  "disableTip": "Na wypadek, gdy :nazwa to składnia silnika, a nie parametr: uruchamia tekst bez zmian i przestaje szukać parametrów na tej karcie. Ponownie włączysz to z menu edytora.",
+  "remember": "Nie pytaj ponownie na tej karcie: użyj tych wartości",
+  "rememberTip": "Kolejne uruchomienia na tej karcie używają tych wartości bez otwierania tego okna; pytanie pojawia się tylko o nowy parametr. Zmienisz je w menu edytora, w „Edytuj parametry…”."
 }

@@ -389,10 +389,18 @@ A script that defines code (`CREATE PROCEDURE`, `CREATE TRIGGER`,
 the code itself (for example `:new.column` in an Oracle trigger).
 
 Everything that executes goes through the same dialog: **Run**, the
-statement at the cursor, plans and **Run on several databases**. The dialog
-has **Don't ask for parameters in this tab**, which runs the text as is; it
-is turned back on from the editor menu with **Ask for parameters when
-running**.
+statement at the cursor, plans and **Run on several databases**.
+
+With **Don't ask again in this tab: use these values** checked, the tab's
+next runs fill in the remembered values without opening the dialog. It still
+opens for a parameter that has no value yet. **Edit parameters…** in the
+editor menu opens the dialog without running, to change the values or to
+uncheck that option.
+
+**Not parameters: run the text as is** is for text where `:name` is the
+engine's own syntax. It runs the text unchanged and stops looking for
+parameters in that tab; **Ask for parameters when running** in the editor
+menu turns it back on.
 
 ## Snippets
 

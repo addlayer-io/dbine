@@ -20,6 +20,7 @@
     "goToDefinition": "Go to definition",
     "revealInExplorer": "Show in explorer",
     "detectParams": "Ask for parameters when running",
+    "editParams": "Edit parameters…",
     "click": "click"
   },
   "nav": {

@@ -17,6 +17,8 @@
     "number": "Não é um número.",
     "date": "Escreva a data como AAAA-MM-DD, com hora opcional (hh:mm ou hh:mm:ss)."
   },
-  "disable": "Não pedir parâmetros nesta aba",
-  "disableTip": "Executa o texto como está e para de procurar parâmetros nesta aba. Pode ser reativado pelo menu do editor."
+  "disable": "Não são parâmetros: executar o texto como está",
+  "disableTip": "Para quando :nome é sintaxe do mecanismo e não um parâmetro: executa o texto como está e para de procurar parâmetros nesta aba. Pode ser reativado pelo menu do editor.",
+  "remember": "Não perguntar de novo nesta aba: usar estes valores",
+  "rememberTip": "As próximas execuções desta aba usam estes valores sem abrir esta janela; só pergunta por um parâmetro novo. Eles são alterados em “Editar parâmetros…” no menu do editor."
 }

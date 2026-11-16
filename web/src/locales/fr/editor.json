@@ -20,6 +20,7 @@
     "goToDefinition": "Aller à la définition",
     "revealInExplorer": "Afficher dans l'explorateur",
     "detectParams": "Demander les paramètres à l'exécution",
+    "editParams": "Modifier les paramètres…",
     "click": "clic"
   },
   "nav": {

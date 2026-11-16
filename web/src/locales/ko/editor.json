@@ -20,6 +20,7 @@
     "goToDefinition": "정의로 이동",
     "revealInExplorer": "탐색기에서 보기",
     "detectParams": "실행할 때 매개변수 묻기",
+    "editParams": "매개변수 편집…",
     "click": "클릭"
   },
   "nav": {

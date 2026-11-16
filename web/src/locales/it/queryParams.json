@@ -17,6 +17,8 @@
     "number": "Non è un numero.",
     "date": "Scrivi la data come AAAA-MM-GG, con l'ora facoltativa (hh:mm o hh:mm:ss)."
   },
-  "disable": "Non chiedere parametri in questa scheda",
-  "disableTip": "Esegue il testo così com'è e smette di cercare parametri in questa scheda. Si riattiva dal menu dell'editor."
+  "disable": "Non sono parametri: esegui il testo così com'è",
+  "disableTip": "Per quando :nome è sintassi del motore e non un parametro: esegue il testo così com'è e smette di cercare parametri in questa scheda. Si riattiva dal menu dell'editor.",
+  "remember": "Non chiedere più in questa scheda: usa questi valori",
+  "rememberTip": "Le prossime esecuzioni di questa scheda usano questi valori senza aprire questa finestra; chiede solo per un parametro nuovo. Si modificano da «Modifica parametri…» nel menu dell'editor."
 }

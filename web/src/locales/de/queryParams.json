@@ -17,6 +17,8 @@
     "number": "Keine Zahl.",
     "date": "Schreiben Sie das Datum als JJJJ-MM-TT, optional mit Uhrzeit (hh:mm oder hh:mm:ss)."
   },
-  "disable": "In diesem Tab nicht nach Parametern fragen",
-  "disableTip": "Führt den Text unverändert aus und sucht in diesem Tab nicht mehr nach Parametern. Lässt sich im Editormenü wieder einschalten."
+  "disable": "Keine Parameter: Text unverändert ausführen",
+  "disableTip": "Für den Fall, dass :name die Syntax der Engine und kein Parameter ist: Führt den Text unverändert aus und sucht in diesem Tab nicht mehr nach Parametern. Lässt sich im Editormenü wieder einschalten.",
+  "remember": "In diesem Tab nicht mehr fragen: diese Werte verwenden",
+  "rememberTip": "Die nächsten Ausführungen dieses Tabs verwenden diese Werte, ohne dieses Fenster zu öffnen; nur bei einem neuen Parameter wird nachgefragt. Änderbar über „Parameter bearbeiten…“ im Editormenü."
 }
