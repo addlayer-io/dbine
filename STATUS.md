@@ -23,9 +23,9 @@ _None._
 |---|---|---|---|---|
 | claude-security, release v1.6.1 | 2026-11-15 | 74e258a2..6af975fe, everything 1.6.1 adds after the v1.6.0 scan (the pkcs8 feature pins, the data compare fix for #107, the version and release notes); 18b8f0d7..d07468f8, the follow-up that cuts order-key ties by key (#109) | 0 open | 7a9a6f91, the release commit rebased onto main: the same version and notes as 6af975fe |
 | codeql | 2026-11-16 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-16 | every lockfile (Cargo, npm) at [`9921c885c`](https://github.com/addlayer-io/dbine/commit/9921c885c020) | 0 open | — |
+| osv | 2026-11-16 | every lockfile (Cargo, npm) at [`d86a0841a`](https://github.com/addlayer-io/dbine/commit/d86a0841a0cd) | 0 open | — |
 | scorecard | 2026-11-16 | repository settings and workflows at [`9921c885c`](https://github.com/addlayer-io/dbine/commit/9921c885c020) | score 7.5/10 | — |
-| trivy | 2026-11-16 | whole repository at [`9921c885c`](https://github.com/addlayer-io/dbine/commit/9921c885c020) | 0 open | — |
+| trivy | 2026-11-16 | whole repository at [`d86a0841a`](https://github.com/addlayer-io/dbine/commit/d86a0841a0cd) | 0 open | — |
 
 ## Not counted, and why
 
