@@ -217,3 +217,12 @@ test('wholeQuery leaves a limit-like text inside a name alone', () => {
   assert.equal(wholeQuery(`db.getCollection("a\\top ${n} b").find({}).limit(${n})`), `db.getCollection("a\\top ${n} b").find({})`);
   assert.equal(wholeQuery(`SELECT * FROM "LIMIT ${n}"`), `SELECT * FROM "LIMIT ${n}"`);
 });
+
+// A letter whose upper case is longer (ﬁ → FI, ß → SS) never shifts the cut.
+test('wholeQuery cuts by the original text when upper case changes its length', () => {
+  const n = WHOLE_ROWS;
+  assert.equal(wholeQuery(`SELECT ﬁrst ${n} \`a\`\`b\``), `SELECT ﬁrst ${n} \`a\`\`b\``);
+  assert.equal(wholeQuery(`SELECT FIRST ${n} *\nFROM "straße"`), `SELECT *\nFROM "straße"`);
+  assert.equal(wholeQuery(`SELECT *\nFROM "maß" ﬁmit ${n}`), `SELECT *\nFROM "maß" ﬁmit ${n}`);
+  assert.equal(wholeQuery(`SELECT *\nFROM "ﬁle"\nLIMIT ${n}`), `SELECT *\nFROM "ﬁle"`);
+});

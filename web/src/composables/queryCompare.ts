@@ -191,18 +191,19 @@ export function wholeQuery(browse: string): string {
   let end = q.trimEnd();
   const semi = end.endsWith(';') ? ';' : '';
   if (semi) end = end.slice(0, -1).trimEnd();
-  const upper = end.toUpperCase();
-  const tail = WHOLE_TAILS.find((t) => upper.endsWith(t) && isSpace(end[end.length - t.length - 1]));
+  // Cut first, then compare without case: uppercasing can change a text's
+  // length (ﬁ is FI, ß is SS), so the cut is always measured on the original.
+  const sameText = (part: string, clause: string) => part.length === clause.length && part.toUpperCase() === clause;
+  const tail = WHOLE_TAILS.find((t) => sameText(end.slice(-t.length), t) && isSpace(end[end.length - t.length - 1]));
   if (tail) q = end.slice(0, end.length - tail.length).trimEnd() + semi;
   else if (end.endsWith(WHOLE_MONGO)) q = end.slice(0, end.length - WHOLE_MONGO.length) + semi;
   // The start: `SELECT TOP (n) …`, `SELECT FIRST n …`, on the first line that begins with SELECT.
   const lines = q.split('\n');
-  const i = lines.findIndex((line) => line.trimStart().slice(0, 7).toUpperCase() === 'SELECT ');
+  const i = lines.findIndex((line) => sameText(line.trimStart().slice(0, 7), 'SELECT '));
   if (i >= 0) {
     const line = lines[i];
     const at = line.length - line.trimStart().length + 7;
-    const rest = line.slice(at).toUpperCase();
-    const head = WHOLE_HEADS.find((h) => rest.startsWith(h));
+    const head = WHOLE_HEADS.find((h) => sameText(line.slice(at, at + h.length), h));
     if (head) lines[i] = line.slice(0, at) + line.slice(at + head.length);
   }
   return lines.join('\n');
