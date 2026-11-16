@@ -21,7 +21,7 @@ _None._
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
-| claude-security, release v1.6.2 | 2026-11-16 | 1d17cb8c..5341c10b, everything 1.6.2 adds since v1.6.1 (the query-parameter fix for #111, the #107 regression test, the dependency bumps, the version and release notes) | 0 open | — |
+| claude-security, release v1.6.2 | 2026-11-16 | 1d17cb8c..5341c10b, everything the first 1.6.2 cut added since v1.6.1 (#111, the #107 regression test, the dependency bumps); 5341c10b..19615aeb, what the re-cut adds (the data compare's equal rows #115, Switch to queries #118, docs and notes); 19615aeb..0e26e2f0, the fix for that scan's one LOW finding (#121) | 0 open | — |
 | codeql | 2026-11-16 | Rust, TypeScript/Vue and workflows | 0 open | — |
 | osv | 2026-11-16 | every lockfile (Cargo, npm) at [`0e26e2f06`](https://github.com/addlayer-io/dbine/commit/0e26e2f06e6a) | 0 open | — |
 | scorecard | 2026-11-16 | repository settings and workflows at [`19615aeb7`](https://github.com/addlayer-io/dbine/commit/19615aeb7cc9) | score 7.5/10 | — |
