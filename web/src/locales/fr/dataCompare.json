@@ -41,7 +41,8 @@
     "loadingDifferences": "Récupération des lignes différentes…",
     "rows": "Source : {{left}} lignes · Destination : {{right}} lignes",
     "differences": "{{n}} lignes différentes récupérées",
-    "cancelling": "Annulation…"
+    "cancelling": "Annulation…",
+    "loadingEqual": "Récupération des lignes identiques…"
   },
   "duplicates_one": "1 ligne à clé répétée a été comparée une seule fois.",
   "duplicates_many": "{{count}} lignes à clé répétée ont été comparées une seule fois.",
@@ -150,5 +151,18 @@
     "readingColumns": "Lecture des colonnes des résultats…",
     "reading": "Lecture des résultats…",
     "duplicatesHint": "Si la clé se répète, il lui manque probablement une colonne."
+  },
+  "equal": {
+    "option": "Inclure les lignes identiques",
+    "optionHint": "En plus de les compter, récupère les lignes identiques pour les voir et les filtrer, dans l'ordre de la clé. Elles n'entrent dans aucun script.",
+    "notListed": "Pour les voir, cochez « Inclure les lignes identiques » et comparez à nouveau.",
+    "truncated": "Il y a {{total}} lignes identiques : les {{limit}} premières sont listées, dans l'ordre de la clé. Le total est exact."
+  },
+  "toQueries": {
+    "button": "Passer aux requêtes",
+    "hint": "Passe à la comparaison de requêtes, avec celle qui lit chaque table entière déjà écrite, pour y ajouter un WHERE (ou le filtre de votre moteur) et comparer uniquement ces lignes. La comparaison de requêtes est en lecture seule : elle ne génère aucun script.",
+    "replace": "Les requêtes du mode Requêtes sont remplacées par celles qui lisent ces tables.",
+    "replaceOk": "Remplacer",
+    "done": "Chaque côté a la requête qui lit sa table entière. Ajoutez un WHERE pour comparer seulement certaines lignes, puis cliquez sur Comparer."
   }
 }

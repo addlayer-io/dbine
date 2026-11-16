@@ -274,6 +274,7 @@ fn opts(in_memory_rows: usize, root: &Path) -> Options {
         in_memory_rows,
         in_memory_bytes: usize::MAX,
         max_diff_rows: 1_000_000,
+        max_equal_rows: 0,
         scratch: Some(root.to_path_buf()),
         duckdb: None,
     }
@@ -354,6 +355,7 @@ fn summary(c: &Compared) -> Value {
         "changed": serde_json::to_value(&c.changed).unwrap(),
         "duplicate_keys": c.duplicate_keys,
         "diff_truncated": c.diff_truncated,
+        "equal": c.equal,
     })
 }
 
@@ -990,7 +992,12 @@ async fn the_result_sorts_and_filters_like_a_table_compare() {
         database: String::new(),
         query: "q".into(),
     };
-    let out = keep(side("pbi"), side("mssql"), c, 1_000_000);
+    let out = keep(
+        side("pbi"),
+        side("mssql"),
+        c,
+        &opts(1_000_000, Path::new("")),
+    );
     let r = &out.result;
     assert_eq!(r.key, ["Date[Year]", "Geo[Region]"]);
     assert_eq!(out.right_columns, ["year", "region", "ventas", "clientes"]);
@@ -1194,6 +1201,75 @@ async fn rows_left_out_as_blank_are_the_same_under_null_as_blank() {
         }
         assert_eq!(got[0], got[1], "{options:?}");
     }
+    assert_eq!(leftovers(&root.0), Vec::<String>::new());
+}
+
+/// Issue #115: listed, the equal rows of a query compare are those its
+/// rules call the same, a row left out as blank included (with the values
+/// of the side that has it), in key order, alike in memory and on disk.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_equal_rows_follow_the_rules_and_include_rows_left_out_as_blank() {
+    let root = temp_dir("blankeq");
+    let dax = rows(json!([
+        ["2024-01", 10.0, 1],
+        ["2024-02", 20.0, 2],
+        ["2024-05", null, 3],
+        ["2024-07", 0, null],
+    ]));
+    let sql = rows(json!([
+        ["2024-01", "10.004", 1],
+        ["2024-02", "20.00", 2],
+        ["2024-03", null, 0],
+        ["2024-04", "0.00", null],
+        ["2024-05", null, 4],
+        ["2024-06", "5.00", null],
+    ]));
+    let dcols = vec![
+        col("Date[Month]", "String"),
+        col("[Ventas]", "Double"),
+        col("[Pedidos]", "Int64"),
+    ];
+    let scols = vec![
+        col("month", "varchar"),
+        col("ventas", "decimal"),
+        col("pedidos", "int"),
+    ];
+    let all = vec![
+        pair("Date[Month]", "month", true),
+        pair("[Ventas]", "ventas", false),
+        pair("[Pedidos]", "pedidos", false),
+    ];
+    let options = QueryOptions {
+        null_as_blank: true,
+        absolute: 0.01,
+        ..Default::default()
+    };
+    let mut got = Vec::new();
+    for in_memory_rows in [1_000_000, 1] {
+        let ctl = Arc::new(Ctl::default());
+        let mut l = Fixture::one(dcols.clone(), dax.clone());
+        let mut r = Fixture::one(scols.clone(), sql.clone());
+        let mut o = opts(in_memory_rows, &root.0);
+        o.max_equal_rows = 100;
+        let c = compare(&mut l, "q", &mut r, "q", &all, options, &o, &ctl)
+            .await
+            .unwrap();
+        assert_eq!(c.counts.same, 5);
+        assert_eq!(c.equal.len(), 5);
+        got.push(summary(&c));
+    }
+    assert_eq!(got[0], got[1]);
+    // 2024-01 within the tolerance; 2024-05 differs in its orders.
+    assert_eq!(
+        got[0]["equal"],
+        json!([
+            ["2024-01", 10.0, 1],
+            ["2024-02", 20.0, 2],
+            ["2024-03", null, 0],
+            ["2024-04", "0.00", null],
+            ["2024-07", 0, null],
+        ])
+    );
     assert_eq!(leftovers(&root.0), Vec::<String>::new());
 }
 

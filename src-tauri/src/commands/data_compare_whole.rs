@@ -23,7 +23,8 @@
 //!   only the rows that differ come back, up to [`Options::max_diff_rows`]
 //!   in key order (picked without sorting whole order keys,
 //!   [`Scratch::cut`]), and the scratch files are deleted when the compare
-//!   ends, however it ends.
+//!   ends, however it ends. Asked for (issue #115), the equal rows come back
+//!   the same way, up to [`Options::max_equal_rows`], after the differences.
 //!
 //! A read waits (its sink blocks) while the scratch DuckDB opens and while
 //! the loader is behind. That wait never holds a driver host's reader
@@ -167,6 +168,9 @@ pub(crate) struct Options {
     /// Differing rows brought back (all kinds together); the counts are
     /// exact past it.
     pub max_diff_rows: usize,
+    /// Equal rows brought back, the first in key order (issue #115); 0:
+    /// they aren't listed, only counted.
+    pub max_equal_rows: usize,
     /// Where the scratch DuckDBs go (each in a folder of its own). `None`:
     /// a compare that needs one fails.
     pub scratch: Option<PathBuf>,
@@ -305,6 +309,8 @@ pub(crate) enum Phase {
     Preparing,
     Comparing,
     LoadingDifferences,
+    /// The equal rows, when they're listed (after the differences).
+    LoadingEqual,
 }
 
 impl Phase {
@@ -314,6 +320,7 @@ impl Phase {
             Phase::Preparing => "preparing",
             Phase::Comparing => "comparing",
             Phase::LoadingDifferences => "loading_differences",
+            Phase::LoadingEqual => "loading_equal",
         }
     }
 }
@@ -479,6 +486,10 @@ pub(crate) struct Compared {
     pub only_left: Vec<Vec<Value>>,
     pub only_right: Vec<Vec<Value>>,
     pub changed: Vec<ChangedRow>,
+    /// The first equal rows in key order, up to [`Options::max_equal_rows`]
+    /// (empty when they aren't listed): the left side's values, or the
+    /// right's for a row only it has that counts as the same.
+    pub equal: Vec<Vec<Value>>,
     /// Rows whose key was repeated on a side (compared once).
     pub duplicate_keys: u64,
     /// More rows differ than the lists hold (the counts are exact).
@@ -779,7 +790,8 @@ impl Job {
             0 if self.preparing.load(Ordering::SeqCst) > 0 => Phase::Preparing,
             0 | 1 => Phase::Reading,
             2 => Phase::Comparing,
-            _ => Phase::LoadingDifferences,
+            3 => Phase::LoadingDifferences,
+            _ => Phase::LoadingEqual,
         };
         Progress {
             rows: [
@@ -1781,6 +1793,92 @@ impl Scratch {
         } else {
             "d"
         };
+        self.rows_back(
+            ctl,
+            job,
+            nk,
+            &format!(
+                "SELECT d.kind, l.v, r.v FROM {rows} d \
+                 LEFT JOIN l ON l.k1 = d.k1 AND l.k2 = d.k2 \
+                 LEFT JOIN r ON r.k1 = d.k1 AND r.k2 = d.k2"
+            ),
+        )
+        .await
+    }
+
+    /// The first `max` equal rows in key order (issue #115), back as
+    /// projected rows in no particular order ([`finish`] orders them): the
+    /// left side's values, or the right's for a row only it has that counts
+    /// as the same. Picked as [`Scratch::differences`] picks its rows, and
+    /// after it: its `g` and `pick` go first.
+    async fn equal(
+        &mut self,
+        ctl: &Ctl,
+        job: &Arc<Job>,
+        nk: usize,
+        max: usize,
+    ) -> CommandResult<Vec<Vec<Value>>> {
+        let same = self.same_sql();
+        let (lone_l, lone_r) = (self.lone_same_sql("l"), self.lone_same_sql("r"));
+        for sql in ["DROP TABLE IF EXISTS main.g", "DROP TABLE IF EXISTS pick"] {
+            self.exec(ctl, sql).await?;
+        }
+        self.exec(
+            ctl,
+            &format!(
+                "CREATE TEMP TABLE e AS \
+                 SELECT coalesce(l.k1, r.k1) AS k1, coalesce(l.k2, r.k2) AS k2 \
+                 FROM l FULL OUTER JOIN r ON {JOIN_ON} \
+                 WHERE (l.k1 IS NOT NULL AND r.k1 IS NOT NULL AND {same}) \
+                     OR (r.k1 IS NULL AND {lone_l}) OR (l.k1 IS NULL AND {lone_r})"
+            ),
+        )
+        .await?;
+        let out = self.exec(ctl, "SELECT count(*) FROM e").await?;
+        let total = local_duckdb::first_value(&out)
+            .and_then(as_u64)
+            .unwrap_or(0);
+        let rows = if total > max as u64 {
+            // What the list sorts by, as for the differences: the left's
+            // order key and key; the right's for a row only it has.
+            self.exec(
+                ctl,
+                "CREATE TABLE main.g AS \
+                 SELECT k1, k2, o || k AS o FROM l SEMI JOIN e USING (k1, k2) \
+                 UNION ALL \
+                 SELECT k1, k2, o || k AS o FROM r \
+                 SEMI JOIN (SELECT k1, k2 FROM e ANTI JOIN l USING (k1, k2)) e USING (k1, k2)",
+            )
+            .await?;
+            self.cut(ctl, max as u64).await?;
+            "(SELECT e.* FROM e JOIN pick ON pick.k1 = e.k1 AND pick.k2 = e.k2)"
+        } else {
+            "e"
+        };
+        let lists = self
+            .rows_back(
+                ctl,
+                job,
+                nk,
+                &format!(
+                    "SELECT 3, coalesce(l.v, r.v), NULL::VARCHAR FROM {rows} e \
+                     LEFT JOIN l ON l.k1 = e.k1 AND l.k2 = e.k2 \
+                     LEFT JOIN r ON r.k1 = e.k1 AND r.k2 = e.k2"
+                ),
+            )
+            .await?;
+        Ok(lists.equal)
+    }
+
+    /// The rows `sql` brings back (each its list's number, then the left's
+    /// and the right's row as JSON text), into the lists.
+    async fn rows_back(
+        &mut self,
+        ctl: &Ctl,
+        job: &Arc<Job>,
+        nk: usize,
+        sql: &str,
+    ) -> CommandResult<Lists> {
         let sink = Arc::new(Mutex::new(DiffSink {
             nk,
             job: job.clone(),
@@ -1792,17 +1890,8 @@ impl Scratch {
             ..Default::default()
         };
         let s = self.session();
-        let first = format!(
-            "SELECT d.kind, l.v, r.v FROM {rows} d \
-             LEFT JOIN l ON l.k1 = d.k1 AND l.k2 = d.k2 \
-             LEFT JOIN r ON r.k1 = d.k1 AND r.k2 = d.k2"
-        );
         let r = tokio::select! {
-            r = s.execute(
-                &first,
-                usize::MAX,
-                &mut out,
-            ) => r,
+            r = s.execute(sql, usize::MAX, &mut out) => r,
             () = ctl.stopped() => return Err(ctl.error()),
         };
         out.sink = None;
@@ -1949,12 +2038,15 @@ impl RowSink for DiffSink {
                     diff,
                 });
             }),
+            Some(3) => parse(1).map(|p| self.lists.equal.push(p)),
             _ => None,
         };
         if ok.is_none() && self.error.is_none() {
-            self.error = Some("una fila distinta no se pudo leer de la base local".into());
+            self.error = Some("una fila no se pudo leer de la base local".into());
         }
-        self.job.differences.fetch_add(1, Ordering::Relaxed);
+        if kind != Some(3) {
+            self.job.differences.fetch_add(1, Ordering::Relaxed);
+        }
         Ok(())
     }
 }
@@ -1979,15 +2071,18 @@ struct Lists {
     only_left: Vec<Vec<Value>>,
     only_right: Vec<Vec<Value>>,
     changed: Vec<ChangedRow>,
+    equal: Vec<Vec<Value>>,
 }
 
 /// The comparison in memory (both sides small): by key, the first row read
-/// of a repeated key compared.
+/// of a repeated key compared. `keep_equal`: the equal rows are kept too
+/// ([`finish`] cuts them).
 fn in_memory(
     nk: usize,
     left: Vec<Vec<Value>>,
     right: Vec<Vec<Value>>,
     rules: &dyn Rules,
+    keep_equal: bool,
 ) -> (Counts, Lists, u64) {
     let mut duplicate_keys = 0;
     let mut counts = Counts {
@@ -2013,12 +2108,20 @@ fn in_memory(
             continue;
         }
         match rmap.remove(&k) {
-            None if rules.lone_same(&p[nk..]) => counts.same += 1,
+            None if rules.lone_same(&p[nk..]) => {
+                counts.same += 1;
+                if keep_equal {
+                    lists.equal.push(p);
+                }
+            }
             None => lists.only_left.push(p),
             Some(rp) => {
                 let diff = differing(rules, &p, &rp, nk);
                 if diff.is_empty() {
                     counts.same += 1;
+                    if keep_equal {
+                        lists.equal.push(p);
+                    }
                 } else {
                     lists.changed.push(ChangedRow {
                         left: p,
@@ -2032,6 +2135,9 @@ fn in_memory(
     for p in rmap.into_values() {
         if rules.lone_same(&p[nk..]) {
             counts.same += 1;
+            if keep_equal {
+                lists.equal.push(p);
+            }
         } else {
             lists.only_right.push(p);
         }
@@ -2043,8 +2149,9 @@ fn in_memory(
 }
 
 /// Each list in key order and, past `max` rows in all, only the first
-/// `max` of the three together in that order.
-fn finish(nk: usize, lists: Lists, max: usize, rules: &dyn Rules) -> Lists {
+/// `max` of the three differences together in that order; of the equal
+/// rows, the first `max_equal`.
+fn finish(nk: usize, lists: Lists, max: usize, max_equal: usize, rules: &dyn Rules) -> Lists {
     type Keyed<T> = Vec<((String, String), T)>;
     fn keyed<T>(
         rows: Vec<T>,
@@ -2065,6 +2172,8 @@ fn finish(nk: usize, lists: Lists, max: usize, rules: &dyn Rules) -> Lists {
     let mut ol = keyed(lists.only_left, nk, rules, |r| &r[..]);
     let mut or = keyed(lists.only_right, nk, rules, |r| &r[..]);
     let mut ch = keyed(lists.changed, nk, rules, |r| &r.left[..]);
+    let mut eq = keyed(lists.equal, nk, rules, |r| &r[..]);
+    eq.truncate(max_equal);
     if ol.len() + or.len() + ch.len() > max {
         let (mut i, mut j, mut c) = (0, 0, 0);
         for _ in 0..max {
@@ -2088,6 +2197,7 @@ fn finish(nk: usize, lists: Lists, max: usize, rules: &dyn Rules) -> Lists {
         only_left: strip(ol),
         only_right: strip(or),
         changed: ch.into_iter().map(|(_, r)| r).collect(),
+        equal: strip(eq),
     }
 }
 
@@ -2213,17 +2323,27 @@ async fn run(
                 )));
             }
             job.set_phase(Phase::LoadingDifferences);
-            let lists = s.differences(ctl, job, nk, opts.max_diff_rows).await?;
+            let mut lists = s.differences(ctl, job, nk, opts.max_diff_rows).await?;
+            if opts.max_equal_rows > 0 && counts.same > 0 {
+                job.set_phase(Phase::LoadingEqual);
+                lists.equal = s.equal(ctl, job, nk, opts.max_equal_rows).await?;
+            }
             (counts, lists, dups)
         }
         None => {
             let take = |side: usize| std::mem::take(&mut lock(&job.bufs[side]).rows);
             let (l, r) = (take(0), take(1));
-            in_memory(nk, l, r, &*job.rules)
+            in_memory(nk, l, r, &*job.rules, opts.max_equal_rows > 0)
         }
     };
     let total = counts.only_left + counts.only_right + counts.changed;
-    let lists = finish(nk, lists, opts.max_diff_rows, &*job.rules);
+    let lists = finish(
+        nk,
+        lists,
+        opts.max_diff_rows,
+        opts.max_equal_rows,
+        &*job.rules,
+    );
     let last = |side: usize| lock(&job.bufs[side]).last.as_ref().map(|(_, v)| v.clone());
     let query_columns = |side: usize| std::mem::take(&mut *lock(&job.query_columns[side]));
     Ok(Compared {
@@ -2233,6 +2353,7 @@ async fn run(
         only_left: lists.only_left,
         only_right: lists.only_right,
         changed: lists.changed,
+        equal: lists.equal,
         duplicate_keys,
         diff_truncated: total > opts.max_diff_rows as u64,
         spilled,

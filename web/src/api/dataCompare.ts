@@ -42,6 +42,11 @@ export interface DataCompareResult {
   only_left: Cell[][];
   only_right: Cell[][];
   changed: ChangedRow[];
+  /** The first equal rows, when asked for (`equal`; issue #115): each the
+   *  left side's values. Older backends leave it out. */
+  equal?: Cell[][];
+  /** Equal rows listed at most; 0 (or missing): they weren't asked for. */
+  equal_limit?: number;
   /** Always false: whole tables are compared (kept for older backends). */
   truncated_left: boolean;
   truncated_right: boolean;
@@ -54,8 +59,11 @@ export interface DataCompareResult {
   diff_limit: number;
   /** Rows of each kind in the lists the screen filters and the script syncs
    *  (`counts` unless `diff_truncated`). */
-  listed: { changed: number; only_left: number; only_right: number };
+  listed: { changed: number; only_left: number; only_right: number; equal?: number };
 }
+
+/** A list of the result: a kind of difference, or the equal rows (when listed). */
+export type RowKind = 'changed' | 'only_left' | 'only_right' | 'equal';
 
 /** `data-compare-progress`, about four times a second per side while a
  *  compare runs. `rows`: rows read on that side; `differences`: differing
@@ -65,7 +73,7 @@ export interface DataCompareProgress {
   run: string;
   side: 'left' | 'right';
   rows: number;
-  phase: 'reading' | 'preparing' | 'comparing' | 'loading_differences';
+  phase: 'reading' | 'preparing' | 'comparing' | 'loading_differences' | 'loading_equal';
   differences: number;
 }
 
@@ -111,26 +119,27 @@ export interface AiFilter { filters: ColumnFilter[]; changed_in: string[]; sort:
 export interface KeyHint { key: string[]; by: '' | 'unique' | 'ai' }
 
 export const dataCompareApi = {
-  /** Whole tables; `run` is this compare's id (its progress events carry it, `cancel` stops it). */
-  compare: (left: DataSide, right: DataSide, key: string[], run: string) =>
-    invoke<DataCompareResult>('data_compare', { args: { left, right, key, columns: [], run } }),
+  /** Whole tables; `run` is this compare's id (its progress events carry it, `cancel` stops it).
+   *  `equal`: list the equal rows too, not only count them. */
+  compare: (left: DataSide, right: DataSide, key: string[], run: string, equal = false) =>
+    invoke<DataCompareResult>('data_compare', { args: { left, right, key, columns: [], run, equal } }),
   /** Stops a running compare: it then fails as cancelled. */
   cancel: (run: string) => invoke<void>('data_compare_cancel', { args: { run } }),
-  /** One kind of difference, filtered and sorted over all its rows. */
-  rows: (id: string, kind: 'changed' | 'only_left' | 'only_right', sort: SortKey[], filters: ColumnFilter[], changedIn: string[]) =>
+  /** One list of the result, filtered and sorted over all its rows. */
+  rows: (id: string, kind: RowKind, sort: SortKey[], filters: ColumnFilter[], changedIn: string[]) =>
     invoke<DataRows>('data_compare_rows', { args: { id, kind, sort, filters, changed_in: changedIn } }),
   /** The differences in words, from counts and typical gaps: no row's values go to the AI. */
   explain: (id: string, asker: Asker) => invoke<{ text: string }>('data_compare_explain', { args: { id, asker } }),
   /** A request in words as filters; the AI gets the columns and the words. */
-  aiFilter: (id: string, kind: 'changed' | 'only_left' | 'only_right', request: string, asker: Asker) =>
+  aiFilter: (id: string, kind: RowKind, request: string, asker: Asker) =>
     invoke<AiFilter>('data_compare_ai_filter', { args: { id, kind, request, asker } }),
   /** Without an AI set up (`asker` null) only a unique index is suggested. */
   keyHint: (left: DataSide, asker: Asker | null) => invoke<KeyHint>('data_compare_key_hint', { args: { left, asker } }),
   /** One script per side that changes. */
   scripts: (id: string, choices: Choices) => invoke<DataScript[]>('data_compare_script', { args: { id, choices } }),
   /** Two queries' whole results, read-only (no script); `run` as in `compare`. */
-  compareQueries: (left: QuerySide, right: QuerySide, columns: ColumnPair[], options: QueryOptions, run: string) =>
-    invoke<QueryCompareResult>('data_compare_query', { args: { left, right, columns, options, run } }),
+  compareQueries: (left: QuerySide, right: QuerySide, columns: ColumnPair[], options: QueryOptions, run: string, equal = false) =>
+    invoke<QueryCompareResult>('data_compare_query', { args: { left, right, columns, options, run, equal } }),
   /** A query's result columns (it stops at its first row); `cancel(run)` stops it. */
   queryColumns: (side: QuerySide, run: string) => invoke<QueryColumns>('data_compare_query_columns', { args: { side, run } }),
 };

@@ -9,10 +9,10 @@ import { aiTaskApi } from '../api/aiTask';
 import { asker, providerLabel } from '../composables/aiTask';
 import { markdownParts } from '../composables/markdown';
 import { useUiStore } from '../stores/ui';
-import { dataCompareApi, type AiFilter, type DataCompareProgress, type DataCompareResult, type DataRow, type DataRows, type DataScript, type DataSide, type Dir, type QuerySide } from '../api/dataCompare';
+import { dataCompareApi, type AiFilter, type DataCompareProgress, type DataCompareResult, type DataRow, type DataRows, type DataScript, type DataSide, type Dir, type QuerySide, type RowKind } from '../api/dataCompare';
 import type { Cell, ObjectRef, QueryProgress, ResultColumn, SortKey } from '../api/types';
 import DataCompareQueries from '../components/DataCompareQueries.vue';
-import { DEFAULT_FORM, comparedPairs, mergePairs, pairRows, queryOptions, sideSignature, type PairRow, type ToleranceForm } from '../composables/queryCompare';
+import { DEFAULT_FORM, WHOLE_ROWS, comparedPairs, mergePairs, pairRows, queryOptions, sideSignature, wholeQuery, withKey, type PairRow, type ToleranceForm } from '../composables/queryCompare';
 import { columnKind, menuFor, type ColumnFilter, type FilterOp } from '../composables/gridFilter';
 import { nextSort } from '../composables/gridSort';
 import { newQuery } from '../composables/actions';
@@ -56,6 +56,9 @@ const qLeft = ref<QueryComparePick>(keptQuery('left') ?? { connectionId: props.t
 const qRight = ref<QueryComparePick>(keptQuery('right') ?? { connectionId: '', database: '', query: '' });
 /** The column table: each left column, its pair on the right and the key. */
 const pairs = ref<PairRow[]>([]);
+/** The key of the table compare just turned into queries ("Pasar a
+ *  consultas"): the column table takes it when the columns are first read. */
+const tableKey = ref<string[]>([]);
 /** Each result's columns, as last read, and what they were read for. */
 const qColumns = reactive<{ left: ResultColumn[]; right: ResultColumn[] }>({ left: [], right: [] });
 const readFor = reactive({ left: '', right: '' });
@@ -80,6 +83,11 @@ async function readColumns(run: string): Promise<void> {
   qColumns.left = l.columns;
   qColumns.right = r.columns;
   pairs.value = mergePairs(pairs.value, pairRows(l.columns, r.columns, l.sample, r.sample), r.columns);
+  // Just turned from a table compare: its key, once (the user's after that).
+  if (tableKey.value.length) {
+    pairs.value = withKey(pairs.value, tableKey.value);
+    tableKey.value = [];
+  }
   [readFor.left, readFor.right] = asked;
 }
 /** "Leer columnas": the column table, without comparing (shown like a compare's
@@ -99,7 +107,7 @@ async function compareQueries(run: string): Promise<DataCompareResult | null> {
   }
   const columns = comparedPairs(pairs.value);
   if (!columns.some((c) => c.key)) { error.value = t('dataCompare:query.pickKey'); return null; }
-  const got = await dataCompareApi.compareQueries(querySide(qLeft.value), querySide(qRight.value), columns, queryOptions(form.value), run);
+  const got = await dataCompareApi.compareQueries(querySide(qLeft.value), querySide(qRight.value), columns, queryOptions(form.value), run, withEqual.value);
   rightNames.value = got.right_columns;
   return got;
 }
@@ -221,8 +229,15 @@ const mismatchText = computed(() => (mismatch.value ? t(`dataCompare:mismatch.${
 const running = ref(false);
 const result = ref<DataCompareResult | null>(null);
 const error = ref<string | null>(null);
-const view = ref<'changed' | 'only_left' | 'only_right'>('changed');
+const view = ref<RowKind>('changed');
+/** The list on screen when it's one of the differences (the equal rows have
+ *  no arrows and no script). */
+const diffView = computed<Kind | null>(() => (view.value === 'equal' ? null : view.value));
 const key = ref<string[]>(props.tab.picks?.key ?? []);
+/** List the equal rows too, not only count them (issue #115). */
+const withEqual = ref(props.tab.picks?.equal ?? false);
+/** The last result listed its equal rows. */
+const equalListed = computed(() => !!result.value?.equal_limit);
 const tabs = useTabsStore();
 /** What a result compared: the tables of both sides, or the queries. */
 const picked = () => (mode.value === 'queries'
@@ -238,12 +253,12 @@ watch(picked, () => {
 });
 const savePicks = () => tabs.setPicks(props.tab.id, {
   left: { ...left }, right: { ...right }, key: [...key.value],
-  mode: mode.value, queries: { left: { ...qLeft.value }, right: { ...qRight.value } },
+  mode: mode.value, queries: { left: { ...qLeft.value }, right: { ...qRight.value } }, equal: withEqual.value,
 });
 // A query being typed is saved once it settles, not at every key.
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 watch(
-  () => [left.connectionId, left.database, left.table, right.connectionId, right.database, right.table, key.value.join('\u0001'), mode.value, sideSignature(qLeft.value), sideSignature(qRight.value)],
+  () => [left.connectionId, left.database, left.table, right.connectionId, right.database, right.table, key.value.join('\u0001'), mode.value, sideSignature(qLeft.value), sideSignature(qRight.value), withEqual.value],
   () => {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => { saveTimer = null; savePicks(); }, 400);
@@ -288,7 +303,7 @@ const phaseText = computed(() => (live.phase === 'columns'
   ? t('dataCompare:query.readingColumns')
   : readOnly.value && live.phase === 'reading'
     ? t('dataCompare:query.reading')
-    : t(`dataCompare:progress.${live.phase === 'loading_differences' ? 'loadingDifferences' : live.phase}`)));
+    : t(`dataCompare:progress.${live.phase === 'loading_differences' ? 'loadingDifferences' : live.phase === 'loading_equal' ? 'loadingEqual' : live.phase}`)));
 
 /** Compares (`columns`: in a query compare, only reads the columns of the results). */
 async function compare(columns = false) {
@@ -301,7 +316,7 @@ async function compare(columns = false) {
     const l = side(left);
     const r = side(right);
     if (!l || !r) { ElMessage.warning(t('dataCompare:pickBoth')); return; }
-    work = (run) => dataCompareApi.compare(l, r, key.value, run);
+    work = (run) => dataCompareApi.compare(l, r, key.value, run, withEqual.value);
   }
   running.value = true;
   error.value = null;
@@ -325,7 +340,7 @@ async function compare(columns = false) {
     if (!got || picked() !== asked) return;
     result.value = got;
     if (!readOnly.value) key.value = got.key;
-    view.value = got.counts.changed ? 'changed' : got.counts.only_left ? 'only_left' : 'only_right';
+    view.value = got.counts.changed ? 'changed' : got.counts.only_left ? 'only_left' : got.counts.only_right || !got.equal_limit ? 'only_right' : 'equal';
   } catch (e) {
     if (errorKind(e) === 'cancelled') cancelled.value = true;
     else error.value = errorMessage(e);
@@ -390,7 +405,8 @@ const shown = computed<DataRow[]>(() => {
   if (!r) return [];
   if (queried.value) return queried.value.rows;
   if (view.value === 'changed') return r.changed.map((c, index) => ({ index, left: c.left, right: c.right, diff: c.diff }));
-  return (view.value === 'only_left' ? r.only_left : r.only_right).map((left, index) => ({ index, left, right: null, diff: [] }));
+  const rows = view.value === 'equal' ? r.equal ?? [] : view.value === 'only_left' ? r.only_left : r.only_right;
+  return rows.map((left, index) => ({ index, left, right: null, diff: [] }));
 });
 const shownNote = computed(() => {
   const r = result.value;
@@ -494,11 +510,15 @@ const chips = computed(() => {
 
 type Kind = 'changed' | 'only_left' | 'only_right';
 /** Rows of a kind the screen and the script have: all of them unless more
- *  than `diff_limit` differ. */
-function listedOf(kind: Kind): number {
+ *  than `diff_limit` differ. The equal rows: those listed. */
+function listedOf(kind: RowKind): number {
   const r = result.value;
-  return r ? (r.listed?.[kind] ?? r.counts[kind]) : 0;
+  if (!r) return 0;
+  if (kind === 'equal') return r.listed?.equal ?? r.equal?.length ?? 0;
+  return r.listed?.[kind] ?? r.counts[kind];
 }
+/** The equal rows are more than were listed. */
+const equalCut = computed(() => equalListed.value && listedOf('equal') < (result.value?.counts.same ?? 0));
 /** Every differing row of the whole tables. */
 const totalDiffs = computed(() => {
   const c = result.value?.counts;
@@ -575,6 +595,41 @@ function arrowTip(kind: Kind, d: 'left' | 'right') {
 function matchSide(d: 'left' | 'right') {
   setAll('changed', d);
   setAll(d === 'right' ? 'only_left' : 'only_right', d);
+}
+
+// -- "Pasar a consultas" (issue #118): the same compare as two queries, each the
+// query that reads its table whole in that engine's language, to narrow
+// (a WHERE…) and compare again. Read-only, as every query compare. ----------------
+const turning = ref(false);
+async function toQueries() {
+  const l = side(left);
+  const r = side(right);
+  if (!l || !r) { ElMessage.warning(t('dataCompare:pickBoth')); return; }
+  if ([qLeft.value, qRight.value].some((q) => q.query.trim())) {
+    try {
+      await ElMessageBox.confirm(t('dataCompare:toQueries.replace'), t('dataCompare:toQueries.button'), {
+        type: 'warning', confirmButtonText: t('dataCompare:toQueries.replaceOk'), cancelButtonText: t('common:cancel'),
+      });
+    } catch { return; }
+  }
+  turning.value = true;
+  try {
+    const [lq, rq] = await Promise.all([l, r].map((s) => api.browseQuery(s.connection_id, s.database, s.object, WHOLE_ROWS)));
+    qLeft.value = { connectionId: l.connection_id, database: l.database, query: wholeQuery(lq) };
+    qRight.value = { connectionId: r.connection_id, database: r.database, query: wholeQuery(rq) };
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+    return;
+  } finally {
+    turning.value = false;
+  }
+  // The key the tables were compared by (or will be: the chosen one, else the primary key).
+  tableKey.value = result.value?.key.length ? [...result.value.key]
+    : key.value.length ? [...key.value]
+      : leftColumnInfo.value.filter((c) => c.primary_key).map((c) => c.name);
+  pairs.value = [];
+  mode.value = 'queries';
+  ElMessage.info({ message: t('dataCompare:toQueries.done'), duration: 6000 });
 }
 
 // -- the scripts -----------------------------------------------------------------
@@ -1040,7 +1095,9 @@ async function suggestKey() {
           </el-select>
           <el-button v-if="!key.length && needsKey" size="small" text :loading="aiBusy === 'key'" :title="$t('dataCompare:ai.keyHint')" @click="suggestKey"><el-icon><ei-magic-stick /></el-icon>&nbsp;{{ $t('dataCompare:ai.key') }}</el-button>
         </template>
+        <el-checkbox v-model="withEqual" size="small" class="dc-equal" :title="$t('dataCompare:equal.optionHint')">{{ $t('dataCompare:equal.option') }}</el-checkbox>
         <el-button :type="result ? 'default' : 'primary'" size="small" :loading="running" @click="compare()">{{ $t('dataCompare:compare') }}</el-button>
+        <el-button v-if="!readOnly" size="small" :loading="turning" :disabled="running || !side(left) || !side(right)" :title="$t('dataCompare:toQueries.hint')" @click="toQueries">{{ $t('dataCompare:toQueries.button') }}</el-button>
         <!-- Same as the schema compare: choose with the arrows, then sync. -->
         <el-button v-if="result && !readOnly" size="small" :type="totalChosen ? 'primary' : 'default'" :disabled="!totalChosen" @click="openSync">
           {{ $t('compare:sync.button') }}<span v-if="totalChosen" class="dc-count">{{ fmtN(totalChosen) }}</span>
@@ -1063,7 +1120,8 @@ async function suggestKey() {
     <template v-if="result">
       <div class="dc-compared">{{ $t('dataCompare:compared', { count: result.counts.left, left: fmtN(result.counts.left), right: fmtN(result.counts.right) }) }}</div>
       <div class="dc-summary">
-        <span class="dc-same"><b>{{ fmtN(result.counts.same) }}</b> {{ $t('dataCompare:same') }}</span>
+        <button v-if="equalListed" class="dc-same" :class="{ on: view === 'equal' }" @click="view = 'equal'"><b>{{ fmtN(result.counts.same) }}</b> {{ $t('dataCompare:same') }}</button>
+        <span v-else class="dc-same" :title="$t('dataCompare:equal.notListed')"><b>{{ fmtN(result.counts.same) }}</b> {{ $t('dataCompare:same') }}</span>
         <button :class="{ on: view === 'changed' }" @click="view = 'changed'"><b>{{ fmtN(result.counts.changed) }}</b> {{ $t('dataCompare:changed') }}</button>
         <button :class="{ on: view === 'only_left' }" @click="view = 'only_left'"><b>{{ fmtN(result.counts.only_left) }}</b> {{ $t('dataCompare:onlyLeft') }}</button>
         <button :class="{ on: view === 'only_right' }" @click="view = 'only_right'"><b>{{ fmtN(result.counts.only_right) }}</b> {{ $t('dataCompare:onlyRight') }}</button>
@@ -1074,14 +1132,15 @@ async function suggestKey() {
           <el-button size="small" :disabled="filtering || (!result.counts.changed && !result.counts.only_right)" :title="$t(filtering ? 'dataCompare:matchFiltered' : 'dataCompare:matchHint')" @click="matchSide('left')">{{ $t('dataCompare:syncLeft') }}</el-button>
         </template>
       </div>
-      <div v-if="!readOnly && (view === 'changed' ? result.counts.changed : view === 'only_left' ? result.counts.only_left : result.counts.only_right)" class="dc-bulk">
-        <span>{{ $t('dataCompare:bulk', { count: chosen(view), n: fmtN(chosen(view)) }) }}</span>
-        <button :class="{ on: allIs(view, 'left') }" :title="filtering ? $t('dataCompare:allFiltered') : arrowTip(view, 'left')" @click="setAll(view, 'left')">{{ $t('dataCompare:allLeft') }}</button>
-        <button :class="{ on: allIs(view, 'right') }" :title="filtering ? $t('dataCompare:allFiltered') : arrowTip(view, 'right')" @click="setAll(view, 'right')">{{ $t('dataCompare:allRight') }}</button>
-        <button :class="{ on: allIs(view, 'none') }" :title="filtering ? $t('dataCompare:allFiltered') : undefined" @click="setAll(view, 'none')">{{ $t('dataCompare:allNone') }}</button>
+      <div v-if="!readOnly && diffView && result.counts[diffView]" class="dc-bulk">
+        <span>{{ $t('dataCompare:bulk', { count: chosen(diffView), n: fmtN(chosen(diffView)) }) }}</span>
+        <button :class="{ on: allIs(diffView, 'left') }" :title="filtering ? $t('dataCompare:allFiltered') : arrowTip(diffView, 'left')" @click="setAll(diffView, 'left')">{{ $t('dataCompare:allLeft') }}</button>
+        <button :class="{ on: allIs(diffView, 'right') }" :title="filtering ? $t('dataCompare:allFiltered') : arrowTip(diffView, 'right')" @click="setAll(diffView, 'right')">{{ $t('dataCompare:allRight') }}</button>
+        <button :class="{ on: allIs(diffView, 'none') }" :title="filtering ? $t('dataCompare:allFiltered') : undefined" @click="setAll(diffView, 'none')">{{ $t('dataCompare:allNone') }}</button>
       </div>
-      <div v-if="result.diff_truncated || result.duplicate_keys || result.only_left_columns.length || result.only_right_columns.length" class="dc-notes">
+      <div v-if="result.diff_truncated || equalCut || result.duplicate_keys || result.only_left_columns.length || result.only_right_columns.length" class="dc-notes">
         <div v-if="result.diff_truncated">{{ $t('dataCompare:truncated', { total: fmtN(totalDiffs), limit: fmtN(result.diff_limit) }) }}</div>
+        <div v-if="equalCut">{{ $t('dataCompare:equal.truncated', { total: fmtN(result.counts.same), limit: fmtN(listedOf('equal')) }) }}</div>
         <div v-if="result.duplicate_keys">{{ $t('dataCompare:duplicates', { count: result.duplicate_keys }) }}<template v-if="readOnly"> {{ $t('dataCompare:query.duplicatesHint') }}</template></div>
         <div v-if="result.only_left_columns.length">{{ $t('dataCompare:onlyLeftColumns', { list: result.only_left_columns.join(', ') }) }}</div>
         <div v-if="result.only_right_columns.length">{{ $t('dataCompare:onlyRightColumns', { list: result.only_right_columns.join(', ') }) }}</div>
@@ -1119,7 +1178,7 @@ async function suggestKey() {
         <table class="dc-grid">
           <thead>
             <tr>
-              <th v-if="!readOnly" class="dc-arrows-h" />
+              <th v-if="!readOnly && diffView" class="dc-arrows-h" />
               <th v-for="(c, j) in result.columns" :key="c" :class="{ key: j < result.key.length }" :title="rightNameOf(j)">
                 <span class="dc-th">
                   <button class="dc-th-name" :title="$t('dataCompare:sortHint')" @click="sortClick($event, c)">
@@ -1135,10 +1194,10 @@ async function suggestKey() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in shown" :key="r.index" :class="`go-${dirOf(view, r.index)}`">
-              <td v-if="!readOnly" class="dc-arrows">
-                <button :class="{ on: dirOf(view, r.index) === 'left' }" :title="arrowTip(view, 'left')" @click="toggle(view, r.index, 'left')">←</button>
-                <button :class="{ on: dirOf(view, r.index) === 'right' }" :title="arrowTip(view, 'right')" @click="toggle(view, r.index, 'right')">→</button>
+            <tr v-for="r in shown" :key="r.index" :class="diffView ? `go-${dirOf(diffView, r.index)}` : undefined">
+              <td v-if="!readOnly && diffView" class="dc-arrows">
+                <button :class="{ on: dirOf(diffView, r.index) === 'left' }" :title="arrowTip(diffView, 'left')" @click="toggle(diffView, r.index, 'left')">←</button>
+                <button :class="{ on: dirOf(diffView, r.index) === 'right' }" :title="arrowTip(diffView, 'right')" @click="toggle(diffView, r.index, 'right')">→</button>
               </td>
               <td v-for="(c, j) in result.columns" :key="c" :class="{ diff: r.diff.includes(j), key: j < result.key.length }">
                 <template v-if="r.right && r.diff.includes(j)">
@@ -1250,6 +1309,7 @@ async function suggestKey() {
 .dc-summary button { border: 1px solid var(--nm-border); border-radius: 12px; background: none; color: var(--nm-text); padding: 3px 10px; font: inherit; cursor: pointer; }
 .dc-summary button.on { background: var(--ide-selection); border-color: var(--ide-focus, var(--el-color-primary)); color: var(--nm-text-strong); }
 .dc-same { color: var(--nm-text-dim); margin-right: 6px; }
+.dc-equal { margin: 0 4px 0 6px; }
 .dc-notes { padding: 6px 14px; font-size: 12px; color: var(--nm-warning); border-bottom: 1px solid var(--nm-border); }
 .dc-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; padding: 8px 14px; border-bottom: 1px solid var(--nm-border); font-size: 12.5px; color: var(--nm-text); }
 .dc-progress-phase { font-weight: 600; color: var(--nm-text-strong); }

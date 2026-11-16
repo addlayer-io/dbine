@@ -42,7 +42,8 @@
     "loadingDifferences": "Pobieranie różniących się wierszy…",
     "rows": "Źródło: {{left}} wierszy · Cel: {{right}} wierszy",
     "differences": "Pobrano różniących się wierszy: {{n}}",
-    "cancelling": "Anulowanie…"
+    "cancelling": "Anulowanie…",
+    "loadingEqual": "Pobieranie takich samych wierszy…"
   },
   "duplicates_one": "1 wiersz z powtórzonym kluczem został porównany tylko raz.",
   "duplicates_few": "{{count}} wiersze z powtórzonym kluczem zostały porównane tylko raz.",
@@ -156,5 +157,18 @@
     "readingColumns": "Odczytywanie kolumn wyników…",
     "reading": "Odczytywanie wyników…",
     "duplicatesHint": "Jeśli klucz się powtarza, prawdopodobnie brakuje kolumny."
+  },
+  "equal": {
+    "option": "Uwzględnij takie same wiersze",
+    "optionHint": "Oprócz zliczenia pobiera takie same wiersze, aby można je było przejrzeć i filtrować, w kolejności klucza. Nie trafiają do żadnego skryptu.",
+    "notListed": "Aby je zobaczyć, zaznacz „Uwzględnij takie same wiersze” i porównaj ponownie.",
+    "truncated": "Takich samych wierszy jest {{total}}: wyświetlono pierwsze {{limit}}, w kolejności klucza. Łączna liczba jest dokładna."
+  },
+  "toQueries": {
+    "button": "Przełącz na zapytania",
+    "hint": "Przełącza na porównywanie zapytań, z już napisanym zapytaniem czytającym każdą tabelę w całości, aby dodać WHERE (lub filtr silnika) i porównać tylko te wiersze. Porównanie zapytań jest tylko do odczytu: nie generuje skryptu.",
+    "replace": "Zapytania z trybu Zapytania zostaną zastąpione tymi, które czytają te tabele.",
+    "replaceOk": "Zastąp",
+    "done": "Każda strona ma zapytanie czytające całą jej tabelę. Dodaj WHERE, aby porównać tylko niektóre wiersze, i kliknij Porównaj."
   }
 }

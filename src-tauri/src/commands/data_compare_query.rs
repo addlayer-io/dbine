@@ -90,6 +90,9 @@ pub struct QueryCompareArgs {
     /// it. Empty: one is made up.
     #[serde(default)]
     pub run: String,
+    /// List the equal rows too, not only count them (issue #115).
+    #[serde(default)]
+    pub equal: bool,
 }
 
 /// The table compare's result, plus each compared column's name and type on
@@ -429,6 +432,11 @@ pub async fn data_compare_query(
         in_memory_rows: data_compare::IN_MEMORY_ROWS,
         in_memory_bytes: data_compare::IN_MEMORY_BYTES,
         max_diff_rows: data_compare::MAX_DIFF_ROWS,
+        max_equal_rows: if args.equal {
+            data_compare::MAX_EQUAL_ROWS
+        } else {
+            0
+        },
         scratch: data_compare::scratch_root(),
         duckdb: None,
     };
@@ -528,7 +536,7 @@ async fn compare_queries(
         truncated = c.diff_truncated,
         "data compare (queries): done"
     );
-    Ok(keep(args.left, args.right, c, opts.max_diff_rows))
+    Ok(keep(args.left, args.right, c, opts))
 }
 
 /// The result for the UI, and the difference kept (as the table compare
@@ -537,7 +545,7 @@ fn keep(
     left: QuerySide,
     right: QuerySide,
     c: whole::Compared,
-    max_diff_rows: usize,
+    opts: &whole::Options,
 ) -> QueryCompareResult {
     let p = &c.projection;
     let type_of = |cols: &[ResultColumn], name: &str| {
@@ -589,16 +597,19 @@ fn keep(
             .take(data_compare::SHOWN)
             .cloned()
             .collect::<Vec<ChangedRow>>(),
+        equal: shown(&c.equal),
+        equal_limit: opts.max_equal_rows as u64,
         truncated_left: false,
         truncated_right: false,
         ordered: true,
         duplicate_keys: c.duplicate_keys,
         diff_truncated: c.diff_truncated,
-        diff_limit: max_diff_rows as u64,
+        diff_limit: opts.max_diff_rows as u64,
         listed: Listed {
             changed: c.changed.len() as u64,
             only_left: c.only_left.len() as u64,
             only_right: c.only_right.len() as u64,
+            equal: c.equal.len() as u64,
         },
     };
     let out = QueryCompareResult {
@@ -625,6 +636,7 @@ fn keep(
             only_left: c.only_left,
             only_right: c.only_right,
             changed: c.changed,
+            equal: c.equal,
             left_types,
             right_types,
             partial: false,

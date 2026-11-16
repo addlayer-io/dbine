@@ -110,6 +110,7 @@ fn opts(in_memory_rows: usize, max_diff_rows: usize, root: &Path) -> Options {
         in_memory_rows,
         in_memory_bytes: usize::MAX,
         max_diff_rows,
+        max_equal_rows: 0,
         scratch: Some(root.to_path_buf()),
         duckdb: None,
     }
@@ -127,6 +128,7 @@ fn summary(c: &Compared) -> Value {
         "changed": serde_json::to_value(&c.changed).unwrap(),
         "duplicate_keys": c.duplicate_keys,
         "diff_truncated": c.diff_truncated,
+        "equal": c.equal,
         "last_keys": c.last_keys.as_ref().map(|(l, r)| json!([l, r])),
     })
 }
@@ -211,6 +213,101 @@ async fn memory_and_duckdb_give_the_same_result() {
     assert_eq!(ids.first(), Some(&1001.0));
     // A composite key has no "last key".
     assert!(mem.last_keys.is_none());
+}
+
+/// Issue #115: asked for, the equal rows come back on both paths, the same
+/// ones in key order, each the left side's values; not asked for, none.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_equal_rows_come_back_on_both_paths_in_key_order() {
+    let root = temp_dir("equal");
+    let mut got = Vec::new();
+    for in_memory_rows in [1_000_000, 100] {
+        let mut o = opts(in_memory_rows, 1_000_000, &root.0);
+        o.max_equal_rows = 1_000_000;
+        let ctl = Arc::new(Ctl::default());
+        let c = run(LEFT, RIGHT, &["id", "k2"], &o, &ctl, &quiet)
+            .await
+            .unwrap();
+        assert_eq!(c.spilled, in_memory_rows == 100);
+        assert_eq!(c.equal.len() as u64, c.counts.same);
+        got.push(summary(&c));
+    }
+    assert_eq!(got[0], got[1]);
+    let ids: Vec<f64> = got[0]["equal"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r[0].as_f64().unwrap())
+        .collect();
+    // Every key that is on both sides and doesn't differ, in key order.
+    let expected: Vec<f64> = (1..=3000)
+        .filter(|i| !(1001..=1100).contains(i) && i % 50 != 0 && i % 97 != 0)
+        .map(f64::from)
+        .collect();
+    assert_eq!(ids, expected);
+    // The left's values (its id is a number; the right's is text).
+    assert_eq!(
+        got[0]["equal"][0],
+        json!([1, "k1", "1.50", "2026-01-01 00:00:01", false, "n1"])
+    );
+    // Not asked for: counted, not listed.
+    for in_memory_rows in [1_000_000, 100] {
+        let ctl = Arc::new(Ctl::default());
+        let c = run(
+            LEFT,
+            RIGHT,
+            &["id", "k2"],
+            &opts(in_memory_rows, 1_000_000, &root.0),
+            &ctl,
+            &quiet,
+        )
+        .await
+        .unwrap();
+        assert!(c.equal.is_empty() && c.counts.same > 0);
+    }
+    assert_eq!(leftovers(&root.0), Vec::<String>::new());
+}
+
+/// Issue #115: past their limit, both paths keep the same first equal rows
+/// in key order, also with long keys whose order keys tie (the scratch
+/// DuckDB's cut), and the differences stay as they were.
+#[tokio::test(flavor = "multi_thread")]
+async fn past_their_limit_the_equal_rows_are_the_first_in_key_order() {
+    let rows = |table: &str, changed: &str, gap: &str| {
+        format!(
+            "CREATE TABLE {table} (name VARCHAR, v INTEGER);
+INSERT INTO {table} SELECT repeat('x', 150) || lpad(i::VARCHAR, 5, '0'), i{changed} FROM range(1, 2001) r(i){gap};
+INSERT INTO {table} SELECT repeat('X', 150) || lpad(i::VARCHAR, 5, '0'), i{changed} FROM range(1, 61) r(i){gap};"
+        )
+    };
+    let left = rows("t", "", "");
+    let right = rows(
+        "\"T\"",
+        " + CASE WHEN i % 3 = 0 THEN 1 ELSE 0 END",
+        " WHERE i % 7 <> 0",
+    );
+    let root = temp_dir("equalcut");
+    for (l, r, key) in [
+        (LEFT, RIGHT, &["id", "k2"][..]),
+        (left.as_str(), right.as_str(), &["name"][..]),
+    ] {
+        // Also with the differences cut: both cuts on one scratch DuckDB.
+        for max_diff_rows in [1_000_000, 30] {
+            let mut got = Vec::new();
+            for in_memory_rows in [1_000_000, 50] {
+                let mut o = opts(in_memory_rows, max_diff_rows, &root.0);
+                o.max_equal_rows = 40;
+                let ctl = Arc::new(Ctl::default());
+                let c = run(l, r, key, &o, &ctl, &quiet).await.unwrap();
+                assert_eq!(c.equal.len(), 40);
+                assert!(c.counts.same > 40, "the count stays exact");
+                assert_eq!(c.diff_truncated, max_diff_rows == 30);
+                got.push(summary(&c));
+            }
+            assert_eq!(got[0], got[1], "{key:?}, {max_diff_rows}");
+        }
+    }
+    assert_eq!(leftovers(&root.0), Vec::<String>::new());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -362,6 +459,7 @@ async fn without_a_folder_for_duckdb_a_big_table_says_why() {
         in_memory_rows: 10,
         in_memory_bytes: usize::MAX,
         max_diff_rows: 10,
+        max_equal_rows: 0,
         scratch: None,
         duckdb: None,
     };

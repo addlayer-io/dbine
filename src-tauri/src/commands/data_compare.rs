@@ -1,6 +1,7 @@
 //! Data compare (docs/data-compare.md): the rows of two tables —
 //! same or different connections, even different engines — matched by key:
-//! rows only on one side, only on the other, and rows whose values differ.
+//! rows only on one side, only on the other, and rows whose values differ;
+//! asked for, the equal rows too (issue #115).
 //! The sync script is written by the target's driver (`insert_script`,
 //! `update_script`, `delete_script`), so it's in the target's language; the
 //! UI shows it and runs it only when the user says so.
@@ -30,6 +31,10 @@ pub(crate) const IN_MEMORY_BYTES: usize = 256 << 20;
 /// Differing rows the screen and the script get, all kinds together (the
 /// counts are exact past it).
 pub(crate) const MAX_DIFF_ROWS: usize = 1_000_000;
+/// Equal rows listed when the UI asks for them (issue #115): the first in key
+/// order (the count is exact past it). They're only for looking at and
+/// filtering, never synced, so fewer than the differences.
+pub(crate) const MAX_EQUAL_ROWS: usize = 100_000;
 /// Rows of each kind sent to the UI (the counts and the script use them all).
 pub(crate) const SHOWN: usize = 2_000;
 /// Longest compare id the UI may give.
@@ -66,6 +71,9 @@ pub struct DataCompareArgs {
     /// `data_compare_cancel` stops it. Empty (older UIs): one is made up.
     #[serde(default)]
     pub run: String,
+    /// List the equal rows too, not only count them (issue #115).
+    #[serde(default)]
+    pub equal: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -104,6 +112,11 @@ pub struct DataCompareResult {
     pub only_left: Vec<Vec<Value>>,
     pub only_right: Vec<Vec<Value>>,
     pub changed: Vec<ChangedRow>,
+    /// The first equal rows, when asked for (`equal`); empty otherwise.
+    pub equal: Vec<Vec<Value>>,
+    /// Equal rows listed at most (`MAX_EQUAL_ROWS`); 0: they weren't asked
+    /// for. Past it, `listed.equal` is less than `counts.same`.
+    pub equal_limit: u64,
     /// Always false: whole tables are compared (kept for older UIs).
     pub truncated_left: bool,
     pub truncated_right: bool,
@@ -125,6 +138,8 @@ pub struct Listed {
     pub changed: u64,
     pub only_left: u64,
     pub only_right: u64,
+    /// The equal rows kept (the first `equal_limit` in key order).
+    pub equal: u64,
 }
 
 /// The whole difference, kept for the script (and for the AI's profile in
@@ -142,6 +157,9 @@ pub(crate) struct Diff {
     pub(crate) only_left: Vec<Vec<Value>>,
     pub(crate) only_right: Vec<Vec<Value>>,
     pub(crate) changed: Vec<ChangedRow>,
+    /// The first equal rows, when they were asked for: to look at and
+    /// filter, never in a script.
+    pub(crate) equal: Vec<Vec<Value>>,
     /// Each side's type of each compared column ("": not known), so a script
     /// writes a value the way its target column takes it.
     pub(crate) left_types: Vec<String>,
@@ -527,6 +545,7 @@ pub async fn data_compare(
         in_memory_rows: IN_MEMORY_ROWS,
         in_memory_bytes: IN_MEMORY_BYTES,
         max_diff_rows: MAX_DIFF_ROWS,
+        max_equal_rows: if args.equal { MAX_EQUAL_ROWS } else { 0 },
         scratch: scratch_root(),
         duckdb: None,
     };
@@ -677,6 +696,8 @@ async fn compare_sides(
         only_left: c.only_left.iter().take(SHOWN).cloned().collect(),
         only_right: c.only_right.iter().take(SHOWN).cloned().collect(),
         changed: c.changed.iter().take(SHOWN).cloned().collect(),
+        equal: c.equal.iter().take(SHOWN).cloned().collect(),
+        equal_limit: opts.max_equal_rows as u64,
         truncated_left: false,
         truncated_right: false,
         ordered: true,
@@ -687,6 +708,7 @@ async fn compare_sides(
             changed: c.changed.len() as u64,
             only_left: c.only_left.len() as u64,
             only_right: c.only_right.len() as u64,
+            equal: c.equal.len() as u64,
         },
     };
     let mut all = diffs().lock().unwrap();
@@ -706,6 +728,7 @@ async fn compare_sides(
             only_left: c.only_left,
             only_right: c.only_right,
             changed: c.changed,
+            equal: c.equal,
             left_types,
             right_types,
             partial: false,
@@ -717,13 +740,14 @@ async fn compare_sides(
     Ok(result)
 }
 
-/// One kind of difference.
+/// One kind of difference, or the equal rows (when they were listed).
 #[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 #[serde(rename_all = "snake_case")]
 pub enum RowKind {
     Changed,
     OnlyLeft,
     OnlyRight,
+    Equal,
 }
 
 #[derive(Deserialize)]
@@ -920,6 +944,12 @@ fn rows_of(d: &Diff, args: &DataRowsArgs) -> DataRows {
             .collect(),
         RowKind::OnlyRight => d
             .only_right
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (i, &r[..], None, &[][..]))
+            .collect(),
+        RowKind::Equal => d
+            .equal
             .iter()
             .enumerate()
             .map(|(i, r)| (i, &r[..], None, &[][..]))
@@ -1348,8 +1378,8 @@ fn assemble(driver: &dyn dbine_driver::Driver, parts: Vec<String>) -> (String, u
 mod tests {
     use super::{
         as_bool, as_number, assemble, canon, insert_parts, is_bool_type, is_number_type,
-        new_rows_parts, plans, rows_of, write_as, ChangedRow, Choices, DataRowsArgs, Diff, Dir,
-        Pick, RowKind, Side, SHOWN,
+        new_rows_parts, plans, rows_of, write_as, ChangedRow, Choices, DataCompareArgs,
+        DataRowsArgs, Diff, Dir, Pick, RowKind, Side, SHOWN,
     };
     use dbine_driver::filter::{ColumnFilter, FilterOp};
     use dbine_driver::SortKey;
@@ -1598,6 +1628,7 @@ mod tests {
                 right: vec![json!(3), json!("r")],
                 diff: vec![1],
             }],
+            equal: vec![vec![json!(4), json!("same")]],
             left_types: vec!["int".into(), "text".into()],
             right_types: vec!["int".into(), "text".into()],
             partial,
@@ -1778,6 +1809,58 @@ mod tests {
             values: vec![value],
             sql: None,
         }
+    }
+
+    /// Issue #115: the equal rows, when listed, are a list of their own that
+    /// filters and sorts over all of it, as the differences do.
+    #[test]
+    fn the_equal_rows_filter_and_sort_like_the_differences() {
+        let mut d = people(0);
+        d.equal = (0..3000)
+            .map(|i| {
+                vec![
+                    json!(i),
+                    json!(format!("Igual {i}")),
+                    json!(i % 10),
+                    json!("a"),
+                ]
+            })
+            .collect();
+        let r = rows_of(&d, &ask(RowKind::Equal));
+        assert_eq!(r.total, 3000);
+        assert_eq!(r.rows.len(), SHOWN);
+        assert_eq!(r.rows[0].left[1], json!("Igual 0"));
+        assert!(r
+            .rows
+            .iter()
+            .all(|row| row.right.is_none() && row.diff.is_empty()));
+        // Past the rows the first answer brought.
+        let mut a = ask(RowKind::Equal);
+        a.filters = vec![where_("id", FilterOp::Eq, json!(2999))];
+        let r = rows_of(&d, &a);
+        assert_eq!((r.total, r.indices.clone()), (1, vec![2999]));
+        let mut a = ask(RowKind::Equal);
+        a.sort = vec![SortKey {
+            column: "id".into(),
+            descending: true,
+        }];
+        assert_eq!(rows_of(&d, &a).rows[0].left[0], json!(2999));
+        // The other lists don't see them.
+        assert_eq!(rows_of(&d, &ask(RowKind::OnlyLeft)).total, 0);
+    }
+
+    /// Older UIs don't send `equal`: the equal rows are only counted.
+    #[test]
+    fn the_equal_rows_are_listed_only_when_asked() {
+        let side = json!({"connection_id": "c", "database": "d", "object": {"kind": "table", "schema": null, "name": "t"}});
+        let args: DataCompareArgs =
+            serde_json::from_value(json!({"left": side, "right": side})).unwrap();
+        assert!(!args.equal);
+        let args: DataCompareArgs =
+            serde_json::from_value(json!({"left": side, "right": side, "equal": true})).unwrap();
+        assert!(args.equal);
+        let kind: RowKind = serde_json::from_value(json!("equal")).unwrap();
+        assert_eq!(kind, RowKind::Equal);
     }
 
     #[test]

@@ -741,7 +741,7 @@ Event: `datagen-progress`, with `{ id, rows, total }`. Cancel:
 
 | Command | args | Returns |
 |---|---|---|
-| `data_compare_query` | `{ left, right, columns, options?, run? }` | `{ …DataCompareResult, right_columns, right_types }` |
+| `data_compare_query` | `{ left, right, columns, options?, run?, equal? }` | `{ …DataCompareResult, right_columns, right_types }` |
 | `data_compare_query_columns` | `{ side, run? }` | `{ columns, sample }` |
 
 - `left`, `right` and `side` are `{ connection_id, database?, query }`: the
@@ -756,6 +756,10 @@ Event: `datagen-progress`, with `{ id, rows, total }`. Cancel:
   one (`0.001` is 0.1 %); `null_as_blank` makes NULL equal a blank value
   (0, an empty text or false); `ignore_case` and `trim` apply to text, keys
   included. The key never takes a tolerance.
+- `equal: true` also lists the equal rows (`equal`, the first `equal_limit`
+  in key order, and `listed.equal`), as in a table compare
+  ([`data-compare.md`](data-compare.md#the-equal-rows)); they page with
+  `data_compare_rows` as `kind: "equal"`.
 - `data_compare_query` reads both results whole, each on a read-only session
   of its own (`dcmp:<run>:left` and `dcmp:<run>:right`), and returns the
   table compare's result (`id`, `key`, `columns`, `types`, `counts`, the

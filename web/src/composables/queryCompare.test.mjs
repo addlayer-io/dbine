@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_FORM, bareName, compareWithPicks, comparedPairs, mergePairs, pairColumns, pairRows, queryOptions, sideSignature, suggestKey, unpairedRight,
+  DEFAULT_FORM, WHOLE_ROWS, bareName, compareWithPicks, comparedPairs, mergePairs, pairColumns, pairRows, queryOptions, sideSignature, suggestKey, unpairedRight, wholeQuery, withKey,
 } from './queryCompare.ts';
 
 const col = (name, type_name = '') => ({ name, type_name });
@@ -150,4 +150,38 @@ test('a side needs its columns read again when its query changes', () => {
   assert.equal(sideSignature(s), sideSignature({ ...s, query: '  SELECT 1\n' }));
   assert.notEqual(sideSignature(s), sideSignature({ ...s, query: 'SELECT 2' }));
   assert.notEqual(sideSignature(s), sideSignature({ ...s, database: 'e' }));
+});
+
+// Issue #118: "Pasar a consultas" starts from each table's browse query
+// asked for the whole table, without the engine's limit clause.
+test('wholeQuery drops the usual limit clauses of a whole-table browse', () => {
+  const n = WHOLE_ROWS;
+  const cases = [
+    [`SELECT *\nFROM "public"."t"\nLIMIT ${n}`, 'SELECT *\nFROM "public"."t"'],
+    [`SELECT TOP (${n}) *\nFROM [dbo].[t]`, 'SELECT *\nFROM [dbo].[t]'],
+    [`SELECT *\nFROM "HR"."T"\nFETCH FIRST ${n} ROWS ONLY`, 'SELECT *\nFROM "HR"."T"'],
+    [`SELECT FIRST ${n} *\nFROM "T"`, 'SELECT *\nFROM "T"'],
+    [`-- container: c\nSELECT TOP ${n} * FROM c`, '-- container: c\nSELECT * FROM c'],
+    [`SELECT * FROM "ks"."t" LIMIT ${n};`, 'SELECT * FROM "ks"."t";'],
+    [`MATCH (n:Person) RETURN n LIMIT ${n}`, 'MATCH (n:Person) RETURN n'],
+    [`db.users.find({}).limit(${n})`, 'db.users.find({})'],
+    [`from(bucket: "b")\n  |> range(start: 0)\n  |> limit(n: ${n})\n  |> drop(columns: ["_start"])\n  |> limit(n: ${n})`, 'from(bucket: "b")\n  |> range(start: 0)\n  |> drop(columns: ["_start"])'],
+    [`SELECT * FROM t LIMIT 10`, 'SELECT * FROM t LIMIT 10'],
+    [`LRANGE k 0 ${n - 1}`, `LRANGE k 0 ${n - 1}`],
+    ['EVALUATE \'Sales\'', 'EVALUATE \'Sales\''],
+  ];
+  for (const [browse, want] of cases) assert.equal(wholeQuery(browse), want, browse);
+});
+
+test('withKey marks the table compare key and nothing else', () => {
+  const rows = [
+    { left: 'ID', right: 'id', key: false },
+    { left: 'k2', right: 'K2', key: false },
+    { left: 'amount', right: 'amount', key: true },
+    { left: 'only_l', right: '', key: false },
+  ];
+  assert.deepEqual(withKey(rows, ['id', 'K2']).map((r) => r.key), [true, true, false, false]);
+  // A key column that isn't paired: left as suggested.
+  assert.deepEqual(withKey(rows, ['id', 'only_l']), rows);
+  assert.deepEqual(withKey(rows, []), rows);
 });

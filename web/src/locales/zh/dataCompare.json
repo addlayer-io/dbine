@@ -39,7 +39,8 @@
     "loadingDifferences": "正在获取不同的行…",
     "rows": "源：{{left}} 行 · 目标：{{right}} 行",
     "differences": "已获取 {{n}} 行不同的行",
-    "cancelling": "正在取消…"
+    "cancelling": "正在取消…",
+    "loadingEqual": "正在获取相同的行…"
   },
   "duplicates_other": "{{count}} 行键重复的行只比较了一次。",
   "onlyLeftColumns": "仅左侧拥有的列（未比较）：{{list}}",
@@ -138,5 +139,18 @@
     "readingColumns": "正在读取结果的列…",
     "reading": "正在读取结果…",
     "duplicatesHint": "如果键出现重复，很可能还缺少一列。"
+  },
+  "equal": {
+    "option": "包含相同的行",
+    "optionHint": "除了统计数量，还会获取相同的行，以便查看和筛选，按键顺序排列。它们不会进入任何脚本。",
+    "notListed": "要查看它们，请勾选“包含相同的行”并重新比较。",
+    "truncated": "共有 {{total}} 行相同：列出前 {{limit}} 行，按键顺序排列。总数是准确的。"
+  },
+  "toQueries": {
+    "button": "转为查询",
+    "hint": "切换到查询比较，并已写好读取每张完整表的查询，可添加 WHERE（或所用引擎的筛选条件），只比较这些行。查询比较是只读的：不会生成脚本。",
+    "replace": "“查询”模式中原有的查询将被读取这些表的查询替换。",
+    "replaceOk": "替换",
+    "done": "每一侧都已有读取其完整表的查询。添加 WHERE 以只比较部分行，然后点击“比较”。"
   }
 }

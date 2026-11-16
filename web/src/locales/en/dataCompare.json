@@ -40,7 +40,8 @@
     "loadingDifferences": "Fetching the differing rows…",
     "rows": "Source: {{left}} rows · Target: {{right}} rows",
     "differences": "{{n}} differing rows fetched",
-    "cancelling": "Cancelling…"
+    "cancelling": "Cancelling…",
+    "loadingEqual": "Fetching the equal rows…"
   },
   "duplicates_one": "1 row with a repeated key was compared once.",
   "duplicates_many": "{{count}} rows with a repeated key were compared once.",
@@ -149,5 +150,18 @@
     "readingColumns": "Reading the results' columns…",
     "reading": "Reading the results…",
     "duplicatesHint": "If the key repeats, it probably needs another column."
+  },
+  "equal": {
+    "option": "Include equal rows",
+    "optionHint": "As well as counting them, fetches the equal rows so you can see and filter them, in key order. They never go into a script.",
+    "notListed": "To see them, check “Include equal rows” and compare again.",
+    "truncated": "There are {{total}} equal rows: the first {{limit}} are listed, in key order. The total is exact."
+  },
+  "toQueries": {
+    "button": "Switch to queries",
+    "hint": "Switches to comparing queries, with the one that reads each whole table already written, so you can add a WHERE (or your engine's filter) and compare only those rows. Query comparison is read-only: it generates no script.",
+    "replace": "The queries in Queries mode are replaced by the ones that read these tables.",
+    "replaceOk": "Replace",
+    "done": "Each side has the query that reads its whole table. Add a WHERE to compare only some rows and click Compare."
   }
 }

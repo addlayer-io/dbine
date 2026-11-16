@@ -163,6 +163,41 @@ export function queryOptions(f: ToleranceForm): QueryOptions {
   return { absolute: n(f.absolute), relative: n(f.relativePct) / 100, null_as_blank: f.nullAsBlank, ignore_case: f.ignoreCase, trim: f.trim };
 }
 
+/** The row count `browse_query` is asked for to read a table whole
+ *  (`u32::MAX`): the drivers' own convention for it (`read_via_execute`). */
+export const WHOLE_ROWS = 4294967295;
+
+const W = String(WHOLE_ROWS);
+/** The usual limit clauses, asked for `WHOLE_ROWS` rows. */
+const WHOLE_LIMITS: RegExp[] = [
+  new RegExp(`[ \\t]*\\r?\\n?[ \\t]*\\bFETCH\\s+(?:FIRST|NEXT)\\s+${W}\\s+ROWS?\\s+ONLY\\b`, 'gi'),
+  new RegExp(`[ \\t]*\\r?\\n?[ \\t]*\\bLIMIT\\s+${W}\\b`, 'gi'),
+  new RegExp(`\\bTOP\\s*\\(\\s*${W}\\s*\\)\\s*`, 'gi'),
+  new RegExp(`\\bTOP\\s+${W}\\s+`, 'gi'),
+  new RegExp(`\\bFIRST\\s+${W}\\s+`, 'gi'),
+  new RegExp(`\\.limit\\(\\s*${W}\\s*\\)`, 'g'),
+  new RegExp(`\\s*\\|>\\s*limit\\(n:\\s*${W}\\)`, 'g'),
+];
+
+/** A table's browse query asked for `WHOLE_ROWS` rows, as a query to start
+ *  from ("Pasar a consultas", issue #118): without its limit clause when
+ *  it's one of the usual ones (LIMIT, TOP, FETCH FIRST, FIRST, MongoDB's
+ *  `.limit()`, Flux's `limit()`); any other stays as the driver wrote it,
+ *  which reads that many rows. */
+export function wholeQuery(browse: string): string {
+  return WHOLE_LIMITS.reduce((q, re) => q.replace(re, ''), browse);
+}
+
+/** The column table with the table compare's key (issue #118): the left
+ *  columns named as the key (ignoring case) are the key and no others. If
+ *  a key column isn't among the paired ones, the rows stay as they were. */
+export function withKey(rows: PairRow[], key: string[]): PairRow[] {
+  const names = new Set(key.map((k) => k.toLowerCase()));
+  const found = rows.filter((r) => r.right && names.has(r.left.toLowerCase()));
+  if (!key.length || found.length !== names.size) return rows;
+  return rows.map((r) => ({ ...r, key: !!r.right && names.has(r.left.toLowerCase()) }));
+}
+
 /** What a side's columns were read for: reading them again is needed once
  *  its connection, database or query changes. */
 export function sideSignature(s: { connectionId: string; database: string; query: string }): string {

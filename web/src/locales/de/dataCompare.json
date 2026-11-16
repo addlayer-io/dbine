@@ -40,7 +40,8 @@
     "loadingDifferences": "Abweichende Zeilen werden geladen…",
     "rows": "Quelle: {{left}} Zeilen · Ziel: {{right}} Zeilen",
     "differences": "{{n}} abweichende Zeilen geladen",
-    "cancelling": "Wird abgebrochen…"
+    "cancelling": "Wird abgebrochen…",
+    "loadingEqual": "Gleiche Zeilen werden geladen…"
   },
   "duplicates_one": "1 Zeile mit wiederholtem Schlüssel wurde einmal verglichen.",
   "duplicates_other": "{{count}} Zeilen mit wiederholtem Schlüssel wurden einmal verglichen.",
@@ -144,5 +145,18 @@
     "readingColumns": "Spalten der Ergebnisse werden gelesen …",
     "reading": "Ergebnisse werden gelesen …",
     "duplicatesHint": "Wiederholt sich der Schlüssel, fehlt ihm wahrscheinlich eine Spalte."
+  },
+  "equal": {
+    "option": "Gleiche Zeilen einbeziehen",
+    "optionHint": "Zählt die gleichen Zeilen nicht nur, sondern lädt sie auch, damit Sie sie ansehen und filtern können, in der Reihenfolge des Schlüssels. Sie gelangen in kein Skript.",
+    "notListed": "Um sie anzuzeigen, aktivieren Sie „Gleiche Zeilen einbeziehen“ und vergleichen Sie erneut.",
+    "truncated": "Es gibt {{total}} gleiche Zeilen: Die ersten {{limit}} werden aufgelistet, in der Reihenfolge des Schlüssels. Die Gesamtzahl ist exakt."
+  },
+  "toQueries": {
+    "button": "Zu Abfragen wechseln",
+    "hint": "Wechselt zum Vergleich von Abfragen, mit der bereits geschriebenen Abfrage, die jeweils die ganze Tabelle liest, damit Sie ein WHERE (oder den Filter Ihrer Engine) ergänzen und nur diese Zeilen vergleichen können. Der Abfragevergleich ist schreibgeschützt: Er erzeugt kein Skript.",
+    "replace": "Die Abfragen im Modus Abfragen werden durch die ersetzt, die diese Tabellen lesen.",
+    "replaceOk": "Ersetzen",
+    "done": "Jede Seite hat die Abfrage, die ihre ganze Tabelle liest. Ergänzen Sie ein WHERE, um nur einige Zeilen zu vergleichen, und klicken Sie auf Vergleichen."
   }
 }
