@@ -1,5 +1,8 @@
 import type { Language } from '../api/types';
+import { DATE, type ParamType, type ParamValue } from './paramValues';
 import { lexRegions, lexSyntax } from './sqlLexer';
+
+export { paramProblem, silentValues, type ParamType, type ParamValue } from './paramValues';
 
 // Parameters in editor queries (docs/query-editor.md): `:name` outside
 // strings and comments (never a `::` cast), plus the engine's own markers
@@ -7,13 +10,6 @@ import { lexRegions, lexSyntax } from './sqlLexer';
 // placeholders and `@name` on engines where `@` isn't a variable. Before a run
 // the editor asks for each value and puts it in the text as a literal of the
 // engine's dialect.
-
-export type ParamType = 'text' | 'number' | 'date' | 'null';
-
-export interface ParamValue {
-  type: ParamType;
-  value: string;
-}
 
 /** What a run sends to the engine: where each marker is. */
 export interface ParamSpot {
@@ -141,27 +137,6 @@ export function paramItems(spots: ParamSpot[]): ParamItem[] {
   return out;
 }
 
-/** "No volver a preguntar": the tab's remembered value for every item, or
- *  null when one has none or can't be used (that run asks again). */
-export function rememberedValues(items: ParamItem[], last: Record<string, ParamValue>): Record<string, ParamValue> | null {
-  const out: Record<string, ParamValue> = {};
-  for (const i of items) {
-    const v = last[i.key];
-    if (!v || paramProblem(v)) return null;
-    out[i.key] = v;
-  }
-  return out;
-}
-
-const NUMBER = /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/;
-const DATE = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?))?$/;
-
-/** Why a value can't be used, or null. */
-export function paramProblem(v: ParamValue): 'number' | 'date' | null {
-  if (v.type === 'number' && !NUMBER.test(v.value.trim())) return 'number';
-  if (v.type === 'date' && !DATE.test(v.value.trim())) return 'date';
-  return null;
-}
 
 /** Whether the target has a NULL literal (Redis and Flux don't). */
 export function hasNull(t: ParamTarget): boolean {

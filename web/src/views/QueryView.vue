@@ -35,7 +35,7 @@ import { daxOtherNames } from '../composables/daxLanguage';
 import { useTableHover } from '../composables/tableHoverData';
 import { functionCatalog, loadFunctionCatalog } from '../composables/functionCatalog';
 import {
-  fillParams, findParams, guessType, hasNull, paramItems, paramMarkers, rememberedValues, type ParamItem, type ParamTarget, type ParamValue,
+  fillParams, findParams, guessType, hasNull, paramItems, paramMarkers, silentValues, type ParamItem, type ParamTarget, type ParamValue,
 } from '../composables/queryParams';
 import { SNIPPETS_SETTING, snippetsFor, type UserSnippet } from '../composables/snippets';
 import QueryParamsDialog from '../components/QueryParamsDialog.vue';
@@ -971,7 +971,7 @@ async function withParams(script: string): Promise<string | null> {
   const spots = findParams(script, target);
   if (!spots.length) return script;
   const items = paramItems(spots);
-  const known = props.tab.paramsSilent ? rememberedValues(items, props.tab.params ?? {}) : null;
+  const known = silentValues(items.map((i) => i.key), props.tab.params ?? {}, !!props.tab.paramsSilent);
   if (known) return fillParams(script, spots, known, target);
   const answer = await askParams(items, 'run');
   if (answer === null) return null;
