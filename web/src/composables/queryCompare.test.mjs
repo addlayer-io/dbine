@@ -185,3 +185,35 @@ test('withKey marks the table compare key and nothing else', () => {
   assert.deepEqual(withKey(rows, ['id', 'only_l']), rows);
   assert.deepEqual(withKey(rows, []), rows);
 });
+
+// Security scan of 1.6.2 (CWE-1333): a table name is the database's own
+// text, and an engine like SQLite takes one with thousands of spaces.
+// wholeQuery strips the limit only where the drivers write it, in time
+// linear in the text, and never inside a name.
+test('wholeQuery takes linear time on names with long runs of spaces', () => {
+  const n = WHOLE_ROWS;
+  const name = `customers${' '.repeat(20000)}`;
+  const tabs = `t${'\t'.repeat(20000)}x`;
+  for (const [browse, want] of [
+    [`SELECT *\nFROM "${name}"\nLIMIT ${n}`, `SELECT *\nFROM "${name}"`],
+    [`SELECT *\nFROM "${name}"\nFETCH FIRST ${n} ROWS ONLY`, `SELECT *\nFROM "${name}"`],
+    [`SELECT TOP (${n}) *\nFROM [${name}]`, `SELECT *\nFROM [${name}]`],
+    [`SELECT *\nFROM "${tabs}"\nLIMIT ${n}`, `SELECT *\nFROM "${tabs}"`],
+    [`SELECT *\nFROM "${name}"`, `SELECT *\nFROM "${name}"`],
+  ]) {
+    const started = performance.now();
+    assert.equal(wholeQuery(browse), want);
+    assert.ok(performance.now() - started < 200, `took ${performance.now() - started} ms`);
+  }
+});
+
+test('wholeQuery leaves a limit-like text inside a name alone', () => {
+  const n = WHOLE_ROWS;
+  // A name holding the clause, quoted or escaped as the drivers write it.
+  assert.equal(
+    wholeQuery(`SELECT *\nFROM "x TOP ${n} y LIMIT ${n}"\nLIMIT ${n}`),
+    `SELECT *\nFROM "x TOP ${n} y LIMIT ${n}"`,
+  );
+  assert.equal(wholeQuery(`db.getCollection("a\\top ${n} b").find({}).limit(${n})`), `db.getCollection("a\\top ${n} b").find({})`);
+  assert.equal(wholeQuery(`SELECT * FROM "LIMIT ${n}"`), `SELECT * FROM "LIMIT ${n}"`);
+});

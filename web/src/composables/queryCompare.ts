@@ -168,24 +168,44 @@ export function queryOptions(f: ToleranceForm): QueryOptions {
 export const WHOLE_ROWS = 4294967295;
 
 const W = String(WHOLE_ROWS);
-/** The usual limit clauses, asked for `WHOLE_ROWS` rows. */
-const WHOLE_LIMITS: RegExp[] = [
-  new RegExp(`[ \\t]*\\r?\\n?[ \\t]*\\bFETCH\\s+(?:FIRST|NEXT)\\s+${W}\\s+ROWS?\\s+ONLY\\b`, 'gi'),
-  new RegExp(`[ \\t]*\\r?\\n?[ \\t]*\\bLIMIT\\s+${W}\\b`, 'gi'),
-  new RegExp(`\\bTOP\\s*\\(\\s*${W}\\s*\\)\\s*`, 'gi'),
-  new RegExp(`\\bTOP\\s+${W}\\s+`, 'gi'),
-  new RegExp(`\\bFIRST\\s+${W}\\s+`, 'gi'),
-  new RegExp(`\\.limit\\(\\s*${W}\\s*\\)`, 'g'),
-  new RegExp(`\\s*\\|>\\s*limit\\(n:\\s*${W}\\)`, 'g'),
-];
+/** The limit clauses the drivers end a whole-table browse with… */
+const WHOLE_TAILS = [`LIMIT ${W}`, `FETCH FIRST ${W} ROWS ONLY`, `FETCH NEXT ${W} ROWS ONLY`];
+/** …the ones they put right after its leading SELECT… */
+const WHOLE_HEADS = [`TOP (${W}) `, `TOP ${W} `, `FIRST ${W} `];
+/** …MongoDB's, and Flux's step (a line of its own). */
+const WHOLE_MONGO = `.limit(${W})`;
+const WHOLE_FLUX = `|> limit(n: ${W})`;
+const isSpace = (c: string | undefined) => c === ' ' || c === '\t' || c === '\n' || c === '\r';
 
 /** A table's browse query asked for `WHOLE_ROWS` rows, as a query to start
  *  from ("Pasar a consultas", issue #118): without its limit clause when
  *  it's one of the usual ones (LIMIT, TOP, FETCH FIRST, FIRST, MongoDB's
  *  `.limit()`, Flux's `limit()`); any other stays as the driver wrote it,
- *  which reads that many rows. */
+ *  which reads that many rows. Only where the drivers write the clause
+ *  (the end, or right after the leading SELECT) and with fixed-text checks:
+ *  a table name is the database's own text, so it's never searched (a long
+ *  run of spaces in one made a backtracking regex hang the window). */
 export function wholeQuery(browse: string): string {
-  return WHOLE_LIMITS.reduce((q, re) => q.replace(re, ''), browse);
+  let q = browse.split('\n').filter((line) => line.trim() !== WHOLE_FLUX).join('\n');
+  // The end: `… LIMIT n`, `… FETCH FIRST n ROWS ONLY`, `….limit(n)`, before a final `;`.
+  let end = q.trimEnd();
+  const semi = end.endsWith(';') ? ';' : '';
+  if (semi) end = end.slice(0, -1).trimEnd();
+  const upper = end.toUpperCase();
+  const tail = WHOLE_TAILS.find((t) => upper.endsWith(t) && isSpace(end[end.length - t.length - 1]));
+  if (tail) q = end.slice(0, end.length - tail.length).trimEnd() + semi;
+  else if (end.endsWith(WHOLE_MONGO)) q = end.slice(0, end.length - WHOLE_MONGO.length) + semi;
+  // The start: `SELECT TOP (n) …`, `SELECT FIRST n …`, on the first line that begins with SELECT.
+  const lines = q.split('\n');
+  const i = lines.findIndex((line) => line.trimStart().slice(0, 7).toUpperCase() === 'SELECT ');
+  if (i >= 0) {
+    const line = lines[i];
+    const at = line.length - line.trimStart().length + 7;
+    const rest = line.slice(at).toUpperCase();
+    const head = WHOLE_HEADS.find((h) => rest.startsWith(h));
+    if (head) lines[i] = line.slice(0, at) + line.slice(at + head.length);
+  }
+  return lines.join('\n');
 }
 
 /** The column table with the table compare's key (issue #118): the left
