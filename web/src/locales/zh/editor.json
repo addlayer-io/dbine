@@ -20,6 +20,7 @@
     "goToDefinition": "转到定义",
     "revealInExplorer": "在资源管理器中显示",
     "detectParams": "运行时询问参数",
+    "editParams": "编辑参数…",
     "click": "点击"
   },
   "nav": {

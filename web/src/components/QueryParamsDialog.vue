@@ -4,7 +4,9 @@ import { paramLiteral, paramProblem, type ParamItem, type ParamTarget, type Para
 
 // Before a run whose text has parameters (`:name`, `?`, `@name`): a value and
 // a type for each. Ejecutar puts them in the text as literals of the engine
-// (shown at the right of each row); Cancelar doesn't run.
+// (shown at the right of each row); Cancelar doesn't run. "No volver a
+// preguntar" makes the tab's next runs use these values without asking.
+// From "Editar parámetros…" (`edit`) it only saves them.
 
 const props = defineProps<{
   items: ParamItem[];
@@ -13,10 +15,14 @@ const props = defineProps<{
   target: ParamTarget;
   /** The engine has a NULL literal. */
   allowNull: boolean;
+  /** "No volver a preguntar" as the tab has it. */
+  silent: boolean;
+  /** `run`: before a run; `edit`: the values only, nothing runs. */
+  mode: 'run' | 'edit';
 }>();
 const emit = defineEmits<{
-  /** Run with these values. */
-  submit: [values: Record<string, ParamValue>];
+  /** Run with these values (`edit`: keep them); `silent`: don't ask again. */
+  submit: [values: Record<string, ParamValue>, silent: boolean];
   cancel: [];
   /** Run the text as it is, and stop looking for parameters in this tab. */
   disable: [];
@@ -24,6 +30,7 @@ const emit = defineEmits<{
 
 const vals = reactive<Record<string, ParamValue>>(Object.fromEntries(props.items.map((i) => [i.key, { ...props.values[i.key] }])));
 const tried = ref(false);
+const silent = ref(props.silent);
 const types = computed<ParamType[]>(() => (props.allowNull ? ['text', 'number', 'date', 'null'] : ['text', 'number', 'date']));
 
 function problem(key: string): string | null {
@@ -36,7 +43,7 @@ function preview(key: string): string {
 function submit() {
   tried.value = true;
   if (props.items.some((i) => problem(i.key))) return;
-  emit('submit', { ...vals });
+  emit('submit', { ...vals }, silent.value);
 }
 
 const box = ref<HTMLDivElement | null>(null);
@@ -76,12 +83,13 @@ onMounted(async () => {
         <div v-if="tried && problem(i.key)" class="qp-err">{{ $t(problem(i.key)!) }}</div>
       </div>
     </div>
+    <el-checkbox v-model="silent" class="qp-silent" :title="$t('queryParams:rememberTip')">{{ $t('queryParams:remember') }}</el-checkbox>
     <template #footer>
       <div class="qp-foot">
-        <el-button link size="small" :title="$t('queryParams:disableTip')" @click="emit('disable')">{{ $t('queryParams:disable') }}</el-button>
+        <el-button v-if="mode === 'run'" link size="small" :title="$t('queryParams:disableTip')" @click="emit('disable')">{{ $t('queryParams:disable') }}</el-button>
         <div class="nm-spacer" />
         <el-button @click="emit('cancel')">{{ $t('common:cancel') }}</el-button>
-        <el-button type="primary" @click="submit">{{ $t('common:run') }}</el-button>
+        <el-button type="primary" @click="submit">{{ $t(mode === 'run' ? 'common:run' : 'common:save') }}</el-button>
       </div>
     </template>
   </el-dialog>
@@ -95,5 +103,6 @@ onMounted(async () => {
 .qp-lit { font-family: var(--nm-mono); font-size: 11.5px; color: var(--nm-text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .qp-value.bad :deep(.el-input__wrapper) { box-shadow: 0 0 0 1px var(--nm-danger) inset; }
 .qp-err { grid-column: 3 / 5; margin-top: -4px; font-size: 11.5px; color: var(--nm-danger); }
+.qp-silent { margin-top: 12px; }
 .qp-foot { display: flex; align-items: center; gap: 8px; }
 </style>

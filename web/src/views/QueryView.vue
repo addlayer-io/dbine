@@ -35,7 +35,7 @@ import { daxOtherNames } from '../composables/daxLanguage';
 import { useTableHover } from '../composables/tableHoverData';
 import { functionCatalog, loadFunctionCatalog } from '../composables/functionCatalog';
 import {
-  fillParams, findParams, guessType, hasNull, paramItems, paramMarkers, type ParamItem, type ParamTarget, type ParamValue,
+  fillParams, findParams, guessType, hasNull, paramItems, paramMarkers, rememberedValues, type ParamItem, type ParamTarget, type ParamValue,
 } from '../composables/queryParams';
 import { SNIPPETS_SETTING, snippetsFor, type UserSnippet } from '../composables/snippets';
 import QueryParamsDialog from '../components/QueryParamsDialog.vue';
@@ -347,6 +347,8 @@ function editorMenu(): MenuItem[] {
   if (lintSource.value) items.push({ label: t('editor:menu.problems'), action: () => { problemsOpen.value = true; } });
   if (runnable.value && paramTarget.value && paramMarkers(paramTarget.value)) {
     items.push({ label: t('editor:menu.detectParams'), checked: !props.tab.paramsOff, divided: true, action: () => tabs.setQueryOptions(props.tab.id, { paramsOff: !props.tab.paramsOff }) });
+    const found = props.tab.paramsOff ? [] : paramItems(findParams(text.value, paramTarget.value));
+    if (found.length) items.push({ label: t('editor:menu.editParams'), action: () => void askParams(found, 'edit') });
   }
   return items;
 }
@@ -944,27 +946,42 @@ function splitRun(r: ResultRun, o: QueryOutcome, naming: RunNaming, clears: numb
 
 // -- parameters (`:name`, `?`, `@name`): asked before every kind of run ------------------------
 const paramTarget = computed<ParamTarget | null>(() => (driver.value ? { language: driver.value.language, dialect: driver.value.dialect, driverId: driver.value.id } : null));
-const paramAsk = ref<{ items: ParamItem[]; values: Record<string, ParamValue>; resolve: (v: Record<string, ParamValue> | 'off' | null) => void } | null>(null);
+type ParamAnswer = Record<string, ParamValue> | 'off' | null;
+const paramAsk = ref<{
+  items: ParamItem[]; values: Record<string, ParamValue>; mode: 'run' | 'edit'; resolve: (v: ParamAnswer) => void;
+} | null>(null);
 
-/** `script` with its parameters' values, after asking for them; the text as
- *  it is when it has none (or the tab doesn't look for them); null: cancelled. */
+/** The dialog for `items`, from the tab's last values (or a guess). What it
+ *  answers is kept in the tab, with "No volver a preguntar". */
+async function askParams(items: ParamItem[], mode: 'run' | 'edit'): Promise<ParamAnswer> {
+  const last = props.tab.params ?? {};
+  const values = Object.fromEntries(items.map((i) => [i.key, last[i.key] ? { ...last[i.key] } : { type: guessType(i.key), value: '' }]));
+  const answer = await new Promise<ParamAnswer>((resolve) => { paramAsk.value = { items, values, mode, resolve }; });
+  paramAsk.value = null;
+  if (answer === 'off') tabs.setQueryOptions(props.tab.id, { paramsOff: true });
+  return answer;
+}
+
+/** `script` with its parameters' values, after asking for them (unless the
+ *  tab said not to ask again and has a value for each); the text as it is
+ *  when it has none (or the tab doesn't look for them); null: cancelled. */
 async function withParams(script: string): Promise<string | null> {
   const target = paramTarget.value;
   if (!target || props.tab.paramsOff) return script;
   const spots = findParams(script, target);
   if (!spots.length) return script;
   const items = paramItems(spots);
-  const last = props.tab.params ?? {};
-  const values = Object.fromEntries(items.map((i) => [i.key, last[i.key] ? { ...last[i.key] } : { type: guessType(i.key), value: '' }]));
-  const answer = await new Promise<Record<string, ParamValue> | 'off' | null>((resolve) => { paramAsk.value = { items, values, resolve }; });
-  paramAsk.value = null;
+  const known = props.tab.paramsSilent ? rememberedValues(items, props.tab.params ?? {}) : null;
+  if (known) return fillParams(script, spots, known, target);
+  const answer = await askParams(items, 'run');
   if (answer === null) return null;
-  if (answer === 'off') {
-    tabs.setQueryOptions(props.tab.id, { paramsOff: true });
-    return script;
-  }
-  tabs.setQueryOptions(props.tab.id, { params: { ...last, ...answer } });
+  if (answer === 'off') return script;
   return fillParams(script, spots, answer, target);
+}
+
+function paramsAnswered(values: Record<string, ParamValue>, silent: boolean) {
+  tabs.setQueryOptions(props.tab.id, { params: { ...props.tab.params, ...values }, paramsSilent: silent });
+  paramAsk.value?.resolve(values);
 }
 onBeforeUnmount(() => paramAsk.value?.resolve(null));
 
@@ -1870,7 +1887,9 @@ function runOverflow(i: number) {
       :values="paramAsk.values"
       :target="paramTarget"
       :allow-null="hasNull(paramTarget)"
-      @submit="(v: Record<string, ParamValue>) => paramAsk?.resolve(v)"
+      :silent="!!tab.paramsSilent"
+      :mode="paramAsk.mode"
+      @submit="paramsAnswered"
       @cancel="paramAsk?.resolve(null)"
       @disable="paramAsk?.resolve('off')"
     />

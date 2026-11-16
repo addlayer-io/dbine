@@ -17,6 +17,8 @@
     "number": "Bukan angka.",
     "date": "Tulis tanggal sebagai YYYY-MM-DD, dengan waktu opsional (hh:mm atau hh:mm:ss)."
   },
-  "disable": "Jangan minta parameter di tab ini",
-  "disableTip": "Menjalankan teks apa adanya dan berhenti mencari parameter di tab ini. Dapat diaktifkan kembali dari menu editor."
+  "disable": "Bukan parameter: jalankan teks apa adanya",
+  "disableTip": "Untuk saat :nama adalah sintaks mesin dan bukan parameter: menjalankan teks apa adanya dan berhenti mencari parameter di tab ini. Dapat diaktifkan kembali dari menu editor.",
+  "remember": "Jangan tanya lagi di tab ini: gunakan nilai ini",
+  "rememberTip": "Eksekusi berikutnya di tab ini memakai nilai ini tanpa membuka jendela ini; hanya menanyakan parameter baru. Ubah lewat “Edit parameter…” di menu editor."
 }

@@ -17,6 +17,8 @@
     "number": "Ce n'est pas un nombre.",
     "date": "Saisissez la date au format AAAA-MM-JJ, avec l'heure en option (hh:mm ou hh:mm:ss)."
   },
-  "disable": "Ne pas demander de paramètres dans cet onglet",
-  "disableTip": "Exécute le texte tel quel et cesse de chercher des paramètres dans cet onglet. On peut le réactiver depuis le menu de l'éditeur."
+  "disable": "Pas des paramètres : exécuter le texte tel quel",
+  "disableTip": "Pour le cas où :nom est la syntaxe du moteur et non un paramètre : exécute le texte tel quel et cesse de chercher des paramètres dans cet onglet. On peut le réactiver depuis le menu de l'éditeur.",
+  "remember": "Ne plus demander dans cet onglet : utiliser ces valeurs",
+  "rememberTip": "Les prochaines exécutions de cet onglet utilisent ces valeurs sans ouvrir cette fenêtre ; seul un nouveau paramètre est demandé. On les modifie depuis « Modifier les paramètres… » dans le menu de l'éditeur."
 }

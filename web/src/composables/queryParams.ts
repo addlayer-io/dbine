@@ -141,6 +141,18 @@ export function paramItems(spots: ParamSpot[]): ParamItem[] {
   return out;
 }
 
+/** "No volver a preguntar": the tab's remembered value for every item, or
+ *  null when one has none or can't be used (that run asks again). */
+export function rememberedValues(items: ParamItem[], last: Record<string, ParamValue>): Record<string, ParamValue> | null {
+  const out: Record<string, ParamValue> = {};
+  for (const i of items) {
+    const v = last[i.key];
+    if (!v || paramProblem(v)) return null;
+    out[i.key] = v;
+  }
+  return out;
+}
+
 const NUMBER = /^[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/;
 const DATE = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?))?$/;
 

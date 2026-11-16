@@ -17,6 +17,8 @@
     "number": "Not a number.",
     "date": "Write the date as YYYY-MM-DD, with optional time (hh:mm or hh:mm:ss)."
   },
-  "disable": "Don't ask for parameters in this tab",
-  "disableTip": "Runs the text as is and stops looking for parameters in this tab. It can be turned back on from the editor menu."
+  "disable": "Not parameters: run the text as is",
+  "disableTip": "For when :name is the engine's own syntax and not a parameter: runs the text as is and stops looking for parameters in this tab. It can be turned back on from the editor menu.",
+  "remember": "Don't ask again in this tab: use these values",
+  "rememberTip": "The next runs in this tab use these values without opening this window; it only asks for a new parameter. Change them from “Edit parameters…” in the editor menu."
 }

@@ -20,6 +20,7 @@
     "goToDefinition": "定義へ移動",
     "revealInExplorer": "エクスプローラーで表示",
     "detectParams": "実行時にパラメーターを確認",
+    "editParams": "パラメーターを編集…",
     "click": "クリック"
   },
   "nav": {

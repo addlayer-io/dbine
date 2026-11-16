@@ -45,6 +45,9 @@ export interface QueryTab extends TabBase {
   paramsOff?: boolean;
   /** The last values given to the parameters, by name. */
   params?: Record<string, ParamValue>;
+  /** "No volver a preguntar": runs use `params` without asking (a
+   *  parameter with no value still asks). */
+  paramsSilent?: boolean;
 }
 
 /** Tabs that must ask before closing (a query tab with an open
@@ -237,6 +240,7 @@ export interface FileTab extends TabBase {
   manualTx?: boolean;
   paramsOff?: boolean;
   params?: Record<string, ParamValue>;
+  paramsSilent?: boolean;
 }
 
 /** A project file's changes against the last commit (side by side). */
@@ -533,7 +537,7 @@ export const useTabsStore = defineStore('tabs', {
     },
 
     /** A query or file tab's run options ("Seguir si hay un error", transactions). */
-    setQueryOptions(id: string, patch: Partial<Pick<QueryTab, 'continueOnError' | 'manualTx' | 'paramsOff' | 'params'>>) {
+    setQueryOptions(id: string, patch: Partial<Pick<QueryTab, 'continueOnError' | 'manualTx' | 'paramsOff' | 'params' | 'paramsSilent'>>) {
       const t = this.tabs.find((x) => x.id === id);
       if (t?.kind !== 'query' && t?.kind !== 'file') return;
       Object.assign(t, patch);
