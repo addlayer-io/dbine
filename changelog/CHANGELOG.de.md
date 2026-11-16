@@ -2,6 +2,10 @@
 
 ## [1.6.2] - 2026-11-16
 
+### Verbesserungen
+- **Gleiche Zeilen in „Daten vergleichen“ sehen:** **Gleiche Zeilen einbeziehen** listet neben **Vergleichen** die Zeilen auf, die auf beiden Seiten gleich sind, nicht nur deren Anzahl. Die Anzahl wird zu einer Liste neben den Unterschieden, in Schlüsselreihenfolge, die Sie wie diese sortieren und filtern können, für Tabellen und für Abfragen. Es werden bis zu 100.000 Zeilen aufgelistet; die Anzahl bleibt darüber hinaus exakt.
+- **Nur einige Zeilen zweier Tabellen vergleichen:** **Zu Abfragen wechseln** macht aus einem Tabellenvergleich einen Vergleich zweier Abfragen, wobei die Abfrage jeder Seite, die ihre ganze Tabelle liest, bereits geschrieben ist, auf jeder Engine und mit demselben Schlüssel. Fügen Sie auf einer der Seiten ein `WHERE` hinzu und vergleichen Sie erneut, um nur diese Zeilen zu betrachten.
+
 ### Korrekturen
 - **Abfrageparameter, die Sie nicht erneut eingeben müssen:** **Abfrageparameter** bietet jetzt **In diesem Tab nicht mehr fragen: diese Werte verwenden**: Die nächsten Ausführungen des Tabs füllen sie ein, ohne zu fragen. **Parameter bearbeiten…** im Editormenü ändert sie. Die andere Option, jetzt **Keine Parameter: Text unverändert ausführen**, ist klarer: Sie ist für Text gedacht, in dem `:name` die eigene Syntax der Engine ist. Früher wurde sie leicht für „meine Werte behalten“ gehalten, und die Abfrage schlug fehl, weil `:name` noch darin stand.
 

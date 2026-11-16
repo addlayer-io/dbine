@@ -2,6 +2,10 @@
 
 ## [1.6.2] - 2026-11-16
 
+### Mejoras
+- **Ver las filas iguales en Comparar datos:** **Incluir las filas iguales**, junto a **Comparar**, lista las filas que son iguales de los dos lados, no solo su cantidad. La cantidad pasa a ser una lista junto a las diferencias, en el orden de la clave, que podés ordenar y filtrar como ellas, para tablas y para consultas. Se listan hasta 100.000 filas; la cantidad sigue siendo exacta más allá de eso.
+- **Comparar solo algunas filas de dos tablas:** **Pasar a consultas** convierte una comparación de tablas en una comparación de dos consultas, con la consulta de cada lado que lee toda su tabla ya escrita, en cualquier motor, y la misma clave. Agregá un `WHERE` en cualquiera de los lados y volvé a comparar para mirar solo esas filas.
+
 ### Correcciones
 - **Parámetros de consulta que no querés volver a escribir:** Ahora **Parámetros de la consulta** tiene **No volver a preguntar en esta pestaña: usar estos valores**: las siguientes ejecuciones de la pestaña los completan sin preguntar. **Editar parámetros…**, en el menú del editor, los cambia. La otra opción, ahora **No son parámetros: ejecutar el texto tal cual**, es más clara: sirve para texto donde `:name` es sintaxis propia del motor. Antes era fácil confundirla con «conservar mis valores», y la consulta fallaba con `:name` todavía adentro.
 

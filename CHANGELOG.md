@@ -2,12 +2,12 @@
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-11-16
+
 ### Improvements
 
 - **See the equal rows in Compare data:** **Include equal rows**, next to **Compare**, lists the rows that are the same on both sides, not only their count. The count becomes a list next to the differences, in key order, that you can sort and filter like them, for tables and for queries. Up to 100,000 rows are listed; the count stays exact past that.
 - **Compare only some rows of two tables:** **Switch to queries** turns a table compare into a compare of two queries, with each side's query that reads its whole table already written, on any engine, and the same key. Add a `WHERE` on either side and compare again to look at only those rows.
-
-## [1.6.2] - 2026-11-16
 
 ### Fixes
 

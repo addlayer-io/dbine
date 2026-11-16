@@ -2,6 +2,10 @@
 
 ## [1.6.2] - 2026-11-16
 
+### Améliorations
+- **Voir les lignes identiques dans Comparer les données :** **Inclure les lignes identiques**, à côté de **Comparer**, liste les lignes qui sont les mêmes des deux côtés, et pas seulement leur nombre. Le nombre devient une liste à côté des différences, dans l'ordre de la clé, que vous pouvez trier et filtrer comme elles, pour les tables et pour les requêtes. Jusqu'à 100 000 lignes sont listées ; le nombre reste exact au-delà.
+- **Comparer seulement certaines lignes de deux tables :** **Passer aux requêtes** transforme une comparaison de tables en comparaison de deux requêtes, avec la requête de chaque côté qui lit toute sa table déjà écrite, sur n'importe quel moteur, et la même clé. Ajoutez un `WHERE` de l'un ou l'autre côté et comparez à nouveau pour ne regarder que ces lignes.
+
 ### Corrections
 - **Des paramètres de requête à ne pas ressaisir:** **Paramètres de la requête** propose désormais **Ne plus demander dans cet onglet : utiliser ces valeurs** : les exécutions suivantes de l'onglet les remplissent sans rien demander. **Modifier les paramètres…**, dans le menu de l'éditeur, permet de les modifier. L'autre option, maintenant **Pas des paramètres : exécuter le texte tel quel**, est plus claire : elle sert pour les textes où `:name` est la syntaxe propre au moteur. Avant, on la prenait facilement pour « garder mes valeurs », et la requête échouait avec `:name` encore dedans.
 

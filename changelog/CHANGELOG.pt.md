@@ -2,6 +2,10 @@
 
 ## [1.6.2] - 2026-11-16
 
+### Melhorias
+- **Ver as linhas iguais em Comparar dados:** **Incluir as linhas iguais**, ao lado de **Comparar**, lista as linhas que são iguais nos dois lados, e não só a quantidade. A quantidade passa a ser uma lista ao lado das diferenças, na ordem da chave, que você pode ordenar e filtrar como elas, para tabelas e para consultas. São listadas até 100.000 linhas; a quantidade continua exata além disso.
+- **Comparar só algumas linhas de duas tabelas:** **Passar para consultas** transforma uma comparação de tabelas em uma comparação de duas consultas, com a consulta de cada lado que lê a tabela inteira já escrita, em qualquer mecanismo, e a mesma chave. Adicione um `WHERE` em qualquer um dos lados e compare de novo para ver só essas linhas.
+
 ### Correções
 - **Parâmetros da consulta que você não quer digitar de novo:** Agora **Parâmetros da consulta** tem **Não perguntar de novo nesta aba: usar estes valores**: as próximas execuções da aba os preenchem sem perguntar. **Editar parâmetros…**, no menu do editor, os altera. A outra opção, agora **Não são parâmetros: executar o texto como está**, ficou mais clara: serve para textos em que `:name` é sintaxe própria do mecanismo. Antes era fácil confundi-la com "manter meus valores", e a consulta falhava com `:name` ainda no texto.
 

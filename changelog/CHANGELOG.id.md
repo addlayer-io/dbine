@@ -3,6 +3,10 @@
 
 ## [1.6.2] - 2026-11-16
 
+### Peningkatan
+- **Lihat baris yang sama di Bandingkan data:** **Sertakan baris yang sama**, di samping **Bandingkan**, menampilkan daftar baris yang sama di kedua sisi, bukan hanya jumlahnya. Jumlah itu menjadi daftar di samping perbedaan, dalam urutan kunci, yang dapat diurutkan dan difilter seperti perbedaan, untuk tabel maupun kueri. Hingga 100.000 baris ditampilkan; jumlahnya tetap akurat melebihi batas itu.
+- **Bandingkan hanya sebagian baris dari dua tabel:** **Beralih ke kueri** mengubah perbandingan tabel menjadi perbandingan dua kueri, dengan kueri tiap sisi yang membaca seluruh tabelnya sudah tertulis, di mesin apa pun, dan dengan kunci yang sama. Tambahkan `WHERE` di salah satu sisi lalu bandingkan lagi untuk melihat hanya baris-baris tersebut.
+
 ### Perbaikan
 - **Parameter kueri yang tidak perlu diketik lagi:** **Parameter kueri** kini punya **Jangan tanya lagi di tab ini: gunakan nilai ini**: eksekusi berikutnya di tab ini mengisi nilainya tanpa bertanya. **Edit parameter…** di menu editor mengubahnya. Opsi lainnya, kini **Bukan parameter: jalankan teks apa adanya**, lebih jelas: untuk teks yang `:name`-nya adalah sintaks bawaan mesin. Sebelumnya mudah disangka "pertahankan nilai saya", sehingga kueri gagal karena `:name` masih ada di dalamnya.
 
