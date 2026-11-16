@@ -1,5 +1,10 @@
 # Alterações
 
+## [1.6.2] - 2026-11-16
+
+### Correções
+- **Parâmetros da consulta que você não quer digitar de novo:** Agora **Parâmetros da consulta** tem **Não perguntar de novo nesta aba: usar estes valores**: as próximas execuções da aba os preenchem sem perguntar. **Editar parâmetros…**, no menu do editor, os altera. A outra opção, agora **Não são parâmetros: executar o texto como está**, ficou mais clara: serve para textos em que `:name` é sintaxe própria do mecanismo. Antes era fácil confundi-la com "manter meus valores", e a consulta falhava com `:name` ainda no texto.
+
 ## [1.6.1] - 2026-11-15
 
 ### Correções

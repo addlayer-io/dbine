@@ -1,5 +1,10 @@
 # Modifiche
 
+## [1.6.2] - 2026-11-16
+
+### Correzioni
+- **Parametri della query da non digitare di nuovo:** **Parametri della query** ora ha **Non chiedere più in questa scheda: usa questi valori**: le esecuzioni successive della scheda li compilano senza chiedere. **Modifica parametri…**, nel menu dell'editor, li modifica. L'altra opzione, ora **Non sono parametri: esegui il testo così com'è**, è più chiara: serve per i testi in cui `:name` è sintassi propria del motore. Prima era facile scambiarla per «mantieni i miei valori», e la query falliva con `:name` ancora dentro.
+
 ## [1.6.1] - 2026-11-15
 
 ### Correzioni

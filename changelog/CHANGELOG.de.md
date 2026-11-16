@@ -1,5 +1,10 @@
 # Änderungen
 
+## [1.6.2] - 2026-11-16
+
+### Korrekturen
+- **Abfrageparameter, die Sie nicht erneut eingeben müssen:** **Abfrageparameter** bietet jetzt **In diesem Tab nicht mehr fragen: diese Werte verwenden**: Die nächsten Ausführungen des Tabs füllen sie ein, ohne zu fragen. **Parameter bearbeiten…** im Editormenü ändert sie. Die andere Option, jetzt **Keine Parameter: Text unverändert ausführen**, ist klarer: Sie ist für Text gedacht, in dem `:name` die eigene Syntax der Engine ist. Früher wurde sie leicht für „meine Werte behalten“ gehalten, und die Abfrage schlug fehl, weil `:name` noch darin stand.
+
 ## [1.6.1] - 2026-11-15
 
 ### Korrekturen

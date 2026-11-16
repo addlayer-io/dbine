@@ -1,5 +1,10 @@
 # Modifications
 
+## [1.6.2] - 2026-11-16
+
+### Corrections
+- **Des paramètres de requête à ne pas ressaisir:** **Paramètres de la requête** propose désormais **Ne plus demander dans cet onglet : utiliser ces valeurs** : les exécutions suivantes de l'onglet les remplissent sans rien demander. **Modifier les paramètres…**, dans le menu de l'éditeur, permet de les modifier. L'autre option, maintenant **Pas des paramètres : exécuter le texte tel quel**, est plus claire : elle sert pour les textes où `:name` est la syntaxe propre au moteur. Avant, on la prenait facilement pour « garder mes valeurs », et la requête échouait avec `:name` encore dedans.
+
 ## [1.6.1] - 2026-11-15
 
 ### Corrections

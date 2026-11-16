@@ -1,6 +1,11 @@
 # Zmiany
 
 
+## [1.6.2] - 2026-11-16
+
+### Poprawki
+- **Parametry zapytania, których nie trzeba wpisywać ponownie:** W oknie **Parametry zapytania** jest teraz **Nie pytaj ponownie na tej karcie: użyj tych wartości**: kolejne uruchomienia na karcie wstawiają wartości bez pytania. Zmienia je **Edytuj parametry…** w menu edytora. Druga opcja, teraz **To nie parametry: uruchom tekst bez zmian**, jest bardziej czytelna: służy do tekstu, w którym `:name` to własna składnia silnika. Wcześniej łatwo było wziąć ją za „zachowaj moje wartości”, a zapytanie kończyło się błędem, bo `:name` nadal w nim było.
+
 ## [1.6.1] - 2026-11-15
 
 ### Poprawki

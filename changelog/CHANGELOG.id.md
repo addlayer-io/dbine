@@ -1,6 +1,11 @@
 # Perubahan
 
 
+## [1.6.2] - 2026-11-16
+
+### Perbaikan
+- **Parameter kueri yang tidak perlu diketik lagi:** **Parameter kueri** kini punya **Jangan tanya lagi di tab ini: gunakan nilai ini**: eksekusi berikutnya di tab ini mengisi nilainya tanpa bertanya. **Edit parameter…** di menu editor mengubahnya. Opsi lainnya, kini **Bukan parameter: jalankan teks apa adanya**, lebih jelas: untuk teks yang `:name`-nya adalah sintaks bawaan mesin. Sebelumnya mudah disangka "pertahankan nilai saya", sehingga kueri gagal karena `:name` masih ada di dalamnya.
+
 ## [1.6.1] - 2026-11-15
 
 ### Perbaikan

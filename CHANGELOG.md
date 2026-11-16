@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.6.2] - 2026-11-16
+
 ### Fixes
 
 - **Query parameters you don't want to type again:** **Query parameters** now has **Don't ask again in this tab: use these values**, so the tab's next runs fill them in without asking. **Edit parameters…** in the editor menu changes them. The other option, now **Not parameters: run the text as is**, is clearer: it's for text where `:name` is the engine's own syntax. Before, it was easy to take it for "keep my values", and the query failed with `:name` still in it.
