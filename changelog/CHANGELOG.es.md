@@ -1,5 +1,10 @@
 # Cambios
 
+## [1.6.2] - 2026-11-16
+
+### Correcciones
+- **Parámetros de consulta que no querés volver a escribir:** Ahora **Parámetros de la consulta** tiene **No volver a preguntar en esta pestaña: usar estos valores**: las siguientes ejecuciones de la pestaña los completan sin preguntar. **Editar parámetros…**, en el menú del editor, los cambia. La otra opción, ahora **No son parámetros: ejecutar el texto tal cual**, es más clara: sirve para texto donde `:name` es sintaxis propia del motor. Antes era fácil confundirla con «conservar mis valores», y la consulta fallaba con `:name` todavía adentro.
+
 ## [1.6.1] - 2026-11-15
 
 ### Correcciones
