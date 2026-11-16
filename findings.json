@@ -23,7 +23,7 @@
     {
       "source": "osv",
       "date": "2026-11-16",
-      "revision": "a9fab111b663",
+      "revision": "9921c885c020",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -31,7 +31,7 @@
     {
       "source": "trivy",
       "date": "2026-11-16",
-      "revision": "a9fab111b663",
+      "revision": "9921c885c020",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -47,7 +47,7 @@
     {
       "source": "scorecard",
       "date": "2026-11-16",
-      "revision": "1d17cb8c771b",
+      "revision": "9921c885c020",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.5
@@ -4436,6 +4436,17 @@
       "by": "mpanichella"
     },
     {
+      "id": "SC-Binary-Artifacts",
+      "source": "scorecard",
+      "severity": "HIGH",
+      "kind": "Repository practice",
+      "title": "Binary-Artifacts: 9/10 — binaries present in source code",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts",
+      "found": "2026-11-16",
+      "status": "open"
+    },
+    {
       "id": "SC-Branch-Protection",
       "source": "scorecard",
       "severity": "HIGH",
@@ -4451,7 +4462,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "CI-Tests: 2/10 — 2 out of 8 merged PRs checked by a CI test -- score normalized to 2",
+      "title": "CI-Tests: 4/10 — 4 out of 9 merged PRs checked by a CI test -- score normalized to 4",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
       "found": "2026-11-15",
@@ -4473,7 +4484,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/8 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/9 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",
