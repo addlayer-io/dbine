@@ -1141,3 +1141,71 @@ async fn long_keys_fit_the_scratch_memory() {
         assert_eq!(leftovers(&root.0), Vec::<String>::new());
     }
 }
+
+/// Issue #107 as reported: a short composite key on which nothing matches
+/// (the key adjusted to a column that differs between the sides), so every
+/// row is a difference: 8,000,000 of them. Picking the first
+/// `MAX_DIFF_ROWS` must fit the scratch memory; 1.6.0 sorted them all and
+/// ran out of it from about 2,500,000 rows a side.
+#[tokio::test(flavor = "multi_thread")]
+async fn millions_of_differences_fit_the_scratch_memory() {
+    const N: i64 = 4_000_000;
+    let max = super::super::MAX_DIFF_ROWS;
+    let root = temp_dir("many");
+    let ctl = Arc::new(Ctl::default());
+    let mut s = Scratch::open(Some(&root.0), &ctl, None, MEMORY_LIMIT)
+        .await
+        .expect("opens");
+    s.create(&ctl).await.unwrap();
+    // Key: (number, branch code); the right side's numbers are all odd.
+    let side = |side: u8| {
+        format!(
+            "INSERT INTO main.rows SELECT {side}, i, \
+             (hash(i * 2 + {side}) >> 1)::BIGINT, (hash(i * 2 + {side} + 100000000000) >> 1)::BIGINT, \
+             \
+             (i * 2 + {side})::VARCHAR || chr(1) || 'SUC-' || lpad((i % 997)::VARCHAR, 4, '0'), \
+             '0' || lpad((i * 2 + {side})::VARCHAR, 16, '0') || chr(1) || '1SUC-' || lpad((i % 997)::VARCHAR, 4, '0') || chr(1), \
+             i, i, \
+             '[' || (i * 2 + {side}) || ',\"SUC-' || lpad((i % 997)::VARCHAR, 4, '0') || '\",' || (i * 1.5)::VARCHAR || ',\"' || md5(i::VARCHAR) || '\"]' \
+             FROM range({N}) r(i)"
+        )
+    };
+    local_duckdb::exec(s.session(), &side(0)).await.unwrap();
+    local_duckdb::exec(s.session(), &side(1)).await.unwrap();
+    let (counts, dups) = s.counts(&ctl).await.unwrap();
+    assert_eq!(dups, 0);
+    assert_eq!(
+        counts,
+        Counts {
+            left: N as u64,
+            right: N as u64,
+            same: 0,
+            only_left: N as u64,
+            only_right: N as u64,
+            changed: 0,
+        }
+    );
+    let projection = Arc::new(Projection {
+        columns: ["id", "suc", "importe", "hash"]
+            .iter()
+            .map(|c| (c.to_string(), c.to_string()))
+            .collect(),
+        nk: 2,
+        bools: [vec![false; 4], vec![false; 4]],
+        only_left_columns: Vec::new(),
+        only_right_columns: Vec::new(),
+    });
+    let job = Arc::new(Job::new(ctl.clone(), projection, &opts(1, max, &root.0)));
+    let lists = s.differences(&ctl, &job, 2, max).await.unwrap();
+    // The first `max` in key order: the numbers 0..max, alternating sides.
+    assert_eq!(
+        (
+            lists.only_left.len(),
+            lists.only_right.len(),
+            lists.changed.len()
+        ),
+        (max / 2, max / 2, 0)
+    );
+    s.close().await;
+    assert_eq!(leftovers(&root.0), Vec::<String>::new());
+}
