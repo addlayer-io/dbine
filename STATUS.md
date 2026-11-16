@@ -23,9 +23,9 @@ _None._
 |---|---|---|---|---|
 | claude-security, release v1.6.2 | 2026-11-16 | 1d17cb8c..5341c10b, everything 1.6.2 adds since v1.6.1 (the query-parameter fix for #111, the #107 regression test, the dependency bumps, the version and release notes) | 0 open | — |
 | codeql | 2026-11-16 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-16 | every lockfile (Cargo, npm) at [`29e7e5177`](https://github.com/addlayer-io/dbine/commit/29e7e51776b2) | 0 open | — |
+| osv | 2026-11-16 | every lockfile (Cargo, npm) at [`52236d12e`](https://github.com/addlayer-io/dbine/commit/52236d12e97a) | 0 open | — |
 | scorecard | 2026-11-16 | repository settings and workflows at [`29e7e5177`](https://github.com/addlayer-io/dbine/commit/29e7e51776b2) | score 7.5/10 | — |
-| trivy | 2026-11-16 | whole repository at [`29e7e5177`](https://github.com/addlayer-io/dbine/commit/29e7e51776b2) | 0 open | — |
+| trivy | 2026-11-16 | whole repository at [`52236d12e`](https://github.com/addlayer-io/dbine/commit/52236d12e97a) | 0 open | — |
 
 ## Not counted, and why
 
