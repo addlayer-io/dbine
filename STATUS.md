@@ -2,7 +2,7 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-11-15._
+_Updated 2026-11-16._
 
 ## Open findings
 
@@ -22,10 +22,10 @@ _None._
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.6.1 | 2026-11-15 | 74e258a2..6af975fe, everything 1.6.1 adds after the v1.6.0 scan (the pkcs8 feature pins, the data compare fix for #107, the version and release notes); 18b8f0d7..d07468f8, the follow-up that cuts order-key ties by key (#109) | 0 open | 7a9a6f91, the release commit rebased onto main: the same version and notes as 6af975fe |
-| codeql | 2026-11-15 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-15 | every lockfile (Cargo, npm) at [`306f38faa`](https://github.com/addlayer-io/dbine/commit/306f38faa580) | 0 open | — |
-| scorecard | 2026-11-15 | repository settings and workflows at [`18b8f0d74`](https://github.com/addlayer-io/dbine/commit/18b8f0d74252) | score 7.5/10 | — |
-| trivy | 2026-11-15 | whole repository at [`306f38faa`](https://github.com/addlayer-io/dbine/commit/306f38faa580) | 0 open | — |
+| codeql | 2026-11-16 | Rust, TypeScript/Vue and workflows | 0 open | — |
+| osv | 2026-11-16 | every lockfile (Cargo, npm) at [`1d17cb8c7`](https://github.com/addlayer-io/dbine/commit/1d17cb8c771b) | 0 open | — |
+| scorecard | 2026-11-15 | repository settings and workflows at [`306f38faa`](https://github.com/addlayer-io/dbine/commit/306f38faa580) | score 7.5/10 | — |
+| trivy | 2026-11-16 | whole repository at [`1d17cb8c7`](https://github.com/addlayer-io/dbine/commit/1d17cb8c771b) | 0 open | — |
 
 ## Not counted, and why
 
@@ -396,9 +396,9 @@ OpenSSF Scorecard: **7.5/10** (2026-11-15). The checks below 10, with Scorecard'
 |---|---|---|
 | Binary-Artifacts: 9/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 4/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
-| Code-Review: 0/10 — Found 0/6 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
+| Code-Review: 0/10 — Found 0/7 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 9/10 — 5 out of the last 5 releases have a total of 8 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
-| CI-Tests: 6/10 — 4 out of 6 merged PRs checked by a CI test -- score normalized to 6 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
+| CI-Tests: 7/10 — 5 out of 7 merged PRs checked by a CI test -- score normalized to 7 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |

@@ -1,38 +1,6 @@
 {
   "scans": [
     {
-      "source": "osv",
-      "date": "2026-11-15",
-      "revision": "306f38faa580",
-      "kind": "full",
-      "scope": "every lockfile (Cargo, npm)",
-      "found": 0
-    },
-    {
-      "source": "trivy",
-      "date": "2026-11-15",
-      "revision": "306f38faa580",
-      "kind": "full",
-      "scope": "whole repository",
-      "found": 0
-    },
-    {
-      "source": "codeql",
-      "date": "2026-11-15",
-      "revision": "",
-      "kind": "full",
-      "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 0
-    },
-    {
-      "source": "scorecard",
-      "date": "2026-11-15",
-      "revision": "18b8f0d74252",
-      "kind": "full",
-      "scope": "repository settings and workflows",
-      "score": 7.5
-    },
-    {
       "source": "claude-security",
       "release": "v1.6.1",
       "scan_id": "73babe55-f267-46dd-9e38-f25c893260ac",
@@ -51,6 +19,38 @@
       "kind": "changes",
       "scope": "whole repository",
       "found": 0
+    },
+    {
+      "source": "osv",
+      "date": "2026-11-16",
+      "revision": "1d17cb8c771b",
+      "kind": "full",
+      "scope": "every lockfile (Cargo, npm)",
+      "found": 0
+    },
+    {
+      "source": "trivy",
+      "date": "2026-11-16",
+      "revision": "1d17cb8c771b",
+      "kind": "full",
+      "scope": "whole repository",
+      "found": 0
+    },
+    {
+      "source": "codeql",
+      "date": "2026-11-16",
+      "revision": "",
+      "kind": "full",
+      "scope": "Rust, TypeScript/Vue and workflows",
+      "found": 0
+    },
+    {
+      "source": "scorecard",
+      "date": "2026-11-15",
+      "revision": "306f38faa580",
+      "kind": "full",
+      "scope": "repository settings and workflows",
+      "score": 7.5
     }
   ],
   "findings": [
@@ -4462,7 +4462,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "CI-Tests: 6/10 — 4 out of 6 merged PRs checked by a CI test -- score normalized to 6",
+      "title": "CI-Tests: 7/10 — 5 out of 7 merged PRs checked by a CI test -- score normalized to 7",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
       "found": "2026-11-15",
@@ -4484,7 +4484,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/6 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/7 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",
