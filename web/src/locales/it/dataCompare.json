@@ -164,5 +164,12 @@
     "replace": "Le query della modalità Query vengono sostituite da quelle che leggono queste tabelle.",
     "replaceOk": "Sostituisci",
     "done": "Ogni lato ha la query che legge la sua tabella intera. Aggiungi un WHERE per confrontare solo alcune righe e premi Confronta."
+  },
+  "export": {
+    "button": "Esporta…",
+    "hint": "Esporta l'elenco che stai vedendo, per intero e con i suoi filtri e il suo ordinamento, in CSV, Excel, JSON, SQL o XML.",
+    "differs": "Colonne diverse",
+    "partialDiff": "Il confronto ha elencato le prime {{limit}} differenze su {{total}}, nell'ordine della chiave: il file contiene quelle di questo elenco che ne fanno parte.",
+    "partialEqual": "Il confronto ha elencato le prime {{limit}} righe uguali su {{total}}, nell'ordine della chiave: il file contiene quelle."
   }
 }

@@ -158,5 +158,12 @@
     "replace": "Die Abfragen im Modus Abfragen werden durch die ersetzt, die diese Tabellen lesen.",
     "replaceOk": "Ersetzen",
     "done": "Jede Seite hat die Abfrage, die ihre ganze Tabelle liest. Ergänzen Sie ein WHERE, um nur einige Zeilen zu vergleichen, und klicken Sie auf Vergleichen."
+  },
+  "export": {
+    "button": "Exportieren…",
+    "hint": "Exportiert die angezeigte Liste vollständig und mit ihren Filtern und ihrer Sortierung als CSV, Excel, JSON, SQL oder XML.",
+    "differs": "Abweichende Spalten",
+    "partialDiff": "Der Vergleich hat die ersten {{limit}} von {{total}} Unterschieden in Schlüsselreihenfolge aufgelistet: Die Datei enthält die Zeilen dieser Liste, die darunter sind.",
+    "partialEqual": "Der Vergleich hat die ersten {{limit}} von {{total}} gleichen Zeilen in Schlüsselreihenfolge aufgelistet: Die Datei enthält diese."
   }
 }

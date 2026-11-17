@@ -119,7 +119,10 @@
     "done_one": "Exportada {{rows}} linha em {{seconds}} s",
     "done_other": "Exportadas {{rows}} linhas em {{seconds}} s",
     "progressRows_many": "Exportando… {{rows}} linhas",
-    "done_many": "Exportadas {{rows}} linhas em {{seconds}} s"
+    "done_many": "Exportadas {{rows}} linhas em {{seconds}} s",
+    "compareRows_one": "Exportando {{rows}} linha de “{{list}}”, com os filtros e a ordenação da tela.",
+    "compareRows_many": "Exportando todas as {{rows}} linhas de “{{list}}”, com os filtros e a ordenação da tela.",
+    "compareRows_other": "Exportando todas as {{rows}} linhas de “{{list}}”, com os filtros e a ordenação da tela."
   },
   "grid": {
     "cantEdit": "Não é possível editar: {{reason}}",

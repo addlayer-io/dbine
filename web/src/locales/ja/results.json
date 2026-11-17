@@ -95,7 +95,8 @@
     "progressRows_other": "エクスポート中… {{rows}} 行",
     "cancelExport": "エクスポートをキャンセル",
     "submit": "エクスポート…",
-    "done_other": "{{rows}} 行を {{seconds}} 秒でエクスポートしました"
+    "done_other": "{{rows}} 行を {{seconds}} 秒でエクスポートしました",
+    "compareRows_other": "「{{list}}」の全 {{rows}} 行を、画面のフィルターと並び順でエクスポートします。"
   },
   "grid": {
     "cantEdit": "編集できません: {{reason}}",

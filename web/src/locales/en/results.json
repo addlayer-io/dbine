@@ -116,7 +116,9 @@
     "done_one": "Exported {{rows}} row in {{seconds}} s",
     "done_other": "Exported {{rows}} rows in {{seconds}} s",
     "progressRows_many": "Exporting… {{rows}} rows",
-    "done_many": "Exported {{rows}} rows in {{seconds}} s"
+    "done_many": "Exported {{rows}} rows in {{seconds}} s",
+    "compareRows_one": "Exporting {{rows}} row from \"{{list}}\", with the filters and sort order on screen.",
+    "compareRows_other": "Exporting all {{rows}} rows from \"{{list}}\", with the filters and sort order on screen."
   },
   "grid": {
     "cantEdit": "Can't edit: {{reason}}",

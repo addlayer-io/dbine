@@ -119,7 +119,10 @@
     "done_one": "Esportata {{rows}} riga in {{seconds}} s",
     "done_other": "Esportate {{rows}} righe in {{seconds}} s",
     "progressRows_many": "Esportazione… {{rows}} righe",
-    "done_many": "Esportate {{rows}} righe in {{seconds}} s"
+    "done_many": "Esportate {{rows}} righe in {{seconds}} s",
+    "compareRows_one": "Esportazione di {{rows}} riga da «{{list}}», con i filtri e l'ordinamento della schermata.",
+    "compareRows_many": "Esportazione di tutte le {{rows}} righe da «{{list}}», con i filtri e l'ordinamento della schermata.",
+    "compareRows_other": "Esportazione di tutte le {{rows}} righe da «{{list}}», con i filtri e l'ordinamento della schermata."
   },
   "grid": {
     "cantEdit": "Impossibile modificare: {{reason}}",

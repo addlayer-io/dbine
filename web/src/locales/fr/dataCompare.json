@@ -164,5 +164,12 @@
     "replace": "Les requêtes du mode Requêtes sont remplacées par celles qui lisent ces tables.",
     "replaceOk": "Remplacer",
     "done": "Chaque côté a la requête qui lit sa table entière. Ajoutez un WHERE pour comparer seulement certaines lignes, puis cliquez sur Comparer."
+  },
+  "export": {
+    "button": "Exporter…",
+    "hint": "Exporte la liste affichée, en entier et avec ses filtres et son tri, en CSV, Excel, JSON, SQL ou XML.",
+    "differs": "Colonnes différentes",
+    "partialDiff": "La comparaison a listé les {{limit}} premières différences sur {{total}}, dans l'ordre de la clé : le fichier contient celles de cette liste qui en font partie.",
+    "partialEqual": "La comparaison a listé les {{limit}} premières lignes identiques sur {{total}}, dans l'ordre de la clé : le fichier contient celles-ci."
   }
 }

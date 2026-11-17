@@ -95,7 +95,8 @@
     "progressRows_other": "내보내는 중… {{rows}}개 행",
     "cancelExport": "내보내기 취소",
     "submit": "내보내기…",
-    "done_other": "행 {{rows}}개를 {{seconds}}초에 내보냈습니다"
+    "done_other": "행 {{rows}}개를 {{seconds}}초에 내보냈습니다",
+    "compareRows_other": "화면의 필터와 정렬을 적용해 「{{list}}」의 행 {{rows}}개를 모두 내보냅니다."
   },
   "grid": {
     "cantEdit": "편집할 수 없음: {{reason}}",

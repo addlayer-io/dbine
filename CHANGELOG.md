@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Improvements
+
+- **Export what Compare data found:** **Export…**, next to the lists, saves the list on screen to CSV, Excel, JSON, SQL, XML or the other result export formats. That can be the different rows, the rows only on one side, or the equal ones. Every row that passes the list's filters is exported, in its order, not only the rows on screen. A different row puts each column's left and right values side by side, with a last column naming the ones that differ.
+
 ### Fixes
 
 - **SQL Server explorer waiting on another session's changes:** opening a database's tables, procedures or other objects could stop for 60 s and fail, saying the server didn't respond, while another session, such as an ETL or a deployment script, had a transaction open that created or altered objects. The explorer now reads them right away, along with their columns and definitions and the schema that completion uses. Only the source of the very object that transaction is altering still waits.

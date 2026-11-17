@@ -119,7 +119,9 @@
     "done_one": "Exportada {{rows}} fila en {{seconds}} s",
     "done_other": "Exportadas {{rows}} filas en {{seconds}} s",
     "progressRows_many": "Exportando… {{rows}} filas",
-    "done_many": "Exportadas {{rows}} filas en {{seconds}} s"
+    "done_many": "Exportadas {{rows}} filas en {{seconds}} s",
+    "compareRows_one": "Se exporta {{rows}} fila de «{{list}}», con los filtros y el orden de la pantalla.",
+    "compareRows_other": "Se exportan las {{rows}} filas de «{{list}}», con los filtros y el orden de la pantalla."
   },
   "grid": {
     "cantEdit": "No se puede editar: {{reason}}",

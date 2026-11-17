@@ -131,7 +131,11 @@
     "done_one": "Wyeksportowano {{rows}} wiersz w {{seconds}} s",
     "done_few": "Wyeksportowano {{rows}} wiersze w {{seconds}} s",
     "done_many": "Wyeksportowano {{rows}} wierszy w {{seconds}} s",
-    "done_other": "Wyeksportowano {{rows}} wiersza w {{seconds}} s"
+    "done_other": "Wyeksportowano {{rows}} wiersza w {{seconds}} s",
+    "compareRows_one": "Eksportowany jest {{rows}} wiersz z listy „{{list}}”, z filtrami i sortowaniem z ekranu.",
+    "compareRows_few": "Eksportowane są wszystkie {{rows}} wiersze z listy „{{list}}”, z filtrami i sortowaniem z ekranu.",
+    "compareRows_many": "Eksportowanych jest wszystkich {{rows}} wierszy z listy „{{list}}”, z filtrami i sortowaniem z ekranu.",
+    "compareRows_other": "Eksportowanych jest wszystkich {{rows}} wiersza z listy „{{list}}”, z filtrami i sortowaniem z ekranu."
   },
   "grid": {
     "cantEdit": "Nie można edytować: {{reason}}",
