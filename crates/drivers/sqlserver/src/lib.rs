@@ -1103,6 +1103,27 @@ fn is_plan_column(variant: Variant, name: &str) -> bool {
     }
 }
 
+/// The object id of `@P1` in schema `@P2` (empty: the caller's default
+/// schema, as `OBJECT_ID()` resolves a bare name), from the catalog views.
+/// `OBJECT_ID()` itself waits for a schema lock another session holds on
+/// the object, even under READ UNCOMMITTED (issue #123).
+pub(crate) const OBJECT_BY_NAME: &str = "(SELECT o.object_id FROM sys.objects o
+       JOIN sys.schemas s ON s.schema_id = o.schema_id
+      WHERE o.name = @P1 AND s.name = COALESCE(NULLIF(@P2, N''), SCHEMA_NAME()))";
+
+/// A structure read that doesn't wait for other sessions' schema locks
+/// ([`SqlServerSession::catalog_rows`]), on SQL Server and Azure SQL.
+/// Babelfish's catalogs are PostgreSQL's, which don't wait, and Fabric runs
+/// snapshot isolation only: both keep the query as it is.
+fn catalog_sql(v: Variant, sql: &str) -> std::borrow::Cow<'_, str> {
+    match v {
+        Variant::SqlServer | Variant::AzureSql => {
+            format!("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n{sql}").into()
+        }
+        Variant::Fabric | Variant::Babelfish => sql.into(),
+    }
+}
+
 impl SqlServerSession {
     /// Rows of a catalog query with string parameters.
     /// Catalog reads depend on no session state, so a broken connection is
@@ -1115,6 +1136,17 @@ impl SqlServerSession {
             }
             other => other.map_err(err),
         }
+    }
+
+    /// Rows of a structure read the explorer waits on (objects, schemas,
+    /// columns, definitions, the whole schema), under READ UNCOMMITTED for
+    /// that call only. Another session's open transaction with DDL (an ETL
+    /// creating or altering tables) otherwise holds the catalog until the
+    /// app's time limit cuts the read (issue #123). `rows` runs through
+    /// sp_executesql, so the session's own level is back when it ends.
+    async fn catalog_rows(&mut self, sql: &str, params: &[&str]) -> Result<Vec<Row>> {
+        let sql = catalog_sql(self.variant, sql);
+        self.rows(&sql, params).await
     }
 
     async fn try_rows(&mut self, sql: &str, params: &[&str]) -> tiberius::Result<Vec<Row>> {
@@ -1309,7 +1341,7 @@ impl Session for SqlServerSession {
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         let rows = self
-            .rows(
+            .catalog_rows(
                 "SELECT RTRIM(o.type), s.name, o.name, OBJECT_NAME(o.parent_object_id)
                    FROM sys.objects o
                    JOIN sys.schemas s ON s.schema_id = o.schema_id
@@ -1347,7 +1379,7 @@ impl Session for SqlServerSession {
 
     async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
         let rows = self
-            .rows(&security::list_schemas_sql(self.variant), &[])
+            .catalog_rows(&security::list_schemas_sql(self.variant), &[])
             .await?;
         Ok(Some(
             rows.iter()
@@ -1362,10 +1394,10 @@ impl Session for SqlServerSession {
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
-        let object = qualified_name(Quote::Bracket, obj.schema(), &obj.name);
+        let schema = obj.schema().unwrap_or_default();
         let rows = self
-            .rows(
-                "SELECT c.name, TYPE_NAME(c.user_type_id), CAST(c.max_length AS int),
+            .catalog_rows(
+                &format!("SELECT c.name, TYPE_NAME(c.user_type_id), CAST(c.max_length AS int),
                         CAST(c.precision AS int), CAST(c.scale AS int),
                         c.is_nullable, c.is_identity, OBJECT_DEFINITION(c.default_object_id),
                         CAST(CASE WHEN EXISTS (
@@ -1374,9 +1406,9 @@ impl Session for SqlServerSession {
                              WHERE i.is_primary_key = 1 AND ic.object_id = c.object_id AND ic.column_id = c.column_id
                         ) THEN 1 ELSE 0 END AS bit)
                    FROM sys.columns c
-                  WHERE c.object_id = OBJECT_ID(@P1)
-                  ORDER BY c.column_id",
-                &[&object],
+                  WHERE c.object_id = {OBJECT_BY_NAME}
+                  ORDER BY c.column_id"),
+                &[&obj.name, schema],
             )
             .await?;
         Ok(rows
@@ -1407,9 +1439,11 @@ impl Session for SqlServerSession {
         if structure::KINDS.contains(&obj.kind.as_str()) {
             return structure::definition(self, obj).await;
         }
-        let object = qualified_name(Quote::Bracket, obj.schema(), &obj.name);
         let rows = self
-            .rows("SELECT OBJECT_DEFINITION(OBJECT_ID(@P1))", &[&object])
+            .catalog_rows(
+                &format!("SELECT m.definition FROM sys.sql_modules m WHERE m.object_id = {OBJECT_BY_NAME}"),
+                &[&obj.name, obj.schema().unwrap_or_default()],
+            )
             .await?;
         Ok(rows.first().and_then(|r| text(r, 0)))
     }
@@ -1546,7 +1580,7 @@ impl Session for SqlServerSession {
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         let mut b = schema::Builder::default();
-        for r in self.rows(schema::TABLES_SQL, &[]).await? {
+        for r in self.catalog_rows(schema::TABLES_SQL, &[]).await? {
             b.table(
                 text(&r, 0).unwrap_or_default(),
                 text(&r, 1).unwrap_or_default(),
@@ -1556,7 +1590,7 @@ impl Session for SqlServerSession {
         // Definitions the catalog returns as NULL (no VIEW DEFINITION): said
         // as the tables' warnings, never written empty.
         let mut hidden = Vec::new();
-        for r in self.rows(schema::COLUMNS_SQL, &[]).await? {
+        for r in self.catalog_rows(schema::COLUMNS_SQL, &[]).await? {
             let (s, t) = (
                 text(&r, 0).unwrap_or_default(),
                 text(&r, 1).unwrap_or_default(),
@@ -1606,7 +1640,7 @@ impl Session for SqlServerSession {
         }
         // IDENTITY seed / increment (Fabric's IDENTITY has neither).
         if self.variant != Variant::Fabric {
-            match self.rows(schema::IDENTITY_SQL, &[]).await {
+            match self.catalog_rows(schema::IDENTITY_SQL, &[]).await {
                 Ok(rows) => {
                     for r in rows {
                         let t = |i| text(&r, i).unwrap_or_default();
@@ -1616,7 +1650,7 @@ impl Session for SqlServerSession {
                 Err(e) => tracing::warn!("sqlserver: identity seed / increment not read: {e}"),
             }
         }
-        for r in self.rows(schema::INDEXES_SQL, &[]).await? {
+        for r in self.catalog_rows(schema::INDEXES_SQL, &[]).await? {
             b.index_column(
                 &text(&r, 0).unwrap_or_default(),
                 &text(&r, 1).unwrap_or_default(),
@@ -1629,7 +1663,7 @@ impl Session for SqlServerSession {
                 r.get(8).unwrap_or(false),
             );
         }
-        for r in self.rows(schema::FOREIGN_KEYS_SQL, &[]).await? {
+        for r in self.catalog_rows(schema::FOREIGN_KEYS_SQL, &[]).await? {
             b.fk_column(
                 &text(&r, 0).unwrap_or_default(),
                 &text(&r, 1).unwrap_or_default(),
@@ -2128,6 +2162,23 @@ mod legacy_tls_live;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Issue #123: the explorer's structure reads don't wait for another
+    /// session's schema locks on SQL Server and Azure SQL (the live test
+    /// `catalog_blocking` checks it against a server).
+    #[test]
+    fn structure_reads_skip_other_sessions_locks() {
+        let q = "SELECT name FROM sys.objects";
+        for v in [Variant::SqlServer, Variant::AzureSql] {
+            assert_eq!(
+                catalog_sql(v, q),
+                "SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\nSELECT name FROM sys.objects"
+            );
+        }
+        for v in [Variant::Fabric, Variant::Babelfish] {
+            assert_eq!(catalog_sql(v, q), q);
+        }
+    }
 
     #[test]
     fn a_name_cannot_end_a_comment_line() {

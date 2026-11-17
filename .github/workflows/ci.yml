@@ -101,6 +101,7 @@ jobs:
       DBINE_TEST_CLICKHOUSE_URL: http://dbine:dbine@localhost:25123
       DBINE_TEST_MYSQL_URL: mysql://root:pw@localhost:25011
       DBINE_TEST_MARIADB_URL: mysql://root:pw@localhost:25012
+      DBINE_TEST_SQLSERVER_URL: mssql://sa:Pw_12345!@localhost:25013
     services:
       clickhouse22:
         image: clickhouse/clickhouse-server:22.8
@@ -124,6 +125,13 @@ jobs:
         options: >-
           --health-cmd "healthcheck.sh --connect --innodb_initialized"
           --health-interval 5s --health-timeout 5s --health-retries 30
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env: { ACCEPT_EULA: 'Y', MSSQL_SA_PASSWORD: 'Pw_12345!' }
+        ports: ['25013:1433']
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Pw_12345!' -Q 'SELECT 1' || exit 1"
+          --health-interval 10s --health-timeout 10s --health-retries 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -150,3 +158,5 @@ jobs:
         run: |
           cargo test -p dbine-driver-clickhouse --test old_server --test cross_database -- --ignored
           cargo test -p dbine-driver-mysql --test cross_database -- --ignored
+          # Issue #123: the explorer's reads don't wait for another session's open DDL.
+          cargo test -p dbine-driver-sqlserver --test catalog_blocking -- --ignored
