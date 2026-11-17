@@ -535,7 +535,7 @@ type TableIndexes = (Option<KeyDef>, bool, Vec<IndexDef>);
 
 /// Primary key and indexes per table, from the catalog.
 async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableIndexes>> {
-    let caps = s.rows(CAPS_SQL, &[]).await?;
+    let caps = s.catalog_rows(CAPS_SQL, &[]).await?;
     let caps = caps.first();
     let (seqkey, delay, order) = caps
         .map(|r| (b(r, 0), b(r, 1), b(r, 2)))
@@ -543,7 +543,7 @@ async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableInde
     let default_language = caps.and_then(|r| ni(r, 3)).unwrap_or(1033);
 
     let mut raw: BTreeMap<(i32, i32), (Key, RawIndex)> = BTreeMap::new();
-    for r in s.rows(&indexes_sql(seqkey, delay), &[]).await? {
+    for r in s.catalog_rows(&indexes_sql(seqkey, delay), &[]).await? {
         let grids = match (text(&r, 26), text(&r, 27), text(&r, 28), text(&r, 29)) {
             (Some(a), Some(b), Some(c), Some(d)) => Some([a, b, c, d]),
             _ => None,
@@ -579,7 +579,7 @@ async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableInde
         };
         raw.insert((n(&r, 0), n(&r, 1)), ((st(&r, 2), st(&r, 3)), ix));
     }
-    for r in s.rows(&index_columns_sql(order), &[]).await? {
+    for r in s.catalog_rows(&index_columns_sql(order), &[]).await? {
         let Some((_, i)) = raw.get_mut(&(n(&r, 0), n(&r, 1))) else {
             continue;
         };
@@ -609,7 +609,7 @@ async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableInde
             }
         }
     }
-    for r in s.rows(PARTITIONS_SQL, &[]).await? {
+    for r in s.catalog_rows(PARTITIONS_SQL, &[]).await? {
         if let Some((_, i)) = raw.get_mut(&(n(&r, 0), n(&r, 1))) {
             i.compression.push((n(&r, 2), st(&r, 3)));
         }
@@ -630,7 +630,7 @@ async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableInde
     }
 
     let mut ft: BTreeMap<Key, RawFullText> = BTreeMap::new();
-    for r in s.rows(FULLTEXT_SQL, &[]).await? {
+    for r in s.catalog_rows(FULLTEXT_SQL, &[]).await? {
         ft.insert(
             (st(&r, 0), st(&r, 1)),
             RawFullText {
@@ -645,7 +645,7 @@ async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableInde
         );
     }
     if !ft.is_empty() {
-        for r in s.rows(FULLTEXT_COLUMNS_SQL, &[]).await? {
+        for r in s.catalog_rows(FULLTEXT_COLUMNS_SQL, &[]).await? {
             if let Some(x) = ft.get_mut(&(st(&r, 0), st(&r, 1))) {
                 x.columns.push((st(&r, 2), n(&r, 3), text(&r, 4), b(&r, 5)));
             }
@@ -707,7 +707,7 @@ pub(crate) async fn complete(
             Err(e) => tracing::warn!("sqlserver: index details not read: {e}"),
         }
     }
-    match s.rows(CHECKS_SQL, &[]).await {
+    match s.catalog_rows(CHECKS_SQL, &[]).await {
         Ok(rows) => {
             for r in rows {
                 let key = (st(&r, 0), st(&r, 1));
@@ -1556,9 +1556,13 @@ pub(crate) fn clustering_warnings(changes: &[TableChange]) -> Vec<String> {
 
 // --- Other objects ----------------------------------------------------------
 
+// Sequences and synonyms from sys.objects: sys.sequences waits for a
+// sequence another session's open transaction alters, even under READ
+// UNCOMMITTED (issue #123).
 const LIST_SQL: &str = "
-SELECT N'SO', SCHEMA_NAME(schema_id), name FROM sys.sequences WHERE is_ms_shipped = 0
-UNION ALL SELECT N'SN', SCHEMA_NAME(schema_id), name FROM sys.synonyms WHERE is_ms_shipped = 0
+SELECT CASE o.type WHEN 'SO' THEN N'SO' ELSE N'SN' END, s.name, o.name
+  FROM sys.objects o JOIN sys.schemas s ON s.schema_id = o.schema_id
+ WHERE o.is_ms_shipped = 0 AND o.type IN ('SO', 'SN')
 UNION ALL SELECT N'TY', SCHEMA_NAME(schema_id), name FROM sys.types WHERE is_user_defined = 1 AND is_assembly_type = 0
 UNION ALL SELECT N'FC', NULL, name FROM sys.fulltext_catalogs
 UNION ALL SELECT N'FS', NULL, name FROM sys.fulltext_stoplists
@@ -1576,7 +1580,7 @@ pub(crate) async fn list_objects(s: &mut SqlServerSession) -> Vec<DbObject> {
         Variant::Babelfish => LIST_BABELFISH_SQL,
         Variant::Fabric => return Vec::new(),
     };
-    let rows = match s.rows(sql, &[]).await {
+    let rows = match s.catalog_rows(sql, &[]).await {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!("sqlserver: sequences, synonyms and types not listed: {e}");
@@ -1843,7 +1847,7 @@ SELECT ty.name, CASE WHEN ty.is_user_defined = 1 THEN SCHEMA_NAME(ty.schema_id) 
        seq.is_cycling, seq.is_cached, CAST(seq.cache_size AS int)
   FROM sys.sequences seq
   JOIN sys.types ty ON ty.user_type_id = seq.user_type_id
- WHERE seq.object_id = OBJECT_ID(@P1)";
+ WHERE seq.object_id = ";
 
 const TYPE_SQL: &str = "
 SELECT ty.is_table_type, TYPE_NAME(ty.system_type_id), CAST(ty.max_length AS int), CAST(ty.precision AS int),
@@ -1902,10 +1906,11 @@ pub(crate) async fn definition(
     obj: &ObjectRef,
 ) -> Result<Option<String>> {
     let schema = obj.schema();
-    let full = qn(schema, &obj.name);
+    let by_schema = schema.unwrap_or_default();
     match obj.kind.as_str() {
         kinds::SEQUENCE => {
-            let rows = s.rows(SEQUENCE_SQL, &[&full]).await?;
+            let sql = format!("{SEQUENCE_SQL}{}", crate::OBJECT_BY_NAME);
+            let rows = s.catalog_rows(&sql, &[&obj.name, by_schema]).await?;
             Ok(rows.first().map(|r| {
                 let info = SequenceInfo {
                     type_name: st(r, 0),
@@ -1924,9 +1929,12 @@ pub(crate) async fn definition(
         }
         kinds::SYNONYM => {
             let rows = s
-                .rows(
-                    "SELECT base_object_name FROM sys.synonyms WHERE object_id = OBJECT_ID(@P1)",
-                    &[&full],
+                .catalog_rows(
+                    &format!(
+                        "SELECT base_object_name FROM sys.synonyms WHERE object_id = {}",
+                        crate::OBJECT_BY_NAME
+                    ),
+                    &[&obj.name, by_schema],
                 )
                 .await?;
             Ok(rows
@@ -1936,13 +1944,13 @@ pub(crate) async fn definition(
         }
         kinds::TYPE => type_definition(s, schema, &obj.name).await,
         FULLTEXT_CATALOG => {
-            let rows = s.rows("SELECT is_accent_sensitivity_on, is_default FROM sys.fulltext_catalogs WHERE name = @P1", &[&obj.name]).await?;
+            let rows = s.catalog_rows("SELECT is_accent_sensitivity_on, is_default FROM sys.fulltext_catalogs WHERE name = @P1", &[&obj.name]).await?;
             Ok(rows
                 .first()
                 .map(|r| catalog_sql(&obj.name, b(r, 0), b(r, 1))))
         }
         FULLTEXT_STOPLIST => {
-            let rows = s.rows(STOPLIST_SQL, &[&obj.name]).await?;
+            let rows = s.catalog_rows(STOPLIST_SQL, &[&obj.name]).await?;
             let Some(head) = rows.iter().find(|r| text(r, 0).as_deref() == Some("=")) else {
                 return Ok(None);
             };

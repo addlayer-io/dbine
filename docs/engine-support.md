@@ -30,6 +30,10 @@ Three features depend only on the app, not on each engine, so they work in all o
   - the identity keeps working after the load (`IDENTITY_INSERT`).
 - **PostgreSQL 16:** copy with data and a view; sequences end up after the loaded values and the structure is identical.
 
+### Structure reads and other sessions' open DDL
+
+On SQL Server and Azure SQL, the explorer's structure reads (the object list, schemas, columns, definitions and the whole schema behind completion and diagrams) don't wait for another session's open transaction that creates or alters objects, such as an ETL or a deployment script. Before, they waited on its schema locks until the 60 s limit cut them (issue #123). Each of those reads runs under READ UNCOMMITTED for that query only; the session keeps its own isolation level. They also look objects up by name in the catalog views: `OBJECT_ID()` and `sys.sequences` wait for such a lock even under READ UNCOMMITTED. They can show an object that transaction created and hasn't committed yet. Opening the source of the very object that transaction is altering still waits for it, since that text is changing. Babelfish's catalogs are PostgreSQL's, which don't wait, and Fabric runs snapshot isolation only, so both read as before.
+
 ### Definitions the source login can't read
 
 When the catalog returns a CHECK, a column default or a computed column's expression without its text, the structure reader leaves it out and says so in the table's warnings. Migrations, the script generator and schema sync show those warnings and never write `CHECK ()` or an empty `DEFAULT`; a sync doesn't drop a target CHECK when the other side has unreadable definitions. Every DDL renderer also skips a CHECK or default that comes empty.

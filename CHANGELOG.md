@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixes
+
+- **SQL Server explorer waiting on another session's changes:** opening a database's tables, procedures or other objects could stop for 60 s and fail, saying the server didn't respond, while another session, such as an ETL or a deployment script, had a transaction open that created or altered objects. The explorer now reads them right away, along with their columns and definitions and the schema that completion uses. Only the source of the very object that transaction is altering still waits.
+
 ## [1.6.2] - 2026-11-16
 
 ### Improvements
