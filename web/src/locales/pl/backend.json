@@ -13948,7 +13948,7 @@
   "la lectura dio filas sin decir sus columnas": "odczyt zwrócił wiersze bez podania ich kolumn",
   "la tabla es demasiado grande para compararla en memoria y no se pudo abrir DuckDB, la base local donde DBine compara las tablas grandes: {0}": "tabela jest zbyt duża, aby porównać ją w pamięci, a nie udało się otworzyć DuckDB, lokalnej bazy, w której DBine porównuje duże tabele: {0}",
   "no hay una carpeta de datos de DBine": "brak folderu danych DBine",
-  "una fila distinta no se pudo leer de la base local": "nie udało się odczytać różniącego się wiersza z lokalnej bazy",
+  "una fila no se pudo leer de la base local": "nie udało się odczytać wiersza z lokalnej bazy",
   "ya hay una comparación en curso con ese id": "porównanie o tym identyfikatorze jest już w toku",
   "alias de base local inválido: {0}": "nieprawidłowy alias lokalnej bazy: {0}",
   "no se pudo guardar el dato cifrado: {0}": "nie udało się zapisać zaszyfrowanych danych: {0}",
@@ -18518,5 +18518,7 @@
   "h2: no version: {0}": "h2: no version: {0}",
   "risingwave: no version: {0}": "risingwave: no version: {0}",
   "s SIN(float_exp) -> FLOAT": "s SIN(float_exp) -> FLOAT",
-  "{0}: pg_proc listed no functions": "{0}: pg_proc listed no functions"
+  "{0}: pg_proc listed no functions": "{0}: pg_proc listed no functions",
+  "en la base {0}: {1}": "w bazie {0}: {1}",
+  "el resultado no tiene las mismas columnas que en la primera base": "wynik nie ma tych samych kolumn co w pierwszej bazie"
 }

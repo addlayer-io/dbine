@@ -13948,7 +13948,7 @@
   "la lectura dio filas sin decir sus columnas": "pembacaan menghasilkan baris tanpa menyebutkan kolomnya",
   "la tabla es demasiado grande para compararla en memoria y no se pudo abrir DuckDB, la base local donde DBine compara las tablas grandes: {0}": "tabel terlalu besar untuk dibandingkan di memori dan DuckDB, basis data lokal tempat DBine membandingkan tabel besar, tidak dapat dibuka: {0}",
   "no hay una carpeta de datos de DBine": "tidak ada folder data DBine",
-  "una fila distinta no se pudo leer de la base local": "baris yang berbeda tidak dapat dibaca dari basis data lokal",
+  "una fila no se pudo leer de la base local": "baris tidak dapat dibaca dari basis data lokal",
   "ya hay una comparación en curso con ese id": "perbandingan dengan ID itu sedang berjalan",
   "alias de base local inválido: {0}": "alias basis data lokal tidak valid: {0}",
   "no se pudo guardar el dato cifrado: {0}": "tidak dapat menyimpan data terenkripsi: {0}",
@@ -18518,5 +18518,7 @@
   "h2: no version: {0}": "h2: no version: {0}",
   "risingwave: no version: {0}": "risingwave: no version: {0}",
   "s SIN(float_exp) -> FLOAT": "s SIN(float_exp) -> FLOAT",
-  "{0}: pg_proc listed no functions": "{0}: pg_proc listed no functions"
+  "{0}: pg_proc listed no functions": "{0}: pg_proc listed no functions",
+  "en la base {0}: {1}": "di basis data {0}: {1}",
+  "el resultado no tiene las mismas columnas que en la primera base": "hasil tidak memiliki kolom yang sama dengan basis data pertama"
 }

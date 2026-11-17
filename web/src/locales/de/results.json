@@ -79,6 +79,7 @@
     "all": "Alle{{total}}: führt die Abfrage erneut aus",
     "allHelp": "Sie läuft erneut in einer schreibgeschützten Sitzung und wird beim Eintreffen der Zeilen ohne Limit in die Datei geschrieben. Verändert die Abfrage Daten, lehnt die Engine sie ab.",
     "allHelpLocal": "Sie läuft erneut in DuckDB, über die DataFrames, die der letzte Lauf der Zelle gelesen hat (ohne Dateien erneut zu lesen oder die Quellen erneut abzufragen), und wird in die Datei geschrieben, während die Zeilen eintreffen, ohne Limit.",
+    "allHelpMulti": "Sie läuft erneut in jeder der Datenbanken, nacheinander, in schreibgeschützten Sitzungen und wird beim Eintreffen der Zeilen ohne Limit in die Datei geschrieben. Verändert die Abfrage Daten, lehnt die Engine sie ab.",
     "truncated": "Das Ergebnis wird durch „Max. Zeilen“ abgeschnitten: Es werden nur die {{rows}} geladenen Zeilen exportiert.",
     "header": "Kopfzeile mit den Spaltennamen",
     "delimiter": "Trennzeichen",

@@ -7,6 +7,7 @@ import type { Message, MultiDbProgress, MultiDbResponse, MultiDbStatus, QueryOut
 import { readJson, writeJson } from '../stores/storage';
 import { startTask } from '../stores/tasks';
 import { trackFeature } from './telemetry';
+import { multiDbParts, type MultiDbExport } from './multiDbParts';
 
 // "Ejecutar en varias bases…": the editor's script on several databases of a
 // connection (src-tauri/src/commands/multi_db.rs). The run is a task
@@ -49,23 +50,16 @@ export interface MultiDbLive {
 
 /** The editor's view of a finished run: a QueryOutcome for the results pane
  *  (the merged grid, or each database's result sets), their sub-tab labels,
- *  and the per-database summary in "Mensajes". */
-export function multiDbOutcome(r: MultiDbResponse): { outcome: QueryOutcome; labels: string[] } {
-  const results: StatementResult[] = [];
-  const labels: string[] = [];
-  if (r.merged) {
-    results.push(r.merged);
-    labels.push(t('multiDb:results.merged', { count: r.databases.filter((d) => d.status === 'ok').length }));
-  }
-  for (const d of r.databases) {
-    const sets = d.results.filter((x) => x.columns.length);
-    sets.forEach((s, i) => {
-      results.push(s);
-      labels.push(sets.length > 1 || r.merged ? `${d.database} (${i + (r.merged ? 2 : 1)})` : d.database);
-    });
-  }
+ *  what exporting each one whole runs again, and the per-database summary
+ *  in "Mensajes". */
+export function multiDbOutcome(r: MultiDbResponse): { outcome: QueryOutcome; labels: string[]; exports: (MultiDbExport | null)[] } {
+  const parts = multiDbParts(r);
+  const results: StatementResult[] = parts.map((p) => p.result);
+  const labels = parts.map((p) => (p.database == null
+    ? t('multiDb:results.merged', { count: r.databases.filter((d) => d.status === 'ok').length })
+    : p.count > 1 || r.merged ? `${p.database} (${p.index + (r.merged ? 2 : 1)})` : p.database));
   const log: Message[] = r.databases.map((d) => ({ level: d.status === 'ok' ? 'info' : d.status === 'error' ? 'error' : 'warning', text: summaryLine(d), statement: null, code: null, line: null }));
-  return { outcome: { results, messages: [], error: null, elapsed_ms: r.elapsed_ms, plans: [], log, errors: [] }, labels };
+  return { outcome: { results, messages: [], error: null, elapsed_ms: r.elapsed_ms, plans: [], log, errors: [] }, labels, exports: parts.map((p) => p.export) };
 }
 
 function summaryLine(d: MultiDbResponse['databases'][number]): string {

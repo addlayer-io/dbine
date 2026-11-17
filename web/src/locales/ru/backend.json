@@ -13575,7 +13575,7 @@
   "la lectura dio filas sin decir sus columnas": "чтение вернуло строки без указания столбцов",
   "la tabla es demasiado grande para compararla en memoria y no se pudo abrir DuckDB, la base local donde DBine compara las tablas grandes: {0}": "таблица слишком велика для сравнения в памяти, а DuckDB — локальную базу, в которой DBine сравнивает большие таблицы, — открыть не удалось: {0}",
   "no hay una carpeta de datos de DBine": "папка данных DBine отсутствует",
-  "una fila distinta no se pudo leer de la base local": "не удалось прочитать отличающуюся строку из локальной базы",
+  "una fila no se pudo leer de la base local": "не удалось прочитать строку из локальной базы",
   "ya hay una comparación en curso con ese id": "сравнение с этим идентификатором уже выполняется",
   "alias de base local inválido: {0}": "недопустимый псевдоним локальной базы: {0}",
   "no se pudo guardar el dato cifrado: {0}": "не удалось сохранить зашифрованные данные: {0}",
@@ -18518,5 +18518,7 @@
   "«{0}» no tiene columnas por las que ordenar para leerla por partes con executeQueries.": "в «{0}» нет столбцов для сортировки, чтобы прочитать её по частям через executeQueries.",
   "«{0}» no tiene una columna única y la API JSON corta en 100.000 filas por consulta: sus {1} filas no se pueden leer enteras de forma confiable. Usá un área de trabajo con capacidad (executeDaxQueries).": "в «{0}» нет уникального столбца, а JSON API обрезает результат на 100 000 строк на запрос: её {1} строк нельзя надёжно прочитать целиком. Используйте рабочую область с ёмкостью (executeDaxQueries).",
   "Área de trabajo": "Рабочая область",
-  "Últimas actualizaciones": "Последние обновления"
+  "Últimas actualizaciones": "Последние обновления",
+  "en la base {0}: {1}": "в базе {0}: {1}",
+  "el resultado no tiene las mismas columnas que en la primera base": "в результате нет тех же столбцов, что в первой базе"
 }

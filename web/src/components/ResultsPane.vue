@@ -20,7 +20,8 @@ import { detectSpatial } from '../composables/geo';
 import { wholeChartByDefault } from '../composables/chartWhole';
 // Leaflet and the base map load only when a map is shown.
 const MapView = defineAsyncComponent(() => import('./MapView.vue'));
-import ExportDialog from './ExportDialog.vue';
+import ExportDialog, { type ExportSource } from './ExportDialog.vue';
+import type { MultiDbExport } from '../composables/multiDbParts';
 import type { FilterState } from '../composables/gridFilter';
 import { EXPORT_FORMATS, defaultOptions, exportApi, fileName, type ExportFormat } from '../composables/export';
 import { inCodeEditor, isSaveShortcut, modalOpen } from '../composables/shortcuts';
@@ -71,6 +72,9 @@ const props = defineProps<{
   /** Sub-tab names by result index (a run on several databases: the merged
    *  grid, or each database's result). Absent: "Resultado N". */
   labels?: string[] | null;
+  /** A run on several databases (no `source`): what exporting each result
+   *  whole runs again, by result index (null: only the rows it has). */
+  multiExport?: { connectionId: string; sql: string; sets: (MultiDbExport | null)[] } | null;
   /** The view to start in (a notebook cell's saved one). Absent: the grid,
    *  or the JSON tree a document engine remembers. */
   initialView?: View;
@@ -718,8 +722,14 @@ const exporting = ref<{ format: ExportFormat } | null>(null);
 const runSource = computed(() => (props.source?.notebookTab ? null : props.source ?? null));
 /** What "Exportar todo" runs again: a connection's query, or a DataFrame SQL
  *  cell's SQL on its tab's DuckDB session (over the DataFrames its run read). */
-const exportSource = computed(() => {
-  if (!props.source || typeof active.value !== 'number') return null;
+const exportSource = computed<ExportSource | null>(() => {
+  if (typeof active.value !== 'number') return null;
+  // A run on several databases: the script runs again on the result's databases.
+  if (props.multiExport) {
+    const multi = props.multiExport.sets[active.value];
+    return multi ? { connectionId: props.multiExport.connectionId, database: '', sql: props.multiExport.sql, resultIndex: 0, multi } : null;
+  }
+  if (!props.source) return null;
   // Only some of the script's results here: the result's own statement runs.
   const o = own.value;
   return o ? { ...props.source, sql: o.sql, resultIndex: o.index } : { ...props.source, resultIndex: active.value };
@@ -770,7 +780,8 @@ async function quickExportAll(path: string, options: ReturnType<typeof defaultOp
   });
   try {
     let done = 0;
-    const known = all.notebookTab && totalRows ? totalRows : undefined;
+    // A DataFrame SQL cell's run, or a run on several databases, counted every row.
+    const known = (all.notebookTab || all.multi) && totalRows ? totalRows : undefined;
     await h.listen<{ id: string; rows: number; total?: number }>('export-progress', (e) => {
       if (e.payload.id !== exportId) return;
       done = Math.max(done, e.payload.rows);

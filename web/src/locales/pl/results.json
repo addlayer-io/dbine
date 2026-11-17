@@ -99,6 +99,7 @@
     "all": "Wszystkie{{total}}: ponownie uruchamia zapytanie",
     "allHelp": "Zapytanie jest uruchamiane ponownie w sesji tylko do odczytu, a wiersze są zapisywane do pliku w miarę napływania, bez limitu. Jeśli zapytanie modyfikuje dane, silnik je odrzuci.",
     "allHelpLocal": "Zapytanie jest uruchamiane ponownie w DuckDB, na DataFrame'ach odczytanych podczas ostatniego uruchomienia komórki (bez ponownego odczytu plików i odpytywania źródeł), a wiersze są zapisywane do pliku w miarę napływania, bez limitu.",
+    "allHelpMulti": "Zapytanie jest uruchamiane ponownie w każdej z baz, jedna po drugiej, w sesjach tylko do odczytu, a wiersze są zapisywane do pliku w miarę napływania, bez limitu. Jeśli zapytanie modyfikuje dane, silnik je odrzuci.",
     "truncated": "Wynik jest obcięty przez „Maks. wierszy”: eksportowanych jest tylko załadowanych wierszy: {{rows}}.",
     "header": "Nagłówek z nazwami kolumn",
     "delimiter": "Separator",

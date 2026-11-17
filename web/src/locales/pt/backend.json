@@ -13661,7 +13661,7 @@
   "la lectura dio filas sin decir sus columnas": "a leitura retornou linhas sem informar suas colunas",
   "la tabla es demasiado grande para compararla en memoria y no se pudo abrir DuckDB, la base local donde DBine compara las tablas grandes: {0}": "a tabela é grande demais para ser comparada na memória e não foi possível abrir o DuckDB, o banco local onde o DBine compara as tabelas grandes: {0}",
   "no hay una carpeta de datos de DBine": "não há uma pasta de dados do DBine",
-  "una fila distinta no se pudo leer de la base local": "não foi possível ler uma linha diferente do banco local",
+  "una fila no se pudo leer de la base local": "não foi possível ler uma linha do banco local",
   "ya hay una comparación en curso con ese id": "já há uma comparação em andamento com esse id",
   "alias de base local inválido: {0}": "alias de banco local inválido: {0}",
   "no se pudo guardar el dato cifrado: {0}": "não foi possível salvar o dado criptografado: {0}",
@@ -18518,5 +18518,7 @@
   "«{0}» no tiene columnas por las que ordenar para leerla por partes con executeQueries.": "“{0}” não tem colunas pelas quais ordenar para lê-la em partes com executeQueries.",
   "«{0}» no tiene una columna única y la API JSON corta en 100.000 filas por consulta: sus {1} filas no se pueden leer enteras de forma confiable. Usá un área de trabajo con capacidad (executeDaxQueries).": "“{0}” não tem uma coluna única e a API JSON corta em 100.000 linhas por consulta: suas {1} linhas não podem ser lidas por inteiro de forma confiável. Use um workspace com capacidade (executeDaxQueries).",
   "Área de trabajo": "Workspace",
-  "Últimas actualizaciones": "Últimas atualizações"
+  "Últimas actualizaciones": "Últimas atualizações",
+  "en la base {0}: {1}": "no banco {0}: {1}",
+  "el resultado no tiene las mismas columnas que en la primera base": "o resultado não tem as mesmas colunas que no primeiro banco"
 }

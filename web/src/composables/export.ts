@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Cell, ResultColumn } from '../api/types';
 import { t } from '../i18n';
 import { rt } from './i18nLabels';
+import type { MultiDbExport } from './multiDbParts';
 
 // Result exports (crates/dbine-core/src/export.rs does the writing).
 
@@ -76,11 +77,14 @@ export const exportApi = {
     /** A DataFrame SQL cell's result: its SQL runs again on this notebook
      *  tab's DuckDB session, over the DataFrames its run read. */
     notebookTab?: string | null;
+    /** A result of a run on several databases: `sql` runs again on each. */
+    multi?: MultiDbExport | null;
   }) =>
     invoke<ExportResult>('export_query_to_file', {
       args: {
         export_id: a.exportId, connection_id: a.connectionId, database: a.database, sql: a.sql,
         result_index: a.resultIndex, path: a.path, options: a.options, notebook_tab: a.notebookTab ?? null,
+        multi: a.multi ?? null,
       },
     }),
   cancel: (exportId: string) => invoke<void>('cancel_query', { args: { session_id: `export:${exportId}` } }),

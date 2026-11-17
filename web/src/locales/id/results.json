@@ -69,6 +69,7 @@
     "all": "Semua{{total}}: menjalankan kueri lagi",
     "allHelp": "Dijalankan lagi dalam sesi baca-saja dan ditulis ke berkas saat baris berdatangan, tanpa batas. Jika kueri mengubah data, mesin menolaknya.",
     "allHelpLocal": "Dijalankan lagi di DuckDB, pada DataFrame yang dibaca eksekusi terakhir sel (tanpa membaca ulang berkas atau mengkueri sumber), dan ditulis ke berkas saat baris berdatangan, tanpa batas.",
+    "allHelpMulti": "Dijalankan lagi di setiap basis data, satu per satu, dalam sesi baca-saja dan ditulis ke berkas saat baris berdatangan, tanpa batas. Jika kueri mengubah data, mesin menolaknya.",
     "truncated": "Hasil terpotong oleh \"Maks. baris\": hanya {{rows}} baris yang dimuat yang diekspor.",
     "header": "Header dengan nama kolom",
     "delimiter": "Pemisah",

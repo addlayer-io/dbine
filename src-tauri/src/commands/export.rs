@@ -3,7 +3,9 @@ use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_core::export::{export_rows, ExportOptions, Exporter, SourceStrings};
 use dbine_driver::sql::leading_keyword;
-use dbine_driver::{ConnectionConfig, Driver, Language, QueryOutcome, ResultColumn, RowSinkRef};
+use dbine_driver::{
+    ConnectionConfig, Driver, Language, QueryOutcome, ResultColumn, RowSink, RowSinkRef,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -11,6 +13,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
+
+use crate::commands::multi_db::{run_script_on, BASE_COLUMN};
+use crate::state::SessionEntry;
 
 #[derive(Deserialize)]
 pub struct ExportRowsArgs {
@@ -81,6 +86,24 @@ pub struct ExportQueryArgs {
     pub result_index: usize,
     pub path: String,
     pub options: ExportOptions,
+    /// A result of "Ejecutar en varias bases…": `sql` runs again on each of
+    /// these databases of the connection instead of `database`.
+    #[serde(default)]
+    pub multi: Option<DatabasesExport>,
+}
+
+/// What a multi-database result's grid showed ([`crate::commands::multi_db`]):
+/// the script runs again on each database, one after the other and in the
+/// grid's order, and one file gets every row of each one's result set.
+#[derive(Deserialize, Clone, Debug)]
+pub struct DatabasesExport {
+    pub databases: Vec<String>,
+    /// Which of each run's result sets with columns: 0 is the first, the
+    /// one the merged grid holds.
+    pub set: usize,
+    /// Each row starts with its database's name, in the `base` column (the
+    /// merged grid).
+    pub base: bool,
 }
 
 /// `export-progress`: rows written so far and, once the engine's estimated
@@ -217,8 +240,11 @@ async fn explain_rows(s: &mut dyn dbine_driver::Session, sql: &str) -> Option<u6
 pub async fn export_query_to_file(
     app: AppHandle,
     state: State<'_, AppState>,
-    args: ExportQueryArgs,
+    mut args: ExportQueryArgs,
 ) -> CommandResult<ExportResult> {
+    if let Some(multi) = args.multi.take() {
+        return export_databases(app, state, args, multi).await;
+    }
     let started = std::time::Instant::now();
     let key = format!("export:{}", args.export_id);
     let tab = args.notebook_tab.clone().filter(|t| !t.is_empty());
@@ -387,6 +413,254 @@ pub async fn export_query_to_file(
             id: args.export_id.clone(),
             rows,
             total: known(&total),
+        },
+    );
+    Ok(ExportResult {
+        rows,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
+/// Why a database's result can't join the file: its columns aren't the
+/// first database's any more.
+const COLUMNS_CHANGED: &str = "el resultado no tiene las mismas columnas que en la primera base";
+const CANCELLED: &str = "Exportación cancelada.";
+const NO_RESULT: &str = "la consulta no devolvió ese resultado";
+
+/// The rows of a multi-database export. From each database's run, the
+/// [`DatabasesExport::set`]-th result set with columns goes to the file,
+/// whose columns are the first database's (after `base` when the grid had
+/// it).
+pub(crate) struct DatabasesSink {
+    exporter: Exporter,
+    set: usize,
+    base: bool,
+    database: Value,
+    /// Result sets with columns this database's run has begun.
+    seen: usize,
+    /// This run's result set being written.
+    target: Option<usize>,
+    /// The file's column names, case aside (`base` aside).
+    names: Option<Vec<String>>,
+    /// Why the export can't go on.
+    problem: Option<String>,
+    row: Vec<Value>,
+}
+
+impl DatabasesSink {
+    pub(crate) fn new(exporter: Exporter, set: usize, base: bool) -> Self {
+        Self {
+            exporter,
+            set,
+            base,
+            database: Value::Null,
+            seen: 0,
+            target: None,
+            names: None,
+            problem: None,
+            row: Vec::new(),
+        }
+    }
+
+    /// The next database's run starts.
+    pub(crate) fn next_database(&mut self, name: &str) {
+        self.database = Value::String(name.to_string());
+        self.seen = 0;
+        self.target = None;
+    }
+
+    /// This database's run had the result set.
+    pub(crate) fn found(&self) -> bool {
+        self.target.is_some()
+    }
+
+    pub(crate) fn finish(&mut self) -> std::io::Result<u64> {
+        self.exporter.finish()
+    }
+}
+
+impl RowSink for DatabasesSink {
+    fn begin(&mut self, index: usize, columns: &[ResultColumn]) -> std::io::Result<()> {
+        if columns.is_empty() || self.target.is_some() {
+            return Ok(());
+        }
+        self.seen += 1;
+        if self.seen <= self.set {
+            return Ok(());
+        }
+        let names: Vec<String> = columns.iter().map(|c| c.name.to_lowercase()).collect();
+        match &self.names {
+            None => {
+                let base = self.base.then(|| ResultColumn {
+                    name: BASE_COLUMN.into(),
+                    type_name: String::new(),
+                });
+                let all: Vec<ResultColumn> =
+                    base.into_iter().chain(columns.iter().cloned()).collect();
+                self.exporter.begin(0, &all)?;
+                self.names = Some(names);
+            }
+            Some(first) if *first == names => {}
+            Some(_) => {
+                let db = self.database.as_str().unwrap_or_default();
+                self.problem = Some(format!("en la base {db}: {COLUMNS_CHANGED}"));
+                return Err(std::io::Error::other(COLUMNS_CHANGED));
+            }
+        }
+        self.target = Some(index);
+        Ok(())
+    }
+
+    fn row(&mut self, index: usize, row: &[Value]) -> std::io::Result<()> {
+        if self.target != Some(index) {
+            return Ok(());
+        }
+        if !self.base {
+            return self.exporter.row(0, row);
+        }
+        self.row.clear();
+        self.row.push(self.database.clone());
+        self.row.extend_from_slice(row);
+        self.exporter.row(0, &self.row)
+    }
+}
+
+/// How one database's run of a multi-database export ended.
+fn database_failure(
+    db: &str,
+    entry: &SessionEntry,
+    finished: Option<dbine_driver::Result<()>>,
+    out: &QueryOutcome,
+    sink: &DatabasesSink,
+) -> Option<String> {
+    let cancelled = entry.cancelled.load(Ordering::SeqCst);
+    match finished {
+        None | Some(Err(dbine_driver::Error::Cancelled)) => Some(CANCELLED.into()),
+        Some(Err(_)) if cancelled => Some(CANCELLED.into()),
+        Some(Err(e)) => Some(format!("en la base {db}: {e}")),
+        Some(Ok(())) => sink
+            .problem
+            .clone()
+            .or_else(|| {
+                out.sink_error
+                    .as_ref()
+                    .map(|e| format!("no se pudo escribir el archivo: {e}"))
+            })
+            .or_else(|| {
+                out.errors
+                    .first()
+                    .map(|e| format!("en la base {db}: {}", e.message))
+            })
+            .or_else(|| (!sink.found()).then(|| format!("en la base {db}: {NO_RESULT}"))),
+    }
+}
+
+/// Run the script of a multi-database result again on each of its
+/// databases and stream what the grid showed, every row, to one file. Each
+/// database gets a read-only session of its own, one after the other, and
+/// runs the script as the multi-database run did (statement by statement or
+/// batch by batch, see [`run_script_on`]), so the result set is the same
+/// one. A database that fails stops the export: no half file stays.
+async fn export_databases(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: ExportQueryArgs,
+    multi: DatabasesExport,
+) -> CommandResult<ExportResult> {
+    let started = Instant::now();
+    let driver = driver_of(&state, &args.connection_id)?;
+    let key = format!("export:{}", args.export_id);
+    let path = PathBuf::from(&args.path);
+    let mut options = args.options;
+    options.source = SourceStrings::of(driver.as_ref());
+    let id = args.export_id.clone();
+    let emitter = app.clone();
+    let mut last_emit: Option<Instant> = None;
+    let exporter = Exporter::new(&path, 0, options).on_progress(move |rows| {
+        if last_emit.is_some_and(|t| t.elapsed() < PROGRESS_EVERY) {
+            return;
+        }
+        last_emit = Some(Instant::now());
+        let _ = emitter.emit(
+            "export-progress",
+            Progress {
+                id: id.clone(),
+                rows,
+                total: None,
+            },
+        );
+    });
+    let sink = Arc::new(Mutex::new(DatabasesSink::new(
+        exporter, multi.set, multi.base,
+    )));
+    fn lock(s: &Mutex<DatabasesSink>) -> CommandResult<std::sync::MutexGuard<'_, DatabasesSink>> {
+        s.lock()
+            .map_err(|_| CommandError::Internal("exportador".into()))
+    }
+
+    let mut failure = multi.databases.is_empty().then(|| NO_RESULT.to_string());
+    // The session that ran last stays registered while the next one
+    // connects: a cancel then reaches it, and the loop sees it.
+    let mut prev: Option<Arc<SessionEntry>> = None;
+    let was_cancelled = |e: &Option<Arc<SessionEntry>>| {
+        e.as_ref()
+            .is_some_and(|e| e.cancelled.load(Ordering::SeqCst))
+    };
+    for db in &multi.databases {
+        if failure.is_some() {
+            break;
+        }
+        if was_cancelled(&prev) {
+            failure = Some(CANCELLED.into());
+            break;
+        }
+        let entry = match state
+            .dedicated_session(&key, &args.connection_id, db, true)
+            .await
+        {
+            Ok(e) => e,
+            Err(e) => {
+                failure = Some(format!("en la base {db}: {e}"));
+                break;
+            }
+        };
+        if was_cancelled(&prev) {
+            entry.cancelled.store(true, Ordering::SeqCst);
+        }
+        lock(&sink)?.next_database(db);
+        let mut out = QueryOutcome {
+            sink: Some(RowSinkRef(sink.clone())),
+            ..Default::default()
+        };
+        let finished = if entry.cancelled.load(Ordering::SeqCst) {
+            None
+        } else {
+            let mut s = entry.session.lock().await;
+            tokio::select! {
+                r = run_script_on(&mut **s, driver.as_ref(), &args.sql, usize::MAX, false, &entry.cancelled, &mut out) => Some(r),
+                _ = entry.cancel.notified() => None,
+            }
+        };
+        out.sink = None;
+        failure = database_failure(db, &entry, finished, &out, &*lock(&sink)?);
+        prev = Some(entry);
+    }
+    state.sessions.remove(&key);
+
+    let rows = lock(&sink)?.finish();
+    if let Some(msg) = failure {
+        // Don't leave half a file behind.
+        let _ = std::fs::remove_file(&path);
+        return Err(CommandError::Sql(msg));
+    }
+    let rows =
+        rows.map_err(|e| CommandError::Internal(format!("no se pudo cerrar el archivo: {e}")))?;
+    let _ = app.emit(
+        "export-progress",
+        Progress {
+            id: args.export_id.clone(),
+            rows,
+            total: None,
         },
     );
     Ok(ExportResult {
@@ -834,6 +1108,124 @@ mod tests {
             .map(|v| v.to_string())
             .chain(extra.iter().cloned())
             .collect()
+    }
+
+    /// A multi-database run's grid keeps 5,000 rows per database; its export
+    /// writes every row of every database, each after its database's name.
+    /// SQLite files stand for the connection's databases (no server needed).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_multi_database_export_writes_every_row_of_every_database() {
+        let dir = std::env::temp_dir().join(format!("dbine-export-multi-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sqlite = driver("sqlite");
+        let mut dbs = Vec::new();
+        for (name, cols) in [
+            ("uno", "id, name"),
+            ("dos", "id, name"),
+            ("tres", "id, other"),
+        ] {
+            let cfg = ConnectionConfig {
+                driver: "sqlite".into(),
+                host: dir.join(format!("{name}.db")).to_string_lossy().into(),
+                ..Default::default()
+            };
+            let mut s = dbine_drivers::open_session(&cfg, None).await.unwrap();
+            run(&mut s, &format!("CREATE TABLE t ({cols})")).await;
+            run(
+                &mut s,
+                &format!(
+                    "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 6000) \
+                     INSERT INTO t SELECT i, '{name}' || i FROM n"
+                ),
+            )
+            .await;
+            dbs.push((name, s));
+        }
+        // The script as the multi-database run ran it on each database.
+        async fn export(
+            dbs: &mut [(&str, Box<dyn dbine_driver::Session>)],
+            sqlite: &dyn Driver,
+            sql: &str,
+            set: usize,
+            base: bool,
+            file: &std::path::Path,
+        ) -> (Option<String>, u64) {
+            let opts = ExportOptions {
+                format: dbine_core::export::Format::Csv,
+                ..Default::default()
+            };
+            let sink = Arc::new(Mutex::new(DatabasesSink::new(
+                Exporter::new(file, 0, opts),
+                set,
+                base,
+            )));
+            let mut problem = None;
+            for (name, s) in dbs.iter_mut() {
+                sink.lock().unwrap().next_database(name);
+                let mut out = QueryOutcome {
+                    sink: Some(RowSinkRef(sink.clone())),
+                    ..Default::default()
+                };
+                let never = std::sync::atomic::AtomicBool::new(false);
+                run_script_on(&mut **s, sqlite, sql, usize::MAX, false, &never, &mut out)
+                    .await
+                    .unwrap();
+                out.sink = None;
+                let g = sink.lock().unwrap();
+                problem = g
+                    .problem
+                    .clone()
+                    .or_else(|| (!g.found()).then(|| format!("{name}: no result")));
+                if problem.is_some() {
+                    break;
+                }
+            }
+            let rows = sink.lock().unwrap().finish().unwrap();
+            (problem, rows)
+        }
+
+        // The merged grid: every row of both databases, `base` first.
+        let file = dir.join("merged.csv");
+        let (problem, rows) = export(
+            &mut dbs[..2],
+            sqlite,
+            "SELECT id, name FROM t ORDER BY id",
+            0,
+            true,
+            &file,
+        )
+        .await;
+        assert_eq!(problem, None);
+        assert_eq!(rows, 12_000);
+        let text = std::fs::read_to_string(&file).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 12_001);
+        assert_eq!(lines[0], "base,id,name");
+        assert_eq!(lines[1], "uno,1,uno1");
+        assert_eq!(lines[6000], "uno,6000,uno6000");
+        assert_eq!(lines[6001], "dos,1,dos1");
+        assert_eq!(lines[12_000], "dos,6000,dos6000");
+
+        // One database's second result set: no `base`, only that set.
+        let file = dir.join("second.csv");
+        let sql = "SELECT count(*) AS n FROM t; SELECT id, name FROM t WHERE id > 5990 ORDER BY id";
+        let (problem, rows) = export(&mut dbs[1..2], sqlite, sql, 1, false, &file).await;
+        assert_eq!(problem, None);
+        assert_eq!(rows, 10);
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(text.lines().next(), Some("id,name"));
+        assert_eq!(text.lines().nth(1), Some("5991,dos5991"));
+
+        // A database whose result no longer has the first one's columns stops it.
+        let file = dir.join("changed.csv");
+        let (problem, _) = export(&mut dbs, sqlite, "SELECT * FROM t", 0, true, &file).await;
+        assert_eq!(
+            problem.as_deref(),
+            Some(format!("en la base tres: {COLUMNS_CHANGED}").as_str())
+        );
+
+        drop(dbs);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// No server needed: a SQLite file.

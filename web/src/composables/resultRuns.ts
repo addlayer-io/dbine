@@ -1,4 +1,5 @@
 import type { QueryOutcome } from '../api/types';
+import type { MultiDbExport } from './multiDbParts';
 
 // A query editor's result tabs: each run of the editor keeps its own results
 // (with the script, connection and database they came from) until it's
@@ -46,8 +47,10 @@ export interface ResultRun {
    *  start in different places (a DAX `DEFINE` and its `EVALUATE`s), any
    *  tab of them: each one's own text (resultNames.ts, `placeText`). */
   resultSql?: (string | null)[] | null;
-  /** A run on several databases: its sub-tab labels and summary. */
-  multi: { labels: string[]; summary: string } | null;
+  /** A run on several databases: its sub-tab labels and summary, and what
+   *  exporting each result whole runs again (absent in runs kept before it
+   *  existed: those export the rows they have). */
+  multi: { labels: string[]; summary: string; exports?: (MultiDbExport | null)[] } | null;
   /** The editor's line of the script's first line, minus one (messages'
    *  "Línea N"), and where its text started in the editor. */
   lineOffset: number | null;
