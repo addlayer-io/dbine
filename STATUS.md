@@ -2,30 +2,32 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-11-16._
+_Updated 2026-11-17._
 
 ## Open findings
 
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 0 | 1 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-_None._
+| ID | Severity | Source | Finding | Where | Fix |
+|---|---|---|---|---|---|
+| OSV-RUSTSEC-2026-0544-libz-sys-13ee4b | MEDIUM | osv | libz-sys 1.1.31: libs-sys: heap buffer overflow | `Cargo.lock` | upgrade to 1.1.33 |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.6.2 | 2026-11-16 | 1d17cb8c..5341c10b, everything the first 1.6.2 cut added since v1.6.1 (#111, the #107 regression test, the dependency bumps); 5341c10b..19615aeb, what the re-cut adds (the data compare's equal rows #115, Switch to queries #118, docs and notes); 19615aeb..0e26e2f0, the fix for that scan's one LOW finding (#121) | 0 open | — |
-| codeql | 2026-11-16 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-16 | every lockfile (Cargo, npm) at [`4a082c52a`](https://github.com/addlayer-io/dbine/commit/4a082c52abc3) | 0 open | — |
-| scorecard | 2026-11-16 | repository settings and workflows at [`0e26e2f06`](https://github.com/addlayer-io/dbine/commit/0e26e2f06e6a) | score 7.5/10 | — |
-| trivy | 2026-11-16 | whole repository at [`4a082c52a`](https://github.com/addlayer-io/dbine/commit/4a082c52abc3) | 0 open | — |
+| codeql | 2026-11-17 | Rust, TypeScript/Vue and workflows | 0 open | — |
+| osv | 2026-11-17 | every lockfile (Cargo, npm) at [`fca5de639`](https://github.com/addlayer-io/dbine/commit/fca5de63974e) | 1 open | — |
+| scorecard | 2026-11-16 | repository settings and workflows at [`4a082c52a`](https://github.com/addlayer-io/dbine/commit/4a082c52abc3) | score 7.5/10 | — |
+| trivy | 2026-11-17 | whole repository at [`fca5de639`](https://github.com/addlayer-io/dbine/commit/fca5de63974e) | 0 open | — |
 
 ## Not counted, and why
 
@@ -386,7 +388,11 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 
 Dependencies their authors no longer maintain. Not a vulnerability, so not counted in the badge; worth replacing over time.
 
-_None._
+| Dependency | Where | Advisory |
+|---|---|---|
+| chrono 0.4.45: chrono is unmaintained | `Cargo.lock` | RUSTSEC-2026-0543 |
+| chrono 0.4.45: chrono is unmaintained | `mobile/src-tauri/Cargo.lock` | RUSTSEC-2026-0543 |
+| chrono 0.4.45: chrono is unmaintained | `fuzz/Cargo.lock` | RUSTSEC-2026-0543 |
 
 ## Repository practices
 
@@ -396,9 +402,9 @@ OpenSSF Scorecard: **7.5/10** (2026-11-16). The checks below 10, with Scorecard'
 |---|---|---|
 | Binary-Artifacts: 9/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 4/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
-| Code-Review: 0/10 — Found 0/10 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
+| Code-Review: 0/10 — Found 0/11 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Signed-Releases: 9/10 — 5 out of the last 5 releases have a total of 9 signed artifacts. | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases) |
-| CI-Tests: 7/10 — 9 out of 12 merged PRs checked by a CI test -- score normalized to 7 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
+| CI-Tests: 7/10 — 10 out of 13 merged PRs checked by a CI test -- score normalized to 7 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |
