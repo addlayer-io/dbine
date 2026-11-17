@@ -33,15 +33,15 @@
     {
       "source": "osv",
       "date": "2026-11-17",
-      "revision": "fca5de63974e",
+      "revision": "d1ae13cf2d81",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 1
+      "found": 3
     },
     {
       "source": "trivy",
       "date": "2026-11-17",
-      "revision": "fca5de63974e",
+      "revision": "d1ae13cf2d81",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -56,11 +56,11 @@
     },
     {
       "source": "scorecard",
-      "date": "2026-11-16",
-      "revision": "4a082c52abc3",
+      "date": "2026-11-17",
+      "revision": "fca5de63974e",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 7.5
+      "score": 7.3
     }
   ],
   "findings": [
@@ -4446,6 +4446,30 @@
       "by": "mpanichella"
     },
     {
+      "id": "OSV-GHSA-fc5q-39xc-vjpf-picomatch-3ebf69",
+      "source": "osv",
+      "severity": "HIGH",
+      "kind": "Vulnerable dependency",
+      "title": "picomatch 4.0.7: picomatch vulnerable to ReDoS through single-branch repeated extglobs",
+      "component": "web/package-lock.json",
+      "advisory": "GHSA-fc5q-39xc-vjpf",
+      "fixed_version": null,
+      "found": "2026-11-17",
+      "status": "open"
+    },
+    {
+      "id": "OSV-GHSA-fc5q-39xc-vjpf-picomatch-d5fe01",
+      "source": "osv",
+      "severity": "HIGH",
+      "kind": "Vulnerable dependency",
+      "title": "picomatch 4.0.7: picomatch vulnerable to ReDoS through single-branch repeated extglobs",
+      "component": "mobile/package-lock.json",
+      "advisory": "GHSA-fc5q-39xc-vjpf",
+      "fixed_version": null,
+      "found": "2026-11-17",
+      "status": "open"
+    },
+    {
       "id": "OSV-RUSTSEC-2026-0543-chrono-13ee4b",
       "source": "osv",
       "severity": "NOTICE",
@@ -4520,7 +4544,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "CI-Tests: 7/10 — 10 out of 13 merged PRs checked by a CI test -- score normalized to 7",
+      "title": "CI-Tests: 3/10 — 5 out of 14 merged PRs checked by a CI test -- score normalized to 3",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
       "found": "2026-11-15",
@@ -4542,7 +4566,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/11 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/12 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",
@@ -4571,14 +4595,14 @@
       "status": "open"
     },
     {
-      "id": "SC-Signed-Releases",
+      "id": "SC-Vulnerabilities",
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Signed-Releases: 9/10 — 5 out of the last 5 releases have a total of 9 signed artifacts.",
+      "title": "Vulnerabilities: 8/10 — 2 existing vulnerabilities detected",
       "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#signed-releases",
-      "found": "2026-10-21",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
+      "found": "2026-11-17",
       "status": "open"
     }
   ],
