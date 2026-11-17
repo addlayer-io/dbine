@@ -13948,7 +13948,7 @@
   "la lectura dio filas sin decir sus columnas": "читання повернуло рядки без зазначення стовпців",
   "la tabla es demasiado grande para compararla en memoria y no se pudo abrir DuckDB, la base local donde DBine compara las tablas grandes: {0}": "таблиця завелика для порівняння в пам'яті, а DuckDB — локальну базу, де DBine порівнює великі таблиці, — відкрити не вдалося: {0}",
   "no hay una carpeta de datos de DBine": "немає теки даних DBine",
-  "una fila distinta no se pudo leer de la base local": "не вдалося прочитати відмінний рядок із локальної бази",
+  "una fila no se pudo leer de la base local": "не вдалося прочитати рядок із локальної бази",
   "ya hay una comparación en curso con ese id": "порівняння з цим ідентифікатором уже виконується",
   "alias de base local inválido: {0}": "неприпустимий псевдонім локальної бази: {0}",
   "no se pudo guardar el dato cifrado: {0}": "не вдалося зберегти зашифровані дані: {0}",
@@ -18518,5 +18518,7 @@
   "h2: no version: {0}": "h2: no version: {0}",
   "risingwave: no version: {0}": "risingwave: no version: {0}",
   "s SIN(float_exp) -> FLOAT": "s SIN(float_exp) -> FLOAT",
-  "{0}: pg_proc listed no functions": "{0}: pg_proc listed no functions"
+  "{0}: pg_proc listed no functions": "{0}: pg_proc listed no functions",
+  "en la base {0}: {1}": "у базі {0}: {1}",
+  "el resultado no tiene las mismas columnas que en la primera base": "результат не має тих самих стовпців, що й у першій базі"
 }

@@ -13568,7 +13568,7 @@
   "la lectura dio filas sin decir sus columnas": "读取返回了行，但未说明其列",
   "la tabla es demasiado grande para compararla en memoria y no se pudo abrir DuckDB, la base local donde DBine compara las tablas grandes: {0}": "表太大，无法在内存中比较，且无法打开 DuckDB（DBine 用于比较大型表的本地数据库）：{0}",
   "no hay una carpeta de datos de DBine": "没有 DBine 数据文件夹",
-  "una fila distinta no se pudo leer de la base local": "无法从本地数据库读取不同的行",
+  "una fila no se pudo leer de la base local": "无法从本地数据库读取行",
   "ya hay una comparación en curso con ese id": "已有使用该 ID 的比较正在进行",
   "alias de base local inválido: {0}": "本地数据库别名无效：{0}",
   "no se pudo guardar el dato cifrado: {0}": "无法保存加密数据：{0}",
@@ -18518,5 +18518,7 @@
   "«{0}» no tiene columnas por las que ordenar para leerla por partes con executeQueries.": "“{0}”没有可用于排序的列，无法通过 executeQueries 分段读取。",
   "«{0}» no tiene una columna única y la API JSON corta en 100.000 filas por consulta: sus {1} filas no se pueden leer enteras de forma confiable. Usá un área de trabajo con capacidad (executeDaxQueries).": "“{0}”没有唯一列，而 JSON API 每次查询在 100,000 行处截断：无法可靠地完整读取其 {1} 行。请使用带有容量的工作区（executeDaxQueries）。",
   "Área de trabajo": "工作区",
-  "Últimas actualizaciones": "最近的刷新"
+  "Últimas actualizaciones": "最近的刷新",
+  "en la base {0}: {1}": "在数据库 {0} 中：{1}",
+  "el resultado no tiene las mismas columnas que en la primera base": "结果的列与第一个数据库中的不同"
 }

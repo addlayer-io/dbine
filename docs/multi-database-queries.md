@@ -59,11 +59,34 @@ If the editor is empty, it says **There is no code to run**.
   database** (and per result, if a database returned several).
 - If there is a merged grid, each database's other results go in separate
   tabs, with the database name and a number.
-- The merged grid is exported and copied like any other (the loaded rows).
+- Copying takes the loaded rows, like any grid. Exporting takes **every
+  row**: see [Exporting the results](#exporting-the-results).
 - The **Messages** tab has one line per database: status, rows (or affected
   rows) and time, the server's messages and the error if there was one. Above
   the result you see the summary, for example **3 of 4 databases OK, 1 with
   error**.
+
+## Exporting the results
+
+The grid keeps the editor's maximum rows per database, but an export writes
+**every row** of the result, as with a single database:
+
+- The **Export** menu and the **all rows** option of the advanced export
+  (⌘E) run the code again on **each database, one after the other**, in the
+  order of the grid, and write the rows to the file as they arrive.
+- The **merged grid** gives one file with the **`base`** column first and the
+  rows of every database that finished OK. A database's own result (its tab)
+  runs again only on that database.
+- Each database runs in a **read-only session** of its own, the way the run
+  did (statement by statement, batch by batch or whole), so the file has the
+  same result the grid shows. If the code writes, the engine rejects it.
+- The progress shows the rows written, against the total the run counted (an
+  estimate: the data may have changed since).
+- If a database fails, the export stops and says which database and why. If
+  a database's result no longer has the first database's columns, it stops
+  too. It can be cancelled. In every case the half-written file is deleted.
+- A database that ended with an error or cancelled exports only the rows its
+  tab has.
 
 ## Errors per database
 
@@ -116,3 +139,9 @@ Commands `run_multi_db` and `cancel_multi_db`
 database that finishes (status, rows, time, error, `done` / `total`). The
 action is offered according to `DriverInfo::databases_label`. It adds no
 methods to the driver contract.
+
+The export of every row is `export_query_to_file` with
+`multi: { databases, set, base }` (`src-tauri/src/commands/export.rs`): `set`
+is which of each run's result sets with columns (0, the first, for the
+merged grid) and `base` puts the database's name first. The UI builds it in
+`web/src/composables/multiDbParts.ts`.

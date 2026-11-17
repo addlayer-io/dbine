@@ -13568,7 +13568,7 @@
   "la lectura dio filas sin decir sus columnas": "読み取りで列の情報なしに行が返されました",
   "la tabla es demasiado grande para compararla en memoria y no se pudo abrir DuckDB, la base local donde DBine compara las tablas grandes: {0}": "テーブルが大きすぎてメモリ内で比較できず、DBine が大きなテーブルを比較するローカルデータベースの DuckDB も開けませんでした: {0}",
   "no hay una carpeta de datos de DBine": "DBine のデータフォルダーがありません",
-  "una fila distinta no se pudo leer de la base local": "異なる行をローカルデータベースから読み取れませんでした",
+  "una fila no se pudo leer de la base local": "行をローカルデータベースから読み取れませんでした",
   "ya hay una comparación en curso con ese id": "その ID の比較はすでに実行中です",
   "alias de base local inválido: {0}": "ローカル データベースのエイリアスが無効です: {0}",
   "no se pudo guardar el dato cifrado: {0}": "暗号化したデータを保存できませんでした: {0}",
@@ -18518,5 +18518,7 @@
   "«{0}» no tiene columnas por las que ordenar para leerla por partes con executeQueries.": "「{0}」には並べ替えに使える列がないため、executeQueries で分割して読み取れません。",
   "«{0}» no tiene una columna única y la API JSON corta en 100.000 filas por consulta: sus {1} filas no se pueden leer enteras de forma confiable. Usá un área de trabajo con capacidad (executeDaxQueries).": "「{0}」には一意の列がなく、JSON API は 1 回のクエリで 100,000 行で切り捨てられるため、{1} 行すべてを確実に読み取ることができません。容量のあるワークスペース (executeDaxQueries) を使用してください。",
   "Área de trabajo": "ワークスペース",
-  "Últimas actualizaciones": "最近の更新"
+  "Últimas actualizaciones": "最近の更新",
+  "en la base {0}: {1}": "データベース {0} で：{1}",
+  "el resultado no tiene las mismas columnas que en la primera base": "結果の列が最初のデータベースと異なります"
 }

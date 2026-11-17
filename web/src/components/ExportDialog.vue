@@ -9,6 +9,7 @@ import {
   EXPORT_FORMATS, defaultOptions, exportApi, fileName, type ExportFormat, type ExportOptions, type ExportResult,
 } from '../composables/export';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
+import type { MultiDbExport } from '../composables/multiDbParts';
 
 // Advanced export: format + its options, and what to export — the rows
 // already loaded, or every row (the script runs again, read-only, and
@@ -36,6 +37,9 @@ export interface ExportSource {
   /** A DataFrame SQL cell's result: run again on that notebook tab's DuckDB
    *  session (no connection), over the DataFrames its run read. */
   notebookTab?: string;
+  /** A result of a run on several databases: the script runs again on each
+   *  of them (`database` aside). */
+  multi?: MultiDbExport;
 }
 
 const props = defineProps<{
@@ -122,7 +126,8 @@ async function run() {
         h.progress({ done, total: total != null && done <= total ? total : undefined, unit: 'rows' });
       });
       // A DataFrame SQL cell's run counted every row: that's the total.
-      if (all.notebookTab && props.totalRows > props.rows.length) estimate.value = props.totalRows;
+      // So did a run on several databases (the data may have changed since: an estimate).
+      if ((all.notebookTab || all.multi) && props.totalRows > props.rows.length) estimate.value = props.totalRows;
       result = await exportApi.query({ exportId, ...all, path, options });
     } else if (props.compare) {
       h.progress({ total: props.compare.rows, unit: 'rows' });
@@ -186,7 +191,7 @@ function toBackground() {
           </el-radio>
         </el-radio-group>
         <div v-if="scope === 'all'" class="ed-help">
-          {{ source?.notebookTab ? $t('results:exportDialog.allHelpLocal') : $t('results:exportDialog.allHelp') }}
+          {{ source?.notebookTab ? $t('results:exportDialog.allHelpLocal') : (source?.multi?.databases.length ?? 0) > 1 ? $t('results:exportDialog.allHelpMulti') : $t('results:exportDialog.allHelp') }}
         </div>
         <div v-else-if="truncated" class="ed-help warn">
           {{ $t('results:exportDialog.truncated', { rows: rows.length.toLocaleString(locale()) }) }}

@@ -1486,10 +1486,10 @@ async function runMultiDb(databases: string[]) {
       if (!viewAlive) return;
       multiOpen.value = false;
       if (!r) { ElMessage.error(error ?? ''); return; }
-      const { outcome: o, labels } = multiDbOutcome(r);
+      const { outcome: o, labels, exports } = multiDbOutcome(r);
       const kept = addRun({
         outcome: o, script, plan: 'none', connectionId, database: '', language: driver.value?.language ?? 'sql',
-        multi: { labels, summary: runSummary(r) }, lineOffset: null, runBase: 0,
+        multi: { labels, summary: runSummary(r), exports }, lineOffset: null, runBase: 0,
       });
       activeRunId.value = kept.id;
       persistRun(kept);
@@ -1843,6 +1843,7 @@ function runOverflow(i: number) {
               :edit-source="r.multi ? null : { connectionId: r.connectionId, database: r.database, language: r.language, script: r.script }"
               :result-sql="r.resultSql ?? null"
               :labels="r.multi?.labels ?? null"
+              :multi-export="r.multi?.exports ? { connectionId: r.connectionId, sql: r.script, sets: r.multi.exports } : null"
               :line-offset="r.multi ? null : r.lineOffset ?? 0"
               hide-status
               @script="appendScript"

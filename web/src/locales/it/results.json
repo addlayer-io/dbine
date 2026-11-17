@@ -89,6 +89,7 @@
     "all": "Tutte{{total}}: esegue di nuovo la query",
     "allHelp": "Viene eseguita di nuovo in una sessione di sola lettura e scritta nel file man mano che arrivano le righe, senza limite. Se la query modifica dati, il motore la rifiuta.",
     "allHelpLocal": "Viene rieseguita in DuckDB, sui DataFrame letti dall'ultima esecuzione della cella (senza rileggere file né interrogare di nuovo le sorgenti), e scritta nel file man mano che arrivano le righe, senza limite.",
+    "allHelpMulti": "Viene eseguita di nuovo su ciascuno dei database, uno dopo l’altro, in sessioni di sola lettura e scritta nel file man mano che arrivano le righe, senza limite. Se la query modifica dati, il motore la rifiuta.",
     "truncated": "Il risultato è troncato da \"Righe max.\": si esportano solo le {{rows}} righe caricate.",
     "header": "Intestazione con i nomi delle colonne",
     "delimiter": "Separatore",

@@ -13948,7 +13948,7 @@
   "la lectura dio filas sin decir sus columnas": "읽기 결과에 열 정보 없이 행이 반환되었습니다",
   "la tabla es demasiado grande para compararla en memoria y no se pudo abrir DuckDB, la base local donde DBine compara las tablas grandes: {0}": "테이블이 너무 커서 메모리에서 비교할 수 없으며, DBine이 큰 테이블을 비교하는 로컬 데이터베이스인 DuckDB도 열 수 없습니다: {0}",
   "no hay una carpeta de datos de DBine": "DBine 데이터 폴더가 없습니다",
-  "una fila distinta no se pudo leer de la base local": "다른 행을 로컬 데이터베이스에서 읽을 수 없습니다",
+  "una fila no se pudo leer de la base local": "행을 로컬 데이터베이스에서 읽을 수 없습니다",
   "ya hay una comparación en curso con ese id": "해당 ID의 비교가 이미 진행 중입니다",
   "alias de base local inválido: {0}": "로컬 데이터베이스 별칭이 잘못되었습니다: {0}",
   "no se pudo guardar el dato cifrado: {0}": "암호화된 데이터를 저장할 수 없습니다: {0}",
@@ -18518,5 +18518,7 @@
   "h2: no version: {0}": "h2: no version: {0}",
   "risingwave: no version: {0}": "risingwave: no version: {0}",
   "s SIN(float_exp) -> FLOAT": "s SIN(float_exp) -> FLOAT",
-  "{0}: pg_proc listed no functions": "{0}: pg_proc listed no functions"
+  "{0}: pg_proc listed no functions": "{0}: pg_proc listed no functions",
+  "en la base {0}: {1}": "데이터베이스 {0}에서: {1}",
+  "el resultado no tiene las mismas columnas que en la primera base": "결과의 열이 첫 번째 데이터베이스와 같지 않습니다"
 }

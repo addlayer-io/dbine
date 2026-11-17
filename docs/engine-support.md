@@ -123,7 +123,13 @@ Supported in **all engines**, with no exceptions.
 CSV, CSV for Excel (UTF-8 with BOM, `;` and CRLF), TSV, Excel (.xlsx) and XML.
 
 **Where:**
-- **"Export" menu** of each result: writes the loaded rows right away.
+- **"Export" menu** of each result: writes the loaded rows right away. A
+  result cut by the maximum rows is exported whole instead, as "all rows"
+  does.
+- **Run on several databases:** "all rows" runs the code again on each
+  database, one after the other, into one file (the merged grid with its
+  `base` column); see
+  [multi-database-queries.md](multi-database-queries.md#exporting-the-results).
 - **Advanced export (⌘E):** adds the options of each format and the
   **all rows** option, which re-runs the query and writes the file as rows
   arrive. On a table, "all" means the whole table.

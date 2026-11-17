@@ -13661,7 +13661,7 @@
   "la lectura dio filas sin decir sus columnas": "la lecture a renvoyé des lignes sans indiquer leurs colonnes",
   "la tabla es demasiado grande para compararla en memoria y no se pudo abrir DuckDB, la base local donde DBine compara las tablas grandes: {0}": "la table est trop grande pour être comparée en mémoire et DuckDB, la base locale où DBine compare les grandes tables, n'a pas pu être ouverte : {0}",
   "no hay una carpeta de datos de DBine": "il n'y a pas de dossier de données DBine",
-  "una fila distinta no se pudo leer de la base local": "une ligne différente n'a pas pu être lue depuis la base locale",
+  "una fila no se pudo leer de la base local": "une ligne n'a pas pu être lue depuis la base locale",
   "ya hay una comparación en curso con ese id": "une comparaison avec cet identifiant est déjà en cours",
   "alias de base local inválido: {0}": "alias de base locale non valide : {0}",
   "no se pudo guardar el dato cifrado: {0}": "impossible d'enregistrer la donnée chiffrée : {0}",
@@ -18518,5 +18518,7 @@
   "«{0}» no tiene columnas por las que ordenar para leerla por partes con executeQueries.": "« {0} » n'a pas de colonnes de tri pour la lire par parties avec executeQueries.",
   "«{0}» no tiene una columna única y la API JSON corta en 100.000 filas por consulta: sus {1} filas no se pueden leer enteras de forma confiable. Usá un área de trabajo con capacidad (executeDaxQueries).": "« {0} » n'a pas de colonne unique et l'API JSON coupe à 100 000 lignes par requête : ses {1} lignes ne peuvent pas être lues en entier de façon fiable. Utilisez un espace de travail avec capacité (executeDaxQueries).",
   "Área de trabajo": "Espace de travail",
-  "Últimas actualizaciones": "Dernières actualisations"
+  "Últimas actualizaciones": "Dernières actualisations",
+  "en la base {0}: {1}": "dans la base {0} : {1}",
+  "el resultado no tiene las mismas columnas que en la primera base": "le résultat n'a pas les mêmes colonnes que dans la première base"
 }

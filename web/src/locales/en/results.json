@@ -86,6 +86,7 @@
     "all": "All{{total}}: runs the query again",
     "allHelp": "It runs again in a read-only session and is written to the file as the rows arrive, with no limit. If the query modifies data, the engine rejects it.",
     "allHelpLocal": "It runs again in DuckDB, over the DataFrames the cell's last run read (without reading files or querying the sources again), and is written to the file as the rows arrive, with no limit.",
+    "allHelpMulti": "It runs again on each of the databases, one after another, in read-only sessions, and is written to the file as the rows arrive, with no limit. If the query modifies data, the engine rejects it.",
     "truncated": "The result is truncated by \"Max rows\": only the {{rows}} loaded rows are exported.",
     "header": "Header with the column names",
     "delimiter": "Delimiter",

@@ -89,6 +89,7 @@
     "all": "Todas{{total}}: vuelve a ejecutar la consulta",
     "allHelp": "Se ejecuta de nuevo en una sesión de solo lectura y se escribe al archivo a medida que llegan las filas, sin límite. Si la consulta modifica datos, el motor la rechaza.",
     "allHelpLocal": "Se ejecuta de nuevo en DuckDB, sobre los DataFrames que leyó la última ejecución de la celda (sin volver a leer archivos ni consultar las fuentes), y se escribe al archivo a medida que llegan las filas, sin límite.",
+    "allHelpMulti": "Se ejecuta de nuevo en cada una de las bases, una tras otra, en sesiones de solo lectura, y se escribe al archivo a medida que llegan las filas, sin límite. Si la consulta modifica datos, el motor la rechaza.",
     "truncated": "El resultado está truncado por \"Filas máx.\": se exportan solo las {{rows}} filas cargadas.",
     "header": "Encabezado con los nombres de columna",
     "delimiter": "Separador",

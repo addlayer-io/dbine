@@ -46467,6 +46467,9 @@
  "el resultado de {0} no trae la columna «{1}»: volvé a leer sus columnas": [
   "src-tauri/src/commands/data_compare_whole.rs"
  ],
+ "el resultado no tiene las mismas columnas que en la primera base": [
+  "src-tauri/src/commands/export.rs"
+ ],
  "el rol actual no ve ninguna tarea: Snowflake muestra solo aquellas sobre las que tiene algún privilegio": [
   "crates/drivers/snowflake/src/jobs.rs"
  ],
@@ -47337,6 +47340,9 @@
  ],
  "en kdb+ solo se editan filas de tablas: una vista se calcula y una variable se cambia con q": [
   "crates/drivers/kdb/src/lib.rs"
+ ],
+ "en la base {0}: {1}": [
+  "src-tauri/src/commands/export.rs"
  ],
  "en la última terminó «{0}»": [
   "crates/drivers/snowflake/src/scheduler/logs.rs"
@@ -53302,6 +53308,7 @@
   "src-tauri/src/tasks/message.rs"
  ],
  "no se pudo escribir el archivo: {0}": [
+  "src-tauri/src/commands/data_compare.rs",
   "src-tauri/src/commands/export.rs",
   "src-tauri/src/tasks/steps.rs"
  ],
@@ -56444,11 +56451,11 @@
  "una fila": [
   "crates/drivers/neo4j/src/neptune.rs"
  ],
- "una fila distinta no se pudo leer de la base local": [
-  "src-tauri/src/commands/data_compare_whole.rs"
- ],
  "una fila no cumple la restricción CHECK {0} (ORA-02290)": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
+ ],
+ "una fila no se pudo leer de la base local": [
+  "src-tauri/src/commands/data_compare_whole.rs"
  ],
  "una fila no tiene su fila padre para la clave foránea {0} (ORA-02291)": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
