@@ -170,5 +170,12 @@
     "replace": "Zapytania z trybu Zapytania zostaną zastąpione tymi, które czytają te tabele.",
     "replaceOk": "Zastąp",
     "done": "Każda strona ma zapytanie czytające całą jej tabelę. Dodaj WHERE, aby porównać tylko niektóre wiersze, i kliknij Porównaj."
+  },
+  "export": {
+    "button": "Eksportuj…",
+    "hint": "Eksportuje wyświetlaną listę w całości, z jej filtrami i sortowaniem, do CSV, Excel, JSON, SQL lub XML.",
+    "differs": "Różniące się kolumny",
+    "partialDiff": "Porównanie wypisało pierwsze {{limit}} z {{total}} różnic, w kolejności klucza: plik zawiera wiersze z tej listy, które się wśród nich znajdują.",
+    "partialEqual": "Porównanie wypisało pierwsze {{limit}} z {{total}} takich samych wierszy, w kolejności klucza: plik zawiera właśnie je."
   }
 }

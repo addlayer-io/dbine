@@ -372,6 +372,7 @@ pub fn run() {
             commands::data_compare::data_compare,
             commands::data_compare::data_compare_cancel,
             commands::data_compare::data_compare_rows,
+            commands::data_compare::data_compare_export,
             commands::data_compare_ai::data_compare_explain,
             commands::data_compare_ai::data_compare_ai_filter,
             commands::data_compare_ai::data_compare_key_hint,

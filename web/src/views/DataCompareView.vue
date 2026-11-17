@@ -12,6 +12,7 @@ import { useUiStore } from '../stores/ui';
 import { dataCompareApi, type AiFilter, type DataCompareProgress, type DataCompareResult, type DataRow, type DataRows, type DataScript, type DataSide, type Dir, type QuerySide, type RowKind } from '../api/dataCompare';
 import type { Cell, ObjectRef, QueryProgress, ResultColumn, SortKey } from '../api/types';
 import DataCompareQueries from '../components/DataCompareQueries.vue';
+import ExportDialog, { type CompareExport } from '../components/ExportDialog.vue';
 import { DEFAULT_FORM, WHOLE_ROWS, comparedPairs, mergePairs, pairRows, queryOptions, sideSignature, wholeQuery, withKey, type PairRow, type ToleranceForm } from '../composables/queryCompare';
 import { columnKind, menuFor, type ColumnFilter, type FilterOp } from '../composables/gridFilter';
 import { nextSort } from '../composables/gridSort';
@@ -632,6 +633,37 @@ async function toQueries() {
   ElMessage.info({ message: t('dataCompare:toQueries.done'), duration: 6000 });
 }
 
+// -- export (issue #124): the list on screen, all of it, with its filters and order,
+// in any of the result export's formats. ------------------------------------------
+const exporting = ref<CompareExport | null>(null);
+/** A list's name, as its button says it. */
+function listName(kind: RowKind): string {
+  return t(kind === 'changed' ? 'dataCompare:changed' : kind === 'only_left' ? 'dataCompare:onlyLeft' : kind === 'only_right' ? 'dataCompare:onlyRight' : 'dataCompare:same');
+}
+/** Rows the list on screen exports: those that pass its filters. */
+const exportRows = computed(() => (queried.value ? queried.value.total : listedOf(view.value)));
+function openExport() {
+  const r = result.value;
+  if (!r || !exportRows.value) return;
+  const kind = view.value;
+  const partial = kind === 'equal'
+    ? (equalCut.value ? t('dataCompare:export.partialEqual', { total: fmtN(r.counts.same), limit: fmtN(listedOf('equal')) }) : '')
+    : (r.diff_truncated ? t('dataCompare:export.partialDiff', { total: fmtN(totalDiffs.value), limit: fmtN(r.diff_limit) }) : '');
+  // What the screen shows now, kept for the export even if it changes meanwhile.
+  const ask = { sort: [...sort.value], filters: Object.values(filters.value), changedIn: kind === 'changed' ? [...changedIn.value] : [] };
+  const labels = { left: t('dataCompare:left'), right: t('dataCompare:right'), differs: t('dataCompare:export.differs') };
+  exporting.value = {
+    rows: exportRows.value,
+    list: listName(kind),
+    partial,
+    run: (path, options) => dataCompareApi.export(r.id, kind, ask.sort, ask.filters, ask.changedIn, path, options, labels),
+  };
+}
+/** The file's name: the table (or "Datos") and the list. */
+const exportTitle = computed(() => `${(!readOnly.value && tableName()) || t('dataCompare:tab')} - ${exporting.value?.list ?? ''}`);
+/** SQL exports quote names as the left side's engine does. */
+const exportDialect = computed(() => conns.driverOf(readOnly.value ? qLeft.value.connectionId : left.connectionId)?.dialect ?? '');
+
 // -- the scripts -----------------------------------------------------------------
 
 const sync = reactive({ open: false, tab: '' });
@@ -1125,6 +1157,9 @@ async function suggestKey() {
         <button :class="{ on: view === 'changed' }" @click="view = 'changed'"><b>{{ fmtN(result.counts.changed) }}</b> {{ $t('dataCompare:changed') }}</button>
         <button :class="{ on: view === 'only_left' }" @click="view = 'only_left'"><b>{{ fmtN(result.counts.only_left) }}</b> {{ $t('dataCompare:onlyLeft') }}</button>
         <button :class="{ on: view === 'only_right' }" @click="view = 'only_right'"><b>{{ fmtN(result.counts.only_right) }}</b> {{ $t('dataCompare:onlyRight') }}</button>
+        <el-button size="small" class="dc-export" :disabled="!exportRows" :title="$t('dataCompare:export.hint')" @click="openExport">
+          <el-icon><ei-download /></el-icon>&nbsp;{{ $t('dataCompare:export.button') }}
+        </el-button>
         <span style="flex: 1" />
         <span v-if="readOnly" class="dc-ro" :title="$t('dataCompare:query.readOnly')">{{ $t('dataCompare:query.readOnlyShort') }}</span>
         <template v-else>
@@ -1231,6 +1266,10 @@ async function suggestKey() {
     </template>
     <div v-else-if="!running && !error" class="dc-hint">{{ $t(readOnly ? 'dataCompare:query.hint' : 'dataCompare:hint') }}</div>
 
+    <ExportDialog
+      v-if="exporting" :columns="[]" :rows="[]" :total-rows="0" :truncated="false" :source="null"
+      :title="exportTitle" :dialect="exportDialect" :compare="exporting" @close="exporting = null"
+    />
     <el-dialog v-model="sync.open" :title="$t('dataCompare:syncTitle')" width="760px" append-to-body>
       <div v-if="building" v-loading="true" class="dc-building" />
       <el-tabs v-if="scripts.length" v-model="sync.tab">
@@ -1310,6 +1349,7 @@ async function suggestKey() {
 .dc-summary button.on { background: var(--ide-selection); border-color: var(--ide-focus, var(--el-color-primary)); color: var(--nm-text-strong); }
 .dc-same { color: var(--nm-text-dim); margin-right: 6px; }
 .dc-equal { margin: 0 4px 0 6px; }
+.dc-export { margin-left: 6px; }
 .dc-notes { padding: 6px 14px; font-size: 12px; color: var(--nm-warning); border-bottom: 1px solid var(--nm-border); }
 .dc-progress { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; padding: 8px 14px; border-bottom: 1px solid var(--nm-border); font-size: 12.5px; color: var(--nm-text); }
 .dc-progress-phase { font-weight: 600; color: var(--nm-text-strong); }

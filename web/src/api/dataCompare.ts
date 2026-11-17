@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Asker } from './aiTask';
 import type { ColumnFilter } from '../composables/gridFilter';
 import type { Cell, ObjectRef, ResultColumn, SortKey } from './types';
+import type { ExportOptions, ExportResult } from '../composables/export';
 
 // Data compare (docs/data-compare.md).
 
@@ -135,6 +136,12 @@ export const dataCompareApi = {
     invoke<AiFilter>('data_compare_ai_filter', { args: { id, kind, request, asker } }),
   /** Without an AI set up (`asker` null) only a unique index is suggested. */
   keyHint: (left: DataSide, asker: Asker | null) => invoke<KeyHint>('data_compare_key_hint', { args: { left, asker } }),
+  /** One list to a file in a result export format (issue #124): all its rows
+   *  that pass `filters`, in `sort`'s order. `labels`: a changed row's column
+   *  suffixes for each side and the name of the column that lists what differs. */
+  export: (id: string, kind: RowKind, sort: SortKey[], filters: ColumnFilter[], changedIn: string[], path: string, options: ExportOptions,
+    labels: { left: string; right: string; differs: string }) =>
+    invoke<ExportResult>('data_compare_export', { args: { id, kind, sort, filters, changed_in: changedIn, path, options, labels } }),
   /** One script per side that changes. */
   scripts: (id: string, choices: Choices) => invoke<DataScript[]>('data_compare_script', { args: { id, choices } }),
   /** Two queries' whole results, read-only (no script); `run` as in `compare`. */

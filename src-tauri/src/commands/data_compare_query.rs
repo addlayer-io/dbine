@@ -626,7 +626,7 @@ fn keep(
     }
     all.insert(
         id,
-        Diff {
+        Arc::new(Diff {
             left: kept_side(&left),
             right: kept_side(&right),
             key: out.result.key.clone(),
@@ -643,7 +643,7 @@ fn keep(
             diff_truncated: c.diff_truncated,
             counts: c.counts,
             last_keys: c.last_keys,
-        },
+        }),
     );
     out
 }

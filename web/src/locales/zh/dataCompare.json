@@ -152,5 +152,12 @@
     "replace": "“查询”模式中原有的查询将被读取这些表的查询替换。",
     "replaceOk": "替换",
     "done": "每一侧都已有读取其完整表的查询。添加 WHERE 以只比较部分行，然后点击“比较”。"
+  },
+  "export": {
+    "button": "导出…",
+    "hint": "将当前查看的列表完整导出（含其筛选和排序）为 CSV、Excel、JSON、SQL 或 XML。",
+    "differs": "不同的列",
+    "partialDiff": "比较按键顺序列出了 {{total}} 条差异中的前 {{limit}} 条：文件包含此列表中属于这些差异的行。",
+    "partialEqual": "比较按键顺序列出了 {{total}} 行相同行中的前 {{limit}} 行：文件包含这些行。"
   }
 }

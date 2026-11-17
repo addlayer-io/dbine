@@ -163,5 +163,12 @@
     "replace": "The queries in Queries mode are replaced by the ones that read these tables.",
     "replaceOk": "Replace",
     "done": "Each side has the query that reads its whole table. Add a WHERE to compare only some rows and click Compare."
+  },
+  "export": {
+    "button": "Export…",
+    "hint": "Exports the list you're viewing, in full and with its filters and sort order, to CSV, Excel, JSON, SQL or XML.",
+    "differs": "Different columns",
+    "partialDiff": "The comparison listed the first {{limit}} of {{total}} differences, in key order: the file has the ones from this list that are among them.",
+    "partialEqual": "The comparison listed the first {{limit}} of {{total}} equal rows, in key order: the file has those."
   }
 }

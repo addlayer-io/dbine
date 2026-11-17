@@ -107,7 +107,9 @@
     "cancelExport": "Export abbrechen",
     "submit": "Exportieren…",
     "done_one": "{{rows}} Zeile in {{seconds}} s exportiert",
-    "done_other": "{{rows}} Zeilen in {{seconds}} s exportiert"
+    "done_other": "{{rows}} Zeilen in {{seconds}} s exportiert",
+    "compareRows_one": "{{rows}} Zeile aus „{{list}}“ wird exportiert, mit den Filtern und der Sortierung der Ansicht.",
+    "compareRows_other": "Alle {{rows}} Zeilen aus „{{list}}“ werden exportiert, mit den Filtern und der Sortierung der Ansicht."
   },
   "grid": {
     "cantEdit": "Bearbeiten nicht möglich: {{reason}}",

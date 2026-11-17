@@ -95,7 +95,8 @@
     "progressRows_other": "正在导出… {{rows}} 行",
     "cancelExport": "取消导出",
     "submit": "导出…",
-    "done_other": "已在 {{seconds}} 秒内导出 {{rows}} 行"
+    "done_other": "已在 {{seconds}} 秒内导出 {{rows}} 行",
+    "compareRows_other": "正在导出“{{list}}”的全部 {{rows}} 行，使用屏幕上的筛选和排序。"
   },
   "grid": {
     "cantEdit": "无法编辑：{{reason}}",

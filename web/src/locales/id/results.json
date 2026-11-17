@@ -95,7 +95,8 @@
     "progressRows_other": "Mengekspor… {{rows}} baris",
     "cancelExport": "Batalkan ekspor",
     "submit": "Ekspor…",
-    "done_other": "{{rows}} baris diekspor dalam {{seconds}} dtk"
+    "done_other": "{{rows}} baris diekspor dalam {{seconds}} dtk",
+    "compareRows_other": "Mengekspor semua {{rows}} baris dari “{{list}}”, dengan filter dan urutan yang tampil di layar."
   },
   "grid": {
     "cantEdit": "Tidak dapat diedit: {{reason}}",

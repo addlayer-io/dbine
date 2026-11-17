@@ -152,5 +152,12 @@
     "replace": "Kueri pada mode Kueri akan diganti dengan kueri yang membaca tabel-tabel ini.",
     "replaceOk": "Ganti",
     "done": "Setiap sisi memiliki kueri yang membaca seluruh tabelnya. Tambahkan WHERE untuk membandingkan sebagian baris saja, lalu klik Bandingkan."
+  },
+  "export": {
+    "button": "Ekspor…",
+    "hint": "Mengekspor daftar yang sedang dilihat, secara utuh dan dengan filter serta urutannya, ke CSV, Excel, JSON, SQL, atau XML.",
+    "differs": "Kolom yang berbeda",
+    "partialDiff": "Perbandingan mencantumkan {{limit}} pertama dari {{total}} perbedaan, menurut urutan kunci: file berisi baris daftar ini yang termasuk di dalamnya.",
+    "partialEqual": "Perbandingan mencantumkan {{limit}} pertama dari {{total}} baris yang sama, menurut urutan kunci: file berisi baris tersebut."
   }
 }

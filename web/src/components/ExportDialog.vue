@@ -16,6 +16,18 @@ import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 // (stores/tasks.ts): "Seguir en segundo plano" closes the dialog and the
 // export goes on, with its progress in the Tareas panel.
 
+/** A list of a data compare (issue #124): the backend writes all of it,
+ *  filtered and sorted as on screen, from the comparison it keeps. */
+export interface CompareExport {
+  /** Rows the file gets: the list's rows that pass its filters. */
+  rows: number;
+  /** The list's name ("distintas", "solo a la izquierda"…). */
+  list: string;
+  /** Set when the comparison listed only the first rows of the list. */
+  partial: string;
+  run: (path: string, options: ExportOptions) => Promise<ExportResult>;
+}
+
 export interface ExportSource {
   connectionId: string;
   database: string;
@@ -35,6 +47,8 @@ const props = defineProps<{
   title: string;
   dialect: string;
   initialFormat?: ExportFormat;
+  /** A data compare's list instead of a result. */
+  compare?: CompareExport | null;
 }>();
 const emit = defineEmits<{ close: [] }>();
 const tasks = useTasksStore();
@@ -110,6 +124,9 @@ async function run() {
       // A DataFrame SQL cell's run counted every row: that's the total.
       if (all.notebookTab && props.totalRows > props.rows.length) estimate.value = props.totalRows;
       result = await exportApi.query({ exportId, ...all, path, options });
+    } else if (props.compare) {
+      h.progress({ total: props.compare.rows, unit: 'rows' });
+      result = await props.compare.run(path, options);
     } else {
       h.progress({ total: props.rows.length, unit: 'rows' });
       result = await exportApi.rows(path, options, props.columns, props.rows, props.source?.connectionId);
@@ -155,7 +172,13 @@ function toBackground() {
         </el-select>
       </el-form-item>
 
-      <el-form-item :label="$t('results:exportDialog.rows')">
+      <el-form-item v-if="compare" :label="$t('results:exportDialog.rows')">
+        <div class="ed-help ed-compare">
+          {{ $t('results:exportDialog.compareRows', { count: compare.rows, rows: compare.rows.toLocaleString(locale()), list: compare.list }) }}
+        </div>
+        <div v-if="compare.partial" class="ed-help warn">{{ compare.partial }}</div>
+      </el-form-item>
+      <el-form-item v-else :label="$t('results:exportDialog.rows')">
         <el-radio-group v-model="scope" class="ed-scope">
           <el-radio value="loaded">{{ $t('results:exportDialog.loaded', { rows: rows.length.toLocaleString(locale()) }) }}</el-radio>
           <el-radio value="all" :disabled="!source">
@@ -240,6 +263,7 @@ function toBackground() {
 .ed-scope { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .ed-help { font-size: 11.5px; color: var(--nm-text-dim); line-height: 1.45; margin-top: 4px; }
 .ed-help.warn { color: var(--nm-warning); }
+.ed-compare { color: var(--nm-text); margin-top: 0; }
 .ed-estimate { color: var(--nm-text-dim); }
 .ed-progress { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--nm-text); margin-top: 6px; }
 </style>

@@ -164,5 +164,12 @@
     "replace": "As consultas que estavam no modo Consultas são substituídas pelas que leem estas tabelas.",
     "replaceOk": "Substituir",
     "done": "Cada lado tem a consulta que lê a sua tabela inteira. Adicione um WHERE para comparar apenas algumas linhas e clique em Comparar."
+  },
+  "export": {
+    "button": "Exportar…",
+    "hint": "Exporta a lista que você está vendo, inteira e com seus filtros e sua ordenação, para CSV, Excel, JSON, SQL ou XML.",
+    "differs": "Colunas diferentes",
+    "partialDiff": "A comparação listou as primeiras {{limit}} de {{total}} diferenças, na ordem da chave: o arquivo tem as desta lista que estão entre elas.",
+    "partialEqual": "A comparação listou as primeiras {{limit}} de {{total}} linhas iguais, na ordem da chave: o arquivo tem essas."
   }
 }

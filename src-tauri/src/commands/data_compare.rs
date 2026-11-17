@@ -180,8 +180,10 @@ pub(crate) struct Diff {
     pub(crate) last_keys: Option<(Option<Value>, Option<Value>)>,
 }
 
-pub(crate) fn diffs() -> &'static Mutex<HashMap<String, Diff>> {
-    static D: OnceLock<Mutex<HashMap<String, Diff>>> = OnceLock::new();
+/// The differences kept, shared: an export streams one to a file without
+/// holding the lock.
+pub(crate) fn diffs() -> &'static Mutex<HashMap<String, Arc<Diff>>> {
+    static D: OnceLock<Mutex<HashMap<String, Arc<Diff>>>> = OnceLock::new();
     D.get_or_init(Default::default)
 }
 
@@ -718,7 +720,7 @@ async fn compare_sides(
     }
     all.insert(
         id,
-        Diff {
+        Arc::new(Diff {
             left: args.left,
             right: args.right,
             key: result.key.clone(),
@@ -735,7 +737,7 @@ async fn compare_sides(
             diff_truncated: c.diff_truncated,
             counts: c.counts.clone(),
             last_keys: c.last_keys,
-        },
+        }),
     );
     Ok(result)
 }
@@ -907,10 +909,11 @@ fn passes(v: &Value, f: &ColumnFilter) -> bool {
 /// A row of a kind: its place in the list, left, right, differing columns.
 type RowRef<'a> = (usize, &'a [Value], Option<&'a [Value]>, &'a [usize]);
 
-/// One kind of difference, filtered and sorted: over all its rows, not only
-/// those the first answer brought. On a changed row a filter passes if either
-/// side does, and it sorts by the left side, then the right.
-fn rows_of(d: &Diff, args: &DataRowsArgs) -> DataRows {
+/// One list, filtered and sorted: all its rows that pass, not only those the
+/// first answer brought. On a changed row a filter passes if either side
+/// does, and it sorts by the left side, then the right. `true`: a filter
+/// (or "changed in") took part.
+fn passing<'a>(d: &'a Diff, args: &DataRowsArgs) -> (Vec<RowRef<'a>>, bool) {
     let index_of = |name: &str| {
         d.columns
             .iter()
@@ -998,11 +1001,18 @@ fn rows_of(d: &Diff, args: &DataRowsArgs) -> DataRows {
         });
         passing = keyed.into_iter().map(|(_, row)| row).collect();
     }
+    (passing, !(filters.is_empty() && changed_in.is_empty()))
+}
+
+/// One list, filtered and sorted ([`passing`]): the first rows for the
+/// screen, how many pass, and with a filter every row's place.
+fn rows_of(d: &Diff, args: &DataRowsArgs) -> DataRows {
+    let (passing, filtered) = passing(d, args);
     let total = passing.len();
-    let indices = if filters.is_empty() && changed_in.is_empty() {
-        Vec::new()
-    } else {
+    let indices = if filtered {
         passing.iter().map(|r| r.0).collect()
+    } else {
+        Vec::new()
     };
     let rows = passing
         .into_iter()
@@ -1033,6 +1043,129 @@ pub async fn data_compare_rows(args: DataRowsArgs) -> CommandResult<DataRows> {
     })
     .await
     .map_err(|e| CommandError::Internal(e.to_string()))?
+}
+
+/// The words a changed row's export adds to its column names, in the UI's
+/// language: each compared column's two sides, and the column that lists
+/// which ones differ.
+#[derive(Deserialize)]
+pub struct ExportLabels {
+    pub left: String,
+    pub right: String,
+    pub differs: String,
+}
+
+#[derive(Deserialize)]
+pub struct DataExportArgs {
+    /// The list, its filters and its order, as the screen asks for it.
+    #[serde(flatten)]
+    pub list: DataRowsArgs,
+    pub path: String,
+    pub options: dbine_core::export::ExportOptions,
+    pub labels: ExportLabels,
+}
+
+/// One list of a comparison into `sink` (issue #124), every row that passes
+/// its filters in its order, not only the rows on screen. The equal and
+/// one-side rows are written as they are; a changed row writes its key once,
+/// then each other compared column's left and right values, then the names
+/// of those that differ.
+pub(crate) fn export_list(
+    d: &Diff,
+    args: &DataRowsArgs,
+    labels: &ExportLabels,
+    sink: &mut dyn dbine_driver::RowSink,
+) -> std::io::Result<()> {
+    use dbine_driver::ResultColumn;
+    let column = |name: String, type_name: Option<&String>| ResultColumn {
+        name,
+        type_name: type_name.cloned().unwrap_or_default(),
+    };
+    let (rows, _) = passing(d, args);
+    if args.kind != RowKind::Changed {
+        let columns: Vec<ResultColumn> = d
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(i, (l, _))| column(l.clone(), d.left_types.get(i)))
+            .collect();
+        sink.begin(0, &columns)?;
+        for (_, left, _, _) in rows {
+            sink.row(0, left)?;
+        }
+        return Ok(());
+    }
+    let nk = d.key.len().min(d.columns.len());
+    let mut columns: Vec<ResultColumn> = (0..nk)
+        .map(|i| column(d.columns[i].0.clone(), d.left_types.get(i)))
+        .collect();
+    for (i, (l, r)) in d.columns.iter().enumerate().skip(nk) {
+        columns.push(column(
+            format!("{l} ({})", labels.left),
+            d.left_types.get(i),
+        ));
+        columns.push(column(
+            format!("{r} ({})", labels.right),
+            d.right_types.get(i),
+        ));
+    }
+    columns.push(column(labels.differs.clone(), None));
+    sink.begin(0, &columns)?;
+    let cell = |r: &[Value], i: usize| r.get(i).cloned().unwrap_or(Value::Null);
+    let mut out = Vec::with_capacity(columns.len());
+    for (_, left, right, diff) in rows {
+        let right = right.unwrap_or(&[]);
+        out.clear();
+        out.extend((0..nk).map(|i| cell(left, i)));
+        for i in nk..d.columns.len() {
+            out.push(cell(left, i));
+            out.push(cell(right, i));
+        }
+        let names: Vec<&str> = diff
+            .iter()
+            .filter_map(|&i| d.columns.get(i).map(|c| c.0.as_str()))
+            .collect();
+        out.push(Value::String(names.join(", ")));
+        sink.row(0, &out)?;
+    }
+    Ok(())
+}
+
+/// Export one list of a comparison to a file, in any of the result export's
+/// formats (issue #124): every row that passes its filters, in its order.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn data_compare_export(
+    state: State<'_, AppState>,
+    args: DataExportArgs,
+) -> CommandResult<crate::commands::export::ExportResult> {
+    let started = std::time::Instant::now();
+    let d = diffs()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(&args.list.id)
+        .cloned()
+        .ok_or_else(|| {
+            CommandError::NotFound("la comparación ya no está: volvé a comparar".into())
+        })?;
+    let mut options = args.options;
+    // String literals of an SQL export follow the left side's engine.
+    options.source = match crate::commands::schema::driver_of(&state, &d.left.connection_id) {
+        Ok(driver) => dbine_core::export::SourceStrings::of(driver.as_ref()),
+        Err(_) => dbine_core::export::SourceStrings::Unknown,
+    };
+    let path = std::path::PathBuf::from(&args.path);
+    let rows = tokio::task::spawn_blocking(move || {
+        let mut e = dbine_core::export::Exporter::new(&path, 0, options);
+        export_list(&d, &args.list, &args.labels, &mut e)?;
+        e.finish()
+    })
+    .await
+    .map_err(|e| CommandError::Internal(e.to_string()))?
+    .map_err(|e| CommandError::Internal(format!("no se pudo escribir el archivo: {e}")))?;
+    Ok(crate::commands::export::ExportResult {
+        rows,
+        elapsed_ms: started.elapsed().as_millis() as u64,
+    })
 }
 
 #[derive(Deserialize)]
@@ -1847,6 +1980,116 @@ mod tests {
         assert_eq!(rows_of(&d, &a).rows[0].left[0], json!(2999));
         // The other lists don't see them.
         assert_eq!(rows_of(&d, &ask(RowKind::OnlyLeft)).total, 0);
+    }
+
+    /// What an export receives, to look at.
+    #[derive(Default)]
+    struct Collect {
+        columns: Vec<String>,
+        rows: Vec<Vec<serde_json::Value>>,
+    }
+
+    impl dbine_driver::RowSink for Collect {
+        fn begin(
+            &mut self,
+            _: usize,
+            columns: &[dbine_driver::ResultColumn],
+        ) -> std::io::Result<()> {
+            self.columns = columns.iter().map(|c| c.name.clone()).collect();
+            Ok(())
+        }
+        fn row(&mut self, _: usize, row: &[serde_json::Value]) -> std::io::Result<()> {
+            self.rows.push(row.to_vec());
+            Ok(())
+        }
+    }
+
+    fn labels() -> super::ExportLabels {
+        super::ExportLabels {
+            left: "izquierda".into(),
+            right: "derecha".into(),
+            differs: "Columnas distintas".into(),
+        }
+    }
+
+    /// Issue #124: an export writes every row of the list that passes its
+    /// filters, in its order, not only the 2,000 the screen has.
+    #[test]
+    fn a_list_exports_every_row_that_passes_not_only_those_shown() {
+        let d = people(5000);
+        let mut a = ask(RowKind::OnlyLeft);
+        a.filters = vec![where_("saldo", FilterOp::Ge, json!(5))];
+        a.sort = vec![SortKey {
+            column: "id".into(),
+            descending: true,
+        }];
+        let mut got = Collect::default();
+        super::export_list(&d, &a, &labels(), &mut got).unwrap();
+        assert_eq!(got.columns, ["id", "nombre", "saldo", "alta"]);
+        assert_eq!(got.rows.len(), rows_of(&d, &a).total);
+        assert!(got.rows.len() > SHOWN);
+        assert_eq!(got.rows[0][0], json!("4999"), "in the list's order");
+        // A real file, all of it.
+        let dir = std::env::temp_dir().join(format!("dbine-dcmp-export-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("solo.csv");
+        let mut e = dbine_core::export::Exporter::new(
+            &path,
+            0,
+            dbine_core::export::ExportOptions {
+                format: dbine_core::export::Format::Csv,
+                ..Default::default()
+            },
+        );
+        super::export_list(&d, &ask(RowKind::OnlyLeft), &labels(), &mut e).unwrap();
+        assert_eq!(e.finish().unwrap(), 5000);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(text.lines().count(), 5001, "header and every row");
+    }
+
+    /// Issue #124: a changed row exports its key once, each other column's
+    /// two sides, and which columns differ.
+    #[test]
+    fn a_changed_row_exports_both_sides_and_what_differs() {
+        let mut d = people(0);
+        d.columns[1].1 = "name".into();
+        let mut got = Collect::default();
+        super::export_list(&d, &ask(RowKind::Changed), &labels(), &mut got).unwrap();
+        assert_eq!(
+            got.columns,
+            [
+                "id",
+                "nombre (izquierda)",
+                "name (derecha)",
+                "saldo (izquierda)",
+                "saldo (derecha)",
+                "alta (izquierda)",
+                "alta (derecha)",
+                "Columnas distintas"
+            ]
+        );
+        assert_eq!(
+            got.rows[0],
+            [
+                json!(1),
+                json!("Ana"),
+                json!("Ana"),
+                json!(100),
+                json!(250),
+                json!("a"),
+                json!("a"),
+                json!("saldo")
+            ]
+        );
+        assert_eq!(got.rows[1][2], json!("Roberto"));
+        assert_eq!(got.rows[1][7], json!("nombre"));
+        // "Changed in" narrows it as on screen.
+        let mut a = ask(RowKind::Changed);
+        a.changed_in = vec!["nombre".into()];
+        let mut got = Collect::default();
+        super::export_list(&d, &a, &labels(), &mut got).unwrap();
+        assert_eq!(got.rows.len(), 1);
     }
 
     /// Older UIs don't send `equal`: the equal rows are only counted.

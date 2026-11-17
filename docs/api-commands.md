@@ -766,7 +766,7 @@ Event: `datagen-progress`, with `{ id, rows, total }`. Cancel:
   sample rows, `duplicate_keys`, `diff_truncated`, `diff_limit`, `listed`…)
   plus `right_columns` and `right_types`, the right side's names and types of
   the compared columns (`columns` and `types` are the left's). The `id` works
-  with `data_compare_rows`, `data_compare_explain` and
+  with `data_compare_rows`, `data_compare_export`, `data_compare_explain` and
   `data_compare_ai_filter` as a table compare's does; `data_compare_script`
   refuses it (a query isn't a table, so there is no script). It fails, with
   the reason, instead of comparing a result partially: one the engine cut, a

@@ -165,6 +165,18 @@ rows of that kind, not only the 2,000 on screen.
 2,000 rows that pass, how many pass, and, with a filter, every row's place in
 its kind's list, which is what the script's choices count by.
 
+## Exporting a list
+
+**Export…**, next to the lists, writes the list on screen to a file. That list can be the different rows, the rows only on one side, or the equal rows when they're listed. It uses the result export's dialog and formats: CSV (comma, semicolon, Excel), TSV, Excel, JSON, JSON Lines, SQL INSERT and XML.
+
+- It writes **every row of the list that passes its filters, in its order**, not only the 2,000 on screen, straight from the comparison DBine keeps.
+- If the comparison listed only the first rows (more than 1,000,000 differences, or more than 100,000 equal rows), the dialog says so and the file has those first rows.
+- A one-side or equal row is written as it is, with the compared columns.
+- A **different** row writes its key columns once, then each other compared column twice, `name (Left)` and `name (Right)`, then a last column, **Different columns**, with the names of those that differ. The left and right words follow the interface language. In a compare of two queries the right column keeps its own name.
+- An SQL export writes string literals the way the left side's engine reads them.
+
+`data_compare_export { id, kind, sort, filters, changed_in, path, options, labels }` writes it. `kind`, `sort`, `filters` and `changed_in` are as in `data_compare_rows`, `options` is the result export's, and `labels` gives the words the column names take: `{ left, right, differs }`. It returns `{ rows, elapsed_ms }`.
+
 ## The script
 
 It is written by the target's driver, in its language (`insert_script`,
