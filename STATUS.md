@@ -27,9 +27,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.6.2 | 2026-11-16 | 1d17cb8c..5341c10b, everything the first 1.6.2 cut added since v1.6.1 (#111, the #107 regression test, the dependency bumps); 5341c10b..19615aeb, what the re-cut adds (the data compare's equal rows #115, Switch to queries #118, docs and notes); 19615aeb..0e26e2f0, the fix for that scan's one LOW finding (#121) | 0 open | — |
 | codeql | 2026-11-17 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-17 | every lockfile (Cargo, npm) at [`d1ae13cf2`](https://github.com/addlayer-io/dbine/commit/d1ae13cf2d81) | 3 open | — |
-| scorecard | 2026-11-17 | repository settings and workflows at [`fca5de639`](https://github.com/addlayer-io/dbine/commit/fca5de63974e) | score 7.3/10 | — |
-| trivy | 2026-11-17 | whole repository at [`d1ae13cf2`](https://github.com/addlayer-io/dbine/commit/d1ae13cf2d81) | 0 open | — |
+| osv | 2026-11-17 | every lockfile (Cargo, npm) at [`a3b96ec5c`](https://github.com/addlayer-io/dbine/commit/a3b96ec5c4a0) | 3 open | — |
+| scorecard | 2026-11-17 | repository settings and workflows at [`d1ae13cf2`](https://github.com/addlayer-io/dbine/commit/d1ae13cf2d81) | score 7.3/10 | — |
+| trivy | 2026-11-17 | whole repository at [`a3b96ec5c`](https://github.com/addlayer-io/dbine/commit/a3b96ec5c4a0) | 0 open | — |
 
 ## Not counted, and why
 
@@ -406,7 +406,7 @@ OpenSSF Scorecard: **7.3/10** (2026-11-17). The checks below 10, with Scorecard'
 | Branch-Protection: 4/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
 | Code-Review: 0/10 — Found 0/12 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
-| Vulnerabilities: 8/10 — 2 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
-| CI-Tests: 3/10 — 5 out of 14 merged PRs checked by a CI test -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
+| Vulnerabilities: 7/10 — 3 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
+| CI-Tests: 4/10 — 6 out of 14 merged PRs checked by a CI test -- score normalized to 4 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |
