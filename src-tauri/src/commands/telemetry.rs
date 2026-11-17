@@ -6,10 +6,13 @@
 //! of a connection (never host, user, database or queries), the workbench
 //! module opened (a tab kind or side panel from a closed list), the feature
 //! used (a closed list, plus the kind of AI provider for the assistant), the app version,
-//! the OS name and version and the UI language. There is no install or user
+//! the OS name and version and the UI language, and on `app_started` whether
+//! it's the first launch after installing. There is no install or user
 //! id: Aptabase groups events by a random session that lives while the app is
 //! used. The country is derived by Aptabase from the request; the IP isn't
-//! stored. What's sent is documented in docs/telemetry.md.
+//! stored. Each day of use counts like a launch: an app left open for days
+//! sends `app_started` again on the first use of each new day, once for all
+//! its windows. What's sent is documented in docs/telemetry.md.
 
 use crate::error::CommandResult;
 use serde::Deserialize;
@@ -78,8 +81,63 @@ pub struct TrackEventArgs {
     /// The AI provider kind, for `feature_used` / `ai_message`.
     #[serde(default)]
     pub provider: Option<String>,
+    /// The first launch after installing, for `app_started`.
+    #[serde(default)]
+    pub first_run: Option<bool>,
     /// The UI language (`es`, `en`…).
     pub locale: String,
+}
+
+/// What was already sent on one day: a new day forgets it, so each day of
+/// use counts like a new launch.
+struct SentToday {
+    day: Option<chrono::NaiveDate>,
+    keys: Vec<String>,
+}
+
+impl SentToday {
+    const fn new() -> Self {
+        Self {
+            day: None,
+            keys: Vec::new(),
+        }
+    }
+
+    /// True the first time `key` comes on `day` (and records it).
+    fn first(&mut self, day: chrono::NaiveDate, key: &str) -> bool {
+        if self.day != Some(day) {
+            self.day = Some(day);
+            self.keys.clear();
+        }
+        if self.keys.iter().any(|k| k == key) {
+            return false;
+        }
+        self.keys.push(key.to_string());
+        true
+    }
+}
+
+/// The events the backend dedups for every window together: `app_started`
+/// (each window asks when it starts and on the first use of a new day) and
+/// the features with no UI to send them from.
+static SENT_TODAY: Mutex<SentToday> = Mutex::new(SentToday::new());
+
+/// True the first time `key` is sent on this computer's current day.
+fn first_today(key: &str) -> bool {
+    let today = chrono::Local::now().date_naive();
+    SENT_TODAY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .first(today, key)
+}
+
+/// `app_started`'s props: only the first-launch mark, and only when it is one.
+fn app_started_props(first_run: Option<bool>) -> Map<String, Value> {
+    let mut props = Map::new();
+    if first_run == Some(true) {
+        props.insert("first_run".into(), Value::Bool(true));
+    }
+    props
 }
 
 /// Send one event in the background. Failures (offline, blocked) are dropped:
@@ -95,7 +153,14 @@ pub async fn track_event(app: tauri::AppHandle, args: TrackEventArgs) -> Command
             Some(p) => props = p,
             None => return Ok(()),
         },
-        "app_started" => {}
+        "app_started" => {
+            // Once a day for all the windows: the second one opened, or the
+            // first use of the day in each, isn't another user.
+            if !first_today("app_started") {
+                return Ok(());
+            }
+            props = app_started_props(args.first_run);
+        }
         "connection_opened" => {
             let engine = args.engine.unwrap_or_default();
             if dbine_drivers::find(&engine).is_none() {
@@ -135,9 +200,8 @@ fn feature_props(feature: Option<&str>, provider: Option<&str>) -> Option<Map<St
 }
 
 /// A feature used where there's no UI to send it from (the MCP server):
-/// once per run, only when the user hasn't turned telemetry off.
+/// once per day, only when the user hasn't turned telemetry off.
 pub fn track_backend_feature(state: &crate::state::AppState, feature: &'static str) {
-    static SENT: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
     // Tests run the MCP server: they never report.
     if cfg!(test)
         || disabled_by_env()
@@ -145,12 +209,8 @@ pub fn track_backend_feature(state: &crate::state::AppState, feature: &'static s
     {
         return;
     }
-    {
-        let mut sent = SENT.lock().unwrap_or_else(|e| e.into_inner());
-        if sent.contains(&feature) {
-            return;
-        }
-        sent.push(feature);
+    if !first_today(&format!("feature_used:{feature}")) {
+        return;
     }
     if let Some(props) = feature_props(Some(feature), None) {
         post("feature_used", props, "", env!("CARGO_PKG_VERSION"));
@@ -389,5 +449,31 @@ mod feature_tests {
         assert!(feature_props(Some("ai_message"), None).is_none());
         assert!(feature_props(Some("select * from people"), None).is_none());
         assert!(MODULES.contains(&"ai") && MODULES.contains(&"indexes"));
+    }
+
+    #[test]
+    fn each_new_day_counts_again() {
+        let d1 = chrono::NaiveDate::from_ymd_opt(2026, 11, 17).unwrap();
+        let d2 = d1.succ_opt().unwrap();
+        let mut sent = SentToday::new();
+        assert!(sent.first(d1, "app_started"), "the day's first launch");
+        assert!(!sent.first(d1, "app_started"), "another window, same day");
+        assert!(sent.first(d1, "feature_used:mcp_tool"), "keys are separate");
+        assert!(!sent.first(d1, "feature_used:mcp_tool"));
+        assert!(
+            sent.first(d2, "app_started"),
+            "left open overnight: the new day counts like a launch"
+        );
+        assert!(sent.first(d2, "feature_used:mcp_tool"));
+        assert!(!sent.first(d2, "app_started"));
+    }
+
+    #[test]
+    fn first_run_is_only_a_mark_on_the_first_launch() {
+        let p = app_started_props(Some(true));
+        assert_eq!(p.get("first_run"), Some(&Value::Bool(true)));
+        assert_eq!(p.len(), 1, "nothing else rides along");
+        assert!(app_started_props(Some(false)).is_empty());
+        assert!(app_started_props(None).is_empty());
     }
 }

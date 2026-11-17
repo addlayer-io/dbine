@@ -26,15 +26,28 @@ Four events, nothing else:
 
 | Event | When | Own data |
 |---|---|---|
-| `app_started` | once per run of the app | — |
-| `connection_opened` | the first time each engine is connected to in a run | `engine`: the driver id (`postgres`, `sqlserver`, `redis`…) |
-| `module_opened` | the first time each module is shown in a run | `module`: the tab type (`query`, `object`, `designer`, `diagram`, `monitor`, `profiler`, `migration`, `connection`, `compare`, `dataCompare`, `security`, `backups`, `indexes`, `dependencies`, `file`, `fileDiff`) or the side panel (`ai`, `projects`, `library`, `history`) |
-| `feature_used` | the first time each feature is used in a run | `feature`: `ai_message` (a question to the assistant), `mcp_tool` (an MCP client used a tool), `schema_sync` (a schema sync was applied), `data_sync` (data), `migration_run` (a migration was run), `multi_db_run` (a query on several databases). With `ai_message`, also `provider`: the provider type (`embedded`, `ollama`, `lm_studio`, `claude_code`, `codex`), never the model or the text |
+| `app_started` | once per day the app is used, for all its windows | `first_run`: `true` only on the first launch after installing (absent otherwise) |
+| `connection_opened` | the first time each engine is connected to in a day | `engine`: the driver id (`postgres`, `sqlserver`, `redis`…) |
+| `module_opened` | the first time each module is shown in a day | `module`: the tab type (`query`, `object`, `designer`, `diagram`, `monitor`, `profiler`, `migration`, `connection`, `compare`, `dataCompare`, `security`, `backups`, `indexes`, `dependencies`, `file`, `fileDiff`) or the side panel (`ai`, `projects`, `library`, `history`) |
+| `feature_used` | the first time each feature is used in a day | `feature`: `ai_message` (a question to the assistant), `mcp_tool` (an MCP client used a tool), `schema_sync` (a schema sync was applied), `data_sync` (data), `migration_run` (a migration was run), `multi_db_run` (a query on several databases). With `ai_message`, also `provider`: the provider type (`embedded`, `ollama`, `lm_studio`, `claude_code`, `codex`), never the model or the text |
 
 With `connection_opened` and `module_opened` you see which engines and
 modules are really used, and which never appear; with `feature_used`, whether
 features are used beyond opening their screen. In Aptabase, the properties
-(`engine`, `module`, `feature`, `provider`) are seen by opening each event.
+(`first_run`, `engine`, `module`, `feature`, `provider`) are seen by opening
+each event.
+
+A day of use counts like a launch. When DBine stays open from one day to the
+next (a laptop that sleeps instead of closing it), the first click or key of
+the new day sends `app_started` again, and what's on screen counts again for
+that day: the tab shown, the open side panel and the connected engines. With
+nobody using it, an app left open sends nothing. The day is the computer's
+local calendar day.
+
+`first_run` tells new installations from people coming back, without any
+identifier: it is `true` when the first-launch notice is still due, so a
+machine that already had DBine, or gets its preferences from a backup, doesn't
+send it.
 
 Each event also carries:
 

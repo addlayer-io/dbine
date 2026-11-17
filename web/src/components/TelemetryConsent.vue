@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useConnectionsStore } from '../stores/connections';
 import { useSettingsStore } from '../stores/settings';
 import { useTabsStore } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
-import { TELEMETRY_CONSENT, TELEMETRY_NOTICE, telemetryAllowed, trackAppStarted, trackModuleOpened } from '../composables/telemetry';
+import {
+  TELEMETRY_CONSENT, TELEMETRY_NOTICE, newDayOfUse, telemetryAllowed, trackAppStarted, trackConnectionOpened, trackModuleOpened,
+} from '../composables/telemetry';
 import { initWindowRole } from '../composables/windowRole';
 
 // Telemetry is on by default. Once, this notice tells what's sent and that
@@ -18,7 +21,8 @@ const noticeDue = () =>
 
 watch(() => settings.loaded, async (l) => {
   if (!l) return;
-  void trackAppStarted();
+  // The notice still due: the first launch after installing.
+  trackAppStarted(noticeDue());
   // Not for whoever already chose (an earlier version asked), and only in
   // the primary window: another one opened meanwhile doesn't repeat it.
   if (!noticeDue() || !(await initWindowRole()).primary) return;
@@ -40,6 +44,28 @@ watch(() => [ui.aiOpen, telemetryAllowed()] as const, ([open, allowed]) => {
 }, { immediate: true });
 watch(() => [ui.sidebarView, telemetryAllowed()] as const, ([view, allowed]) => {
   if (allowed && view !== 'explorer') trackModuleOpened(view);
+});
+
+// A new day with DBine still open counts like opening it: on the first click
+// or key of the day, `app_started` goes again (newDayOfUse) and what's on
+// screen counts again: the shown tab, the open panels, the connected engines.
+const connections = useConnectionsStore();
+function onActivity() {
+  if (!newDayOfUse() || !telemetryAllowed()) return;
+  const kind = tabs.tabs.find((t) => t.id === tabs.activeId)?.kind;
+  if (kind) trackModuleOpened(kind);
+  if (ui.aiOpen) trackModuleOpened('ai');
+  if (ui.sidebarView !== 'explorer') trackModuleOpened(ui.sidebarView);
+  for (const c of connections.list) if (connections.isConnected(c.id)) trackConnectionOpened(c.config.driver);
+}
+const listen = { capture: true, passive: true };
+onMounted(() => {
+  window.addEventListener('pointerdown', onActivity, listen);
+  window.addEventListener('keydown', onActivity, listen);
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('pointerdown', onActivity, listen);
+  window.removeEventListener('keydown', onActivity, listen);
 });
 
 function close() {

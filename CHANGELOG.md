@@ -4,6 +4,7 @@
 
 ### Improvements
 
+- **Anonymous usage data counts each day of use:** when DBine stays open from one day to the next, the first click or key of the new day counts like opening it, and the first launch after installing is marked as such. Nothing else is sent: still no identifier of you, the computer or the installation, and **Settings › General** turns it off as before. What's sent is listed in the telemetry documentation.
 - **Export what Compare data found:** **Export…**, next to the lists, saves the list on screen to CSV, Excel, JSON, SQL, XML or the other result export formats. That can be the different rows, the rows only on one side, or the equal ones. Every row that passes the list's filters is exported, in its order, not only the rows on screen. A different row puts each column's left and right values side by side, with a last column naming the ones that differ.
 
 ### Fixes
