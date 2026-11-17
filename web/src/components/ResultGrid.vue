@@ -13,6 +13,7 @@ import CellViewer from './CellViewer.vue';
 import { columnKind, describe, menuFor, parseFilter, type ColumnFilter, type FilterMenuEntry, type FilterState } from '../composables/gridFilter';
 import { gridFontSize } from '../composables/appearance';
 import { COPY_FORMATS, defaultCopyFormat, formatRows, setDefaultCopyFormat, type CopyContext, type CopyFormat } from '../composables/copyFormats';
+import { revealCell } from '../composables/gridReveal';
 
 // Virtualized result grid: only the rows in view are in the DOM, so tens of
 // thousands of rows scroll smoothly. Columns resize by dragging the header
@@ -358,13 +359,21 @@ function onKey(e: KeyboardEvent) {
     cellExtra.value = [];
   }
   selection.value = { r, c };
+  reveal(r, c);
+}
+
+/** Scroll so the cell shows whole: the grid follows a cell the keys moved
+ *  to, up and down and side to side. */
+function reveal(r: number, c: number) {
   const el = scroller.value;
-  if (el) {
-    const top = r * rowH.value;
-    const below = rowH.value * (HEAD.value + 1);
-    if (top < el.scrollTop) el.scrollTop = top;
-    else if (top + below > el.scrollTop + el.clientHeight) el.scrollTop = top + below - el.clientHeight;
-  }
+  if (!el) return;
+  const to = revealCell(
+    { top: el.scrollTop, left: el.scrollLeft, height: el.clientHeight, width: el.clientWidth },
+    { top: r * rowH.value, height: rowH.value, left: widthUpTo(c), width: widths.value[c] ?? 0 },
+    rowH.value * HEAD.value, NUM_W,
+  );
+  if (to.top !== el.scrollTop) el.scrollTop = to.top;
+  if (to.left !== el.scrollLeft) el.scrollLeft = to.left;
 }
 
 // -- editing -----------------------------------------------------------------------
@@ -415,10 +424,10 @@ function commitEdit(move: [number, number] | null = null) {
 function afterCommit(e: { r: number; c: number }, move: [number, number] | null) {
   scroller.value?.focus();
   if (move) {
-    selection.value = {
-      r: Math.min(props.rows.length - 1, Math.max(0, e.r + move[0])),
-      c: move[1] ? step(e.c, move[1]) : e.c,
-    };
+    const r = Math.min(props.rows.length - 1, Math.max(0, e.r + move[0]));
+    const c = move[1] ? step(e.c, move[1]) : e.c;
+    selection.value = { r, c };
+    reveal(r, c);
   }
 }
 function cancelEdit() {
@@ -442,13 +451,8 @@ watch(() => props.rows, () => { editing.value = null; });
 
 /** Scrolls to a (new) row and starts editing its first shown cell. */
 function editRow(r: number) {
-  const el = scroller.value;
-  if (el) {
-    const top = r * rowH.value;
-    const below = rowH.value * (HEAD.value + 1);
-    if (top < el.scrollTop || top + below > el.scrollTop + el.clientHeight) el.scrollTop = Math.max(0, top + below - el.clientHeight);
-  }
   const c = isHidden(0) ? step(0, 1) : 0;
+  reveal(r, c);
   nextTick(() => startEdit(r, c));
 }
 /** Count, sum, average, minimum and maximum of the selected cells (two or
