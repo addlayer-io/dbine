@@ -1,5 +1,16 @@
 # Modifiche
 
+## [1.6.3] - 2026-11-17
+
+### Miglioramenti
+- **I dati di utilizzo anonimi contano ogni giorno di utilizzo:** quando DBine resta aperto da un giorno all'altro, il primo clic o tasto del nuovo giorno conta come un'apertura, e il primo avvio dopo l'installazione viene indicato come tale. Non viene inviato nient'altro: ancora nessun identificativo di te, del computer o dell'installazione, e **Impostazioni › Generale** lo disattiva come prima. Quello che viene inviato è elencato nella documentazione della telemetria.
+- **Esportare ciò che Confronta i dati ha trovato:** **Esporta…**, accanto agli elenchi, salva l'elenco mostrato in CSV, Excel, JSON, SQL, XML o negli altri formati di esportazione dei risultati. Può essere quello delle righe diverse, delle righe presenti solo su un lato o di quelle uguali. Viene esportata ogni riga che supera i filtri dell'elenco, nel suo ordine, non solo le righe a schermo. Una riga diversa affianca i valori sinistro e destro di ogni colonna, con un'ultima colonna che indica quelle che differiscono.
+
+### Correzioni
+- **Le frecce lasciavano indietro la vista della griglia dei risultati:** spostando la cella selezionata con le frecce oltre il bordo destro o sinistro di una griglia dei risultati, la vista restava dov'era e la selezione usciva dallo schermo; Tab e Invio durante la modifica di una cella facevano lo stesso. Ora la griglia scorre per seguire la cella, sia di lato sia in su e in giù.
+- **Esportare un risultato di «Esegui su più database» scriveva solo le righe a schermo:** la griglia mantiene il massimo di righe per database dell'editor, ed **Esporta** salvava solo quelle, non il risultato completo. Ora esportarlo riesegue la query su ogni database, uno dopo l'altro e in sola lettura, e scrive tutte le righe nel file, con la colonna `base` per prima nella griglia unita. Un database che fallisce interrompe l'esportazione e viene indicato per nome, e non resta alcun file scritto a metà.
+- **L'esplora risorse di SQL Server in attesa delle modifiche di un'altra sessione:** aprire le tabelle, le procedure o altri oggetti di un database poteva bloccarsi per 60 s e fallire, dicendo che il server non rispondeva, mentre un'altra sessione, come un ETL o uno script di distribuzione, teneva aperta una transazione che creava o modificava oggetti. Ora l'esplorazione li legge subito, insieme a colonne e definizioni e allo schema usato dal completamento automatico. Solo il sorgente dell'oggetto esatto che quella transazione sta modificando continua ad attendere.
+
 ## [1.6.2] - 2026-11-16
 
 ### Miglioramenti
