@@ -9,20 +9,13 @@ _Updated 2026-11-18._
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 0 | 6 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-| ID | Severity | Source | Finding | Where | Fix |
-|---|---|---|---|---|---|
-| OSV-RUSTSEC-2026-0560-lettre-13ee4b | MEDIUM | osv | lettre 0.11.23: STARTTLS response injection allows a man-in-the-middle to forge SMTP replies | `Cargo.lock` | upgrade to 0.11.24 |
-| OSV-RUSTSEC-2026-0561-lettre-13ee4b | MEDIUM | osv | lettre 0.11.23: Missing dot-stuffing after a bare LF or CR allows SMTP command injection | `Cargo.lock` | upgrade to 0.11.24 |
-| OSV-RUSTSEC-2026-0562-lettre-13ee4b | MEDIUM | osv | lettre 0.11.23: Panic on an `EHLO` reply line of only white space allows denial of service | `Cargo.lock` | upgrade to 0.11.24 |
-| OSV-RUSTSEC-2026-0563-lettre-13ee4b | MEDIUM | osv | lettre 0.11.23: Messages for an address with a quoted local part are sent to a different address | `Cargo.lock` | upgrade to 0.11.24 |
-| OSV-RUSTSEC-2026-0564-lettre-13ee4b | MEDIUM | osv | lettre 0.11.23: Panic on a mailbox display name containing CR or LF allows denial of service | `Cargo.lock` | upgrade to 0.11.24 |
-| OSV-RUSTSEC-2026-0565-lettre-13ee4b | MEDIUM | osv | lettre 0.11.23: Unbounded buffering of an SMTP reply allows a malicious server to exhaust memory | `Cargo.lock` | upgrade to 0.11.24 |
+_None._
 
 ## What the last scans covered
 
@@ -30,9 +23,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.6.2 | 2026-11-16 | 1d17cb8c..5341c10b, everything the first 1.6.2 cut added since v1.6.1 (#111, the #107 regression test, the dependency bumps); 5341c10b..19615aeb, what the re-cut adds (the data compare's equal rows #115, Switch to queries #118, docs and notes); 19615aeb..0e26e2f0, the fix for that scan's one LOW finding (#121) | 0 open | — |
 | codeql | 2026-11-18 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-18 | every lockfile (Cargo, npm) at [`6fa055717`](https://github.com/addlayer-io/dbine/commit/6fa055717e9f) | 6 open | — |
-| scorecard | 2026-11-17 | repository settings and workflows at [`16c7caa0b`](https://github.com/addlayer-io/dbine/commit/16c7caa0baf1) | score 7.3/10 | — |
-| trivy | 2026-11-18 | whole repository at [`6fa055717`](https://github.com/addlayer-io/dbine/commit/6fa055717e9f) | 0 open | — |
+| osv | 2026-11-18 | every lockfile (Cargo, npm) at [`4fc9459ce`](https://github.com/addlayer-io/dbine/commit/4fc9459ce3cf) | 0 open | — |
+| scorecard | 2026-11-18 | repository settings and workflows at [`6fa055717`](https://github.com/addlayer-io/dbine/commit/6fa055717e9f) | score 6.9/10 | — |
+| trivy | 2026-11-18 | whole repository at [`4fc9459ce`](https://github.com/addlayer-io/dbine/commit/4fc9459ce3cf) | 0 open | — |
 
 ## Not counted, and why
 
@@ -402,7 +395,7 @@ Dependencies their authors no longer maintain. Not a vulnerability, so not count
 
 ## Repository practices
 
-OpenSSF Scorecard: **7.3/10** (2026-11-17). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **6.9/10** (2026-11-18). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
@@ -410,7 +403,7 @@ OpenSSF Scorecard: **7.3/10** (2026-11-17). The checks below 10, with Scorecard'
 | Branch-Protection: 4/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
 | Code-Review: 0/10 — Found 0/12 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
-| Vulnerabilities: 7/10 — 3 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
-| CI-Tests: 6/10 — 9 out of 14 merged PRs checked by a CI test -- score normalized to 6 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
+| Vulnerabilities: 3/10 — 7 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
+| CI-Tests: 1/10 — 2 out of 14 merged PRs checked by a CI test -- score normalized to 1 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |

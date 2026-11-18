@@ -33,15 +33,15 @@
     {
       "source": "osv",
       "date": "2026-11-18",
-      "revision": "6fa055717e9f",
+      "revision": "4fc9459ce3cf",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 6
+      "found": 0
     },
     {
       "source": "trivy",
       "date": "2026-11-18",
-      "revision": "6fa055717e9f",
+      "revision": "4fc9459ce3cf",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -56,11 +56,11 @@
     },
     {
       "source": "scorecard",
-      "date": "2026-11-17",
-      "revision": "16c7caa0baf1",
+      "date": "2026-11-18",
+      "revision": "6fa055717e9f",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 7.3
+      "score": 6.9
     }
   ],
   "findings": [
@@ -4482,78 +4482,6 @@
       "status": "notice"
     },
     {
-      "id": "OSV-RUSTSEC-2026-0560-lettre-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "lettre 0.11.23: STARTTLS response injection allows a man-in-the-middle to forge SMTP replies",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0560",
-      "fixed_version": "0.11.24",
-      "found": "2026-11-18",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0561-lettre-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "lettre 0.11.23: Missing dot-stuffing after a bare LF or CR allows SMTP command injection",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0561",
-      "fixed_version": "0.11.24",
-      "found": "2026-11-18",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0562-lettre-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "lettre 0.11.23: Panic on an `EHLO` reply line of only white space allows denial of service",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0562",
-      "fixed_version": "0.11.24",
-      "found": "2026-11-18",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0563-lettre-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "lettre 0.11.23: Messages for an address with a quoted local part are sent to a different address",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0563",
-      "fixed_version": "0.11.24",
-      "found": "2026-11-18",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0564-lettre-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "lettre 0.11.23: Panic on a mailbox display name containing CR or LF allows denial of service",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0564",
-      "fixed_version": "0.11.24",
-      "found": "2026-11-18",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0565-lettre-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "lettre 0.11.23: Unbounded buffering of an SMTP reply allows a malicious server to exhaust memory",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0565",
-      "fixed_version": "0.11.24",
-      "found": "2026-11-18",
-      "status": "open"
-    },
-    {
       "id": "SC-Binary-Artifacts",
       "source": "scorecard",
       "severity": "HIGH",
@@ -4580,7 +4508,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "CI-Tests: 6/10 — 9 out of 14 merged PRs checked by a CI test -- score normalized to 6",
+      "title": "CI-Tests: 1/10 — 2 out of 14 merged PRs checked by a CI test -- score normalized to 1",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
       "found": "2026-11-15",
@@ -4635,7 +4563,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Vulnerabilities: 7/10 — 3 existing vulnerabilities detected",
+      "title": "Vulnerabilities: 3/10 — 7 existing vulnerabilities detected",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-11-17",
