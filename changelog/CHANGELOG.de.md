@@ -1,6 +1,6 @@
 # Änderungen
 
-## [1.6.3] - 2026-11-17
+## [1.6.3] - 2026-11-18
 
 ### Verbesserungen
 - **Anonyme Nutzungsdaten zählen jeden Tag der Nutzung:** Bleibt DBine von einem Tag zum nächsten geöffnet, zählt der erste Klick oder Tastendruck des neuen Tages wie ein Öffnen, und der erste Start nach der Installation wird als solcher markiert. Sonst wird nichts gesendet: weiterhin keine Kennung von Ihnen, vom Computer oder von der Installation, und **Einstellungen › Allgemein** schaltet es wie bisher ab. Was gesendet wird, steht in der Telemetrie-Dokumentation.
@@ -10,6 +10,7 @@
 - **Pfeiltasten ließen die Ansicht des Ergebnisrasters zurück:** Wurde die ausgewählte Zelle mit den Pfeiltasten über den rechten oder linken Rand eines Ergebnisrasters hinaus bewegt, blieb die Ansicht stehen und die Auswahl verschwand vom Bildschirm; Tab und Eingabetaste beim Bearbeiten einer Zelle taten dasselbe. Das Raster scrollt nun mit der Zelle, seitlich wie auch nach oben und unten.
 - **Das Exportieren eines Ergebnisses von „Auf mehreren Datenbanken ausführen“ schrieb nur die Zeilen auf dem Bildschirm:** Das Raster behält die maximale Zeilenzahl pro Datenbank des Editors, und **Exportieren** speicherte nur diese, nicht das ganze Ergebnis. Beim Export wird die Abfrage jetzt auf jeder Datenbank erneut ausgeführt, nacheinander und schreibgeschützt, und alle Zeilen werden in die Datei geschrieben, im zusammengeführten Raster mit der Spalte `base` zuerst. Eine fehlschlagende Datenbank stoppt den Export und wird genannt, und es bleibt keine halb geschriebene Datei zurück.
 - **SQL-Server-Explorer wartete auf Änderungen einer anderen Sitzung:** Das Öffnen der Tabellen, Prozeduren oder anderer Objekte einer Datenbank konnte 60 s hängen und mit der Meldung fehlschlagen, der Server antworte nicht, während eine andere Sitzung, etwa ein ETL oder ein Bereitstellungsskript, eine Transaktion offen hatte, die Objekte erstellte oder änderte. Der Explorer liest sie jetzt sofort, samt Spalten und Definitionen und dem Schema, das die Autovervollständigung nutzt. Nur der Quelltext genau des Objekts, das diese Transaktion gerade ändert, wartet weiterhin.
+- **E-Mail aus geplanten Aufgaben, Sicherheit:** Die Bibliothek, die E-Mails versendet, wurde aktualisiert und behebt sechs Sicherheitshinweise in ihrem SMTP-Code. Ein Server oder jemand zwischen DBine und dem Server konnte die Antworten des Servers rund um STARTTLS fälschen; eine Zeile, die mit einem einzelnen Zeilenumbruch endete, konnte SMTP-Befehle in die Kommunikation einschleusen; eine Adresse mit einem in Anführungszeichen stehenden Teil konnte an einen anderen Empfänger gelangen; und eine fehlerhafte Antwort konnte den Versand abbrechen oder den Speicher füllen. Das betrifft den Schritt **E-Mail senden** und **Einstellungen › E-Mail**.
 
 ## [1.6.2] - 2026-11-16
 

@@ -1,7 +1,7 @@
 # Zmiany
 
 
-## [1.6.3] - 2026-11-17
+## [1.6.3] - 2026-11-18
 
 ### Ulepszenia
 - **Anonimowe dane o użyciu liczą każdy dzień korzystania:** gdy DBine pozostaje otwarte z jednego dnia na następny, pierwsze kliknięcie lub klawisz nowego dnia liczy się jak otwarcie, a pierwsze uruchomienie po instalacji jest tak oznaczone. Nic więcej nie jest wysyłane: nadal nie ma żadnego identyfikatora użytkownika, komputera ani instalacji, a **Ustawienia › Ogólne** wyłączają to jak dotąd. To, co jest wysyłane, wymieniono w dokumentacji telemetrii.
@@ -11,6 +11,7 @@
 - **Strzałki zostawiały widok siatki wyników w tyle:** po przesunięciu zaznaczonej komórki strzałkami poza prawą lub lewą krawędź siatki wyników widok zostawał na miejscu, a zaznaczenie wychodziło poza ekran; Tab i Enter podczas edycji komórki działały tak samo. Teraz siatka przewija się za komórką, zarówno na boki, jak i w górę i w dół.
 - **Eksport wyniku z „Uruchom w wielu bazach” zapisywał tylko wiersze z ekranu:** siatka przechowuje maksymalną liczbę wierszy na bazę z edytora, a **Eksportuj** zapisywał tylko je, a nie cały wynik. Teraz eksport ponownie wykonuje zapytanie w każdej bazie, jedna po drugiej i tylko do odczytu, i zapisuje wszystkie wiersze do pliku, z kolumną `base` na początku w połączonej siatce. Baza, w której wystąpi błąd, zatrzymuje eksport i jest wskazana z nazwy, a nie zostaje żaden na wpół zapisany plik.
 - **Eksplorator SQL Server czekał na zmiany z innej sesji:** otwarcie tabel, procedur lub innych obiektów bazy mogło zawiesić się na 60 s i zakończyć błędem informującym, że serwer nie odpowiada, gdy inna sesja, np. ETL lub skrypt wdrożeniowy, miała otwartą transakcję tworzącą lub zmieniającą obiekty. Eksplorator odczytuje je teraz od razu, razem z kolumnami i definicjami oraz schematem używanym przez autouzupełnianie. Czeka nadal tylko kod źródłowy dokładnie tego obiektu, który ta transakcja zmienia.
+- **Poczta z zaplanowanych zadań, bezpieczeństwo:** biblioteka wysyłająca pocztę została zaktualizowana i uwzględnia sześć zgłoszeń bezpieczeństwa w jej kodzie SMTP. Serwer lub ktoś między DBine a serwerem mógł podrobić odpowiedzi serwera w okolicach STARTTLS; wiersz zakończony pojedynczym znakiem nowego wiersza mógł wprowadzić polecenia SMTP do rozmowy; adres z fragmentem w cudzysłowie mógł trafić do innego adresata; a błędnie sformułowana odpowiedź mogła przerwać wysyłanie lub zapełnić pamięć. Dotyczy to kroku **Wyślij e-mail** oraz **Ustawienia › Poczta**.
 
 ## [1.6.2] - 2026-11-16
 

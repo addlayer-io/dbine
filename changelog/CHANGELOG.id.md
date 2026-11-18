@@ -1,7 +1,7 @@
 # Perubahan
 
 
-## [1.6.3] - 2026-11-17
+## [1.6.3] - 2026-11-18
 
 ### Peningkatan
 - **Data penggunaan anonim menghitung setiap hari penggunaan:** saat DBine tetap terbuka dari satu hari ke hari berikutnya, klik atau tombol pertama di hari baru dihitung seperti membukanya, dan peluncuran pertama setelah instalasi ditandai sebagai demikian. Tidak ada hal lain yang dikirim: tetap tanpa pengenal Anda, komputer, atau instalasi, dan **Pengaturan › Umum** menonaktifkannya seperti sebelumnya. Apa yang dikirim tercantum dalam dokumentasi telemetri.
@@ -11,6 +11,7 @@
 - **Tombol panah meninggalkan tampilan kisi hasil:** saat sel yang dipilih digeser dengan tombol panah melewati tepi kanan atau kiri kisi hasil, tampilan tetap di tempatnya sehingga pilihan keluar dari layar; Tab dan Enter saat mengedit sel juga demikian. Kini kisi bergulir mengikuti sel, baik ke samping maupun ke atas dan bawah.
 - **Mengekspor hasil "Jalankan di beberapa basis data" hanya menulis baris di layar:** kisi menyimpan jumlah baris maksimum per basis data dari editor, dan **Ekspor** hanya menyimpan baris itu, bukan hasil lengkapnya. Kini mengekspornya menjalankan kueri lagi di setiap basis data, satu per satu dan hanya baca, lalu menulis semua baris ke berkas, dengan kolom `base` di urutan pertama untuk kisi gabungan. Basis data yang gagal menghentikan ekspor dan disebutkan namanya, dan tidak ada berkas setengah jadi yang tersisa.
 - **Penjelajah SQL Server menunggu perubahan sesi lain:** membuka tabel, prosedur, atau objek lain dari sebuah basis data bisa terhenti selama 60 dtk dan gagal, dengan pesan bahwa server tidak merespons, saat sesi lain, seperti ETL atau skrip deployment, membuka transaksi yang membuat atau mengubah objek. Kini penjelajah membacanya langsung, beserta kolom dan definisinya serta skema yang dipakai pelengkapan otomatis. Hanya kode sumber objek persis yang sedang diubah transaksi itu yang tetap menunggu.
+- **Surel dari tugas terjadwal, keamanan:** pustaka yang mengirim surel diperbarui untuk menutup enam peringatan keamanan pada kode SMTP-nya. Server, atau pihak di antara DBine dan server, dapat memalsukan balasan server di sekitar STARTTLS; baris yang diakhiri satu pemisah baris dapat menyisipkan perintah SMTP ke dalam percakapan; alamat dengan bagian bertanda kutip dapat sampai ke penerima lain; dan balasan yang salah format dapat menghentikan pengiriman atau memenuhi memori. Ini mencakup langkah **Kirim surel** dan **Pengaturan › Surel**.
 
 ## [1.6.2] - 2026-11-16
 

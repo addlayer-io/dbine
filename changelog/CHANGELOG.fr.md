@@ -1,6 +1,6 @@
 # Modifications
 
-## [1.6.3] - 2026-11-17
+## [1.6.3] - 2026-11-18
 
 ### Améliorations
 - **Les données d'usage anonymes comptent chaque jour d'utilisation :** quand DBine reste ouvert d'un jour à l'autre, le premier clic ou la première touche du nouveau jour compte comme une ouverture, et le premier lancement après l'installation est signalé comme tel. Rien d'autre n'est envoyé : toujours aucun identifiant de vous, de l'ordinateur ou de l'installation, et **Paramètres › Général** le désactive comme avant. Ce qui est envoyé figure dans la documentation de la télémétrie.
@@ -10,6 +10,7 @@
 - **Les flèches laissaient la vue de la grille de résultats en arrière :** en déplaçant la cellule sélectionnée avec les flèches au-delà du bord droit ou gauche d'une grille de résultats, la vue restait en place et la sélection sortait de l'écran ; Tab et Entrée pendant la modification d'une cellule faisaient de même. La grille défile désormais pour suivre la cellule, latéralement comme verticalement.
 - **Exporter un résultat d'« Exécuter sur plusieurs bases » n'écrivait que les lignes à l'écran :** la grille conserve le maximum de lignes par base de l'éditeur, et **Exporter** n'enregistrait que celles-ci, pas le résultat complet. L'exporter exécute désormais de nouveau la requête sur chaque base, l'une après l'autre et en lecture seule, et écrit toutes les lignes dans le fichier, avec la colonne `base` en premier pour la grille fusionnée. Une base qui échoue arrête l'export et est nommée, et aucun fichier à moitié écrit ne reste.
 - **L'explorateur SQL Server attendait les modifications d'une autre session :** ouvrir les tables, procédures ou autres objets d'une base pouvait se bloquer pendant 60 s et échouer, en indiquant que le serveur ne répondait pas, alors qu'une autre session, comme un ETL ou un script de déploiement, avait une transaction ouverte qui créait ou modifiait des objets. L'explorateur les lit désormais immédiatement, avec leurs colonnes et définitions et le schéma utilisé par l'autocomplétion. Seul le code source de l'objet exact que cette transaction modifie attend encore.
+- **E-mail des tâches planifiées, sécurité :** la bibliothèque qui envoie les e-mails est mise à jour pour corriger six avis de sécurité dans son code SMTP. Un serveur, ou quelqu'un entre DBine et lui, pouvait falsifier les réponses du serveur autour de STARTTLS ; une ligne se terminant par un simple saut de ligne pouvait glisser des commandes SMTP dans la conversation ; une adresse avec une partie entre guillemets pouvait atteindre un autre destinataire ; et une réponse mal formée pouvait interrompre l'envoi ou saturer la mémoire. Cela concerne l'étape **Envoyer un e-mail** et **Paramètres › Courrier**.
 
 ## [1.6.2] - 2026-11-16
 
