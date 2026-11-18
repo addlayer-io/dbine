@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.6.3] - 2026-11-17
+
 ### Improvements
 
 - **Anonymous usage data counts each day of use:** when DBine stays open from one day to the next, the first click or key of the new day counts like opening it, and the first launch after installing is marked as such. Nothing else is sent: still no identifier of you, the computer or the installation, and **Settings › General** turns it off as before. What's sent is listed in the telemetry documentation.
