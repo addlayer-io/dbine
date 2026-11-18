@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [1.6.3] - 2026-11-17
+## [1.6.3] - 2026-11-18
 
 ### Improvements
 
@@ -14,6 +14,7 @@
 - **Arrow keys leaving the results grid's view behind:** moving the selected cell with the arrow keys past the right or left edge of a results grid kept the view where it was, so the selection went off-screen; Tab and Enter while editing a cell did the same. The grid now scrolls to follow the cell, sideways as well as up and down.
 - **Exporting a "Run on several databases" result wrote only the rows on screen:** the grid keeps the editor's maximum rows per database, and **Export** saved only those, not the whole result. Exporting it now runs the query again on each database, one after the other and read-only, and writes every row to the file, with the `base` column first for the merged grid. A database that fails stops the export and is named, and no half-written file is left.
 - **SQL Server explorer waiting on another session's changes:** opening a database's tables, procedures or other objects could stop for 60 s and fail, saying the server didn't respond, while another session, such as an ETL or a deployment script, had a transaction open that created or altered objects. The explorer now reads them right away, along with their columns and definitions and the schema that completion uses. Only the source of the very object that transaction is altering still waits.
+- **Mail from scheduled tasks, security:** the library that sends mail is updated past six advisories in its SMTP code. A server, or someone between DBine and it, could forge the server's replies around STARTTLS; a line ending in a lone line break could slip SMTP commands into the conversation; an address with a quoted part could reach a different recipient; and a malformed reply could stop the send or fill memory. This covers the **Send an email** step and **Settings › Mail**.
 
 ## [1.6.2] - 2026-11-16
 

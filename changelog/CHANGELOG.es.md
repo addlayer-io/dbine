@@ -1,6 +1,6 @@
 # Cambios
 
-## [1.6.3] - 2026-11-17
+## [1.6.3] - 2026-11-18
 
 ### Mejoras
 - **Los datos de uso anónimos cuentan cada día de uso:** cuando DBine queda abierto de un día para el otro, el primer clic o tecla del día nuevo cuenta como abrirlo, y el primer arranque después de instalar se marca como tal. No se envía nada más: sigue sin haber ningún identificador tuyo, de la computadora ni de la instalación, y **Configuración › General** lo desactiva como antes. Lo que se envía está en la documentación de telemetría.
@@ -10,6 +10,7 @@
 - **Las flechas dejaban atrás la vista de la grilla de resultados:** al mover la celda seleccionada con las flechas más allá del borde derecho o izquierdo de una grilla de resultados, la vista se quedaba donde estaba y la selección salía de pantalla; Tab y Enter al editar una celda hacían lo mismo. Ahora la grilla se desplaza para seguir a la celda, tanto hacia los costados como hacia arriba y abajo.
 - **Exportar un resultado de «Ejecutar en varias bases» escribía solo las filas en pantalla:** la grilla conserva el máximo de filas por base del editor, y **Exportar** guardaba solo esas, no el resultado completo. Ahora exportarlo vuelve a ejecutar la consulta en cada base, una tras otra y en solo lectura, y escribe todas las filas en el archivo, con la columna `base` primero para la grilla unida. Una base que falla detiene la exportación y se nombra, y no queda ningún archivo a medio escribir.
 - **El explorador de SQL Server esperaba cambios de otra sesión:** abrir las tablas, procedimientos u otros objetos de una base podía detenerse 60 s y fallar, diciendo que el servidor no respondía, mientras otra sesión, como un ETL o un script de despliegue, tenía abierta una transacción que creaba o modificaba objetos. Ahora el explorador los lee enseguida, junto con sus columnas y definiciones y el esquema que usa el autocompletado. Solo el código fuente del objeto exacto que esa transacción está modificando sigue esperando.
+- **Correo de las tareas programadas, seguridad:** la biblioteca que envía el correo se actualiza para cubrir seis avisos de seguridad de su código SMTP. Un servidor, o alguien entre DBine y él, podía falsificar las respuestas del servidor alrededor de STARTTLS; una línea terminada en un salto de línea suelto podía colar comandos SMTP en la conversación; una dirección con una parte entre comillas podía llegar a otro destinatario; y una respuesta mal formada podía frenar el envío o llenar la memoria. Esto abarca el paso **Enviar un mail** y **Configuración › Correo**.
 
 ## [1.6.2] - 2026-11-16
 

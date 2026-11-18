@@ -1,6 +1,6 @@
 # Modifiche
 
-## [1.6.3] - 2026-11-17
+## [1.6.3] - 2026-11-18
 
 ### Miglioramenti
 - **I dati di utilizzo anonimi contano ogni giorno di utilizzo:** quando DBine resta aperto da un giorno all'altro, il primo clic o tasto del nuovo giorno conta come un'apertura, e il primo avvio dopo l'installazione viene indicato come tale. Non viene inviato nient'altro: ancora nessun identificativo di te, del computer o dell'installazione, e **Impostazioni › Generale** lo disattiva come prima. Quello che viene inviato è elencato nella documentazione della telemetria.
@@ -10,6 +10,7 @@
 - **Le frecce lasciavano indietro la vista della griglia dei risultati:** spostando la cella selezionata con le frecce oltre il bordo destro o sinistro di una griglia dei risultati, la vista restava dov'era e la selezione usciva dallo schermo; Tab e Invio durante la modifica di una cella facevano lo stesso. Ora la griglia scorre per seguire la cella, sia di lato sia in su e in giù.
 - **Esportare un risultato di «Esegui su più database» scriveva solo le righe a schermo:** la griglia mantiene il massimo di righe per database dell'editor, ed **Esporta** salvava solo quelle, non il risultato completo. Ora esportarlo riesegue la query su ogni database, uno dopo l'altro e in sola lettura, e scrive tutte le righe nel file, con la colonna `base` per prima nella griglia unita. Un database che fallisce interrompe l'esportazione e viene indicato per nome, e non resta alcun file scritto a metà.
 - **L'esplora risorse di SQL Server in attesa delle modifiche di un'altra sessione:** aprire le tabelle, le procedure o altri oggetti di un database poteva bloccarsi per 60 s e fallire, dicendo che il server non rispondeva, mentre un'altra sessione, come un ETL o uno script di distribuzione, teneva aperta una transazione che creava o modificava oggetti. Ora l'esplorazione li legge subito, insieme a colonne e definizioni e allo schema usato dal completamento automatico. Solo il sorgente dell'oggetto esatto che quella transazione sta modificando continua ad attendere.
+- **Email delle attività pianificate, sicurezza:** la libreria che invia le email è aggiornata per correggere sei avvisi di sicurezza nel suo codice SMTP. Un server, o qualcuno tra DBine e il server, poteva falsificare le risposte del server attorno a STARTTLS; una riga che terminava con un singolo a capo poteva inserire comandi SMTP nella conversazione; un indirizzo con una parte tra virgolette poteva raggiungere un altro destinatario; e una risposta malformata poteva interrompere l'invio o riempire la memoria. Riguarda il passaggio **Invia un'email** e **Impostazioni › Posta**.
 
 ## [1.6.2] - 2026-11-16
 

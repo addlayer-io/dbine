@@ -1,6 +1,6 @@
 # Alterações
 
-## [1.6.3] - 2026-11-17
+## [1.6.3] - 2026-11-18
 
 ### Melhorias
 - **Os dados de uso anônimos contam cada dia de uso:** quando o DBine fica aberto de um dia para o outro, o primeiro clique ou tecla do novo dia conta como abri-lo, e a primeira inicialização após a instalação é marcada como tal. Nada mais é enviado: continua sem haver qualquer identificador seu, do computador ou da instalação, e **Configurações › Geral** o desativa como antes. O que é enviado está na documentação de telemetria.
@@ -10,6 +10,7 @@
 - **As setas deixavam a visão da grade de resultados para trás:** ao mover a célula selecionada com as setas além da borda direita ou esquerda de uma grade de resultados, a visão ficava onde estava e a seleção saía da tela; Tab e Enter ao editar uma célula faziam o mesmo. Agora a grade rola para acompanhar a célula, tanto para os lados quanto para cima e para baixo.
 - **Exportar um resultado de "Executar em vários bancos" gravava só as linhas na tela:** a grade mantém o máximo de linhas por banco do editor, e **Exportar** salvava só essas, não o resultado completo. Agora exportá-lo executa a consulta de novo em cada banco, um após o outro e em somente leitura, e grava todas as linhas no arquivo, com a coluna `base` primeiro para a grade unificada. Um banco que falha interrompe a exportação e é nomeado, e nenhum arquivo pela metade é deixado.
 - **O explorador do SQL Server esperando alterações de outra sessão:** abrir as tabelas, procedimentos ou outros objetos de um banco podia travar por 60 s e falhar, dizendo que o servidor não respondeu, enquanto outra sessão, como um ETL ou um script de implantação, mantinha aberta uma transação que criava ou alterava objetos. Agora o explorador os lê na hora, junto com suas colunas e definições e o esquema usado pelo preenchimento automático. Só o código-fonte do próprio objeto que essa transação está alterando continua esperando.
+- **E-mail das tarefas agendadas, segurança:** a biblioteca que envia o e-mail foi atualizada para corrigir seis avisos de segurança no código SMTP. Um servidor, ou alguém entre o DBine e ele, podia forjar as respostas do servidor em torno do STARTTLS; uma linha terminada em uma quebra de linha solta podia inserir comandos SMTP na conversa; um endereço com uma parte entre aspas podia chegar a outro destinatário; e uma resposta malformada podia interromper o envio ou encher a memória. Isso abrange a etapa **Enviar um e-mail** e **Configurações › E-mail**.
 
 ## [1.6.2] - 2026-11-16
 
