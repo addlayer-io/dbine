@@ -21,7 +21,7 @@ _None._
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
-| claude-security, release v1.6.2 | 2026-11-16 | 1d17cb8c..5341c10b, everything the first 1.6.2 cut added since v1.6.1 (#111, the #107 regression test, the dependency bumps); 5341c10b..19615aeb, what the re-cut adds (the data compare's equal rows #115, Switch to queries #118, docs and notes); 19615aeb..0e26e2f0, the fix for that scan's one LOW finding (#121) | 0 open | — |
+| claude-security, release v1.6.3 | 2026-11-18 | 0e26e2f0..e8b61cec, everything 1.6.3 adds since v1.6.2 (#123 SQL Server catalog reads, #124 Compare data export, the per-day telemetry, the multi-database export of every row, the grid's keyboard scroll, the release commit); e8b61cec..031d392f, libz-sys 1.1.33 and the picomatch review; 6fa05571..f7e04ee7, lettre 0.11.24 past six SMTP advisories | 0 open | — |
 | codeql | 2026-11-18 | Rust, TypeScript/Vue and workflows | 0 open | — |
 | osv | 2026-11-18 | every lockfile (Cargo, npm) at [`4fc9459ce`](https://github.com/addlayer-io/dbine/commit/4fc9459ce3cf) | 0 open | — |
 | scorecard | 2026-11-18 | repository settings and workflows at [`6fa055717`](https://github.com/addlayer-io/dbine/commit/6fa055717e9f) | score 6.9/10 | — |

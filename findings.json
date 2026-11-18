@@ -1,36 +1,6 @@
 {
   "scans": [
     {
-      "source": "claude-security",
-      "release": "v1.6.2",
-      "scan_id": "d29d541a-db20-4a17-af2a-f2eb77eb2985",
-      "date": "2026-11-16",
-      "revision": "5341c10bc51c",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 0
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.6.2",
-      "scan_id": "d772b81c-20ae-43dd-beb8-578f5d956f5c",
-      "date": "2026-11-16",
-      "revision": "19615aeb7cc9",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 1
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.6.2",
-      "scan_id": "fbac545c-dd71-4f7c-bef9-b2bb95e48c2e",
-      "date": "2026-11-16",
-      "revision": "0e26e2f06e6a",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 0
-    },
-    {
       "source": "osv",
       "date": "2026-11-18",
       "revision": "4fc9459ce3cf",
@@ -61,6 +31,36 @@
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 6.9
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.6.3",
+      "scan_id": "0c483ab7-5e03-4192-be7f-704d61f3a061",
+      "date": "2026-11-18",
+      "revision": "e8b61cec1067",
+      "kind": "changes",
+      "scope": "whole repository",
+      "found": 0
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.6.3",
+      "scan_id": "3ab743ea-3b51-48a0-9508-a8aa9b39103f",
+      "date": "2026-11-18",
+      "revision": "031d392f7a6e",
+      "kind": "changes",
+      "scope": "0e26e2f0..e8b61cec",
+      "found": 0
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.6.3",
+      "scan_id": "8afce637-ab78-4757-8c52-77205f302645",
+      "date": "2026-11-18",
+      "revision": "f7e04ee7c876",
+      "kind": "changes",
+      "scope": "0e26e2f0..e8b61cec",
+      "found": 0
     }
   ],
   "findings": [
@@ -4571,8 +4571,8 @@
     }
   ],
   "claude_coverage": {
-    "release": "v1.6.2",
-    "scanned": "1d17cb8c..5341c10b, everything the first 1.6.2 cut added since v1.6.1 (#111, the #107 regression test, the dependency bumps); 5341c10b..19615aeb, what the re-cut adds (the data compare's equal rows #115, Switch to queries #118, docs and notes); 19615aeb..0e26e2f0, the fix for that scan's one LOW finding (#121)",
+    "release": "v1.6.3",
+    "scanned": "0e26e2f0..e8b61cec, everything 1.6.3 adds since v1.6.2 (#123 SQL Server catalog reads, #124 Compare data export, the per-day telemetry, the multi-database export of every row, the grid's keyboard scroll, the release commit); e8b61cec..031d392f, libz-sys 1.1.33 and the picomatch review; 6fa05571..f7e04ee7, lettre 0.11.24 past six SMTP advisories",
     "not_covered": ""
   }
 }
