@@ -2,14 +2,14 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-11-17._
+_Updated 2026-11-18._
 
 ## Open findings
 
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 2 | 1 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 0 | 6 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
@@ -17,19 +17,22 @@ Findings from the source-code review and CodeQL show only their kind and compone
 
 | ID | Severity | Source | Finding | Where | Fix |
 |---|---|---|---|---|---|
-| OSV-GHSA-fc5q-39xc-vjpf-picomatch-3ebf69 | HIGH | osv | picomatch 4.0.7: picomatch vulnerable to ReDoS through single-branch repeated extglobs | `web/package-lock.json` | pending |
-| OSV-GHSA-fc5q-39xc-vjpf-picomatch-d5fe01 | HIGH | osv | picomatch 4.0.7: picomatch vulnerable to ReDoS through single-branch repeated extglobs | `mobile/package-lock.json` | pending |
-| OSV-RUSTSEC-2026-0544-libz-sys-13ee4b | MEDIUM | osv | libz-sys 1.1.31: libs-sys: heap buffer overflow | `Cargo.lock` | upgrade to 1.1.33 |
+| OSV-RUSTSEC-2026-0560-lettre-13ee4b | MEDIUM | osv | lettre 0.11.23: STARTTLS response injection allows a man-in-the-middle to forge SMTP replies | `Cargo.lock` | upgrade to 0.11.24 |
+| OSV-RUSTSEC-2026-0561-lettre-13ee4b | MEDIUM | osv | lettre 0.11.23: Missing dot-stuffing after a bare LF or CR allows SMTP command injection | `Cargo.lock` | upgrade to 0.11.24 |
+| OSV-RUSTSEC-2026-0562-lettre-13ee4b | MEDIUM | osv | lettre 0.11.23: Panic on an `EHLO` reply line of only white space allows denial of service | `Cargo.lock` | upgrade to 0.11.24 |
+| OSV-RUSTSEC-2026-0563-lettre-13ee4b | MEDIUM | osv | lettre 0.11.23: Messages for an address with a quoted local part are sent to a different address | `Cargo.lock` | upgrade to 0.11.24 |
+| OSV-RUSTSEC-2026-0564-lettre-13ee4b | MEDIUM | osv | lettre 0.11.23: Panic on a mailbox display name containing CR or LF allows denial of service | `Cargo.lock` | upgrade to 0.11.24 |
+| OSV-RUSTSEC-2026-0565-lettre-13ee4b | MEDIUM | osv | lettre 0.11.23: Unbounded buffering of an SMTP reply allows a malicious server to exhaust memory | `Cargo.lock` | upgrade to 0.11.24 |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.6.2 | 2026-11-16 | 1d17cb8c..5341c10b, everything the first 1.6.2 cut added since v1.6.1 (#111, the #107 regression test, the dependency bumps); 5341c10b..19615aeb, what the re-cut adds (the data compare's equal rows #115, Switch to queries #118, docs and notes); 19615aeb..0e26e2f0, the fix for that scan's one LOW finding (#121) | 0 open | — |
-| codeql | 2026-11-17 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-17 | every lockfile (Cargo, npm) at [`16c7caa0b`](https://github.com/addlayer-io/dbine/commit/16c7caa0baf1) | 3 open | — |
-| scorecard | 2026-11-17 | repository settings and workflows at [`4b7361529`](https://github.com/addlayer-io/dbine/commit/4b736152952c) | score 7.3/10 | — |
-| trivy | 2026-11-17 | whole repository at [`16c7caa0b`](https://github.com/addlayer-io/dbine/commit/16c7caa0baf1) | 0 open | — |
+| codeql | 2026-11-18 | Rust, TypeScript/Vue and workflows | 0 open | — |
+| osv | 2026-11-18 | every lockfile (Cargo, npm) at [`6fa055717`](https://github.com/addlayer-io/dbine/commit/6fa055717e9f) | 6 open | — |
+| scorecard | 2026-11-17 | repository settings and workflows at [`16c7caa0b`](https://github.com/addlayer-io/dbine/commit/16c7caa0baf1) | score 7.3/10 | — |
+| trivy | 2026-11-18 | whole repository at [`6fa055717`](https://github.com/addlayer-io/dbine/commit/6fa055717e9f) | 0 open | — |
 
 ## Not counted, and why
 
@@ -385,6 +388,7 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 | Advisory RUSTSEC-2026-0370, RUSTSEC-2026-0371, RUSTSEC-2026-0372 | `dependencies` | Notice, not a vulnerability: zvariant, zvariant_derive and zbus_names are unmaintained (no known flaw; D-Bus support in Tauri's Linux stack). | osv-scanner.toml |
 | Advisory RUSTSEC-2023-0071 | `dependencies` | Doesn't affect DBine. The timing leak (Marvin) is in the rsa crate's private-key operations, and DBine runs none with it: SSH sign-in with an RSA key signs in AWS-LC (crates/dbine-tunnel/src/rsa_sign.rs), and Zoho Vault's and Bitwarden's organization keys decrypt in AWS-LC (src-tauri/src/secret_sources/rsa_lc.rs). rsa only reads and encodes keys and checks server host-key signatures, which are public-key operations. | osv-scanner.toml |
 | Advisory GHSA-qwgh-2vcv-g2f7 | `dependencies` | Doesn't affect DBine. The flaw needs the compression or block-generator callback passed to block-buffer to panic, the panic to be caught, and the same buffer to be used again; DBine never passes its own callbacks, and the RustCrypto hash functions that do (sha2, hmac, sha1, blake2) don't panic. The fix exists only in block-buffer 0.12, which needs the digest 0.11 generation that the hash crates DBine depends on haven't moved to. | osv-scanner.toml |
+| Advisory GHSA-fc5q-39xc-vjpf | `dependencies` | Doesn't affect DBine. picomatch is a development-only dependency (dev in web/ and mobile/ package-lock.json), pulled in by build tooling (vite, tinyglobby, fdir, @parcel/watcher, @vue/language-core); it isn't in the shipped app or the phone app. The patterns it compiles come only from the repository's own configuration and import.meta.glob calls, never from user input, and none uses the single-branch repeated extglob form the flaw needs (checked web/ and mobile/ vite.config.ts, eslint.config.js, tsconfig.json and every import.meta.glob pattern for +( *( @( ?( !( ). No fixed release exists upstream (last affected 4.0.7). | osv-scanner.toml |
 
 ## Maintenance notices
 
@@ -407,6 +411,6 @@ OpenSSF Scorecard: **7.3/10** (2026-11-17). The checks below 10, with Scorecard'
 | Code-Review: 0/10 — Found 0/12 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Vulnerabilities: 7/10 — 3 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
-| CI-Tests: 5/10 — 8 out of 14 merged PRs checked by a CI test -- score normalized to 5 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
+| CI-Tests: 6/10 — 9 out of 14 merged PRs checked by a CI test -- score normalized to 6 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |

@@ -32,23 +32,23 @@
     },
     {
       "source": "osv",
-      "date": "2026-11-17",
-      "revision": "16c7caa0baf1",
+      "date": "2026-11-18",
+      "revision": "6fa055717e9f",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 3
+      "found": 6
     },
     {
       "source": "trivy",
-      "date": "2026-11-17",
-      "revision": "16c7caa0baf1",
+      "date": "2026-11-18",
+      "revision": "6fa055717e9f",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
     },
     {
       "source": "codeql",
-      "date": "2026-11-17",
+      "date": "2026-11-18",
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
@@ -57,7 +57,7 @@
     {
       "source": "scorecard",
       "date": "2026-11-17",
-      "revision": "4b736152952c",
+      "revision": "16c7caa0baf1",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.3
@@ -4446,30 +4446,6 @@
       "by": "mpanichella"
     },
     {
-      "id": "OSV-GHSA-fc5q-39xc-vjpf-picomatch-3ebf69",
-      "source": "osv",
-      "severity": "HIGH",
-      "kind": "Vulnerable dependency",
-      "title": "picomatch 4.0.7: picomatch vulnerable to ReDoS through single-branch repeated extglobs",
-      "component": "web/package-lock.json",
-      "advisory": "GHSA-fc5q-39xc-vjpf",
-      "fixed_version": null,
-      "found": "2026-11-17",
-      "status": "open"
-    },
-    {
-      "id": "OSV-GHSA-fc5q-39xc-vjpf-picomatch-d5fe01",
-      "source": "osv",
-      "severity": "HIGH",
-      "kind": "Vulnerable dependency",
-      "title": "picomatch 4.0.7: picomatch vulnerable to ReDoS through single-branch repeated extglobs",
-      "component": "mobile/package-lock.json",
-      "advisory": "GHSA-fc5q-39xc-vjpf",
-      "fixed_version": null,
-      "found": "2026-11-17",
-      "status": "open"
-    },
-    {
       "id": "OSV-RUSTSEC-2026-0543-chrono-13ee4b",
       "source": "osv",
       "severity": "NOTICE",
@@ -4506,15 +4482,75 @@
       "status": "notice"
     },
     {
-      "id": "OSV-RUSTSEC-2026-0544-libz-sys-13ee4b",
+      "id": "OSV-RUSTSEC-2026-0560-lettre-13ee4b",
       "source": "osv",
       "severity": "MEDIUM",
       "kind": "Vulnerable dependency",
-      "title": "libz-sys 1.1.31: libs-sys: heap buffer overflow",
+      "title": "lettre 0.11.23: STARTTLS response injection allows a man-in-the-middle to forge SMTP replies",
       "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0544",
-      "fixed_version": "1.1.33",
-      "found": "2026-11-17",
+      "advisory": "RUSTSEC-2026-0560",
+      "fixed_version": "0.11.24",
+      "found": "2026-11-18",
+      "status": "open"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0561-lettre-13ee4b",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "lettre 0.11.23: Missing dot-stuffing after a bare LF or CR allows SMTP command injection",
+      "component": "Cargo.lock",
+      "advisory": "RUSTSEC-2026-0561",
+      "fixed_version": "0.11.24",
+      "found": "2026-11-18",
+      "status": "open"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0562-lettre-13ee4b",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "lettre 0.11.23: Panic on an `EHLO` reply line of only white space allows denial of service",
+      "component": "Cargo.lock",
+      "advisory": "RUSTSEC-2026-0562",
+      "fixed_version": "0.11.24",
+      "found": "2026-11-18",
+      "status": "open"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0563-lettre-13ee4b",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "lettre 0.11.23: Messages for an address with a quoted local part are sent to a different address",
+      "component": "Cargo.lock",
+      "advisory": "RUSTSEC-2026-0563",
+      "fixed_version": "0.11.24",
+      "found": "2026-11-18",
+      "status": "open"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0564-lettre-13ee4b",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "lettre 0.11.23: Panic on a mailbox display name containing CR or LF allows denial of service",
+      "component": "Cargo.lock",
+      "advisory": "RUSTSEC-2026-0564",
+      "fixed_version": "0.11.24",
+      "found": "2026-11-18",
+      "status": "open"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0565-lettre-13ee4b",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "lettre 0.11.23: Unbounded buffering of an SMTP reply allows a malicious server to exhaust memory",
+      "component": "Cargo.lock",
+      "advisory": "RUSTSEC-2026-0565",
+      "fixed_version": "0.11.24",
+      "found": "2026-11-18",
       "status": "open"
     },
     {
@@ -4544,7 +4580,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "CI-Tests: 5/10 — 8 out of 14 merged PRs checked by a CI test -- score normalized to 5",
+      "title": "CI-Tests: 6/10 — 9 out of 14 merged PRs checked by a CI test -- score normalized to 6",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
       "found": "2026-11-15",
