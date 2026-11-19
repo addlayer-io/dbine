@@ -82,6 +82,18 @@ pub(crate) fn text(v: &serde_json::Value) -> String {
     v.as_str().map_or_else(|| v.to_string(), str::to_string)
 }
 
+/// `sql`'s first cell, run as the MCP's server-enforced read.
+async fn count_read_only(s: &mut dyn Session, sql: &str) -> Res<String> {
+    let mut out = QueryOutcome::default();
+    s.run_read_only(sql, 1, &mut out)
+        .await
+        .map_err(|e| format!("{e}\n--- {sql}"))?;
+    if let Some(e) = out.error.take() {
+        return Err(format!("{e}\n--- {sql}"));
+    }
+    Ok(text(&first(out).rows[0][0]))
+}
+
 async fn drop_db(name: &str) -> Res<()> {
     let mut s = open(&pgvector("postgres")).await?;
     exec(
@@ -200,6 +212,33 @@ async fn vector_live_similarity_search_reads_without_approval() {
         );
         let n = first(exec(s.as_mut(), "SELECT count(*) FROM items").await?);
         check!(text(&n.rows[0][0]) == "3", "{:?}", n.rows);
+        // pgvector's names are an extension's: the server says each one a
+        // query calls is the extension's before it skips the approval (on
+        // the read-only session, as the MCP read does), and a user's
+        // function of the same name in another schema makes it ask.
+        let q = "SELECT id FROM items ORDER BY cosine_distance(embedding, '[1,0,0]'), \
+                 l1_distance(embedding, '[1,0,0]') LIMIT 2";
+        let names = crate::mcp::reads::extension_calls(
+            "postgres",
+            &dbine_driver::ScriptDialect::postgres(),
+            q,
+        );
+        check!(
+            names == ["cosine_distance", "l1_distance"],
+            "{names:?}"
+        );
+        let sql = crate::mcp::reads::extension_check_sql("vector", &names);
+        let n = count_read_only(s.as_mut(), &sql).await?;
+        check!(n == "0", "pgvector's own functions: {n}");
+        exec(
+            s.as_mut(),
+            "CREATE SCHEMA mine; \
+             CREATE FUNCTION mine.l1_distance(vector, vector) RETURNS float8 \
+             LANGUAGE sql AS 'SELECT 0::float8'",
+        )
+        .await?;
+        let n = count_read_only(s.as_mut(), &sql).await?;
+        check!(n == "1", "a user's l1_distance must make it ask: {n}");
         drop(s);
         Ok(())
     })

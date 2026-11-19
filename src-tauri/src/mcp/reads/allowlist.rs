@@ -785,7 +785,11 @@ const TSQL: &[&str] = &[
 /// without approval where the server enforces the read. By driver, not by
 /// family: each name is one engine's, and on another server of the family
 /// (MySQL next to TiDB, PostgreSQL next to Redshift) it would be a user's
-/// function. Operators (pgvector's `<->`, `<#>`, `<=>`, `<+>`, `<~>`,
+/// function. The variants listed are those whose driver family stores
+/// vectors (`Capabilities.vectors`), plus engines whose built-ins work on
+/// arrays without a vector type (DuckDB files, Databricks). An extension's
+/// names (pgvector's, [`vector_extension`]) skip the approval only after
+/// the server says they're the extension's. Operators (pgvector's `<->`, `<#>`, `<=>`, `<+>`, `<~>`,
 /// `<%>`) aren't calls: the check never stops at them. Never a function
 /// that calls a model or another service (`vector_embedding`,
 /// `ai_generate_embeddings`, `aiSimilarity`, `ai_similarity`, Databricks'
@@ -794,13 +798,23 @@ const TSQL: &[&str] = &[
 /// `$vectorSearch`) aren't checked here: their reads are always approved.
 fn vector_functions(driver: &str) -> &'static [&'static str] {
     match driver {
-        "postgres" | "timescaledb" | "alloydb" | "cloudsql_postgres" | "aurora_postgres"
-        | "yugabytedb" | "greenplum" | "cloudberry" | "edb" | "fujitsu" => PGVECTOR,
+        d if vector_extension(d).is_some() => PGVECTOR,
         "cockroachdb" => COCKROACH_VECTOR,
+        // RisingWave's own vector(n) (2.6; subvector 2.7), pgvector's names.
+        "risingwave" => &[
+            "l2_distance",
+            "cosine_distance",
+            "l1_distance",
+            "inner_product",
+            "vector_norm",
+            "l2_normalize",
+            "subvector",
+        ],
         "cratedb" => &["knn_match", "vector_similarity"],
         // The MySQL driver connects to MariaDB too (its reads are enforced
-        // there as well).
-        "mysql" | "aurora-mysql" | "cloudsql-mysql" => &[
+        // there as well). Not Aurora MySQL or Cloud SQL for MySQL: the
+        // family has no vectors there.
+        "mysql" => &[
             "string_to_vector",
             "to_vector",
             "vector_to_string",
@@ -838,6 +852,15 @@ fn vector_functions(driver: &str) -> &'static [&'static str] {
             "vector_sum",
             "json_array_pack",
             "json_array_unpack",
+        ],
+        // Databend's VECTOR(n).
+        "databend" => &[
+            "cosine_distance",
+            "l1_distance",
+            "l2_distance",
+            "inner_product",
+            "vector_dims",
+            "vector_norm",
         ],
         "oceanbase" => &[
             "l2_distance",
@@ -1020,6 +1043,85 @@ fn vector_functions(driver: &str) -> &'static [&'static str] {
         ],
         _ => &[],
     }
+}
+
+/// The extension `driver`'s vector functions belong to, where they aren't
+/// the engine's own built-ins: pgvector (`vector`) on the PostgreSQL
+/// variants the family gives it to. A user's function of the same name
+/// (in any schema, through an overload or a schema earlier in the path)
+/// would run instead, so a query that calls one skips the approval only
+/// after the server says every function of that name is the extension's
+/// or a built-in ([`extension_check_sql`]).
+pub(crate) fn vector_extension(driver: &str) -> Option<&'static str> {
+    matches!(
+        driver,
+        "postgres"
+            | "timescaledb"
+            | "alloydb"
+            | "cloudsql_postgres"
+            | "aurora_postgres"
+            | "yugabytedb"
+            | "greenplum"
+            | "cloudberry"
+            | "greengage"
+            | "edb"
+            | "fujitsu"
+            | "kingbase"
+            | "opengauss"
+    )
+    .then_some("vector")
+}
+
+/// The extension functions (lower case) `query` calls on `driver`
+/// ([`vector_extension`]); none where its vector functions are built-ins.
+pub(crate) fn extension_calls(
+    driver: &str,
+    dialect: &ScriptDialect,
+    query: &str,
+) -> Vec<&'static str> {
+    if vector_extension(driver).is_none() {
+        return Vec::new();
+    }
+    let text = expose_versioned(query, dialect);
+    let toks = name_tokens(&text, dialect);
+    let mut out: Vec<&'static str> = Vec::new();
+    for (i, t) in toks.iter().enumerate() {
+        let call = t.kind == TokenKind::Name
+            && toks
+                .get(i + 1)
+                .is_some_and(|n| n.kind == TokenKind::Punct && n.text == "(");
+        if !call {
+            continue;
+        }
+        let lower = t.text.to_ascii_lowercase();
+        if let Some(f) = PGVECTOR.iter().find(|f| **f == lower) {
+            if !out.contains(f) {
+                out.push(f);
+            }
+        }
+    }
+    out
+}
+
+/// A read that counts the functions named `names` (lower case, from
+/// [`PGVECTOR`]) that are neither `extension`'s nor built-ins (in
+/// `pg_catalog`), in any schema: 0 means each call is the extension's.
+/// PostgreSQL 9.4 catalogs (Greenplum 6) answer it too.
+pub(crate) fn extension_check_sql(extension: &str, names: &[&str]) -> String {
+    let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
+    let list: Vec<String> = names.iter().map(|n| lit(n)).collect();
+    format!(
+        "SELECT count(*) FROM pg_catalog.pg_proc p \
+         WHERE p.proname IN ({}) \
+         AND p.pronamespace <> (SELECT n.oid FROM pg_catalog.pg_namespace n WHERE n.nspname = 'pg_catalog') \
+         AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend d \
+         JOIN pg_catalog.pg_extension e ON e.oid = d.refobjid \
+         WHERE d.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass \
+         AND d.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass \
+         AND d.objid = p.oid AND d.deptype = 'e' AND e.extname = {})",
+        list.join(", "),
+        lit(extension)
+    )
 }
 
 /// pgvector 0.8 (an extension, not a built-in: listed for the variants that
@@ -1858,5 +1960,105 @@ mod tests {
         // Non-SQL engines aren't checked: their reads are approved.
         assert!(on("cassandra", "SELECT similarity_cosine(v, [1, 2]) FROM t").is_err());
         assert!(on("neo4j", "RETURN vector.similarity.cosine([1, 2], [1, 2])").is_err());
+    }
+
+    /// The list follows each family's vector variants: pgvector's names on
+    /// KingbaseES, openGauss and Greengage too, RisingWave's and Databend's
+    /// own; not on Aurora MySQL or Cloud SQL for MySQL, which have none.
+    #[test]
+    fn mcp_allowlist_follows_each_variants_vectors() {
+        for id in ["kingbase", "opengauss", "greengage"] {
+            if dbine_drivers::find(id).is_some() {
+                assert_eq!(
+                    on(
+                        id,
+                        "SELECT id FROM t ORDER BY cosine_distance(v, '[1,2]') LIMIT 3"
+                    ),
+                    Ok(()),
+                    "{id}"
+                );
+            }
+            assert_eq!(vector_extension(id), Some("vector"), "{id}");
+        }
+        if dbine_drivers::find("risingwave").is_some() {
+            assert_eq!(
+                on(
+                    "risingwave",
+                    "SELECT l2_distance(v, '[1,2]'), vector_norm(v), subvector(v, 1, 1) FROM t"
+                ),
+                Ok(())
+            );
+            assert_eq!(
+                on("risingwave", "SELECT binary_quantize(v) FROM t"),
+                Err("binary_quantize".into())
+            );
+        }
+        // RisingWave's and CockroachDB's are built-ins, not an extension's.
+        assert_eq!(vector_extension("risingwave"), None);
+        assert_eq!(vector_extension("cockroachdb"), None);
+        assert_eq!(vector_extension("redshift"), None);
+        if dbine_drivers::find("databend").is_some() {
+            assert_eq!(
+                on(
+                    "databend",
+                    "SELECT cosine_distance(v, [1,2]), vector_dims(v), vector_norm(v) FROM t"
+                ),
+                Ok(())
+            );
+        }
+        for id in ["aurora-mysql", "cloudsql-mysql"] {
+            assert!(vector_functions(id).is_empty(), "{id}");
+            if dbine_drivers::find(id).is_some() {
+                assert_eq!(
+                    on(id, "SELECT STRING_TO_VECTOR('[1,2]')"),
+                    Err("STRING_TO_VECTOR".into()),
+                    "{id}"
+                );
+            }
+        }
+    }
+
+    /// pgvector's names are an extension's: the read skips the approval
+    /// only after the server says each one called is the extension's. The
+    /// calls are found as the allowlist finds them; the check reads the
+    /// catalogs only.
+    #[test]
+    fn mcp_allowlist_extension_calls_are_checked_on_the_server() {
+        let pg = dbine_driver::ScriptDialect::postgres();
+        assert_eq!(
+            extension_calls(
+                "postgres",
+                &pg,
+                "SELECT id, COSINE_DISTANCE(v, '[1,2]'), l2_distance(v, '[1,2]'), \
+                 cosine_distance(w, '[1,2]') FROM t ORDER BY v <-> '[1,2]' LIMIT 5"
+            ),
+            ["cosine_distance", "l2_distance"]
+        );
+        // Operators and built-ins aren't calls of the extension's.
+        assert!(extension_calls(
+            "postgres",
+            &pg,
+            "SELECT lower(name), avg(v) FROM t ORDER BY v <=> '[1,2]'"
+        )
+        .is_empty());
+        // Built-ins elsewhere: nothing to check.
+        assert!(extension_calls("cockroachdb", &pg, "SELECT l2_distance(v, v) FROM t").is_empty());
+        assert!(extension_calls("risingwave", &pg, "SELECT l2_distance(v, v) FROM t").is_empty());
+        let sql = extension_check_sql("vector", &["cosine_distance", "l2_distance"]);
+        assert!(
+            sql.starts_with("SELECT count(*) FROM pg_catalog.pg_proc p"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("p.proname IN ('cosine_distance', 'l2_distance')"),
+            "{sql}"
+        );
+        assert!(sql.contains("e.extname = 'vector'"), "{sql}");
+        assert!(
+            dbine_driver::read_only::first_write(&sql).is_none(),
+            "a read: {sql}"
+        );
+        // The check itself calls no function the allowlist doesn't know.
+        assert_eq!(on("postgres", &sql), Ok(()));
     }
 }
