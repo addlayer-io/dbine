@@ -1,13 +1,15 @@
-// view=nbwrite[&state=form|confirm|result|error|full][&prod=1][&theme=light]
+// view=nbwrite[&state=form|confirm|result|error|full][&prod=1][&theme=light][&set=vectors]
 //   A notebook's write cell (NotebookWriteCell.vue): a DataFrame SQL cell's
 //   result written into a SQL Server table by key. state=form: the form
 //   with its preview; confirm: the confirmation every write asks for
 //   (prod=1: a production connection, which asks to type the table's name);
 //   result: a finished write; error: a write that failed and rolled back.
+//   set=vectors: the preview has a vector column (1,536 numbers) and a long text.
 import { h } from 'vue';
 import NotebookWriteCell, { type FrameColumn } from '../components/notebook/NotebookWriteCell.vue';
 import NotebookWriteConfirm from '../components/notebook/NotebookWriteConfirm.vue';
 import type { WritePlan, WriteTargetInfo } from '../api/types';
+import { sampleVectorResult } from './samples';
 import { newCell, newWriteCell } from '../composables/notebookModel';
 import NotebookView from '../views/NotebookView.vue';
 import { notebookDraftKey, type NotebookTab } from '../stores/tabs';
@@ -63,6 +65,18 @@ const PLAN: WritePlan = {
   atomic: true,
 };
 
+/** The plan with an `embedding` column (DuckDB's FLOAT[1536] into pgvector's vector(1536)) and a long text. */
+const VECTOR_PLAN: WritePlan = {
+  ...PLAN,
+  columns: [...PLAN.columns, { source: 'embedding', source_type: 'FLOAT[1536]', target: 'embedding', target_type: 'vector(1536)', converted: false }],
+  preview: {
+    columns: [...PLAN.preview.columns, 'embedding'],
+    rows: PLAN.preview.rows.map((r, i) => [
+      ...r.slice(0, 1), i === 1 ? `${r[1]} — ${'una nota muy larga que no entra en la celda '.repeat(6)}` : r[1], ...r.slice(2), sampleVectorResult.rows[i][2],
+    ]),
+  },
+};
+
 function cell(state: string) {
   const c = newWriteCell('resumen');
   c.write = {
@@ -108,7 +122,7 @@ export function notebookWritePreview(params: URLSearchParams) {
       cell: c, index: 3, count: 4, active: true, running: false, busy: false,
       frames: FRAMES, frameColumns: COLUMNS, targetText: 'Ventas prod › ventas', targetUnresolved: false, prod,
       info: INFO, infoError: null, tables: ['clientes', 'resumen_mensual', 'ventas'], hasSchemas: true,
-      plan: state === 'form' ? PLAN : null, planning: false, planError: null,
+      plan: state === 'form' ? (params.get('set') === 'vectors' ? VECTOR_PLAN : PLAN) : null, planning: false, planError: null,
     }),
     state === 'confirm' ? h(NotebookWriteConfirm, { plan: PLAN, mode: 'upsert', prod, runAll: params.get('all') !== '0' }) : null,
   ]);

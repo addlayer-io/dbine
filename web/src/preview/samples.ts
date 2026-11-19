@@ -97,6 +97,19 @@ export const sampleVectorResult: { columns: ResultColumn[]; rows: Cell[][] } = {
   ]),
 };
 
+/** Documents with a vector field (view=docs-edit&set=vectors, adddoc):
+ *  MongoDB Atlas-like, 4 numbers, the driver's mark on the column. */
+export const sampleVectorDocuments: { columns: ResultColumn[]; rows: Cell[][] } = {
+  columns: [
+    { name: '_id', type_name: 'objectId' },
+    { name: 'titulo', type_name: 'string' },
+    { name: 'embedding', type_name: 'array', vector: { dims: 4, element: 'f32' } },
+  ],
+  rows: Array.from({ length: 6 }, (_, i) => [
+    `65a1b2c3d4e5f60718290${i}`, `Documento ${i + 1}`, JSON.stringify(embedding(i + 400, 4)),
+  ]),
+};
+
 /** Shaped like PostgreSQL + pgvector's DesignerSpec: HNSW and IVFFlat, the
  *  six distances, their build parameters, no filter columns. */
 export const sampleDesignerPgvector: DesignerSpec = {
@@ -148,7 +161,12 @@ export const sampleDesignerInitialPgvector: TableSchema = {
   primary_key: { name: 'documentos_pkey', columns: ['id'] },
   foreign_keys: [],
   indexes: [
-    { name: 'documentos_embedding_idx', columns: ['embedding'], unique: false, kind: 'hnsw', filter: null, vector: { algorithm: 'hnsw', metric: 'cosine', params: { m: '24', ef_construction: '128' } } },
+    {
+      name: 'documentos_embedding_idx', columns: ['embedding'], unique: false, kind: 'hnsw', filter: null,
+      // As the PostgreSQL driver reads it: the index's DDL body in `options` (what compare looks at).
+      options: { vector: 'USING hnsw (embedding vector_cosine_ops) WITH (m=24, ef_construction=128)' },
+      vector: { algorithm: 'hnsw', metric: 'cosine', params: { m: '24', ef_construction: '128' } },
+    },
     { name: 'documentos_idioma_idx', columns: ['idioma'], unique: false, kind: 'btree', filter: null },
   ],
   comment: null, options: {},
