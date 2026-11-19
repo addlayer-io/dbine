@@ -39,10 +39,15 @@ fn args_of(narg: i64) -> String {
     format!("({})", names.join(", "))
 }
 
+/// libSQL's vector functions ([`from_server`] takes their argument names
+/// from here when the server lists them).
+pub const LIBSQL: &str = include_str!("functions/libsql.txt");
+
 /// The catalog from the rows of [`LIST`] (name, kind, argument count) and
 /// the server's version.
 pub fn from_server(rows: &[(String, String, i64)], version: &str) -> Vec<FunctionInfo> {
-    let known = parse_catalog(shared::SQLITE, Some(version));
+    let mut known = parse_catalog(shared::SQLITE, Some(version));
+    known.extend(parse_catalog(LIBSQL, None));
     let mut groups: BTreeMap<(String, &str), BTreeSet<i64>> = BTreeMap::new();
     let mut modules: HashSet<String> = HashSet::new();
     for (name, kind, narg) in rows {
@@ -128,6 +133,30 @@ mod tests {
     }
 
     #[test]
+    fn libsql_vector_functions_by_version() {
+        let c = parse_catalog(LIBSQL, Some("3.47.0"));
+        for n in [
+            "vector32",
+            "vector_extract",
+            "vector_distance_cos",
+            "vector_top_k",
+        ] {
+            assert!(c.iter().any(|f| f.name == n), "{n}");
+        }
+        let top = c.iter().find(|f| f.name == "vector_top_k").unwrap();
+        assert_eq!(top.kind, FunctionKind::Table);
+        // A libSQL older than its vector search, and plain SQLite.
+        assert!(parse_catalog(LIBSQL, Some("3.44.0")).is_empty());
+        assert!(!fallback("3.47.0").iter().any(|f| f.name == "vector32"));
+        // Every line of the file reads.
+        let entries = LIBSQL
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+            .count();
+        assert_eq!(parse_catalog(LIBSQL, None).len(), entries);
+    }
+
+    #[test]
     fn server_rows_keep_what_the_build_has() {
         let rows = [
             row("abs", "s", 1),
@@ -140,6 +169,7 @@ mod tests {
             row("->>", "s", 2),
             row("current_date", "s", 0),
             row("vector_distance_cos", "s", 2),
+            row("my_udf", "s", 1),
             row("stats_median", "a", 1),
             row("json", "s", 1),
             row("json_each", "m", -1),
@@ -161,11 +191,23 @@ mod tests {
         // Operators and keywords aren't functions.
         assert!(find("->>").is_empty());
         assert!(find("current_date").is_empty());
-        // Not in the static catalog: from the argument count.
+        // libSQL's, with their argument names.
         let v = find("vector_distance_cos");
         assert_eq!(
             (v[0].kind, v[0].args.as_str()),
-            (FunctionKind::Scalar, "(arg1, arg2)")
+            (FunctionKind::Scalar, "(a, b)")
+        );
+        // Not in a static catalog: from the argument count.
+        assert_eq!(find("my_udf")[0].args, "(arg1)");
+        // vector_top_k is a module, listed only where the server has it.
+        assert!(find("vector_top_k").is_empty());
+        let mut with_module = rows.to_vec();
+        with_module.push(row("vector_top_k", "m", -1));
+        let c2 = from_server(&with_module, "3.47.0");
+        let top = c2.iter().find(|f| f.name == "vector_top_k").unwrap();
+        assert_eq!(
+            (top.kind, top.args.as_str()),
+            (FunctionKind::Table, "(index, vector, k)")
         );
         assert_eq!(find("stats_median")[0].kind, FunctionKind::Aggregate);
         // Not listed by this build.
@@ -179,6 +221,17 @@ mod tests {
         assert!(c
             .iter()
             .all(|f| f.description.is_empty() && f.schema.is_empty()));
+    }
+
+    #[test]
+    fn the_libsql_catalog_parses_line_by_line() {
+        for line in LIBSQL.lines().map(str::trim) {
+            if !line.is_empty() && !line.starts_with('#') {
+                assert_eq!(parse_catalog(line, None).len(), 1, "unreadable: {line}");
+            }
+        }
+        // Plain SQLite without the pragma never shows libSQL's.
+        assert!(!fallback("3.47.0").iter().any(|f| f.name == "vector32"));
     }
 
     #[test]

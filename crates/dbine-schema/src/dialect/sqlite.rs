@@ -17,6 +17,10 @@ use dbine_driver::TableSchema;
 
 pub struct Sqlite;
 
+/// What a vector without a dimension becomes ([`Dialect::finalize`] takes
+/// it back when its index gives the column one).
+const NO_DIMS: &str = "El vector no tiene dimensión fija: libSQL no crea índices vectoriales sobre una columna sin dimensión.";
+
 impl Dialect for Sqlite {
     fn id(&self) -> &'static str {
         "sqlite"
@@ -35,6 +39,9 @@ impl Dialect for Sqlite {
             bytes,
             unsigned: t.unsigned,
         };
+        if let Some(v) = libsql_vector(t) {
+            return v;
+        }
         match n {
             "boolean" | "bool" => L::Bool,
             "tinyint" => int(1),
@@ -94,7 +101,21 @@ impl Dialect for Sqlite {
         use IssueCode::*;
         use Severity::*;
         match t {
-            L::Vector { .. } => super::vector_fallback(self, t),
+            L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
+            L::Vector { dims, element, .. } => {
+                use dbine_driver::VectorElement as E;
+                let name = match element {
+                    E::F64 => "F64_BLOB",
+                    E::F16 => "F16_BLOB",
+                    E::Bf16 => "FB16_BLOB",
+                    E::Bit => "F1BIT_BLOB",
+                    E::F32 | E::I8 | E::U8 | E::Other => "F32_BLOB",
+                };
+                match dims {
+                    Some(n) => Rendered::exact(format!("{name}({n})")),
+                    None => Rendered::exact(name).with(Warning, TypeApproximated, NO_DIMS),
+                }
+            }
             L::Bool => Rendered::exact("BOOLEAN"),
             // All are 8-byte INTEGER affinity; the name keeps the size.
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {
@@ -217,6 +238,13 @@ impl Dialect for Sqlite {
         }
     }
 
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        libsql_vector_index(v)
+    }
+
     fn caps(&self) -> Caps {
         Caps {
             foreign_keys: true,
@@ -236,8 +264,10 @@ impl Dialect for Sqlite {
 
     /// AUTOINCREMENT only exists on an `INTEGER PRIMARY KEY` of one column:
     /// an integer key keeps it as `INTEGER` (SQLite's integers are all 8
-    /// bytes); anything else loses it.
+    /// bytes); anything else loses it. libSQL's vector indexes go on vector
+    /// columns with a dimension ([`libsql_vector_columns`]).
     fn finalize(&self, t: &mut TableSchema, report: &mut crate::issue::Report) {
+        libsql_vector_columns(t, report);
         let pk: Vec<String> = t
             .primary_key
             .as_ref()
@@ -289,12 +319,284 @@ impl Dialect for Sqlite {
     }
 }
 
+/// libSQL's vector column types: `F32_BLOB(n)` (`FLOAT32(n)`), `F64_BLOB`,
+/// `F16_BLOB`, `FB16_BLOB`, `F8_BLOB` and `F1BIT_BLOB`. The `FLOATnn`
+/// spellings only with a dimension: a bare `FLOAT64` is a REAL. `F8` is
+/// libSQL's own scaled bytes, read as floats: its element is `Other`.
+fn libsql_vector(t: &TypeSpec) -> Option<L> {
+    use dbine_driver::VectorElement as E;
+    let dims = t.arg_u32(0);
+    let (element, blob) = match t.name.as_str() {
+        "f32_blob" => (E::F32, true),
+        "f64_blob" => (E::F64, true),
+        "f16_blob" => (E::F16, true),
+        "fb16_blob" => (E::Bf16, true),
+        "f8_blob" => (E::Other, true),
+        "f1bit_blob" => (E::Bit, true),
+        "float32" => (E::F32, false),
+        "float64" => (E::F64, false),
+        "float16" => (E::F16, false),
+        "floatb16" => (E::Bf16, false),
+        "float8" => (E::Other, false),
+        "float1bit" => (E::Bit, false),
+        _ => return None,
+    };
+    (blob || dims.is_some()).then_some(L::Vector {
+        dims,
+        element,
+        sparse: false,
+    })
+}
+
+/// libSQL indexes a vector column (`F32_BLOB(n)`, `F64_BLOB(n)`…) that has
+/// a dimension. A column without one (a ClickHouse `Array(Float32)`) takes
+/// the dimension its index carries; an index on any other column, or
+/// without a dimension anywhere, is left out, with why. (SQLite can't
+/// create these indexes at all: its driver leaves them out of the DDL.)
+fn libsql_vector_columns(t: &mut TableSchema, report: &mut crate::issue::Report) {
+    let mut kept = Vec::new();
+    for mut ix in std::mem::take(&mut t.indexes) {
+        let Some(v) = ix.vector.as_mut() else {
+            kept.push(ix);
+            continue;
+        };
+        let dims = super::clickhouse::index_dimensions(&v.params);
+        v.params
+            .retain(|k, _| !super::clickhouse::is_dimension_key(k));
+        let col = ix
+            .columns
+            .first()
+            .and_then(|k| t.columns.iter_mut().find(|c| &c.name == k));
+        let why = match col {
+            None => Some("su clave no es una columna de la tabla".to_string()),
+            Some(c) => match (libsql_vector(&parse(&c.data_type)), dims) {
+                (Some(L::Vector { dims: Some(_), .. }), _) => None,
+                // A vector type without its dimension.
+                (Some(_), Some(n)) => {
+                    let name = c.data_type.trim().to_string();
+                    c.data_type = format!("{name}({n})");
+                    super::clickhouse::withdraw_note(report, c, NO_DIMS);
+                    report.push(
+                        Severity::Info,
+                        IssueCode::TypeChanged,
+                        &t.name,
+                        Some(&c.name),
+                        format!(
+                            "La columna toma la dimensión de su índice vectorial: {}.",
+                            c.data_type
+                        ),
+                    );
+                    None
+                }
+                (Some(_), None) => Some(format!(
+                    "libSQL no indexa una columna vectorial sin dimensión, y «{}» es {}",
+                    c.name, c.data_type
+                )),
+                (None, _) => Some(format!(
+                    "libSQL lo crea sobre columnas vectoriales (F32_BLOB(n), F64_BLOB(n)…), y «{}» es {}",
+                    c.name, c.data_type
+                )),
+            },
+        };
+        match why {
+            Some(why) => report.push(
+                Severity::Dropped,
+                IssueCode::IndexDropped,
+                &t.name,
+                Some(&ix.name),
+                format!("El índice vectorial «{}» no se crea: {why}.", ix.name),
+            ),
+            None => kept.push(ix),
+        }
+    }
+    t.indexes = kept;
+}
+
+/// A vector index of another family as libSQL's (DiskANN through
+/// `libsql_vector_idx`): cosine or L2 distance; `m` (`max_neighbors`),
+/// `ef_construction` (`insert_l`) and `quantization`
+/// (`compress_neighbors`) carry over, the other parameters are the source
+/// algorithm's and don't. The driver writes the libSQL names.
+fn libsql_vector_index(
+    v: &dbine_driver::VectorIndex,
+) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+    use dbine_driver::vector::{metric, param};
+    let metric = match v.metric.as_deref() {
+        None => None,
+        Some(m) if m == metric::COSINE || m == metric::L2 => Some(m.to_string()),
+        Some(m) => {
+            return Err(format!(
+                "libSQL solo indexa con distancia coseno o L2, y el índice usa «{m}»"
+            ))
+        }
+    };
+    let mut params = std::collections::BTreeMap::new();
+    for (k, val) in &v.params {
+        match k.as_str() {
+            param::M | param::EF_CONSTRUCTION if val.trim().parse::<u32>().is_ok() => {
+                params.insert(k.clone(), val.trim().to_string());
+            }
+            param::QUANTIZATION => {
+                let q = match val.trim().to_ascii_lowercase().as_str() {
+                    "binary" | "bit" | "b1" | "float1bit" => Some("float1bit"),
+                    "int8" | "i8" | "float8" => Some("float8"),
+                    "f16" | "half" | "halfvec" | "float16" => Some("float16"),
+                    "bf16" | "floatb16" => Some("floatb16"),
+                    "f32" | "float32" | "none" => Some("float32"),
+                    _ => None,
+                };
+                if let Some(q) = q {
+                    params.insert(k.clone(), q.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    // A dimension the source index carries (ClickHouse's), for `finalize`.
+    if let Some(n) = super::clickhouse::index_dimensions(&v.params) {
+        params.insert(super::clickhouse::DIMENSIONS.into(), n.to_string());
+    }
+    Ok((
+        None,
+        dbine_driver::VectorIndex {
+            algorithm: None,
+            metric,
+            params,
+        },
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn ty(s: &str) -> L {
         Sqlite.parse_type(&parse(s))
+    }
+
+    #[test]
+    fn libsql_vectors_round_trip() {
+        use dbine_driver::VectorElement as E;
+        let vec = |dims, element| L::Vector {
+            dims,
+            element,
+            sparse: false,
+        };
+        for (native, want) in [
+            ("F32_BLOB(3)", vec(Some(3), E::F32)),
+            ("F64_BLOB(768)", vec(Some(768), E::F64)),
+            ("F16_BLOB(2)", vec(Some(2), E::F16)),
+            ("FB16_BLOB(2)", vec(Some(2), E::Bf16)),
+            ("F1BIT_BLOB(64)", vec(Some(64), E::Bit)),
+            ("F32_BLOB", vec(None, E::F32)),
+        ] {
+            assert_eq!(ty(native), want, "{native}");
+            assert_eq!(Sqlite.render_type(&want).native, native);
+        }
+        assert_eq!(ty("float32(4)"), vec(Some(4), E::F32));
+        assert_eq!(ty("F8_BLOB(4)"), vec(Some(4), E::Other));
+        // A bare FLOAT64 is a REAL.
+        assert_eq!(ty("FLOAT64"), L::Float { bytes: 8 });
+        // pgvector's vector(3) and halfvec(3), as the PostgreSQL dialect
+        // reads them; a sparse vector goes as JSON text.
+        assert_eq!(
+            Sqlite.render_type(&vec(Some(3), E::F32)).native,
+            "F32_BLOB(3)"
+        );
+        assert_eq!(
+            Sqlite.render_type(&vec(Some(3), E::F16)).native,
+            "F16_BLOB(3)"
+        );
+        assert!(!Sqlite.render_type(&vec(None, E::F32)).notes.is_empty());
+        let sparse = Sqlite.render_type(&L::Vector {
+            dims: Some(5),
+            element: E::F32,
+            sparse: true,
+        });
+        assert_eq!(sparse.native, "TEXT");
+    }
+
+    /// Into libSQL a vector index needs a vector column with a dimension: a
+    /// ClickHouse `Array(Float32)` takes its index's; a column that isn't a
+    /// vector, or has no dimension anywhere, loses the index, with why.
+    #[test]
+    fn vector_indexes_into_libsql() {
+        use super::super::clickhouse::tests::vector_table;
+        use crate::convert::{convert, Options};
+        let one = |t, from: &str| {
+            let r = convert(&[t], from, "libsql", &Options::default()).unwrap();
+            (r.tables[0].clone(), r.issues)
+        };
+        let ch = |ty, params: &[(&str, &str)]| vector_table(ty, Some("vector_similarity"), params);
+        let (t, issues) = one(
+            ch("Array(Float32)", &[("dimensions", "3"), ("m", "8")]),
+            "clickhouse",
+        );
+        assert_eq!(t.columns[1].data_type, "F32_BLOB(3)");
+        assert!(!issues.iter().any(|i| i.message == NO_DIMS), "{issues:?}");
+        let v = t.indexes[0].vector.as_ref().unwrap();
+        assert_eq!(
+            v.params.iter().collect::<Vec<_>>(),
+            [(&"m".to_string(), &"8".to_string())]
+        );
+        let (t, _) = one(ch("Array(BFloat16)", &[("dimensions", "2")]), "clickhouse");
+        assert_eq!(t.columns[1].data_type, "FB16_BLOB(2)");
+        assert_eq!(t.indexes.len(), 1);
+        for (t, why) in [
+            (ch("Array(Float32)", &[]), "sin dimensión"),
+            (
+                ch("Array(Float64)", &[("dimensions", "3")]),
+                "columnas vectoriales",
+            ),
+        ] {
+            let (t, issues) = one(t, "clickhouse");
+            assert!(t.indexes.is_empty());
+            assert!(
+                issues
+                    .iter()
+                    .any(|i| i.code == IssueCode::IndexDropped && i.message.contains(why)),
+                "{issues:?}"
+            );
+        }
+        // DuckDB's FLOAT[3] already has its dimension.
+        let (t, _) = one(vector_table("FLOAT[3]", Some("HNSW"), &[]), "duckdb");
+        assert_eq!(t.columns[1].data_type, "F32_BLOB(3)");
+        assert_eq!(t.indexes.len(), 1);
+    }
+
+    #[test]
+    fn vector_indexes_become_libsql_ones() {
+        use dbine_driver::VectorIndex;
+        let ix = |metric: &str, params: &[(&str, &str)]| VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some(metric.into()),
+            params: params
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        };
+        let (kind, v) = Sqlite
+            .vector_index(&ix(
+                "cosine",
+                &[("m", "16"), ("ef_construction", "64"), ("lists", "100")],
+            ))
+            .unwrap();
+        assert_eq!(kind, None);
+        assert_eq!(v.algorithm, None, "DiskANN, libSQL's only one");
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        assert_eq!(
+            v.params.into_iter().collect::<Vec<_>>(),
+            [
+                ("ef_construction".to_string(), "64".to_string()),
+                ("m".into(), "16".into())
+            ]
+        );
+        let (_, v) = Sqlite
+            .vector_index(&ix("l2", &[("quantization", "int8")]))
+            .unwrap();
+        assert_eq!(v.params["quantization"], "float8");
+        let e = Sqlite.vector_index(&ix("ip", &[])).unwrap_err();
+        assert!(e.contains("coseno o L2"), "{e}");
     }
 
     #[test]

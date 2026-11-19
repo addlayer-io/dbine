@@ -161,8 +161,29 @@ pub fn cell(v: &Value) -> Value {
     }
 }
 
+/// A Hrana value of a column declared with a libSQL vector type
+/// (`F32_BLOB(3)`…): the blob as vector text, whole (see
+/// `dbine_driver_sqlite::vector`); text holding an array as the canonical
+/// one; anything else as [`cell`] reads it.
+pub fn vector_cell(v: &Value) -> Value {
+    let blob = match v.get("type").and_then(Value::as_str) {
+        Some("blob") => v
+            .get("base64")
+            .and_then(Value::as_str)
+            .and_then(|b| B64.decode(b).ok()),
+        _ => None,
+    };
+    let text = v.get("value").and_then(Value::as_str);
+    let decoded = match (&blob, v.get("type").and_then(Value::as_str)) {
+        (Some(b), _) => dbine_driver_sqlite::vector::cell_text(Some(b), None),
+        (None, Some("text")) => dbine_driver_sqlite::vector::cell_text(None, text),
+        _ => None,
+    };
+    decoded.map_or_else(|| cell(v), Value::String)
+}
+
 fn stmt_result(r: &Value) -> StmtResult {
-    let cols = r
+    let cols: Vec<(String, String)> = r
         .get("cols")
         .and_then(Value::as_array)
         .map(|c| {
@@ -183,6 +204,10 @@ fn stmt_result(r: &Value) -> StmtResult {
                 .collect()
         })
         .unwrap_or_default();
+    let vector: Vec<bool> = cols
+        .iter()
+        .map(|(_, t)| dbine_driver_sqlite::vector::meta(t).is_some())
+        .collect();
     let rows = r
         .get("rows")
         .and_then(Value::as_array)
@@ -190,7 +215,18 @@ fn stmt_result(r: &Value) -> StmtResult {
             rows.iter()
                 .map(|row| {
                     row.as_array()
-                        .map(|v| v.iter().map(cell).collect())
+                        .map(|v| {
+                            v.iter()
+                                .enumerate()
+                                .map(|(i, c)| {
+                                    if vector.get(i).copied().unwrap_or(false) {
+                                        vector_cell(c)
+                                    } else {
+                                        cell(c)
+                                    }
+                                })
+                                .collect()
+                        })
                         .unwrap_or_default()
                 })
                 .collect()
@@ -839,6 +875,24 @@ mod tests {
             json!("0x00FF")
         );
         assert_eq!(cell(&json!({"type": "null"})), Value::Null);
+        // A vector column's blob, whole, as text.
+        assert_eq!(
+            vector_cell(&json!({"type": "blob", "base64": "AACAPwAAAEAAAEBA"})),
+            json!("[1,2,3]")
+        );
+        assert_eq!(
+            vector_cell(&json!({"type": "text", "value": "[1, 2.0]"})),
+            json!("[1,2]")
+        );
+        assert_eq!(
+            vector_cell(&json!({"type": "integer", "value": "4"})),
+            json!(4)
+        );
+        let r = stmt_result(&json!({
+            "cols": [{"name": "id", "decltype": "INTEGER"}, {"name": "v", "decltype": "F64_BLOB(1)"}],
+            "rows": [[{"type": "integer", "value": "1"}, {"type": "blob", "base64": "AAAAAAAA+D8C"}]]
+        }));
+        assert_eq!(r.rows, vec![vec![json!(1), json!("[1.5]")]]);
     }
 
     #[test]

@@ -109,3 +109,74 @@ async fn clickhouse_22_8() {
     .await
     .unwrap();
 }
+
+/// The designer's vector index and BFloat16 vectors on a server that has
+/// neither (22.8): the error says which version each needs, and nothing is
+/// left behind.
+#[tokio::test]
+#[ignore]
+async fn clickhouse_22_8_vectors_say_the_version() {
+    use dbine_driver::{ColumnDef, DdlParts, IndexDef, TableSchema, VectorIndex};
+    let Some(c) = cfg() else { return };
+    let d = dbine_driver_clickhouse::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "clickhouse")
+        .unwrap();
+    let mut s = d.connect(&c, None).await.expect("connects");
+    let name = format!("dbine_old_vec_{}", std::process::id());
+    let col = |n: &str, ty: &str| ColumnDef {
+        name: n.into(),
+        data_type: ty.into(),
+        nullable: false,
+        ..Default::default()
+    };
+    let with_index = TableSchema {
+        schema: Some("default".into()),
+        name: name.clone(),
+        columns: vec![col("id", "UInt64"), col("emb", "Array(Float32)")],
+        indexes: vec![IndexDef {
+            name: "emb_ix".into(),
+            columns: vec!["emb".into()],
+            vector: Some(VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                params: [("dimensions".to_string(), "3".to_string())].into(),
+            }),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let half = TableSchema {
+        columns: vec![col("id", "UInt64"), col("emb", "Array(BFloat16)")],
+        indexes: Vec::new(),
+        ..with_index.clone()
+    };
+    for (t, needs) in [(with_index, "25.8"), (half, "25.1")] {
+        let ddl = d
+            .table_ddl(
+                &t,
+                DdlParts {
+                    create: true,
+                    indexes: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let mut out = QueryOutcome::default();
+        let e = s
+            .execute(&ddl, 10, &mut out)
+            .await
+            .expect_err("22.8 has no vector index nor BFloat16")
+            .to_string();
+        assert!(e.contains(needs), "{e}");
+    }
+    let mut out = QueryOutcome::default();
+    s.execute(
+        &format!("SELECT count() FROM system.tables WHERE name = '{name}'"),
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
+    assert_eq!(out.results[0].rows[0][0], serde_json::json!(0));
+}

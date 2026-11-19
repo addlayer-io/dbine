@@ -32,11 +32,22 @@ async fn the_catalog_is_what_the_server_lists() {
     assert_eq!(kind("count"), Some(FunctionKind::Aggregate));
     assert_eq!(kind("row_number"), Some(FunctionKind::Window));
     assert_eq!(kind("json_each"), Some(FunctionKind::Table));
-    // libSQL's own vector functions, which no static catalog has.
+    // libSQL's own vector functions, with the argument names of the SQLite
+    // driver's libSQL catalog.
     let v = c.iter().find(|f| f.name == "vector_distance_cos").unwrap();
+    assert_eq!((v.kind, v.args.as_str()), (FunctionKind::Scalar, "(a, b)"));
+    for n in [
+        "vector32",
+        "vector64",
+        "vector_extract",
+        "vector_distance_l2",
+    ] {
+        assert_eq!(kind(n), Some(FunctionKind::Scalar), "{n}");
+    }
+    let top = c.iter().find(|f| f.name == "vector_top_k").unwrap();
     assert_eq!(
-        (v.kind, v.args.as_str()),
-        (FunctionKind::Scalar, "(arg1, arg2)")
+        (top.kind, top.args.as_str()),
+        (FunctionKind::Table, "(index, vector, k)")
     );
     let substr = c.iter().find(|f| f.name == "substr").unwrap();
     assert!(substr.args.starts_with("(x, y"), "{substr:?}");

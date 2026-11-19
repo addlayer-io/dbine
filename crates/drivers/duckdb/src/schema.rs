@@ -5,11 +5,40 @@
 
 use dbine_driver::ddl::{self, AutoIncrement, SqlFlavor};
 use dbine_driver::sql::{qualified_name, Quote};
+use dbine_driver::vector::{metric, param};
 use dbine_driver::{
     kinds, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, ForeignKeyDef, IndexDef,
-    KeyDef, TableSchema,
+    KeyDef, TableSchema, VectorIndex, VectorIndexSpec, VectorParamSpec,
 };
 use std::collections::BTreeMap;
+
+/// The flavor of the insert, update and delete scripts: the contract's
+/// default for DuckDB (ANSI, double quotes).
+pub const SCRIPTS: SqlFlavor = SqlFlavor::ansi();
+
+/// What creating an HNSW index needs first: the vss extension (installed
+/// once, then loaded) and, in a database file, HNSW's persistence, which
+/// DuckDB still calls experimental.
+pub const HNSW_PRELUDE: &str = "INSTALL vss;\nLOAD vss;";
+
+/// HNSW indexes in a database file (vss); harmless in memory.
+pub const HNSW_PERSISTENCE: &str = "SET hnsw_enable_experimental_persistence = true;";
+
+/// The index kind of vss's vector index.
+pub const HNSW: &str = "HNSW";
+
+/// vss's metric names and the standard ones (`l2sq`, its default, is the
+/// squared Euclidean distance: the same order as `l2`).
+const HNSW_METRICS: [(&str, &str); 3] = [
+    ("l2sq", metric::L2),
+    ("cosine", metric::COSINE),
+    ("ip", metric::IP),
+];
+
+/// vss's build options and the standard names (the rest keep theirs:
+/// `ef_search`, `m0`).
+const HNSW_PARAMS: [(&str, &str); 2] =
+    [("m", param::M), ("ef_construction", param::EF_CONSTRUCTION)];
 
 pub const FLAVOR: SqlFlavor = SqlFlavor {
     auto_increment: AutoIncrement::None,
@@ -21,7 +50,7 @@ pub const FLAVOR: SqlFlavor = SqlFlavor {
 pub const SEP: char = '\u{1f}';
 
 pub fn designer() -> DesignerSpec {
-    DesignerSpec {
+    let mut d = DesignerSpec {
         schemas: true,
         comments: true,
         ..DesignerSpec::sql_table(vec![
@@ -48,8 +77,102 @@ pub fn designer() -> DesignerSpec {
             "VARCHAR[]",
             "STRUCT(a INTEGER, b VARCHAR)",
             "MAP(VARCHAR, INTEGER)",
+            "FLOAT[1536]",
+            "DOUBLE[1536]",
         ])
+    };
+    d.vector_indexes = Some(hnsw_spec());
+    d
+}
+
+/// vss's HNSW index (on `FLOAT[n]` columns) in the designer.
+fn hnsw_spec() -> VectorIndexSpec {
+    let p = |key, default| VectorParamSpec {
+        key,
+        algorithms: Vec::new(),
+        default,
+    };
+    VectorIndexSpec {
+        algorithms: vec!["hnsw"],
+        metrics: vec![metric::L2, metric::COSINE, metric::IP],
+        params: vec![
+            p(param::M, "16"),
+            p("m0", ""),
+            p(param::EF_CONSTRUCTION, "128"),
+            p("ef_search", "64"),
+        ],
+        filter_columns: false,
     }
+}
+
+/// `WITH (metric = 'cosine', M = 16, …)` of a vector index, in vss's names;
+/// empty when it has nothing to say.
+fn hnsw_with(v: &VectorIndex) -> String {
+    let mut opts = Vec::new();
+    if let Some(m) = v.metric.as_deref().filter(|m| !m.is_empty()) {
+        let native = HNSW_METRICS
+            .iter()
+            .find(|(_, std)| *std == m)
+            .map_or(m, |(n, _)| n);
+        opts.push(format!("metric = '{}'", native.replace('\'', "''")));
+    }
+    for (k, val) in v.params.iter().filter(|(_, x)| !x.trim().is_empty()) {
+        let native = HNSW_PARAMS
+            .iter()
+            .find(|(_, std)| std == k)
+            .map_or(k.as_str(), |(n, _)| n);
+        let val = val.trim();
+        // As vss documents them: `M`, `M0`, `ef_construction`, `ef_search`.
+        let native = match native {
+            "m" | "m0" => native.to_ascii_uppercase(),
+            other => other.to_string(),
+        };
+        if val.chars().all(|c| c.is_ascii_digit()) {
+            opts.push(format!("{native} = {val}"));
+        } else {
+            opts.push(format!("{native} = '{}'", val.replace('\'', "''")));
+        }
+    }
+    if opts.is_empty() {
+        String::new()
+    } else {
+        format!(" WITH ({})", opts.join(", "))
+    }
+}
+
+/// A stored `WITH (…)` of an HNSW index as its [`VectorIndex`].
+fn hnsw_vector(with: Option<&str>) -> VectorIndex {
+    let mut v = VectorIndex {
+        algorithm: Some("hnsw".into()),
+        ..Default::default()
+    };
+    for item in with.map(split_top).unwrap_or_default() {
+        let Some((k, val)) = item.split_once('=') else {
+            continue;
+        };
+        let k = k.trim().to_ascii_lowercase();
+        let val = val.trim();
+        let val = val
+            .strip_prefix('\'')
+            .and_then(|x| x.strip_suffix('\''))
+            .map_or_else(|| val.to_string(), |x| x.replace("''", "'"));
+        if k == "metric" {
+            let m = val.to_ascii_lowercase();
+            v.metric = Some(
+                HNSW_METRICS
+                    .iter()
+                    .find(|(n, _)| *n == m)
+                    .map_or(m.clone(), |(_, std)| std.to_string()),
+            );
+        } else {
+            let std = HNSW_PARAMS
+                .iter()
+                .find(|(n, _)| *n == k)
+                .map_or(k.as_str(), |(_, std)| std);
+            v.params.insert(std.to_string(), val);
+        }
+    }
+    v
 }
 
 pub fn templates() -> Vec<CreateTemplate> {
@@ -135,25 +258,109 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
     }
     if parts.indexes {
         let name = qualified_name(Quote::Double, schema, &t.name);
+        let mut prelude = false;
         for ix in &t.indexes {
-            out.push(format!(
-                "CREATE {}INDEX {}{} ON {name} ({});",
-                if ix.unique { "UNIQUE " } else { "" },
-                if parts.if_exists {
-                    "IF NOT EXISTS "
-                } else {
-                    ""
-                },
-                dbine_driver::sql::quote_ident(Quote::Double, &ix.name),
-                ix.columns
-                    .iter()
-                    .map(|c| index_key(c))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
+            let keys = ix
+                .columns
+                .iter()
+                .map(|c| index_key(c))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let ine = if parts.if_exists {
+                "IF NOT EXISTS "
+            } else {
+                ""
+            };
+            let iname = dbine_driver::sql::quote_ident(Quote::Double, &ix.name);
+            let kind = index_kind(ix);
+            if kind.eq_ignore_ascii_case(HNSW) {
+                if !prelude {
+                    out.push(format!("{HNSW_PRELUDE}\n{HNSW_PERSISTENCE}"));
+                    prelude = true;
+                }
+                let v = ix
+                    .vector
+                    .clone()
+                    .unwrap_or_else(|| hnsw_vector(ix.options.get(WITH).map(String::as_str)));
+                out.push(format!(
+                    "CREATE INDEX {ine}{iname} ON {name} USING HNSW ({keys}){};",
+                    hnsw_with(&v)
+                ));
+            } else if kind.eq_ignore_ascii_case("ART") {
+                out.push(format!(
+                    "CREATE {}INDEX {ine}{iname} ON {name} ({keys});",
+                    if ix.unique { "UNIQUE " } else { "" },
+                ));
+            } else {
+                // Another extension's index (spatial's RTREE…), as it was.
+                let with = ix
+                    .options
+                    .get(WITH)
+                    .filter(|w| !w.trim().is_empty())
+                    .map(|w| format!(" WITH ({})", w.trim()))
+                    .unwrap_or_default();
+                out.push(format!(
+                    "CREATE INDEX {ine}{iname} ON {name} USING {kind} ({keys}){with};"
+                ));
+            }
         }
     }
     out.join("\n")
+}
+
+/// Index option: the `WITH (…)` of an index of an extension's kind
+/// (`RTREE`…), as written; an HNSW index's settings, as the DDL writes
+/// them (for the schema compare, which reads the options).
+pub const WITH: &str = "with";
+
+/// Is `ty` a `FLOAT[n]` (a fixed-size array of 32-bit floats), the only
+/// column vss's HNSW indexes?
+fn is_float_array(ty: &str) -> bool {
+    let t = ty.trim().to_ascii_uppercase();
+    let Some((base, rest)) = t.split_once('[') else {
+        return false;
+    };
+    let Some(n) = rest.strip_suffix(']') else {
+        return false;
+    };
+    matches!(base.trim(), "FLOAT" | "REAL" | "FLOAT4")
+        && !n.trim().is_empty()
+        && n.trim().chars().all(|c| c.is_ascii_digit())
+}
+
+/// Every vector index of `t` on a `FLOAT[n]` column; `Err` says which one
+/// isn't and why (DuckDB's own error is an English binder error).
+pub fn check_hnsw_columns(t: &TableSchema) -> Result<(), String> {
+    for ix in t.indexes.iter().filter(|ix| index_kind(ix) == HNSW) {
+        let Some(c) = ix
+            .columns
+            .first()
+            .and_then(|k| t.columns.iter().find(|c| &c.name == k))
+        else {
+            continue;
+        };
+        if !is_float_array(&c.data_type) {
+            return Err(format!(
+                "El índice vectorial «{}»: vss (el índice HNSW de DuckDB) solo indexa columnas FLOAT[n] de dimensión fija, y «{}» es {}.",
+                ix.name, c.name, c.data_type
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// An index's kind: `HNSW` for a vector index, the catalog's (`ART`,
+/// `RTREE`…) otherwise; DuckDB's own `ART` when it says none.
+fn index_kind(ix: &IndexDef) -> String {
+    if ix.vector.is_some() {
+        return HNSW.into();
+    }
+    ix.kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|k| !k.is_empty())
+        .unwrap_or("ART")
+        .to_ascii_uppercase()
 }
 
 /// A sequence's whole `CREATE SEQUENCE`, schema-qualified.
@@ -305,6 +512,19 @@ pub fn sync_script(
                 Plan::Rebuild => rebuilt.push(ch.clone()),
                 Plan::Alter { rebuild_indexes } => {
                     let mut old = old.clone();
+                    // The contract's planner compares indexes without their
+                    // vector settings: one whose HNSW settings change is made
+                    // again.
+                    for o in &mut old.indexes {
+                        if new
+                            .indexes
+                            .iter()
+                            .find(|n| n.name.eq_ignore_ascii_case(&o.name))
+                            .is_some_and(|n| n.vector != o.vector)
+                        {
+                            o.filter = Some(FORCE.into());
+                        }
+                    }
                     if rebuild_indexes {
                         // A filter that can't match: the planner drops each index and makes it again.
                         for ix in &mut old.indexes {
@@ -537,21 +757,64 @@ fn wrapped(s: &str) -> bool {
     true
 }
 
+/// Where the parenthesis that opens at `open` closes (quotes skipped).
+fn closing(s: &str, open: usize) -> Option<usize> {
+    let (mut depth, mut quote) = (0i32, None::<char>);
+    for (i, c) in s[open..].char_indices() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None => match c {
+                '\'' | '"' => quote = Some(c),
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(open + i);
+                    }
+                }
+                _ => {}
+            },
+        }
+    }
+    None
+}
+
+/// The parts of a stored `CREATE INDEX … ON t [USING kind] (keys) [WITH
+/// (options)]`: its kind (`None`: DuckDB's ART), the keys' text and the
+/// options' text.
+pub fn index_parts(sql: &str) -> Option<(Option<String>, String, Option<String>)> {
+    let upper = sql.to_ascii_uppercase();
+    let on = upper.find(" ON ")?;
+    let open = on + sql[on..].find('(')?;
+    let between = &upper[on + 4..open];
+    let kind = between
+        .split_whitespace()
+        .skip_while(|w| *w != "USING")
+        .nth(1)
+        .map(str::to_string);
+    let close = closing(sql, open)?;
+    let keys = sql[open + 1..close].to_string();
+    let rest = sql[close + 1..].trim_start();
+    let with = match rest.get(..4) {
+        Some(w) if w.eq_ignore_ascii_case("WITH") => {
+            let o = close + 1 + sql[close + 1..].find('(')?;
+            let c = closing(sql, o)?;
+            Some(sql[o + 1..c].trim().to_string())
+        }
+        _ => None,
+    };
+    Some((kind, keys, with))
+}
+
 /// The keys of `CREATE INDEX … ON t(a, (lower(b)))`: column names unquoted,
 /// expressions in one pair of parentheses (DuckDB adds its own on each
 /// round trip).
 pub fn index_sql_keys(sql: &str) -> Vec<String> {
-    let upper = sql.to_ascii_uppercase();
-    let Some(on) = upper.find(" ON ") else {
+    let Some((_, keys, _)) = index_parts(sql) else {
         return Vec::new();
     };
-    let Some(open) = sql[on..].find('(').map(|i| on + i) else {
-        return Vec::new();
-    };
-    let Some(close) = sql.rfind(')').filter(|c| *c > open) else {
-        return Vec::new();
-    };
-    split_top(&sql[open + 1..close])
+    split_top(&keys)
         .into_iter()
         .map(|k| {
             let mut e = k.trim().to_string();
@@ -648,19 +911,35 @@ pub fn assemble(cat: Catalog) -> Vec<TableSchema> {
         let Some(t) = tables.get_mut(&key(r)) else {
             continue;
         };
-        let from_sql = r
-            .get(5)
-            .cloned()
-            .flatten()
-            .map(|sql| index_sql_keys(&sql))
-            .filter(|k| !k.is_empty());
-        t.indexes.push(IndexDef {
+        let sql = r.get(5).cloned().flatten();
+        let from_sql = sql.as_deref().map(index_sql_keys).filter(|k| !k.is_empty());
+        // `USING HNSW (v) WITH (metric = 'cosine')` is vss's vector index;
+        // another `USING` kind (spatial's RTREE) keeps its name and options.
+        let (kind, with) = match sql.as_deref().and_then(index_parts) {
+            Some((Some(k), _, with)) => (k, with),
+            _ => ("ART".to_string(), None),
+        };
+        let mut ix = IndexDef {
             name: s(r, 2),
             columns: from_sql.unwrap_or_else(|| index_columns(&s(r, 4))),
             unique: s(r, 3) == "true",
-            kind: Some("ART".into()),
+            kind: Some(kind.clone()),
             ..Default::default()
-        });
+        };
+        if kind.eq_ignore_ascii_case(HNSW) {
+            let v = hnsw_vector(with.as_deref());
+            // Its settings in the options too, as the DDL writes them: the
+            // schema compare reads an index's options, not its vector
+            // settings.
+            let w = hnsw_with(&v);
+            if let Some(w) = w.strip_prefix(" WITH (").and_then(|w| w.strip_suffix(')')) {
+                ix.options.insert(WITH.into(), w.to_string());
+            }
+            ix.vector = Some(v);
+        } else if let Some(w) = with.filter(|w| !w.is_empty()) {
+            ix.options.insert(WITH.into(), w);
+        }
+        t.indexes.push(ix);
     }
     in_dependency_order(tables.into_values().collect())
 }
@@ -687,6 +966,176 @@ fn in_dependency_order(mut rest: Vec<TableSchema>) -> Vec<TableSchema> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hnsw_indexes_are_read_and_written() {
+        let sql = "CREATE INDEX t_hnsw ON t USING HNSW (v) WITH (M0 = 16, metric = 'cosine', M = 8, ef_construction = 64, ef_search = 32 );";
+        let (kind, keys, with) = index_parts(sql).unwrap();
+        assert_eq!(kind.as_deref(), Some("HNSW"));
+        assert_eq!(keys, "v");
+        assert_eq!(
+            with.as_deref(),
+            Some("M0 = 16, metric = 'cosine', M = 8, ef_construction = 64, ef_search = 32")
+        );
+        assert_eq!(index_sql_keys(sql), ["v"]);
+        let cat = Catalog {
+            tables: vec![vec![Some("main".into()), Some("t".into()), None]],
+            columns: vec![vec![
+                Some("main".into()),
+                Some("t".into()),
+                Some("v".into()),
+                Some("FLOAT[3]".into()),
+                Some("true".into()),
+                None,
+                None,
+            ]],
+            constraints: Vec::new(),
+            indexes: vec![
+                vec![
+                    Some("main".into()),
+                    Some("t".into()),
+                    Some("t_hnsw".into()),
+                    Some("false".into()),
+                    Some("[v]".into()),
+                    Some(sql.into()),
+                ],
+                vec![
+                    Some("main".into()),
+                    Some("t".into()),
+                    Some("t_l2".into()),
+                    Some("false".into()),
+                    Some("[v]".into()),
+                    Some("CREATE INDEX t_l2 ON t USING HNSW (v);".into()),
+                ],
+                vec![
+                    Some("main".into()),
+                    Some("t".into()),
+                    Some("t_rt".into()),
+                    Some("false".into()),
+                    Some("[g]".into()),
+                    Some(
+                        "CREATE INDEX t_rt ON t USING RTREE (g) WITH (max_node_capacity = 64);"
+                            .into(),
+                    ),
+                ],
+            ],
+        };
+        let mut t = assemble(cat).remove(0);
+        assert_eq!(t.columns[0].data_type, "FLOAT[3]");
+        let ix = &t.indexes[0];
+        assert_eq!(
+            (ix.kind.as_deref(), ix.columns.as_slice()),
+            (Some("HNSW"), &["v".to_string()][..])
+        );
+        let v = ix.vector.as_ref().unwrap();
+        assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        assert_eq!(
+            v.params
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>(),
+            ["ef_construction=64", "ef_search=32", "m=8", "m0=16"]
+        );
+        // The settings in the options too, in one order whatever the
+        // stored order: the schema compare reads them.
+        assert_eq!(
+            ix.options.get(WITH).map(String::as_str),
+            Some("metric = 'cosine', ef_construction = 64, ef_search = 32, M = 8, M0 = 16")
+        );
+        // No metric: vss's default (l2sq), left unsaid.
+        assert_eq!(t.indexes[1].vector.as_ref().unwrap().metric, None);
+        assert!(t.indexes[1].options.is_empty());
+        // Another extension's index keeps its kind and options.
+        assert_eq!(t.indexes[2].kind.as_deref(), Some("RTREE"));
+        assert!(t.indexes[2].vector.is_none());
+        t.columns.push(ColumnDef {
+            name: "g".into(),
+            data_type: "GEOMETRY".into(),
+            nullable: true,
+            ..Default::default()
+        });
+        let ddl = table_ddl(
+            &t,
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            ddl,
+            "INSTALL vss;\nLOAD vss;\nSET hnsw_enable_experimental_persistence = true;\n\
+             CREATE INDEX \"t_hnsw\" ON \"main\".\"t\" USING HNSW (\"v\") WITH (metric = 'cosine', ef_construction = 64, ef_search = 32, M = 8, M0 = 16);\n\
+             CREATE INDEX \"t_l2\" ON \"main\".\"t\" USING HNSW (\"v\");\n\
+             CREATE INDEX \"t_rt\" ON \"main\".\"t\" USING RTREE (\"g\") WITH (max_node_capacity = 64);"
+        );
+        // A sync that changes only the metric drops and makes the index.
+        let mut changed = t.clone();
+        changed.indexes[1].vector.as_mut().unwrap().metric = Some("ip".into());
+        let s = sync_script(&[dbine_driver::TableChange::Alter {
+            old: t.clone(),
+            new: changed,
+        }])
+        .unwrap()
+        .statements
+        .join("\n");
+        assert!(
+            s.contains("DROP INDEX \"main\".\"t_l2\"")
+                && s.contains("\"t_l2\" ON \"main\".\"t\" USING HNSW (\"v\") WITH (metric = 'ip')"),
+            "{s}"
+        );
+        // The designer's index (a vector, no kind) and the l2 metric.
+        let one = TableSchema {
+            schema: Some("main".into()),
+            name: "t".into(),
+            indexes: vec![IndexDef {
+                name: "i".into(),
+                columns: vec!["v".into()],
+                vector: Some(VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some("l2".into()),
+                    params: [("m".to_string(), "12".to_string())].into(),
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let ddl = table_ddl(
+            &one,
+            DdlParts {
+                indexes: true,
+                if_exists: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            ddl.ends_with("CREATE INDEX IF NOT EXISTS \"i\" ON \"main\".\"t\" USING HNSW (\"v\") WITH (metric = 'l2sq', M = 12);"),
+            "{ddl}"
+        );
+        // vss indexes FLOAT[n] only: anything else is refused with why.
+        let with_col = |ty: &str| TableSchema {
+            columns: vec![ColumnDef {
+                name: "v".into(),
+                data_type: ty.into(),
+                ..Default::default()
+            }],
+            ..one.clone()
+        };
+        for ok in ["FLOAT[3]", "float4[1536]", "REAL[2]"] {
+            check_hnsw_columns(&with_col(ok)).unwrap();
+        }
+        for no in ["DOUBLE[3]", "FLOAT[]", "FLOAT[3][2]", "FLOAT", "VARCHAR"] {
+            let e = check_hnsw_columns(&with_col(no)).unwrap_err();
+            assert!(e.contains("«i»") && e.contains(no), "{e}");
+        }
+        let d = designer();
+        assert!(d.data_types.contains(&"FLOAT[1536]"));
+        let vi = d.vector_indexes.unwrap();
+        assert_eq!(
+            (vi.algorithms, vi.metrics),
+            (vec!["hnsw"], vec!["l2", "cosine", "ip"])
+        );
+    }
 
     fn t() -> TableSchema {
         TableSchema {

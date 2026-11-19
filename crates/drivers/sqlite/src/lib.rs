@@ -15,6 +15,7 @@ pub mod rename;
 pub mod schema;
 pub mod stats;
 pub mod transfer;
+pub mod vector;
 
 use dbine_driver::sql::{
     leading_keyword, quote_ident, select_top, split_statements, Limit, Quote, ScriptDefaults,
@@ -173,12 +174,51 @@ impl Driver for SqliteDriver {
         Some(schema::designer())
     }
 
+    /// The contract's scripts, with a vector (a libSQL file's `F32_BLOB`,
+    /// `F64_BLOB`… column) as the blob of the column's format, which the
+    /// statement reads from the catalog: SQLite has no `vector32()`.
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        Ok(vector::scripts::insert(
+            vector::Engine::Sqlite,
+            target,
+            columns,
+            rows,
+        ))
+    }
+
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
+        Ok(vector::scripts::update(
+            vector::Engine::Sqlite,
+            target,
+            changes,
+        ))
+    }
+
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
+        Ok(vector::scripts::delete(target, keys))
+    }
+
     fn create_templates(&self) -> Vec<CreateTemplate> {
         schema::create_templates()
     }
 
+    /// libSQL's vector indexes (a file libSQL wrote) are left out with a
+    /// comment: SQLite has no `libsql_vector_idx`.
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
-        Ok(schema::table_ddl(table, parts))
+        Ok(schema::table_ddl_for(table, parts, false))
     }
 
     fn supports_schema_sync(&self) -> bool {
@@ -225,11 +265,12 @@ impl Driver for SqliteDriver {
     }
 
     /// Columns are added in place; any other change rebuilds the table.
+    /// libSQL's vector indexes are left out with a warning.
     fn sync_script(
         &self,
         changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
-        schema::sync_script(changes)
+        schema::sync_script_for(changes, false)
     }
 
     /// Tables and columns with `ALTER TABLE … RENAME`, which views and
@@ -328,11 +369,13 @@ impl Session for SqliteSession {
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         self.with(|c| {
             let mut stmt = c
-                .prepare(
-                    "SELECT type, name, tbl_name, COALESCE(sql, '') FROM sqlite_master
-                     WHERE type IN ('table', 'view', 'trigger') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
-                     ORDER BY name",
-                )
+                .prepare(&format!(
+                    "SELECT m.type, m.name, m.tbl_name, COALESCE(m.sql, '') FROM sqlite_master m
+                     WHERE m.type IN ('table', 'view', 'trigger') AND m.name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+                       AND {}
+                     ORDER BY m.name",
+                    schema::NOT_VECTOR_SHADOW
+                ))
                 .map_err(err)?;
             let rows = stmt
                 .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?)))
@@ -974,24 +1017,37 @@ fn run_stmt(
     {
         let n = stmt.column_count();
         if n > 0 {
+            // A column declared with one of libSQL's vector types (a file
+            // libSQL wrote) holds vectors.
             let columns: Vec<ResultColumn> = stmt
                 .columns()
-                .map(|c| ResultColumn {
-                    name: c.name().to_string(),
-                    type_name: c.decl_type().unwrap_or("").to_string(),
-                    vector: None,
+                .map(|c| {
+                    let decl = c.decl_type().unwrap_or("");
+                    let col = ResultColumn::new(c.name(), decl);
+                    match vector::meta(decl) {
+                        Some(m) => col.with_vector(m),
+                        None => col,
+                    }
                 })
                 .collect();
-            let spatial: Vec<bool> = columns
+            let shape: Vec<Shape> = columns
                 .iter()
-                .map(|c| is_spatial_type(&c.type_name))
+                .map(|c| {
+                    if c.vector.is_some() {
+                        Shape::Vector
+                    } else if is_spatial_type(&c.type_name) {
+                        Shape::Spatial
+                    } else {
+                        Shape::Plain
+                    }
+                })
                 .collect();
             out.begin_result(columns);
             let mut rows = stmt.raw_query();
             while let Some(row) = rows.next().map_err(|e| stmt_err(e, sql))? {
                 out.push_row(
                     (0..n)
-                        .map(|i| result_cell(row.get_ref_unwrap(i), spatial[i]))
+                        .map(|i| result_cell(row.get_ref_unwrap(i), shape[i]))
                         .collect(),
                     max_rows,
                 );
@@ -1052,11 +1108,29 @@ fn total_changes(c: &Connection) -> Result<i64> {
         .map_err(err)
 }
 
+/// What a result column holds, for its cells.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Shape {
+    Plain,
+    /// Declared GEOMETRY, POINT…
+    Spatial,
+    /// Declared with a libSQL vector type ([`vector`]).
+    Vector,
+}
+
 /// A result cell. Spatial blobs (a column declared GEOMETRY, POINT…, or a
-/// SpatiaLite / GeoPackage blob anywhere) go whole, for the map view.
-fn result_cell(v: ValueRef<'_>, spatial: bool) -> serde_json::Value {
+/// SpatiaLite / GeoPackage blob anywhere) go whole, for the map view; a
+/// vector column's blobs as vector text, whole.
+fn result_cell(v: ValueRef<'_>, shape: Shape) -> serde_json::Value {
     match v {
-        ValueRef::Blob(b) if spatial || is_spatial_blob(b) => json_spatial_bytes(b),
+        ValueRef::Blob(b) if shape == Shape::Vector => {
+            vector::text(b).map_or_else(|| json_bytes(b), Into::into)
+        }
+        ValueRef::Text(t) if shape == Shape::Vector => {
+            let s = String::from_utf8_lossy(t);
+            vector::cell_text(None, Some(&s)).map_or_else(|| s.into_owned().into(), Into::into)
+        }
+        ValueRef::Blob(b) if shape == Shape::Spatial || is_spatial_blob(b) => json_spatial_bytes(b),
         v => cell(v),
     }
 }

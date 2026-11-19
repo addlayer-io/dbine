@@ -64,10 +64,16 @@ enum Kind {
     /// Microseconds since the epoch (UTC), or DuckDB's text for ±infinity.
     DateTimeTz,
     Text,
+    /// `FLOAT[n]` / `DOUBLE[n]`: DBine's vector text (a `Json` cell), in
+    /// the column's precision (see `crate::vector`).
+    Vector(dbine_driver::VectorElement),
 }
 
 /// The kind of a `DESCRIBE` type and the select expression that reads it.
 fn classify(ty: &str) -> Kind {
+    if let Some((e, _)) = crate::vector::type_meta(ty) {
+        return Kind::Vector(e);
+    }
     let t = ty.trim().to_ascii_uppercase();
     let nested = t.ends_with(']')
         || ["STRUCT(", "MAP(", "UNION("]
@@ -478,6 +484,9 @@ fn cell(v: ValueRef<'_>, kind: Kind) -> Cell {
             other => format!("{other:?}"),
         };
         return match kind {
+            // JSON, as arrays went before they were vectors: a document
+            // target keeps an array (the contract takes Text or Json).
+            Kind::Vector(e) => Cell::Json(crate::vector::text(&s, e).unwrap_or(s)),
             Kind::Json => Cell::Json(s),
             Kind::Decimal => Cell::Decimal(s),
             Kind::Uuid => Cell::Uuid(s),
@@ -709,7 +718,11 @@ fn plan(c: &Connection, catalog: &str, spec: &LoadSpec) -> Result<Plan> {
     let cols = describe(c, &target, Some(&spec.columns))?;
     let columns: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
     let nested = |t: &str| classify(t) == Kind::Json && !t.trim().eq_ignore_ascii_case("JSON");
-    let staged = |t: &str| nested(t) || matches!(classify(t), Kind::Text | Kind::DateTimeTz);
+    // A vector arrives as its text (`[1,2.5]`, any engine's), cast straight
+    // to the column's `FLOAT[n]`.
+    let staged = |t: &str| {
+        nested(t) || matches!(classify(t), Kind::Text | Kind::DateTimeTz | Kind::Vector(_))
+    };
     if !cols.iter().any(|c| staged(&c.type_name)) {
         return Ok(Plan {
             catalog: catalog.to_string(),
@@ -1097,6 +1110,16 @@ mod tests {
         assert_eq!(classify("INTERVAL"), Kind::Text);
         assert_eq!(classify("ENUM('a', 'b')"), Kind::Text);
         assert_eq!(classify("BLOB"), Kind::Raw);
+        // Fixed-size float arrays are vectors; other arrays stay nested.
+        use dbine_driver::VectorElement as E;
+        assert_eq!(classify("FLOAT[3]"), Kind::Vector(E::F32));
+        assert_eq!(classify("DOUBLE[2]"), Kind::Vector(E::F64));
+        assert_eq!(classify("INTEGER[3]"), Kind::Json);
+        assert_eq!(classify("FLOAT[]"), Kind::Json);
+        assert_eq!(
+            expr("v", classify("FLOAT[3]"), "FLOAT[3]").unwrap(),
+            "CAST(\"v\" AS VARCHAR)"
+        );
     }
 
     #[test]
