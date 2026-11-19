@@ -737,7 +737,8 @@ fn json_cell(v: &Value) -> Value {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CellType {
     /// `text`, `varchar`, `ascii`: a string stays a string, even when it
-    /// reads as JSON (`[1,2]`), and a number or boolean goes as its text.
+    /// reads as JSON (`[1,2]`), and any other value (a number, a boolean,
+    /// another engine's JSON array or object) goes as its JSON text.
     Text,
     /// `vector<…, n>`: the cell as a JSON array of numbers (from its text
     /// too), of `n` of them when the type says `n`.
@@ -771,9 +772,10 @@ impl CellType {
 /// [`json_cell`] knowing the column's type.
 fn typed_cell(v: &Value, ty: Option<CellType>, column: &str) -> Result<Value> {
     match (ty, v) {
-        (Some(CellType::Text), Value::String(_)) => Ok(v.clone()),
-        (Some(CellType::Text), Value::Number(n)) => Ok(Value::String(n.to_string())),
-        (Some(CellType::Text), Value::Bool(b)) => Ok(Value::String(b.to_string())),
+        (Some(CellType::Text), Value::Null | Value::String(_)) => Ok(v.clone()),
+        // A number, a boolean, or a JSON value of another engine (`json`,
+        // `jsonb`, a document): its text, which is what the column keeps.
+        (Some(CellType::Text), other) => Ok(Value::String(other.to_string())),
         (Some(CellType::Vector(dims)), _) => match dbine_driver::vector::parse_value(v) {
             Some(nums) => {
                 if let Some(d) = dims.filter(|d| *d as usize != nums.len()) {
@@ -1572,6 +1574,37 @@ mod tests {
             s,
             "INSERT INTO ks.docs JSON '{\"id\":[1],\"note\":5,\"emb\":[1,2.5,-3],\"tags\":[\"a\"]}';\n"
         );
+        // JSON values of another engine (a `jsonb` synced or imported) in
+        // text columns: their JSON as text, which INSERT JSON and fromJson
+        // take; as structures the server refuses them.
+        let json_row = vec![
+            serde_json::json!({"a": [1, 2]}),
+            serde_json::json!([true, null]),
+            Value::from("[0, 0, 1]"),
+            Value::Null,
+        ];
+        let s = insert_script_typed(&target, &cols, &cell_types, std::slice::from_ref(&json_row))
+            .unwrap();
+        assert_eq!(
+            s,
+            "INSERT INTO ks.docs JSON '{\"id\":\"{\\\"a\\\":[1,2]}\",\"note\":\"[true,null]\",\"emb\":[0,0,1],\"tags\":null}';\n"
+        );
+        let doc = RowChange {
+            key: vec![("id".into(), Value::from("k"))],
+            set: vec![
+                ("note".into(), serde_json::json!({"b": "c"})),
+                ("tags".into(), serde_json::json!(["x"])),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            update_script_typed(&target, std::slice::from_ref(&doc), &types).unwrap(),
+            "UPDATE ks.docs SET note = fromJson('\"{\\\"b\\\":\\\"c\\\"}\"'), tags = fromJson('[\"x\"]') WHERE id = fromJson('\"k\"');\n"
+        );
+        // Untyped, the same object goes as a map.
+        assert!(update_script(&target, std::slice::from_ref(&doc))
+            .unwrap()
+            .contains("note = fromJson('{\"b\":\"c\"}')"));
         // Another dimension: refused before the server.
         let mut bad = row.clone();
         bad[2] = serde_json::json!([1, 2]);
