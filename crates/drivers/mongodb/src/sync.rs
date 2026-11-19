@@ -74,13 +74,7 @@ fn required(c: &ColumnDef) -> bool {
 /// Same index, once each takes its dimension from its table's field type.
 fn ix_same(a: &IndexDef, b: &IndexDef) -> bool {
     match (vector::is_search(a), vector::is_search(b)) {
-        (true, true) => match (
-            vector::search_definition(a, None),
-            vector::search_definition(b, None),
-        ) {
-            (Ok(x), Ok(y)) => x == y,
-            _ => false,
-        },
+        (true, true) => vector::same_search(a, b),
         (false, false) => match (index_parts(a), index_parts(b)) {
             (Ok(x), Ok(y)) => x == y,
             _ => false,
@@ -240,11 +234,15 @@ fn alter(old: &TableSchema, new: &TableSchema, p: &mut Plan) -> Result<()> {
         .iter()
         .map(|i| vector::with_dims(new, i))
         .collect();
+    // In place only within one type (`vectorSearch`, or Atlas Search's
+    // `search`): another type is dropped and made again.
     let updated = |n: &IndexDef| {
         vector::is_search(n)
-            && olds
-                .iter()
-                .any(|o| eq_name(&o.name, &n.name) && vector::is_search(o))
+            && olds.iter().any(|o| {
+                eq_name(&o.name, &n.name)
+                    && vector::is_search(o)
+                    && vector::is_knn(o) == vector::is_knn(n)
+            })
     };
     for o in &olds {
         match news.iter().find(|n| eq_name(&n.name, &o.name)) {

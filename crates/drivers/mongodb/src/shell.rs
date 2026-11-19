@@ -535,8 +535,6 @@ pub fn index_name(keys: &Document) -> String {
         .join("_")
 }
 
-/// One `createIndexes` entry: key, name (the shell's default when absent)
-/// and the options.
 /// A search index as `createSearchIndexes` takes it, from mongosh's
 /// arguments: `{ name, type, definition }`, `(name, definition)` or
 /// `(name, type, definition)`; a bare definition is named `default`.
@@ -563,6 +561,8 @@ fn search_index_spec(args: Vec<Value>) -> R<Document> {
     Ok(spec)
 }
 
+/// One `createIndexes` entry: key, name (the shell's default when absent)
+/// and the options.
 fn index_spec(keys: Value, opts: Option<&Document>) -> R<Document> {
     let key = to_doc(keys)?;
     if key.is_empty() {

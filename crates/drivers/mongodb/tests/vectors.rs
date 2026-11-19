@@ -302,6 +302,26 @@ async fn atlas_vector_search() {
     let at = r.columns.iter().position(|c| c.name == "emb").unwrap();
     assert!(r.columns[at].vector.is_some());
     assert_eq!(r.rows[0][at], json!("[0.5,0.5,0]"));
+    // A grid insert after a result of BinData vectors writes one.
+    let ins = d
+        .insert_script(
+            &coll(t1),
+            &["_id".into(), "cat".into(), "emb".into()],
+            &[vec![json!(5), json!("c"), json!([0.0, 0.0, 1.0])]],
+        )
+        .unwrap();
+    assert!(ins.contains("BinData(9,"), "{ins}");
+    run(&mut s, &ins).await;
+    let five = docs(&raw(&url).await, t1).await;
+    assert!(
+        matches!(five[4].get("emb"), Some(Bson::Binary(b)) if b.subtype == BinarySubtype::Vector),
+        "{five:?}"
+    );
+    run(
+        &mut s,
+        &format!("db.getCollection(\"{t1}\").deleteOne({{ _id: 5 }})"),
+    )
+    .await;
 
     // 4. Describe keeps the dimension; 5. the index is listed with its vector.
     let schema = s.database_schema().await.unwrap();
@@ -363,12 +383,17 @@ async fn atlas_vector_search() {
                         ("emb".into(), json!([0.0, 0.0, 1.0])),
                         ("cat".into(), json!("$c")),
                     ],
-                    ..Default::default()
+                    // The grid's row: the vector's text.
+                    row: vec![
+                        ("_id".into(), json!(1)),
+                        ("cat".into(), json!("a")),
+                        ("emb".into(), json!("[1,0,0]")),
+                    ],
                 },
                 RowChange {
                     key: vec![("_id".into(), json!(4))],
                     set: vec![("emb".into(), json!([0.25, 0.0, 1.5]))],
-                    ..Default::default()
+                    row: vec![("emb".into(), json!("[0.5,0.5,0]"))],
                 },
             ],
         )
@@ -431,7 +456,9 @@ async fn atlas_vector_search() {
         tcols[at].type_name
     );
     let by_id = |id: i64| trows.iter().find(|r| r[0] == Cell::Int(id)).expect("row");
-    assert_eq!(by_id(2)[at], Cell::Text("[0,1,0]".into()));
+    // An array vector as JSON, a BinData one as text: a load by rows
+    // tells which form each was.
+    assert_eq!(by_id(2)[at], Cell::Json("[0,1,0]".into()));
     assert_eq!(by_id(4)[at], Cell::Text("[0.25,0,1.5]".into()));
     let pg_cols = vec![
         TransferColumn {
@@ -479,7 +506,7 @@ async fn atlas_vector_search() {
     let at = bcols.iter().position(|c| c.name == "emb").unwrap();
     let texts: Vec<&Cell> = brows.iter().map(|r| &r[at]).collect();
     assert!(
-        texts.contains(&&Cell::Text("[-1,0,0.0000001]".into())),
+        texts.contains(&&Cell::Json("[-1,0,0.0000001]".into())),
         "{texts:?}"
     );
     // Same engine by rows: a field with BinData vectors loads as BinData
@@ -490,6 +517,96 @@ async fn atlas_vector_search() {
     assert!(
         matches!(copy[3].get("emb"), Some(Bson::Binary(b)) if b.subtype == BinarySubtype::Vector)
     );
+    // …and its arrays stay arrays.
+    assert!(
+        matches!(copy[1].get("emb"), Some(Bson::Array(_))),
+        "{:?}",
+        copy[1]
+    );
+
+    // Definitions DBine can say whole, though written otherwise (an
+    // explicit "none", the filter first): no whole definition kept, and an
+    // edit changes the index in place.
+    run(
+        &mut s,
+        &format!("db.getCollection(\"{t1}\").createSearchIndex({{ name: \"vix2\", type: \"vectorSearch\", definition: {{ fields: [{{ type: \"filter\", path: \"cat\" }}, {{ type: \"vector\", path: \"emb\", numDimensions: 3, similarity: \"dotProduct\", quantization: \"none\" }}] }} }})"),
+    )
+    .await;
+    // And an Atlas Search index with a knnVector field.
+    run(
+        &mut s,
+        &format!("db.getCollection(\"{t1}\").createSearchIndex({{ name: \"knn\", type: \"search\", definition: {{ mappings: {{ dynamic: false, fields: {{ emb: {{ type: \"knnVector\", dimensions: 3, similarity: \"cosine\" }}, cat: {{ type: \"token\" }} }} }} }} }})"),
+    )
+    .await;
+    let schema = s.database_schema().await.unwrap();
+    let t = schema.iter().find(|t| t.name == t1).unwrap().clone();
+    assert!(t.warnings.is_empty(), "{:?}", t.warnings);
+    let vix2 = t.indexes.iter().find(|i| i.name == "vix2").expect("vix2");
+    assert!(
+        !vix2.options.contains_key("definition"),
+        "{:?}",
+        vix2.options
+    );
+    assert_eq!(vix2.columns, ["emb", "cat"]);
+    let knn = t.indexes.iter().find(|i| i.name == "knn").expect("knn");
+    assert_eq!(knn.kind.as_deref(), Some("search"));
+    assert_eq!(knn.columns, ["emb"]);
+    assert_eq!(
+        knn.vector.as_ref().unwrap().metric.as_deref(),
+        Some("cosine")
+    );
+    let usage = s.index_usage(&coll(t1)).await.unwrap().unwrap();
+    let u = usage
+        .indexes
+        .iter()
+        .find(|i| i.name == "knn")
+        .expect("knn listed");
+    assert!(u.kind.starts_with("SEARCH"), "{}", u.kind);
+    // Compared with itself: nothing.
+    let same = d
+        .sync_script(&[TableChange::Alter {
+            old: t.clone(),
+            new: t.clone(),
+        }])
+        .unwrap();
+    assert!(same.statements.is_empty(), "{:?}", same.statements);
+    let mut edited = t.clone();
+    for i in edited.indexes.iter_mut() {
+        if i.name == "vix2" || i.name == "knn" {
+            i.vector.as_mut().unwrap().metric = Some("l2".into());
+        }
+    }
+    let sync = d
+        .sync_script(&[TableChange::Alter {
+            old: t.clone(),
+            new: edited,
+        }])
+        .unwrap();
+    assert_eq!(sync.statements.len(), 2, "{:?}", sync.statements);
+    for st in &sync.statements {
+        assert!(st.contains("updateSearchIndex"), "{st}");
+        run(&mut s, st).await;
+    }
+    let schema = s.database_schema().await.unwrap();
+    let t = schema.iter().find(|t| t.name == t1).unwrap();
+    for name in ["vix2", "knn"] {
+        let i = t.indexes.iter().find(|i| i.name == name).unwrap();
+        assert_eq!(
+            i.vector.as_ref().unwrap().metric.as_deref(),
+            Some("l2"),
+            "{name}"
+        );
+    }
+    run(
+        &mut s,
+        &format!("db.getCollection(\"{t1}\").dropSearchIndex(\"vix2\")"),
+    )
+    .await;
+    run(
+        &mut s,
+        &format!("db.getCollection(\"{t1}\").dropSearchIndex(\"knn\")"),
+    )
+    .await;
 
     // 6. A similarity query (euclidean since the update) with the filter,
     // once mongot has built the index.
@@ -556,6 +673,8 @@ async fn mongo7_without_search() {
     let schema = s.database_schema().await.unwrap();
     let tb = schema.iter().find(|x| x.name == t).unwrap();
     assert!(tb.indexes.is_empty());
+    // No search here: nothing to warn about.
+    assert!(tb.warnings.is_empty(), "{:?}", tb.warnings);
     assert_eq!(
         tb.columns
             .iter()
@@ -686,12 +805,12 @@ async fn ferretdb_vectors() {
                 RowChange {
                     key: vec![("_id".into(), json!(1))],
                     set: vec![("emb".into(), json!([0.0, 0.0, 1.0]))],
-                    ..Default::default()
+                    row: vec![("emb".into(), json!("[1,0,0]"))],
                 },
                 RowChange {
                     key: vec![("_id".into(), json!(4))],
                     set: vec![("emb".into(), json!([0.25, 0.0, 1.5]))],
-                    ..Default::default()
+                    row: vec![("emb".into(), json!("[0.5,0.5,0]"))],
                 },
             ],
         )
@@ -700,9 +819,37 @@ async fn ferretdb_vectors() {
     let db = raw(&url).await;
     let all = docs(&db, t1).await;
     assert!(matches!(all[0].get("emb"), Some(Bson::Array(_))));
-    assert!(
-        matches!(all[3].get("emb"), Some(Bson::Binary(b)) if b.subtype == BinarySubtype::Vector)
-    );
+    match all[3].get("emb") {
+        Some(Bson::Binary(b)) => {
+            assert_eq!(b.subtype, BinarySubtype::Vector);
+            assert_eq!(
+                vector::from_f32_le(&b.bytes[2..]).unwrap(),
+                [0.25, 0.0, 1.5]
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    // Without the grid's row: by each element's byte range (FerretDB
+    // compares BinData as MongoDB does).
+    let upd = d
+        .update_script(
+            &coll(t1),
+            &[RowChange {
+                key: vec![("_id".into(), json!(4))],
+                set: vec![("emb".into(), json!([0.5, 0.5, 0.0]))],
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+    run(&mut s, &upd).await;
+    let all = docs(&db, t1).await;
+    match all[3].get("emb") {
+        Some(Bson::Binary(b)) => {
+            assert_eq!(b.bytes[0], 0x27, "float32");
+            assert_eq!(vector::from_f32_le(&b.bytes[2..]).unwrap(), [0.5, 0.5, 0.0]);
+        }
+        other => panic!("{other:?}"),
+    }
 
     // The index changes: dropped and made again (ivf).
     let mut changed = t.clone();
@@ -744,7 +891,10 @@ async fn ferretdb_vectors() {
     let (tcols, trows) = read_all(&mut s, t1).await;
     let at = tcols.iter().position(|c| c.name == "emb").unwrap();
     let id3 = trows.iter().find(|r| r[0] == Cell::Int(3)).expect("row 3");
-    assert_eq!(id3[at], Cell::Text("[0.9,0.1,0]".into()));
+    // An array vector as JSON (a BinData one as text).
+    assert_eq!(id3[at], Cell::Json("[0.9,0.1,0]".into()));
+    let id4 = trows.iter().find(|r| r[0] == Cell::Int(4)).expect("row 4");
+    assert_eq!(id4[at], Cell::Text("[0.5,0.5,0]".into()));
     let pg_cols = vec![
         TransferColumn {
             name: "id".into(),

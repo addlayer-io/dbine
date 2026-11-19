@@ -64,9 +64,9 @@ o $multiply
 o $pow since=3.2
 o $round since=4.2
 o $sigmoid since=8.3
-o $similarityCosine since=8.2
-o $similarityDotProduct since=8.2
-o $similarityEuclidean since=8.2
+o $similarityCosine since=8.3
+o $similarityDotProduct since=8.3
+o $similarityEuclidean since=8.3
 o $sqrt since=3.2
 o $subtract
 o $trunc since=3.2

@@ -554,10 +554,14 @@ fn is_object_id(s: &str) -> bool {
 /// `insertMany` batches. Null cells are left out of the document (a missing
 /// field reads back as null); an `_id` that is 24 hex digits becomes an
 /// `ObjectId` (that's how the grid shows them). Other values go as JSON.
+/// `binary`: fields whose vectors the collection keeps as BinData (field →
+/// element, see `vector::binary_fields`); a vector value there (a JSON
+/// array of numbers) goes as a BinData vector, elsewhere as the array.
 pub fn insert_script(
     target: &ObjectRef,
     columns: &[String],
     rows: &[Vec<Value>],
+    binary: &std::collections::HashMap<String, dbine_driver::VectorElement>,
 ) -> Result<String> {
     let coll = format!("db.getCollection({})", q(&target.name));
     let mut out = Vec::new();
@@ -574,7 +578,10 @@ pub fn insert_script(
                             Value::String(s) if c == "_id" && is_object_id(s) => {
                                 format!("ObjectId(\"{s}\")")
                             }
-                            other => other.to_string(),
+                            other => match (binary.get(c.as_str()), vector_value(other)) {
+                                (Some(el), Some(n)) => crate::vector::binary_literal(&n, *el),
+                                _ => other.to_string(),
+                            },
                         };
                         format!("{}: {val}", q(c))
                     })
@@ -632,17 +639,28 @@ pub fn update_script(
             None => ch.key.clone(),
         };
         if keep_binary && ch.set.iter().any(|(_, v)| vector_value(v).is_some()) {
-            let fields: Vec<String> = ch
-                .set
-                .iter()
-                .map(|(c, v)| {
-                    let val = match vector_value(v) {
-                        Some(n) => crate::vector::keep_form_expr(c, &n),
-                        None => format!("{{ $literal: {} }}", shell_value(c, v)),
-                    };
-                    format!("{}: {val}", q(c))
-                })
-                .collect();
+            let fields: Vec<String> =
+                ch.set
+                    .iter()
+                    .map(|(c, v)| {
+                        let val = match vector_value(v) {
+                            Some(n) => {
+                                // The value it had (the grid's row: the
+                                // vector's text), to tell the stored element.
+                                let old =
+                                    ch.row.iter().find(|(k, _)| k == c).and_then(
+                                        |(_, o)| match o {
+                                            Value::String(t) => dbine_driver::vector::parse(t),
+                                            other => vector_value(other),
+                                        },
+                                    );
+                                crate::vector::keep_form_expr(c, &n, old.as_deref())
+                            }
+                            None => format!("{{ $literal: {} }}", shell_value(c, v)),
+                        };
+                        format!("{}: {val}", q(c))
+                    })
+                    .collect();
             out.push(format!(
                 "{coll}.updateOne({}, [{{ $set: {{ {} }} }}])",
                 shell_doc(&filter),
@@ -1989,7 +2007,7 @@ mod tests {
             schema: None,
             name: "odd name".into(),
         };
-        let text = insert_script(&target, &cols, &rows).unwrap();
+        let text = insert_script(&target, &cols, &rows, &Default::default()).unwrap();
         let st = parse_script(&text).unwrap();
         assert_eq!(st.len(), 3);
         assert_eq!(st[0].shape, Shape::Write);

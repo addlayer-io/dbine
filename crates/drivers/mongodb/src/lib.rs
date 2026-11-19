@@ -519,7 +519,7 @@ impl Driver for MongoDriver {
                 "este motor no deshabilita índices".into(),
             ));
         }
-        if index.kind.starts_with("VECTOR SEARCH") {
+        if index.kind.starts_with("VECTOR SEARCH") || index.kind.starts_with("SEARCH") {
             return Err(dbine_driver::Error::Unsupported(
                 "un índice de búsqueda vectorial no se deshabilita: se borra o se cambia".into(),
             ));
@@ -627,8 +627,17 @@ impl Driver for MongoDriver {
         Ok(s)
     }
 
+    /// Vector indexes in this server's kind; what one can't take goes as a
+    /// comment at the top (see `vector::for_flavor`).
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
-        ddl::table_ddl(&vector::for_flavor(table, self.flavor).0, parts)
+        let (t, warnings) = vector::for_flavor(table, self.flavor);
+        let script = ddl::table_ddl(&t, parts)?;
+        if !parts.indexes || warnings.is_empty() {
+            return Ok(script);
+        }
+        let mut lines: Vec<String> = warnings.iter().map(|w| format!("// {w}")).collect();
+        lines.push(script);
+        Ok(lines.join("\n"))
     }
 
     /// Collections with `renameCollection`, views dropped and created,
@@ -658,7 +667,14 @@ impl Driver for MongoDriver {
         columns: &[String],
         rows: &[Vec<serde_json::Value>],
     ) -> Result<String> {
-        ddl::insert_script(target, columns, rows)
+        // Vectors in the form the collection keeps them (DocumentDB
+        // indexes arrays only).
+        let binary = if self.flavor == Flavor::DocumentDb {
+            Default::default()
+        } else {
+            vector::binary_fields(&target.name)
+        };
+        ddl::insert_script(target, columns, rows, &binary)
     }
 
     fn update_script(
@@ -1353,9 +1369,14 @@ impl Session for MongoSession {
         {
             spec.insert("indexes", ix);
         }
-        let search = self.search_indexes(&self.db, &obj.name).await;
-        if !search.is_empty() {
-            spec.insert("searchIndexes", search);
+        match self.search_indexes(&self.db, &obj.name).await {
+            Ok(search) if !search.is_empty() => {
+                spec.insert("searchIndexes", search);
+            }
+            Ok(_) => {}
+            Err(e) => {
+                spec.insert("searchIndexesError", e);
+            }
         }
         let v = Bson::Document(spec).into_relaxed_extjson();
         Ok(Some(serde_json::to_string_pretty(&v)?))
@@ -1510,7 +1531,7 @@ impl Session for MongoSession {
                 })
                 .collect();
             let (indexes, search) = if view {
-                (Vec::new(), Vec::new())
+                (Vec::new(), Ok(Vec::new()))
             } else {
                 (
                     self.first_batch(doc! { "listIndexes": name }, usize::MAX)
@@ -1519,7 +1540,20 @@ impl Session for MongoSession {
                     self.search_indexes(&self.db, name).await,
                 )
             };
-            out.push(ddl::table_schema_with(&info, columns, &indexes, &search));
+            let mut t = ddl::table_schema_with(
+                &info,
+                columns,
+                &indexes,
+                search.as_deref().unwrap_or_default(),
+            );
+            // Not read now (no permission, mongot not up yet…): said, so a
+            // copy or a compare doesn't leave them out without a word.
+            if let Err(e) = search {
+                t.warnings.push(format!(
+                    "No se pudieron leer los índices de búsqueda de «{name}» ({e}): la copia, la comparación y la sincronización no los incluyen."
+                ));
+            }
+            out.push(t);
         }
         out.sort_by_key(|a| a.name.to_lowercase());
         Ok(out)

@@ -161,12 +161,17 @@ pub(crate) fn vector_index(
     use dbine_driver::vector::{metric, param};
     let mut out = dbine_driver::VectorIndex::default();
     if let Some(m) = v.metric.as_deref() {
-        if !matches!(m, metric::COSINE | metric::L2 | metric::IP) {
-            return Err(format!(
-                "{family} no tiene la distancia «{m}» (cosine, l2 o ip)"
-            ));
-        }
-        out.metric = Some(m.to_string());
+        out.metric = Some(match m.to_ascii_lowercase().as_str() {
+            metric::COSINE | metric::L2 | metric::IP => m.to_ascii_lowercase(),
+            // The same nearest neighbors as l2: the driver writes l2 and
+            // says so (`vector::for_flavor`).
+            "l2_squared" | "euclidean_squared" => "l2_squared".into(),
+            _ => {
+                return Err(format!(
+                    "{family} no tiene la distancia «{m}» (cosine, l2 o ip)"
+                ))
+            }
+        });
     }
     out.algorithm = v
         .algorithm
@@ -625,6 +630,16 @@ mod tests {
             ..Default::default()
         };
         assert!(mongo.vector_index(&l1).is_err());
+        // Couchbase's squared euclidean goes on for the driver to write as
+        // l2 (with a warning).
+        let sq = VectorIndex {
+            metric: Some("L2_SQUARED".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            mongo.vector_index(&sq).unwrap().1.metric.as_deref(),
+            Some("l2_squared")
+        );
     }
 
     #[test]
