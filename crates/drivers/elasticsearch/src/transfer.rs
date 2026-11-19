@@ -43,7 +43,16 @@
 //! even if the client stops waiting. After a failure, the rows of those
 //! that still commit are reported too, so the last progress is what's
 //! committed. The index is refreshed once, at the end.
+//!
+//! Vectors: a source's vector field (`dense_vector`, `knn_vector`) is read
+//! as the canonical JSON array text (bit vectors one 0 / 1 per dimension,
+//! byte vectors given as hex as their numbers), and its column's type says
+//! its dimension (`dense_vector(3)`). A load writes vector text (from any
+//! engine) into the target's vector fields as the array they take, packing
+//! bit vectors (see [`crate::vectors`]). On Elasticsearch 9.2+ the read
+//! asks for the vectors that `_source` leaves out.
 
+use crate::vectors::{self, VecType};
 use crate::{es_error_message, http, json::J, EsSession};
 use base64::Engine;
 use dbine_driver::transfer::{
@@ -604,9 +613,17 @@ fn num_cell(t: &str) -> Cell {
 }
 
 /// A `_source` value (its raw text) as a cell; `ty` is the field's
-/// mapping type.
+/// mapping type (vectors with their dimension, `dense_vector(3)`).
 pub(crate) fn to_cell(raw: &str, ty: &str) -> Cell {
     let b64 = &base64::engine::general_purpose::STANDARD;
+    if ty.starts_with("dense_vector") || ty.starts_with("knn_vector") {
+        if let Some(text) = VecType::parse(ty)
+            .and_then(|t| t.ok())
+            .and_then(|t| vectors::raw_text(raw, &t))
+        {
+            return Cell::Text(text);
+        }
+    }
     match raw.as_bytes().first() {
         None | Some(b'n') => Cell::Null,
         Some(b't') => Cell::Bool(true),
@@ -724,6 +741,9 @@ fn source_fields(mapping: &J, out: &mut Vec<Field>) {
             if ty == "alias" {
                 continue;
             }
+            // Vectors with their dimension and element (`dense_vector(16, bit)`).
+            let spelled = VecType::from_mapping(f).map(|t| t.spelling());
+            let ty = spelled.as_deref().unwrap_or(ty);
             let full = if prefix.is_empty() {
                 name.clone()
             } else {
@@ -817,6 +837,19 @@ fn source_filter(names: &[String]) -> Value {
     }
 }
 
+/// A `_source` filter that also asks for the vectors Elasticsearch 9.2+
+/// leaves out (`"exclude_vectors": false`).
+fn with_vectors(source: Value) -> Value {
+    match source {
+        Value::Bool(true) => json!({ "exclude_vectors": false }),
+        Value::Object(mut o) => {
+            o.insert("exclude_vectors".into(), Value::Bool(false));
+            Value::Object(o)
+        }
+        other => other,
+    }
+}
+
 /// `{"errors": true, …}`: how many items failed and the first reasons.
 pub(crate) fn bulk_errors(body: &str, rows: u64) -> Option<String> {
     let resp: Value = serde_json::from_str(body).ok()?;
@@ -868,12 +901,15 @@ fn write_json(buf: &mut Vec<u8>, col: &str, s: &str) -> Result<()> {
     Ok(())
 }
 
-/// One row as an action line and a document line.
+/// One row as an action line and a document line. `vectors` are the
+/// target's vector fields: text holding a vector goes into them as the
+/// array they take.
 pub(crate) fn encode_row(
     buf: &mut Vec<u8>,
     op: &str,
     names: &[String],
     row: &[Cell],
+    vectors: &[(String, VecType)],
 ) -> Result<()> {
     buf.extend_from_slice(b"{\"");
     buf.extend_from_slice(op.as_bytes());
@@ -920,6 +956,13 @@ pub(crate) fn encode_row(
         written.push(Cow::Borrowed(n));
         write_str(buf, n);
         buf.push(b':');
+        let vector = vectors.iter().find(|(f, _)| f == n).map(|(_, t)| t);
+        if let (Some(t), Cell::Text(s) | Cell::Json(s)) = (vector, c) {
+            if let Some(j) = vectors::load_json(s, t) {
+                buf.extend_from_slice(j.as_bytes());
+                continue;
+            }
+        }
         match c {
             Cell::Bool(b) => buf.extend_from_slice(if *b { b"true" } else { b"false" }),
             Cell::Int(i) => {
@@ -1179,11 +1222,14 @@ impl EsSession {
             })?,
             None => json!({ "match_all": {} }),
         };
-        let source = if spec.columns.is_some() {
+        let mut source = if spec.columns.is_some() {
             source_filter(&names)
         } else {
             Value::Bool(true)
         };
+        if self.excludes_vectors() {
+            source = with_vectors(source);
+        }
 
         sink.lock()
             .map_err(|_| Error::State("destino de lotes".into()))?
@@ -1348,6 +1394,16 @@ impl EsSession {
             "index"
         };
         let seg = crate::ddl::path_segment(index);
+        // The target's vector fields (none when its mapping can't be read:
+        // the load then writes text as text).
+        let target_vectors = match self.get_json(&format!("/{seg}/_mapping")).await {
+            Ok(m) => m
+                .as_obj()
+                .and_then(|o| o.first())
+                .map(|(_, idx)| vectors::mapping_vectors(idx.get("mappings").unwrap_or(&J::Null)))
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
         let to = Bulk {
             client: self.client.clone(),
             url: format!("{}/{seg}/_bulk?filter_path=errors,items.*.error", self.base),
@@ -1376,7 +1432,7 @@ impl EsSession {
                         )));
                     }
                     row_buf.clear();
-                    encode_row(&mut row_buf, op, &names, &row)?;
+                    encode_row(&mut row_buf, op, &names, &row, &target_vectors)?;
                     // The row would take the request over its bytes: send
                     // what's there first.
                     if buffered > 0 && buf.len() + row_buf.len() > limit {
@@ -1578,7 +1634,7 @@ mod tests {
 
     fn encode(names_: &[&str], row: &[Cell]) -> Result<String> {
         let mut buf = Vec::new();
-        encode_row(&mut buf, "index", &names(names_), row)?;
+        encode_row(&mut buf, "index", &names(names_), row, &[])?;
         Ok(String::from_utf8(buf).unwrap())
     }
 
@@ -1644,12 +1700,87 @@ mod tests {
             "create",
             &names(&["a", "_routing"]),
             &[Cell::Text("{not json}".into()), Cell::Text("r1".into())],
+            &[],
         )
         .unwrap();
         assert_eq!(
             String::from_utf8(buf).unwrap(),
             "{\"create\":{\"routing\":\"r1\"}}\n{\"a\":\"{not json}\"}\n"
         );
+    }
+
+    #[test]
+    fn vectors_read_as_arrays_and_load_as_the_field_takes_them() {
+        // Read: canonical text; bits one per dimension; hex bytes decoded.
+        assert_eq!(
+            to_cell("[1.0, 0.5,-2e-1]", "dense_vector(3)"),
+            Cell::Text("[1,0.5,-0.2]".into())
+        );
+        assert_eq!(
+            to_cell("[-127,64]", "dense_vector(16, bit)"),
+            Cell::Text("[1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0]".into())
+        );
+        assert_eq!(
+            to_cell("\"0a7f\"", "knn_vector(2, byte)"),
+            Cell::Text("[10,127]".into())
+        );
+        // Not a vector after all: as before.
+        assert_eq!(to_cell("\"x\"", "dense_vector(3)"), Cell::Text("x".into()));
+        let mut f = Vec::new();
+        source_fields(
+            &J::parse(r#"{"properties":{"v":{"type":"dense_vector","dims":3},"b":{"type":"knn_vector","dimension":16,"data_type":"binary"}}}"#).unwrap(),
+            &mut f,
+        );
+        let cols = read_columns(None, &f).unwrap();
+        let types: Vec<&str> = cols.iter().map(|c| c.type_name.as_str()).collect();
+        assert_eq!(
+            types,
+            [
+                "keyword",
+                "keyword",
+                "dense_vector(3)",
+                "knn_vector(16, binary)",
+                "object"
+            ]
+        );
+        // Load: text (from pgvector, say) becomes the array.
+        let vecs = vec![
+            (
+                "v".to_string(),
+                VecType::new("dense_vector", Some(3), vectors::Elem::Float),
+            ),
+            (
+                "b".to_string(),
+                VecType::new("dense_vector", Some(16), vectors::Elem::Bit),
+            ),
+        ];
+        let mut buf = Vec::new();
+        encode_row(
+            &mut buf,
+            "index",
+            &names(&["_id", "v", "b", "t"]),
+            &[
+                Cell::Text("1".into()),
+                Cell::Text("[1,2.5,-3e-2]".into()),
+                Cell::Json("[1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0]".into()),
+                Cell::Text("[1,2]".into()),
+            ],
+            &vecs,
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(buf).unwrap(),
+            "{\"index\":{\"_id\":\"1\"}}\n{\"v\":[1,2.5,-0.03],\"b\":[-127,64],\"t\":\"[1,2]\"}\n"
+        );
+        assert_eq!(
+            with_vectors(Value::Bool(true)),
+            json!({"exclude_vectors": false})
+        );
+        assert_eq!(
+            with_vectors(json!({"includes": ["v"]})),
+            json!({"includes": ["v"], "exclude_vectors": false})
+        );
+        assert_eq!(with_vectors(Value::Bool(false)), Value::Bool(false));
     }
 
     /// Problem 2: text that holds valid JSON is still a string.

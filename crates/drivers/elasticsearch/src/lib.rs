@@ -30,6 +30,7 @@ pub mod steps;
 mod sync;
 pub mod tls;
 mod transfer;
+pub mod vectors;
 
 use base64::Engine;
 use console::{Command, Request};
@@ -40,6 +41,7 @@ use dbine_driver::{
     Session, TableSchema, TlsLevel, TlsSupport,
 };
 use json::J;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -56,13 +58,37 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Flavor {
+pub(crate) enum Flavor {
     Elastic,
     OpenSearch,
     /// Open Distro for Elasticsearch: Elasticsearch OSS 7.10 plus AWS's
     /// plugins under `/_opendistro/…` (SQL, ISM, k-NN, security). No
     /// data streams, no `flat_object`; the rest is OpenSearch 1.x.
     OpenDistro,
+}
+
+impl Flavor {
+    /// OpenSearch-style mappings and settings (knn_vector, index.knn).
+    pub(crate) fn opensearch(self) -> bool {
+        self != Flavor::Elastic
+    }
+
+    /// The engine's name, for messages.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Flavor::Elastic => "Elasticsearch",
+            Flavor::OpenSearch => "OpenSearch",
+            Flavor::OpenDistro => "Open Distro",
+        }
+    }
+
+    /// The vector field type of its mappings.
+    pub(crate) fn vector_type(self) -> &'static str {
+        match self {
+            Flavor::Elastic => "dense_vector",
+            _ => "knn_vector",
+        }
+    }
 }
 
 struct Es {
@@ -401,16 +427,15 @@ impl Driver for Es {
             // (see `scheduler`).
             jobs: true,
             scheduler: true,
+            // dense_vector / knn_vector fields and their ANN indexes (see
+            // `vectors`).
+            vectors: true,
             ..Capabilities::default()
         }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
-        let mut d = ddl::designer(self.opensearch);
-        if self.flavor == Flavor::OpenDistro {
-            d.data_types.retain(|t| *t != "flat_object");
-        }
-        Some(d)
+        Some(ddl::designer(self.flavor))
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
@@ -425,7 +450,7 @@ impl Driver for Es {
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
-        ddl::index_ddl(table, parts, self.opensearch)
+        ddl::index_ddl(table, parts, self.flavor)
     }
 
     fn security(&self) -> Option<dbine_driver::SecuritySpec> {
@@ -453,7 +478,7 @@ impl Driver for Es {
         &self,
         changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
-        sync::sync_script(changes, self.opensearch)
+        sync::sync_script(changes, self.flavor)
     }
 
     /// Indices by copy (`_clone`) and aliases (see [`rename`]).
@@ -581,6 +606,7 @@ impl Driver for Es {
             opaque_id: new_opaque_id(),
             profiler: None,
             interrupted: Arc::default(),
+            vector_fields: Default::default(),
         }))
     }
 }
@@ -604,6 +630,35 @@ struct EsSession {
     /// ordinary HTTP error, so `execute` turns it into a cancel and runs
     /// nothing more, even on a run that continues on errors.
     interrupted: Arc<AtomicBool>,
+    /// The top-level vector fields of each index whose mapping was read to
+    /// mark the vector columns of search hits; cleared by any request that
+    /// may change a mapping.
+    vector_fields: std::sync::Mutex<HashMap<String, Vec<(String, vectors::VecType)>>>,
+}
+
+/// Indices whose mappings one search asks for, at most.
+const MAX_HIT_INDICES: usize = 50;
+
+/// The concrete indices the hits (or `_mget` docs) of a response come from.
+fn hit_indices(resp: &J) -> Vec<String> {
+    fn push<'a>(r: &'a J, hits: &mut Vec<&'a J>) {
+        hits.extend(r.at(&["hits", "hits"]).and_then(J::as_arr).unwrap_or(&[]));
+        hits.extend(r.get("docs").and_then(J::as_arr).unwrap_or(&[]));
+    }
+    let mut hits: Vec<&J> = Vec::new();
+    push(resp, &mut hits);
+    for r in resp.get("responses").and_then(J::as_arr).unwrap_or(&[]) {
+        push(r, &mut hits);
+    }
+    let mut out: Vec<String> = Vec::new();
+    for h in hits {
+        if let Some(i) = h.get("_index").and_then(J::as_str) {
+            if !out.iter().any(|x| x == i) && out.len() < MAX_HIT_INDICES {
+                out.push(i.to_string());
+            }
+        }
+    }
+    out
 }
 
 fn rcol(name: &str, ty: &str) -> ResultColumn {
@@ -615,6 +670,18 @@ fn rcol(name: &str, ty: &str) -> ResultColumn {
 }
 
 impl EsSession {
+    /// The server's flavor (an Elasticsearch connection may reach an
+    /// OpenSearch server).
+    fn flavor(&self) -> Flavor {
+        if self.opendistro {
+            Flavor::OpenDistro
+        } else if self.opensearch {
+            Flavor::OpenSearch
+        } else {
+            Flavor::Elastic
+        }
+    }
+
     fn request(&self, method: &str, path: &str) -> reqwest::RequestBuilder {
         let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
         self.client
@@ -640,6 +707,95 @@ impl EsSession {
         self.show_system || !name.starts_with('.')
     }
 
+    /// Elasticsearch 9.2+ leaves vectors out of `_source` of new indices
+    /// (`index.mapping.exclude_source_vectors`) unless a search asks for
+    /// them with `"_source": {"exclude_vectors": false}`, an option older
+    /// servers refuse.
+    fn excludes_vectors(&self) -> bool {
+        self.flavor() == Flavor::Elastic
+            && self.version.chars().any(|c| c.is_ascii_digit())
+            && dbine_driver::functions::version_at_least(&self.version, "9.2")
+    }
+
+    /// The top-level vector fields of the indices `resp`'s hits come from,
+    /// from their mappings (read once, until a request may change them). A
+    /// mapping that can't be read marks nothing.
+    async fn hit_vectors(&self, resp: &J) -> Vec<(String, vectors::VecType)> {
+        let indices = hit_indices(resp);
+        if indices.is_empty() {
+            return Vec::new();
+        }
+        let missing: Vec<&String> = {
+            let cache = self.vector_fields.lock().unwrap_or_else(|e| e.into_inner());
+            indices.iter().filter(|i| !cache.contains_key(*i)).collect()
+        };
+        if !missing.is_empty() {
+            let path = missing
+                .iter()
+                .map(|i| ddl::path_segment(i))
+                .collect::<Vec<_>>()
+                .join(",");
+            if let Ok(m) = self.get_json(&format!("/{path}/_mapping")).await {
+                let mut cache = self.vector_fields.lock().unwrap_or_else(|e| e.into_inner());
+                for i in &missing {
+                    cache.insert((*i).clone(), Vec::new());
+                }
+                for (name, idx) in m.as_obj().into_iter().flatten() {
+                    let fields = vectors::mapping_vectors(idx.get("mappings").unwrap_or(&J::Null))
+                        .into_iter()
+                        .filter(|(n, _)| !n.contains('.'))
+                        .collect();
+                    cache.insert(name.clone(), fields);
+                }
+            }
+        }
+        let cache = self.vector_fields.lock().unwrap_or_else(|e| e.into_inner());
+        let mut out: Vec<(String, vectors::VecType)> = Vec::new();
+        for i in &indices {
+            for (n, t) in cache.get(i).into_iter().flatten() {
+                match out.iter_mut().find(|(o, _)| o == n) {
+                    None => out.push((n.clone(), t.clone())),
+                    // Indices that disagree: a vector of no fixed length.
+                    Some((_, o)) if o.dims != t.dims => {
+                        o.dims = None;
+                        o.type_name = o.spelling();
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+        out
+    }
+
+    /// Hits without the vector fields their mapping has, on a server that
+    /// leaves them out of `_source`: say how to ask for them.
+    fn vectors_left_out(
+        &self,
+        resp: &J,
+        vectors: &[(String, vectors::VecType)],
+        out: &mut QueryOutcome,
+    ) {
+        if vectors.is_empty() || !self.excludes_vectors() {
+            return;
+        }
+        let hits = resp
+            .at(&["hits", "hits"])
+            .and_then(J::as_arr)
+            .unwrap_or(&[]);
+        let shown = hits.iter().any(|h| {
+            vectors.iter().any(|(n, _)| {
+                h.get("_source").and_then(|s| s.get(n)).is_some()
+                    || h.get("fields").and_then(|s| s.get(n)).is_some()
+            })
+        });
+        if !hits.is_empty() && !shown {
+            out.info(format!(
+                "Elasticsearch deja los vectores ({}) fuera de _source: para verlos, agregá \"_source\": {{\"exclude_vectors\": false}} a la búsqueda.",
+                vectors.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", ")
+            ));
+        }
+    }
+
     async fn run_request(
         &self,
         req: &Request,
@@ -652,6 +808,13 @@ impl EsSession {
                 req.method,
                 req.path_only()
             )));
+        }
+        if !read_only_allows(req) {
+            // It may change a mapping.
+            self.vector_fields
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
         }
         let segs = req.segments();
         let mut path = req.path.clone();
@@ -693,6 +856,7 @@ impl EsSession {
                 return Err(Error::Query(msg));
             }
         }
+        let vectors = self.hit_vectors(&resp).await;
         if let Some(responses) = resp.get("responses").and_then(J::as_arr) {
             for (i, r) in responses.iter().enumerate() {
                 match r.get("error") {
@@ -701,16 +865,20 @@ impl EsSession {
                         i + 1,
                         es_error_message(400, &r.compact())
                     )),
-                    None => flatten::push_search(out, r, max_rows),
+                    None => {
+                        flatten::push_search_typed(out, r, max_rows, &vectors);
+                        self.vectors_left_out(r, &vectors, out);
+                    }
                 }
             }
         } else if resp.at(&["hits", "hits"]).is_some() {
-            flatten::push_search(out, &resp, max_rows);
+            flatten::push_search_typed(out, &resp, max_rows, &vectors);
+            self.vectors_left_out(&resp, &vectors, out);
         } else if let (Some(docs), true) = (
             resp.get("docs").and_then(J::as_arr),
             segs.contains(&"_mget"),
         ) {
-            flatten::push_docs(out, docs.iter().map(flatten::hit_doc), max_rows);
+            flatten::push_docs_typed(out, docs.iter().map(flatten::hit_doc), max_rows, &vectors);
         } else if resp.get("columns").is_some() || resp.get("schema").is_some() {
             self.push_sql(&resp, max_rows, out).await?;
         } else {
@@ -1112,15 +1280,22 @@ impl Session for EsSession {
             .into_iter()
             .flatten()
             .filter(|(name, _)| self.visible(name))
-            .map(|(name, idx)| ddl::index_schema(name, idx, self.opensearch))
+            .map(|(name, idx)| ddl::index_schema(name, idx, self.flavor()))
             .collect();
         out.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
     }
 
+    /// A `match_all` search; on Elasticsearch 9.2+ it asks for the vectors
+    /// too (see [`EsSession::excludes_vectors`]).
     fn browse_query(&self, o: &ObjectRef, limit: u32) -> String {
+        let source = if self.excludes_vectors() {
+            "\n  \"_source\": { \"exclude_vectors\": false },"
+        } else {
+            ""
+        };
         format!(
-            "GET /{}/_search\n{{\n  \"size\": {limit},\n  \"query\": {{ \"match_all\": {{}} }}\n}}",
+            "GET /{}/_search\n{{\n  \"size\": {limit},{source}\n  \"query\": {{ \"match_all\": {{}} }}\n}}",
             o.name
         )
     }
@@ -1222,7 +1397,8 @@ impl Session for EsSession {
                 )
                 .await?;
             if let Some(resp) = resp {
-                flatten::push_search(out, &resp, max_rows);
+                let vectors = self.hit_vectors(&resp).await;
+                flatten::push_search_typed(out, &resp, max_rows, &vectors);
             }
             out.plans.push(p);
         }
