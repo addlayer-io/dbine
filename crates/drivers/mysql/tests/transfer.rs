@@ -23,6 +23,36 @@ use std::time::{Duration, Instant};
 
 const DB: &str = "dbine_transfer";
 
+/// The database of an engine's round trip and benchmark.
+fn family_db(id: &str) -> String {
+    format!("{DB}_{id}")
+}
+
+/// The database of an engine's edge cases (its own, so both tests of a
+/// server run at the same time).
+fn edge_db(id: &str) -> String {
+    format!("{DB}_edge_{id}")
+}
+
+/// Runs a test's `body`, then drops the database it worked in, also when
+/// the body failed: a test leaves nothing on the server (the 1M-row tables
+/// of the benchmark least of all).
+async fn and_drop(
+    id: &'static str,
+    env: &'static str,
+    default: &'static str,
+    db: String,
+    body: impl std::future::Future<Output = ()> + Send + 'static,
+) {
+    let outcome = tokio::spawn(body).await;
+    if let Some(mut admin) = connect(id, env, default, None).await {
+        run(&mut admin, &format!("DROP DATABASE IF EXISTS {db}")).await;
+    }
+    if let Err(e) = outcome {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}
+
 fn parse_url(driver: &str, url: &str) -> ConnectionConfig {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@').unwrap_or(("", rest));
@@ -391,7 +421,7 @@ const BIG_ROW_MYSQL: &str = "x, x % 1000 - 500, x / 7, x / 100, CONCAT('row ', x
     TIMESTAMPADD(MICROSECOND, x, '2020-01-01 00:00:00'), UNHEX(LPAD(HEX(x), 8, '0'))";
 
 async fn mysql_family(id: &str, env: &str, default: &str, geometry: bool) {
-    let Some(mut s) = connect(id, env, default, Some(DB)).await else {
+    let Some(mut s) = connect(id, env, default, Some(&family_db(id))).await else {
         return;
     };
     let version = s.server_version().await.unwrap();
@@ -415,39 +445,34 @@ async fn transfer_mysql() {
     };
     let before = run(&mut admin, "SELECT @@GLOBAL.local_infile").await;
     let before = before[0][0].to_string().trim_matches('"').to_string();
-    // First as the server is (MySQL 8 has local_infile off: prepared INSERTs)…
-    run(&mut admin, "SET GLOBAL local_infile = 0").await;
-    eprintln!("mysql: local_infile = 0 (prepared INSERTs)");
-    mysql_family("mysql", env, default, true).await;
-    // …then with LOAD DATA LOCAL.
-    run(&mut admin, "SET GLOBAL local_infile = 1").await;
-    eprintln!("mysql: local_infile = 1 (LOAD DATA LOCAL)");
-    mysql_family("mysql", env, default, true).await;
-    run(&mut admin, &format!("SET GLOBAL local_infile = {before}")).await;
+    let body = async move {
+        // First as the server is (MySQL 8 has local_infile off: prepared INSERTs)…
+        run(&mut admin, "SET GLOBAL local_infile = 0").await;
+        eprintln!("mysql: local_infile = 0 (prepared INSERTs)");
+        mysql_family("mysql", env, default, true).await;
+        // …then with LOAD DATA LOCAL.
+        run(&mut admin, "SET GLOBAL local_infile = 1").await;
+        eprintln!("mysql: local_infile = 1 (LOAD DATA LOCAL)");
+        mysql_family("mysql", env, default, true).await;
+        run(&mut admin, &format!("SET GLOBAL local_infile = {before}")).await;
+    };
+    and_drop("mysql", env, default, family_db("mysql"), body).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn transfer_mariadb() {
-    mysql_family(
-        "mariadb",
-        "DBINE_TEST_MARIADB_URL",
-        "mysql://root:pw@localhost:25012",
-        true,
-    )
-    .await;
+    let (env, default) = ("DBINE_TEST_MARIADB_URL", "mysql://root:pw@localhost:25012");
+    let body = mysql_family("mariadb", env, default, true);
+    and_drop("mariadb", env, default, family_db("mariadb"), body).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn transfer_tidb() {
-    mysql_family(
-        "tidb",
-        "DBINE_TEST_TIDB_URL",
-        "mysql://root@localhost:25014",
-        false,
-    )
-    .await;
+    let (env, default) = ("DBINE_TEST_TIDB_URL", "mysql://root@localhost:25014");
+    let body = mysql_family("tidb", env, default, false);
+    and_drop("tidb", env, default, family_db("tidb"), body).await;
 }
 
 // ------------------------------------------------- MySQL family: edge cases
@@ -503,7 +528,7 @@ async fn try_load(
 
 /// Rows in `name`, counted by a session of its own (what's committed).
 async fn committed(id: &str, env: &str, default: &str, name: &str) -> i64 {
-    let mut other = connect(id, env, default, Some(DB)).await.unwrap();
+    let mut other = connect(id, env, default, Some(&edge_db(id))).await.unwrap();
     let r = run(&mut other, &format!("SELECT COUNT(*) FROM {name}")).await;
     r[0][0].to_string().trim_matches('"').parse().unwrap()
 }
@@ -512,7 +537,7 @@ async fn committed(id: &str, env: &str, default: &str, name: &str) -> i64 {
 /// own; MySQL 8 drops non-UTF-8 bytes from a parameter silently), and a
 /// warning is reported as the server's (TiDB refuses `SHOW WARNINGS LIMIT`).
 async fn failures(id: &str, env: &str, default: &str) {
-    let Some(mut s) = connect(id, env, default, Some(DB)).await else {
+    let Some(mut s) = connect(id, env, default, Some(&edge_db(id))).await else {
         return;
     };
     let t = |i: i64, v: &str| vec![Cell::Int(i), Cell::Text(v.into())];
@@ -621,7 +646,7 @@ async fn cancel(id: &str, env: &str, default: &str) {
             }
         }
     }
-    let Some(mut s) = connect(id, env, default, Some(DB)).await else {
+    let Some(mut s) = connect(id, env, default, Some(&edge_db(id))).await else {
         return;
     };
     run(&mut s, "DROP TABLE IF EXISTS cancels").await;
@@ -669,7 +694,7 @@ async fn cancel(id: &str, env: &str, default: &str) {
 /// FLOAT's extremes, and a BLOB and a text of 12 MB (over half of
 /// MariaDB's 16 MiB max_allowed_packet, so twice that as hex).
 async fn extremes(id: &str, env: &str, default: &str, big: bool) {
-    let Some(mut s) = connect(id, env, default, Some(DB)).await else {
+    let Some(mut s) = connect(id, env, default, Some(&edge_db(id))).await else {
         return;
     };
     for t in ["fl", "fl2"] {
@@ -775,37 +800,32 @@ async fn transfer_edge_cases_mysql() {
     };
     let before = run(&mut admin, "SELECT @@GLOBAL.local_infile").await;
     let before = before[0][0].to_string().trim_matches('"').to_string();
-    for on in [0, 1] {
-        run(&mut admin, &format!("SET GLOBAL local_infile = {on}")).await;
-        eprintln!("mysql: local_infile = {on}");
-        edge_cases("mysql", env, default, true).await;
-    }
-    run(&mut admin, &format!("SET GLOBAL local_infile = {before}")).await;
+    let body = async move {
+        for on in [0, 1] {
+            run(&mut admin, &format!("SET GLOBAL local_infile = {on}")).await;
+            eprintln!("mysql: local_infile = {on}");
+            edge_cases("mysql", env, default, true).await;
+        }
+        run(&mut admin, &format!("SET GLOBAL local_infile = {before}")).await;
+    };
+    and_drop("mysql", env, default, edge_db("mysql"), body).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn transfer_edge_cases_mariadb() {
-    edge_cases(
-        "mariadb",
-        "DBINE_TEST_MARIADB_URL",
-        "mysql://root:pw@localhost:25012",
-        true,
-    )
-    .await;
+    let (env, default) = ("DBINE_TEST_MARIADB_URL", "mysql://root:pw@localhost:25012");
+    let body = edge_cases("mariadb", env, default, true);
+    and_drop("mariadb", env, default, edge_db("mariadb"), body).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn transfer_edge_cases_tidb() {
     // A 12 MB row is over TiDB's txn-entry-size-limit (6 MB): no big values.
-    edge_cases(
-        "tidb",
-        "DBINE_TEST_TIDB_URL",
-        "mysql://root@localhost:25014",
-        false,
-    )
-    .await;
+    let (env, default) = ("DBINE_TEST_TIDB_URL", "mysql://root@localhost:25014");
+    let body = edge_cases("tidb", env, default, false);
+    and_drop("tidb", env, default, edge_db("tidb"), body).await;
 }
 
 // ------------------------------------------------------------ analytical engines
@@ -813,6 +833,11 @@ async fn transfer_edge_cases_tidb() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn transfer_starrocks() {
+    let (env, default) = ("DBINE_TEST_STARROCKS_URL", "mysql://root@localhost:25030");
+    and_drop("starrocks", env, default, DB.to_string(), starrocks_case()).await;
+}
+
+async fn starrocks_case() {
     let Some(mut s) = connect(
         "starrocks",
         "DBINE_TEST_STARROCKS_URL",
@@ -889,6 +914,18 @@ async fn transfer_starrocks() {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn transfer_greptimedb() {
+    let (env, default) = ("DBINE_TEST_GREPTIMEDB_URL", "mysql://localhost:25017");
+    and_drop(
+        "greptimedb",
+        env,
+        default,
+        DB.to_string(),
+        greptimedb_case(),
+    )
+    .await;
+}
+
+async fn greptimedb_case() {
     let Some(mut s) = connect(
         "greptimedb",
         "DBINE_TEST_GREPTIMEDB_URL",
