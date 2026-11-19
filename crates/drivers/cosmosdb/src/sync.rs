@@ -87,13 +87,19 @@ fn index_set(t: &TableSchema, unique: bool) -> Vec<Vec<String>> {
                 })
                 .collect();
             // Spatial, full-text and vector indexes: their kind and settings too.
-            k.push(i.kind.as_deref().unwrap_or("").to_lowercase());
+            // A vector index is of kind `vector` whether or not the design
+            // says so.
+            k.push(if i.vector.is_some() {
+                crate::vector::KIND.to_string()
+            } else {
+                i.kind.as_deref().unwrap_or("").to_lowercase()
+            });
             k.extend(i.options.iter().map(|(o, v)| format!("{o}={v}")));
             if let Some(v) = &i.vector {
                 k.push(format!(
                     "vector:{}:{}",
                     v.algorithm.as_deref().unwrap_or("diskANN"),
-                    v.metric.as_deref().unwrap_or("cosine")
+                    crate::vector::compared_metric(v.metric.as_deref())
                 ));
                 k.extend(v.params.iter().map(|(o, v)| format!("{o}={v}")));
             }
@@ -112,7 +118,10 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
     let (mut drops, mut creates, mut warnings) = (Vec::new(), Vec::new(), Vec::new());
     for ch in changes {
         match ch {
-            TableChange::Create { table } => creates.push(table_ddl(table, CREATE)?),
+            TableChange::Create { table } => {
+                warnings.extend(crate::vector::notes(table));
+                creates.push(table_ddl(table, CREATE)?)
+            }
             TableChange::Drop { table } => {
                 warnings.push(format!(
                     "Se borra el contenedor {} con todos sus documentos.",

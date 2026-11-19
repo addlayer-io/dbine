@@ -97,6 +97,19 @@ CREATE USER \"ana\" · DROP USER \"ana\"   (usuarios de la base, con tokens de r
 GRANT ALL|READ ON \"productos\" TO \"ana\" · REVOKE ALL|READ ON \"productos\" FROM \"ana\"";
 
 const API_VERSION: &str = "2018-12-31";
+/// The REST version of container requests (`colls`): the one the current
+/// SDKs send (the .NET v3 SDK's `v2020_07_15`), which reads and writes the
+/// vector embedding policy; items and queries keep [`API_VERSION`].
+const CONTAINER_API_VERSION: &str = "2020-07-15";
+
+/// The REST version for a resource type (see [`CONTAINER_API_VERSION`]).
+pub(crate) fn api_version(rtype: &str) -> &'static str {
+    if rtype == "colls" {
+        CONTAINER_API_VERSION
+    } else {
+        API_VERSION
+    }
+}
 const TIMEOUT: Duration = Duration::from_secs(15);
 const SYSTEM_PROPS: &[&str] = &["_rid", "_self", "_etag", "_attachments", "_ts"];
 
@@ -471,7 +484,7 @@ impl CosmosSession {
             .request(method, format!("{}{path}", self.base))
             .header("Authorization", auth)
             .header("x-ms-date", date)
-            .header("x-ms-version", API_VERSION)
+            .header("x-ms-version", api_version(rtype))
             .header("Accept", "application/json");
         for (k, v) in headers {
             rq = rq.header(*k, v);

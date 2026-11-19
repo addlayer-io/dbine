@@ -101,10 +101,19 @@ fn metric_of(distance: &str) -> String {
     }
 }
 
+/// The squared euclidean distance (Couchbase's `l2_squared`): Cosmos DB
+/// has the euclidean one, with the same nearest neighbors (see [`notes`]).
+fn squared(m: &str) -> bool {
+    matches!(
+        m.to_ascii_lowercase().as_str(),
+        "l2_squared" | "euclidean_squared"
+    )
+}
+
 fn distance_of(m: &str) -> Result<&'static str> {
     Ok(match m.to_ascii_lowercase().as_str() {
         metric::COSINE => "cosine",
-        metric::L2 | "euclidean" => "euclidean",
+        metric::L2 | "euclidean" | "l2_squared" | "euclidean_squared" => "euclidean",
         metric::IP | "dotproduct" => "dotproduct",
         other => {
             return Err(Error::Query(format!(
@@ -244,6 +253,21 @@ pub fn describe(t: &mut TableSchema, embeddings: &[Embedding], sample: &[Value])
             distance: "cosine".into(),
         })
         .collect();
+    // Said, so a copy or a sync doesn't take the guess for the policy.
+    if !unreported.is_empty() {
+        let fields: Vec<String> = unreported
+            .iter()
+            .map(|e| match e.dims {
+                Some(n) => format!("«{}» ({n} dimensiones, de los ítems leídos)", e.field),
+                None => format!("«{}» (sin dimensión: ningún ítem leído la tiene)", e.field),
+            })
+            .collect();
+        t.warnings.push(format!(
+            "El servidor no devolvió la política de vectores de {}: de {} se toma la distancia cosine y elementos float32. Revisalos antes de copiar o sincronizar el contenedor.",
+            t.name,
+            fields.join(", ")
+        ));
+    }
     for e in embeddings.iter().chain(&unreported) {
         let ty = type_name(e.dims, e.element);
         match t.columns.iter_mut().find(|c| c.name == e.field) {
@@ -325,6 +349,33 @@ pub fn embedding_policy(t: &TableSchema) -> Result<Option<Value>> {
     Ok((!out.is_empty()).then(|| json!({ "vectorEmbeddings": out })))
 }
 
+/// A metric as the policy stores it, for comparing (`l2`, `euclidean`
+/// and `l2_squared` are the same distance there; none is cosine).
+pub fn compared_metric(m: Option<&str>) -> String {
+    match m {
+        Some(m) => distance_of(m)
+            .map(str::to_string)
+            .unwrap_or_else(|_| m.to_ascii_lowercase()),
+        None => "cosine".into(),
+    }
+}
+
+/// What the container's vector policy writes otherwise than the design
+/// asks (a squared euclidean distance as euclidean), for the script.
+pub fn notes(t: &TableSchema) -> Vec<String> {
+    t.indexes
+        .iter()
+        .filter(|i| is_vector(i))
+        .filter_map(|i| {
+            let m = i.vector.as_ref()?.metric.as_deref().filter(|m| squared(m))?;
+            Some(format!(
+                "El índice vectorial {} de {}: la distancia {m} queda euclidean (Cosmos DB no tiene la euclídea al cuadrado; los vecinos más cercanos son los mismos).",
+                i.name, t.name
+            ))
+        })
+        .collect()
+}
+
 /// A vector index: kind `vector`, or a designer row with "Vectorial" on.
 pub fn is_vector(i: &IndexDef) -> bool {
     i.vector.is_some()
@@ -394,28 +445,40 @@ pub fn designer_spec() -> VectorIndexSpec {
     }
 }
 
-/// A source column type that holds vectors: this driver's `vector(N)` and
-/// other engines' (pgvector's `vector` / `halfvec`, `VECTOR(…)`,
-/// Cassandra's `vector<…>`, libSQL's `F32_BLOB`, HANA's `REAL_VECTOR`…).
-/// Sparse vectors aren't.
+/// Whether a source column's type holds dense vectors, whichever engine it
+/// comes from: `vector(3)`, `VECTOR(3, FLOAT32)`, `vector<float, 3>`,
+/// `frozen<vector<float, 3>>`, `halfvec(3)`, `dense_vector(3)`,
+/// `knn_vector(3)`, `float_vector(3)`, `REAL_VECTOR(3)`, `F32_BLOB(3)`,
+/// `vecf32(3)`, `ARRAY<FLOAT32>(vector_length=>3)`…, also with a crate's
+/// mark (`bson:vector(3, int8)`) or among `|` alternatives
+/// (`bson:vector(3)|bson:null`). Sparse vectors (`sparsevec`,
+/// `sparse_vector`, `VECTOR(…, SPARSE)`) aren't: their text isn't an
+/// array. The same list in every crate of the document family (the
+/// contract has no helper for it).
 pub fn is_vector_type(t: &str) -> bool {
-    let p = t.trim().to_ascii_lowercase();
-    [
-        "vector",
-        "halfvec",
-        "real_vector",
-        "half_vector",
-        "f32_blob",
-        "f64_blob",
-        "f16_blob",
-        "fb16_blob",
-        "f8_blob",
-        "f1bit_blob",
-    ]
-    .iter()
-    .any(|v| {
-        p.strip_prefix(v)
-            .is_some_and(|r| r.is_empty() || r.starts_with(['(', '<', ' ']))
+    t.split('|').any(|part| {
+        let p = part.trim().to_ascii_lowercase();
+        if p.contains("sparse") {
+            return false;
+        }
+        p.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .any(|tok| {
+                tok.ends_with("vector")
+                    || tok.ends_with("vec")
+                    || matches!(
+                        tok,
+                        "vecf32"
+                            | "vecf64"
+                            | "vector_length"
+                            | "f32_blob"
+                            | "f64_blob"
+                            | "f16_blob"
+                            | "fb16_blob"
+                            | "bf16_blob"
+                            | "f8_blob"
+                            | "f1bit_blob"
+                    )
+            })
     })
 }
 
@@ -431,6 +494,43 @@ pub fn cell_text(v: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vector_types_of_every_engine() {
+        for t in [
+            "vector(3)",
+            "bson:vector(3)",
+            "bson:vector(3, int8)|bson:null",
+            "VECTOR(3, FLOAT32)",
+            "vector<float, 3>",
+            "frozen<vector<float, 3>>",
+            "halfvec(3)",
+            "dense_vector(3)",
+            "knn_vector(3)",
+            "float_vector(3)",
+            "REAL_VECTOR(3)",
+            "F32_BLOB(3)",
+            "vecf32(3)",
+            "ARRAY<FLOAT32>(vector_length=>3)",
+            "vector",
+        ] {
+            assert!(is_vector_type(t), "{t}");
+        }
+        for t in [
+            "sparsevec(5)",
+            "sparse_vector",
+            "VECTOR(3, FLOAT32, SPARSE)",
+            "varchar(20)",
+            "text",
+            "",
+            "bson:binData",
+            "bson:array",
+            "json",
+            "blob",
+        ] {
+            assert!(!is_vector_type(t), "{t}");
+        }
+    }
 
     fn coll() -> Value {
         json!({
@@ -536,6 +636,33 @@ mod tests {
         ];
         describe(&mut t, &[], &sample);
         assert_eq!(t.columns[0].data_type, "vector(3)");
+        // The guess is said, so a copy doesn't take it for the policy.
+        assert_eq!(t.warnings.len(), 1);
+        assert!(
+            t.warnings[0].contains("«emb» (3 dimensiones, de los ítems leídos)")
+                && t.warnings[0].contains("cosine"),
+            "{:?}",
+            t.warnings
+        );
+        let mut empty = TableSchema {
+            name: "docs".into(),
+            indexes: vec![index(1, &bare["indexingPolicy"]["vectorIndexes"][0], &[])],
+            ..Default::default()
+        };
+        describe(&mut empty, &[], &[]);
+        assert!(
+            empty.warnings[0].contains("sin dimensión"),
+            "{:?}",
+            empty.warnings
+        );
+        // Reported: nothing to say.
+        let mut t = TableSchema {
+            name: "docs".into(),
+            indexes: vec![ix.clone()],
+            ..Default::default()
+        };
+        describe(&mut t, &emb, &[]);
+        assert!(t.warnings.is_empty());
         assert_eq!(
             sampled_dims(&[json!({ "e": [1] }), json!({ "e": [1, 2] })], "e"),
             None
@@ -576,5 +703,55 @@ mod tests {
         t.columns[0].data_type = "vector(8)".into();
         assert!(embedding_policy(&t).is_err());
         assert_eq!(excluded_paths(&p), vec![json!({ "path": "/emb/*" })]);
+    }
+
+    #[test]
+    fn squared_euclidean_is_written_euclidean_and_said() {
+        let t = TableSchema {
+            name: "d".into(),
+            columns: vec![ColumnDef {
+                name: "emb".into(),
+                data_type: "vector(2)".into(),
+                ..Default::default()
+            }],
+            indexes: vec![IndexDef {
+                name: "v".into(),
+                columns: vec!["emb".into()],
+                vector: Some(VectorIndex {
+                    metric: Some("l2_squared".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let p = embedding_policy(&t).unwrap().unwrap();
+        assert_eq!(p["vectorEmbeddings"][0]["distanceFunction"], "euclidean");
+        let n = notes(&t);
+        assert_eq!(n.len(), 1);
+        assert!(n[0].contains("l2_squared queda euclidean"), "{n:?}");
+        let ddl = crate::ddl::table_ddl(
+            &TableSchema {
+                options: [("partition_key".to_string(), "/id".to_string())].into(),
+                ..t.clone()
+            },
+            dbine_driver::DdlParts {
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(ddl.starts_with("-- El índice vectorial v de d"), "{ddl}");
+        // Compared as the policy stores it.
+        assert_eq!(
+            compared_metric(Some("l2_squared")),
+            compared_metric(Some("l2"))
+        );
+        assert_eq!(compared_metric(None), "cosine");
+        assert_ne!(
+            compared_metric(Some("hamming")),
+            compared_metric(Some("jaccard"))
+        );
     }
 }

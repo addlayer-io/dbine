@@ -80,13 +80,30 @@ impl Dialect for CosmosDb {
         v: &dbine_driver::VectorIndex,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::metric;
-        map_vector_index(
-            v,
+        // The squared euclidean distance (Couchbase's `l2_squared`) has the
+        // same nearest neighbors as euclidean: it goes on, and the driver
+        // writes euclidean and says so.
+        let squared = v.metric.as_deref().is_some_and(|m| {
+            matches!(
+                m.to_ascii_lowercase().as_str(),
+                "l2_squared" | "euclidean_squared"
+            )
+        });
+        let mut asked = v.clone();
+        if squared {
+            asked.metric = Some(metric::L2.into());
+        }
+        let (kind, mut out) = map_vector_index(
+            &asked,
             "Cosmos DB",
             &[metric::COSINE, metric::L2, metric::IP],
             &["flat", "quantizedFlat", "diskANN"],
             &[],
-        )
+        )?;
+        if squared {
+            out.metric = Some("l2_squared".into());
+        }
+        Ok((kind, out))
     }
 
     fn render_default(&self, _d: &DefaultValue, _ty: &L) -> Option<String> {
@@ -254,5 +271,17 @@ mod tests {
             ..Default::default()
         };
         assert!(d.vector_index(&hamming).is_err());
+        // Couchbase's squared euclidean goes on (the driver writes
+        // euclidean and says so).
+        let sq = VectorIndex {
+            algorithm: Some("diskANN".into()),
+            metric: Some("l2_squared".into()),
+            ..Default::default()
+        };
+        let (_, out) = d.vector_index(&sq).unwrap();
+        assert_eq!(
+            (out.algorithm.as_deref(), out.metric.as_deref()),
+            (Some("diskANN"), Some("l2_squared"))
+        );
     }
 }

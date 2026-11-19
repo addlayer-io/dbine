@@ -352,6 +352,9 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     }
     if parts.create {
         let body = container_body(t, parts.indexes)?;
+        for n in crate::vector::notes(t) {
+            stmts.push(format!("-- {}", crate::comment_text(&n)));
+        }
         stmts.push(format!(
             "CREATE CONTAINER {}{} {};",
             if parts.if_exists {
