@@ -8,11 +8,17 @@
 //! The test creates its `dbine_vec*` collections through the driver's own
 //! DDL (a designer `TableSchema` with vector columns and a vector index),
 //! fills them with `insert_script`, reads them back as results and as the
-//! schema, searches with `{!knn}`, edits a vector with `update_script`,
-//! copies the collection with `read_batches` / `bulk_load`, and drops what
-//! it made, first and last. On a standalone server
-//! (`DBINE_TEST_SOLR_URL`) the cores need their own configsets, as in
-//! `integration.rs` (`dbine_vec`, `dbine_vec_copy`).
+//! schema (a vector of a dynamic field too), searches with `{!knn}`, edits
+//! a vector with `update_script`, copies the collection with
+//! `read_batches` / `bulk_load`, drops a vector index by schema sync, and
+//! drops what it made first, and last through a guard that also runs when
+//! it fails partway. On Solr 9.5+ a column has 1536 dimensions.
+//!
+//! On a standalone server (`DBINE_TEST_SOLR_URL`) the cores need their own
+//! configsets, as in `integration.rs` (`dbine_vec`, `dbine_vec_copy`), and
+//! share their managed schema with them: the cleanup takes the test's
+//! fields and field types out of it before dropping each core (creating
+//! the core first when a run before left only the configset).
 
 use dbine_driver::transfer::{BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch};
 use dbine_driver::{
@@ -33,12 +39,111 @@ async fn run(s: &mut Box<dyn Session>, text: &str) -> QueryOutcome {
     out
 }
 
-async fn cleanup(s: &mut Box<dyn Session>) {
+/// Fields the test adds to its collections' schemas.
+const FIELDS: &[&str] = &["title", "emb", "b", "big", "x_v"];
+
+async fn cleanup(s: &mut Box<dyn Session>, standalone: bool) {
     for c in [COLL, COPY] {
         let mut out = QueryOutcome::default();
+        if standalone {
+            // The core's configset keeps the test's fields and field types
+            // when the core goes: take them out first (its core made again
+            // if a run before dropped it already).
+            let _ = s
+                .execute(
+                    &format!("PUT /solr/{c}?if_not_exists=true\n{{\"configSet\": \"{c}\"}}"),
+                    1,
+                    &mut out,
+                )
+                .await;
+            let _ = s
+                .execute(
+                    &format!(
+                        "POST /solr/{c}/schema\n{{\"delete-dynamic-field\": {{\"name\": \"*_v\"}}}}"
+                    ),
+                    1,
+                    &mut out,
+                )
+                .await;
+            for f in FIELDS {
+                let _ = s
+                    .execute(
+                        &format!(
+                            "POST /solr/{c}/schema\n{{\"delete-field\": {{\"name\": \"{f}\"}}}}"
+                        ),
+                        1,
+                        &mut out,
+                    )
+                    .await;
+            }
+            let mut types = QueryOutcome::default();
+            let _ = s
+                .execute(
+                    &format!("GET /solr/{c}/schema/fieldtypes"),
+                    1000,
+                    &mut types,
+                )
+                .await;
+            let names: Vec<String> = types
+                .results
+                .iter()
+                .flat_map(|r| {
+                    let at = r.columns.iter().position(|x| x.name == "name");
+                    r.rows
+                        .iter()
+                        .filter_map(move |row| row.get(at?)?.as_str().map(str::to_string))
+                })
+                .filter(|n| n.starts_with("knn_vector_"))
+                .collect();
+            for t in names {
+                let _ = s
+                    .execute(
+                        &format!(
+                            "POST /solr/{c}/schema\n{{\"delete-field-type\": {{\"name\": \"{t}\"}}}}"
+                        ),
+                        1,
+                        &mut out,
+                    )
+                    .await;
+            }
+        }
         let _ = s
             .execute(&format!("DELETE /solr/{c}?if_exists=true"), 1, &mut out)
             .await;
+    }
+}
+
+fn config(url: &str) -> ConnectionConfig {
+    ConnectionConfig {
+        driver: "solr".into(),
+        host: url.into(),
+        ..Default::default()
+    }
+}
+
+/// Drops what the test made when it ends, whether it passed or failed
+/// partway (in a thread of its own: the test's runtime may be unwinding).
+struct Guard {
+    url: String,
+    standalone: bool,
+}
+
+impl Drop for Guard {
+    fn drop(&mut self) {
+        let (url, standalone) = (self.url.clone(), self.standalone);
+        let _ = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async move {
+                let d = dbine_driver_solr::drivers().remove(0);
+                if let Ok(mut s) = d.connect(&config(&url), None).await {
+                    cleanup(&mut s, standalone).await;
+                }
+            });
+        })
+        .join();
     }
 }
 
@@ -103,12 +208,7 @@ async fn exercise(url: &str) {
     let d = dbine_driver_solr::drivers().remove(0);
     assert!(d.capabilities().vectors);
     assert!(d.designer().unwrap().vector_indexes.is_some());
-    let cfg = ConnectionConfig {
-        driver: "solr".into(),
-        host: url.into(),
-        ..Default::default()
-    };
-    let mut s = d.connect(&cfg, None).await.expect("connect");
+    let mut s = d.connect(&config(url), None).await.expect("connect");
     let version = s.server_version().await.unwrap();
     println!("{version}");
     // A standalone server's cores share their configset's schema: each one
@@ -120,7 +220,13 @@ async fn exercise(url: &str) {
             .into_iter()
             .collect::<std::collections::BTreeMap<_, _>>()
     };
-    cleanup(&mut s).await;
+    cleanup(&mut s, standalone).await;
+    let _guard = Guard {
+        url: url.into(),
+        standalone,
+    };
+    // More than 1024 dimensions: Solr 9.5+ (SchemaCodecFactory by default).
+    let big = dbine_driver::functions::version_at_least(&version, "9.5");
 
     // 1. The collection, from the designer's model.
     let vector = VectorIndex {
@@ -135,12 +241,15 @@ async fn exercise(url: &str) {
     let table = TableSchema {
         kind: "collection".into(),
         name: COLL.into(),
-        columns: vec![
+        columns: [
             col("id", "string"),
             col("title", "string"),
             col("emb", "knn_vector(3)"),
             col("b", "knn_vector(4, BYTE)"),
-        ],
+        ]
+        .into_iter()
+        .chain(big.then(|| col("big", "knn_vector(1536)")))
+        .collect(),
         indexes: vec![IndexDef {
             name: "emb_idx".into(),
             columns: vec!["emb".into()],
@@ -183,6 +292,21 @@ async fn exercise(url: &str) {
         ],
     ];
     run(&mut s, &d.insert_script(&obj(COLL), &names, &rows).unwrap()).await;
+    // 1536 dimensions, set on document 1 as an edit.
+    let big_vector: Vec<f64> = (0..1536).map(|i| f64::from(i % 7) - 3.0).collect();
+    if big {
+        let set = d
+            .update_script(
+                &obj(COLL),
+                &[RowChange {
+                    key: vec![("id".into(), json!("1"))],
+                    set: vec![("big".into(), json!(big_vector))],
+                    ..Default::default()
+                }],
+            )
+            .unwrap();
+        run(&mut s, &set).await;
+    }
 
     // 3. Read back: vector columns marked, cells exact.
     let browse = s.browse_query(&obj(COLL), 10);
@@ -223,6 +347,40 @@ async fn exercise(url: &str) {
     let got = schema.iter().find(|t| t.name == COLL).unwrap();
     let emb = got.columns.iter().find(|c| c.name == "emb").unwrap();
     assert_eq!(emb.data_type, "knn_vector(3)");
+    // A vector of a dynamic field (`*_v`, of emb's field type).
+    let emb_type = emb.options.get("fieldType").unwrap().clone();
+    run(
+        &mut s,
+        &format!(
+            "POST /solr/{COLL}/schema\n{{\"add-dynamic-field\": {{\"name\": \"*_v\", \"type\": \"{emb_type}\", \"indexed\": false}}}}"
+        ),
+    )
+    .await;
+    run(
+        &mut s,
+        &format!(
+            "POST /solr/{COLL}/update?commit=true\n[{{\"id\": \"7\", \"x_v\": [0.5, 0.25, 2]}}]"
+        ),
+    )
+    .await;
+    let out = run(&mut s, &format!("GET /solr/{COLL}/select?q=id:7")).await;
+    let r = &out.results[0];
+    let x = r.columns.iter().find(|c| c.name == "x_v").unwrap();
+    assert_eq!(
+        x.vector,
+        Some(VectorMeta::dense(Some(3), VectorElement::F32)),
+        "{:?}",
+        r.columns
+    );
+    assert_eq!(
+        cells(&out, "x_v"),
+        [("7".to_string(), json!("[0.5,0.25,2]"))]
+    );
+    run(
+        &mut s,
+        &format!("POST /solr/{COLL}/update?commit=true\n{{\"delete\": [\"7\"]}}"),
+    )
+    .await;
     assert_eq!(
         got.columns
             .iter()
@@ -237,7 +395,34 @@ async fn exercise(url: &str) {
         .find(|i| i.columns == ["emb"])
         .unwrap_or_else(|| panic!("{:?}", got.indexes));
     assert_eq!(ix.vector.as_ref(), Some(&vector));
-    assert!(got.indexes.iter().any(|i| i.columns == ["b"]));
+    // b has no vector index: indexed: false, so none is read back.
+    assert!(
+        !got.indexes.iter().any(|i| i.columns == ["b"]),
+        "{:?}",
+        got.indexes
+    );
+    // A schema sync against itself or the designer's model: nothing to do.
+    let mut model = got.clone();
+    model.indexes = table.indexes.clone();
+    for new in [got.clone(), model] {
+        let same = d
+            .sync_script(&[dbine_driver::TableChange::Alter {
+                old: got.clone(),
+                new,
+            }])
+            .unwrap();
+        assert!(
+            same.statements.is_empty() && same.warnings.is_empty(),
+            "{same:?}"
+        );
+    }
+    if big {
+        let out = run(&mut s, &format!("GET /solr/{COLL}/select?q=id:1&fl=id,big")).await;
+        assert_eq!(
+            cells(&out, "big")[0].1,
+            json!(dbine_driver::vector::text(big_vector.iter().copied()))
+        );
+    }
 
     // 6. A similarity search.
     let out = run(
@@ -380,7 +565,30 @@ async fn exercise(url: &str) {
     let out = run(&mut s, &q).await;
     assert!(cells(&out, "emb").contains(&("9".to_string(), json!("[0.125,-2,300]"))));
 
-    cleanup(&mut s).await;
+    // The copy's vector index dropped by schema sync: emb isn't indexed
+    // any more, and its field type stays as it was.
+    let mut dropped = cloned.clone();
+    dropped.indexes.retain(|i| i.columns != ["emb"]);
+    let sync = d
+        .sync_script(&[dbine_driver::TableChange::Alter {
+            old: cloned.clone(),
+            new: dropped,
+        }])
+        .unwrap();
+    println!("{sync:?}");
+    assert!(!sync.statements.iter().any(|x| x.contains("field-type")));
+    for st in &sync.statements {
+        run(&mut s, st).await;
+    }
+    let schema = s.database_schema().await.unwrap();
+    let after = schema.iter().find(|t| t.name == COPY).unwrap();
+    assert!(
+        !after.indexes.iter().any(|i| i.columns == ["emb"]),
+        "{:?}",
+        after.indexes
+    );
+
+    cleanup(&mut s, standalone).await;
 }
 
 #[tokio::test]
