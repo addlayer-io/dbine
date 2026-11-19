@@ -533,6 +533,18 @@ fn tx_gone(e: &Error) -> bool {
     }
 }
 
+/// A keyspace (or its scope) the query service doesn't know yet: 12003
+/// "Keyspace not found", 12021 "Scope not found".
+fn not_found_yet(e: &Error) -> bool {
+    match e {
+        Error::Statement(se) => {
+            matches!(se.code.as_deref(), Some("12003" | "12021"))
+                || se.message.to_ascii_lowercase().contains("not found")
+        }
+        _ => false,
+    }
+}
+
 /// What a statement does to the transaction.
 #[derive(Debug, PartialEq, Eq)]
 enum TxEffect {
@@ -1224,14 +1236,17 @@ impl CbSession {
 
     /// A new collection takes a moment to reach the query service; the
     /// next statement of the script (an index, an insert) needs it.
+    /// Only "not found" is worth waiting out: another error (a login
+    /// without SELECT on it) stops at once.
     async fn wait_for(&self, keyspace: &str) {
         for _ in 0..40 {
-            if self
+            match self
                 .query(&format!("SELECT RAW 1 FROM {keyspace} LIMIT 1"), None)
                 .await
-                .is_ok()
             {
-                return;
+                Ok(_) => return,
+                Err(e) if !not_found_yet(&e) => return,
+                Err(_) => {}
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
@@ -1245,12 +1260,7 @@ impl CbSession {
             lit(bucket),
             lit(scope)
         );
-        for _ in 0..40 {
-            if self.results(&stmt).await.is_ok_and(|r| !r.is_empty()) {
-                return;
-            }
-            tokio::time::sleep(Duration::from_millis(250)).await;
-        }
+        self.wait_listed(&stmt).await;
     }
 
     /// Waits (up to 10 s) until `system:functions` lists a function named
@@ -1260,9 +1270,18 @@ impl CbSession {
             "SELECT RAW 1 FROM system:functions AS f WHERE f.identity.name = {}",
             serde_json::to_string(name).unwrap_or_default()
         );
+        self.wait_listed(&stmt).await;
+    }
+
+    /// Polls a catalog query (up to 10 s) until it returns a row. A query
+    /// that fails (a login that can't read the catalog) won't do better:
+    /// it stops at once.
+    async fn wait_listed(&self, stmt: &str) {
         for _ in 0..40 {
-            if self.results(&stmt).await.is_ok_and(|r| !r.is_empty()) {
-                return;
+            match self.results(stmt).await {
+                Ok(r) if !r.is_empty() => return,
+                Ok(_) => {}
+                Err(_) => return,
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
@@ -1704,7 +1723,13 @@ impl Session for CbSession {
         {
             let step = Step::start(out, own, i, u.start, u.line);
             let r = self.run_stmt(&u.text, max_rows, out).await;
+            // Only what a statement made is waited for: a failed one (the
+            // script goes on after errors) made nothing.
+            let made = r.is_ok();
             step.end(out, r)?;
+            if !made {
+                continue;
+            }
             if let Some(ks) = created_collection(&u.text) {
                 self.wait_for(&ks).await;
             } else if let Some((b, sc)) = created_scope(&u.text, self.bucket.as_deref()) {
@@ -2693,6 +2718,20 @@ mod tests {
             &[json!({"code": 17004, "msg": "transaction (x) is not present"})],
             None
         )));
+        // A new keyspace is waited out only while it isn't found.
+        let found = |code: i64, msg: &str| {
+            not_found_yet(&query_error(&[json!({"code": code, "msg": msg})], None))
+        };
+        assert!(found(
+            12003,
+            "Keyspace not found in CB datastore: default:b.s.c"
+        ));
+        assert!(found(12021, "Scope not found in CB datastore default:b.s"));
+        assert!(!found(
+            13014,
+            "User does not have credentials to run SELECT queries"
+        ));
+        assert!(!found(3000, "syntax error"));
         assert_eq!(tx_effect("begin work"), TxEffect::Begin);
         assert_eq!(
             tx_effect("START TRANSACTION ISOLATION LEVEL READ COMMITTED"),
