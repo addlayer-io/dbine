@@ -417,19 +417,16 @@ impl Dialect for MySql {
                 ));
             }
         }
-        let params = v
-            .params
-            .iter()
-            .filter(|(k, _)| {
-                [
-                    dbine_driver::vector::param::M,
-                    dbine_driver::vector::param::EF_CONSTRUCTION,
-                    dbine_driver::vector::param::LISTS,
-                ]
-                .contains(&k.as_str())
-            })
-            .map(|(k, val)| (k.clone(), val.clone()))
-            .collect();
+        // And the dimension the index holds (Manticore's knn_dims,
+        // Doris' dim): finalize gives it to the column.
+        let params = super::starrocks::index_params(
+            v,
+            &[
+                dbine_driver::vector::param::M,
+                dbine_driver::vector::param::EF_CONSTRUCTION,
+                dbine_driver::vector::param::LISTS,
+            ],
+        );
         Ok((
             Some("VECTOR".into()),
             dbine_driver::VectorIndex {
@@ -462,6 +459,24 @@ impl Dialect for MySql {
     /// integer type and first in some key; rows under 65 535 bytes; keys
     /// under 3072 bytes and without TEXT/BLOB columns in full.
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
+        // A vector index's column is a vector(n), its dimension from the
+        // index when its type had none; an index on another type is left out.
+        super::starrocks::settle_vectors(
+            t,
+            report,
+            &super::starrocks::VectorTarget {
+                engine: "el destino",
+                ty: &|n| n.map_or_else(|| "vector".into(), |n| format!("vector({n})")),
+                is_vector: &|ty| match self.parse_type(&parse(ty)) {
+                    L::Vector { dims, .. } => Some(dims),
+                    _ => None,
+                },
+                dim_param: None,
+                // MySQL and TiDB take a vector without one.
+                needs_dim: false,
+                fallback: None,
+            },
+        );
         single_auto_increment(t, report, "MySQL");
         let table = t.name.clone();
 
@@ -807,6 +822,161 @@ mod tests {
             }],
             ..Default::default()
         }
+    }
+
+    /// A source table whose vectors' dimension is in their index: Manticore's
+    /// float_vector (knn_dims) or Doris' ARRAY<FLOAT> (the ANN index's dim).
+    fn dim_in_index(engine: &str) -> TableSchema {
+        let (ty, kind, key) = match engine {
+            "manticore" => ("float_vector", "KNN", "knn_dims"),
+            _ => ("ARRAY<FLOAT>", "ANN", "dim"),
+        };
+        TableSchema {
+            name: "items".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "bigint".into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "v".into(),
+                    data_type: ty.into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![IndexDef {
+                name: "v".into(),
+                columns: vec!["v".into()],
+                kind: Some(kind.into()),
+                vector: Some(dbine_driver::VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some("l2".into()),
+                    params: [(key.to_string(), "3".to_string())].into(),
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn vectors_take_the_dimension_their_index_holds() {
+        use crate::convert::{convert, Options};
+        for from in ["manticore", "doris", "starrocks"] {
+            for (to, want) in [
+                ("mariadb", "vector(3)"),
+                ("oceanbase", "vector(3)"),
+                ("mysql", "vector(3)"),
+                ("greptimedb", "VECTOR(3)"),
+                ("databend", "VECTOR(3)"),
+                ("manticore", "float_vector"),
+                ("doris", "ARRAY<FLOAT>"),
+                ("starrocks", "ARRAY<FLOAT>"),
+            ] {
+                if from == to {
+                    continue;
+                }
+                let c = convert(&[dim_in_index(from)], from, to, &Options::default()).unwrap();
+                let t = &c.tables[0];
+                let v = t.columns.iter().find(|c| c.name == "v").unwrap();
+                assert_eq!(v.data_type, want, "{from} -> {to}: {:?}", c.issues);
+                let ix = t
+                    .indexes
+                    .iter()
+                    .find(|i| i.vector.is_some())
+                    .unwrap_or_else(|| panic!("{from} -> {to}: {:?}", c.issues));
+                let p = &ix.vector.as_ref().unwrap().params;
+                match to {
+                    "manticore" => assert_eq!(p.get("knn_dims").map(String::as_str), Some("3")),
+                    "doris" | "starrocks" => {
+                        assert_eq!(p.get("dim").map(String::as_str), Some("3"))
+                    }
+                    // The type holds it: no hint left in the index.
+                    _ => assert!(
+                        !p.contains_key("dim") && !p.contains_key("knn_dims"),
+                        "{p:?}"
+                    ),
+                }
+                // No stale note says the vector has no dimension.
+                assert!(
+                    !c.issues.iter().any(|i| i.message.contains("sin dimensión")
+                        || i.message.contains("sin la dimensión")),
+                    "{from} -> {to}: {:?}",
+                    c.issues
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn vector_indexes_on_columns_that_arent_vectors_are_left_out() {
+        use crate::convert::{convert, Options};
+        // A vector index whose column isn't a vector and that says no
+        // dimension (a float array).
+        let mut t = dim_in_index("doris");
+        t.indexes[0].vector.as_mut().unwrap().params.clear();
+        for to in [
+            "mariadb",
+            "greptimedb",
+            "databend",
+            "manticore",
+            "starrocks",
+        ] {
+            let c = convert(std::slice::from_ref(&t), "doris", to, &Options::default()).unwrap();
+            assert!(
+                c.tables[0].indexes.iter().all(|i| i.vector.is_none()),
+                "{to}: {:?}",
+                c.tables[0].indexes
+            );
+            assert!(
+                c.issues.iter().any(|i| i.code == IssueCode::IndexDropped),
+                "{to}: {:?}",
+                c.issues
+            );
+            // The column stays what it was converted to: no vector type.
+            let v = c.tables[0].columns.iter().find(|c| c.name == "v").unwrap();
+            assert!(
+                !v.data_type.to_ascii_lowercase().starts_with("vector"),
+                "{to}: {}",
+                v.data_type
+            );
+        }
+        // A vector without a dimension and no index to say it: GreptimeDB and
+        // Databend fall back to a list, MySQL keeps `vector`.
+        let mut m = dim_in_index("manticore");
+        m.indexes.clear();
+        let g = convert(
+            std::slice::from_ref(&m),
+            "manticore",
+            "greptimedb",
+            &Options::default(),
+        )
+        .unwrap();
+        let v = g.tables[0].columns.iter().find(|c| c.name == "v").unwrap();
+        assert_eq!(v.data_type, "JSON");
+        assert!(g
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::TypeApproximated));
+        let d = convert(
+            std::slice::from_ref(&m),
+            "manticore",
+            "databend",
+            &Options::default(),
+        )
+        .unwrap();
+        let v = d.tables[0].columns.iter().find(|c| c.name == "v").unwrap();
+        assert!(v.data_type.starts_with("ARRAY("), "{}", v.data_type);
+        let my = convert(&[m], "manticore", "mysql", &Options::default()).unwrap();
+        let v = my.tables[0].columns.iter().find(|c| c.name == "v").unwrap();
+        assert_eq!(v.data_type, "vector");
     }
 
     #[test]

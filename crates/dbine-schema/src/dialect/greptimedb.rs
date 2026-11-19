@@ -51,6 +51,15 @@ fn ts_precision(p: Option<u8>) -> u8 {
     }
 }
 
+/// A float32 vector whose dimension isn't known.
+pub(crate) fn dimensionless() -> L {
+    L::Vector {
+        dims: None,
+        element: dbine_driver::VectorElement::F32,
+        sparse: false,
+    }
+}
+
 impl Dialect for GreptimeDb {
     fn id(&self) -> &'static str {
         "greptimedb"
@@ -153,6 +162,13 @@ impl Dialect for GreptimeDb {
                     )
                 }
             }
+            // Without a dimension: finalize takes it from the vector index,
+            // else the column falls back to JSON.
+            L::Vector {
+                dims: None,
+                sparse: false,
+                ..
+            } => Rendered::exact(super::starrocks::with_dim("VECTOR", None)),
             L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
@@ -243,12 +259,8 @@ impl Dialect for GreptimeDb {
                 "GreptimeDB no tiene la distancia «{m}» en sus índices vectoriales (tiene l2, cosine, ip)"
             ));
         }
-        let params = v
-            .params
-            .iter()
-            .filter(|(k, _)| [param::M, param::EF_CONSTRUCTION, "ef_search"].contains(&k.as_str()))
-            .map(|(k, val)| (k.clone(), val.clone()))
-            .collect();
+        let params =
+            super::starrocks::index_params(v, &[param::M, param::EF_CONSTRUCTION, "ef_search"]);
         Ok((
             Some("VECTOR".into()),
             dbine_driver::VectorIndex {
@@ -283,12 +295,24 @@ impl Dialect for GreptimeDb {
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         use IssueCode::*;
         use Severity::*;
-        super::starrocks::keep_vector_indexes(
+        // VECTOR(n), the dimension required; JSON without one.
+        let fallback = super::vector_fallback(self, &dimensionless());
+        super::starrocks::settle_vectors(
             t,
             report,
-            &["INVERTED", "FULLTEXT", "SKIPPING"],
-            "dim",
+            &super::starrocks::VectorTarget {
+                engine: "GreptimeDB",
+                ty: &|n| n.map_or_else(|| "VECTOR".into(), |n| format!("VECTOR({n})")),
+                is_vector: &|ty| match self.parse_type(&crate::parse::parse(ty)) {
+                    L::Vector { dims, .. } => Some(dims),
+                    _ => None,
+                },
+                dim_param: None,
+                needs_dim: true,
+                fallback: Some(fallback),
+            },
         );
+        super::starrocks::drop_plain_indexes(t, report, &["INVERTED", "FULLTEXT", "SKIPPING"]);
         let table = t.name.clone();
         let ts_col = match t.options.get("time_index").filter(|c| !c.trim().is_empty()) {
             Some(c) => c.clone(),

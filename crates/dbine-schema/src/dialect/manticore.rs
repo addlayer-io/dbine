@@ -161,12 +161,7 @@ impl Dialect for Manticore {
                 "Manticore no tiene la distancia «{m}» en sus índices KNN (tiene l2, ip, cosine)"
             ));
         }
-        let params = v
-            .params
-            .iter()
-            .filter(|(k, _)| [param::M, param::EF_CONSTRUCTION, "knn_dims"].contains(&k.as_str()))
-            .map(|(k, val)| (k.clone(), val.clone()))
-            .collect();
+        let params = super::starrocks::index_params(v, &[param::M, param::EF_CONSTRUCTION]);
         Ok((
             Some("KNN".into()),
             dbine_driver::VectorIndex {
@@ -201,7 +196,22 @@ impl Dialect for Manticore {
     /// kept.
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         use IssueCode::*;
-        super::starrocks::keep_vector_indexes(t, report, &[], "knn_dims");
+        super::starrocks::settle_vectors(
+            t,
+            report,
+            &super::starrocks::VectorTarget {
+                engine: "Manticore",
+                ty: &|_| "float_vector".to_string(),
+                is_vector: &|ty| {
+                    matches!(self.parse_type(&crate::parse::parse(ty)), L::Vector { .. })
+                        .then_some(None)
+                },
+                dim_param: Some("knn_dims"),
+                needs_dim: true,
+                fallback: None,
+            },
+        );
+        super::starrocks::drop_plain_indexes(t, report, &[]);
         // A KNN index is named after its column.
         for ix in t.indexes.iter_mut() {
             if let Some(c) = ix.columns.first() {
@@ -304,7 +314,8 @@ mod tests {
         };
         assert_eq!(p("float_vector"), v);
         let r = |t: L| Manticore.render_type(&t).native;
-        assert_eq!(r(v), "float_vector");
+        // finalize takes the mark off (the dimension goes to knn_dims).
+        assert_eq!(r(v), "float_vector /* dim=? */");
         assert_eq!(
             r(L::Vector {
                 dims: Some(3),

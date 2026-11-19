@@ -66,63 +66,242 @@ pub(crate) fn angle(raw: &str) -> Option<(String, Vec<String>)> {
     Some((name, out))
 }
 
-/// A vector's dimension rides in the rendered type as `/* dim=N */` until
-/// [`Dialect::finalize`] moves it into the column's vector index (the
-/// engine keeps it there) and takes it off the type.
+/// A vector's dimension rides in the rendered type as `/* dim=N */` (or
+/// `/* dim=? */` when the source type didn't say it) until
+/// [`Dialect::finalize`] settles it with [`settle_vectors`]: into the
+/// type, or into the column's vector index where the engine keeps it there.
 pub(crate) fn with_dim(native: &str, dims: Option<u32>) -> String {
     match dims {
         Some(n) => format!("{native} /* dim={n} */"),
-        None => native.to_string(),
+        None => format!("{native} /* dim=? */"),
     }
 }
 
-/// The type without its `/* dim=N */`, and N.
-pub(crate) fn take_dim(ty: &str) -> (String, Option<u32>) {
+/// The type without its dimension mark, and the mark: `Some(Some(n))` for
+/// `/* dim=N */`, `Some(None)` for `/* dim=? */`, `None` without one.
+pub(crate) fn take_dim(ty: &str) -> (String, Option<Option<u32>>) {
     match ty.find(" /* dim=") {
         Some(at) => {
             let n = ty[at + 8..].split(' ').next().and_then(|n| n.parse().ok());
-            (ty[..at].to_string(), n)
+            (ty[..at].to_string(), Some(n))
         }
         None => (ty.to_string(), None),
     }
 }
 
-/// The indexes `finalize` keeps on an engine whose only secondary indexes
-/// are its vector ones (and `own` kinds): a vector index gets the
-/// dimension its column's type carried, under `dim_key`; the others are
-/// dropped and said.
-pub(crate) fn keep_vector_indexes(
-    t: &mut TableSchema,
-    report: &mut crate::issue::Report,
-    own: &[&str],
-    dim_key: &str,
-) {
-    use crate::issue::{IssueCode, Severity};
-    let mut dims = std::collections::HashMap::new();
+/// Index parameters that hold a vector's dimension: Doris and StarRocks'
+/// `dim`, Manticore's `knn_dims`. A target's `vector_index` keeps them, so
+/// that [`settle_vectors`] can give the indexed column its dimension.
+pub(crate) const DIM_PARAMS: &[&str] = &["dim", "knn_dims"];
+
+/// The dimension a vector index holds, if it does.
+pub(crate) fn index_dim(v: &dbine_driver::VectorIndex) -> Option<u32> {
+    DIM_PARAMS
+        .iter()
+        .find_map(|k| v.params.get(*k))
+        .and_then(|n| n.trim().parse().ok())
+        .filter(|n| *n > 0)
+}
+
+/// Another family's index parameters this family takes (`keep`), plus the
+/// dimension the index holds, under `dim`.
+pub(crate) fn index_params(
+    v: &dbine_driver::VectorIndex,
+    keep: &[&str],
+) -> std::collections::BTreeMap<String, String> {
+    let mut out: std::collections::BTreeMap<String, String> = v
+        .params
+        .iter()
+        .filter(|(k, _)| keep.contains(&k.as_str()))
+        .map(|(k, val)| (k.clone(), val.clone()))
+        .collect();
+    if let Some(n) = index_dim(v) {
+        out.insert("dim".into(), n.to_string());
+    }
+    out
+}
+
+/// How a target engine writes its vectors, for [`settle_vectors`].
+pub(crate) struct VectorTarget<'a> {
+    pub engine: &'a str,
+    /// The engine's vector type of `n` dimensions (or without one, where
+    /// the dimension goes in the index).
+    pub ty: &'a dyn Fn(Option<u32>) -> String,
+    /// Whether a column type is the engine's vector type, with its
+    /// dimension when the type says it.
+    pub is_vector: &'a dyn Fn(&str) -> Option<Option<u32>>,
+    /// The index parameter that holds the dimension (Doris / StarRocks
+    /// `dim`, Manticore `knn_dims`); `None` where the type holds it.
+    pub dim_param: Option<&'a str>,
+    /// A vector index can't be made without the dimension.
+    pub needs_dim: bool,
+    /// What a vector without a dimension becomes when nothing says it
+    /// (`None`: the engine's vector type takes none).
+    pub fallback: Option<Rendered>,
+}
+
+/// The source column a target column came from (convert marks them while
+/// `finalize` runs), for the issues already said about it.
+fn origin(c: &dbine_driver::ColumnDef) -> &str {
+    c.options
+        .get("__dbine_source_column")
+        .map_or(c.name.as_str(), String::as_str)
+}
+
+/// The type notes said about a column, now that its type changed again.
+fn forget_type_notes(report: &mut Report, column: &str) {
+    report.issues.retain(|i| {
+        !(matches!(i.code, IssueCode::TypeApproximated | IssueCode::TypeChanged)
+            && i.object
+                .as_deref()
+                .is_some_and(|o| o.eq_ignore_ascii_case(column)))
+    });
+}
+
+/// Vector columns and indexes on a target engine, in `finalize`:
+/// - a vector index's column becomes the engine's vector type: with the
+///   dimension of its type, else the one the source index held (Doris'
+///   `dim`, Manticore's `knn_dims`), which also turns a column the source
+///   indexed as vectors but typed otherwise (Doris' `ARRAY<FLOAT>`) into one;
+/// - where the engine keeps the dimension in the index, it goes there;
+/// - an index whose column can't be a vector (or lacks the dimension the
+///   engine needs) is dropped and said, never written on another type;
+/// - a vector left without a dimension takes the fallback.
+pub(crate) fn settle_vectors(t: &mut TableSchema, report: &mut Report, target: &VectorTarget) {
+    use IssueCode::*;
+    use Severity::*;
+    let engine = target.engine;
+    let table = t.name.clone();
+    // The marks the rendered types carry.
+    let mut marked: std::collections::HashMap<String, Option<u32>> = Default::default();
     for c in &mut t.columns {
-        let (ty, n) = take_dim(&c.data_type);
-        if let Some(n) = n {
+        if let (ty, Some(n)) = take_dim(&c.data_type) {
             c.data_type = ty;
-            dims.insert(c.name.clone(), n);
+            marked.insert(c.name.clone(), n);
         }
     }
-    let table = t.name.clone();
+    let mut settled: std::collections::HashSet<String> = Default::default();
     let mut kept = Vec::new();
     for mut ix in std::mem::take(&mut t.indexes) {
-        if let Some(v) = ix.vector.as_mut() {
-            if let Some(n) = ix.columns.first().and_then(|c| dims.get(c)) {
-                v.params
-                    .entry(dim_key.to_string())
-                    .or_insert_with(|| n.to_string());
+        let Some(vi) = ix.vector.as_mut() else {
+            kept.push(ix);
+            continue;
+        };
+        let hint = index_dim(vi);
+        for k in DIM_PARAMS {
+            vi.params.remove(*k);
+        }
+        let name = ix.name.clone();
+        let drop = |report: &mut Report, why: String| {
+            report.push(
+                Dropped,
+                IndexDropped,
+                &table,
+                Some(&name),
+                format!("El índice vectorial «{name}» no se crea: {why}."),
+            );
+        };
+        let [col] = ix.columns.as_slice() else {
+            drop(
+                report,
+                format!("en {engine} un índice vectorial lleva una sola columna, la del vector"),
+            );
+            continue;
+        };
+        let Some(c) = t.columns.iter_mut().find(|c| c.name == *col) else {
+            drop(report, format!("no está su columna «{col}»"));
+            continue;
+        };
+        let typed = marked
+            .get(&c.name)
+            .copied()
+            .or_else(|| (target.is_vector)(&c.data_type));
+        let n = typed.flatten().or(hint);
+        match (typed, n) {
+            (Some(own), Some(n)) => {
+                if own.is_none() {
+                    forget_type_notes(report, origin(c));
+                    report.push(
+                        Info,
+                        TypeChanged,
+                        &table,
+                        Some(origin(c)),
+                        format!(
+                            "La dimensión del vector ({n}) sale de su índice vectorial «{name}»."
+                        ),
+                    );
+                }
+                c.data_type = (target.ty)(Some(n));
             }
-            kept.push(ix);
-        } else if ix
-            .kind
-            .as_deref()
-            .is_some_and(|k| own.iter().any(|o| o.eq_ignore_ascii_case(k)))
-        {
-            kept.push(ix);
-        } else {
+            (Some(_), None) if !target.needs_dim => {}
+            (Some(_), None) => {
+                drop(
+                    report,
+                    format!("{engine} necesita la dimensión de los vectores y no se conoce"),
+                );
+                continue;
+            }
+            (None, Some(n)) => {
+                let o = origin(c).to_string();
+                forget_type_notes(report, &o);
+                report.push(
+                    Warning,
+                    TypeChanged,
+                    &table,
+                    Some(&o),
+                    format!("«{o}» lleva el índice vectorial «{name}» en el origen: queda como vector de {n} dimensiones."),
+                );
+                c.data_type = (target.ty)(Some(n));
+            }
+            (None, None) => {
+                drop(
+                    report,
+                    format!("su columna «{col}» no es un vector en {engine}"),
+                );
+                continue;
+            }
+        }
+        settled.insert(c.name.clone());
+        if let (Some(k), Some(n), Some(vi)) = (target.dim_param, n, ix.vector.as_mut()) {
+            vi.params.insert(k.to_string(), n.to_string());
+        }
+        kept.push(ix);
+    }
+    t.indexes = kept;
+    // Vectors no index gave a dimension to.
+    for c in &mut t.columns {
+        match marked.get(&c.name) {
+            Some(Some(n)) if !settled.contains(&c.name) => c.data_type = (target.ty)(Some(*n)),
+            Some(None) if !settled.contains(&c.name) => {
+                if let Some(fb) = &target.fallback {
+                    c.data_type = fb.native.clone();
+                    for note in &fb.notes {
+                        report.push(
+                            note.severity,
+                            note.code,
+                            &table,
+                            Some(origin(c)),
+                            note.message.clone(),
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// On an engine whose secondary indexes are its vector ones and its `own`
+/// kinds: the rest are dropped and said.
+pub(crate) fn drop_plain_indexes(t: &mut TableSchema, report: &mut Report, own: &[&str]) {
+    let table = t.name.clone();
+    t.indexes.retain(|ix| {
+        let keep = ix.vector.is_some()
+            || ix
+                .kind
+                .as_deref()
+                .is_some_and(|k| own.iter().any(|o| o.eq_ignore_ascii_case(k)));
+        if !keep {
             report.push(
                 Severity::Dropped,
                 IssueCode::IndexDropped,
@@ -131,8 +310,8 @@ pub(crate) fn keep_vector_indexes(
                 "El destino no tiene índices secundarios.",
             );
         }
-    }
-    t.indexes = kept;
+        keep
+    });
 }
 
 /// A nested type spelling (an array element, a map value) in dialect `d`.
@@ -576,14 +755,7 @@ impl Dialect for Olap {
             (true, true) => "ivf",
             (true, false) => "ivfpq",
         };
-        let params = v
-            .params
-            .iter()
-            .filter(|(k, _)| {
-                [param::M, param::EF_CONSTRUCTION, param::LISTS, "dim"].contains(&k.as_str())
-            })
-            .map(|(k, val)| (k.clone(), val.clone()))
-            .collect();
+        let params = index_params(v, &[param::M, param::EF_CONSTRUCTION, param::LISTS]);
         Ok((
             Some(if self.doris { "ANN" } else { "VECTOR" }.into()),
             dbine_driver::VectorIndex {
@@ -719,35 +891,37 @@ impl Dialect for Olap {
             );
         }
 
-        // A vector index's dimension, from its column's type; the column
-        // can't be NULL.
-        let mut dims = std::collections::HashMap::new();
-        for c in &mut t.columns {
-            let (ty, n) = take_dim(&c.data_type);
-            if let Some(n) = n {
-                c.data_type = ty;
-                dims.insert(c.name.clone(), n);
-            }
-        }
-        for ix in t.indexes.iter_mut() {
-            let Some(v) = ix.vector.as_mut() else {
+        // Vector indexes: on an ARRAY<FLOAT> column, with its dimension
+        // (`dim`) in the index; the column can't be NULL.
+        settle_vectors(
+            t,
+            report,
+            &VectorTarget {
+                engine,
+                ty: &|_| "ARRAY<FLOAT>".to_string(),
+                is_vector: &|ty| {
+                    matches!(
+                        self.parse_type(&parse::parse(ty)),
+                        L::Array { of } if *of == L::Float { bytes: 4 }
+                    )
+                    .then_some(None)
+                },
+                dim_param: Some("dim"),
+                needs_dim: true,
+                fallback: None,
+            },
+        );
+        for ix in &t.indexes {
+            let Some(col) = ix.columns.first().filter(|_| ix.vector.is_some()) else {
                 continue;
             };
-            let Some(col) = ix.columns.first().cloned() else {
-                continue;
-            };
-            if let Some(n) = dims.get(&col) {
-                v.params
-                    .entry("dim".into())
-                    .or_insert_with(|| n.to_string());
-            }
-            if let Some(c) = t.columns.iter_mut().find(|c| c.name == col && c.nullable) {
+            if let Some(c) = t.columns.iter_mut().find(|c| c.name == *col && c.nullable) {
                 c.nullable = false;
                 report.push(
                     Info,
                     NullabilityChanged,
                     &table,
-                    Some(&col),
+                    Some(col),
                     format!("{engine} indexa vectores de una columna NOT NULL: la columna queda NOT NULL."),
                 );
             }

@@ -136,6 +136,13 @@ impl Dialect for Databend {
                     r.with(Warning, TypeApproximated, format!("{}: se guarda como float32.", t.describe()))
                 }
             }
+            // Without a dimension: finalize takes it from the vector index,
+            // else the column falls back to an array.
+            L::Vector {
+                dims: None,
+                sparse: false,
+                ..
+            } => Rendered::exact(super::starrocks::with_dim("VECTOR", None)),
             L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
@@ -224,12 +231,7 @@ impl Dialect for Databend {
                 "Databend no tiene la distancia «{m}» en sus índices vectoriales (tiene cosine, l2, l1)"
             ));
         }
-        let params = v
-            .params
-            .iter()
-            .filter(|(k, _)| [param::M, param::EF_CONSTRUCTION].contains(&k.as_str()))
-            .map(|(k, val)| (k.clone(), val.clone()))
-            .collect();
+        let params = super::starrocks::index_params(v, &[param::M, param::EF_CONSTRUCTION]);
         Ok((
             Some("VECTOR".into()),
             dbine_driver::VectorIndex {
@@ -260,7 +262,23 @@ impl Dialect for Databend {
     }
 
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
-        super::starrocks::keep_vector_indexes(t, report, &["INVERTED", "NGRAM"], "dim");
+        let fallback = super::vector_fallback(self, &super::greptimedb::dimensionless());
+        super::starrocks::settle_vectors(
+            t,
+            report,
+            &super::starrocks::VectorTarget {
+                engine: "Databend",
+                ty: &|n| n.map_or_else(|| "VECTOR".into(), |n| format!("VECTOR({n})")),
+                is_vector: &|ty| match self.parse_type(&crate::parse::parse(ty)) {
+                    L::Vector { dims, .. } => Some(dims),
+                    _ => None,
+                },
+                dim_param: None,
+                needs_dim: true,
+                fallback: Some(fallback),
+            },
+        );
+        super::starrocks::drop_plain_indexes(t, report, &["INVERTED", "NGRAM"]);
         if let Some(k) = t.primary_key.take() {
             report.push(
                 Severity::Warning,
