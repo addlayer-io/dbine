@@ -179,4 +179,36 @@ async fn clickhouse_22_8_vectors_say_the_version() {
     .await
     .unwrap();
     assert_eq!(out.results[0].rows[0][0], serde_json::json!(0));
+
+    // A browse of a Float64 array asks for the table's vector indexes:
+    // 22.8 has none (nor the catalog column), and the rows come as always.
+    let mut out = QueryOutcome::default();
+    s.execute(
+        &format!(
+            "CREATE TABLE default.{name} (id UInt64, nums Array(Float64)) ENGINE = MergeTree ORDER BY id;
+             INSERT INTO default.{name} VALUES (1, [0.5, 2]);"
+        ),
+        10,
+        &mut out,
+    )
+    .await
+    .unwrap();
+    let browse = s.browse_query(
+        &ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: Some("default".into()),
+            name: name.clone(),
+        },
+        10,
+    );
+    let mut out = QueryOutcome::default();
+    let r = s.execute(&browse, 10, &mut out).await;
+    let mut drop = QueryOutcome::default();
+    s.execute(&format!("DROP TABLE default.{name}"), 10, &mut drop)
+        .await
+        .unwrap();
+    r.unwrap();
+    let res = &out.results[0];
+    assert!(res.columns[1].vector.is_none());
+    assert_eq!(res.rows[0][1], serde_json::json!("[0.5,2]"));
 }
