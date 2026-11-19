@@ -382,6 +382,12 @@ async fn sync_round_trip(
 /// pgvector's whole round trip on a server where `CREATE EXTENSION
 /// vector` works; `extra` adds the variant's own index (DiskANN…).
 async fn pgvector_round_trip(id: &str, env: &str, extra: Option<(IndexDef, &str, &str)>) {
+    round_trip(id, env, extra, true).await
+}
+
+/// `full`: the server has pgvector's HNSW and IVFFlat for every type;
+/// otherwise (YugabyteDB's ybhnsw) only `vector` columns are indexed.
+async fn round_trip(id: &str, env: &str, extra: Option<(IndexDef, &str, &str)>, full: bool) {
     let Ok(url) = std::env::var(env) else {
         eprintln!("{env} not set; skipping");
         return;
@@ -407,24 +413,28 @@ async fn pgvector_round_trip(id: &str, env: &str, extra: Option<(IndexDef, &str,
             .await;
         }
         // 1. The table, as the designer makes it.
-        let mut indexes = vec![
-            vindex(
-                "ix_v",
-                &["v"],
-                Some("hnsw"),
-                metric::COSINE,
-                &[("m", "16"), ("ef_construction", "64")],
-            ),
-            vindex(
-                "ix_h",
-                &["h"],
-                Some("ivfflat"),
-                metric::L2,
-                &[("lists", "1")],
-            ),
-            vindex("ix_s", &["s"], None, metric::IP, &[]),
-            vindex("ix_b", &["b"], Some("hnsw"), metric::HAMMING, &[]),
-        ];
+        let mut indexes = vec![vindex(
+            "ix_v",
+            &["v"],
+            Some("hnsw"),
+            metric::COSINE,
+            &[("m", "16"), ("ef_construction", "64")],
+        )];
+        if full {
+            indexes.extend([
+                vindex(
+                    "ix_h",
+                    &["h"],
+                    Some("ivfflat"),
+                    metric::L2,
+                    &[("lists", "1")],
+                ),
+                vindex("ix_s", &["s"], None, metric::IP, &[]),
+                vindex("ix_b", &["b"], Some("hnsw"), metric::HAMMING, &[]),
+            ]);
+        } else {
+            indexes.push(vindex("ix_v2", &["v"], None, metric::L2, &[]));
+        }
         if let Some((ix, _, _)) = &extra {
             indexes.push(ix.clone());
         }
@@ -512,21 +522,26 @@ async fn pgvector_round_trip(id: &str, env: &str, extra: Option<(IndexDef, &str,
         assert_eq!(column(&read, "s").data_type, "sparsevec(5)");
         assert_eq!(column(&read, "b").data_type, "bit(4)");
         // 5. The indexes, as vector indexes.
+        let default_alg = spec.vector_indexes.as_ref().unwrap().algorithms[0];
+        let hnsw = if full { "hnsw" } else { default_alg };
         assert_vector_index(
             index(&read, "ix_v"),
-            "hnsw",
+            hnsw,
             metric::COSINE,
             &[("m", "16"), ("ef_construction", "64")],
         );
-        assert_vector_index(
-            index(&read, "ix_h"),
-            "ivfflat",
-            metric::L2,
-            &[("lists", "1")],
-        );
-        let default_alg = spec.vector_indexes.as_ref().unwrap().algorithms[0];
-        assert_vector_index(index(&read, "ix_s"), default_alg, metric::IP, &[]);
-        assert_vector_index(index(&read, "ix_b"), "hnsw", metric::HAMMING, &[]);
+        if full {
+            assert_vector_index(
+                index(&read, "ix_h"),
+                "ivfflat",
+                metric::L2,
+                &[("lists", "1")],
+            );
+            assert_vector_index(index(&read, "ix_s"), default_alg, metric::IP, &[]);
+            assert_vector_index(index(&read, "ix_b"), "hnsw", metric::HAMMING, &[]);
+        } else {
+            assert_vector_index(index(&read, "ix_v2"), default_alg, metric::L2, &[]);
+        }
         if let Some((ix, _, _)) = &extra {
             let got = index(&read, &ix.name);
             let want = ix.vector.as_ref().unwrap();
@@ -545,25 +560,29 @@ async fn pgvector_round_trip(id: &str, env: &str, extra: Option<(IndexDef, &str,
             )
             .unwrap();
         assert!(
-            again.contains("USING hnsw (\"v\" vector_cosine_ops) WITH (ef_construction=64, m=16)"),
+            again.contains(&format!(
+                "USING {hnsw} (\"v\" vector_cosine_ops) WITH (ef_construction=64, m=16)"
+            )),
             "{again}"
         );
-        assert!(
-            again.contains("USING ivfflat (\"h\" halfvec_l2_ops) WITH (lists=1)"),
-            "{again}"
-        );
-        assert!(again.contains("(\"s\" sparsevec_ip_ops)"), "{again}");
-        assert!(
-            again.contains("USING hnsw (\"b\" bit_hamming_ops)"),
-            "{again}"
-        );
+        if full {
+            assert!(
+                again.contains("USING ivfflat (\"h\" halfvec_l2_ops) WITH (lists=1)"),
+                "{again}"
+            );
+            assert!(again.contains("(\"s\" sparsevec_ip_ops)"), "{again}");
+            assert!(
+                again.contains("USING hnsw (\"b\" bit_hamming_ops)"),
+                "{again}"
+            );
+        }
         // Sync: unchanged, then a metric changed.
-        sync_round_trip(&*d, &mut s, &read, "ix_v", metric::L2, "vector_l2_ops").await;
+        sync_round_trip(&*d, &mut s, &read, "ix_v", metric::IP, "vector_ip_ops").await;
         let read = read_table(&mut s, "public", "items").await;
         assert_vector_index(
             index(&read, "ix_v"),
-            "hnsw",
-            metric::L2,
+            hnsw,
+            metric::IP,
             &[("m", "16"), ("ef_construction", "64")],
         );
         // 6. A similarity query.
@@ -671,6 +690,14 @@ async fn timescale_vectors_with_diskann() {
         Some((disk, "vectorscale", "")),
     )
     .await;
+}
+
+/// YugabyteDB: pgvector's types, its own `ybhnsw` index (also for `USING
+/// hnsw`), vector columns only.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn yugabyte_vectors() {
+    round_trip("yugabytedb", "DBINE_TEST_YUGABYTE_URL", None, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
