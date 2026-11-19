@@ -493,17 +493,17 @@ impl Cql {
                 );
             }
             if !dropped.is_empty() {
+                let (ix_name, list) = (&ix.name, dropped.join(", "));
                 report.push(
                     Severity::Info,
                     IssueCode::OptionDropped,
                     &name,
                     Some(&ix.name),
-                    format!(
-                        "El índice vectorial «{}» no lleva {}: {} no los tiene.",
-                        ix.name,
-                        dropped.join(", "),
-                        if self.scylla { "ScyllaDB" } else { "Cassandra" }
-                    ),
+                    if self.scylla {
+                        format!("El índice vectorial «{ix_name}» no lleva {list}: ScyllaDB no los tiene.")
+                    } else {
+                        format!("El índice vectorial «{ix_name}» no lleva {list}: Cassandra no los tiene.")
+                    },
                 );
             }
             if !own {

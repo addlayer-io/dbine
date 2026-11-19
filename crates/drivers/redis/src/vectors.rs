@@ -999,7 +999,7 @@ pub fn no_such_index(error: &str) -> bool {
     let e = error.to_ascii_lowercase();
     e.contains("unknown index")
         || e.contains("index not found")
-        || e.contains("no such index")
+        || e.contains("such index")
         || (e.contains("index with name") && e.contains("not found"))
 }
 
@@ -1109,21 +1109,10 @@ impl Server {
 /// along with the server's error. `None` when it asked for none.
 pub fn create_hint(cmd: &[Vec<u8>], server: Server) -> Option<String> {
     let has = |w: &str| cmd.iter().any(|a| a.eq_ignore_ascii_case(w.as_bytes()));
-    let mut used = Vec::new();
-    for (w, since) in [
-        ("FLOAT16", "Redis Stack 7.4 (RediSearch 2.10)"),
-        ("BFLOAT16", "Redis Stack 7.4 (RediSearch 2.10)"),
-        ("INT8", "Redis 8.0"),
-        ("UINT8", "Redis 8.0"),
-        ("SVS-VAMANA", "Redis 8.2"),
-    ] {
-        if has(w) {
-            used.push(match server {
-                Server::Valkey => w.to_string(),
-                _ => format!("{w} (desde {since})"),
-            });
-        }
-    }
+    let used: Vec<&str> = ["FLOAT16", "BFLOAT16", "INT8", "UINT8", "SVS-VAMANA"]
+        .into_iter()
+        .filter(|w| has(w))
+        .collect();
     if used.is_empty() {
         return None;
     }
@@ -1133,7 +1122,7 @@ pub fn create_hint(cmd: &[Vec<u8>], server: Server) -> Option<String> {
             used.join(", ")
         ),
         _ => format!(
-            "Puede que este servidor no tenga {}: no están en todas las versiones.",
+            "Puede que este servidor no tenga {}: FLOAT16 y BFLOAT16 están desde Redis Stack 7.4 (RediSearch 2.10), INT8 y UINT8 desde Redis 8.0, y SVS-VAMANA desde Redis 8.2.",
             used.join(", ")
         ),
     })
@@ -2083,7 +2072,10 @@ mod tests {
     fn create_hints() {
         let cmd = argv("FT.CREATE i SCHEMA v VECTOR HNSW 6 TYPE FLOAT16 DIM 2 DISTANCE_METRIC L2");
         let h = create_hint(&cmd, Server::Redis).unwrap();
-        assert!(h.contains("FLOAT16 (desde Redis Stack 7.4"), "{h}");
+        assert!(
+            h.starts_with("Puede que este servidor no tenga FLOAT16:"),
+            "{h}"
+        );
         let h = create_hint(&cmd, Server::Valkey).unwrap();
         assert!(
             h.starts_with("valkey-search indexa vectores FLOAT32"),
@@ -2095,10 +2087,7 @@ mod tests {
         let svs =
             argv("FT.CREATE i SCHEMA v VECTOR SVS-VAMANA 6 TYPE INT8 DIM 2 DISTANCE_METRIC L2");
         let h = create_hint(&svs, Server::Dragonfly).unwrap();
-        assert!(
-            h.contains("INT8 (desde Redis 8.0), SVS-VAMANA (desde Redis 8.2)"),
-            "{h}"
-        );
+        assert!(h.contains("no tenga INT8, SVS-VAMANA:"), "{h}");
     }
 
     #[test]
