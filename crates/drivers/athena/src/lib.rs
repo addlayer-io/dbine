@@ -386,6 +386,8 @@ impl AthenaSession {
             out.push_affected(ex.update_count.unwrap_or(0).max(0) as u64);
             return;
         }
+        // No column is marked as a vector: Athena (Trino) has no vector
+        // type or index, only functions over array(real|double).
         out.begin_result(
             ex.columns
                 .iter()
