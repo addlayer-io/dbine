@@ -128,6 +128,21 @@ pub(crate) const PRECISION_SCALE: &str = "CAST(c.precision AS int), CAST(c.scale
 pub(crate) const CATALOG_SQL: &str =
     "SELECT CAST(CASE WHEN COL_LENGTH('sys.columns', 'vector_dimensions') IS NULL THEN 0 ELSE 1 END AS bit)";
 
+/// A server's error about the vector type, a vector index or a `VECTOR_*`
+/// function it doesn't know (SQL Server 2022 and before: 2715 "Cannot find
+/// data type vector", 343 "Unknown object type 'VECTOR'", 195 "'VECTOR_…'
+/// is not a recognized built-in function name"), with the releases that
+/// have them: the designer offers them on every server.
+pub(crate) fn with_release_hint(number: u32, message: &str) -> String {
+    if matches!(number, 195 | 343 | 2715) && message.to_ascii_lowercase().contains("vector") {
+        format!(
+            "{message} — El tipo vector, los índices vectoriales y las funciones VECTOR_* son de SQL Server 2025 y Azure SQL."
+        )
+    } else {
+        message.to_string()
+    }
+}
+
 /// The table a browse query (`SELECT TOP (n) *\nFROM [s].[t]`, then maybe
 /// its grid filter and sort) reads, as the bracketed name `OBJECT_ID`
 /// takes; `None` for any other query.
@@ -238,6 +253,37 @@ mod tests {
         let mut bad = a;
         bad[2] = 4;
         assert_eq!(decode(&bad), None);
+    }
+
+    #[test]
+    fn older_servers_say_which_release_has_vectors() {
+        for (n, m) in [
+            (
+                2715,
+                "Column, parameter, or variable #2: Cannot find data type vector.",
+            ),
+            (
+                343,
+                "Unknown object type 'VECTOR' used in a CREATE, DROP, or ALTER statement.",
+            ),
+            (
+                195,
+                "'VECTOR_DISTANCE' is not a recognized built-in function name.",
+            ),
+        ] {
+            assert!(
+                with_release_hint(n, m).ends_with("son de SQL Server 2025 y Azure SQL."),
+                "{n}"
+            );
+        }
+        assert_eq!(
+            with_release_hint(2715, "Cannot find data type foo."),
+            "Cannot find data type foo."
+        );
+        assert_eq!(
+            with_release_hint(208, "Invalid object name 'vector'."),
+            "Invalid object name 'vector'."
+        );
     }
 
     #[test]

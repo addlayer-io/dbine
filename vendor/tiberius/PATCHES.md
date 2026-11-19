@@ -238,6 +238,13 @@ files kept). Every changed site is marked `PATCH(dbine)` in the source.
       `vector_dimensions` and the TYPE_INFO round trip (type_info.rs). Live
       ones in DBine's `crates/drivers/sqlserver/tests/vectors.rs` (results,
       `INSERT BULK` into a vector column, raw and decoded native copies).
+    * `src/client/connection.rs` — `asks_vector_support`: the login asks
+      for the vector feature only when the PRELOGIN answer is from a TDS
+      7.4 server (SQL Server 2012, major version 11, and later), which
+      skips features it doesn't know (MS-TDS 2.2.6.4: "If the server does
+      not support the specific feature, it MUST skip the feature data");
+      a TDS 7.3 server (2008, 2008 R2) gets no FeatureExt for it. Test:
+      `vector_support_only_for_tds_74_servers`.
     * `src/client.rs` — `insert_bulk_columns` builds the `INSERT BULK`
       column list with a fallible `write!`: a column whose type has no
       T-SQL name (`MetaDataColumn`'s `Display` fails for a vector of an

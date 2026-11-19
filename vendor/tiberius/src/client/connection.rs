@@ -142,6 +142,33 @@ impl CancelHandle {
     }
 }
 
+/// PATCH(dbine): whether the login asks for the vector type. `server_version`
+/// is the PRELOGIN answer's (major version in the top byte). FeatureExt is
+/// TDS 7.4 (SQL Server 2012, major 11, and later), whose servers skip a
+/// feature they don't know (MS-TDS 2.2.6.4); a TDS 7.3 server (2008, 2008
+/// R2) has no FeatureExt and no vectors, so it isn't asked.
+pub(crate) fn asks_vector_support(on: bool, server_version: u32) -> bool {
+    on && server_version >> 24 >= 11
+}
+
+// PATCH(dbine): the vector type is asked only of TDS 7.4 servers.
+#[cfg(test)]
+mod vector_login_tests {
+    use super::asks_vector_support;
+
+    #[test]
+    fn vector_support_only_for_tds_74_servers() {
+        let v = |major: u32, minor: u32| (major << 24) | (minor << 16) | 0x0FA0;
+        assert!(asks_vector_support(true, v(17, 0))); // 2025
+        assert!(asks_vector_support(true, v(16, 0))); // 2022
+        assert!(asks_vector_support(true, v(12, 0))); // 2014, Azure SQL
+        assert!(asks_vector_support(true, v(11, 0))); // 2012
+        assert!(!asks_vector_support(true, v(10, 50))); // 2008 R2
+        assert!(!asks_vector_support(true, v(10, 0))); // 2008
+        assert!(!asks_vector_support(false, v(17, 0)));
+    }
+}
+
 impl<S: AsyncRead + AsyncWrite + Unpin + Send> Debug for Connection<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Connection")
@@ -727,8 +754,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
         prelogin: PreloginMessage,
     ) -> crate::Result<Self> {
         let mut login_message = LoginMessage::new();
-        // PATCH(dbine): the vector type.
-        login_message.vector_support(vector_support);
+        // PATCH(dbine): the vector type, asked only of a server that speaks
+        // TDS 7.4 (see `asks_vector_support`).
+        login_message.vector_support(asks_vector_support(vector_support, prelogin.version));
 
         if let Some(db) = db {
             login_message.db_name(db);

@@ -80,7 +80,7 @@ fn script_error(m: &ServerMessage, base: u32) -> ScriptError {
     } else {
         base
     };
-    let e = ScriptError::new(m.message.clone())
+    let e = ScriptError::new(crate::vector::with_release_hint(m.number, &m.message))
         .with_code(m.number.to_string())
         .at_line(line);
     if m.class >= FATAL_CLASS {

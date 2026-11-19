@@ -13,6 +13,9 @@
 //! DBINE_TEST_SQLSERVER2025_URL='mssql://sa:Pw_12345!@localhost:27202' \
 //!   cargo test -p dbine-driver-sqlserver --test vectors -- --ignored --test-threads=1
 //! ```
+//!
+//! `DBINE_TEST_SQLSERVER_OLD_URL` (a 2012–2022 server) runs the test of a
+//! server without vectors.
 
 use dbine_driver::transfer::{
     changed_buckets, BatchSink, BatchSource, Cell, CopySpec, LoadSpec, ReadSpec, RowBatch,
@@ -37,7 +40,11 @@ fn config() -> Option<ConnectionConfig> {
         eprintln!("{ENV} not set; skipping");
         return None;
     };
-    let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
+    config_from(&url)
+}
+
+fn config_from(url: &str) -> Option<ConnectionConfig> {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@').unwrap();
     let (user, pass) = auth.split_once(':').unwrap();
     let (host, port) = hostport.rsplit_once(':').unwrap();
@@ -301,6 +308,45 @@ async fn vectors_end_to_end() {
     if let Err(p) = res {
         std::panic::resume_unwind(p);
     }
+}
+
+/// A server before SQL Server 2025 (`DBINE_TEST_SQLSERVER_OLD_URL`, e.g.
+/// 2017 or 2019): the login asks for the vector feature and the server
+/// skips it (MS-TDS: an unknown feature is skipped), queries work, and a
+/// vector statement fails saying which releases have vectors. Skipped
+/// without the variable.
+#[tokio::test]
+#[ignore]
+async fn older_servers_log_in_and_say_where_vectors_are() {
+    let Ok(url) = std::env::var("DBINE_TEST_SQLSERVER_OLD_URL") else {
+        eprintln!("DBINE_TEST_SQLSERVER_OLD_URL not set; skipping");
+        return;
+    };
+    let cfg = config_from(&url).unwrap();
+    let d = driver();
+    let mut s = d.connect(&cfg, Some("master")).await.expect("login");
+    let out = run(
+        &mut s,
+        "SELECT CAST(SERVERPROPERTY('ProductMajorVersion') AS int) AS v",
+    )
+    .await;
+    let major = out.results[0].rows[0][0].as_i64().unwrap();
+    assert!((11..17).contains(&major), "not an older server: {major}");
+    for sql in [
+        "CREATE TABLE #t (id int, v vector(3))",
+        "SELECT VECTOR_DISTANCE('cosine', '[1]', '[1]')",
+    ] {
+        let mut out = QueryOutcome::default();
+        let r = s.execute(sql, 10, &mut out).await;
+        let text = format!("{r:?} {:?}", out.error);
+        assert!(
+            text.contains("son de SQL Server 2025 y Azure SQL"),
+            "{text}"
+        );
+    }
+    // The session is still good.
+    let out = run(&mut s, "SELECT 1 AS one").await;
+    assert_eq!(out.results[0].rows[0][0], json!(1));
 }
 
 async fn body(cfg: &ConnectionConfig) {
