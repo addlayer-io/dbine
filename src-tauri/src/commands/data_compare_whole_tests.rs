@@ -1379,3 +1379,60 @@ INSERT INTO \"T\" VALUES (1, '[0.0000001,2.0]'), (2, '[0.100000001, 0.2]'), (3, 
     assert_eq!((text.counts.same, text.counts.changed), (1, 4));
     assert_eq!(leftovers(&root.0), Vec::<String>::new());
 }
+
+/// A query's result marks its own vector columns as it begins: their cells
+/// come out of the read as compared (`[1e-07, 2]` as `[0.0000001,2]`),
+/// other columns as they came.
+#[test]
+fn a_query_results_vector_columns_compare_by_value() {
+    use dbine_driver::VectorMeta;
+    let root = temp_dir("relay-vectors");
+    let projection = Arc::new(Projection {
+        columns: vec![
+            ("id".into(), "id".into()),
+            ("v".into(), "v".into()),
+            ("t".into(), "t".into()),
+        ],
+        nk: 1,
+        bools: [vec![false; 3], vec![false; 3]],
+        vectors: Default::default(),
+        only_left_columns: Vec::new(),
+        only_right_columns: Vec::new(),
+    });
+    let job = Arc::new(Job::new(
+        Arc::new(Ctl::default()),
+        projection,
+        &opts(1_000, 1_000, &root.0),
+    ));
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let mut relay = Relay {
+        side: 0,
+        job,
+        tx,
+        queued: Arc::new(AtomicUsize::new(0)),
+        cap: usize::MAX,
+        hold: true,
+        index: None,
+        pick: Vec::new(),
+        bools: Vec::new(),
+        vectors: Vec::new(),
+        batch: Vec::new(),
+        batch_bytes: 0,
+    };
+    let cols = [
+        ResultColumn::new("id", "int"),
+        ResultColumn::new("v", "vector")
+            .with_vector(VectorMeta::dense(Some(2), VectorElement::F32)),
+        ResultColumn::new("t", "text"),
+    ];
+    relay.begin(0, &cols).unwrap();
+    relay
+        .row(0, &[json!(1), json!("[1e-07, 2]"), json!("[1e-07, 2]")])
+        .unwrap();
+    relay.send().unwrap();
+    let got = rx.try_recv().unwrap();
+    assert_eq!(
+        got[0].0,
+        vec![json!(1), json!("[0.0000001,2]"), json!("[1e-07, 2]")]
+    );
+}
