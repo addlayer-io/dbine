@@ -51,13 +51,18 @@ impl Dialect for Couchbase {
     }
 
     /// GSI vector indexes (hyperscale by default): `cosine`, `l2`,
-    /// `l2_squared`, `ip` (DOT); the number of IVF lists carries over.
+    /// `l2_squared`, `ip` (DOT); the number of IVF lists carries over. The
+    /// index states its vector's `dimension`: a column without one can't
+    /// have it.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
+        if let Some(L::Vector { dims: None, .. }) = column {
+            return Err("su columna vectorial no tiene dimensión, y Couchbase la necesita".into());
+        }
         map_vector_index(
             v,
             "Couchbase",
@@ -164,5 +169,14 @@ mod tests {
             ..Default::default()
         };
         assert!(d.vector_index(&jaccard, None).is_err());
+        // The column it searches: the index needs its dimension.
+        let col = |dims| L::Vector {
+            dims,
+            element: E::F32,
+            sparse: false,
+        };
+        assert!(d.vector_index(&ivf, Some(&col(Some(3)))).is_ok());
+        let why = d.vector_index(&ivf, Some(&col(None))).unwrap_err();
+        assert!(why.contains("no tiene dimensión"), "{why}");
     }
 }

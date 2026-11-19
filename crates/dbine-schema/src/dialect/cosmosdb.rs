@@ -74,13 +74,18 @@ impl Dialect for CosmosDb {
     }
 
     /// `flat`, `quantizedFlat` or `diskANN`, with the embedding's distance
-    /// (`cosine`, `euclidean` = `l2`, `dotproduct` = `ip`).
+    /// (`cosine`, `euclidean` = `l2`, `dotproduct` = `ip`). The embedding
+    /// policy states the vector's dimension: a column without one can't
+    /// have it.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::metric;
+        if let Some(L::Vector { dims: None, .. }) = column {
+            return Err("su columna vectorial no tiene dimensión, y Cosmos DB la necesita".into());
+        }
         // The squared euclidean distance (Couchbase's `l2_squared`) has the
         // same nearest neighbors as euclidean: it goes on, and the driver
         // writes euclidean and says so.
@@ -284,5 +289,14 @@ mod tests {
             (out.algorithm.as_deref(), out.metric.as_deref()),
             (Some("diskANN"), Some("l2_squared"))
         );
+        // The column it searches: the embedding policy needs its dimension.
+        let col = |dims| L::Vector {
+            dims,
+            element: dbine_driver::VectorElement::F32,
+            sparse: false,
+        };
+        assert!(d.vector_index(&disk, Some(&col(Some(1536)))).is_ok());
+        let why = d.vector_index(&disk, Some(&col(None))).unwrap_err();
+        assert!(why.contains("no tiene dimensión"), "{why}");
     }
 }

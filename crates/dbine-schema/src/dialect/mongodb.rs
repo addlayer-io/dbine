@@ -153,12 +153,28 @@ pub(crate) fn vector_type(t: &str) -> Option<L> {
 /// A vector index in the MongoDB family's terms: `cosine`, `l2`
 /// (`euclidean`) and `ip` (`dotProduct`); the algorithm (Atlas has one,
 /// DocumentDB `hnsw` / `ivfflat`, FerretDB `hnsw` / `ivf`) and the kind
-/// are the driver's choice for the server it writes to.
+/// are the driver's choice for the server it writes to. `column`: the
+/// vector it searches. Every kind needs its dimension (`numDimensions`,
+/// `dimensions`); on bits, `hamming` goes on for the driver to write as
+/// euclidean, the only distance Atlas searches bits by.
 pub(crate) fn vector_index(
     v: &dbine_driver::VectorIndex,
+    column: Option<&L>,
     family: &str,
 ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
     use dbine_driver::vector::{metric, param};
+    let bits = matches!(
+        column,
+        Some(L::Vector {
+            element: dbine_driver::VectorElement::Bit,
+            ..
+        })
+    );
+    if let Some(L::Vector { dims: None, .. }) = column {
+        return Err(format!(
+            "su columna vectorial no tiene dimensión, y {family} la necesita"
+        ));
+    }
     let mut out = dbine_driver::VectorIndex::default();
     if let Some(m) = v.metric.as_deref() {
         out.metric = Some(match m.to_ascii_lowercase().as_str() {
@@ -166,6 +182,8 @@ pub(crate) fn vector_index(
             // The same nearest neighbors as l2: the driver writes l2 and
             // says so (`vector::for_flavor`).
             "l2_squared" | "euclidean_squared" => "l2_squared".into(),
+            // On bits, the same order as euclidean (`vector::for_flavor`).
+            metric::HAMMING if bits => metric::HAMMING.into(),
             _ => {
                 return Err(format!(
                     "{family} no tiene la distancia «{m}» (cosine, l2 o ip)"
@@ -310,9 +328,9 @@ impl Dialect for Mongo {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
-        vector_index(v, "MongoDB")
+        vector_index(v, column, "MongoDB")
     }
 
     fn caps(&self) -> Caps {
@@ -641,6 +659,91 @@ mod tests {
         assert_eq!(
             mongo.vector_index(&sq, None).unwrap().1.metric.as_deref(),
             Some("l2_squared")
+        );
+        // The column it searches: every kind needs the dimension, and
+        // hamming goes on only over bits.
+        let col = |dims, element| L::Vector {
+            dims,
+            element,
+            sparse: false,
+        };
+        let no_dims = col(None, E::F32);
+        let why = mongo.vector_index(&hnsw, Some(&no_dims)).unwrap_err();
+        assert!(why.contains("no tiene dimensión"), "{why}");
+        let hamming = VectorIndex {
+            metric: Some("hamming".into()),
+            ..Default::default()
+        };
+        let bits = col(Some(8), E::Bit);
+        assert_eq!(
+            mongo
+                .vector_index(&hamming, Some(&bits))
+                .unwrap()
+                .1
+                .metric
+                .as_deref(),
+            Some("hamming")
+        );
+        assert!(mongo.vector_index(&hamming, Some(&lt)).is_err());
+        assert!(mongo.vector_index(&hamming, None).is_err());
+        let jaccard = VectorIndex {
+            metric: Some("jaccard".into()),
+            ..Default::default()
+        };
+        assert!(mongo.vector_index(&jaccard, Some(&bits)).is_err());
+    }
+
+    #[test]
+    fn oracle_binary_vectors_and_their_hamming_index_become_mongodb_ones() {
+        use dbine_driver::{ColumnDef, IndexDef, TableSchema, VectorIndex};
+        let table = |data_type: &str| TableSchema {
+            name: "DOCS".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "ID".into(),
+                    data_type: "NUMBER(10)".into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "EMB".into(),
+                    data_type: data_type.into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            indexes: vec![IndexDef {
+                name: "EMB_VIX".into(),
+                columns: vec!["EMB".into()],
+                vector: Some(VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some("hamming".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let opts = crate::convert::Options::default();
+        let c = crate::convert::convert(&[table("VECTOR(16, BINARY)")], "oracle", "mongodb", &opts)
+            .unwrap();
+        let t = &c.tables[0];
+        assert_eq!(t.columns[1].data_type, "vector(16, bit)");
+        let ix = &t.indexes[0];
+        assert_eq!(
+            ix.vector.as_ref().unwrap().metric.as_deref(),
+            Some("hamming")
+        );
+        // A vector of any dimension: the index can't say its dimension.
+        let c = crate::convert::convert(&[table("VECTOR(*, FLOAT32)")], "oracle", "mongodb", &opts)
+            .unwrap();
+        assert!(c.tables[0].indexes.is_empty(), "{:?}", c.tables[0].indexes);
+        assert!(
+            c.issues
+                .iter()
+                .any(|i| i.code == crate::issue::IssueCode::IndexDropped
+                    && i.message.contains("no tiene dimensión")),
+            "{:?}",
+            c.issues
         );
     }
 
