@@ -40,7 +40,12 @@ const left: DbModel & { warnings: string[] } = {
     table('auditoria', [col('id', 'bigint', false), col('evento', 'text')]),
     // A vector index (pgvector) whose distance and parameters differ.
     table('documentos', [col('id', 'bigint', false), col('contenido', 'text'), col('embedding', 'vector(1536)')], {
-      indexes: [{ ...ix('documentos_embedding_idx', ['embedding']), kind: 'hnsw', vector: { algorithm: 'hnsw', metric: 'cosine', params: { m: '16', ef_construction: '64' } } }],
+      indexes: [{
+        ...ix('documentos_embedding_idx', ['embedding']), kind: 'hnsw',
+        // As the PostgreSQL driver reads it: the index's DDL body in `options`.
+        options: { vector: 'USING hnsw (embedding vector_cosine_ops) WITH (m=16, ef_construction=64)' },
+        vector: { algorithm: 'hnsw', metric: 'cosine', params: { m: '16', ef_construction: '64' } },
+      }],
     }),
   ],
   objects: [
@@ -65,7 +70,11 @@ const right: DbModel & { warnings: string[] } = {
     table('productos', [col('id', 'integer', false), col('nombre', 'text')]),
     table('tmp_import', [col('id', 'integer', false), col('payload', 'jsonb')]),
     table('documentos', [col('id', 'bigint', false), col('contenido', 'text'), col('embedding', 'vector(1536)')], {
-      indexes: [{ ...ix('documentos_embedding_idx', ['embedding']), kind: 'hnsw', vector: { algorithm: 'hnsw', metric: 'l2', params: { m: '32', ef_construction: '64' } } }],
+      indexes: [{
+        ...ix('documentos_embedding_idx', ['embedding']), kind: 'hnsw',
+        options: { vector: 'USING hnsw (embedding vector_l2_ops) WITH (m=32, ef_construction=64)' },
+        vector: { algorithm: 'hnsw', metric: 'l2', params: { m: '32', ef_construction: '64' } },
+      }],
     }),
   ],
   objects: [
@@ -95,8 +104,11 @@ function ids(section: Section, x: Item): [string, string] {
   return [lc((x as CheckDef).name), (x as CheckDef).expression.replace(/[\s()]/g, '').toLowerCase()];
 }
 const FIELD: Record<string, string> = { data_type: 'type', default_value: 'default' };
+// &vecbackend=1: like the real compare (dbine-schema), which doesn't list
+// an index's `vector` among the fields that differ (only its options).
+const skipVector = !!new URLSearchParams(location.search).get('vecbackend');
 function fieldsOf(a: object, b: object): string[] {
-  const keys = new Set([...Object.keys(a), ...Object.keys(b)].filter((k) => k !== 'name'));
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)].filter((k) => k !== 'name' && !(skipVector && k === 'vector')));
   return [...keys].filter((k) => sj((a as Record<string, unknown>)[k]) !== sj((b as Record<string, unknown>)[k])).map((k) => FIELD[k] ?? k);
 }
 function pairItems(section: Section, a: Item[], b: Item[]): ItemDiff[] {
