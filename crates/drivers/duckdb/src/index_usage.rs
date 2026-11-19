@@ -44,6 +44,7 @@ pub fn report(t: Option<&TableSchema>) -> IndexUsageReport {
         unique: ix.unique,
         key_columns: ix.columns.clone(),
         filter: ix.filter.clone(),
+        vector: ix.vector.clone(),
         ..Default::default()
     }));
     IndexUsageReport {
@@ -103,6 +104,33 @@ mod tests {
             .iter()
             .all(|i| i.kind == "ART" && !i.unused && i.read_share.is_none()));
         assert_eq!(r.foreign_keys, t.foreign_keys);
+        assert!(r.indexes.iter().all(|i| i.vector.is_none()));
         assert!(report(None).indexes.is_empty());
+    }
+
+    /// vss's HNSW index keeps its kind and carries its settings.
+    #[test]
+    fn hnsw_indexes_carry_their_settings() {
+        let v = dbine_driver::VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("cosine".into()),
+            params: [("m".to_string(), "8".to_string())].into(),
+        };
+        let t = TableSchema {
+            name: "t".into(),
+            indexes: vec![IndexDef {
+                name: "ix_emb".into(),
+                columns: vec!["emb".into()],
+                kind: Some("HNSW".into()),
+                vector: Some(v.clone()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let r = report(Some(&t));
+        assert_eq!(
+            (r.indexes[0].kind.as_str(), r.indexes[0].vector.as_ref()),
+            ("HNSW", Some(&v))
+        );
     }
 }

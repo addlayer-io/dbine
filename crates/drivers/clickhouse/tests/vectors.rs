@@ -335,6 +335,14 @@ async fn vectors_end_to_end() {
             );
             assert_eq!(e.vector, schema(&db, "t").indexes[0].vector);
             assert_eq!(ix("wide_ix").vector, schema(&db, "t").indexes[1].vector);
+            // The Índices view: the same settings, next to the skip
+            // index's size.
+            let usage = sd.index_usage(&table(&db, "t")).await.unwrap().unwrap();
+            let u = usage.indexes.iter().find(|u| u.name == "emb_ix").unwrap();
+            assert_eq!(
+                (u.kind.as_str(), &u.vector),
+                ("VECTOR_SIMILARITY", &schema(&db, "t").indexes[0].vector)
+            );
             // The whole type in the options too, for the schema compare.
             assert_eq!(
                 e.options.get("type").map(String::as_str),
