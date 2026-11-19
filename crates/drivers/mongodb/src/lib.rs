@@ -83,6 +83,7 @@ mod stats;
 mod steps;
 mod sync;
 mod transfer;
+mod vector;
 
 use dbine_driver::async_trait;
 use dbine_driver::{
@@ -518,6 +519,11 @@ impl Driver for MongoDriver {
                 "este motor no deshabilita índices".into(),
             ));
         }
+        if index.kind.starts_with("VECTOR SEARCH") {
+            return Err(dbine_driver::Error::Unsupported(
+                "un índice de búsqueda vectorial no se deshabilita: se borra o se cambia".into(),
+            ));
+        }
         index_usage::toggle_script(table, index, enable)
     }
 
@@ -562,7 +568,9 @@ impl Driver for MongoDriver {
             database_properties: true,
             jobs: false,
             scheduler: false,
-            vectors: false,
+            // Atlas Vector Search / mongot, DocumentDB and FerretDB vector
+            // indexes, BinData vectors (see `vector`).
+            vectors: true,
         }
     }
 
@@ -576,7 +584,7 @@ impl Driver for MongoDriver {
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
-        Some(ddl::designer())
+        Some(ddl::designer(self.flavor))
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
@@ -587,15 +595,40 @@ impl Driver for MongoDriver {
         true
     }
 
+    /// Vector indexes in this server's kind (see `vector::for_flavor`).
     fn sync_script(
         &self,
         changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
-        sync::sync_script(changes)
+        use dbine_driver::TableChange as C;
+        let mut warnings = Vec::new();
+        let mut native = |t: &TableSchema| {
+            let (t, w) = vector::for_flavor(t, self.flavor);
+            warnings.extend(w);
+            t
+        };
+        let changes: Vec<C> = changes
+            .iter()
+            .map(|c| match c {
+                C::Create { table } => C::Create {
+                    table: native(table),
+                },
+                C::Drop { table } => C::Drop {
+                    table: table.clone(),
+                },
+                C::Alter { old, new } => C::Alter {
+                    old: old.clone(),
+                    new: native(new),
+                },
+            })
+            .collect();
+        let mut s = sync::sync_script(&changes)?;
+        s.warnings.extend(warnings);
+        Ok(s)
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
-        ddl::table_ddl(table, parts)
+        ddl::table_ddl(&vector::for_flavor(table, self.flavor).0, parts)
     }
 
     /// Collections with `renameCollection`, views dropped and created,
@@ -633,7 +666,8 @@ impl Driver for MongoDriver {
         target: &ObjectRef,
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
-        ddl::update_script(target, changes)
+        // DocumentDB indexes arrays only (no BinData vectors).
+        ddl::update_script(target, changes, self.flavor != Flavor::DocumentDb)
     }
 
     fn delete_script(
@@ -701,6 +735,8 @@ impl Driver for MongoDriver {
             flavor: self.flavor,
             profiler: None,
             interrupted: Arc::default(),
+            vectors: Default::default(),
+            no_search: AtomicBool::new(self.flavor != Flavor::Mongo),
         }))
     }
 }
@@ -719,6 +755,12 @@ pub struct MongoSession {
     /// into a cancel and runs nothing more, even on a run that continues
     /// on errors.
     interrupted: Arc<AtomicBool>,
+    /// The vector fields of the collections results came from, for a while
+    /// (see `vector::Cache`).
+    vectors: vector::Cache,
+    /// The server has no search indexes (`$listSearchIndexes` failed, or
+    /// FerretDB / DocumentDB): they aren't asked for again.
+    no_search: AtomicBool,
 }
 
 impl MongoSession {
@@ -854,6 +896,15 @@ impl MongoSession {
                 return Ok(());
             }
         }
+        // The collection a find / aggregate reads (its vector fields mark
+        // the result's columns); any other statement may change indexes.
+        let source = match cmd.iter().next() {
+            Some((k, Bson::String(c))) if k == "find" || k == "aggregate" => Some(c.clone()),
+            _ => {
+                self.vectors.clear();
+                None
+            }
+        };
         match stmt.shape {
             Shape::Cursor | Shape::CountAgg => {
                 let first = cmd.keys().next().cloned().unwrap_or_default();
@@ -877,7 +928,8 @@ impl MongoSession {
                     }
                     docs.push(d);
                 }
-                push_docs(out, &docs, max_rows);
+                let metas = self.result_vectors(&db, source.as_deref(), &docs).await;
+                push_docs_with(out, &docs, max_rows, &metas);
                 if more {
                     let r = out.results.last_mut().expect("a result set");
                     r.truncated = true;
@@ -1019,20 +1071,37 @@ fn scalar(out: &mut QueryOutcome, name: &str, v: &Bson) -> Result<()> {
 
 /// One row per document, columns = the union of their keys.
 fn push_docs(out: &mut QueryOutcome, docs: &[Document], max_rows: usize) {
+    push_docs_with(out, docs, max_rows, &Default::default());
+}
+
+/// [`push_docs`] with the vector columns marked: their cells are the
+/// vector's numbers as text, whole (an array or a BinData vector alike).
+fn push_docs_with(
+    out: &mut QueryOutcome,
+    docs: &[Document],
+    max_rows: usize,
+    vectors: &std::collections::HashMap<String, dbine_driver::VectorMeta>,
+) {
     let keys = convert::union_keys(docs);
     out.begin_result(
         keys.iter()
-            .map(|k| ResultColumn {
-                name: k.clone(),
-                type_name: String::new(),
-                vector: None,
+            .map(|k| match vectors.get(k) {
+                Some(m) => ResultColumn::new(k.clone(), vector::type_name(m.dims, m.element))
+                    .with_vector(m.clone()),
+                None => ResultColumn::new(k.clone(), ""),
             })
             .collect(),
     );
     for d in docs {
         out.push_row(
             keys.iter()
-                .map(|k| d.get(k).map_or(serde_json::Value::Null, convert::cell))
+                .map(|k| match d.get(k) {
+                    None => serde_json::Value::Null,
+                    Some(v) if vectors.contains_key(k) => vector::text_of(v)
+                        .map(serde_json::Value::String)
+                        .unwrap_or_else(|| convert::cell(v)),
+                    Some(v) => convert::cell(v),
+                })
                 .collect(),
             max_rows,
         );
@@ -1284,6 +1353,10 @@ impl Session for MongoSession {
         {
             spec.insert("indexes", ix);
         }
+        let search = self.search_indexes(&self.db, &obj.name).await;
+        if !search.is_empty() {
+            spec.insert("searchIndexes", search);
+        }
         let v = Bson::Document(spec).into_relaxed_extjson();
         Ok(Some(serde_json::to_string_pretty(&v)?))
     }
@@ -1436,14 +1509,17 @@ impl Session for MongoSession {
                     ..Default::default()
                 })
                 .collect();
-            let indexes = if view {
-                Vec::new()
+            let (indexes, search) = if view {
+                (Vec::new(), Vec::new())
             } else {
-                self.first_batch(doc! { "listIndexes": name }, usize::MAX)
-                    .await
-                    .unwrap_or_default()
+                (
+                    self.first_batch(doc! { "listIndexes": name }, usize::MAX)
+                        .await
+                        .unwrap_or_default(),
+                    self.search_indexes(&self.db, name).await,
+                )
             };
-            out.push(ddl::table_schema(&info, columns, &indexes));
+            out.push(ddl::table_schema_with(&info, columns, &indexes, &search));
         }
         out.sort_by_key(|a| a.name.to_lowercase());
         Ok(out)

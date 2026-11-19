@@ -537,6 +537,32 @@ pub fn index_name(keys: &Document) -> String {
 
 /// One `createIndexes` entry: key, name (the shell's default when absent)
 /// and the options.
+/// A search index as `createSearchIndexes` takes it, from mongosh's
+/// arguments: `{ name, type, definition }`, `(name, definition)` or
+/// `(name, type, definition)`; a bare definition is named `default`.
+fn search_index_spec(args: Vec<Value>) -> R<Document> {
+    let mut a = args.into_iter();
+    let spec = match (a.next(), a.next(), a.next()) {
+        (Some(Value::Object(m)), None, None) if m.contains_key("definition") => {
+            to_doc(Value::Object(m))?
+        }
+        (Some(def @ Value::Object(_)), None, None) => {
+            doc! { "name": "default", "definition": to_doc(def)? }
+        }
+        (Some(Value::String(name)), Some(def @ Value::Object(_)), None) => {
+            doc! { "name": name, "definition": to_doc(def)? }
+        }
+        (Some(Value::String(name)), Some(Value::String(t)), Some(def @ Value::Object(_))) => {
+            doc! { "name": name, "type": t, "definition": to_doc(def)? }
+        }
+        _ => return Err(
+            "createSearchIndex espera { name, type, definition } o (nombre, [tipo,] definición)"
+                .into(),
+        ),
+    };
+    Ok(spec)
+}
+
 fn index_spec(keys: Value, opts: Option<&Document>) -> R<Document> {
     let key = to_doc(keys)?;
     if key.is_empty() {
@@ -1300,6 +1326,58 @@ fn coll_method(coll: &str, method: &str, args: Vec<Value>) -> R<Stmt> {
                 Some(v) => to_bson(v)?,
             };
             stmt(doc! { "dropIndexes": coll, "index": index }, Shape::Reply)
+        }
+        // Search indexes (Atlas Search / Vector Search, mongot):
+        // createSearchIndex({ name, type, definition }) or (name[, type],
+        // definition), createSearchIndexes([…]), getSearchIndexes([name]),
+        // updateSearchIndex(name, definition), dropSearchIndex(name).
+        "createSearchIndex" => {
+            let spec = search_index_spec(a.collect())?;
+            stmt(
+                doc! { "createSearchIndexes": coll, "indexes": [spec] },
+                Shape::Reply,
+            )
+        }
+        "createSearchIndexes" => {
+            let Some(Value::Array(all)) = a.next() else {
+                return Err("createSearchIndexes espera un array de índices".into());
+            };
+            let specs: Vec<Bson> = all
+                .into_iter()
+                .map(|x| search_index_spec(vec![x]).map(Bson::Document))
+                .collect::<R<_>>()?;
+            stmt(
+                doc! { "createSearchIndexes": coll, "indexes": specs },
+                Shape::Reply,
+            )
+        }
+        "getSearchIndexes" => {
+            let mut stage = Document::new();
+            if let Some(Value::String(n)) = a.next() {
+                stage.insert("name", n);
+            }
+            stmt(
+                doc! { "aggregate": coll, "pipeline": [{ "$listSearchIndexes": stage }], "cursor": {} },
+                Shape::Cursor,
+            )
+        }
+        "updateSearchIndex" => {
+            let Some(Value::String(name)) = a.next() else {
+                return Err("updateSearchIndex necesita el nombre del índice".into());
+            };
+            let Some(def) = a.next() else {
+                return Err("updateSearchIndex necesita la definición del índice".into());
+            };
+            stmt(
+                doc! { "updateSearchIndex": coll, "name": name, "definition": to_doc(def)? },
+                Shape::Reply,
+            )
+        }
+        "dropSearchIndex" => {
+            let Some(Value::String(name)) = a.next() else {
+                return Err("dropSearchIndex necesita el nombre del índice".into());
+            };
+            stmt(doc! { "dropSearchIndex": coll, "name": name }, Shape::Reply)
         }
         // db.c.hideIndex(name | keys) / unhideIndex(…): `collMod` (MongoDB 4.4+).
         "hideIndex" | "unhideIndex" => {
