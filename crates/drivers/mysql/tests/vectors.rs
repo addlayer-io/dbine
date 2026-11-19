@@ -96,6 +96,24 @@ impl BatchSink for Collect {
     }
 }
 
+/// An export's rows.
+#[derive(Default)]
+struct Rows {
+    columns: Vec<dbine_driver::ResultColumn>,
+    rows: Vec<Vec<Value>>,
+}
+
+impl dbine_driver::RowSink for Rows {
+    fn begin(&mut self, _index: usize, columns: &[dbine_driver::ResultColumn]) -> io::Result<()> {
+        self.columns = columns.to_vec();
+        Ok(())
+    }
+    fn row(&mut self, _index: usize, row: &[Value]) -> io::Result<()> {
+        self.rows.push(row.to_vec());
+        Ok(())
+    }
+}
+
 struct Source(VecDeque<RowBatch>);
 
 #[dbine_driver::async_trait]
@@ -451,6 +469,31 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         cells.sort_by(|a, b| a.0.cmp(&b.0));
         let cells: Vec<Value> = cells.into_iter().map(|(_, v)| v).collect();
         assert_eq!(cells, expect.map(|e| json!(e)), "{sql}");
+    }
+
+    // 3b. An export (rows to a sink, none kept): the header and the cells
+    // the same, on a fresh session that never looked the table up.
+    {
+        let mut fresh = d.connect(&cfg, db).await.expect("connect");
+        let sink = Arc::new(Mutex::new(Rows::default()));
+        let mut out = QueryOutcome {
+            sink: Some(dbine_driver::RowSinkRef(sink.clone())),
+            ..Default::default()
+        };
+        let sql = fresh.browse_query(&table("vec_items"), 100);
+        fresh.execute(&sql, 100, &mut out).await.expect("export");
+        let got = std::mem::take(&mut *sink.lock().unwrap());
+        let vi = got.columns.iter().position(|c| c.name == "v").unwrap();
+        assert!(got.columns[vi].vector.is_some(), "{:?}", got.columns[vi]);
+        let mut cells: Vec<String> = got
+            .rows
+            .iter()
+            .map(|r| r[vi].as_str().unwrap_or("").to_string())
+            .collect();
+        cells.sort();
+        let mut want: Vec<String> = expect.iter().map(|e| e.to_string()).collect();
+        want.sort();
+        assert_eq!(cells, want);
     }
 
     // 4. The describe keeps the type with its dimension; 5. the index, its

@@ -1174,10 +1174,13 @@ pub(crate) fn columns_query(schema_literal: &str) -> String {
 /// A statement that may change a table's columns: what the session saw
 /// is looked up again.
 pub(crate) fn may_change_columns(sql: &str) -> bool {
-    let l = sql.to_ascii_lowercase();
-    ["create", "alter", "drop", "rename"]
-        .iter()
-        .any(|w| l.contains(w))
+    sql.split(';').any(|st| {
+        st.split_whitespace().next().is_some_and(|w| {
+            ["create", "alter", "drop", "rename"]
+                .iter()
+                .any(|k| w.eq_ignore_ascii_case(k))
+        })
+    })
 }
 
 #[cfg(test)]
@@ -1610,6 +1613,8 @@ mod tests {
         assert_eq!(s.known("db", "t", "v"), Known::Unknown);
         assert!(may_change_columns("ALTER TABLE t ADD v vector(3)"));
         assert!(!may_change_columns("SELECT * FROM t"));
+        assert!(!may_change_columns("SELECT created_at, dropped FROM t"));
+        assert!(may_change_columns("SELECT 1; drop table t"));
         assert!(
             looked_up(Variant::MariaDb)
                 && looked_up(Variant::TiDb)

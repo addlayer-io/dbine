@@ -690,7 +690,16 @@ async fn read_results<P: mysql_async::prelude::Protocol>(
                 }
                 out.begin_result(header);
             }
-            while let Some(row) = result.next().await.map_err(|e| stmt_err(sql, e))? {
+            loop {
+                let row = match result.next().await {
+                    Ok(Some(row)) => row,
+                    Ok(None) => break,
+                    Err(e) => {
+                        // What came is still shown: binary cells as bytes.
+                        settle_unknown(out, pending, |_, _, _| None);
+                        return Err(stmt_err(sql, e));
+                    }
+                };
                 let cols = row.columns();
                 let at = out.results.last().map_or(0, |r| r.rows.len());
                 let stored = kept && at < max_rows;
@@ -2090,11 +2099,15 @@ impl Session for MySqlSession {
             self.vector_columns.clear();
         }
         if out.sink.is_some() && crate::vectors::looked_up(self.variant) {
-            // An export's rows aren't kept to settle later: the database's
-            // vector columns are known before they come.
-            if let Some(db) = self.current_database().await {
-                if !self.vector_columns.fresh(&db) {
-                    self.look_up_vectors(&db).await;
+            // An export's rows aren't kept to settle later: the vector
+            // columns of what it reads are known before they come.
+            let schema = match self.table_of(sql) {
+                Some((schema, _)) => Some(schema),
+                None => self.current_database().await,
+            };
+            if let Some(schema) = schema {
+                if !self.vector_columns.fresh(&schema) {
+                    self.look_up_vectors(&schema).await;
                 }
             }
         }
