@@ -6,7 +6,7 @@ use dbine_driver::{Buckets, Cell, DeltaResult, Error};
 use dbine_transfer::{
     CopyPath, CopyStats, Engine, Event, Phase, RunOptions, RunReport, Store, TableStatus,
 };
-use fake::{delta_job, state_path, Events, Fake, FakeEndpoints, Fault};
+use fake::{delta_job, state_path, Events, Fake, FakeEndpoints, Fault, StateFile};
 use std::sync::Arc;
 
 fn opts() -> RunOptions {
@@ -17,7 +17,9 @@ fn opts() -> RunOptions {
     }
 }
 
-fn store(tag: &str) -> (Arc<Store>, std::path::PathBuf) {
+/// A run's store on a fresh state file; the file goes when the returned
+/// guard is dropped, so bind it until the test ends.
+fn store(tag: &str) -> (Arc<Store>, StateFile) {
     let p = state_path(tag);
     (Arc::new(Store::open(&p).unwrap()), p)
 }
@@ -100,7 +102,7 @@ async fn nothing_changed_nothing_applied() {
     let fake = Arc::new(Fake::default());
     fake.table("t", 10_000);
     fake.same_on_target("t");
-    let (st, _) = store("delta-same");
+    let (st, _state) = store("delta-same");
     let ev = Events::default();
     let report = Engine::new(st.clone(), "r")
         .run(
@@ -170,7 +172,7 @@ async fn changes_on_either_side_are_fixed_by_range() {
     add(&fake.target, "t", 50_000, "only on the target");
     add(&fake.target, "t", -3, "only on the target");
 
-    let (st, _) = store("delta-range");
+    let (st, _state) = store("delta-range");
     let ev = Events::default();
     // "Vaciar y copiar" means nothing to a sync: it's never emptied.
     let mut j = delta_job("t", "id", Some(10_000));
@@ -223,7 +225,7 @@ async fn text_key_uses_prime_hash_buckets() {
         .unwrap()[0] = Cell::Int(99_999);
     add(&fake.target, "t", 123_456, "extra");
 
-    let (st, _) = store("delta-hash");
+    let (st, _state) = store("delta-hash");
     let ev = Events::default();
     let report = Engine::new(st, "r")
         .run(
@@ -257,7 +259,7 @@ async fn many_changed_buckets_apply_the_whole_table() {
     for i in 0..7 {
         rename(&fake.target, "t", i * 1_000, "stale");
     }
-    let (st, _) = store("delta-whole");
+    let (st, _state) = store("delta-whole");
     let ev = Events::default();
     Engine::new(st, "r")
         .run(
@@ -330,7 +332,7 @@ async fn a_transient_failure_is_retried_without_emptying() {
         error: || Error::Connect("connection reset".into()),
         times: 1,
     });
-    let (st, _) = store("delta-retry");
+    let (st, _state) = store("delta-retry");
     let ev = Events::default();
     let report = Engine::new(st.clone(), "r")
         .run(
@@ -355,7 +357,7 @@ async fn unsupported_or_different_engines_fail_clearly() {
         ..Default::default()
     });
     fake.table("t", 100);
-    let (st, _) = store("delta-unsupported");
+    let (st, _state) = store("delta-unsupported");
     let report = Engine::new(st, "r")
         .run(
             vec![delta_job("t", "id", None)],
@@ -378,7 +380,7 @@ async fn unsupported_or_different_engines_fail_clearly() {
         ..Default::default()
     });
     fake.table("t", 100);
-    let (st, _) = store("delta-other");
+    let (st, _state) = store("delta-other");
     let report = Engine::new(st, "r")
         .run(
             vec![delta_job("t", "id", None)],

@@ -804,18 +804,48 @@ impl Events {
     }
 }
 
-/// A fresh state file.
-pub fn state_path(tag: &str) -> std::path::PathBuf {
+/// A test's state file (and its WAL files): removed when it's dropped, at
+/// the end of the test, passed or not.
+pub struct StateFile(std::path::PathBuf);
+
+impl StateFile {
+    fn remove(&self) {
+        for ext in ["", "-wal", "-shm", "-journal"] {
+            let _ = std::fs::remove_file(format!("{}{ext}", self.0.display()));
+        }
+    }
+}
+
+impl Drop for StateFile {
+    fn drop(&mut self) {
+        self.remove();
+    }
+}
+
+impl std::ops::Deref for StateFile {
+    type Target = std::path::Path;
+    fn deref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl AsRef<std::path::Path> for StateFile {
+    fn as_ref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+/// A fresh state file, removed when the returned guard is dropped (keep it
+/// bound until the test ends: `let (st, _state) = store(…)`).
+pub fn state_path(tag: &str) -> StateFile {
     static N: AtomicUsize = AtomicUsize::new(0);
-    let p = std::env::temp_dir().join(format!(
+    let f = StateFile(std::env::temp_dir().join(format!(
         "dbine-transfer-{tag}-{}-{}.sqlite",
         std::process::id(),
         N.fetch_add(1, Ordering::SeqCst)
-    ));
-    for ext in ["", "-wal", "-shm"] {
-        let _ = std::fs::remove_file(format!("{}{ext}", p.display()));
-    }
-    p
+    )));
+    f.remove();
+    f
 }
 
 /// Wait (up to 10 s) until `cond` holds.
