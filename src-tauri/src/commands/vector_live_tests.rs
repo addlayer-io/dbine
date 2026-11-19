@@ -1235,6 +1235,196 @@ async fn app_paths(e: Engine) {
     .await;
 }
 
+// ---------------------------------------------------------------------------
+// Typed scripts (round 2): the grid's copy and save send the result's
+// columns with their types, as the web does, and a data compare's sync
+// types its target's columns from the describe. pgvector's `halfvec`,
+// `sparsevec` and `vector` columns get their values exactly.
+
+/// The rows of `table` with every vector column as its text.
+async fn typed_rows(s: &mut dyn Session, table: &str) -> Res<Vec<Vec<String>>> {
+    let r = first(
+        exec(
+            s,
+            &format!("SELECT id, h::text, sp::text, v::text FROM {table} ORDER BY id"),
+        )
+        .await?,
+    );
+    Ok(r.rows
+        .iter()
+        .map(|row| row.iter().map(text).collect())
+        .collect())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs dbine-test-pgvector"]
+async fn vector_live_typed_scripts_pgvector() {
+    use crate::commands::schema::{
+        insert_script_with, update_script_with, InsertScriptArgs, UpdateScriptArgs,
+    };
+    with_pgvector_db("dbine_e2e_vecapp_typed", |cfg| async move {
+        let t = test_state("typed", &cfg)?;
+        let state = &t.state;
+        let mut s = open(&cfg).await?;
+        for name in ["typed", "typed2"] {
+            exec(
+                s.as_mut(),
+                &format!(
+                    "CREATE TABLE {name} (id int PRIMARY KEY, h halfvec(3), sp sparsevec(5), v vector(3))"
+                ),
+            )
+            .await?;
+        }
+        // The result's columns as the grid has them: the driver's marks.
+        let cols = first(exec(s.as_mut(), "SELECT * FROM typed").await?).columns;
+        let marked: Vec<(&str, bool)> = cols
+            .iter()
+            .map(|c| (c.name.as_str(), c.vector.as_ref().is_some_and(|m| !m.sparse)))
+            .collect();
+        check!(
+            marked == [("id", false), ("h", true), ("sp", false), ("v", true)],
+            "{cols:?}"
+        );
+        let types = serde_json::to_value(&cols).map_err(|e| e.to_string())?;
+        let target = json!({ "kind": "table", "schema": "public", "name": "typed" });
+
+        // "Copiar como SQL INSERTs", as ResultsPane sends it: dense vectors
+        // as arrays, the sparse one as its text, and the columns' types.
+        let args: InsertScriptArgs = serde_json::from_value(json!({
+            "connection_id": "c",
+            "target": target,
+            "columns": ["id", "h", "sp", "v"],
+            "rows": [
+                [1, [0.5, -1, 2], "{1:0.5,3:2}/5", [0.1, 0.2, 0.3]],
+                [2, null, null, [1, 2, 3]],
+            ],
+            "types": types,
+        }))
+        .map_err(|e| e.to_string())?;
+        let sql = insert_script_with(state, &args).map_err(|e| e.to_string())?;
+        exec(s.as_mut(), &sql).await?;
+        let got = typed_rows(s.as_mut(), "typed").await?;
+        check!(
+            got == [
+                ["1", "[0.5,-1,2]", "{1:0.5,3:2}/5", "[0.1,0.2,0.3]"],
+                ["2", "null", "null", "[1,2,3]"],
+            ],
+            "{got:?}\n{sql}"
+        );
+
+        // "Guardar" in the grid: an edit, a deleted row and a new row in one
+        // script, typed by the result's columns.
+        let args: UpdateScriptArgs = serde_json::from_value(json!({
+            "connection_id": "c",
+            "target": target,
+            "changes": [{
+                "key": [["id", 1]],
+                "set": [["h", [1, 2, 3]], ["v", [0.25, 0.5, 1]]],
+                "row": [],
+            }],
+            "deletes": [[["id", 2]]],
+            "inserts": [[["id", 3], ["h", [3, 2, 1]], ["sp", "{2:1}/5"], ["v", [3, 2, 1]]]],
+            "identity": [],
+            "types": types,
+        }))
+        .map_err(|e| e.to_string())?;
+        let sql = update_script_with(state, &args).map_err(|e| e.to_string())?;
+        exec(s.as_mut(), &sql).await?;
+        let got = typed_rows(s.as_mut(), "typed").await?;
+        let want = [
+            ["1", "[1,2,3]", "{1:0.5,3:2}/5", "[0.25,0.5,1]"],
+            ["3", "[3,2,1]", "{2:1}/5", "[3,2,1]"],
+        ];
+        check!(got == want, "{got:?}\n{sql}");
+
+        // A data compare into another table: its sync script is typed by
+        // the target's describe, and the screen gets each column's vectors.
+        exec(
+            s.as_mut(),
+            "INSERT INTO typed2 VALUES (1, '[1,2,3]', '{1:0.5,3:2}/5', '[0.25,0.5,1]'), \
+             (3, '[3,2,0]', '{2:1}/5', '[3,2,1]'), (4, '[1,1,1]', NULL, '[4,4,4]')",
+        )
+        .await?;
+        let side = |name: &str| data_compare::Side {
+            connection_id: "c".into(),
+            database: cfg.database.clone(),
+            object: table(Some("public"), name),
+        };
+        let compare = || async {
+            let opts = whole::Options {
+                in_memory_rows: 1_000,
+                in_memory_bytes: 1 << 20,
+                max_diff_rows: 1_000,
+                max_equal_rows: 0,
+                scratch: None,
+                duckdb: None,
+            };
+            data_compare::compare_sides(
+                state,
+                data_compare::DataCompareArgs {
+                    left: side("typed"),
+                    right: side("typed2"),
+                    key: Vec::new(),
+                    columns: Vec::new(),
+                    run: String::new(),
+                    equal: false,
+                },
+                "vecapp-typed",
+                &Arc::new(whole::Ctl::default()),
+                &opts,
+                &|_| {},
+            )
+            .await
+            .map_err(|err| format!("data compare: {err}"))
+        };
+        let r = compare().await?;
+        check!(
+            (r.counts.same, r.counts.changed, r.counts.only_right) == (1, 1, 1),
+            "{:?}",
+            r.counts
+        );
+        let shown: Vec<Option<(Option<u32>, bool)>> = r
+            .vectors
+            .iter()
+            .map(|m| m.as_ref().map(|m| (m.dims, m.sparse)))
+            .collect();
+        check!(
+            shown == [None, Some((Some(3), false)), Some((Some(5), true)), Some((Some(3), false))],
+            "{shown:?}"
+        );
+        let to_right = || data_compare::Pick {
+            all: data_compare::Dir::Right,
+            rows: Vec::new(),
+        };
+        let scripts = data_compare::scripts_for(
+            state,
+            &data_compare::DataScriptArgs {
+                id: r.id.clone(),
+                choices: data_compare::Choices {
+                    changed: to_right(),
+                    only_right: to_right(),
+                    only_left: Default::default(),
+                },
+            },
+        )
+        .map_err(|err| format!("sync script: {err}"))?;
+        check!(scripts.len() == 1, "{} scripts", scripts.len());
+        exec(s.as_mut(), &scripts[0].script).await?;
+        let r = compare().await?;
+        check!(
+            (r.counts.same, r.counts.changed, r.counts.only_right) == (2, 0, 0),
+            "after the sync: {:?}\n{}",
+            r.counts,
+            scripts[0].script
+        );
+        let got = typed_rows(s.as_mut(), "typed2").await?;
+        check!(got == want, "{got:?}");
+        drop(s);
+        Ok(())
+    })
+    .await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs dbine-test-pgvector"]
 async fn vector_live_app_paths_pgvector() {

@@ -84,8 +84,16 @@ pub async fn insert_script(
     state: State<'_, AppState>,
     args: InsertScriptArgs,
 ) -> CommandResult<String> {
+    insert_script_with(&state, &args)
+}
+
+/// [`insert_script`]'s work.
+pub(crate) fn insert_script_with(
+    state: &AppState,
+    args: &InsertScriptArgs,
+) -> CommandResult<String> {
     Ok(typed_scripts::insert(
-        driver_of(&state, &args.connection_id)?.as_ref(),
+        driver_of(state, &args.connection_id)?.as_ref(),
         &args.target,
         &args.columns,
         &args.types,
@@ -136,7 +144,15 @@ pub async fn update_script(
     state: State<'_, AppState>,
     args: UpdateScriptArgs,
 ) -> CommandResult<String> {
-    let driver = driver_of(&state, &args.connection_id)?;
+    update_script_with(&state, &args)
+}
+
+/// [`update_script`]'s work.
+pub(crate) fn update_script_with(
+    state: &AppState,
+    args: &UpdateScriptArgs,
+) -> CommandResult<String> {
+    let driver = driver_of(state, &args.connection_id)?;
     let types = &args.types;
     if args.deletes.is_none() && args.inserts.is_none() {
         return Ok(typed_scripts::update(
