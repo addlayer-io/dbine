@@ -284,7 +284,8 @@ pub fn capabilities(p: &Preset) -> Capabilities {
         database_properties: crate::properties::supported(p),
         jobs: crate::jobs::supported(p),
         scheduler: crate::scheduler::supported(p),
-        vectors: false,
+        // Db2 LUW 12.1.2+'s VECTOR (see `crate::vector`).
+        vectors: eng(p) == Eng::Db2,
     }
 }
 
@@ -942,6 +943,13 @@ pub fn designer(p: &Preset) -> DesignerSpec {
             "UUID",
         ],
     };
+    let mut types = types;
+    if e == Eng::Db2 {
+        // Db2 LUW 12.1.2 and later (see `crate::vector`); no vector
+        // indexes in that release.
+        types.push("VECTOR(1536, FLOAT32)");
+        types.push("VECTOR(1536, INT8)");
+    }
     let mut d = DesignerSpec::sql_table(types);
     d.schemas = p.has_schemas;
     d.comments = flavor(p).comment_on || flavor(p).inline_comments;
@@ -1385,6 +1393,10 @@ fn hive_ddl(e: Eng, t: &TableSchema, parts: DdlParts) -> String {
 fn literal(p: &Preset, v: &Value) -> String {
     let bs = |s: &str| format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"));
     match v {
+        // Db2 LUW 12.1.2+ builds a vector from its text with VECTOR().
+        Value::Array(_) if eng(p) == Eng::Db2 => {
+            crate::vector::literal(v).unwrap_or_else(|| ddl::sql_literal(&flavor(p), v))
+        }
         Value::String(s) if backslash_strings(p) => bs(s),
         Value::Array(_) | Value::Object(_) if backslash_strings(p) => bs(&v.to_string()),
         other => ddl::sql_literal(&flavor(p), other),
@@ -2063,6 +2075,65 @@ mod tests {
             .unwrap(),
             "SELECT FIRST 200 *\nFROM \"t\"\nWHERE \"activo\" = 't'"
         );
+    }
+
+    #[test]
+    fn db2_luw_has_vectors() {
+        let db2 = preset("db2");
+        assert!(capabilities(db2).vectors);
+        assert!(designer(db2).data_types.contains(&"VECTOR(1536, FLOAT32)"));
+        assert!(
+            designer(db2).vector_indexes.is_none(),
+            "no vector indexes in 12.1.2"
+        );
+        for other in [
+            "db2i", "db2zos", "informix", "teradata", "vertica", "netezza", "exasol",
+        ] {
+            let p = preset(other);
+            assert!(!capabilities(p).vectors, "{other}");
+            assert!(
+                !designer(p)
+                    .data_types
+                    .iter()
+                    .any(|t| t.starts_with("VECTOR")),
+                "{other}"
+            );
+        }
+        let ins = insert_script(
+            db2,
+            Some("APP"),
+            "DOCS",
+            &["ID".into(), "V".into()],
+            &[vec![json!(1), json!([0.5, 1.0, -2.0])]],
+        );
+        assert_eq!(
+            ins,
+            "INSERT INTO \"APP\".\"DOCS\" (\"ID\", \"V\") VALUES\n  (1, VECTOR('[0.5,1,-2]', 3, FLOAT32));"
+        );
+        let up = update_script(
+            db2,
+            None,
+            "DOCS",
+            &[RowChange {
+                key: vec![("ID".into(), json!(1))],
+                set: vec![("V".into(), json!([1, 2]))],
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+        assert!(
+            up.contains("SET \"V\" = VECTOR('[1,2]', 2, FLOAT32) WHERE"),
+            "{up}"
+        );
+        // Elsewhere an array stays the generic literal.
+        let other = insert_script(
+            preset("db2i"),
+            None,
+            "T",
+            &["V".into()],
+            &[vec![json!([1, 2])]],
+        );
+        assert!(!other.contains("VECTOR("), "{other}");
     }
 
     #[test]

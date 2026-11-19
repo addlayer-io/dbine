@@ -35,6 +35,7 @@ mod structure;
 mod sync;
 mod tls;
 mod transfer;
+mod vector;
 
 use dbine_driver::sql::{
     leading_keyword, qualified_name, select_top, split_script, split_statements, strip_comments,
@@ -890,6 +891,10 @@ fn split(batch: Batch, text: &str) -> Vec<String> {
 /// `nvarchar(50)`, `decimal(18,2)`… from SQLColumns.
 fn format_type(name: &str, sql_type: i16, size: Option<u64>, digits: Option<u64>) -> String {
     use ffi::*;
+    // Db2's `VECTOR` / `VECTOR(FLOAT32)`, its length the dimension.
+    if let Some(t) = vector::declared(name, size) {
+        return t;
+    }
     if name.contains('(') {
         return name.to_string();
     }
@@ -1030,12 +1035,17 @@ fn run_one(
         if n > 0 {
             let cols = st.describe(n)?;
             let kinds: Vec<_> = cols.iter().map(|c| kind_of(c.sql_type)).collect();
+            // Db2's vectors come as their text: in the canonical form.
+            let vectors: Vec<bool> = cols
+                .iter()
+                .map(|c| vector::is_vector(&c.type_name))
+                .collect();
             out.begin_result(
                 cols.into_iter()
                     .map(|c| ResultColumn {
+                        vector: vector::meta(&c.type_name),
                         name: c.name,
                         type_name: c.type_name,
-                        vector: None,
                     })
                     .collect(),
             );
@@ -1044,7 +1054,13 @@ fn run_one(
                 if seen < max_rows {
                     let mut row = Vec::with_capacity(kinds.len());
                     for (i, k) in kinds.iter().enumerate() {
-                        row.push(st.cell(i as u16 + 1, *k)?);
+                        let cell = st.cell(i as u16 + 1, *k)?;
+                        row.push(match cell {
+                            serde_json::Value::String(t) if vectors[i] => {
+                                vector::canonical(t).into()
+                            }
+                            other => other,
+                        });
                     }
                     out.push_row(row, max_rows);
                 } else {
@@ -2572,6 +2588,15 @@ mod tests {
         assert_eq!(
             format_type("int", ffi::SQL_INTEGER, Some(10), Some(0)),
             "int"
+        );
+        // Db2's vectors: the length is the dimension.
+        assert_eq!(
+            format_type("VECTOR", ffi::SQL_VARCHAR, Some(3), None),
+            "VECTOR(3, FLOAT32)"
+        );
+        assert_eq!(
+            format_type("VECTOR(INT8)", -370, Some(300), None),
+            "VECTOR(300, INT8)"
         );
     }
 
