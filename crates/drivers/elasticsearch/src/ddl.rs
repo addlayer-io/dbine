@@ -16,12 +16,22 @@
 //! ([`index_schema`]) lists parents (type `object` when the mapping leaves
 //! it out) and sub-fields the same way, so both directions round-trip.
 //! Mapping parameters without a designer field of their own (multi-fields,
-//! `similarity`, `copy_to`…) travel in the column's `extra` JSON.
+//! `copy_to`…) travel in the column's `extra` JSON.
+//!
+//! Vector fields are typed with their dimension (`dense_vector(1536)`,
+//! `knn_vector(768, byte)`, the multi-vector `rank_vectors(128)`) and their
+//! ANN index is a vector index of the designer, named after the field (see
+//! [`crate::vectors`]): every other index is refused, since each field is
+//! indexed by its own mapping. A `dense_vector` without a vector index is
+//! written `index: false`, so it reads back the same. `semantic_text`
+//! takes its `inference_id` in the extra JSON.
 
 use crate::json::{Obj, J};
+use crate::vectors::{self, VecType};
+use crate::Flavor;
 use dbine_driver::{
-    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, ObjectRef,
-    Result, RowChange, TableSchema,
+    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, IndexDef,
+    ObjectRef, Result, RowChange, TableSchema,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -42,7 +52,8 @@ fn tri_field(key: &'static str, label: &'static str, help: &'static str) -> Fiel
     .help(help)
 }
 
-pub fn designer(opensearch: bool) -> DesignerSpec {
+pub(crate) fn designer(flavor: Flavor) -> DesignerSpec {
+    let opensearch = flavor.opensearch();
     let mut data_types = vec![
         "text",
         "keyword",
@@ -78,23 +89,31 @@ pub fn designer(opensearch: bool) -> DesignerSpec {
         "rank_feature",
         "percolator",
     ];
-    if opensearch {
-        data_types.extend(["flat_object", "knn_vector"]);
-    } else {
-        data_types.extend([
+    match flavor {
+        Flavor::Elastic => data_types.extend([
             "flattened",
             "constant_keyword",
-            "dense_vector",
+            "dense_vector(1536)",
+            "dense_vector(1536, byte)",
+            "dense_vector(1024, bit)",
             "sparse_vector",
+            // Elasticsearch embeds its text with the inference endpoint
+            // given as {"inference_id": …} in the extra JSON (8.15+).
+            "semantic_text",
+            // Several vectors per document, searched by MaxSim (8.18+).
+            "rank_vectors(128)",
             "version",
             "histogram",
-        ]);
+        ]),
+        Flavor::OpenSearch => data_types.extend([
+            "flat_object",
+            "knn_vector(1536)",
+            "knn_vector(1536, byte)",
+            "knn_vector(1024, binary)",
+        ]),
+        // Open Distro's k-NN plugin has float vectors only, and no flat_object.
+        Flavor::OpenDistro => data_types.push("knn_vector(1536)"),
     }
-    let dims_help = if opensearch {
-        "`dimension` de un knn_vector (obligatorio)."
-    } else {
-        "`dims` de un dense_vector (si se omite, la toma del primer documento)."
-    };
     let mut dynamic = vec![
         ("", "Por defecto (true)"),
         ("true", "true: agrega los campos nuevos al mapping"),
@@ -134,7 +153,8 @@ pub fn designer(opensearch: bool) -> DesignerSpec {
         defaults: false,
         nullability: false,
         comments: true,
-        indexes: false,
+        // Only vector indexes: each field's ANN index (see `crate::vectors`).
+        indexes: true,
         foreign_keys: false,
         column_options: vec![
             Field::new("analyzer", "Analizador", FieldKind::Text)
@@ -143,7 +163,6 @@ pub fn designer(opensearch: bool) -> DesignerSpec {
             tri_field("index", "Indexado", "No: el campo se guarda pero no se puede buscar."),
             tri_field("doc_values", "Doc values", "No: ahorra disco en campos que no se ordenan ni se agregan."),
             Field::new("format", "Formato (fechas)", FieldKind::Text).placeholder("strict_date_optional_time||epoch_millis"),
-            Field::new("dims", "Dimensiones (vectores)", FieldKind::Number).help(dims_help),
             Field::new("scaling_factor", "Factor de escala", FieldKind::Number)
                 .help("Obligatorio para scaled_float (p. ej. 100)."),
             Field::new("extra", "Mapping extra (JSON)", FieldKind::Textarea).help(
@@ -151,7 +170,8 @@ pub fn designer(opensearch: bool) -> DesignerSpec {
             ),
         ],
         table_options,
-        columns_required: false, vector_indexes: None,
+        columns_required: false,
+        vector_indexes: Some(vectors::designer_spec(flavor)),
     }
 }
 
@@ -326,27 +346,100 @@ pub(crate) fn check_index_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// A column's own mapping (without its sub-fields).
-pub(crate) fn field_mapping(c: &ColumnDef, opensearch: bool) -> Result<Obj> {
+/// The vector type of a column (`dense_vector(3)`…), if it has one.
+pub(crate) fn vector_type(c: &ColumnDef) -> Result<Option<VecType>> {
+    VecType::parse(&c.data_type).transpose()
+}
+
+/// A column's own mapping (without its sub-fields), with its vector index
+/// `ix` (see [`table_vector_indexes`]).
+pub(crate) fn field_mapping(c: &ColumnDef, flavor: Flavor, ix: Option<&IndexDef>) -> Result<Obj> {
+    let opensearch = flavor.opensearch();
     let what = |f: &str| format!("Campo {}, {f}", c.name);
     let mut m: Obj = Vec::new();
     let ty = c.data_type.trim();
-    if !ty.is_empty() {
+    let vt = vector_type(c)?;
+    // The dimension: in the type, or (designs from before) the `dims` option.
+    let dims = num_opt(&c.options, "dims", &what("dimensiones"))?;
+    if let Some(t) = &vt {
+        m.push(("type".into(), J::Str(t.base.clone())));
+        let key = if t.base == "knn_vector" {
+            "dimension"
+        } else {
+            "dims"
+        };
+        match (t.dims, dims.clone()) {
+            (Some(d), Some(J::Num(o))) if o.as_u64() != Some(u64::from(d)) => {
+                return Err(Error::Query(format!(
+                    "Campo {}: el tipo dice {d} dimensiones y la opción, {o}.",
+                    c.name
+                )))
+            }
+            (Some(d), _) => m.push((key.into(), J::Num(d.into()))),
+            (None, Some(o)) => m.push((key.into(), o)),
+            (None, None) => {}
+        }
+        let elem = match (t.elem, t.base.as_str()) {
+            (vectors::Elem::Float, _) => None,
+            (_, "knn_vector") if flavor == Flavor::OpenDistro => {
+                return Err(Error::Query(format!(
+                    "Campo {}: Open Distro solo tiene vectores de números float.",
+                    c.name
+                )))
+            }
+            (vectors::Elem::Byte, _) => Some("byte"),
+            (vectors::Elem::Bit, "knn_vector") => Some("binary"),
+            (vectors::Elem::Bit, _) => Some("bit"),
+            (vectors::Elem::Bf16, _) => Some("bfloat16"),
+        };
+        if let Some(e) = elem {
+            let key = if t.base == "knn_vector" {
+                "data_type"
+            } else {
+                "element_type"
+            };
+            m.push((key.into(), J::Str(e.into())));
+        }
+    } else if !ty.is_empty() {
         m.push(("type".into(), J::Str(ty.to_string())));
     }
     if let Some(a) = opt(&c.options, "analyzer") {
         m.push(("analyzer".into(), J::Str(a.to_string())));
     }
+    let dense = vt.as_ref().filter(|t| t.base == "dense_vector");
     for key in ["index", "doc_values"] {
-        if let Some(b) = bool_opt(&c.options, key, &what(key))? {
+        let b = bool_opt(&c.options, key, &what(key))?;
+        if key == "index" && ix.is_some() {
+            if b == Some(J::Bool(false)) {
+                return Err(Error::Query(format!(
+                    "Campo {}: tiene un índice vectorial y la opción «Indexado» en No.",
+                    c.name
+                )));
+            }
+            continue;
+        }
+        if let (Some(t), "index") = (dense, key) {
+            // Without a vector index of its own a dense vector isn't
+            // indexed (Elasticsearch 8.11+ would build its default one),
+            // unless «Indexado» asks for the engine's index.
+            if b == Some(J::Bool(true)) {
+                vectors::write_index(flavor, &mut m, &IndexDef::default(), t)?;
+            } else {
+                m.push(("index".into(), J::Bool(false)));
+            }
+            continue;
+        }
+        if let Some(b) = b {
             m.push((key.into(), b));
         }
     }
     if let Some(f) = opt(&c.options, "format") {
         m.push(("format".into(), J::Str(f.to_string())));
     }
-    if let Some(n) = num_opt(&c.options, "dims", &what("dimensiones"))? {
-        m.push((if opensearch { "dimension" } else { "dims" }.into(), n));
+    if vt.is_none() {
+        if let Some(n) = dims {
+            m.push((if opensearch { "dimension" } else { "dims" }.into(), n));
+        }
     }
     if let Some(n) = num_opt(&c.options, "scaling_factor", &what("factor de escala"))? {
         m.push(("scaling_factor".into(), n));
@@ -361,6 +454,9 @@ pub(crate) fn field_mapping(c: &ColumnDef, opensearch: bool) -> Result<Obj> {
             "meta".into(),
             J::Obj(vec![("description".into(), J::Str(d.to_string()))]),
         ));
+    }
+    if let (Some(t), Some(ix)) = (&vt, ix) {
+        vectors::write_index(flavor, &mut m, ix, t)?;
     }
     if let Some(x) = opt(&c.options, "extra") {
         match J::parse(x) {
@@ -438,9 +534,95 @@ pub(crate) fn put_field(props: &mut Obj, path: &[&str], leaf: Obj, full: &str) -
     put_field(sub, rest, leaf, full)
 }
 
+/// The vector index of each column, checked: an index here is a field's
+/// ANN index, so it has to be a vector index on one vector field, and a
+/// field has one at most.
+pub(crate) fn table_vector_indexes(
+    t: &TableSchema,
+    flavor: Flavor,
+) -> Result<Vec<(&IndexDef, VecType)>> {
+    let mut out: Vec<(&IndexDef, VecType)> = Vec::new();
+    for ix in &t.indexes {
+        let name = ix.name.trim();
+        if ix.vector.is_none() {
+            return Err(Error::Query(format!(
+                "Índice «{name}»: {} indexa cada campo en su propio mapping; aparte solo se definen los índices vectoriales. Marcalo como vectorial o quitalo.",
+                flavor.name()
+            )));
+        }
+        let [col] = ix.columns.as_slice() else {
+            return Err(Error::Query(format!(
+                "El índice vectorial «{name}» va sobre un solo campo vectorial."
+            )));
+        };
+        if ix.unique || ix.filter.as_deref().is_some_and(|f| !f.trim().is_empty()) {
+            return Err(Error::Query(format!(
+                "El índice vectorial «{name}» no puede ser único ni filtrado en {}.",
+                flavor.name()
+            )));
+        }
+        let vt = t
+            .columns
+            .iter()
+            .find(|c| c.name.trim() == col.trim())
+            .map(vector_type)
+            .transpose()?
+            .flatten()
+            .filter(|v| !v.sparse && !v.multi);
+        let Some(vt) = vt else {
+            return Err(Error::Query(format!(
+                "El índice vectorial «{name}» es sobre «{col}», que no es un campo {}.",
+                flavor.vector_type()
+            )));
+        };
+        if out.iter().any(|(o, _)| o.columns[0].trim() == col.trim()) {
+            return Err(Error::Query(format!(
+                "El campo «{col}» tiene más de un índice vectorial."
+            )));
+        }
+        out.push((ix, vt));
+    }
+    Ok(out)
+}
+
+/// Whether the index settings being written turn k-NN on.
+fn knn_on(settings: &Obj) -> bool {
+    settings
+        .iter()
+        .any(|(k, v)| k == "knn" && *v == J::Bool(true))
+}
+
+/// The vector index OpenSearch needs for a byte or binary `knn_vector`
+/// with k-NN on: the engine's own for that element (Lucene for bytes,
+/// Faiss with Hamming for bits, see [`vectors::write_index`]), since the
+/// server's default engine can't take them.
+pub(crate) fn implicit_os_index(c: &ColumnDef) -> Result<Option<IndexDef>> {
+    let Some(t) = vector_type(c)?.filter(|t| t.base == "knn_vector") else {
+        return Ok(None);
+    };
+    if !matches!(t.elem, vectors::Elem::Byte | vectors::Elem::Bit) {
+        return Ok(None);
+    }
+    Ok(Some(IndexDef {
+        name: c.name.trim().to_string(),
+        columns: vec![c.name.trim().to_string()],
+        vector: Some(dbine_driver::VectorIndex::default()),
+        ..Default::default()
+    }))
+}
+
+/// The vector index on column `col` (unchecked; see [`table_vector_indexes`]).
+pub(crate) fn vector_index_of<'a>(t: &'a TableSchema, col: &str) -> Option<&'a IndexDef> {
+    t.indexes
+        .iter()
+        .find(|i| i.vector.is_some() && i.columns.first().map(|c| c.trim()) == Some(col.trim()))
+}
+
 /// The body of `PUT /<index>`: settings, mappings and aliases (the keys
 /// with nothing to say are left out).
-pub fn index_body(t: &TableSchema, opensearch: bool) -> Result<Obj> {
+pub(crate) fn index_body(t: &TableSchema, flavor: Flavor) -> Result<Obj> {
+    let opensearch = flavor.opensearch();
+    let vector_ixs = table_vector_indexes(t, flavor)?;
     let o = &t.options;
     let mut settings: Obj = Vec::new();
     for (key, what) in [
@@ -455,9 +637,23 @@ pub fn index_body(t: &TableSchema, opensearch: bool) -> Result<Obj> {
         settings.push(("refresh_interval".into(), J::Str(r.to_string())));
     }
     if opensearch {
-        if let Some(b) = bool_opt(o, "knn", "k-NN")? {
-            settings.push(("knn".into(), b));
+        let knn = bool_opt(o, "knn", "k-NN")?;
+        // A vector index is a k-NN index: it needs `index.knn`.
+        match (&knn, vector_ixs.first()) {
+            (Some(J::Bool(false)), Some((ix, _))) => {
+                return Err(Error::Query(format!(
+                    "El índice vectorial «{}» necesita la búsqueda k-NN del índice (index.knn), que está en No.",
+                    ix.name.trim()
+                )))
+            }
+            (None, Some(_)) => settings.push(("knn".into(), J::Bool(true))),
+            (Some(b), _) => settings.push(("knn".into(), b.clone())),
+            (None, None) => {}
         }
+    }
+    if flavor == Flavor::OpenDistro && !vector_ixs.is_empty() {
+        let pairs: Vec<(&IndexDef, &VecType)> = vector_ixs.iter().map(|(i, t)| (*i, t)).collect();
+        settings.extend(vectors::od_settings(&pairs)?);
     }
     if let Some(a) = analysis_opt(o)? {
         settings.push(("analysis".into(), a));
@@ -505,7 +701,24 @@ pub fn index_body(t: &TableSchema, opensearch: bool) -> Result<Obj> {
             continue;
         }
         let path: Vec<&str> = name.split('.').collect();
-        put_field(&mut props, &path, field_mapping(c, opensearch)?, name)?;
+        let ix = vector_ixs
+            .iter()
+            .find(|(i, _)| i.columns[0].trim() == name)
+            .map(|(i, _)| *i);
+        // With k-NN on, OpenSearch indexes every knn_vector, and its
+        // default engine (nmslib up to 2.18) takes floats only: a byte or
+        // binary field without a vector index of its own gets the engine
+        // that takes it.
+        let implicit = match (ix, flavor, knn_on(&settings)) {
+            (None, Flavor::OpenSearch, true) => implicit_os_index(c)?,
+            _ => None,
+        };
+        put_field(
+            &mut props,
+            &path,
+            field_mapping(c, flavor, ix.or(implicit.as_ref()))?,
+            name,
+        )?;
     }
     if !props.is_empty() {
         mappings.push(("properties".into(), J::Obj(props)));
@@ -532,8 +745,9 @@ pub fn index_body(t: &TableSchema, opensearch: bool) -> Result<Obj> {
     Ok(body)
 }
 
-/// `DELETE` and / or `PUT` of an index, in console syntax.
-pub fn index_ddl(t: &TableSchema, parts: DdlParts, opensearch: bool) -> Result<String> {
+/// `DELETE` and / or `PUT` of an index, in console syntax. Vector indexes
+/// are part of the create (a field's ANN index is in its mapping).
+pub(crate) fn index_ddl(t: &TableSchema, parts: DdlParts, flavor: Flavor) -> Result<String> {
     let name = t.name.trim();
     check_index_name(name)?;
     let mut out = Vec::new();
@@ -546,7 +760,7 @@ pub fn index_ddl(t: &TableSchema, parts: DdlParts, opensearch: bool) -> Result<S
         });
     }
     if parts.create {
-        let body = index_body(t, opensearch)?;
+        let body = index_body(t, flavor)?;
         let mut s = String::new();
         if parts.if_exists && !parts.drop {
             s.push_str("# No hay «si no existe» para índices: si ya existe, la petición falla.\n");
@@ -841,7 +1055,8 @@ pub(crate) fn json_obj_opt(o: &BTreeMap<String, String>, key: &str) -> Result<Op
 /// The `index.*` settings the designer options don't cover, flat and
 /// sorted: the rest and the lifecycle ones (see [`LIFECYCLE`]). System
 /// settings ([`SYSTEM_SETTINGS`]) are left out.
-fn other_settings(settings: Option<&J>, opensearch: bool) -> (Obj, Obj) {
+fn other_settings(settings: Option<&J>, flavor: Flavor) -> (Obj, Obj) {
+    let opensearch = flavor.opensearch();
     fn flatten(prefix: &str, v: &J, out: &mut Obj) {
         match v.as_obj() {
             Some(m) => {
@@ -866,6 +1081,9 @@ fn other_settings(settings: Option<&J>, opensearch: bool) -> (Obj, Obj) {
             rel,
             "number_of_shards" | "number_of_replicas" | "refresh_interval"
         ) || (opensearch && rel == "knn")
+            // Open Distro's k-NN settings are its vector indexes'.
+            || (flavor == Flavor::OpenDistro
+                && vectors::OD_SETTINGS.iter().any(|(k, _)| rel == *k))
             || rel.starts_with("analysis.");
         let system = SYSTEM_SETTINGS.iter().any(|s| {
             if s.ends_with('.') {
@@ -900,7 +1118,21 @@ fn setting<'a>(settings: Option<&'a J>, key: &str) -> Option<&'a J> {
         .or_else(|| s.get(key))
 }
 
-fn read_props(props: Option<&J>, prefix: &str, out: &mut Vec<ColumnDef>) {
+/// What reading a mapping's fields needs to know of the index.
+struct Reading<'a> {
+    flavor: Flavor,
+    /// `index.knn` (OpenSearch, Open Distro).
+    knn: bool,
+    settings: Option<&'a J>,
+}
+
+fn read_props(
+    props: Option<&J>,
+    prefix: &str,
+    r: &Reading,
+    out: &mut Vec<ColumnDef>,
+    indexes: &mut Vec<IndexDef>,
+) {
     for (name, f) in props.and_then(J::as_obj).into_iter().flatten() {
         let Some(fo) = f.as_obj() else { continue };
         let full = if prefix.is_empty() {
@@ -911,9 +1143,20 @@ fn read_props(props: Option<&J>, prefix: &str, out: &mut Vec<ColumnDef>) {
         let mut options = BTreeMap::new();
         let mut extra: Obj = Vec::new();
         let mut comment = None;
+        let vt = VecType::from_mapping(f);
+        let ix = vt
+            .as_ref()
+            .and_then(|t| vectors::read_index(r.flavor, &full, f, t, r.knn, r.settings));
+        // What the type and the vector index say.
+        let mut taken: Vec<&str> = Vec::new();
+        if let Some(t) = vt.as_ref().filter(|t| !t.sparse) {
+            taken.extend(["dims", "dimension", "element_type", "data_type"]);
+            taken.extend(vectors::index_keys(r.flavor, t, ix.is_some()));
+        }
         for (k, v) in fo {
             match k.as_str() {
                 "type" | "properties" => {}
+                k if taken.contains(&k) => {}
                 "analyzer" | "format" | "index" | "doc_values" | "scaling_factor"
                     if v.is_scalar() =>
                 {
@@ -936,23 +1179,41 @@ fn read_props(props: Option<&J>, prefix: &str, out: &mut Vec<ColumnDef>) {
         }
         out.push(ColumnDef {
             name: full.clone(),
-            data_type: f.get("type").map_or_else(|| "object".into(), J::text),
+            data_type: match &vt {
+                Some(t) => t.spelling(),
+                None => f.get("type").map_or_else(|| "object".into(), J::text),
+            },
             nullable: true,
             comment,
             options,
             ..Default::default()
         });
-        read_props(f.get("properties"), &full, out);
+        indexes.extend(ix);
+        read_props(f.get("properties"), &full, r, out, indexes);
     }
 }
 
 /// An index as the designer's model, from its entry in `GET /<index>`
-/// (`aliases`, `mappings`, `settings`).
-pub fn index_schema(name: &str, idx: &J, opensearch: bool) -> TableSchema {
+/// (`aliases`, `mappings`, `settings`), with each vector field's ANN index
+/// as a vector index.
+pub(crate) fn index_schema(name: &str, idx: &J, flavor: Flavor) -> TableSchema {
+    let opensearch = flavor.opensearch();
     let m = idx.get("mappings").unwrap_or(&J::Null);
-    let mut columns = Vec::new();
-    read_props(m.get("properties"), "", &mut columns);
     let s = idx.get("settings");
+    let reading = Reading {
+        flavor,
+        knn: opensearch && setting(s, "knn").is_some_and(|k| k.text() == "true"),
+        settings: s,
+    };
+    let mut columns = Vec::new();
+    let mut indexes = Vec::new();
+    read_props(
+        m.get("properties"),
+        "",
+        &reading,
+        &mut columns,
+        &mut indexes,
+    );
     let mut options = BTreeMap::new();
     let mut keys = vec!["number_of_shards", "number_of_replicas", "refresh_interval"];
     if opensearch {
@@ -969,7 +1230,7 @@ pub fn index_schema(name: &str, idx: &J, opensearch: bool) -> TableSchema {
     if let Some(a) = analysis_setting(s) {
         options.insert("analysis".into(), a.compact());
     }
-    let (extra, lifecycle) = other_settings(s, opensearch);
+    let (extra, lifecycle) = other_settings(s, flavor);
     for (key, v) in [(SETTINGS_EXTRA, extra), (LIFECYCLE, lifecycle)] {
         if !v.is_empty() {
             options.insert(key.into(), J::Obj(v).compact());
@@ -1012,6 +1273,7 @@ pub fn index_schema(name: &str, idx: &J, opensearch: bool) -> TableSchema {
         schema: None,
         name: name.to_string(),
         columns,
+        indexes,
         // Taking the comment off leaves an empty description: there's none.
         comment: m
             .at(&["_meta", "description"])
@@ -1329,7 +1591,7 @@ mod tests {
             create: true,
             ..Default::default()
         };
-        let text = index_ddl(&books(), parts, false).unwrap();
+        let text = index_ddl(&books(), parts, Flavor::Elastic).unwrap();
         let reqs = one_request(&text);
         assert_eq!(reqs.len(), 2);
         assert_eq!(
@@ -1365,16 +1627,22 @@ mod tests {
             p["tags"],
             json!({"type": "nested", "properties": {"label": {"type": "keyword"}}})
         );
-        assert_eq!(p["vec"], json!({"type": "dense_vector", "dims": 3}));
+        // No vector index: not indexed.
+        assert_eq!(
+            p["vec"],
+            json!({"type": "dense_vector", "dims": 3, "index": false})
+        );
         assert!(p.get("_id").is_none());
 
+        let mut t = books();
+        t.columns[8].data_type = "knn_vector".into();
         let os = index_ddl(
-            &books(),
+            &t,
             DdlParts {
                 create: true,
                 ..Default::default()
             },
-            true,
+            Flavor::OpenSearch,
         )
         .unwrap();
         assert!(os.contains("\"dimension\": 3") && !os.contains("DELETE"));
@@ -1390,7 +1658,7 @@ mod tests {
                 create: true,
                 ..Default::default()
             },
-            false
+            Flavor::Elastic
         )
         .is_err());
         let mut t = books();
@@ -1401,7 +1669,7 @@ mod tests {
                 create: true,
                 ..Default::default()
             },
-            false,
+            Flavor::Elastic,
         )
         .unwrap_err();
         assert!(e.to_string().contains("year"), "{e}");
@@ -1413,7 +1681,7 @@ mod tests {
                 create: true,
                 ..Default::default()
             },
-            false
+            Flavor::Elastic
         )
         .is_err());
         let mut t = books();
@@ -1424,7 +1692,7 @@ mod tests {
                 create: true,
                 ..Default::default()
             },
-            false
+            Flavor::Elastic
         )
         .is_err());
         let empty = TableSchema {
@@ -1438,7 +1706,7 @@ mod tests {
                     create: true,
                     ..Default::default()
                 },
-                false
+                Flavor::Elastic
             )
             .unwrap(),
             "PUT /e"
@@ -1448,9 +1716,9 @@ mod tests {
     #[test]
     fn schema_round_trips() {
         let t = books();
-        let body = J::Obj(index_body(&t, false).unwrap());
-        let back = index_schema("books", &body, false);
-        let again = J::Obj(index_body(&back, false).unwrap());
+        let body = J::Obj(index_body(&t, Flavor::Elastic).unwrap());
+        let back = index_schema("books", &body, Flavor::Elastic);
+        let again = J::Obj(index_body(&back, Flavor::Elastic).unwrap());
         assert_eq!(body.get("mappings"), again.get("mappings"));
         assert_eq!(
             back.options.get("aliases").map(String::as_str),
@@ -1478,7 +1746,7 @@ mod tests {
                 "settings":{"index.number_of_shards":"2","index.knn":"true"}}"#,
         )
         .unwrap();
-        let s = index_schema("i", &got, true);
+        let s = index_schema("i", &got, Flavor::OpenSearch);
         assert_eq!(
             s.options.get("number_of_shards").map(String::as_str),
             Some("2")
@@ -1495,13 +1763,13 @@ mod tests {
                 "index.analysis.analyzer.es.filter":["lowercase","asciifolding"],"index.analysis.normalizer.n.type":"custom"}}"#,
         )
         .unwrap();
-        let s = index_schema("i", &got, false);
+        let s = index_schema("i", &got, Flavor::Elastic);
         let a = s.options.get("analysis").unwrap();
         assert_eq!(
             a,
             r#"{"analyzer":{"es":{"filter":["lowercase","asciifolding"],"tokenizer":"standard","type":"custom"}},"normalizer":{"n":{"type":"custom"}}}"#
         );
-        let body = J::Obj(index_body(&s, false).unwrap());
+        let body = J::Obj(index_body(&s, Flavor::Elastic).unwrap());
         assert_eq!(
             body.at(&["settings", "analysis"])
                 .map(J::compact)
@@ -1512,7 +1780,9 @@ mod tests {
         let nested =
             J::parse(&format!(r#"{{"settings":{{"index":{{"analysis":{a}}}}}}}"#)).unwrap();
         assert_eq!(
-            index_schema("i", &nested, false).options.get("analysis"),
+            index_schema("i", &nested, Flavor::Elastic)
+                .options
+                .get("analysis"),
             Some(a)
         );
     }
@@ -1530,7 +1800,7 @@ mod tests {
                 "index.provided_name":"src","index.version.created":"136","index.lifecycle.name":"pol","index.analysis.analyzer.a.type":"standard"}}"#,
         )
         .unwrap();
-        let s = index_schema("src", &got, true);
+        let s = index_schema("src", &got, Flavor::OpenSearch);
         let extra = s.options.get(SETTINGS_EXTRA).unwrap();
         assert_eq!(
             extra,
@@ -1544,7 +1814,7 @@ mod tests {
         // The description is the comment, not a mapping parameter too.
         let extra = s.options.get(MAPPINGS_EXTRA).unwrap();
         assert!(extra.contains(r#""_meta":{"owner":"x"}"#), "{extra}");
-        let body = J::Obj(index_body(&s, true).unwrap());
+        let body = J::Obj(index_body(&s, Flavor::OpenSearch).unwrap());
         assert_eq!(
             body.at(&["settings", "index.max_result_window"])
                 .map(J::text)
@@ -1575,7 +1845,7 @@ mod tests {
             Some(r#"{"description":"d","owner":"x"}"#)
         );
         // Read back, the same model.
-        let back = index_schema("src", &body, true);
+        let back = index_schema("src", &body, Flavor::OpenSearch);
         for k in [
             SETTINGS_EXTRA,
             LIFECYCLE,
@@ -1727,6 +1997,469 @@ mod tests {
         assert_eq!(one_request(&text).len(), 1);
         assert!(delete_script(&target, &[vec![("title".into(), json!("x"))]]).is_err());
         assert!(delete_script(&target, &[vec![]]).is_err());
+    }
+
+    fn vector_table(ty: &str, ix: Option<dbine_driver::VectorIndex>) -> TableSchema {
+        TableSchema {
+            kind: kinds::INDEX.into(),
+            name: "docs".into(),
+            columns: vec![col("title", "text", &[]), col("emb", ty, &[])],
+            indexes: ix
+                .map(|v| IndexDef {
+                    name: "emb_idx".into(),
+                    columns: vec!["emb".into()],
+                    vector: Some(v),
+                    ..Default::default()
+                })
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    fn create_body(t: &TableSchema, flavor: Flavor) -> Value {
+        let text = index_ddl(
+            t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+            flavor,
+        )
+        .unwrap();
+        serde_json::from_str(text.split_once('\n').unwrap().1).unwrap()
+    }
+
+    fn vi(
+        alg: Option<&str>,
+        metric: Option<&str>,
+        params: &[(&str, &str)],
+    ) -> dbine_driver::VectorIndex {
+        dbine_driver::VectorIndex {
+            algorithm: alg.map(Into::into),
+            metric: metric.map(Into::into),
+            params: params
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn the_designer_offers_vectors() {
+        let es = designer(Flavor::Elastic);
+        assert!(es.data_types.contains(&"dense_vector(1536)"));
+        assert!(es.data_types.contains(&"dense_vector(1024, bit)"));
+        assert!(es.indexes);
+        assert!(!es.column_options.iter().any(|f| f.key == "dims"));
+        let v = es.vector_indexes.unwrap();
+        assert_eq!(v.algorithms, ["hnsw", "flat"]);
+        assert_eq!(v.metrics[0], "cosine");
+        assert!(v.params.iter().any(|p| p.key == "quantization"));
+        let os = designer(Flavor::OpenSearch);
+        assert!(os.data_types.contains(&"knn_vector(1024, binary)"));
+        assert_eq!(os.vector_indexes.unwrap().metrics[0], "l2");
+        let od = designer(Flavor::OpenDistro);
+        assert!(od.data_types.contains(&"knn_vector(1536)"));
+        assert!(!od.data_types.contains(&"knn_vector(1536, byte)"));
+        assert!(!od.data_types.contains(&"flat_object"));
+        assert_eq!(od.vector_indexes.unwrap().metrics, ["l2", "cosine", "l1"]);
+    }
+
+    #[test]
+    fn vector_fields_and_indexes_in_elasticsearch() {
+        let t = vector_table(
+            "dense_vector(3)",
+            Some(vi(
+                Some("hnsw"),
+                Some("cosine"),
+                &[
+                    ("m", "32"),
+                    ("ef_construction", "200"),
+                    ("quantization", "int8"),
+                ],
+            )),
+        );
+        let body = create_body(&t, Flavor::Elastic);
+        assert_eq!(
+            body["mappings"]["properties"]["emb"],
+            json!({"type": "dense_vector", "dims": 3, "index": true, "similarity": "cosine",
+                   "index_options": {"type": "int8_hnsw", "ef_construction": 200, "m": 32}})
+        );
+        // Read back: the type with its dimension, the vector index by the field's name.
+        let back = index_schema(
+            "docs",
+            &J::parse(&body.to_string()).unwrap(),
+            Flavor::Elastic,
+        );
+        let emb = back.columns.iter().find(|c| c.name == "emb").unwrap();
+        assert_eq!(emb.data_type, "dense_vector(3)");
+        assert!(emb.options.is_empty(), "{:?}", emb.options);
+        assert_eq!(back.indexes.len(), 1);
+        let ix = &back.indexes[0];
+        assert_eq!(
+            (ix.name.as_str(), ix.columns.as_slice()),
+            ("emb", &["emb".to_string()][..])
+        );
+        assert_eq!(
+            ix.vector,
+            Some(vi(
+                Some("hnsw"),
+                Some("cosine"),
+                &[
+                    ("m", "32"),
+                    ("ef_construction", "200"),
+                    ("quantization", "int8")
+                ]
+            ))
+        );
+        // And again: the same mapping.
+        assert_eq!(
+            create_body(&back, Flavor::Elastic)["mappings"],
+            body["mappings"]
+        );
+        // A byte vector without a vector index: not indexed (8.11+ would
+        // build its default one), and read back the same.
+        let t = vector_table("dense_vector(4, byte)", None);
+        let body = create_body(&t, Flavor::Elastic);
+        assert_eq!(
+            body["mappings"]["properties"]["emb"],
+            json!({"type": "dense_vector", "dims": 4, "element_type": "byte", "index": false})
+        );
+        let back = index_schema(
+            "docs",
+            &J::parse(&body.to_string()).unwrap(),
+            Flavor::Elastic,
+        );
+        assert!(back.indexes.is_empty());
+        let emb = back.columns.iter().find(|c| c.name == "emb").unwrap();
+        assert_eq!(
+            (emb.data_type.as_str(), emb.options.is_empty()),
+            ("dense_vector(4, byte)", true)
+        );
+        // «Indexado» on without a vector index: the engine's index, with
+        // its distance (8.0–8.10 require one), listed as a vector index.
+        let mut on = vector_table("dense_vector(3)", None);
+        on.columns[1].options.insert("index".into(), "true".into());
+        let body = create_body(&on, Flavor::Elastic);
+        assert_eq!(
+            body["mappings"]["properties"]["emb"],
+            json!({"type": "dense_vector", "dims": 3, "index": true, "similarity": "cosine"})
+        );
+        let back = index_schema(
+            "docs",
+            &J::parse(&body.to_string()).unwrap(),
+            Flavor::Elastic,
+        );
+        assert_eq!(back.indexes[0].vector, Some(vi(None, Some("cosine"), &[])));
+        assert!(back.columns[1].options.is_empty());
+        // Bits: the engine's only distance.
+        let mut bits = vector_table("dense_vector(16, bit)", Some(vi(None, None, &[])));
+        bits.indexes[0].vector = Some(vi(Some("hnsw"), None, &[]));
+        assert_eq!(
+            create_body(&bits, Flavor::Elastic)["mappings"]["properties"]["emb"],
+            json!({"type": "dense_vector", "dims": 16, "element_type": "bit", "index": true, "similarity": "l2_norm"})
+        );
+        // Not indexed, as the server gives it: no vector index, no option.
+        let got = J::parse(
+            r#"{"mappings":{"properties":{"emb":{"type":"dense_vector","dims":3,"index":false}}}}"#,
+        )
+        .unwrap();
+        let s = index_schema("docs", &got, Flavor::Elastic);
+        assert!(s.indexes.is_empty());
+        assert!(
+            s.columns[0].options.is_empty(),
+            "{:?}",
+            s.columns[0].options
+        );
+        assert_eq!(
+            create_body(&s, Flavor::Elastic)["mappings"]["properties"]["emb"],
+            json!({"type": "dense_vector", "dims": 3, "index": false})
+        );
+        // The legacy `dims` option still gives the dimension.
+        let t = vector_table("dense_vector", None);
+        let mut t2 = t.clone();
+        t2.columns[1].options.insert("dims".into(), "5".into());
+        assert_eq!(
+            create_body(&t2, Flavor::Elastic)["mappings"]["properties"]["emb"]["dims"],
+            5
+        );
+        t2.columns[1].data_type = "dense_vector(4)".into();
+        assert!(index_ddl(
+            &t2,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+            Flavor::Elastic
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn vector_indexes_that_cant_be() {
+        let parts = DdlParts {
+            create: true,
+            ..Default::default()
+        };
+        let err = |t: &TableSchema| {
+            index_ddl(t, parts, Flavor::Elastic)
+                .unwrap_err()
+                .to_string()
+        };
+        // A plain index: every field is indexed by its mapping.
+        let mut t = vector_table("dense_vector(3)", Some(vi(None, None, &[])));
+        t.indexes[0].vector = None;
+        assert!(err(&t).contains("vectorial"), "{}", err(&t));
+        // On a field that isn't a vector, on two fields, twice on one.
+        let mut t = vector_table("dense_vector(3)", Some(vi(None, None, &[])));
+        t.indexes[0].columns = vec!["title".into()];
+        assert!(err(&t).contains("title"));
+        t.indexes[0].columns = vec!["emb".into(), "title".into()];
+        assert!(err(&t).contains("un solo campo"));
+        let mut t = vector_table("dense_vector(3)", Some(vi(None, None, &[])));
+        t.indexes.push(t.indexes[0].clone());
+        assert!(err(&t).contains("más de un índice vectorial"));
+        let mut t = vector_table("dense_vector(3)", Some(vi(None, None, &[])));
+        t.indexes[0].unique = true;
+        assert!(err(&t).contains("único"));
+        let mut t = vector_table("dense_vector(3)", Some(vi(None, Some("jaccard"), &[])));
+        assert!(err(&t).contains("jaccard"));
+        t.indexes[0].vector = Some(vi(None, None, &[]));
+        t.columns[1].options.insert("index".into(), "false".into());
+        assert!(err(&t).contains("Indexado"));
+    }
+
+    #[test]
+    fn vector_fields_and_indexes_in_opensearch_and_open_distro() {
+        let t = vector_table(
+            "knn_vector(3, byte)",
+            Some(vi(
+                Some("hnsw"),
+                Some("cosine"),
+                &[("engine", "lucene"), ("m", "8")],
+            )),
+        );
+        let body = create_body(&t, Flavor::OpenSearch);
+        assert_eq!(body["settings"]["knn"], true);
+        assert_eq!(
+            body["mappings"]["properties"]["emb"],
+            json!({"type": "knn_vector", "dimension": 3, "data_type": "byte",
+                   "method": {"name": "hnsw", "space_type": "cosinesimil", "engine": "lucene", "parameters": {"m": 8}}})
+        );
+        let back = index_schema(
+            "docs",
+            &J::parse(&body.to_string()).unwrap(),
+            Flavor::OpenSearch,
+        );
+        let emb = back.columns.iter().find(|c| c.name == "emb").unwrap();
+        assert_eq!(emb.data_type, "knn_vector(3, byte)");
+        assert_eq!(back.indexes[0].vector, t.indexes[0].vector);
+        assert_eq!(
+            create_body(&back, Flavor::OpenSearch)["mappings"],
+            body["mappings"]
+        );
+        // k-NN off: no vector index there, and none can be asked for.
+        let mut off = back.clone();
+        off.options.insert("knn".into(), "false".into());
+        assert!(index_ddl(
+            &off,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+            Flavor::OpenSearch
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("index.knn"));
+        // A byte vector without one, k-NN on: the engine that takes bytes.
+        let mut bytes = vector_table("knn_vector(3)", Some(vi(None, None, &[])));
+        bytes.columns.push(col("b", "knn_vector(4, byte)", &[]));
+        bytes
+            .columns
+            .push(col("bits", "knn_vector(16, binary)", &[]));
+        let p = &create_body(&bytes, Flavor::OpenSearch)["mappings"]["properties"];
+        assert_eq!(
+            p["b"]["method"],
+            json!({"name": "hnsw", "engine": "lucene"})
+        );
+        assert_eq!(
+            p["bits"]["method"],
+            json!({"name": "hnsw", "space_type": "hamming", "engine": "faiss"})
+        );
+        assert!(p["emb"].get("method").is_none());
+        let got =
+            J::parse(r#"{"mappings":{"properties":{"emb":{"type":"knn_vector","dimension":3}}}}"#)
+                .unwrap();
+        assert!(index_schema("docs", &got, Flavor::OpenSearch)
+            .indexes
+            .is_empty());
+
+        // Open Distro: the index's settings, shared.
+        let t = vector_table(
+            "knn_vector(3)",
+            Some(vi(
+                Some("hnsw"),
+                Some("cosine"),
+                &[("m", "8"), ("ef_construction", "64")],
+            )),
+        );
+        let body = create_body(&t, Flavor::OpenDistro);
+        assert_eq!(
+            body["settings"],
+            json!({"knn": true, "knn.space_type": "cosinesimil", "knn.algo_param.ef_construction": 64, "knn.algo_param.m": 8})
+        );
+        assert_eq!(
+            body["mappings"]["properties"]["emb"],
+            json!({"type": "knn_vector", "dimension": 3})
+        );
+        // As the server gives it back (flat settings, strings).
+        let got = J::parse(&format!(
+            r#"{{"settings":{{"index.knn":"true","index.knn.space_type":"cosinesimil","index.knn.algo_param.m":"8","index.knn.algo_param.ef_construction":"64","index.knn.algo_param.ef_search":"100"}},"mappings":{}}}"#,
+            body["mappings"]
+        ))
+        .unwrap();
+        let back = index_schema("docs", &got, Flavor::OpenDistro);
+        assert_eq!(back.indexes[0].vector, t.indexes[0].vector);
+        // Only the search setting stays apart.
+        assert_eq!(
+            back.options.get(SETTINGS_EXTRA).map(String::as_str),
+            Some(r#"{"index.knn.algo_param.ef_search":"100"}"#)
+        );
+        assert!(index_ddl(
+            &vector_table("knn_vector(3, byte)", None),
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+            Flavor::OpenDistro
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn semantic_text_and_rank_vectors() {
+        let es = designer(Flavor::Elastic);
+        assert!(es.data_types.contains(&"semantic_text"));
+        assert!(es.data_types.contains(&"rank_vectors(128)"));
+        let mut t = vector_table("rank_vectors(4, byte)", None);
+        t.columns.push(col(
+            "body",
+            "semantic_text",
+            &[("extra", r#"{"inference_id":"my-elser"}"#)],
+        ));
+        let body = create_body(&t, Flavor::Elastic);
+        let p = &body["mappings"]["properties"];
+        assert_eq!(
+            p["emb"],
+            json!({"type": "rank_vectors", "dims": 4, "element_type": "byte"})
+        );
+        assert_eq!(
+            p["body"],
+            json!({"type": "semantic_text", "inference_id": "my-elser"})
+        );
+        let back = index_schema(
+            "docs",
+            &J::parse(&body.to_string()).unwrap(),
+            Flavor::Elastic,
+        );
+        let emb = back.columns.iter().find(|c| c.name == "emb").unwrap();
+        assert_eq!(emb.data_type, "rank_vectors(4, byte)");
+        assert!(emb.options.is_empty(), "{:?}", emb.options);
+        assert!(back.indexes.is_empty());
+        let b = back.columns.iter().find(|c| c.name == "body").unwrap();
+        assert_eq!(b.data_type, "semantic_text");
+        assert_eq!(
+            b.options.get("extra").map(String::as_str),
+            Some(r#"{"inference_id":"my-elser"}"#)
+        );
+        // No ANN index on a multi-vector field.
+        let t = vector_table("rank_vectors(4)", Some(vi(None, None, &[])));
+        assert!(index_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+            Flavor::Elastic
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn opensearch_byte_and_binary_indexes_naming_no_engine() {
+        // The designer's engine field left empty.
+        let mut t = vector_table(
+            "knn_vector(1536, byte)",
+            Some(vi(Some("hnsw"), Some("l2"), &[("m", "16")])),
+        );
+        t.columns.push(col("bits", "knn_vector(1024, binary)", &[]));
+        t.indexes.push(IndexDef {
+            name: "bits_idx".into(),
+            columns: vec!["bits".into()],
+            vector: Some(vi(Some("hnsw"), None, &[("ef_construction", "100")])),
+            ..Default::default()
+        });
+        let body = create_body(&t, Flavor::OpenSearch);
+        let p = &body["mappings"]["properties"];
+        assert_eq!(
+            p["emb"]["method"],
+            json!({"name": "hnsw", "space_type": "l2", "engine": "lucene", "parameters": {"m": 16}})
+        );
+        assert_eq!(
+            p["bits"]["method"],
+            json!({"name": "hnsw", "space_type": "hamming", "engine": "faiss", "parameters": {"ef_construction": 100}})
+        );
+        // The designer's first distance (l2) on bits: refused with why.
+        t.indexes[1].vector = Some(vi(Some("hnsw"), Some("l2"), &[]));
+        let e = index_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+            Flavor::OpenSearch,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("hamming"), "{e}");
+    }
+
+    #[test]
+    fn vector_values_in_scripts() {
+        let target = ObjectRef {
+            kind: kinds::INDEX.into(),
+            schema: None,
+            name: "docs".into(),
+        };
+        // From the grid: an array of numbers (or its text).
+        let text = bulk_script(
+            &target,
+            &["_id".to_string(), "emb".to_string()],
+            &[
+                vec![json!("1"), json!([0.5, -1.0, 2.25])],
+                vec![json!("2"), json!("[1,2,3]")],
+            ],
+        )
+        .unwrap();
+        let reqs = one_request(&text);
+        let lines: Vec<&str> = reqs[0].body.as_deref().unwrap().lines().collect();
+        assert_eq!(lines[1], r#"{"emb":[0.5,-1.0,2.25]}"#);
+        assert_eq!(lines[3], r#"{"emb":[1,2,3]}"#);
+        let text = update_script(
+            &target,
+            &[RowChange {
+                key: vec![("_id".into(), json!("1"))],
+                set: vec![("emb".into(), json!([1, 0, 0]))],
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            text,
+            "POST /docs/_update/1?refresh=true\n{\"doc\":{\"emb\":[1,0,0]}}"
+        );
     }
 
     #[test]

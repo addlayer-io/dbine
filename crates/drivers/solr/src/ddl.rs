@@ -13,10 +13,18 @@
 //! The uniqueKey comes from the configset (`id` in `_default`) and can't be
 //! changed through the Schema API, so the designer has no primary key and
 //! a `string` column named `id` is left out of `add-field`.
+//!
+//! A vector column (`knn_vector(768)`) gets its `DenseVectorField` field
+//! type in the same request (`add-field-type` before `add-field`), with its
+//! vector index's distance and HNSW parameters (see [`crate::vectors`]).
+//! The designer's indexes are those vector indexes only: Solr indexes each
+//! field by its own definition. A vector column without a vector index is
+//! `indexed: false` (no HNSW graph), so it reads back the same.
 
+use crate::vectors::{self, VectorType};
 use dbine_driver::{
-    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, KeyDef,
-    ObjectRef, Result, RowChange, TableSchema,
+    kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, IndexDef,
+    KeyDef, ObjectRef, Result, RowChange, TableSchema,
 };
 use dbine_driver_elasticsearch::json::{Obj, J};
 use serde_json::Value;
@@ -24,6 +32,11 @@ use std::collections::BTreeMap;
 
 /// Documents per `update` request of an insert script.
 const UPDATE_BATCH: usize = 500;
+
+/// Vector dimensions every Solr 9 takes: Lucene's default codec stops at
+/// 1024; Solr's `SchemaCodecFactory` takes more, by default from 9.5
+/// (SOLR-17046) and only when configured in 9.4 (SOLR-17045).
+pub(crate) const MAX_DIMS: u32 = 1024;
 
 /// Fields the `_default` configset already defines (besides `id`).
 pub(crate) const BUILTIN_FIELDS: &[&str] = &["_version_", "_root_", "_nest_path_", "_text_"];
@@ -68,6 +81,10 @@ pub fn designer() -> DesignerSpec {
             "pdoubles",
             "booleans",
             "pdates",
+            // 1024 dimensions at most on every Solr 9 (more from 9.5, see
+            // `collection_ddl`).
+            "knn_vector(1024)",
+            "knn_vector(1024, BYTE)",
         ],
         schemas: false,
         primary_key: false,
@@ -75,7 +92,8 @@ pub fn designer() -> DesignerSpec {
         defaults: true,
         nullability: true,
         comments: false,
-        indexes: false,
+        // Only vector indexes: a vector field's HNSW graph (see `vectors`).
+        indexes: true,
         foreign_keys: false,
         column_options: vec![
             tri_field("multiValued", "Multivaluado", "Sí: el campo guarda una lista de valores."),
@@ -91,7 +109,8 @@ pub fn designer() -> DesignerSpec {
             Field::new("numShards", "Shards (SolrCloud)", FieldKind::Number).placeholder("1"),
             Field::new("replicationFactor", "Réplicas (SolrCloud)", FieldKind::Number).placeholder("1"),
         ],
-        columns_required: false, vector_indexes: None,
+        columns_required: false,
+        vector_indexes: Some(vectors::designer_spec()),
     }
 }
 
@@ -194,10 +213,125 @@ pub(crate) fn check_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// A column as an `add-field` definition.
-pub(crate) fn field_def(c: &ColumnDef) -> Result<Obj> {
+/// The vector index of each column, checked: an index here is a vector
+/// field's HNSW graph, so it has to be a vector index on one vector field,
+/// and a field has one at most.
+pub(crate) fn table_vector_indexes(t: &TableSchema) -> Result<Vec<(&IndexDef, VectorType)>> {
+    let mut out: Vec<(&IndexDef, VectorType)> = Vec::new();
+    for ix in &t.indexes {
+        let name = ix.name.trim();
+        if ix.vector.is_none() {
+            return Err(Error::Query(format!(
+                "Índice «{name}»: Solr indexa cada campo por su propia definición; aparte solo se definen los índices vectoriales. Marcalo como vectorial o quitalo."
+            )));
+        }
+        let [col] = ix.columns.as_slice() else {
+            return Err(Error::Query(format!(
+                "El índice vectorial «{name}» va sobre un solo campo vectorial."
+            )));
+        };
+        if ix.unique || ix.filter.as_deref().is_some_and(|f| !f.trim().is_empty()) {
+            return Err(Error::Query(format!(
+                "El índice vectorial «{name}» no puede ser único ni filtrado en Solr."
+            )));
+        }
+        let vt = t
+            .columns
+            .iter()
+            .find(|c| c.name.trim() == col.trim())
+            .map(vectors::column_type)
+            .transpose()?
+            .flatten();
+        let Some(vt) = vt else {
+            return Err(Error::Query(format!(
+                "El índice vectorial «{name}» es sobre «{col}», que no es un campo knn_vector."
+            )));
+        };
+        if out.iter().any(|(o, _)| o.columns[0].trim() == col.trim()) {
+            return Err(Error::Query(format!(
+                "El campo «{col}» tiene más de un índice vectorial."
+            )));
+        }
+        out.push((ix, vt));
+    }
+    Ok(out)
+}
+
+/// The vector index on column `col` (unchecked; see [`table_vector_indexes`]).
+pub(crate) fn vector_index_of<'a>(t: &'a TableSchema, col: &str) -> Option<&'a IndexDef> {
+    t.indexes
+        .iter()
+        .find(|i| i.vector.is_some() && i.columns.first().map(|c| c.trim()) == Some(col.trim()))
+}
+
+/// A vector column's field type: its name, its `add-field-type`
+/// definition and whether a vector index defines it (a column without one
+/// only needs the vector it holds). `None` for the other columns.
+pub(crate) fn vector_field_type(
+    t: &TableSchema,
+    c: &ColumnDef,
+) -> Result<Option<(String, Obj, bool)>> {
+    let Some(vt) = vectors::column_type(c)? else {
+        return Ok(None);
+    };
+    let ix = vector_index_of(t, &c.name);
+    if ix.is_some() && opt(&c.options, "indexed") == Some("false") {
+        return Err(Error::Query(format!(
+            "Campo {}: tiene un índice vectorial y la opción «Indexado» en No.",
+            c.name.trim()
+        )));
+    }
+    let (name, def) = vectors::field_type(c, &vt, ix)?;
+    Ok(Some((name, def, ix.is_some())))
+}
+
+/// The vector a field type holds (class, dimension, encoding): what a
+/// field without a vector index needs of it.
+fn holds(def: &Obj) -> Vec<&(String, J)> {
+    def.iter()
+        .filter(|(k, _)| matches!(k.as_str(), "class" | "vectorDimension" | "vectorEncoding"))
+        .collect()
+}
+
+/// The field types of a table's vector columns, each name once, with
+/// whether a vector index defines it. Two columns share one only if they
+/// define the same; a column without a vector index takes any that holds
+/// its vector.
+pub(crate) fn vector_field_types(t: &TableSchema) -> Result<Vec<(String, Obj, bool)>> {
+    table_vector_indexes(t)?;
+    let mut defs = Vec::new();
+    for c in &t.columns {
+        defs.extend(vector_field_type(t, c)?);
+    }
+    // The ones a vector index defines first.
+    defs.sort_by_key(|(_, _, indexed)| !indexed);
+    let mut out: Vec<(String, Obj, bool)> = Vec::new();
+    for (name, def, indexed) in defs {
+        match out.iter().find(|(n, _, _)| *n == name) {
+            Some((_, d, _)) if *d == def || (!indexed && holds(d) == holds(&def)) => {}
+            Some(_) => {
+                return Err(Error::Query(format!(
+                    "El tipo de campo «{name}» se define distinto para dos campos vectoriales."
+                )))
+            }
+            None => out.push((name, def, indexed)),
+        }
+    }
+    Ok(out)
+}
+
+/// A column as an `add-field` definition. A vector column (`vector`: its
+/// field type's name and whether it has a vector index, see
+/// [`vector_field_type`]) without a vector index isn't indexed, unless
+/// «Indexado» says so.
+pub(crate) fn field_def(c: &ColumnDef, vector: Option<(&str, bool)>) -> Result<Obj> {
     let name = c.name.trim();
     let mut ty = c.data_type.trim();
+    let mut unindexed = false;
+    if let Some((v, indexed)) = vector {
+        ty = v;
+        unindexed = !indexed;
+    }
     let mut multi = None;
     if let Some(base) = ty.strip_suffix("[]") {
         ty = base.trim();
@@ -219,6 +353,7 @@ pub(crate) fn field_def(c: &ColumnDef) -> Result<Obj> {
                 )))
             }
             None if *key == "multiValued" => multi.clone(),
+            None if *key == "indexed" && unindexed => Some(J::Bool(false)),
             None => None,
         };
         if let Some(v) = v {
@@ -267,21 +402,34 @@ pub fn collection_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
         }
         out.push(s);
 
+        let types: Vec<J> = vector_field_types(t)?
+            .into_iter()
+            .map(|(_, d, _)| J::Obj(d))
+            .collect();
         let mut add = Vec::new();
         let mut replace = Vec::new();
         let mut skipped = Vec::new();
+        let mut large = Vec::new();
         for c in &t.columns {
             let n = c.name.trim();
             if n.is_empty() {
                 continue;
             }
             let ty = c.data_type.trim();
+            let vector = vector_field_type(t, c)?.map(|(name, _, indexed)| (name, indexed));
+            let vector = vector.as_ref().map(|(name, i)| (name.as_str(), *i));
+            if vectors::column_type(c)?
+                .and_then(|v| v.dims)
+                .is_some_and(|d| d > MAX_DIMS)
+            {
+                large.push(n);
+            }
             if BUILTIN_FIELDS.contains(&n) || (n == "id" && (ty.is_empty() || ty == "string")) {
                 skipped.push(n);
             } else if n == "id" {
-                replace.push(J::Obj(field_def(c)?));
+                replace.push(J::Obj(field_def(c, vector)?));
             } else {
-                add.push(J::Obj(field_def(c)?));
+                add.push(J::Obj(field_def(c, vector)?));
             }
         }
         if !add.is_empty() || !replace.is_empty() {
@@ -292,9 +440,19 @@ pub fn collection_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
                     skipped.join(", ")
                 ));
             }
+            if !large.is_empty() {
+                s.push_str(&format!(
+                    "# {}: más de {MAX_DIMS} dimensiones. Solr las toma desde la 9.5 (en la 9.4, con SchemaCodecFactory en el solrconfig.xml de la colección).\n",
+                    large.join(", ")
+                ));
+            }
             s.push_str(&format!("POST /solr/{name}/schema\n{{\n"));
             let mut cmds = Vec::new();
-            for (cmd, list) in [("replace-field", replace), ("add-field", add)] {
+            for (cmd, list) in [
+                ("add-field-type", types),
+                ("replace-field", replace),
+                ("add-field", add),
+            ] {
                 if !list.is_empty() {
                     let items: Vec<String> = list
                         .iter()
@@ -419,27 +577,57 @@ fn internal(n: &str) -> bool {
     n.len() > 1 && n.starts_with('_') && n.ends_with('_')
 }
 
+/// The definition of field type `name` in a `schema/fieldtypes` reply.
+pub(crate) fn type_def<'a>(types: Option<&'a J>, name: &str) -> Option<&'a J> {
+    types?
+        .get("fieldTypes")
+        .and_then(J::as_arr)?
+        .iter()
+        .find(|t| t.get("name").and_then(J::as_str) == Some(name))
+}
+
+fn is_false(v: Option<&J>) -> bool {
+    matches!(v, Some(J::Bool(false))) || v.map(J::text).as_deref() == Some("false")
+}
+
 /// A collection as the designer's model, from `schema/fields` (explicit
-/// properties only: `showDefaults=false`), the uniqueKey and, on SolrCloud,
-/// its `CLUSTERSTATUS` entry.
+/// properties only: `showDefaults=false`), its field types
+/// (`schema/fieldtypes`, for the vector fields: `knn_vector(n)` and their
+/// vector indexes), the uniqueKey and, on SolrCloud, its `CLUSTERSTATUS`
+/// entry.
 pub fn collection_schema(
     name: &str,
     fields: &J,
+    types: Option<&J>,
     unique_key: Option<&str>,
     cluster: Option<&J>,
 ) -> TableSchema {
     let mut columns = Vec::new();
+    let mut indexes = Vec::new();
     for f in fields.get("fields").and_then(J::as_arr).unwrap_or(&[]) {
         let Some(n) = f.get("name").and_then(J::as_str).filter(|n| !internal(n)) else {
             continue;
         };
-        let options: BTreeMap<String, String> = FIELD_FLAGS
+        let mut options: BTreeMap<String, String> = FIELD_FLAGS
             .iter()
             .filter_map(|k| f.get(k).map(|v| (k.to_string(), v.text())))
             .collect();
+        let ty = f.get("type").map(J::text).unwrap_or_default();
+        let def = type_def(types, &ty);
+        let mut data_type = ty.clone();
+        if let Some((def, vt)) = def.and_then(|d| Some((d, VectorType::from_field_type(d)?))) {
+            data_type = vt.spelling();
+            options.insert(vectors::FIELD_TYPE.into(), ty.clone());
+            if !is_false(f.get("indexed")) && !is_false(def.get("indexed")) {
+                indexes.push(vectors::read_index(n, def));
+            } else if is_false(f.get("indexed")) {
+                // No vector index says it.
+                options.remove("indexed");
+            }
+        }
         columns.push(ColumnDef {
             name: n.to_string(),
-            data_type: f.get("type").map(J::text).unwrap_or_default(),
+            data_type,
             nullable: f.get("required").and_then(J::as_bool) != Some(true),
             default_value: f.get("default").map(J::text),
             options,
@@ -471,6 +659,7 @@ pub fn collection_schema(
             columns: vec![k.to_string()],
         }),
         columns,
+        indexes,
         options,
         ..Default::default()
     }
@@ -868,7 +1057,7 @@ mod tests {
         )
         .unwrap();
         let cluster = J::parse(r#"{"configName":"books.AUTOCREATED","replicationFactor":1,"shards":{"shard1":{},"shard2":{}}}"#).unwrap();
-        let t = collection_schema("books", &fields, Some("id"), Some(&cluster));
+        let t = collection_schema("books", &fields, None, Some("id"), Some(&cluster));
         assert_eq!(t.primary_key.as_ref().unwrap().columns, ["id"]);
         let names: Vec<_> = t.columns.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["id", "title", "tags"]);
@@ -998,6 +1187,248 @@ mod tests {
         .is_err());
         assert!(delete_script(&target, &[vec![]]).is_err());
         assert!(delete_script(&target, &[vec![("id".into(), Value::Null)]]).is_err());
+    }
+
+    fn vector_collection(ix: Option<dbine_driver::VectorIndex>) -> TableSchema {
+        let col = |n: &str, t: &str| ColumnDef {
+            name: n.into(),
+            data_type: t.into(),
+            nullable: true,
+            ..Default::default()
+        };
+        TableSchema {
+            kind: kinds::COLLECTION.into(),
+            name: "docs".into(),
+            columns: vec![
+                col("id", "string"),
+                col("emb", "knn_vector(3)"),
+                col("emb2", "knn_vector(3)"),
+            ],
+            indexes: ix
+                .map(|v| IndexDef {
+                    name: "emb_idx".into(),
+                    columns: vec!["emb".into()],
+                    vector: Some(v),
+                    ..Default::default()
+                })
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn vector_fields_get_their_field_types() {
+        let d = designer();
+        assert!(d.data_types.contains(&"knn_vector(1024)") && d.indexes);
+        assert_eq!(d.vector_indexes.unwrap().metrics[0], "l2");
+        let v = dbine_driver::VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("cosine".into()),
+            params: [
+                ("m".to_string(), "16".to_string()),
+                ("ef_construction".to_string(), "100".to_string()),
+            ]
+            .into(),
+        };
+        let t = vector_collection(Some(v.clone()));
+        let text = collection_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let r = reqs(&text);
+        let b: serde_json::Value = serde_json::from_str(r[1].body.as_deref().unwrap()).unwrap();
+        assert_eq!(
+            b["add-field-type"],
+            json!([
+                {"name": "knn_vector_3_cosine_ef100_m16", "class": "solr.DenseVectorField", "vectorDimension": 3,
+                 "similarityFunction": "cosine", "knnAlgorithm": "hnsw", "hnswBeamWidth": 100, "hnswMaxConnections": 16},
+                {"name": "knn_vector_3", "class": "solr.DenseVectorField", "vectorDimension": 3}
+            ])
+        );
+        // emb2 has no vector index: no HNSW graph.
+        assert_eq!(
+            b["add-field"],
+            json!([{"name": "emb", "type": "knn_vector_3_cosine_ef100_m16"}, {"name": "emb2", "type": "knn_vector_3", "indexed": false}])
+        );
+        // The field types go before the fields.
+        let body = r[1].body.as_deref().unwrap();
+        assert!(body.find("add-field-type").unwrap() < body.find("\"add-field\"").unwrap());
+
+        // Read back: the vector it holds, its field type, its index.
+        let fields = J::parse(
+            r#"{"fields":[{"name":"id","type":"string"},{"name":"emb","type":"knn_vector_3_cosine_ef100_m16"},
+                {"name":"emb2","type":"knn_vector_3","indexed":false}]}"#,
+        )
+        .unwrap();
+        let types = J::parse(&format!(r#"{{"fieldTypes":{}}}"#, b["add-field-type"])).unwrap();
+        let back = collection_schema("docs", &fields, Some(&types), Some("id"), None);
+        assert_eq!(back.columns[1].data_type, "knn_vector(3)");
+        assert_eq!(
+            back.columns[1].options.get("fieldType").map(String::as_str),
+            Some("knn_vector_3_cosine_ef100_m16")
+        );
+        assert_eq!(back.indexes.len(), 1, "emb2 isn't indexed");
+        assert_eq!(back.indexes[0].vector, Some(v));
+        assert_eq!(back.indexes[0].columns, ["emb"]);
+        // Not indexed is what no vector index says: no option for it.
+        assert!(!back.columns[2].options.contains_key("indexed"));
+        // And again: the same request.
+        let again = back.clone();
+        assert_eq!(
+            collection_ddl(
+                &again,
+                DdlParts {
+                    create: true,
+                    ..Default::default()
+                }
+            )
+            .unwrap(),
+            text
+        );
+
+        // What can't be.
+        let mut plain = vector_collection(None);
+        plain.indexes.push(IndexDef {
+            name: "i".into(),
+            columns: vec!["id".into()],
+            ..Default::default()
+        });
+        assert!(collection_ddl(
+            &plain,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            }
+        )
+        .is_err());
+        let mut on_text = vector_collection(Some(dbine_driver::VectorIndex::default()));
+        on_text.indexes[0].columns = vec!["id".into()];
+        assert!(collection_ddl(
+            &on_text,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            }
+        )
+        .is_err());
+        let mut clash = vector_collection(None);
+        clash.columns[2]
+            .options
+            .insert("fieldType".into(), "knn_vector_3".into());
+        clash.columns[2].data_type = "knn_vector(4)".into();
+        assert!(collection_ddl(
+            &clash,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            }
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn vector_fields_without_an_index_share_any_type_holding_them() {
+        let parts = DdlParts {
+            create: true,
+            ..Default::default()
+        };
+        // emb2 names emb's field type: it holds the same vector, so it's
+        // shared, and emb2 isn't indexed.
+        let mut t = vector_collection(Some(dbine_driver::VectorIndex {
+            metric: Some("cosine".into()),
+            ..Default::default()
+        }));
+        t.columns[2]
+            .options
+            .insert("fieldType".into(), "knn_vector_3_cosine".into());
+        let text = collection_ddl(&t, parts).unwrap();
+        let b: serde_json::Value =
+            serde_json::from_str(reqs(&text)[1].body.as_deref().unwrap()).unwrap();
+        assert_eq!(b["add-field-type"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            b["add-field"][1],
+            json!({"name": "emb2", "type": "knn_vector_3_cosine", "indexed": false})
+        );
+        // Not if it holds another vector.
+        t.columns[2].data_type = "knn_vector(4)".into();
+        assert!(collection_ddl(&t, parts).is_err());
+        // «Indexado» on without a vector index: the field type's own graph.
+        let mut on = vector_collection(None);
+        on.columns[2]
+            .options
+            .insert("indexed".into(), "true".into());
+        let text = collection_ddl(&on, parts).unwrap();
+        assert!(
+            text.contains(r#"{"name":"emb2","type":"knn_vector_3","indexed":true}"#),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn more_than_1024_dimensions_say_which_solr_takes_them() {
+        let mut t = vector_collection(None);
+        t.columns[1].data_type = "knn_vector(1536)".into();
+        let text = collection_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            text.contains("# emb: más de 1024 dimensiones. Solr las toma desde la 9.5"),
+            "{text}"
+        );
+        // The request still parses: the note is a comment.
+        assert_eq!(reqs(&text).len(), 2);
+        let t = vector_collection(None);
+        let text = collection_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!text.contains("1024"));
+    }
+
+    #[test]
+    fn vector_values_in_scripts() {
+        let target = ObjectRef {
+            kind: kinds::COLLECTION.into(),
+            schema: None,
+            name: "docs".into(),
+        };
+        let text = update_script(
+            &target,
+            &["id".to_string(), "emb".to_string()],
+            &[vec![json!("1"), json!([0.5, -1.0, 2.25])]],
+        )
+        .unwrap();
+        assert!(
+            text.ends_with("[\n{\"id\":\"1\",\"emb\":[0.5,-1.0,2.25]}\n]"),
+            "{text}"
+        );
+        let text = atomic_update_script(
+            &target,
+            &[RowChange {
+                key: vec![("id".into(), json!("1"))],
+                set: vec![("emb".into(), json!([1, 0, 0]))],
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+        assert!(
+            text.contains(r#"{"id":"1","emb":{"set":[1,0,0]}}"#),
+            "{text}"
+        );
     }
 
     #[test]

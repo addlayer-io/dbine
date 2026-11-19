@@ -1,20 +1,31 @@
 //! Turning JSON responses into tables (shared with the Solr driver).
 
 use crate::json::{Obj, J};
+use crate::vectors::{self, VecType};
 use dbine_driver::{QueryOutcome, ResultColumn};
 
 fn col(name: &str) -> ResultColumn {
-    ResultColumn {
-        name: name.to_string(),
-        type_name: String::new(),
-        vector: None,
-    }
+    ResultColumn::new(name, "")
 }
+
+/// The vector fields of the documents, by (top-level) name: their columns
+/// say so and their cells are vectors' text (see [`vectors::cell`]).
+pub type Vectors = [(String, VecType)];
 
 /// One row per document; columns are the union of the documents' top-level
 /// keys in order of appearance, nested values as compact JSON. Only the
 /// first `max_rows` documents are kept, the rest are counted.
 pub fn push_docs(out: &mut QueryOutcome, docs: impl IntoIterator<Item = Obj>, max_rows: usize) {
+    push_docs_typed(out, docs, max_rows, &[]);
+}
+
+/// [`push_docs`] with the documents' vector fields.
+pub fn push_docs_typed(
+    out: &mut QueryOutcome,
+    docs: impl IntoIterator<Item = Obj>,
+    max_rows: usize,
+    vectors: &Vectors,
+) {
     let mut kept: Vec<Obj> = Vec::new();
     let mut dropped = 0u64;
     for d in docs {
@@ -32,20 +43,37 @@ pub fn push_docs(out: &mut QueryOutcome, docs: impl IntoIterator<Item = Obj>, ma
             }
         }
     }
+    let types: Vec<Option<&VecType>> = names
+        .iter()
+        .map(|n| vectors.iter().find(|(k, _)| k == n).map(|(_, t)| t))
+        .collect();
     let rows: Vec<Vec<serde_json::Value>> = kept
         .iter()
         .map(|d| {
             names
                 .iter()
-                .map(|n| {
+                .zip(&types)
+                .map(|(n, t)| {
                     d.iter()
                         .find(|(k, _)| k == n)
-                        .map_or(serde_json::Value::Null, |(_, v)| v.cell())
+                        .map_or(serde_json::Value::Null, |(_, v)| match t {
+                            Some(t) => vectors::cell(v, t),
+                            None => v.cell(),
+                        })
                 })
                 .collect()
         })
         .collect();
-    out.begin_result(names.iter().map(|n| col(n)).collect());
+    out.begin_result(
+        names
+            .iter()
+            .zip(&types)
+            .map(|(n, t)| match t {
+                Some(t) => ResultColumn::new(*n, t.type_name.clone()).with_vector(t.meta()),
+                None => col(n),
+            })
+            .collect(),
+    );
     for r in rows {
         out.push_row(r, max_rows);
     }
@@ -90,6 +118,11 @@ fn total_hits(resp: &J) -> Option<String> {
 /// A search response: the hits, then one result set per bucket
 /// aggregation and one for the metric aggregations.
 pub fn push_search(out: &mut QueryOutcome, resp: &J, max_rows: usize) {
+    push_search_typed(out, resp, max_rows, &[]);
+}
+
+/// [`push_search`] with the hits' vector fields.
+pub fn push_search_typed(out: &mut QueryOutcome, resp: &J, max_rows: usize, vectors: &Vectors) {
     let hits = resp
         .at(&["hits", "hits"])
         .and_then(J::as_arr)
@@ -97,7 +130,7 @@ pub fn push_search(out: &mut QueryOutcome, resp: &J, max_rows: usize) {
     let has_aggs = resp.get("aggregations").is_some();
     // A `size: 0` aggregation query: skip the empty hits table.
     if !(hits.is_empty() && has_aggs) {
-        push_docs(out, hits.iter().map(hit_doc), max_rows);
+        push_docs_typed(out, hits.iter().map(hit_doc), max_rows, vectors);
     }
     if let Some(total) = total_hits(resp) {
         let took = resp.get("took").map(J::text).unwrap_or_default();
@@ -264,11 +297,15 @@ fn walk_props(props: Option<&J>, prefix: &str, out: &mut Vec<(String, String)>) 
         } else {
             format!("{prefix}.{name}")
         };
-        let ty = f
-            .get("type")
-            .and_then(J::as_str)
-            .unwrap_or("object")
-            .to_string();
+        // Vectors with their dimension (`dense_vector(1536)`).
+        let ty = match VecType::from_mapping(f) {
+            Some(t) => t.spelling(),
+            None => f
+                .get("type")
+                .and_then(J::as_str)
+                .unwrap_or("object")
+                .to_string(),
+        };
         if !out.iter().any(|(n, _)| *n == full) {
             out.push((full.clone(), ty));
         }
@@ -314,6 +351,53 @@ mod tests {
         assert_eq!(r.total_rows, 3);
         assert!(r.truncated);
         assert!(out.messages[0].starts_with("3 documentos"));
+    }
+
+    #[test]
+    fn vector_fields_are_marked() {
+        use dbine_driver::{VectorElement, VectorMeta};
+        let resp = j(r#"{"hits":{"hits":[
+            {"_index":"i","_id":"1","_score":1.0,"_source":{"v":[1.0,0.5,-2e-1],"b":"0a7f","t":"x"}},
+            {"_index":"i","_id":"2","_score":0.5,"_source":{"v":[0,0,1]}}]}}"#);
+        let vectors = vec![
+            (
+                "v".to_string(),
+                VecType::new("dense_vector", Some(3), vectors::Elem::Float),
+            ),
+            (
+                "b".to_string(),
+                VecType::new("dense_vector", Some(2), vectors::Elem::Byte),
+            ),
+        ];
+        let mut out = QueryOutcome::default();
+        push_search_typed(&mut out, &resp, 10, &vectors);
+        let r = &out.results[0];
+        let v = &r.columns[3];
+        assert_eq!(
+            (v.name.as_str(), v.type_name.as_str()),
+            ("v", "dense_vector(3)")
+        );
+        assert_eq!(
+            v.vector,
+            Some(VectorMeta::dense(Some(3), VectorElement::F32))
+        );
+        assert_eq!(r.columns[4].type_name, "dense_vector(2, byte)");
+        assert!(r.columns[5].vector.is_none());
+        assert_eq!(r.rows[0][3], json!("[1,0.5,-0.2]"));
+        assert_eq!(r.rows[0][4], json!("[10,127]"));
+        assert_eq!(r.rows[1][3], json!("[0,0,1]"));
+        assert_eq!(r.rows[1][4], json!(null));
+        // The mapping's types, with the dimension.
+        let f = mapping_fields(&j(
+            r#"{"properties":{"v":{"type":"dense_vector","dims":3},"k":{"type":"knn_vector","dimension":2,"data_type":"byte"}}}"#,
+        ));
+        assert_eq!(
+            f,
+            [
+                ("v".to_string(), "dense_vector(3)".to_string()),
+                ("k".to_string(), "knn_vector(2, byte)".to_string())
+            ]
+        );
     }
 
     #[test]
