@@ -366,12 +366,28 @@ function rowsForCopy(): Cell[][] {
 async function copyRows(format: CopyFormat, cols: ResultColumn[], rows: Cell[][]) {
   const script = props.copyContext?.script;
   if (script && (format === 'sql_insert' || format === 'sql_update') && cols.some((c) => isDense(vectorMeta(c)))) {
-    try {
-      const text = await script(format, cols, rows);
-      if (text) return copy(text);
-    } catch { /* the generic SQL below */ }
+    const generic = () => formatRows(format, cols, rows, props.copyContext);
+    return copyLater(Promise.resolve().then(() => script(format, cols, rows)).then((text) => text || generic(), generic));
   }
   return copy(formatRows(format, cols, rows, props.copyContext));
+}
+/** Copies a text still being made (the driver's script, a round trip
+ *  away). The clipboard write starts now, within the click or key press,
+ *  and takes the text when it's ready: WebKit (the macOS app) may refuse a
+ *  write that comes after the round trip. Without that, the text is
+ *  written once ready; a failure says so. */
+async function copyLater(text: Promise<string>) {
+  try {
+    try {
+      if (typeof ClipboardItem === 'undefined' || !navigator.clipboard.write) throw new Error('no ClipboardItem');
+      await navigator.clipboard.write([new ClipboardItem({ 'text/plain': text.then((s) => new Blob([s], { type: 'text/plain' })) })]);
+    } catch {
+      await navigator.clipboard.writeText(await text);
+    }
+    ElMessage.success({ message: t('common:copied'), duration: 1200 });
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : String(e));
+  }
 }
 
 function copyAs(format: CopyFormat) {
