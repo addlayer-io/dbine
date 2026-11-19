@@ -118,6 +118,7 @@ pub(crate) fn assemble(
             kind: ix.kind.clone().unwrap_or_default().to_uppercase(),
             key_columns: ix.columns.clone(),
             size_kb: size.copied().map(kb),
+            vector: ix.vector.clone(),
             ..Default::default()
         });
     }
@@ -192,6 +193,7 @@ mod tests {
             "a MergeTree key doesn't enforce uniqueness"
         );
         assert_eq!(r.indexes[0].key_columns, ["id", "ts"]);
+        assert!(r.indexes.iter().all(|i| i.vector.is_none()));
         // Nothing from the server: no sizes.
         let r = assemble(Flavor::Timeplus, &t, None, &HashMap::new(), &HashMap::new());
         assert!(r.indexes.iter().all(|i| i.size_kb.is_none()));
@@ -200,5 +202,34 @@ mod tests {
             .as_deref()
             .unwrap()
             .starts_with("Timeplus Proton no registra"));
+    }
+
+    /// A vector_similarity index carries its algorithm, metric and
+    /// parameters, as the schema read gives them.
+    #[test]
+    fn vector_indexes_carry_their_settings() {
+        let v = dbine_driver::VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("cosine".into()),
+            params: [("dimensions".to_string(), "3".to_string())].into(),
+        };
+        let t = TableSchema {
+            name: "t".into(),
+            indexes: vec![IndexDef {
+                name: "ix_emb".into(),
+                columns: vec!["emb".into()],
+                kind: Some("vector_similarity GRANULARITY 2".into()),
+                vector: Some(v.clone()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let skip = named_sizes(&[vec![json!("ix_emb"), json!(3000)]]);
+        let r = assemble(Flavor::ClickHouse, &t, None, &skip, &HashMap::new());
+        let ix = &r.indexes[0];
+        assert_eq!(
+            (ix.kind.as_str(), ix.size_kb, ix.vector.as_ref()),
+            ("VECTOR_SIMILARITY GRANULARITY 2", Some(3), Some(&v))
+        );
     }
 }

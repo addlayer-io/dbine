@@ -589,15 +589,25 @@ pub(crate) fn vector_granularity(ix: &IndexDef) -> Option<String> {
 pub const TYPE_OPTION: &str = "type";
 
 /// The type of a vector index read from a ClickHouse of 24.8–25.7 (no
-/// dimension), to write it again as that server takes it: when the index's
-/// settings are still the ones read with it.
-pub(crate) fn legacy_vector_type(ix: &IndexDef) -> Option<&str> {
+/// dimension), to write it again as that server takes it: as it was read
+/// while its settings are the ones read with it, and in that form with its
+/// new settings when they change without a dimension (one with a
+/// dimension is 25.8's index).
+pub(crate) fn legacy_vector_type(ix: &IndexDef) -> Option<String> {
     let v = ix.vector.as_ref()?;
     if v.params.contains_key(crate::vector::DIMENSIONS) {
         return None;
     }
     let t = ix.options.get(TYPE_OPTION)?;
-    (crate::vector::parse_index(t).as_ref() == Some(v)).then_some(t.as_str())
+    let read = crate::vector::parse_index(t)?;
+    if read.params.contains_key(crate::vector::DIMENSIONS) {
+        return None;
+    }
+    Some(if &read == v {
+        t.clone()
+    } else {
+        crate::vector::legacy_index_type(v)
+    })
 }
 
 /// A vector index without the dimension ClickHouse requires, as the error
@@ -624,9 +634,7 @@ pub(crate) fn index_clause(ix: &IndexDef) -> String {
         // Without a dimension there's no valid type ([`check_vector_indexes`]
         // says so first); the server's error names what's missing.
         let ty = crate::vector::index_type(v).unwrap_or_else(|_| {
-            legacy_vector_type(ix)
-                .unwrap_or(crate::vector::KIND)
-                .to_string()
+            legacy_vector_type(ix).unwrap_or_else(|| crate::vector::KIND.to_string())
         });
         // The granularity always said: before 23.x ClickHouse required it,
         // and older servers' default isn't the one vector indexes take.
@@ -1394,7 +1402,7 @@ mod tests {
         );
         assert_eq!(vo.vector.as_ref().unwrap().params["m"], "16");
         assert_eq!(
-            legacy_vector_type(vo),
+            legacy_vector_type(vo).as_deref(),
             Some("vector_similarity('hnsw', 'cosineDistance', 'f32', 16, 64)")
         );
         assert_eq!(legacy_vector_type(vi), None);
@@ -1430,12 +1438,28 @@ mod tests {
                 && ddl.contains("    INDEX `vo` v TYPE vector_similarity('hnsw', 'cosineDistance', 'f32', 16, 64) GRANULARITY 100000000\n"),
             "{ddl}"
         );
-        // Its settings changed: no longer the old server's index; a new one
-        // needs the dimension.
+        // Its settings changed without a dimension: the old server's form
+        // with the new settings (24.8–25.7 take nothing else); with a
+        // dimension, 25.8's index.
         let mut changed = t.clone();
         changed.indexes[2].vector.as_mut().unwrap().metric = Some("l2".into());
-        assert!(legacy_vector_type(&changed.indexes[2]).is_none());
-        assert!(check_vector_indexes(&changed).is_err());
+        assert_eq!(
+            legacy_vector_type(&changed.indexes[2]).as_deref(),
+            Some("vector_similarity('hnsw', 'L2Distance', 'f32', 16, 64)")
+        );
+        check_vector_indexes(&changed).unwrap();
+        let mut dims = changed.clone();
+        dims.indexes[2]
+            .vector
+            .as_mut()
+            .unwrap()
+            .params
+            .insert("dimensions".into(), "3".into());
+        assert!(legacy_vector_type(&dims.indexes[2]).is_none());
+        // A new index without a dimension (no type read with it) can't be.
+        let mut fresh = changed.clone();
+        fresh.indexes[2].options.clear();
+        assert!(check_vector_indexes(&fresh).is_err());
         let sync = crate::sync::sync_script(
             Flavor::ClickHouse,
             &[dbine_driver::TableChange::Alter {

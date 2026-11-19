@@ -771,6 +771,39 @@ impl ClickHouseSession {
         Ok(out.results.pop().map(|r| r.rows).unwrap_or_default())
     }
 
+    /// A browse of a table whose `vector_similarity` index searches an
+    /// `Array(Float64)` column marks it as a vector (the result alone
+    /// doesn't say it: ClickHouse's general arrays are Float64 too). One
+    /// catalog read, only when the result has such a column; nothing
+    /// changes when it fails.
+    async fn mark_browsed_vectors(&self, stmt: &str, out: &mut QueryOutcome) {
+        if self.flavor != Flavor::ClickHouse {
+            return;
+        }
+        let Some(result) = out.results.last_mut() else {
+            return;
+        };
+        let wide = result.columns.iter().any(|c| {
+            c.vector.is_none() && base_type(&c.type_name).replace(' ', "") == "array(float64)"
+        });
+        let Some((db, table)) = wide.then(|| vector::browse_target(stmt)).flatten() else {
+            return;
+        };
+        let db = db.unwrap_or_else(|| self.database.clone());
+        let Ok(rows) = self
+            .rows(
+                vector::INDEXED_ARRAYS_SQL,
+                &[("db", db.as_str()), ("t", table.as_str())],
+            )
+            .await
+        else {
+            return;
+        };
+        let pairs: Vec<(String, String)> =
+            rows.iter().map(|r| (text(&r[0]), text(&r[1]))).collect();
+        vector::mark_indexed_arrays(result, &vector::indexed_arrays(&pairs));
+    }
+
     fn done(&self) {
         *self.in_flight.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
@@ -1547,6 +1580,7 @@ impl Session for ClickHouseSession {
                                     "Se detuvo la consulta al llegar a {max_rows} filas."
                                 ));
                             }
+                            self.mark_browsed_vectors(&stmt, out).await;
                         }
                     }
                     Ok::<(), Error>(())

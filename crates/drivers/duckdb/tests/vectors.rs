@@ -301,6 +301,13 @@ async fn vectors_end_to_end() {
                     (Some("HNSW"), &["emb".to_string()][..])
                 );
                 assert_eq!(ix.vector, schema("t").indexes[0].vector);
+                // The Índices view: HNSW, with the same settings.
+                let usage = s.index_usage(&table("t")).await.unwrap().unwrap();
+                let u = usage.indexes.iter().find(|u| u.name == ix.name).unwrap();
+                assert_eq!(
+                    (u.kind.as_str(), &u.vector),
+                    ("HNSW", &schema("t").indexes[0].vector)
+                );
                 let again = d
                     .table_ddl(
                         &t,

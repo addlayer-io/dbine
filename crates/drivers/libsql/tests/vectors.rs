@@ -18,6 +18,11 @@ use serde_json::json;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
+/// One test at a time: sqld 0.24.33 crashed (a segfault) with the two
+/// running at once, each making and dropping vector-indexed tables, and the
+/// crash left half-made indexes behind.
+static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn url() -> String {
     std::env::var("DBINE_LIBSQL_URL").unwrap_or_else(|_| "http://localhost:25880".into())
 }
@@ -197,6 +202,7 @@ async fn drop_all(names: &[String], meta_was_there: bool) {
 #[tokio::test]
 #[ignore]
 async fn vectors_end_to_end() {
+    let _one = LOCK.lock().await;
     let pid = std::process::id();
     let name = format!("vec_t_{pid}");
     let copy = format!("vec_c_{pid}");
@@ -656,6 +662,320 @@ async fn vectors_end_to_end() {
     drop_all(&names, meta_was_there).await;
     let _ = std::fs::remove_file(&file);
     psql_in("postgres", &format!("DROP DATABASE IF EXISTS {pg_table}"));
+    if let Err(e) = r {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}
+
+/// Typed scripts against sqld, in every vector format, each column with a
+/// vector index of its own (which refuses a vector of another format): the
+/// script writes each format's function with no catalog lookup, the rows
+/// read back, an edit lands and is found through the index, and the
+/// Índices view lists the index as DiskANN with its settings.
+#[tokio::test]
+#[ignore]
+async fn typed_scripts_in_every_format() {
+    let _one = LOCK.lock().await;
+    let pid = std::process::id();
+    let formats = [
+        ("F32_BLOB", "vector32"),
+        ("F64_BLOB", "vector64"),
+        ("F16_BLOB", "vector16"),
+        ("FB16_BLOB", "vectorb16"),
+        ("F8_BLOB", "vector8"),
+        ("F1BIT_BLOB", "vector1bit"),
+    ];
+    let names: Vec<String> = formats
+        .iter()
+        .map(|(f, _)| format!("vec_ty_{pid}_{}", f.to_ascii_lowercase()))
+        .collect();
+    let meta_was_there = {
+        let mut s = open().await;
+        let r = run(
+            &mut s,
+            "SELECT count(*) FROM sqlite_master WHERE name = 'libsql_vector_meta_shadow'",
+        )
+        .await;
+        r.results[0].rows[0][0] == json!(1)
+    };
+    drop_all(&names, true).await;
+    let body = {
+        let names = names.clone();
+        tokio::spawn(async move {
+            let d = driver();
+            let mut s = open().await;
+            for ((format, function), name) in formats.iter().zip(&names) {
+                let mut t = schema(name);
+                t.columns = vec![
+                    col("id", "INTEGER", false),
+                    col("emb", &format!("{format}(4)"), true),
+                ];
+                // libSQL has no L2 distance for 1-bit vectors: the DDL
+                // refuses such an index (libSQL would take it, and then
+                // rank wrong); cosine for them.
+                t.indexes[0].vector.as_mut().unwrap().metric = Some("l2".into());
+                if *format == "F1BIT_BLOB" {
+                    let e = d
+                        .table_ddl(
+                            &t,
+                            DdlParts {
+                                create: true,
+                                indexes: true,
+                                ..Default::default()
+                            },
+                        )
+                        .unwrap_err();
+                    assert!(e.to_string().contains("1 bit"), "{e}");
+                    t.indexes[0].vector.as_mut().unwrap().metric = Some("cosine".into());
+                }
+                let ddl = d
+                    .table_ddl(
+                        &t,
+                        DdlParts {
+                            create: true,
+                            indexes: true,
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                run(&mut s, &ddl).await;
+                // The types as the app gets them from describe.
+                let types: Vec<dbine_driver::ResultColumn> = s
+                    .columns(&table(name))
+                    .await
+                    .unwrap()
+                    .into_iter()
+                    .map(|c| dbine_driver::ResultColumn::new(c.name, c.data_type))
+                    .collect();
+                assert_eq!(types[1].type_name, format!("{format}(4)"));
+                let ins = d
+                    .insert_script_typed(
+                        &table(name),
+                        &types,
+                        &[
+                            vec![json!(1), json!([1, 2, 3, 4])],
+                            vec![json!(2), json!([-1, 0.5, -2, 3])],
+                        ],
+                    )
+                    .unwrap();
+                assert!(
+                    ins.contains(&format!("{function}('[1,2,3,4]')"))
+                        && !ins.contains("pragma_table_info"),
+                    "{ins}"
+                );
+                run(&mut s, &ins).await;
+                let out = run(
+                    &mut s,
+                    &format!("SELECT id, emb FROM \"{name}\" ORDER BY id"),
+                )
+                .await;
+                let r = &out.results[0];
+                assert!(r.columns[1].vector.is_some(), "{format}");
+                let first = r.rows[0][1].as_str().unwrap().to_string();
+                let want = match *format {
+                    "F1BIT_BLOB" => "[1,1,1,1]",
+                    _ => "[1,2,3,4]",
+                };
+                if *format == "F8_BLOB" {
+                    // Scaled bytes: close, not exact.
+                    let n = dbine_driver::vector::parse(&first).unwrap();
+                    assert!(
+                        n.iter()
+                            .zip([1.0, 2.0, 3.0, 4.0])
+                            .all(|(a, b)| (a - b).abs() < 0.05),
+                        "{first}"
+                    );
+                } else {
+                    assert_eq!(first, want, "{format}");
+                }
+                // An edit with the types, found through the index.
+                let up = d
+                    .update_script_typed(
+                        &table(name),
+                        &[RowChange {
+                            key: vec![("id".into(), json!(2))],
+                            set: vec![("emb".into(), json!([4, -3, 2, -1]))],
+                            row: Vec::new(),
+                        }],
+                        &types,
+                    )
+                    .unwrap();
+                assert!(up.contains(&format!("{function}('[4,-3,2,-1]')")), "{up}");
+                run(&mut s, &up).await;
+                let out = run(
+                    &mut s,
+                    &format!(
+                        "SELECT t.id FROM vector_top_k('{name}_emb', {function}('[4,-3,2,-1]'), 1) k JOIN \"{name}\" t ON t.rowid = k.id"
+                    ),
+                )
+                .await;
+                assert_eq!(out.results[0].rows[0][0], json!(2), "{format}");
+                // The Índices view: DiskANN, the index's settings, a size.
+                let usage = s.index_usage(&table(name)).await.unwrap().unwrap();
+                let ix = usage
+                    .indexes
+                    .iter()
+                    .find(|i| i.name == format!("{name}_emb"))
+                    .unwrap_or_else(|| panic!("{usage:?}"));
+                assert_eq!(ix.kind, "DISKANN");
+                assert_eq!(ix.key_columns, ["emb"]);
+                assert_eq!(
+                    ix.vector.as_ref().and_then(|v| v.metric.as_deref()),
+                    Some(if *format == "F1BIT_BLOB" {
+                        "cosine"
+                    } else {
+                        "l2"
+                    })
+                );
+                assert_eq!(ix.vector.as_ref().unwrap().params["m"], "16");
+                assert!(ix.size_kb.is_some_and(|k| k > 0), "{ix:?}");
+            }
+        })
+    };
+    let r = body.await;
+    drop_all(&names, meta_was_there).await;
+    if let Err(e) = r {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}
+
+/// An L2 index on 1-bit vectors made by hand, which sqld takes (and then
+/// ranks wrong): the table it's on still has a script. Its DDL, as a
+/// clone, a script export or a same-engine migration asks for it, and a
+/// compare's copy of the table, run on the server and give the same index,
+/// with a warning. The designer still can't make one. The other refusals
+/// (no dimension, 1-bit compression with L2) are sqld's own: no table can
+/// hold those.
+#[tokio::test]
+#[ignore]
+async fn an_index_the_server_holds_is_scripted() {
+    let _one = LOCK.lock().await;
+    let pid = std::process::id();
+    let name = format!("vec_h_{pid}");
+    let copy = format!("vec_hc_{pid}");
+    let synced = format!("vec_hs_{pid}");
+    let refused = format!("vec_hr_{pid}");
+    let names = vec![name.clone(), copy.clone(), synced.clone(), refused.clone()];
+    let meta_was_there = {
+        let mut s = open().await;
+        let r = run(
+            &mut s,
+            "SELECT count(*) FROM sqlite_master WHERE name = 'libsql_vector_meta_shadow'",
+        )
+        .await;
+        r.results[0].rows[0][0] == json!(1)
+    };
+    drop_all(&names, true).await;
+    let body = {
+        let (name, copy, synced, refused) =
+            (name.clone(), copy.clone(), synced.clone(), refused.clone());
+        tokio::spawn(async move {
+            let d = driver();
+            let mut s = open().await;
+            run(
+                &mut s,
+                &format!(
+                    "CREATE TABLE \"{name}\" (id INTEGER PRIMARY KEY, bits F1BIT_BLOB(8));\n\
+                     CREATE INDEX \"{name}_bits\" ON \"{name}\" (libsql_vector_idx(bits, 'metric=l2'));\n\
+                     INSERT INTO \"{name}\" VALUES (1, vector1bit('[1,0,1,0,1,0,1,0]')), (2, vector1bit('[0,1,0,1,0,1,0,1]'));"
+                ),
+            )
+            .await;
+            // sqld's own refusals: no table holds such an index.
+            run(
+                &mut s,
+                &format!("CREATE TABLE \"{refused}\" (a F32_BLOB(8), b F32_BLOB)"),
+            )
+            .await;
+            for key in ["a, 'metric=l2', 'compress_neighbors=float1bit'", "b"] {
+                let mut out = QueryOutcome::default();
+                let r = s
+                    .execute(
+                        &format!(
+                            "CREATE INDEX \"{refused}_x\" ON \"{refused}\" (libsql_vector_idx({key}))"
+                        ),
+                        10,
+                        &mut out,
+                    )
+                    .await;
+                assert!(
+                    r.is_err() || out.error.is_some(),
+                    "sqld took libsql_vector_idx({key})"
+                );
+            }
+
+            // The table as the catalog read gives it.
+            let read = |all: Vec<TableSchema>, n: &str| {
+                all.into_iter()
+                    .find(|t| t.name == n)
+                    .unwrap_or_else(|| panic!("{n} not read"))
+            };
+            let t = read(s.database_schema().await.unwrap(), &name);
+            let ix = &t.indexes[0];
+            assert_eq!(
+                ix.vector.as_ref().and_then(|v| v.metric.as_deref()),
+                Some("l2")
+            );
+            assert!(dbine_driver_sqlite::schema::held_vector_index(ix));
+            let all = DdlParts {
+                create: true,
+                indexes: true,
+                ..Default::default()
+            };
+            // Its DDL, as a clone or an export asks for it, runs.
+            let mut c = t.clone();
+            c.name = copy.clone();
+            c.indexes[0].name = format!("{copy}_bits");
+            let ddl = d.table_ddl(&c, all).unwrap();
+            assert!(
+                ddl.contains(&format!(
+                    "-- El índice vectorial «{copy}_bits» mide con distancia L2"
+                )),
+                "{ddl}"
+            );
+            run(&mut s, &ddl).await;
+            // A compare's copy: the warning apart, the same index.
+            let mut c = t.clone();
+            c.name = synced.clone();
+            c.indexes[0].name = format!("{synced}_bits");
+            let script = d.sync_script(&[TableChange::Create { table: c }]).unwrap();
+            assert_eq!(script.warnings.len(), 1, "{:?}", script.warnings);
+            for st in &script.statements {
+                run(&mut s, st).await;
+            }
+            let after = s.database_schema().await.unwrap();
+            for n in [&copy, &synced] {
+                let x = read(after.clone(), n);
+                assert_eq!(x.indexes.len(), 1, "{n}");
+                assert!(dbine_driver::vector::same_index(
+                    &x.indexes[0].vector,
+                    &t.indexes[0].vector
+                ));
+                assert_eq!(x.columns[1].data_type, "F1BIT_BLOB(8)");
+            }
+            run(
+                &mut s,
+                &format!("INSERT INTO \"{copy}\" SELECT * FROM \"{name}\""),
+            )
+            .await;
+            let out = run(
+                &mut s,
+                &format!(
+                    "SELECT count(*) FROM vector_top_k('{copy}_bits', vector1bit('[1,0,1,0,1,0,1,0]'), 2)"
+                ),
+            )
+            .await;
+            assert_eq!(out.results[0].rows[0][0], json!(2));
+            // The designer's own L2 index on 1-bit vectors stays refused.
+            let mut made = t.clone();
+            made.name = refused.clone();
+            made.indexes[0].options.clear();
+            let e = d.table_ddl(&made, all).unwrap_err().to_string();
+            assert!(e.contains("1 bit"), "{e}");
+        })
+    };
+    let r = body.await;
+    drop_all(&names, meta_was_there).await;
     if let Err(e) = r {
         std::panic::resume_unwind(e.into_panic());
     }

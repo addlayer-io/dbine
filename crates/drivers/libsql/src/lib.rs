@@ -66,6 +66,29 @@ struct LibsqlDriver {
     info: DriverInfo,
 }
 
+/// The type of the column an index's key starts with, as `t` has it.
+fn key_type(t: &TableSchema, ix: &dbine_driver::IndexDef) -> Option<String> {
+    ix.columns
+        .first()
+        .and_then(|k| t.columns.iter().find(|c| &c.name == k))
+        .map(|c| c.data_type.to_ascii_lowercase())
+}
+
+/// `new` with only the indexes a sync makes or changes: one the table
+/// already has, on a column of the same type, stays as the server has it.
+fn changed_indexes(old: &TableSchema, new: &TableSchema) -> TableSchema {
+    let mut t = new.clone();
+    t.indexes.retain(|n| {
+        !old.indexes.iter().any(|o| {
+            o.name.eq_ignore_ascii_case(&n.name)
+                && o.columns == n.columns
+                && dbine_driver::vector::same_index(&o.vector, &n.vector)
+                && key_type(old, o) == key_type(new, n)
+        })
+    });
+    t
+}
+
 /// SQLite's, minus `PRAGMA legacy_alter_table`: the libSQL server refuses it
 /// ("unsupported statement"). The foreign-keys PRAGMAs around a rebuild stay.
 fn sync_script(changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
@@ -149,7 +172,9 @@ impl Driver for LibsqlDriver {
         Some(schema::libsql_designer())
     }
 
-    /// The contract's scripts, with a vector as `vector32('[…]')`.
+    /// The contract's scripts, with a vector made in its column's format
+    /// (`vector32('[…]')`, `vector64('[…]')`…), which the statement reads
+    /// from the catalog.
     fn insert_script(
         &self,
         target: &ObjectRef,
@@ -180,11 +205,51 @@ impl Driver for LibsqlDriver {
         Ok(vector::scripts::delete(target, keys))
     }
 
+    /// With the target's types, a vector goes straight in its column's
+    /// format (`F64_BLOB` gets vector64('[…]')); a column whose type
+    /// isn't libSQL's still reads it from the catalog. Deletes keep the
+    /// contract's default: vectors are never in a key.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[dbine_driver::ResultColumn],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
+        Ok(vector::scripts::insert_typed(
+            vector::Engine::Libsql,
+            target,
+            columns,
+            rows,
+        ))
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[dbine_driver::ResultColumn],
+    ) -> Result<String> {
+        Ok(vector::scripts::update_typed(
+            vector::Engine::Libsql,
+            target,
+            changes,
+            types,
+        ))
+    }
+
     fn create_templates(&self) -> Vec<CreateTemplate> {
         schema::create_templates()
     }
 
+    /// A vector index libSQL can't make on its column (one without a
+    /// dimension, L2 on a 1-bit one) is refused here, with why. One a
+    /// server already holds as it is (read for a clone, a script export or
+    /// a migration from libSQL) is written as it is: an L2 one on 1-bit
+    /// vectors, which sqld takes, with a warning above it.
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
+        if parts.indexes {
+            schema::check_vector_columns(table, schema::held_vector_index).map_err(Error::Query)?;
+        }
         Ok(schema::table_ddl(table, parts))
     }
 
@@ -211,10 +276,30 @@ impl Driver for LibsqlDriver {
     }
 
     /// SQLite's: columns are added in place; any other change rebuilds the table.
+    /// The vector indexes it makes or changes are checked as the DDL's; one
+    /// a server holds (a compare's source) passes as long as its column
+    /// keeps its type: an L2 index left on a column turned into 1-bit
+    /// vectors is a new one, refused.
     fn sync_script(
         &self,
         changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
+        use dbine_driver::TableChange;
+        for ch in changes {
+            match ch {
+                TableChange::Create { table } => {
+                    schema::check_vector_columns(table, schema::held_vector_index)
+                }
+                TableChange::Alter { old, new } => {
+                    schema::check_vector_columns(&changed_indexes(old, new), |ix| {
+                        schema::held_vector_index(ix)
+                            && key_type(old, ix).is_none_or(|o| Some(o) == key_type(new, ix))
+                    })
+                }
+                _ => Ok(()),
+            }
+            .map_err(Error::Query)?;
+        }
         sync_script(changes)
     }
 
@@ -898,6 +983,169 @@ fn static_catalog(version: &str) -> Vec<dbine_driver::FunctionInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A sync refuses a vector index libSQL can't make only when it makes
+    /// or changes it: one the table already has stays as the server has it.
+    #[test]
+    fn sync_checks_the_vector_indexes_it_makes() {
+        use dbine_driver::{ColumnDef, IndexDef, TableChange, VectorIndex};
+        let t = |metric: &str| TableSchema {
+            name: "docs".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "INTEGER".into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "bits".into(),
+                    data_type: "F1BIT_BLOB(8)".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            indexes: vec![IndexDef {
+                name: "docs_bits".into(),
+                columns: vec!["bits".into()],
+                vector: Some(VectorIndex {
+                    metric: Some(metric.into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let d = drivers().pop().unwrap();
+        // An L2 index on 1-bit vectors already there (made by hand): a new
+        // column doesn't touch it.
+        let mut wider = t("l2");
+        wider.columns.push(ColumnDef {
+            name: "note".into(),
+            data_type: "TEXT".into(),
+            nullable: true,
+            ..Default::default()
+        });
+        d.sync_script(&[TableChange::Alter {
+            old: t("l2"),
+            new: wider,
+        }])
+        .unwrap();
+        // Making one is refused, with why.
+        let e = d
+            .sync_script(&[TableChange::Alter {
+                old: t("cosine"),
+                new: t("l2"),
+            }])
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("«docs_bits»") && e.contains("1 bit"), "{e}");
+        assert!(d
+            .sync_script(&[TableChange::Create { table: t("l2") }])
+            .is_err());
+        assert!(d
+            .table_ddl(
+                &t("l2"),
+                DdlParts {
+                    create: true,
+                    indexes: true,
+                    ..Default::default()
+                }
+            )
+            .is_err());
+        // Without the indexes, the table alone is fine.
+        d.table_ddl(
+            &t("l2"),
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+
+    /// An L2 index on 1-bit vectors a libSQL server already holds (it takes
+    /// one made by hand) is scripted as it is, with a warning: a clone, a
+    /// script export, a same-engine migration and a compare's copy of its
+    /// table don't fail on it. The designer still can't make one, nor a
+    /// sync turn a column under one into 1-bit vectors.
+    #[test]
+    fn an_index_the_server_holds_is_scripted() {
+        use dbine_driver::{ColumnDef, IndexDef, TableChange, VectorIndex};
+        let held = |ty: &str| {
+            let v = VectorIndex {
+                metric: Some("l2".into()),
+                ..Default::default()
+            };
+            TableSchema {
+                name: "docs".into(),
+                columns: vec![ColumnDef {
+                    name: "bits".into(),
+                    data_type: ty.into(),
+                    nullable: true,
+                    ..Default::default()
+                }],
+                indexes: vec![IndexDef {
+                    name: "docs_bits".into(),
+                    columns: vec!["bits".into()],
+                    // As the catalog read gives it.
+                    options: [(
+                        schema::VECTOR_OPTION.to_string(),
+                        schema::vector_index_sql("bits", &v),
+                    )]
+                    .into(),
+                    vector: Some(v),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }
+        };
+        let d = drivers().pop().unwrap();
+        let all = DdlParts {
+            create: true,
+            indexes: true,
+            ..Default::default()
+        };
+        let ddl = d.table_ddl(&held("F1BIT_BLOB(8)"), all).unwrap();
+        assert!(
+            ddl.contains("-- El índice vectorial «docs_bits» mide con distancia L2")
+                && ddl.contains("libsql_vector_idx(\"bits\", 'metric=l2')"),
+            "{ddl}"
+        );
+        let s = d
+            .sync_script(&[TableChange::Create {
+                table: held("F1BIT_BLOB(8)"),
+            }])
+            .unwrap();
+        assert_eq!(s.warnings.len(), 1, "{:?}", s.warnings);
+        // Renamed in the designer: the same index, made again.
+        let mut renamed = held("F1BIT_BLOB(8)");
+        renamed.indexes[0].name = "docs_bits2".into();
+        let s = d
+            .sync_script(&[TableChange::Alter {
+                old: held("F1BIT_BLOB(8)"),
+                new: renamed,
+            }])
+            .unwrap();
+        assert!(
+            s.statements.iter().any(|x| x.contains("\"docs_bits2\"")),
+            "{:?}",
+            s.statements
+        );
+        // Its column turned into 1-bit vectors under it: a new L2 index on
+        // them, refused.
+        let e = d
+            .sync_script(&[TableChange::Alter {
+                old: held("F32_BLOB(8)"),
+                new: held("F1BIT_BLOB(8)"),
+            }])
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("«docs_bits»") && e.contains("1 bit"), "{e}");
+        // The designer's own (no catalog key) stays refused.
+        let mut made = held("F1BIT_BLOB(8)");
+        made.indexes[0].options.clear();
+        assert!(d.table_ddl(&made, all).is_err());
+    }
 
     /// Without the server's list, the static catalog keeps libSQL's vector
     /// functions (from the libSQL that has them).
