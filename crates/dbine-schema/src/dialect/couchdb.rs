@@ -329,6 +329,30 @@ mod tests {
     use crate::parse::parse;
 
     #[test]
+    fn vectors_have_no_native_type() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        // CouchDB has no vectors: an array of numbers, with a warning, and
+        // no vector index.
+        let r = CouchDb.render_type(&L::Vector {
+            dims: Some(3),
+            element: E::F32,
+            sparse: false,
+        });
+        assert_eq!(r.native, "array");
+        assert!(r
+            .notes
+            .iter()
+            .any(|n| n.code == IssueCode::TypeApproximated));
+        assert!(CouchDb.vector_index(&VectorIndex::default()).is_err());
+        assert_eq!(
+            CouchDb.parse_type(&parse("vector(3)")),
+            L::Other {
+                native: "vector(3)".into()
+            }
+        );
+    }
+
+    #[test]
     fn parses_json_types() {
         let d = CouchDb;
         let p = |s: &str| d.parse_type(&parse(s));

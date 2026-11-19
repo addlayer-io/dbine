@@ -338,6 +338,23 @@ mod tests {
     use crate::parse::parse;
 
     #[test]
+    fn vectors_have_no_native_type() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        // DynamoDB has no vectors: a list of numbers, with a warning, and
+        // no vector index.
+        let r = DynamoDb.render_type(&L::Vector {
+            dims: Some(3),
+            element: E::F32,
+            sparse: false,
+        });
+        assert!(r
+            .notes
+            .iter()
+            .any(|n| n.code == IssueCode::TypeApproximated));
+        assert!(DynamoDb.vector_index(&VectorIndex::default()).is_err());
+    }
+
+    #[test]
     fn parses_type_codes() {
         let p = |s: &str| DynamoDb.parse_type(&parse(s));
         assert_eq!(p("S"), L::Text { unicode: true });
