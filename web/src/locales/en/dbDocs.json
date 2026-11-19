@@ -79,6 +79,7 @@
     "unique": "Unique",
     "included": "Includes",
     "filter": "Filter",
+    "vector": "Vector index",
     "checks": "CHECK constraints",
     "condition": "Condition",
     "name": "Name",

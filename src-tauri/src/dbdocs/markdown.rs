@@ -310,23 +310,27 @@ fn table(out: &mut String, doc: &Doc, td: &TableDoc, anchors: &Anchors, l: &Labe
     }
     if doc.indexes && !t.indexes.is_empty() {
         let _ = writeln!(out, "**{}**\n", md(l.get("indexes")));
-        header(
-            out,
-            l,
-            &["name", "columns", "unique", "type", "included", "filter"],
-        );
+        // Vector indexes' settings in a column of their own, only where the
+        // table has one.
+        let vectors = super::has_vector_index(t);
+        let mut keys = vec!["name", "columns", "unique", "type", "included", "filter"];
+        if vectors {
+            keys.push("vector");
+        }
+        header(out, l, &keys);
         for ix in &t.indexes {
-            row(
-                out,
-                &[
-                    md(&ix.name),
-                    md(&ix.columns.join(", ")),
-                    yes_no(l, ix.unique),
-                    md(ix.kind.as_deref().unwrap_or("")),
-                    md(&ix.include.join(", ")),
-                    md(ix.filter.as_deref().unwrap_or("")),
-                ],
-            );
+            let mut cells = vec![
+                md(&ix.name),
+                md(&ix.columns.join(", ")),
+                yes_no(l, ix.unique),
+                md(ix.kind.as_deref().unwrap_or("")),
+                md(&ix.include.join(", ")),
+                md(ix.filter.as_deref().unwrap_or("")),
+            ];
+            if vectors {
+                cells.push(md(&super::vector_text(ix)));
+            }
+            row(out, &cells);
         }
         out.push('\n');
     }
@@ -428,6 +432,33 @@ mod tests {
         // The view's code can't close its fence.
         assert!(text.contains("````sql\nSELECT * FROM orders WHERE x < 1 -- ``` </pre>\n````"));
         assert!(text.contains("<a id=\"t1\"></a>") && text.contains("<a id=\"o1\"></a>"));
+    }
+
+    /// A table with a vector index gets a column with its settings; one
+    /// without, the table as before.
+    #[test]
+    fn vector_indexes_show_their_settings() {
+        let text = render(&sample(), &Labels::new(&BTreeMap::new()));
+        assert!(!text.contains("Índice vectorial"), "{text}");
+        let mut doc = sample();
+        crate::dbdocs::tests::indexed(&mut doc).push(crate::dbdocs::tests::vector_index());
+        let labels = Labels::new(&BTreeMap::from([(
+            "vector".to_string(),
+            "Vector index".to_string(),
+        )]));
+        let text = render(&doc, &labels);
+        assert!(text.contains("| Vector index |"), "{text}");
+        let line = text.lines().find(|l| l.contains(r"ix\_emb")).unwrap();
+        assert!(
+            line.ends_with(r"| hnsw · cosine · ef\_construction=64, m=16 |"),
+            "{line}"
+        );
+        // The ordinary index's cell is empty.
+        let line = text
+            .lines()
+            .find(|l| l.contains(r"ix\_orders\_user"))
+            .unwrap();
+        assert!(line.ends_with("|   |"), "{line}");
     }
 
     #[test]

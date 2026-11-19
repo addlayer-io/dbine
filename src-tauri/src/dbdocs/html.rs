@@ -519,9 +519,12 @@ fn table(out: &mut String, doc: &Doc, td: &TableDoc, anchors: &Anchors, l: &Labe
         out.push_str("</tbody></table>");
     }
     if doc.indexes && !t.indexes.is_empty() {
+        // Vector indexes' settings in a column of their own, only where the
+        // table has one.
+        let vectors = super::has_vector_index(t);
         let _ = write!(
             out,
-            "<h5>{}</h5><table><thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th><th>{}</th><th>{}</th></tr></thead><tbody>",
+            "<h5>{}</h5><table><thead><tr><th>{}</th><th>{}</th><th>{}</th><th>{}</th><th>{}</th><th>{}</th>",
             esc(l.get("indexes")),
             esc(l.get("name")),
             esc(l.get("columns")),
@@ -530,10 +533,14 @@ fn table(out: &mut String, doc: &Doc, td: &TableDoc, anchors: &Anchors, l: &Labe
             esc(l.get("included")),
             esc(l.get("filter"))
         );
+        if vectors {
+            let _ = write!(out, "<th>{}</th>", esc(l.get("vector")));
+        }
+        out.push_str("</tr></thead><tbody>");
         for ix in &t.indexes {
             let _ = write!(
                 out,
-                "<tr><td><code>{}</code></td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
+                "<tr><td><code>{}</code></td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td>",
                 esc(&ix.name),
                 esc(&ix.columns.join(", ")),
                 esc(yes_no(l, ix.unique)),
@@ -541,6 +548,10 @@ fn table(out: &mut String, doc: &Doc, td: &TableDoc, anchors: &Anchors, l: &Labe
                 esc(&ix.include.join(", ")),
                 esc(ix.filter.as_deref().unwrap_or(""))
             );
+            if vectors {
+                let _ = write!(out, "<td>{}</td>", esc(&super::vector_text(ix)));
+            }
+            out.push_str("</tr>");
         }
         out.push_str("</tbody></table>");
     }
@@ -683,6 +694,27 @@ mod tests {
         assert!(html.contains("Usada por"));
         assert!(html.contains("<th>Comentario</th>"));
         assert!(html.contains("ix_orders_user") && html.contains("id &gt; 0 AND id &lt; 10"));
+    }
+
+    /// A table with a vector index gets a column with its settings (the
+    /// Spanish label by default); one without, the table as before.
+    #[test]
+    fn vector_indexes_show_their_settings() {
+        let html = render(&sample(), &Labels::new(&BTreeMap::new()));
+        assert!(!html.contains("Índice vectorial"));
+        let mut doc = sample();
+        crate::dbdocs::tests::indexed(&mut doc).push(crate::dbdocs::tests::vector_index());
+        let html = render(&doc, &Labels::new(&BTreeMap::new()));
+        assert!(
+            html.contains("<th>Filtro</th><th>Índice vectorial</th></tr>"),
+            "{html}"
+        );
+        assert!(html.contains(
+            "<td><code>ix_emb</code></td><td>emb</td><td>No</td><td>hnsw</td><td></td><td></td><td>hnsw · cosine · ef_construction=64, m=16</td></tr>"
+        ));
+        assert!(
+            html.contains("<td>user_id</td><td>No</td><td></td><td></td><td></td><td></td></tr>")
+        );
     }
 
     #[test]
