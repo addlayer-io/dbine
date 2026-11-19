@@ -4,6 +4,8 @@
 //! session's zone) and TZ (keeps the offset); VARIANT / OBJECT / ARRAY
 //! hold semi-structured data. Keys are informational except NOT NULL;
 //! there are no indexes, only UNIQUE constraints (not enforced either).
+//! `VECTOR(FLOAT | INT, n)` holds embeddings of 32-bit floats or integers,
+//! up to 4096 dimensions, without vector indexes.
 
 use super::bigquery::{generic, nested, not_enforced};
 use super::postgres::{longest, prec, precision_loss};
@@ -20,6 +22,8 @@ pub struct Snowflake;
 const MAX_VARCHAR: u32 = 16_777_216;
 /// BINARY's maximum, in bytes.
 const MAX_BINARY: u32 = 8_388_608;
+/// VECTOR's largest dimension.
+const MAX_VECTOR_DIMS: u32 = 4096;
 
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
     static D: Snowflake = Snowflake;
@@ -112,6 +116,16 @@ impl Dialect for Snowflake {
                 key: Box::new(nested(self, &t.args[0])),
                 value: Box::new(nested(self, &t.args[1])),
             },
+            // VECTOR(FLOAT, n) / VECTOR(INT, n): 32-bit elements (an INT
+            // has no element type of its own).
+            "vector" if t.args.len() == 2 => L::Vector {
+                dims: p(1),
+                element: match t.args[0].trim().to_ascii_lowercase().as_str() {
+                    "float" | "float4" | "float32" | "real" => dbine_driver::VectorElement::F32,
+                    _ => dbine_driver::VectorElement::Other,
+                },
+                sparse: false,
+            },
             "geography" => L::Geometry {
                 kind: None,
                 srid: Some(4326),
@@ -139,6 +153,24 @@ impl Dialect for Snowflake {
         let text_note =
             |r: Rendered| r.with(Info, LengthLoss, "VARCHAR de Snowflake admite hasta 16 MB.");
         match t {
+            L::Vector {
+                dims: Some(n),
+                element,
+                sparse: false,
+            } if (1..=MAX_VECTOR_DIMS).contains(n) => {
+                use dbine_driver::VectorElement as E;
+                match element {
+                    // Whole numbers that fit a 32-bit INT.
+                    E::I8 | E::U8 | E::Bit => Rendered::exact(format!("VECTOR(INT, {n})")),
+                    E::F64 => Rendered::exact(format!("VECTOR(FLOAT, {n})")).with(
+                        Loss,
+                        PrecisionLoss,
+                        "VECTOR de Snowflake guarda floats de 32 bits: los de 64 se redondean.",
+                    ),
+                    _ => Rendered::exact(format!("VECTOR(FLOAT, {n})")),
+                }
+            }
+            // Without a dimension (or past 4096), or sparse: no VECTOR.
             L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
@@ -443,7 +475,58 @@ mod tests {
                 ..
             }
         ));
-        assert!(matches!(lt("VECTOR(FLOAT, 256)"), L::Other { .. }));
+        assert_eq!(
+            lt("VECTOR(FLOAT, 256)"),
+            L::Vector {
+                dims: Some(256),
+                element: dbine_driver::VectorElement::F32,
+                sparse: false
+            }
+        );
+        assert_eq!(
+            lt("VECTOR(INT,3)"),
+            L::Vector {
+                dims: Some(3),
+                element: dbine_driver::VectorElement::Other,
+                sparse: false
+            }
+        );
+    }
+
+    #[test]
+    fn vectors_keep_their_dimension() {
+        use dbine_driver::VectorElement as E;
+        let v = |dims, element, sparse| L::Vector {
+            dims,
+            element,
+            sparse,
+        };
+        let r = |t: L| Snowflake.render_type(&t);
+        assert_eq!(r(v(Some(3), E::F32, false)).native, "VECTOR(FLOAT, 3)");
+        assert!(r(v(Some(3), E::F32, false)).notes.is_empty());
+        assert_eq!(r(v(Some(3), E::F16, false)).native, "VECTOR(FLOAT, 3)");
+        assert_eq!(r(v(Some(3), E::I8, false)).native, "VECTOR(INT, 3)");
+        let f64 = r(v(Some(4096), E::F64, false));
+        assert_eq!(f64.native, "VECTOR(FLOAT, 4096)");
+        assert_eq!(f64.notes[0].code, IssueCode::PrecisionLoss);
+        // No dimension, too many, or sparse: an ARRAY, with a warning.
+        for t in [
+            v(None, E::F32, false),
+            v(Some(4097), E::F32, false),
+            v(Some(3), E::F32, true),
+        ] {
+            let got = r(t);
+            assert!(
+                got.notes
+                    .iter()
+                    .any(|n| n.code == IssueCode::TypeApproximated),
+                "{got:?}"
+            );
+            assert_ne!(got.native, "VECTOR");
+        }
+        // Round trip of both element types.
+        assert_eq!(r(lt("VECTOR(FLOAT, 256)")).native, "VECTOR(FLOAT, 256)");
+        assert_eq!(r(lt("VECTOR(INT, 3)")).native, "VECTOR(FLOAT, 3)");
     }
 
     #[test]
