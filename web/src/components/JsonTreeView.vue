@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus';
 import { t } from '../i18n';
 import type { Cell, ResultColumn, VectorMeta } from '../api/types';
-import { vectorMeta } from '../composables/vector';
+import { isDense, vectorMeta, vectorPreview } from '../composables/vector';
 import type { Edits } from '../composables/gridEdit';
 import { columnKind, parseFilter, type FilterState } from '../composables/gridFilter';
 import { isSaveShortcut } from '../composables/shortcuts';
@@ -404,6 +404,14 @@ function scalarText(n: TreeNode): string {
   if (n.kind === 'objectId') return `ObjectId("${v}")`;
   return String(v);
 }
+/** A closed field of a vector column: its first numbers and dimensions, as
+ *  the grid shows them (composables/vector.ts). Null for any other node. */
+function vecNode(n: TreeNode) {
+  if (n.path.length !== 1 || n.kind !== 'array') return null;
+  const c = colIndex(n.path[0]);
+  const meta = c >= 0 ? vectorMeta(props.columns[c]) : null;
+  return isDense(meta) ? vectorPreview(cellAt(n.row, c), meta) : null;
+}
 /** `{ nombre: "Ana", edad: 31, … }` / `[1, 2, 3, …]`: a closed container's preview. */
 function preview(v: unknown, budget = 90): string {
   const one = (x: unknown): string => {
@@ -687,6 +695,7 @@ function onContext(e: MouseEvent, i: number) {
             <span class="jt-colon">:</span>
             <span v-if="isContainer(n)" class="jt-preview" :class="{ edited: isEditedNode(n) }">
               <template v-if="isOpenNode(n)">{{ n.kind === 'array' ? `[ ${n.size} ]` : `{ ${n.size} }` }}</template>
+              <template v-else-if="vecNode(n)">{{ vecNode(n)!.text }}<span v-if="vecNode(n)!.dims != null" class="jt-vdims">{{ vecNode(n)!.dims }}</span></template>
               <template v-else>{{ preview(n.value) }}</template>
             </span>
             <input
@@ -766,6 +775,11 @@ function onContext(e: MouseEvent, i: number) {
 .jt-key.idx { color: var(--nm-text-dim); }
 .jt-colon { color: var(--nm-text-dim); }
 .jt-preview { color: var(--nm-text-dim); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* A vector field's dimensions, after its first numbers (as in the grid). */
+.jt-vdims {
+  margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10.5px; line-height: 15px; font-variant-numeric: tabular-nums;
+  color: var(--nm-syn-type); background: color-mix(in srgb, var(--nm-syn-type) 14%, transparent);
+}
 .jt-val { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .k-string { color: var(--nm-syn-string); }
 .k-number { color: var(--nm-syn-number); }
