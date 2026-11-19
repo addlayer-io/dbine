@@ -83,6 +83,26 @@ impl Endpoints for AppEndpoints {
     async fn open_target(&self) -> dbine_driver::Result<Box<dyn Session>> {
         self.open(false).await
     }
+    fn vector_columns(&self, table: &dbine_driver::TableSchema) -> Vec<String> {
+        vector_columns(table, |t| {
+            crate::commands::vectors::of_type(self.driver.info().id, t)
+        })
+    }
+}
+
+/// `table`'s columns that hold dense vectors by `of` (their type on the
+/// clone's engine): a clone on an engine without a bulk load sends their
+/// cells to `insert_script` as arrays.
+fn vector_columns(
+    table: &dbine_driver::TableSchema,
+    of: impl Fn(&str) -> Option<dbine_driver::VectorMeta>,
+) -> Vec<String> {
+    table
+        .columns
+        .iter()
+        .filter(|c| of(&c.data_type).is_some_and(|m| !m.sparse))
+        .map(|c| c.name.clone())
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -196,4 +216,41 @@ pub async fn clone_table_cancel(args: CancelArgs) -> CommandResult<bool> {
         }
         None => false,
     })
+}
+
+#[cfg(test)]
+mod vector_tests {
+    use super::*;
+    use crate::commands::vectors::{of_type_in, tests::WithVectors};
+
+    /// The engine's dialect says which columns are dense vectors.
+    #[test]
+    fn a_clones_vector_columns_are_its_engines() {
+        let t = dbine_driver::TableSchema {
+            kind: "table".into(),
+            name: "items".into(),
+            columns: [
+                "id integer",
+                "emb vector(3)",
+                "half halfvec(2)",
+                "note text",
+            ]
+            .iter()
+            .map(|c| {
+                let (name, ty) = c.split_once(' ').unwrap();
+                dbine_driver::ColumnDef {
+                    name: name.into(),
+                    data_type: ty.into(),
+                    ..Default::default()
+                }
+            })
+            .collect(),
+            ..Default::default()
+        };
+        assert_eq!(
+            vector_columns(&t, |ty| of_type_in(&WithVectors, ty)),
+            ["emb", "half"]
+        );
+        assert!(vector_columns(&t, |_| None).is_empty());
+    }
 }
