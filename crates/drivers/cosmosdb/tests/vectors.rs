@@ -300,7 +300,9 @@ async fn cosmos_vectors() {
         .iter()
         .find(|r| r[id] == Cell::Text("3".into()))
         .unwrap();
-    assert_eq!(three[at], Cell::Text("[0.9,0.1,0]".into()));
+    // A JSON array with its numbers canonical (a target without vectors
+    // keeps an array).
+    assert_eq!(three[at], Cell::Json("[0.9,0.1,0]".into()));
     let mut target = designed("from_pg", "l2");
     target.options.insert("partition_key".into(), "/id".into());
     run(&mut s, &d.table_ddl(&target, ALL).unwrap()).await;
@@ -344,6 +346,40 @@ async fn cosmos_vectors() {
     assert_eq!(out.results[0].rows[0][0], json!(true));
     let out = run(&mut s, "-- container: from_pg\nSELECT TOP 1 c.id FROM c ORDER BY VectorDistance(c.emb, [0.1, 0.2, 0.3])").await;
     assert_eq!(out.results[0].rows[0][0], json!("p1"));
+    // From MongoDB (a BinData vector field, marked `bson:`) and from
+    // Elasticsearch (`dense_vector`): arrays too, not strings.
+    for (id, ty) in [("m1", "bson:vector(3, float32)"), ("e1", "dense_vector(3)")] {
+        let cols = vec![
+            TransferColumn {
+                name: "id".into(),
+                type_name: "bson:string".into(),
+                nullable: false,
+            },
+            TransferColumn {
+                name: "emb".into(),
+                type_name: ty.into(),
+                nullable: true,
+            },
+        ];
+        let batch = RowBatch {
+            rows: vec![vec![
+                Cell::Text(id.into()),
+                Cell::Text("[0.4,0.5,0.6]".into()),
+            ]],
+            bytes: 0,
+        };
+        s.bulk_load(&load, &cols, &mut Batches(vec![batch].into()), &|_| {})
+            .await
+            .unwrap();
+        let out = run(
+            &mut s,
+            &format!(
+                "-- container: from_pg\nSELECT VALUE IS_ARRAY(c.emb) FROM c WHERE c.id = '{id}'"
+            ),
+        )
+        .await;
+        assert_eq!(out.results[0].rows[0][0], json!(true), "{ty}");
+    }
 
     let _ = admin.drop_database(DB).await;
 }

@@ -54,9 +54,7 @@
 //! never replaces an item: an existing `id` in its partition fails the load
 //! (409).
 
-use crate::{
-    auth_header, ddl, enc, error_message, http_date, CosmosSession, API_VERSION, SYSTEM_PROPS,
-};
+use crate::{auth_header, ddl, enc, error_message, http_date, CosmosSession, SYSTEM_PROPS};
 use dbine_driver::transfer::{
     BatchBuilder, BatchSinkRef, BatchSource, Cell, CopySpec, LoadSpec, Progress, ReadSpec,
     TransferColumn,
@@ -266,7 +264,7 @@ impl Rest {
                     auth_header(&self.key, method.as_str(), rtype, link, &date).map_err(sure)?,
                 )
                 .header("x-ms-date", date)
-                .header("x-ms-version", API_VERSION)
+                .header("x-ms-version", super::api_version(rtype))
                 .header("Accept", "application/json")
                 .timeout(REQUEST_TIMEOUT);
             for (k, v) in headers {
@@ -773,7 +771,8 @@ impl CosmosSession {
             }
         };
         // The embedding policy's fields: `vector(N)`, cells as the vector's
-        // text.
+        // JSON array with its numbers canonical (a target without vectors
+        // keeps an array, as before).
         let vectors = self.vectors_of(&spec.table.name).await;
         let cols: Vec<TransferColumn> = names
             .iter()
@@ -807,7 +806,7 @@ impl CosmosSession {
                 for (c, _) in row.iter_mut().zip(&vector_at).filter(|(_, v)| **v) {
                     if let Cell::Json(j) = c {
                         if let Some(t) = dbine_driver::vector::parse(j).map(dbine_driver::vector::text) {
-                            *c = Cell::Text(t);
+                            *c = Cell::Json(t);
                         }
                     }
                 }

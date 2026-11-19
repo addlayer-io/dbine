@@ -1000,28 +1000,40 @@ impl CbSession {
     }
 }
 
-/// A column type that holds vectors: this driver's `vector(N)` and other
-/// engines' (pgvector's `vector` / `halfvec`, `VECTOR(…)`, Cassandra's
-/// `vector<…>`, libSQL's `F32_BLOB`, HANA's `REAL_VECTOR`…). Sparse
-/// vectors aren't.
+/// Whether a source column's type holds dense vectors, whichever engine it
+/// comes from: `vector(3)`, `VECTOR(3, FLOAT32)`, `vector<float, 3>`,
+/// `frozen<vector<float, 3>>`, `halfvec(3)`, `dense_vector(3)`,
+/// `knn_vector(3)`, `float_vector(3)`, `REAL_VECTOR(3)`, `F32_BLOB(3)`,
+/// `vecf32(3)`, `ARRAY<FLOAT32>(vector_length=>3)`…, also with a crate's
+/// mark (`bson:vector(3, int8)`) or among `|` alternatives
+/// (`bson:vector(3)|bson:null`). Sparse vectors (`sparsevec`,
+/// `sparse_vector`, `VECTOR(…, SPARSE)`) aren't: their text isn't an
+/// array. The same list in every crate of the document family (the
+/// contract has no helper for it).
 fn vector_type(t: &str) -> bool {
-    let p = t.trim().to_ascii_lowercase();
-    [
-        "vector",
-        "halfvec",
-        "real_vector",
-        "half_vector",
-        "f32_blob",
-        "f64_blob",
-        "f16_blob",
-        "fb16_blob",
-        "f8_blob",
-        "f1bit_blob",
-    ]
-    .iter()
-    .any(|v| {
-        p.strip_prefix(v)
-            .is_some_and(|r| r.is_empty() || r.starts_with(['(', '<', ' ']))
+    t.split('|').any(|part| {
+        let p = part.trim().to_ascii_lowercase();
+        if p.contains("sparse") {
+            return false;
+        }
+        p.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .any(|tok| {
+                tok.ends_with("vector")
+                    || tok.ends_with("vec")
+                    || matches!(
+                        tok,
+                        "vecf32"
+                            | "vecf64"
+                            | "vector_length"
+                            | "f32_blob"
+                            | "f64_blob"
+                            | "f16_blob"
+                            | "fb16_blob"
+                            | "bf16_blob"
+                            | "f8_blob"
+                            | "f1bit_blob"
+                    )
+            })
     })
 }
 
@@ -1043,13 +1055,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn vector_types_of_every_engine() {
+        for t in [
+            "vector(3)",
+            "bson:vector(3)",
+            "bson:vector(3, int8)|bson:null",
+            "VECTOR(3, FLOAT32)",
+            "vector<float, 3>",
+            "frozen<vector<float, 3>>",
+            "halfvec(3)",
+            "dense_vector(3)",
+            "knn_vector(3)",
+            "float_vector(3)",
+            "REAL_VECTOR(3)",
+            "F32_BLOB(3)",
+            "vecf32(3)",
+            "ARRAY<FLOAT32>(vector_length=>3)",
+            "vector",
+        ] {
+            assert!(vector_type(t), "{t}");
+        }
+        for t in [
+            "sparsevec(5)",
+            "sparse_vector",
+            "VECTOR(3, FLOAT32, SPARSE)",
+            "varchar(20)",
+            "text",
+            "",
+            "bson:binData",
+            "bson:array",
+            "json",
+            "blob",
+        ] {
+            assert!(!vector_type(t), "{t}");
+        }
+    }
+
+    #[test]
     fn vector_text_loads_as_arrays() {
-        assert!(
-            vector_type("vector(3)")
-                && vector_type("VECTOR(3, FLOAT32)")
-                && vector_type("F32_BLOB(4)")
-        );
-        assert!(!vector_type("sparsevec(3)") && !vector_type("varchar") && !vector_type(""));
         let row = [
             Cell::Text("k".into()),
             Cell::Text("[0.5,1e-7]".into()),
