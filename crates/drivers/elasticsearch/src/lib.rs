@@ -510,6 +510,27 @@ impl Driver for Es {
         ddl::update_script(target, changes)
     }
 
+    /// Bit vectors packed and byte vectors as integers by the columns'
+    /// types (the session also packs bit vectors by the mapping when it
+    /// runs an untyped script, but a script copied out needs them packed).
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[dbine_driver::ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        ddl::bulk_script_typed(target, columns, rows)
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[dbine_driver::ResultColumn],
+    ) -> Result<String> {
+        ddl::update_script_typed(target, changes, types)
+    }
+
     fn delete_script(
         &self,
         target: &ObjectRef,

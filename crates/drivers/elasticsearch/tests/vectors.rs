@@ -11,9 +11,12 @@
 //!
 //! Each one creates its `dbine_vec*` indices through the driver's own DDL
 //! (a designer `TableSchema` with a vector column and a vector index),
-//! fills them with `insert_script` (bit vectors one 0 / 1 per dimension, as
-//! the grid hands them over), reads them back as results, by id and as the
-//! schema, searches by similarity, edits vectors with `update_script`,
+//! fills them with `insert_script_typed` (bit vectors one 0 / 1 per
+//! dimension, as the grid hands them over, typed as a describe gives them)
+//! sent straight over HTTP, as a script copied out of DBine runs, reads them
+//! back as results, by id and as the schema, searches by similarity, edits
+//! vectors with `update_script_typed` (over HTTP) and `update_script`
+//! (through the session, which packs bits by the mapping),
 //! copies the index with `read_batches` / `bulk_load`, and drops what it
 //! made first, and last through a guard that also runs when it fails
 //! partway. `opensearch_byte_and_binary_vectors` creates byte and binary
@@ -23,7 +26,7 @@
 use dbine_driver::transfer::{BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch};
 use dbine_driver::{
     async_trait, ColumnDef, ConnectionConfig, DdlParts, Driver, IndexDef, ObjectRef, QueryOutcome,
-    RowChange, Session, TableSchema, VectorElement, VectorIndex, VectorMeta,
+    ResultColumn, RowChange, Session, TableSchema, VectorElement, VectorIndex, VectorMeta,
 };
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
@@ -46,6 +49,51 @@ async fn run(s: &mut Box<dyn Session>, text: &str) -> QueryOutcome {
         .await
         .unwrap_or_else(|e| panic!("{text}\n{e}"));
     out
+}
+
+/// Runs a script's requests straight over HTTP, as a script copied out of
+/// DBine would run: without the session's own rewriting (it packs bit
+/// vectors by the mapping).
+async fn raw(url: &str, script: &str) {
+    use dbine_driver_elasticsearch::console::{self, Command};
+    let client = reqwest::Client::new();
+    for c in console::parse(script).unwrap() {
+        let Command::Http(r) = c else {
+            panic!("SQL in {script}")
+        };
+        let method = reqwest::Method::from_bytes(r.method.as_bytes()).unwrap();
+        let mut req = client.request(method, format!("{}{}", url.trim_end_matches('/'), r.path));
+        if let Some(b) = &r.body {
+            let ct = if r.is_ndjson() {
+                "application/x-ndjson"
+            } else {
+                "application/json"
+            };
+            req = req.header("content-type", ct).body(format!("{b}\n"));
+        }
+        let resp = req.send().await.unwrap();
+        let status = resp.status();
+        let text = resp.text().await.unwrap();
+        assert!(status.is_success(), "{script}\n{status}: {text}");
+        assert!(!text.contains("\"errors\":true"), "{script}\n{text}");
+    }
+}
+
+/// The index's columns typed as a describe gives them (the app's typed
+/// scripts from a table).
+async fn described(s: &mut Box<dyn Session>, index: &str, names: &[String]) -> Vec<ResultColumn> {
+    let cols = s.columns(&obj(index)).await.unwrap();
+    names
+        .iter()
+        .map(|n| {
+            let ty = cols
+                .iter()
+                .find(|c| &c.name == n)
+                .map(|c| c.data_type.clone())
+                .unwrap_or_default();
+            ResultColumn::new(n.clone(), ty)
+        })
+        .collect()
 }
 
 async fn cleanup(s: &mut Box<dyn Session>) {
@@ -220,7 +268,9 @@ async fn exercise(case: Case, url: &str) {
         Some((_, m)) if m.element == VectorElement::Bit => json!((0..16)
             .map(|b| u8::from((b + i).is_multiple_of(3)))
             .collect::<Vec<_>>()),
-        Some(_) => json!([i as i64, -(i as i64), 127]),
+        // Bytes as a float source gives them: the typed script writes
+        // them as integers.
+        Some(_) => json!([i as f64, -(i as f64), 127.0]),
         None => Value::Null,
     };
     let mut names = vec!["_id".to_string(), "title".into(), "emb".into()];
@@ -243,9 +293,11 @@ async fn exercise(case: Case, url: &str) {
     })
     .collect();
     // Bit vectors as results show them, one 0 / 1 per dimension: the
-    // session packs them by the mapping when it runs the script.
-    let insert = d.insert_script(&obj(INDEX), &names, &rows).unwrap();
-    run(&mut s, &insert).await;
+    // typed script packs them, so it runs as it is, over plain HTTP.
+    let typed = described(&mut s, INDEX, &names).await;
+    let insert = d.insert_script_typed(&obj(INDEX), &typed, &rows).unwrap();
+    println!("{insert}");
+    raw(url, &insert).await;
 
     // 3. Read back: vector columns marked, cells exact.
     let browse = s.browse_query(&obj(INDEX), 10);
@@ -436,25 +488,43 @@ async fn exercise(case: Case, url: &str) {
     run(&mut s, &update).await;
     let out = run(&mut s, &browse).await;
     assert_eq!(cells(&out, "emb")[1].1, json!("[0.25,0.5,-1]"));
-    // A bit vector edited as the grid shows it.
+    // A bit vector edited as the grid shows it: typed (packed in the
+    // script, run over HTTP), then untyped (packed by the session).
     if let Some((_, m)) = &case.other {
         if m.element == VectorElement::Bit {
-            let bits = json!([0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1]);
+            let change = |bits: Value| {
+                vec![RowChange {
+                    key: vec![("_id".into(), json!("3"))],
+                    set: vec![("other".into(), bits)],
+                    ..Default::default()
+                }]
+            };
+            let typed = described(&mut s, INDEX, &["other".to_string()]).await;
+            let update = d
+                .update_script_typed(
+                    &obj(INDEX),
+                    &change(json!([0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1])),
+                    &typed,
+                )
+                .unwrap();
+            assert!(update.contains("[96,-15]"), "{update}");
+            raw(url, &update).await;
+            let out = run(&mut s, &browse).await;
+            assert_eq!(
+                cells(&out, "other")[2].1,
+                json!("[0,1,1,0,0,0,0,0,1,1,1,1,0,0,0,1]")
+            );
             let update = d
                 .update_script(
                     &obj(INDEX),
-                    &[RowChange {
-                        key: vec![("_id".into(), json!("3"))],
-                        set: vec![("other".into(), bits)],
-                        ..Default::default()
-                    }],
+                    &change(json!([1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1])),
                 )
                 .unwrap();
             run(&mut s, &update).await;
             let out = run(&mut s, &browse).await;
             assert_eq!(
                 cells(&out, "other")[2].1,
-                json!("[0,1,1,0,0,0,0,0,1,1,1,1,0,0,0,1]")
+                json!("[1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1]")
             );
         }
     }
@@ -733,16 +803,18 @@ async fn opensearch_byte_and_binary_vectors() {
             vec![
                 json!(format!("{}", i + 1)),
                 json!(format!("t{i}")),
-                json!([1 + i as i64, -2, 3, 127]),
+                json!([1.0 + i as f64, -2.0, 3.0, 127.0]),
                 bits(i),
             ]
         })
         .collect();
-    run(
-        &mut s,
-        &d.insert_script(&obj(BYTES), &names, &rows).unwrap(),
-    )
-    .await;
+    // Typed as a describe gives them: bits packed and bytes as integers in
+    // the script itself, which runs over plain HTTP.
+    let typed = described(&mut s, BYTES, &names).await;
+    let insert = d.insert_script_typed(&obj(BYTES), &typed, &rows).unwrap();
+    println!("{insert}");
+    assert!(insert.contains(r#""b":[1,-2,3,127]"#), "{insert}");
+    raw(&url, &insert).await;
     let browse = s.browse_query(&obj(BYTES), 10);
     let out = run(&mut s, &browse).await;
     assert_eq!(cells(&out, "b")[0].1, json!("[1,-2,3,127]"));

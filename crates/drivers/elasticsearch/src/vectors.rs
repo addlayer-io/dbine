@@ -1036,6 +1036,22 @@ fn field_mut<'a>(doc: &'a mut J, path: &str) -> Option<&'a mut J> {
     field_mut(&mut o[i].1, &path[split + 1..])
 }
 
+/// A bit vector of `dims` dimensions given one 0 or 1 per dimension, as
+/// the signed bytes its field takes. `None` when it isn't one (a value
+/// already packed is `dims / 8` long).
+fn packed_bits(bits: &[f64], dims: Option<u32>) -> Option<Vec<i64>> {
+    let dims = dims? as usize;
+    if bits.len() != dims || dims < 8 || !bits.iter().all(|b| *b == 0.0 || *b == 1.0) {
+        return None;
+    }
+    Some(
+        v::to_bits(bits)
+            .into_iter()
+            .map(|b| i64::from(b as i8))
+            .collect(),
+    )
+}
+
 /// A document's bit (binary) vectors given one 0 or 1 per dimension, as
 /// results show them, packed into the signed bytes the field takes (a
 /// value already packed is `dims / 8` long and stays). `fields` are the
@@ -1046,7 +1062,6 @@ pub fn pack_bits(doc: &mut J, fields: &[(String, VecType)]) -> bool {
         .iter()
         .filter(|(_, t)| t.elem == Elem::Bit && !t.multi)
     {
-        let Some(dims) = t.dims else { continue };
         let Some(val) = field_mut(doc, path) else {
             continue;
         };
@@ -1054,24 +1069,75 @@ pub fn pack_bits(doc: &mut J, fields: &[(String, VecType)]) -> bool {
         let bits: Option<Vec<f64>> = a
             .iter()
             .map(|x| match x {
-                J::Num(n) => n.as_f64().filter(|b| *b == 0.0 || *b == 1.0),
+                J::Num(n) => n.as_f64(),
                 _ => None,
             })
             .collect();
-        match bits {
-            Some(bits) if bits.len() == dims as usize && dims >= 8 => {
-                *val = J::Arr(
-                    v::to_bits(&bits)
-                        .into_iter()
-                        .map(|b| J::Num(i64::from(b as i8).into()))
-                        .collect(),
-                );
-                changed = true;
-            }
-            _ => {}
+        if let Some(bytes) = bits.and_then(|b| packed_bits(&b, t.dims)) {
+            *val = J::Arr(bytes.into_iter().map(|b| J::Num(b.into())).collect());
+            changed = true;
         }
     }
     changed
+}
+
+// -- scripts that know their columns' types ---------------------------------------------------
+
+/// The vector type of a script's column, from its type (DBine's spelling,
+/// `dense_vector(16, bit)`, as a result or a describe names it) or its
+/// [`VectorMeta`]. `None`: not a dense vector.
+pub fn script_type(c: &dbine_driver::ResultColumn) -> Option<VecType> {
+    let meta = c.vector.as_ref();
+    let mut t = match VecType::parse(&c.type_name) {
+        Some(Ok(t)) => t,
+        _ => {
+            let m = meta?;
+            let elem = match m.element {
+                VectorElement::Bit => Elem::Bit,
+                VectorElement::I8 => Elem::Byte,
+                VectorElement::Bf16 => Elem::Bf16,
+                _ => Elem::Float,
+            };
+            VecType::new("dense_vector", m.dims, elem)
+        }
+    };
+    if t.dims.is_none() {
+        t.dims = meta.and_then(|m| m.dims);
+    }
+    (!t.sparse && !t.multi && !meta.is_some_and(|m| m.sparse)).then_some(t)
+}
+
+/// A vector value of an insert or update script (a JSON array of numbers,
+/// or its text) as its field takes it: a bit vector given one 0 or 1 per
+/// dimension (as results show it) packed into its signed bytes, a byte
+/// vector's numbers as integers. `None`: written as it is.
+pub fn script_value(val: &serde_json::Value, t: &VecType) -> Option<serde_json::Value> {
+    let nums = v::parse_value(val)?;
+    let ints = |n: Vec<i64>| serde_json::Value::Array(n.into_iter().map(Into::into).collect());
+    match t.elem {
+        Elem::Bit => packed_bits(&nums, t.dims).map(ints),
+        Elem::Byte => nums
+            .iter()
+            .map(|&x| (x.fract() == 0.0 && (-128.0..=127.0).contains(&x)).then_some(x as i64))
+            .collect::<Option<Vec<i64>>>()
+            .map(ints),
+        Elem::Float | Elem::Bf16 => None,
+    }
+}
+
+/// Script values written for their columns' vector types (see
+/// [`script_value`]); `types` by position.
+pub fn script_row(row: &[serde_json::Value], types: &[Option<VecType>]) -> Vec<serde_json::Value> {
+    row.iter()
+        .enumerate()
+        .map(|(i, val)| {
+            types
+                .get(i)
+                .and_then(Option::as_ref)
+                .and_then(|t| script_value(val, t))
+                .unwrap_or_else(|| val.clone())
+        })
+        .collect()
 }
 
 /// The indices a `_bulk` body writes documents to (`default`: the path's
@@ -1293,6 +1359,61 @@ mod tests {
 
     fn j(s: &str) -> J {
         J::parse(s).unwrap()
+    }
+
+    #[test]
+    fn script_types_and_values() {
+        use dbine_driver::ResultColumn;
+        let t = |c: ResultColumn| script_type(&c).map(|t| (t.dims, t.elem));
+        assert_eq!(
+            t(ResultColumn::new("b", "dense_vector(16, bit)")),
+            Some((Some(16), Elem::Bit))
+        );
+        assert_eq!(
+            t(ResultColumn::new("b", "knn_vector(8, binary)")),
+            Some((Some(8), Elem::Bit))
+        );
+        // A bare spelling takes its dimension from the meta.
+        assert_eq!(
+            t(ResultColumn::new("b", "dense_vector")
+                .with_vector(VectorMeta::dense(Some(3), VectorElement::F32))),
+            Some((Some(3), Elem::Float))
+        );
+        assert_eq!(
+            t(ResultColumn::new("b", "vector(3)")
+                .with_vector(VectorMeta::dense(Some(3), VectorElement::I8))),
+            Some((Some(3), Elem::Byte))
+        );
+        // Not dense vectors.
+        assert_eq!(t(ResultColumn::new("r", "rank_vectors(3)")), None);
+        assert_eq!(
+            t(ResultColumn::new("s", "sparse_vector")
+                .with_vector(VectorMeta::sparse(None, VectorElement::F32))),
+            None
+        );
+        assert_eq!(t(ResultColumn::new("k", "keyword")), None);
+
+        let bits = VecType::new("dense_vector", Some(8), Elem::Bit);
+        assert_eq!(
+            script_value(&json!([1, 0, 0, 0, 0, 0, 0, 1]), &bits),
+            Some(json!([-127]))
+        );
+        assert_eq!(
+            script_value(&json!("[0,0,0,0,0,0,0,1]"), &bits),
+            Some(json!([1]))
+        );
+        // Not bits of that length: as it is.
+        assert_eq!(script_value(&json!([1, 2, 0, 0, 0, 0, 0, 1]), &bits), None);
+        assert_eq!(script_value(&json!([5]), &bits), None);
+        assert_eq!(script_value(&json!(1), &bits), None, "not a vector at all");
+        let bytes = VecType::new("dense_vector", Some(2), Elem::Byte);
+        assert_eq!(
+            script_value(&json!([1.0, -128.0]), &bytes),
+            Some(json!([1, -128]))
+        );
+        assert_eq!(script_value(&json!([1.0, 128.0]), &bytes), None);
+        let floats = VecType::new("dense_vector", Some(2), Elem::Float);
+        assert_eq!(script_value(&json!([1.0, 2.0]), &floats), None);
     }
 
     #[test]
