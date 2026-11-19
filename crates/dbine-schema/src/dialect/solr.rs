@@ -29,9 +29,10 @@ use crate::parse::TypeSpec;
 use dbine_driver::vector::param;
 use dbine_driver::{KeyDef, TableSchema, VectorElement, VectorIndex};
 
-/// The largest vector Solr takes with its default codec (Lucene's HNSW
-/// limit); past it, from Solr 9.4, the collection's `solrconfig.xml` needs
-/// `SchemaCodecFactory` (SOLR-17045).
+/// The largest vector every Solr 9 takes (Lucene's default codec). Past
+/// it, `SchemaCodecFactory` takes more: by default from Solr 9.5
+/// (SOLR-17046), only when the collection's `solrconfig.xml` names it in
+/// 9.4 (SOLR-17045), never before.
 const MAX_DIMS: u32 = 1024;
 
 pub struct Solr;
@@ -138,7 +139,7 @@ impl Dialect for Solr {
                     VectorElement::U8 | VectorElement::Bit => Rendered::exact(format!("knn_vector({n})")).with(Warning, TypeApproximated, "Vector de bytes sin signo o de bits como números float: Solr solo tiene bytes con signo."),
                     };
                     if *n > MAX_DIMS {
-                        r.with(Warning, TypeChanged, format!("Más de {MAX_DIMS} dimensiones: desde Solr 9.4 la colección necesita SchemaCodecFactory en su solrconfig.xml."))
+                        r.with(Warning, TypeChanged, format!("Más de {MAX_DIMS} dimensiones. Solr las toma desde la 9.5 (en la 9.4, con SchemaCodecFactory en el solrconfig.xml de la colección)."))
                     } else {
                         r
                     }

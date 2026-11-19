@@ -457,19 +457,19 @@ struct SolrSession {
     read_only: bool,
     cloud: bool,
     version: String,
-    /// Each core's vector fields (by name), read to mark the vector
-    /// columns of its search results; cleared by any request that may
-    /// change a schema.
-    vector_fields: std::sync::Mutex<HashMap<String, Vec<(String, VecType)>>>,
+    /// Each core's schema (`None`: unreadable), read to mark the vector
+    /// columns of its search results, dynamic fields included; cleared by
+    /// any request that may change a schema.
+    vector_fields: std::sync::Mutex<HashMap<String, Option<Arc<transfer::Schema>>>>,
 }
 
 /// Handlers whose responses carry a core's documents.
 const DOC_HANDLERS: &[&str] = &["select", "query", "get", "browse", "export"];
 
 impl SolrSession {
-    /// The vector fields of core `core`, from its schema (read once, until
-    /// a request may change it); none when the schema can't be read.
-    async fn core_vectors(&self, core: &str) -> Vec<(String, VecType)> {
+    /// Core `core`'s schema, to type its documents' vector fields (read
+    /// once, until a request may change it); `None` when it can't be read.
+    async fn core_schema(&self, core: &str) -> Option<Arc<transfer::Schema>> {
         if let Some(v) = self
             .vector_fields
             .lock()
@@ -478,23 +478,33 @@ impl SolrSession {
         {
             return v.clone();
         }
-        let c = transfer::seg(core);
         // Unreadable (no privilege, not a core): nothing to mark, and not
         // asked again until the cache is cleared.
-        let found = match (
-            self.get_json(&format!("/solr/{c}/schema/fields?wt=json"))
-                .await,
-            self.get_json(&format!("/solr/{c}/schema/fieldtypes?wt=json"))
-                .await,
-        ) {
-            (Ok(fields), Ok(types)) => vector_fields(&fields, &types),
-            _ => Vec::new(),
-        };
+        let found = self
+            .call(self.client.get(format!(
+                "{}/solr/{}/schema?wt=json",
+                self.base,
+                transfer::seg(core)
+            )))
+            .await
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .map(|v| Arc::new(transfer::Schema::parse(&v)));
         self.vector_fields
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .insert(core.to_string(), found.clone());
         found
+    }
+
+    /// The vector fields of the documents `resp` carries from `core`:
+    /// explicit fields and dynamic ones (`*_v`) whose type is a dense
+    /// vector.
+    async fn core_vectors(&self, core: &str, resp: &J) -> Vec<(String, VecType)> {
+        match self.core_schema(core).await {
+            Some(schema) => doc_vectors(&schema, resp),
+            None => Vec::new(),
+        }
     }
 
     async fn call(&self, rb: reqwest::RequestBuilder) -> Result<String> {
@@ -561,19 +571,17 @@ impl SolrSession {
             }
             return Err(Error::Query(solr_error_message(status, &text)));
         }
+        let Ok(resp) = J::parse(&text) else {
+            flatten::push_text(out, &text, max_rows);
+            return Ok(());
+        };
         let vectors = match req.segments().as_slice() {
             ["solr", core, handler, ..] if DOC_HANDLERS.contains(handler) => {
-                self.core_vectors(core).await
+                self.core_vectors(core, &resp).await
             }
             _ => Vec::new(),
         };
-        match J::parse(&text) {
-            Ok(resp) => push_response(&resp, max_rows, out, &vectors),
-            Err(_) => {
-                flatten::push_text(out, &text, max_rows);
-                Ok(())
-            }
-        }
+        push_response(&resp, max_rows, out, &vectors)
     }
 
     async fn exists(&self, name: &str) -> Result<bool> {
@@ -772,24 +780,29 @@ pub fn collection_command(req: &Request) -> Option<&str> {
     }
 }
 
-/// The vector fields of a core: its `schema/fields` whose field type
-/// (`schema/fieldtypes`) is a `DenseVectorField`.
-fn vector_fields(fields: &J, types: &J) -> Vec<(String, VecType)> {
-    fields
-        .get("fields")
+/// The vector fields of the documents in a Solr response (`response.docs`
+/// or a real-time get's `doc`), typed by the core's schema: an explicit
+/// field, else the longest dynamic pattern that matches, whose field type
+/// is a `DenseVectorField`.
+fn doc_vectors(schema: &transfer::Schema, resp: &J) -> Vec<(String, VecType)> {
+    let docs = resp
+        .at(&["response", "docs"])
         .and_then(J::as_arr)
         .unwrap_or(&[])
         .iter()
-        .filter_map(|f| {
-            let name = f.get("name").and_then(J::as_str)?;
-            let ty = f.get("type").and_then(J::as_str)?;
-            let def = ddl::type_def(Some(types), ty)?;
-            Some((
-                name.to_string(),
-                vectors::VectorType::from_field_type(def)?.cells(),
-            ))
-        })
-        .collect()
+        .chain(resp.get("doc"));
+    let mut out: Vec<(String, VecType)> = Vec::new();
+    for d in docs {
+        for (k, _) in d.as_obj().into_iter().flatten() {
+            if out.iter().any(|(n, _)| n == k) {
+                continue;
+            }
+            if let Some(v) = schema.field(k).and_then(|f| f.vector) {
+                out.push((k.clone(), v.cells()));
+            }
+        }
+    }
+    out
 }
 
 /// Turn a Solr JSON response into result sets; `vectors` are the core's
@@ -1255,7 +1268,7 @@ impl Session for SolrSession {
             };
             let resp = self.fetch(&debug_request(&req, analyze)).await?;
             if analyze {
-                let vectors = self.core_vectors(&core).await;
+                let vectors = self.core_vectors(&core, &resp).await;
                 push_response(&resp, max_rows, out, &vectors)?;
             }
             let statement = match &req.body {
@@ -1361,6 +1374,62 @@ mod plan_tests {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn documents_vector_fields_come_from_explicit_and_dynamic_fields() {
+        let schema = transfer::Schema::parse(&json!({"schema": {
+            "fields": [{"name": "id", "type": "string"}, {"name": "emb", "type": "knn3"}],
+            "dynamicFields": [
+                {"name": "*_v", "type": "knnb4"},
+                {"name": "*_s", "type": "string"},
+                {"name": "x_*", "type": "string"}
+            ],
+            "fieldTypes": [
+                {"name": "string", "class": "solr.StrField"},
+                {"name": "knn3", "class": "solr.DenseVectorField", "vectorDimension": "3"},
+                {"name": "knnb4", "class": "solr.DenseVectorField", "vectorDimension": "4", "vectorEncoding": "BYTE"}
+            ]
+        }}));
+        let resp = J::parse(
+            r#"{"response":{"docs":[{"id":"1","emb":[1.0,2.0,3.0],"pic_v":[1,2,3,4],"t_s":"a","x_v":"b"}]}}"#,
+        )
+        .unwrap();
+        let got: Vec<(String, String)> = doc_vectors(&schema, &resp)
+            .into_iter()
+            .map(|(n, t)| (n, t.type_name))
+            .collect();
+        // `x_v` matches both `x_*` and `*_v`: the longest pattern wins,
+        // and they're the same length, so the first listed (Solr's order).
+        assert_eq!(
+            got,
+            [
+                ("emb".to_string(), "knn_vector(3)".to_string()),
+                ("pic_v".to_string(), "knn_vector(4, BYTE)".to_string()),
+                ("x_v".to_string(), "knn_vector(4, BYTE)".to_string()),
+            ]
+        );
+        // A real-time get's single doc.
+        let got = doc_vectors(
+            &schema,
+            &J::parse(r#"{"doc":{"id":"1","a_v":[1,2,3,4]}}"#).unwrap(),
+        );
+        assert_eq!(got.len(), 1);
+        let mut out = QueryOutcome::default();
+        push_response(&resp, 10, &mut out, &doc_vectors(&schema, &resp)).unwrap();
+        let col = out.results[0]
+            .columns
+            .iter()
+            .find(|c| c.name == "pic_v")
+            .unwrap();
+        assert_eq!(
+            col.vector,
+            Some(dbine_driver::VectorMeta::dense(
+                Some(4),
+                dbine_driver::VectorElement::I8
+            ))
+        );
+        assert_eq!(out.results[0].rows[0][2], json!("[1,2,3,4]"));
+    }
 
     fn req(method: &str, path: &str) -> Request {
         Request {
