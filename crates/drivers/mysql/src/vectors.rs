@@ -1346,12 +1346,18 @@ const SEEN_FOR: std::time::Duration = std::time::Duration::from_secs(60);
 /// whose wire doesn't tell a vector column apart (MariaDB sends a binary
 /// string like `VARBINARY`'s, TiDB and SingleStore text, the OLAP engines
 /// their arrays as text): (table, column in lower case) → catalog type.
+/// And, for the engines whose result columns don't name their table
+/// (GreptimeDB, Manticore), every column of the tables a query reads.
 #[derive(Debug, Default)]
 pub(crate) struct SeenColumns {
     schemas: std::collections::HashMap<String, (std::time::Instant, SchemaColumns)>,
+    tables: std::collections::HashMap<(String, String), (std::time::Instant, TableColumns)>,
 }
 
 pub(crate) type SchemaColumns = std::collections::HashMap<(String, String), String>;
+
+/// A table's columns (lower case) → their catalog type.
+pub(crate) type TableColumns = std::collections::HashMap<String, String>;
 
 /// What a result column is, as far as the session knows.
 #[derive(Debug, Clone, PartialEq)]
@@ -1361,6 +1367,10 @@ pub(crate) enum Known {
     NotVector,
     /// Its schema hasn't been looked up (or not lately).
     Unknown,
+}
+
+fn table_key(schema: &str, table: &str) -> (String, String) {
+    (schema.to_string(), table.to_ascii_lowercase())
 }
 
 impl SeenColumns {
@@ -1387,9 +1397,45 @@ impl SeenColumns {
             .insert(schema.to_string(), (std::time::Instant::now(), cols));
     }
 
+    pub(crate) fn table_fresh(&self, schema: &str, table: &str) -> bool {
+        self.tables
+            .get(&table_key(schema, table))
+            .is_some_and(|(at, _)| at.elapsed() < SEEN_FOR)
+    }
+
+    pub(crate) fn insert_table(&mut self, schema: &str, table: &str, cols: TableColumns) {
+        self.tables
+            .insert(table_key(schema, table), (std::time::Instant::now(), cols));
+    }
+
+    /// A result column named `column` of a query over `tables`: a vector
+    /// when the tables that have a column of that name all have it as the
+    /// same vector type (a join's other table may have one of another type,
+    /// which the name alone can't tell from it).
+    pub(crate) fn known_in(&self, v: Variant, tables: &[(String, String)], column: &str) -> Known {
+        let column = column.to_ascii_lowercase();
+        let mut found: Option<&String> = None;
+        for (schema, table) in tables {
+            match self.tables.get(&table_key(schema, table)) {
+                Some((at, cols)) if at.elapsed() < SEEN_FOR => match (cols.get(&column), found) {
+                    (None, _) => {}
+                    (Some(t), None) => found = Some(t),
+                    (Some(t), Some(f)) if t.eq_ignore_ascii_case(f) => {}
+                    (Some(_), Some(_)) => return Known::NotVector,
+                },
+                _ => return Known::Unknown,
+            }
+        }
+        match found {
+            Some(t) if meta(v, t).is_some() => Known::Vector(t.clone()),
+            _ => Known::NotVector,
+        }
+    }
+
     /// After a DDL: the tables may have changed.
     pub(crate) fn clear(&mut self) {
         self.schemas.clear();
+        self.tables.clear();
     }
 }
 
@@ -1400,46 +1446,237 @@ pub(crate) fn looked_up(v: Variant) -> bool {
     v.base() != Variant::MySql
 }
 
-/// The table a single-table `SELECT` reads (`[schema.]table`), for the
-/// engines whose result columns don't say which table they come from
-/// (GreptimeDB, Manticore). `None` for anything else: joins, several
-/// tables, subqueries, other statements.
-pub(crate) fn single_table(sql: &str) -> Option<(Option<String>, String)> {
-    let s = sql.replace(['\n', '\r', '\t'], " ");
-    let s = s.trim().trim_end_matches(';').trim();
-    let lower = s.to_ascii_lowercase();
-    if !lower.starts_with("select") || s.contains(';') || lower.contains(" join ") {
-        return None;
-    }
-    let at = lower.find(" from ")? + " from ".len();
-    if lower[at..].contains(" from ") {
-        return None;
-    }
-    let (first, rest) = ident(&s[at..])?;
-    let (schema, table, rest) = match rest.strip_prefix('.') {
-        Some(r) => {
-            let (t, r) = ident(r)?;
-            (Some(first), t, r)
-        }
-        None => (None, first, rest),
-    };
-    let rest = rest.trim_start();
-    // `FROM t, u`, `FROM t AS x, u`: more than one table.
-    if rest.starts_with(',')
-        || rest.starts_with('(')
-        || rest.contains(',') && {
-            let r = rest.to_ascii_lowercase();
-            let end = ["where", "group", "order", "limit", "option", "having"]
+/// Engines whose result columns don't say which table they come from: the
+/// tables a query reads are looked up whole ([`from_tables`]).
+pub(crate) fn by_query_tables(v: Variant) -> bool {
+    matches!(v.base(), Variant::GreptimeDb | Variant::Manticore)
+}
+
+/// A MariaDB result column made by an expression that returns a vector
+/// (`VEC_FromText('[…]')`, as the column is named when not aliased): its
+/// bytes are float32s, however many.
+pub(crate) fn expression_vector(v: Variant, name: &str) -> Option<VectorMeta> {
+    (v.base() == Variant::MariaDb
+        && name
+            .trim_start()
+            .get(..13)
+            .is_some_and(|f| f.eq_ignore_ascii_case("vec_fromtext(")))
+    .then(|| VectorMeta::dense(None, VectorElement::F32))
+}
+
+/// A token of a statement, for [`from_tables`].
+#[derive(Debug, PartialEq)]
+enum Token {
+    /// A name or keyword (quoted: `quoted`).
+    Word {
+        text: String,
+        quoted: bool,
+    },
+    Dot,
+    Comma,
+    /// A parenthesized group, skipped whole.
+    Group,
+    Other,
+}
+
+/// The statement's tokens outside string literals and comments; `None`
+/// when it can't be read (an unclosed quote or parenthesis).
+fn tokens(sql: &str) -> Option<Vec<Token>> {
+    let chars: Vec<char> = sql.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c.is_whitespace() {
+            i += 1;
+        } else if c == '-' && chars.get(i + 1) == Some(&'-') || c == '#' {
+            while i < chars.len() && chars[i] != '\n' {
+                i += 1;
+            }
+        } else if c == '/' && chars.get(i + 1) == Some(&'*') {
+            i += 2;
+            while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                i += 1;
+            }
+            i += 2;
+        } else if c == '\'' || c == '"' {
+            i += 1;
+            loop {
+                match chars.get(i) {
+                    None => return None,
+                    Some('\\') => i += 2,
+                    Some(&q) if q == c => {
+                        if chars.get(i + 1) == Some(&c) {
+                            i += 2;
+                        } else {
+                            i += 1;
+                            break;
+                        }
+                    }
+                    Some(_) => i += 1,
+                }
+            }
+            out.push(Token::Other);
+        } else if c == '`' {
+            let mut text = String::new();
+            i += 1;
+            loop {
+                match chars.get(i) {
+                    None => return None,
+                    Some('`') if chars.get(i + 1) == Some(&'`') => {
+                        text.push('`');
+                        i += 2;
+                    }
+                    Some('`') => {
+                        i += 1;
+                        break;
+                    }
+                    Some(&x) => {
+                        text.push(x);
+                        i += 1;
+                    }
+                }
+            }
+            out.push(Token::Word { text, quoted: true });
+        } else if c == '(' {
+            let mut depth = 0usize;
+            // Strings inside the group are skipped by the same rules: a
+            // nested SELECT is still seen.
+            let start = i;
+            loop {
+                match chars.get(i) {
+                    None => return None,
+                    Some('(') => depth += 1,
+                    Some(')') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            i += 1;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            let inner: String = chars[start + 1..i - 1].iter().collect();
+            if tokens(&inner)?
                 .iter()
-                .filter_map(|k| r.find(&format!("{k} ")).or_else(|| r.find(k)))
-                .min()
-                .unwrap_or(r.len());
-            r[..end].contains(',')
+                .any(|t| matches!(t, Token::Word { text, quoted: false } if text.eq_ignore_ascii_case("select")))
+            {
+                // A subquery: its own words count too.
+                out.push(Token::Word {
+                    text: "select".into(),
+                    quoted: false,
+                });
+            }
+            out.push(Token::Group);
+        } else if c.is_alphanumeric() || c == '_' || c == '$' {
+            let mut text = String::new();
+            while i < chars.len()
+                && (chars[i].is_alphanumeric() || chars[i] == '_' || chars[i] == '$')
+            {
+                text.push(chars[i]);
+                i += 1;
+            }
+            out.push(Token::Word {
+                text,
+                quoted: false,
+            });
+        } else {
+            out.push(match c {
+                '.' => Token::Dot,
+                ',' => Token::Comma,
+                _ => Token::Other,
+            });
+            i += 1;
         }
-    {
+    }
+    Some(out)
+}
+
+/// The tables a `SELECT` reads (`[schema.]table`, in order), for the
+/// engines whose result columns don't say which table they come from
+/// (GreptimeDB, Manticore): its FROM list, joins included. `None` for
+/// anything else: subqueries, derived tables, several statements, other
+/// statements.
+pub(crate) fn from_tables(sql: &str) -> Option<Vec<(Option<String>, String)>> {
+    let t = tokens(sql)?;
+    let word = |i: usize| match t.get(i) {
+        Some(Token::Word {
+            text,
+            quoted: false,
+        }) => Some(text.to_ascii_lowercase()),
+        _ => None,
+    };
+    if word(0).as_deref() != Some("select") {
         return None;
     }
-    Some((schema, table))
+    // One statement, one SELECT.
+    let selects = (0..t.len())
+        .filter(|&i| word(i).as_deref() == Some("select"))
+        .count();
+    if selects != 1 || sql.trim().trim_end_matches(';').contains(';') {
+        return None;
+    }
+    let from = (0..t.len()).find(|&i| word(i).as_deref() == Some("from"))?;
+    const END: &[&str] = &[
+        "where",
+        "group",
+        "order",
+        "limit",
+        "having",
+        "option",
+        "union",
+        "window",
+        "facet",
+        "into",
+        "for",
+        "lock",
+        "procedure",
+    ];
+    let mut out = Vec::new();
+    let mut expect = true;
+    let mut i = from + 1;
+    while i < t.len() {
+        if word(i).is_some_and(|w| END.contains(&w.as_str())) {
+            break;
+        }
+        if expect {
+            let name = match &t[i] {
+                Token::Word { text, .. } => text.clone(),
+                // A derived table or a parenthesized join.
+                _ => return None,
+            };
+            if matches!(t.get(i + 1), Some(Token::Dot)) {
+                let Some(Token::Word { text, .. }) = t.get(i + 2) else {
+                    return None;
+                };
+                out.push((Some(name), text.clone()));
+                i += 3;
+            } else {
+                out.push((None, name));
+                i += 1;
+            }
+            expect = false;
+            continue;
+        }
+        match (&t[i], word(i).as_deref()) {
+            (Token::Comma, _) | (_, Some("join" | "straight_join")) => expect = true,
+            _ => {}
+        }
+        i += 1;
+    }
+    (!out.is_empty() && !expect).then_some(out)
+}
+
+/// The catalog query for every column of some tables of a schema (table,
+/// column, type).
+pub(crate) fn table_columns_query(schema_literal: &str, table_literals: &[String]) -> String {
+    format!(
+        "SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE FROM information_schema.COLUMNS \
+         WHERE TABLE_SCHEMA = {schema_literal} AND LOWER(TABLE_NAME) IN ({})",
+        table_literals.join(", ")
+    )
 }
 
 /// The catalog query for a schema's vector columns (table, column, type):
@@ -2020,35 +2257,86 @@ mod tests {
     }
 
     #[test]
-    fn single_tables_are_found_in_selects() {
-        let one = |s: &str| single_table(s);
-        assert_eq!(one("SELECT * FROM `t` LIMIT 10"), Some((None, "t".into())));
+    fn query_tables_are_found_in_selects() {
+        let from = |s: &str| from_tables(s);
+        let one = |t: &str| Some(vec![(None, t.to_string())]);
+        assert_eq!(from("SELECT * FROM `t` LIMIT 10"), one("t"));
+        assert_eq!(from("SELECT *\nFROM `t`\nLIMIT 100"), one("t"));
         assert_eq!(
-            one("SELECT *\nFROM `t`\nLIMIT 100"),
-            Some((None, "t".into()))
+            from("select id, v from db.items where id = 1;"),
+            Some(vec![(Some("db".into()), "items".into())])
         );
         assert_eq!(
-            one("select id, v from db.items where id = 1;"),
-            Some((Some("db".into()), "items".into()))
+            from("SELECT v FROM t ORDER BY knn_dist() LIMIT 3"),
+            one("t")
+        );
+        assert_eq!(from("SELECT a, b FROM t WHERE a IN (1, 2)"), one("t"));
+        assert_eq!(from("SELECT 'from x, y' AS s FROM t"), one("t"));
+        // Joins and lists: every table, aliases and ON conditions aside.
+        let ab = Some(vec![(None, "a".to_string()), (None, "b".to_string())]);
+        assert_eq!(from("SELECT * FROM a, b"), ab);
+        assert_eq!(from("SELECT * FROM a JOIN b ON a.x = b.x"), ab);
+        assert_eq!(
+            from("SELECT a.v FROM a AS x LEFT OUTER JOIN `b` y ON (x.id = y.id) WHERE x.id > 1"),
+            ab
         );
         assert_eq!(
-            one("SELECT v FROM t ORDER BY knn_dist() LIMIT 3"),
-            Some((None, "t".into()))
+            from("SELECT * FROM a INNER JOIN b USING (id) ORDER BY 1"),
+            ab
         );
         assert_eq!(
-            one("SELECT a, b FROM t WHERE a IN (1, 2)"),
-            Some((None, "t".into()))
+            from("SELECT * FROM s.a CROSS JOIN s.b"),
+            Some(vec![
+                (Some("s".into()), "a".into()),
+                (Some("s".into()), "b".into())
+            ])
         );
         for none in [
-            "SELECT * FROM a, b",
-            "SELECT * FROM a JOIN b ON a.x = b.x",
             "SELECT * FROM (SELECT 1) x",
             "INSERT INTO t VALUES (1)",
             "SELECT 1; SELECT * FROM t",
             "SELECT * FROM t WHERE x IN (SELECT y FROM u)",
+            "SELECT * FROM a JOIN (b JOIN c ON b.x = c.x) ON a.x = b.x",
+            "SELECT 1",
+            "SELECT * FROM t WHERE s = 'unclosed",
         ] {
-            assert_eq!(one(none), None, "{none}");
+            assert_eq!(from(none), None, "{none}");
         }
+    }
+
+    #[test]
+    fn a_column_of_a_join_is_a_vector_when_its_tables_agree() {
+        let v = Variant::GreptimeDb;
+        let mut s = SeenColumns::default();
+        let cols = |c: &[(&str, &str)]| -> TableColumns {
+            c.iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect()
+        };
+        let a = ("public".to_string(), "a".to_string());
+        let b = ("public".to_string(), "b".to_string());
+        let both = [a.clone(), b.clone()];
+        assert_eq!(s.known_in(v, &both, "v"), Known::Unknown);
+        s.insert_table("public", "A", cols(&[("id", "int"), ("v", "vector(3)")]));
+        assert_eq!(s.known_in(v, &both, "v"), Known::Unknown);
+        s.insert_table("public", "b", cols(&[("id", "int"), ("title", "string")]));
+        assert!(s.table_fresh("public", "a") && s.table_fresh("public", "B"));
+        assert_eq!(s.known_in(v, &both, "V"), Known::Vector("vector(3)".into()));
+        assert_eq!(s.known_in(v, &both, "id"), Known::NotVector);
+        assert_eq!(s.known_in(v, &both, "nope"), Known::NotVector);
+        // Another table has a column of that name, not a vector: unknown
+        // which one came, so not marked.
+        s.insert_table("public", "b", cols(&[("v", "binary")]));
+        assert_eq!(s.known_in(v, &both, "v"), Known::NotVector);
+        s.clear();
+        assert_eq!(s.known_in(v, &[a], "v"), Known::Unknown);
+        // MariaDB's VEC_FromText(…) column.
+        assert!(expression_vector(Variant::MariaDb, "VEC_FromText('[1,2]')").is_some());
+        assert!(expression_vector(Variant::MariaDb, "vec_fromtext(@x)").is_some());
+        assert!(expression_vector(Variant::MariaDb, "VEC_ToText(v)").is_none());
+        assert!(expression_vector(Variant::MySql, "VEC_FromText('[1]')").is_none());
+        assert!(by_query_tables(Variant::Manticore) && by_query_tables(Variant::GreptimeDb));
+        assert!(!by_query_tables(Variant::MariaDb));
     }
 
     #[test]

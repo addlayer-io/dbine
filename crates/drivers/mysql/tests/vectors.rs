@@ -471,6 +471,36 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         assert_eq!(cells, expect.map(|e| json!(e)), "{sql}");
     }
 
+    // 3a. The lookup that marks the vector columns runs on a connection of
+    // its own: a fresh session's first read leaves FOUND_ROWS() to the
+    // user's statements. MariaDB also marks an expression's vector.
+    // (TiDB has no SQL_CALC_FOUND_ROWS; MySQL 9's vectors need no lookup.)
+    if matches!(id, "mariadb" | "mysql") {
+        let mut fresh = d.connect(&cfg, db).await.expect("connect");
+        let out = must(
+            &mut fresh,
+            "SELECT SQL_CALC_FOUND_ROWS `id`, `v` FROM `vec_items` ORDER BY `id` LIMIT 1",
+        )
+        .await;
+        assert!(
+            out.results[0].columns[1].vector.is_some(),
+            "{:?}",
+            out.results[0].columns
+        );
+        let out = must(&mut fresh, "SELECT FOUND_ROWS()").await;
+        assert_eq!(
+            out.results[0].rows[0][0].to_string().trim_matches('"'),
+            "3",
+            "FOUND_ROWS() after the lookup"
+        );
+        if id == "mariadb" {
+            let out = must(&mut fresh, "SELECT VEC_FromText('[1,2.5,-3]')").await;
+            let r = &out.results[0];
+            assert!(r.columns[0].vector.is_some(), "{:?}", r.columns[0]);
+            assert_eq!(r.rows[0][0], json!("[1,2.5,-3]"));
+        }
+    }
+
     // 3b. An export (rows to a sink, none kept): the header and the cells
     // the same, on a fresh session that never looked the table up.
     {
@@ -696,6 +726,21 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
             .map(|t| Cell::Text(t.to_string()))
             .collect();
         assert_eq!(got, want.iter().collect::<Vec<_>>());
+
+        // A join's vector column is marked too (GreptimeDB's columns don't
+        // name their table: the query's tables are looked up).
+        if id != "manticore" {
+            let mut fresh = d.connect(&cfg, db).await.expect("connect");
+            let out = must(
+                &mut fresh,
+                "SELECT a.id, a.v FROM vec_items a JOIN vec_copy b ON a.id = b.id ORDER BY a.id",
+            )
+            .await;
+            let r = &out.results[0];
+            assert!(r.columns[1].vector.is_some(), "join: {:?}", r.columns[1]);
+            assert_eq!(r.rows.len(), 3);
+            assert_eq!(r.rows[0][1], json!("[1,0,0]"));
+        }
     }
 }
 
