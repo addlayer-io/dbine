@@ -573,9 +573,8 @@ mod tests {
             [(&"m".to_string(), &"8".to_string())],
             "the dimension went to the column"
         );
-        // The converter takes the index's dimension for the column, so the
-        // array arrives as FLOAT[3] with no change to report.
-        // The render's "no dimension" warning is taken back.
+        // The converter gives the array its index's dimension before the
+        // render, so FLOAT[3] comes with no "no dimension" warning.
         assert!(!issues.iter().any(|i| i.message == NO_DIMS), "{issues:?}");
         let (t, _) = one(ch("Array(BFloat16)", &[("dimensions", "4")]), "clickhouse");
         assert_eq!(t.columns[1].data_type, "FLOAT[4]");
