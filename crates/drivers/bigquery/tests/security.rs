@@ -28,8 +28,17 @@ async fn dcl_and_access_lists() {
     );
 
     let mut s = d.connect(&c, Some("ds1")).await.unwrap();
+    // The emulator refuses CREATE TABLE IF NOT EXISTS over an existing
+    // table: the test's table is dropped first and at the end.
     let mut out = QueryOutcome::default();
-    s.execute("CREATE TABLE IF NOT EXISTS sec_t (id INT64)", 10, &mut out)
+    let _ = s
+        .execute(
+            "DROP TABLE IF EXISTS sec_t",
+            10,
+            &mut QueryOutcome::default(),
+        )
+        .await;
+    s.execute("CREATE TABLE sec_t (id INT64)", 10, &mut out)
         .await
         .unwrap();
     let principals = s.principals().await.unwrap();
@@ -64,6 +73,13 @@ async fn dcl_and_access_lists() {
             .await
             .unwrap_or_else(|e| panic!("{sql}: {e}"));
     }
+    let _ = s
+        .execute(
+            "DROP TABLE IF EXISTS sec_t",
+            10,
+            &mut QueryOutcome::default(),
+        )
+        .await;
 }
 
 /// The roles GRANT takes, per kind (BigQuery has no catalog of them, so

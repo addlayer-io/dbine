@@ -231,9 +231,19 @@ pub(crate) fn read_cell(kind: Read, v: &Json, f: &Json) -> Cell {
         return Cell::Null;
     }
     if kind == Read::Nested {
-        // A vector: its canonical text.
-        if let Some(t) = super::is_vector(f).then(|| super::vector_text(v)).flatten() {
-            return Cell::Json(t);
+        if super::is_vector(f) {
+            // BigQuery has no NULL arrays (a NULL written becomes `[]`), so
+            // an empty float array is its NULL: read as one, which every
+            // vector column takes (an empty vector has no dimension, and
+            // pgvector, Spanner's vector_length and Snowflake's VECTOR
+            // refuse it).
+            if v.as_array().is_some_and(Vec::is_empty) {
+                return Cell::Null;
+            }
+            // A vector: its canonical text.
+            if let Some(t) = super::vector_text(v) {
+                return Cell::Json(t);
+            }
         }
         let mut out = String::new();
         nested(v, f, is_repeated(f), &mut out);
@@ -1518,6 +1528,13 @@ mod tests {
             panic!("{odd:?}")
         };
         assert!(t.contains("NaN") && !t.contains("null"), "{t}");
+        // An empty one is BigQuery's NULL array.
+        assert_eq!(read_cell(Read::Nested, &json!([]), &floats), Cell::Null);
+        let ints = json!({"name": "ids", "type": "INTEGER", "mode": "REPEATED"});
+        assert_eq!(
+            read_cell(Read::Nested, &json!([]), &ints),
+            Cell::Json("[]".into())
+        );
     }
 
     #[test]
