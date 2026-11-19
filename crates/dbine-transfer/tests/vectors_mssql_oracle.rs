@@ -3,8 +3,9 @@
 //! with an HNSW (or IVF) index and a BINARY vector are cloned with their
 //! rows and indexes; and a pgvector table goes to SQL Server, from there to
 //! Oracle and back to pgvector through the drivers' typed reads and loads,
-//! each step checked against the source's values. Each test drops what it
-//! made, first and at the end.
+//! each step checked against the source's values; pgvector's sparse and
+//! binary vectors go to Oracle and back, and libSQL's binary ones into
+//! pgvector's `bit(n)`. Each test drops what it made, first and at the end.
 //!
 //! Ignored by default; each test runs when its servers' variables are set:
 //!
@@ -12,6 +13,7 @@
 //! DBINE_TEST_SQLSERVER2025_URL='mssql://sa:Pw_12345!@localhost:27202' \
 //! DBINE_TEST_ORACLE_URL=oracle://dbine:Dbine123@localhost:25601/FREEPDB1 \
 //! DBINE_TEST_PGVECTOR_URL=postgres://postgres:pw@localhost:27200/postgres \
+//! DBINE_TEST_LIBSQL_URL=http://localhost:25880 \
 //!   cargo test -p dbine-transfer --test vectors_mssql_oracle -- --ignored --nocapture --test-threads=1
 //! ```
 
@@ -85,6 +87,14 @@ fn pgvector() -> Option<ConnectionConfig> {
         username: Some(user.into()),
         password: Some(pass.into()),
         database: db.into(),
+        ..Default::default()
+    })
+}
+
+fn libsql() -> Option<ConnectionConfig> {
+    Some(ConnectionConfig {
+        driver: "libsql".into(),
+        host: std::env::var("DBINE_TEST_LIBSQL_URL").ok()?,
         ..Default::default()
     })
 }
@@ -543,9 +553,9 @@ async fn cross(pg: &mut dyn Session, ss: &mut dyn Session, ora: &mut dyn Session
 
 /// pgvector's `sparsevec` and `bit` columns into Oracle's SPARSE and BINARY
 /// vectors: Oracle's loads take pgvector's sparse text and bit strings, its
-/// reads give its sparse text and one 0 / 1 per dimension, which pgvector's
-/// `bit` load takes back. (Its `sparsevec` load doesn't read Oracle's
-/// sparse text yet, so the sparse column doesn't make the way back.)
+/// reads give its sparse text (`[n,[positions from 0],[values]]`) and one
+/// 0 / 1 per dimension, which pgvector's `sparsevec` and `bit` loads take
+/// back.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "needs pgvector and Oracle 23ai: see the top of the file"]
 async fn pgvector_sparse_and_bit_vectors_to_oracle_and_back() {
@@ -610,23 +620,95 @@ async fn sparse_and_bits(pg: &mut dyn Session, ora: &mut dyn Session) {
     let packed = rows(ora, "SELECT FROM_VECTOR(B) FROM XFAM_SB WHERE ID = 1").await;
     assert_eq!(packed[0][0], Value::from("[201,15]"));
 
-    // Oracle → pgvector: the BINARY vectors. The SPARSE column stays out:
-    // pgvector's `sparsevec` load (the postgres driver's
-    // `vectors::sparse_text`) turns a dense array into `{i:v}/n` but passes
-    // Oracle's `[n,[indices],[values]]` on as it is, which pgvector
-    // refuses. That's the pg family's to add; then this column goes back
-    // too.
-    run(ora, "ALTER TABLE XFAM_SB DROP COLUMN SP").await;
+    // Oracle → pgvector: the SPARSE vectors as `{i+1:v}/n`, the BINARY
+    // ones as bit strings.
     let n = move_rows(
         ora,
         table(None, "XFAM_SB"),
         pg,
         table(Some("public"), "xfam_sb_back"),
+        &["id", "sp", "b"],
+    )
+    .await;
+    assert_eq!(n, 3);
+    let back = rows(
+        pg,
+        "SELECT id, sp::text, b::text FROM xfam_sb_back ORDER BY id",
+    )
+    .await;
+    let src = rows(pg, "SELECT id, sp::text, b::text FROM xfam_sb ORDER BY id").await;
+    assert_eq!(back[0][1], Value::from("{1:1.5,4:-2}/5"));
+    assert_eq!(back, src, "back in pgvector");
+}
+
+/// libSQL's `F1BIT_BLOB` vectors into pgvector's `bit(n)`: libSQL's read
+/// gives one 0 / 1 per dimension (the contract's binary vector), which
+/// pgvector's load writes as the bit string.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs pgvector and libSQL (sqld): see the top of the file"]
+async fn libsql_bit_vectors_to_pgvector() {
+    let (Some(pgc), Some(lc)) = (pgvector(), libsql()) else {
+        eprintln!("DBINE_TEST_PGVECTOR_URL or DBINE_TEST_LIBSQL_URL not set; skipping");
+        return;
+    };
+    let mut pg = driver("postgres").connect(&pgc, None).await.expect("pg");
+    let mut lib = driver("libsql").connect(&lc, None).await.expect("libsql");
+    libsql_bits_drop(&mut *pg, &mut *lib).await;
+    let res = tokio::spawn(async move {
+        let mut pg = driver("postgres").connect(&pgc, None).await.expect("pg");
+        let mut lib = driver("libsql").connect(&lc, None).await.expect("libsql");
+        libsql_bits(&mut *pg, &mut *lib).await;
+    })
+    .await;
+    libsql_bits_drop(&mut *pg, &mut *lib).await;
+    if let Err(e) = res {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}
+
+async fn libsql_bits_drop(pg: &mut dyn Session, lib: &mut dyn Session) {
+    let _ = try_run(pg, "DROP TABLE IF EXISTS xfam_lbits").await;
+    let _ = try_run(lib, "DROP TABLE IF EXISTS xfam_lbits").await;
+}
+
+async fn libsql_bits(pg: &mut dyn Session, lib: &mut dyn Session) {
+    run(
+        lib,
+        "CREATE TABLE xfam_lbits (id INTEGER PRIMARY KEY, b F1BIT_BLOB(16))",
+    )
+    .await;
+    run(
+        lib,
+        "INSERT INTO xfam_lbits VALUES \
+         (1, vector1bit('[1,1,0,0,1,0,0,1,0,0,0,0,1,1,1,1]')), \
+         (2, vector1bit('[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1]')), (3, NULL)",
+    )
+    .await;
+    run(
+        pg,
+        "CREATE TABLE xfam_lbits (id int PRIMARY KEY, b bit(16))",
+    )
+    .await;
+    let n = move_rows(
+        lib,
+        table(None, "xfam_lbits"),
+        pg,
+        table(Some("public"), "xfam_lbits"),
         &["id", "b"],
     )
     .await;
     assert_eq!(n, 3);
-    let back = rows(pg, "SELECT id, b::text FROM xfam_sb_back ORDER BY id").await;
-    let src = rows(pg, "SELECT id, b::text FROM xfam_sb ORDER BY id").await;
-    assert_eq!(back, src, "back in pgvector");
+    let got: Vec<Value> = rows(pg, "SELECT b::text FROM xfam_lbits ORDER BY id")
+        .await
+        .into_iter()
+        .map(|mut r| r.remove(0))
+        .collect();
+    assert_eq!(
+        got,
+        vec![
+            Value::from("1100100100001111"),
+            Value::from("0000000000000001"),
+            Value::Null,
+        ]
+    );
 }
