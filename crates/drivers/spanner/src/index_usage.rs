@@ -165,6 +165,20 @@ pub(crate) fn vectors(
     }
 }
 
+/// The search and vector indexes' `OPTIONS` from the database's DDL (the
+/// `GetDatabaseDdl` response), none when it couldn't be read.
+pub(crate) fn ddl_index_options(
+    ddl: Option<&serde_json::Value>,
+) -> BTreeMap<String, BTreeMap<String, String>> {
+    structure::index_options_from_ddl(
+        ddl.and_then(|d| d.get("statements"))
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str),
+    )
+}
+
 /// `FOREIGN_KEYS_SQL` rows grouped by constraint.
 pub(crate) fn foreign_keys(rows: &Rows) -> Vec<ForeignKeyDef> {
     let mut out: Vec<ForeignKeyDef> = Vec::new();
@@ -256,19 +270,17 @@ pub(crate) async fn report(s: &mut SpannerSession, table: &ObjectRef) -> Result<
     );
     if list.iter().any(|i| i.kind == structure::VECTOR) {
         // Vector indexes keep their OPTIONS only in the DDL.
-        match s.api.get(&format!("{}/ddl", s.database)).await {
-            Ok(ddl) => {
-                let options = structure::index_options_from_ddl(
-                    ddl.get("statements")
-                        .and_then(serde_json::Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(serde_json::Value::as_str),
-                );
-                vectors(&mut list, &options, qualifier.as_deref());
-            }
-            Err(e) => tracing::debug!("spanner: vector index options not read: {e}"),
-        }
+        let ddl = s
+            .api
+            .get(&format!("{}/ddl", s.database))
+            .await
+            .map_err(|e| tracing::debug!("spanner: vector index options not read: {e}"))
+            .ok();
+        vectors(
+            &mut list,
+            &ddl_index_options(ddl.as_ref()),
+            qualifier.as_deref(),
+        );
     }
     let (stats_available, since, note) = match s.text_rows(OPERATIONS_SQL, &[]).await {
         Ok(rows) if rows.is_empty() => (false, None, NOTE_EMPTY),
@@ -418,10 +430,12 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let options = structure::index_options_from_ddl([
+        let ddl = serde_json::json!({"statements": [
+            "CREATE TABLE s.v (k INT64, e ARRAY<FLOAT32>(vector_length=>3)) PRIMARY KEY (k)",
             "CREATE VECTOR INDEX s.vx ON s.v(e) WHERE e IS NOT NULL OPTIONS ( distance_type = 'COSINE', tree_depth = 3, num_leaves = 100 )",
-        ]);
-        vectors(&mut list, &options, Some("s"));
+        ]});
+        let mut unread = list.clone();
+        vectors(&mut list, &ddl_index_options(Some(&ddl)), Some("s"));
         let v = list[0].vector.as_ref().unwrap();
         assert_eq!(v.metric.as_deref(), Some("cosine"));
         assert_eq!(v.params.get("lists").map(String::as_str), Some("100"));
@@ -435,6 +449,10 @@ mod tests {
         assert_eq!(Some(structure::vector_of(&o)), list[0].vector);
         // Without its DDL it's still a vector index.
         assert!(list[2].vector.is_some());
+        // So is every one when the DDL can't be read at all.
+        vectors(&mut unread, &ddl_index_options(None), Some("s"));
+        assert!(unread[0].vector.is_some() && unread[2].vector.is_some());
+        assert!(unread[1].vector.is_none());
     }
 
     #[test]
