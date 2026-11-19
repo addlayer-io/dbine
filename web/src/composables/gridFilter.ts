@@ -1,6 +1,6 @@
 import type { Cell } from '../api/types';
 import { rt } from './i18nLabels';
-import { vectorOfType } from './vector';
+import { vectorArrayOfType, vectorOfType } from './vector';
 
 // Column filters of the data grid (the row under the headers). What's typed
 // becomes structured filters the driver turns into its own WHERE / filter
@@ -29,13 +29,17 @@ export interface FilterState {
   filters: ColumnFilter[];
 }
 
-export type ColumnKind = 'text' | 'number' | 'date' | 'bool';
+/** `vector`: a column of vectors (embeddings). Engines can't compare or
+ *  search them as text (`LIKE` and `=` fail on pgvector, MySQL 9 and SQL
+ *  Server 2025), so their filters are NULL / NOT NULL and SQL conditions. */
+export type ColumnKind = 'text' | 'number' | 'date' | 'bool' | 'vector';
 
 /** The kind of a column from its engine type name (or its values). A vector
- *  type is text (its cells are JSON arrays), even when its name says FLOAT
- *  or INT8 (`VECTOR(3, FLOAT32)`, `vector<float, 3>`). */
+ *  type, or an array of floats that holds vectors (`FLOAT[3]`,
+ *  `Array(Float32)`), is `vector`, even when its name says FLOAT or INT8
+ *  (`VECTOR(3, FLOAT32)`, `vector<float, 3>`). */
 export function columnKind(typeName: string, sample?: Cell): ColumnKind {
-  if (vectorOfType(typeName)) return 'text';
+  if (vectorOfType(typeName) || vectorArrayOfType(typeName)) return 'vector';
   const t = typeName.toLowerCase();
   if (/^(bit|bool|boolean)\b/.test(t)) return 'bool';
   if (/(int|dec|numeric|number|float|double|real|money|serial)/.test(t)) return 'number';
@@ -65,7 +69,9 @@ function value(kind: ColumnKind, s: string): Cell {
  * - text: plain → contains, `!x` → doesn't contain, `^x` → starts with,
  *   `x$` → ends with;
  * - numbers / booleans: plain → equals;
- * - dates: a plain `YYYY-MM-DD` → that whole day.
+ * - dates: a plain `YYYY-MM-DD` → that whole day;
+ * - vectors: only `NULL` / `NOT NULL` (anything else: no filter, and the
+ *   grid says why).
  */
 export function parseFilter(column: string, kind: ColumnKind, raw: string): ColumnFilter[] {
   const text = raw.trim();
@@ -76,6 +82,7 @@ export function parseFilter(column: string, kind: ColumnKind, raw: string): Colu
   if (up === 'NOT NULL' || up === '!NULL') return [f('not_null')];
   if (kind === 'text' && up === 'EMPTY') return [f('is_empty')];
   if (kind === 'text' && up === 'NOT EMPTY') return [f('not_empty')];
+  if (kind === 'vector') return [];
   const ops: [string, FilterOp][] = [['>=', 'ge'], ['<=', 'le'], ['<>', 'ne'], ['!=', 'ne'], ['>', 'gt'], ['<', 'lt'], ['=', 'eq']];
   for (const [p, op] of ops) {
     if (text.startsWith(p)) {
@@ -119,7 +126,10 @@ export function menuFor(kind: ColumnKind): FilterMenuEntry[] {
     { label: rt('core:filter.isNull'), op: 'is_null', divided: true },
     { label: rt('core:filter.notNull'), op: 'not_null' },
   ];
-  if (kind === 'bool') {
+  if (kind === 'vector') {
+    // NULL / NOT NULL and SQL conditions (`embedding <-> '[…]' < 0.5`).
+    out.splice(1, 1);
+  } else if (kind === 'bool') {
     out.push(
       { label: rt('core:filter.isTrue'), op: 'is_true', divided: true },
       { label: rt('core:filter.isFalse'), op: 'is_false' },

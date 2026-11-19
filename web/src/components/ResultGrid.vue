@@ -10,7 +10,7 @@ import type { Cell, ResultColumn, SortKey, VectorMeta } from '../api/types';
 import { nextSort } from '../composables/gridSort';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import CellViewer from './CellViewer.vue';
-import { ELEMENT_NAMES, checkVector, isDense, sameVector, vectorMeta, vectorPreview, type VectorPreview } from '../composables/vector';
+import { ELEMENT_NAMES, checkVector, isDense, sameVector, shownVectorMeta, vectorMeta, vectorPreview, type VectorPreview } from '../composables/vector';
 import { vectorProblemText } from '../composables/vectorLabels';
 import { columnKind, describe, menuFor, parseFilter, type ColumnFilter, type FilterMenuEntry, type FilterState } from '../composables/gridFilter';
 import { gridFontSize } from '../composables/appearance';
@@ -189,8 +189,13 @@ function valueAt(r: number, c: number): Cell {
 const isEdited = (r: number, c: number) => !isDeleted(r) && !isAdded(r) && !!props.edits?.[r] && c in props.edits[r];
 
 // -- vectors (composables/vector.ts) ----------------------------------------------------
-/** Each column's vectors (the driver's mark, or a vector type name); null: none. */
+/** Each column's vectors (the driver's mark, or a vector type name), for
+ *  edits; null: none. */
 const vecMetas = computed(() => props.columns.map(vectorMeta));
+/** Each column's vectors as shown: those, and arrays of floats that hold
+ *  vectors on their engine (`FLOAT[3]`, `Array(Float32)`), as in a stored
+ *  notebook result. */
+const vecShowMetas = computed(() => props.columns.map(shownVectorMeta));
 /** How many characters of numbers fit in column `c` next to its dims badge
  *  (a wider column shows more of them). */
 function vecChars(c: number) {
@@ -220,12 +225,12 @@ function previewAt(r: number, c: number, meta: VectorMeta, chars: number): Vecto
  *  that doesn't read as a vector shows its text. */
 const vecShown = computed(() => {
   const out = new Map<number, Map<number, VectorPreview>>();
-  const cols = vecMetas.value.flatMap((m, c) => (m ? [c] : []));
+  const cols = vecShowMetas.value.flatMap((m, c) => (m ? [c] : []));
   if (!cols.length) return out;
   const chars = cols.map(vecChars);
   for (const { i } of visible.value) {
     for (const [k, c] of cols.entries()) {
-      const p = isUnset(i, c) ? null : previewAt(i, c, vecMetas.value[c]!, chars[k]);
+      const p = isUnset(i, c) ? null : previewAt(i, c, vecShowMetas.value[c]!, chars[k]);
       if (!p) continue;
       let row = out.get(i);
       if (!row) out.set(i, (row = new Map()));
@@ -237,7 +242,7 @@ const vecShown = computed(() => {
 const vecAt = (r: number, c: number) => vecShown.value.get(r)?.get(c) ?? null;
 /** The dims badge's tooltip: «1536 dimensiones · float32». */
 function vecTitle(c: number, p: VectorPreview) {
-  const m = vecMetas.value[c];
+  const m = vecShowMetas.value[c];
   return [t('vectors:cell.dims', { count: p.dims ?? 0 }), m ? ELEMENT_NAMES[m.element] : '', p.sparse ? t('vectors:cell.sparse') : '']
     .filter(Boolean).join(' · ');
 }
@@ -661,14 +666,22 @@ watch(
   (f) => { ftext.value = Object.fromEntries(Object.entries(f ?? {}).map(([k, v]) => [k, v.text])); },
   { immediate: true, deep: true },
 );
-const kindOf = (c: number) => columnKind(props.columns[c]?.type_name ?? '', props.rows[0]?.[c]);
+/** A column of vectors filters by NULL / NOT NULL and SQL only (whatever its type name says). */
+const kindOf = (c: number) => (vecShowMetas.value[c] ? 'vector' : columnKind(props.columns[c]?.type_name ?? '', props.rows[0]?.[c]));
 const hasFilter = (name: string) => !!props.filters?.[name];
 
 function applyText(c: number) {
   const name = props.columns[c].name;
   const text = (ftext.value[name] ?? '').trim();
   if (text === (props.filters?.[name]?.text ?? '')) return;
-  emit('filter', name, text ? { text, filters: parseFilter(name, kindOf(c), text) } : null);
+  const filters = text ? parseFilter(name, kindOf(c), text) : [];
+  if (text && !filters.length && kindOf(c) === 'vector') {
+    // `[0.1, …]`, `=x`, a word: no engine filters a vector by its text.
+    ElMessage.info({ message: t('vectors:filter.onlyNull', { column: name }), duration: 5000 });
+    ftext.value[name] = props.filters?.[name]?.text ?? '';
+    return;
+  }
+  emit('filter', name, text ? { text, filters } : null);
 }
 function onFilterKey(e: KeyboardEvent, c: number) {
   e.stopPropagation();
@@ -837,7 +850,7 @@ function linkItems(r: number, c: number): MenuItem[] {
 // -- viewer / menu ---------------------------------------------------------------
 const viewer = ref<{ title: string; value: Cell; vector: VectorMeta | null } | null>(null);
 function openViewer(r: number, c: number) {
-  viewer.value = { title: props.columns[c]?.name ?? '', value: props.rows[r]?.[c] ?? null, vector: vecMetas.value[c] ?? null };
+  viewer.value = { title: props.columns[c]?.name ?? '', value: props.rows[r]?.[c] ?? null, vector: vecShowMetas.value[c] ?? null };
 }
 
 const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);

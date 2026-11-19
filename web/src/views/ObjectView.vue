@@ -13,6 +13,7 @@ import { newQuery } from '../composables/actions';
 import { matchesLocal, type ColumnFilter, type FilterState } from '../composables/gridFilter';
 import { pendingJumps } from '../composables/fkJump';
 import { sortRows } from '../composables/gridSort';
+import { shownVectorMeta } from '../composables/vector';
 import { objKey, useConnectionsStore } from '../stores/connections';
 import { useOutputStore } from '../stores/output';
 import { useTabsStore, type ObjectTab, type ObjectView } from '../stores/tabs';
@@ -70,6 +71,17 @@ const sort = ref<SortKey[]>([]);
 /** Why the sort only applies to the loaded rows, when it does ('' = the
  *  engine gave no reason; null = the server sorts). */
 const localSortReason = ref<string | null>(null);
+/** The reason when a vector column is in the sort. */
+const VECTOR_SORT = '\u0001vectors';
+/** The data's vector columns (by the result, or the table's structure). No
+ *  engine sorts by a vector the same way, and some refuse to (SQL Server),
+ *  so a sort with one sorts the loaded rows, number by number. */
+const vectorColumns = computed(() => {
+  const out = new Set<string>();
+  for (const c of outcome.value?.results[0]?.columns ?? []) if (shownVectorMeta(c)) out.add(c.name);
+  for (const c of columns.value) if (shownVectorMeta({ type_name: c.data_type })) out.add(c.name);
+  return out;
+});
 
 function filteredBrowse(max: number, withSort = true) {
   return api.filteredBrowseQuery({
@@ -106,11 +118,12 @@ async function loadData() {
   if (!(await ensureConnection())) return;
   running.value = true;
   try {
-    const [page, all] = await Promise.all([filteredBrowse(limit.value), filteredBrowse(1_000_000_000)]);
+    const vectorSort = sort.value.some((k) => vectorColumns.value.has(k.column));
+    const [page, all] = await Promise.all([filteredBrowse(limit.value, !vectorSort), filteredBrowse(1_000_000_000, !vectorSort)]);
     browseText.value = page.query;
     exportText.value = all.query;
     localReason.value = filterList.value.length && !page.server_side ? page.reason ?? '' : null;
-    localSortReason.value = sort.value.length && !page.sort_server_side ? page.sort_reason ?? '' : null;
+    localSortReason.value = !sort.value.length ? null : vectorSort ? VECTOR_SORT : !page.sort_server_side ? page.sort_reason ?? '' : null;
     // Key columns for "Copiar como SQL UPDATEs" (cached; no refetch).
     conns.loadColumns(props.tab.connectionId, props.tab.database, { ...props.tab.object, parent: null });
     const run = () => api.executeQuery({
@@ -262,7 +275,7 @@ function openAsQuery() {
       </div>
       <div v-if="view === 'data' && sort.length && localSortReason !== null" class="ov-filters">
         <el-icon><ei-sort /></el-icon>
-        <span>{{ $t('query:object.localSort', { rows: limit.toLocaleString(locale()), reason: localSortReason ? tb(localSortReason) : $t('query:object.noServerSort') }) }}</span>
+        <span>{{ $t('query:object.localSort', { rows: limit.toLocaleString(locale()), reason: localSortReason === VECTOR_SORT ? $t('vectors:sort.local') : localSortReason ? tb(localSortReason) : $t('query:object.noServerSort') }) }}</span>
         <div class="nm-spacer" />
         <el-button size="small" link @click="clearSort">{{ $t('query:object.clearSort') }}</el-button>
       </div>
