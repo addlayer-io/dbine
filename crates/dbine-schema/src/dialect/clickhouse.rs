@@ -296,7 +296,16 @@ impl Dialect for ClickHouse {
         use Severity::*;
         let s = || self.string();
         match t {
-            L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
+            // Text in the source's own notation (pgvector's `{1:1,3:2}/5`),
+            // which a JSON column would refuse.
+            L::Vector { sparse: true, .. } => Rendered::exact(self.string()).with(
+                Warning,
+                TypeApproximated,
+                format!(
+                    "{}: ClickHouse no tiene vectores dispersos; queda como texto, en la notación del origen.",
+                    t.describe()
+                ),
+            ),
             L::Vector { dims, element, .. } => {
                 use dbine_driver::VectorElement as E;
                 // Narrower numbers fit a Float32 exactly (no Float16 here).
@@ -902,6 +911,17 @@ pub(super) mod tests {
             tp().render_type(&vec(None, E::F32)).native,
             "array(float32)"
         );
+        // A sparse vector (pgvector's sparsevec) as text in its own
+        // notation, not JSON (which `{1:1,3:2}/5` isn't).
+        let sparse = L::Vector {
+            dims: Some(5),
+            element: E::F32,
+            sparse: true,
+        };
+        let r = d.render_type(&sparse);
+        assert_eq!(r.native, "String");
+        assert!(r.notes[0].message.contains("dispersos"), "{:?}", r.notes);
+        assert_eq!(tp().render_type(&sparse).native, "string");
     }
 
     #[test]

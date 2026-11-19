@@ -174,7 +174,16 @@ impl Dialect for DuckDb {
         use IssueCode::*;
         use Severity::*;
         match t {
-            L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
+            // Text in the source's own notation (pgvector's `{1:1,3:2}/5`),
+            // which a JSON column would refuse.
+            L::Vector { sparse: true, .. } => Rendered::exact("VARCHAR").with(
+                Warning,
+                TypeApproximated,
+                format!(
+                    "{}: DuckDB no tiene vectores dispersos; queda como texto, en la notación del origen.",
+                    t.describe()
+                ),
+            ),
             L::Vector { dims, element, .. } => {
                 use dbine_driver::VectorElement as E;
                 // Narrower numbers fit a FLOAT exactly; bits as 0 and 1.
@@ -472,6 +481,14 @@ mod tests {
             assert_eq!(DuckDb.render_type(&t).native, native, "{t:?}");
         }
         assert!(DuckDb.render_type(&vec(None, E::F32)).notes.len() == 1);
+        // A sparse vector as text in its own notation, not JSON.
+        let r = DuckDb.render_type(&L::Vector {
+            dims: Some(5),
+            element: E::F32,
+            sparse: true,
+        });
+        assert_eq!(r.native, "VARCHAR");
+        assert!(r.notes[0].message.contains("dispersos"), "{:?}", r.notes);
     }
 
     #[test]

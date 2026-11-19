@@ -101,7 +101,16 @@ impl Dialect for Sqlite {
         use IssueCode::*;
         use Severity::*;
         match t {
-            L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
+            // Text in the source's own notation (pgvector's `{1:1,3:2}/5`),
+            // which a JSON column would refuse.
+            L::Vector { sparse: true, .. } => Rendered::exact("TEXT").with(
+                Warning,
+                TypeApproximated,
+                format!(
+                    "{}: libSQL no tiene vectores dispersos; queda como texto, en la notación del origen.",
+                    t.describe()
+                ),
+            ),
             L::Vector { dims, element, .. } => {
                 use dbine_driver::VectorElement as E;
                 let name = match element {
