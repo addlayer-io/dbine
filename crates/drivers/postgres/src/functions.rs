@@ -30,6 +30,9 @@ const H2: &str = include_str!("functions/h2.txt");
 const DENODO: &str = include_str!("functions/denodo.txt");
 /// pgvector's functions, by the extension's version.
 const PGVECTOR: &str = include_str!("functions/pgvector.txt");
+/// CockroachDB's and CrateDB's vector functions, by the server's release.
+const COCKROACH_VECTORS: &str = include_str!("functions/cockroachdb_vectors.txt");
+const CRATE_VECTORS: &str = include_str!("functions/cratedb_vectors.txt");
 
 /// Window functions the catalogs that don't say so (Materialize's) list as
 /// plain functions.
@@ -121,7 +124,24 @@ async fn pg(s: &PgSession) -> Vec<FunctionInfo> {
     }
     let mut out = pg_functions::fallback(s.version);
     out.extend(pgvector_fallback(s).await);
+    if s.variant == Variant::Cockroach {
+        out.extend(release_catalog(s, "SELECT version()", COCKROACH_VECTORS).await);
+    }
     out
+}
+
+/// A static catalog for the server's release, read by `sql` (its first
+/// cell holds the version: `CockroachDB CCL v26.3.2 (…)`, `6.4.5`); the
+/// whole catalog when the release can't be read.
+async fn release_catalog(s: &PgSession, sql: &str, catalog: &str) -> Vec<FunctionInfo> {
+    let version = match s.text(sql).await {
+        Ok(rows) => rows.first().map(|r| cell(r, 0).to_string()),
+        Err(e) => {
+            tracing::debug!("{:?}: release unknown: {e}", s.variant);
+            None
+        }
+    };
+    parse_catalog(catalog, version.as_deref())
 }
 
 /// pgvector's functions for its installed version, when `pg_proc` can't
@@ -409,7 +429,18 @@ async fn cratedb(s: &PgSession) -> Result<Vec<FunctionInfo>> {
         .await
     {
         Ok(rows) => rows,
-        Err(e) => return Ok(standard_fallback(s, "pg_proc", e)),
+        Err(e) => {
+            let mut out = standard_fallback(s, "pg_proc", e);
+            out.extend(
+                release_catalog(
+                    s,
+                    "SELECT version['number'] FROM sys.nodes LIMIT 1",
+                    CRATE_VECTORS,
+                )
+                .await,
+            );
+            return Ok(out);
+        }
     };
     Ok(rows
         .iter()
@@ -533,6 +564,46 @@ mod tests {
         let new = names("0.8.0");
         assert!(new.contains(&"binary_quantize".to_string()));
         assert!(new.contains(&"<=>".to_string()));
+    }
+
+    /// CockroachDB's and CrateDB's vector functions, for when their
+    /// function catalog can't be read, by the release that added them;
+    /// RisingWave's checked per function.
+    #[test]
+    fn sibling_vector_functions_follow_the_release() {
+        let names = |catalog: &str, v: &str| -> Vec<String> {
+            parse_catalog(catalog, Some(v))
+                .into_iter()
+                .map(|f| f.name)
+                .collect()
+        };
+        let crdb = names(
+            COCKROACH_VECTORS,
+            "CockroachDB CCL v26.3.2 (aarch64-unknown-linux-gnu)",
+        );
+        for f in [
+            "cosine_distance",
+            "inner_product",
+            "l1_distance",
+            "l2_distance",
+            "vector_dims",
+            "vector_norm",
+            "<->",
+            "<#>",
+            "<=>",
+        ] {
+            assert!(crdb.contains(&f.to_string()), "{f}");
+        }
+        assert!(names(COCKROACH_VECTORS, "CockroachDB CCL v24.1.0").is_empty());
+        let cr = names(CRATE_VECTORS, "6.4.5");
+        assert_eq!(cr, ["knn_match", "vector_similarity"]);
+        assert_eq!(names(CRATE_VECTORS, "5.7.2"), ["knn_match"]);
+        assert!(names(CRATE_VECTORS, "5.4.0").is_empty());
+        let rw = |v| names(RISINGWAVE, v);
+        assert!(!rw("2.5.3").contains(&"l2_distance".to_string()));
+        assert!(rw("2.6.0").contains(&"l2_normalize".to_string()));
+        assert!(!rw("2.6.3").contains(&"subvector".to_string()));
+        assert!(rw("2.7.0").contains(&"subvector".to_string()));
     }
 
     #[test]

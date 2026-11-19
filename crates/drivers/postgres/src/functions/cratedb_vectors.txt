@@ -1,0 +1,7 @@
+# CrateDB's vector functions (see dbine_driver::functions::parse_catalog),
+# from its release notes: FLOAT_VECTOR and knn_match in 5.5.0,
+# vector_similarity in 5.8.0. The driver reads CrateDB's pg_proc where it
+# can; this catalog joins the SQL standard's functions when it can't.
+
+s knn_match(search_vector float_vector, target float_vector, k integer) -> boolean since=5.5.0
+s vector_similarity(a float_vector, b float_vector) -> real since=5.8.0

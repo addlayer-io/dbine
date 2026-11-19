@@ -1,0 +1,16 @@
+# CockroachDB's vector functions and operators (see
+# dbine_driver::functions::parse_catalog), from
+# pkg/sql/sem/builtins/pgvector_builtins.go and treebin/binary_operator.go,
+# with the release that added each one (the VECTOR type, 24.2). The driver
+# reads pg_proc where it can; this catalog joins PostgreSQL's static one
+# when it can't.
+
+s cosine_distance(v1 vector, v2 vector) -> float since=24.2
+s inner_product(v1 vector, v2 vector) -> float since=24.2
+s l1_distance(v1 vector, v2 vector) -> float since=24.2
+s l2_distance(v1 vector, v2 vector) -> float since=24.2
+s vector_dims(vector vector) -> int since=24.2
+s vector_norm(vector vector) -> float since=24.2
+o <-> (vector, vector) -> float since=24.2
+o <#> (vector, vector) -> float since=24.2
+o <=> (vector, vector) -> float since=24.2
