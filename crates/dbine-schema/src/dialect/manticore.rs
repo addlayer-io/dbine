@@ -158,7 +158,8 @@ impl Dialect for Manticore {
         let m = v.metric.as_deref().unwrap_or(metric::L2);
         if ![metric::L2, metric::IP, metric::COSINE].contains(&m) {
             return Err(format!(
-                "Manticore no tiene la distancia «{m}» en sus índices KNN (tiene l2, ip, cosine)"
+                "{} no tiene la distancia «{m}» en sus índices vectoriales (tiene {})",
+                "Manticore", "l2, ip, cosine"
             ));
         }
         let params = super::starrocks::index_params(v, &[param::M, param::EF_CONSTRUCTION]);

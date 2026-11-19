@@ -893,25 +893,16 @@ enum Path {
     Manticore,
 }
 
-fn path(v: Variant) -> Option<Path> {
+fn path(v: Variant) -> Path {
     match v.base() {
-        Variant::MySql
-        | Variant::MariaDb
-        | Variant::TiDb
-        | Variant::OceanBase
-        | Variant::SingleStore => Some(Path::LocalInfile),
         Variant::StarRocks | Variant::Doris | Variant::Databend | Variant::GreptimeDb => {
-            Some(Path::TextInserts)
+            Path::TextInserts
         }
-        Variant::Manticore => Some(Path::Manticore),
-        _ => None,
+        Variant::Manticore => Path::Manticore,
+        // MySQL, MariaDB, TiDB, OceanBase, SingleStore (the managed ones
+        // are MySQL).
+        _ => Path::LocalInfile,
     }
-}
-
-/// The variant has a load here (every one: Manticore's writes INSERTs that
-/// know its vector columns).
-pub(crate) fn supported(v: Variant) -> bool {
-    path(v).is_some()
 }
 
 /// Which load columns are vector columns of the target table, from its
@@ -1089,11 +1080,7 @@ pub(crate) async fn bulk_load(
     progress: Progress<'_>,
 ) -> Result<u64> {
     let v = s.variant;
-    let Some(p) = path(v) else {
-        return Err(Error::Unsupported(
-            "este motor no tiene carga masiva: se usan INSERT".into(),
-        ));
-    };
+    let p = path(v);
     let table = qualified_name(Quote::Backtick, spec.table.schema(), &spec.table.name);
     let window = Window::new(v, spec);
     match p {
@@ -1825,7 +1812,7 @@ mod tests {
                 "INSERT INTO `t` (`id`, `title`) VALUES (9, '[1,2]')",
             ]
         );
-        assert!(supported(Variant::Manticore));
+        assert_eq!(path(Variant::Manticore), Path::Manticore);
     }
 
     #[test]

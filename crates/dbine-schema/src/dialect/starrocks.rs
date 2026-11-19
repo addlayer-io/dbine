@@ -931,10 +931,9 @@ impl Dialect for Olap {
         // vector indexes, on their ARRAY<FLOAT> column, with their dim).
         let mut kept = Vec::new();
         for ix in std::mem::take(&mut t.indexes) {
+            // Vector indexes come settled (their dim in them).
             let why = if ix.vector.is_some() {
-                (!ix.vector.as_ref().is_some_and(|v| v.params.contains_key("dim"))).then(|| {
-                    format!("{engine} necesita la dimensión del vector en el índice («dim») y no se conoce.")
-                })
+                None
             } else if ix.unique {
                 Some(format!("{engine} no tiene índices únicos: la unicidad solo la da la clave de la tabla."))
             } else if ix.columns.len() != 1 {

@@ -217,7 +217,7 @@ impl Variant {
         matches!(
             self.base(),
             Variant::MySql | Variant::MariaDb | Variant::TiDb
-        ) && transfer::supported(self)
+        )
     }
 
     pub(crate) fn has_transactions(self) -> bool {
@@ -472,9 +472,9 @@ impl Driver for MySqlDriver {
     }
 
     /// `LOAD DATA LOCAL INFILE` or big multi-row INSERTs (see `transfer`);
-    /// Manticore, INSERTs that write its vectors.
+    /// Manticore, INSERTs that write its vectors: every variant.
     fn supports_bulk_load(&self) -> bool {
-        transfer::supported(self.variant)
+        true
     }
 
     /// Notebook writes stage into a `TEMPORARY` table and apply in one

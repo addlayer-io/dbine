@@ -228,7 +228,8 @@ impl Dialect for Databend {
         let m = v.metric.as_deref().unwrap_or(metric::COSINE);
         if ![metric::COSINE, metric::L2, metric::L1].contains(&m) {
             return Err(format!(
-                "Databend no tiene la distancia «{m}» en sus índices vectoriales (tiene cosine, l2, l1)"
+                "{} no tiene la distancia «{m}» en sus índices vectoriales (tiene {})",
+                "Databend", "cosine, l2, l1"
             ));
         }
         let params = super::starrocks::index_params(v, &[param::M, param::EF_CONSTRUCTION]);

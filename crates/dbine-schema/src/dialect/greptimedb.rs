@@ -256,7 +256,8 @@ impl Dialect for GreptimeDb {
             .filter(|m| ![metric::L2, metric::COSINE, metric::IP].contains(m))
         {
             return Err(format!(
-                "GreptimeDB no tiene la distancia «{m}» en sus índices vectoriales (tiene l2, cosine, ip)"
+                "{} no tiene la distancia «{m}» en sus índices vectoriales (tiene {})",
+                "GreptimeDB", "l2, cosine, ip"
             ));
         }
         let params =

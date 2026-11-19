@@ -260,7 +260,7 @@ fn native_metric(v: Variant, m: &str) -> Result<&'static str> {
         .ok_or_else(|| {
             let have: Vec<&str> = metrics(v).iter().map(|(s, _)| *s).collect();
             Error::Unsupported(format!(
-                "{} no tiene la distancia «{m}» en sus índices vectoriales (tiene: {})",
+                "{} no tiene la distancia «{m}» en sus índices vectoriales (tiene {})",
                 engine(v),
                 have.join(", ")
             ))
@@ -1083,7 +1083,10 @@ pub(crate) fn from_create(v: Variant, create: &str) -> Vec<IndexDef> {
                     .trim();
                 let json = unquote(json.split_once(" COMMENT ").map_or(json, |(j, _)| j));
                 options.insert("INDEX_OPTIONS".into(), json.clone());
-                if let Ok(serde_json::Value::Object(o)) = serde_json::from_str(&json) {
+                // Quotes inside escaped the SQL way ('') or with backslashes.
+                let parsed = serde_json::from_str(&json)
+                    .or_else(|_| serde_json::from_str(&json.replace("\\'", "'")));
+                if let Ok(serde_json::Value::Object(o)) = parsed {
                     for (k, val) in o {
                         let val = match val {
                             serde_json::Value::String(s) => s,
@@ -1973,6 +1976,15 @@ mod tests {
         assert_eq!(vi.algorithm.as_deref(), Some("hnsw_flat"));
         assert_eq!(vi.metric.as_deref(), Some("l2"));
         assert_eq!(vi.params.get("m").map(String::as_str), Some("30"));
+        // Unquoted or with backslash-escaped quotes, the same settings.
+        for create in [
+            "CREATE TABLE `t` (\n  VECTOR INDEX `iv` (`v`) INDEX_OPTIONS '{\"index_type\":\"IVF_FLAT\",\"nlist\":64}'\n)",
+            "CREATE TABLE `t` (\n  VECTOR INDEX `iv` (`v`) INDEX_OPTIONS='{\"index_type\":\"IVF_FLAT\",\"nlist\":64,\"note\":\"it\\'s\"}'\n)",
+        ] {
+            let vi = from_create(v, create)[0].vector.clone().unwrap();
+            assert_eq!(vi.algorithm.as_deref(), Some("ivf_flat"), "{create}");
+            assert_eq!(vi.params.get("lists").map(String::as_str), Some("64"), "{create}");
+        }
     }
 
     #[test]
