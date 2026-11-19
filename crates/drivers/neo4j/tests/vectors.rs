@@ -200,9 +200,18 @@ async fn bolt_protocol_versions() {
 /// vectors typed `VECTOR<FLOAT32>(3)`, edited through the typed script (the
 /// property stays a VECTOR; the untyped one would make it a list), a
 /// vector index over them, the 2025 vector functions, and a transfer
-/// read. Runs when `DBINE_TEST_NEO4J_2025_URL` is set (no such container
-/// is kept: `docker run -e NEO4J_ACCEPT_LICENSE_AGREEMENT=eval
-/// neo4j:2025.10-enterprise`).
+/// read. Runs when `DBINE_TEST_NEO4J_2025_URL` is set. No such container
+/// is kept: run a temporary one and remove it with its volumes (`-v`)
+/// afterwards.
+///
+/// ```sh
+/// docker run -d --name dbine-test-neo4j2025 --memory=2g -p 127.0.0.1:37687:7687 \
+///   -e NEO4J_ACCEPT_LICENSE_AGREEMENT=eval -e NEO4J_AUTH=neo4j/dbine-test-pass \
+///   neo4j:2025.10-enterprise
+/// DBINE_TEST_NEO4J_2025_URL=neo4j:dbine-test-pass@127.0.0.1:37687 \
+///   cargo test -p dbine-driver-neo4j --test vectors vectors_neo4j_2025 -- --ignored
+/// docker rm -fv dbine-test-neo4j2025
+/// ```
 #[tokio::test]
 #[ignore]
 async fn vectors_neo4j_2025() {
