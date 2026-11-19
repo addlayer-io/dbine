@@ -258,6 +258,190 @@ pub(crate) fn bit_text(text: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
+// ------------------------------------------------------------ typed scripts
+
+/// What a column of a known type takes, for the values whose literal
+/// depends on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    /// pgvector's `sparsevec`: `{i:v}/n`, from a dense vector too.
+    Sparse,
+    /// A bit string (`bit(n)`, pgvector's binary vectors): `1011`, from a
+    /// vector of zeros and ones too.
+    Bits,
+    /// CrateDB's `FLOAT_VECTOR` or array: an array literal, never text
+    /// (CrateDB doesn't cast text to either).
+    CrateArray,
+    /// CrateDB text: a JSON array is its text, quoted.
+    CrateText,
+    /// A PostgreSQL array (`real[]`, `_float4`): `'{1,2.5}'`.
+    PgArray,
+    /// The value's own literal (a vector type, `json`, a number…).
+    AsIs,
+}
+
+/// How a value goes into `col` on this variant, by its type (`type_name`
+/// as a result or a describe spells it: `sparsevec(5)`, `bit(4)`, `bit`,
+/// `_float4`, `real[]`, `FLOAT_VECTOR(3)`), else by its vector mark.
+fn slot(v: Variant, col: &ResultColumn) -> Slot {
+    let t = col.type_name.trim().to_ascii_lowercase();
+    let base = t.split('(').next().unwrap_or("").trim();
+    let base = base.rsplit('.').next().unwrap_or(base).trim_matches('"');
+    let array = t.ends_with("[]") || (base.starts_with('_') && base.len() > 1);
+    if v == Variant::CrateDb {
+        return match base {
+            "float_vector" | "array" => Slot::CrateArray,
+            _ if array || base.ends_with("_array") => Slot::CrateArray,
+            "text" | "varchar" | "character varying" | "string" | "char" | "character" => {
+                Slot::CrateText
+            }
+            // A vector typed by another engine (a result or a describe
+            // there): CrateDB's is a FLOAT_VECTOR.
+            _ if col.vector.is_some() => Slot::CrateArray,
+            _ => Slot::AsIs,
+        };
+    }
+    if let Some(meta) = meta_of_type(v, &t) {
+        return if meta.sparse {
+            Slot::Sparse
+        } else {
+            Slot::AsIs
+        };
+    }
+    match base {
+        // H2's BIT is a boolean.
+        "bit" | "bit varying" | "varbit" if v != Variant::H2 => Slot::Bits,
+        _ if array && !matches!(v, Variant::Redshift | Variant::H2 | Variant::Denodo) => {
+            Slot::PgArray
+        }
+        _ => Slot::AsIs,
+    }
+}
+
+/// A JSON array as a PostgreSQL array literal's text (`{1,2.5,NULL}`,
+/// `{"a","b \"c\""}`, `{{1,2},{3,4}}`), each number as it came.
+fn pg_array_text(items: &[serde_json::Value]) -> String {
+    use serde_json::Value as V;
+    let quoted = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
+    let parts: Vec<String> = items
+        .iter()
+        .map(|x| match x {
+            V::Null => "NULL".to_string(),
+            V::Bool(b) => b.to_string(),
+            V::Number(n) => n.to_string(),
+            V::String(s) => quoted(s),
+            V::Array(inner) => pg_array_text(inner),
+            V::Object(_) => quoted(&x.to_string()),
+        })
+        .collect();
+    format!("{{{}}}", parts.join(","))
+}
+
+/// A string holding a JSON array (`"[1,2.5]"`, a vector sent as text) as
+/// that array, its numbers as written.
+fn json_array(s: &str) -> Option<Vec<serde_json::Value>> {
+    let s = s.trim();
+    if !s.starts_with('[') {
+        return None;
+    }
+    match serde_json::from_str(s).ok()? {
+        serde_json::Value::Array(items) => Some(items),
+        _ => None,
+    }
+}
+
+/// `value` as `col` takes it on this variant, when that differs from its
+/// own literal: a dense vector into a `sparsevec` column as `{i:v}/n`, a
+/// vector of zeros and ones into a `bit(n)` column as `1011`, a vector (or
+/// any JSON array) sent as text into a CrateDB `FLOAT_VECTOR` or array as
+/// the array, a JSON array into a PostgreSQL array as `{…}`, and a JSON
+/// array into CrateDB text as its text. `None`: as it is.
+pub(crate) fn typed_value(
+    v: Variant,
+    col: &ResultColumn,
+    value: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    use serde_json::Value as V;
+    let text = |value: &V| match value {
+        V::Array(_) => Some(value.to_string()),
+        V::String(s) => Some(s.clone()),
+        _ => None,
+    };
+    match slot(v, col) {
+        Slot::Sparse => {
+            let t = text(value)?;
+            dbine_driver::vector::parse(&t)?;
+            Some(V::String(sparse_text(&t).into_owned()))
+        }
+        Slot::Bits => {
+            let t = text(value)?;
+            match bit_text(&t) {
+                std::borrow::Cow::Owned(bits) => Some(V::String(bits)),
+                std::borrow::Cow::Borrowed(_) => None,
+            }
+        }
+        Slot::CrateArray => match value {
+            V::String(s) => match json_array(s) {
+                Some(items) => Some(V::Array(items)),
+                // CrateDB's own text of a vector (`{"1.0","2.5"}`).
+                None => crate_text(s).and_then(|t| json_array(&t)).map(V::Array),
+            },
+            _ => None,
+        },
+        Slot::CrateText => match value {
+            V::Array(_) => Some(V::String(value.to_string())),
+            _ => None,
+        },
+        Slot::PgArray => match value {
+            V::Array(items) => Some(V::String(pg_array_text(items))),
+            V::String(s) => json_array(s).map(|items| V::String(pg_array_text(&items))),
+            _ => None,
+        },
+        Slot::AsIs => None,
+    }
+}
+
+/// `rows` (cells in `columns`' order) with [`typed_value`] applied; `rows`
+/// itself when nothing changes.
+pub(crate) fn typed_rows<'a>(
+    v: Variant,
+    columns: &[ResultColumn],
+    rows: &'a [Vec<serde_json::Value>],
+) -> std::borrow::Cow<'a, [Vec<serde_json::Value>]> {
+    let mut out: Option<Vec<Vec<serde_json::Value>>> = None;
+    for (r, row) in rows.iter().enumerate() {
+        for (i, cell) in row.iter().enumerate() {
+            let Some(col) = columns.get(i) else {
+                continue;
+            };
+            if let Some(new) = typed_value(v, col, cell) {
+                out.get_or_insert_with(|| rows.to_vec())[r][i] = new;
+            }
+        }
+    }
+    match out {
+        Some(o) => std::borrow::Cow::Owned(o),
+        None => std::borrow::Cow::Borrowed(rows),
+    }
+}
+
+/// `(column, value)` pairs (an update's `SET` or a key) with
+/// [`typed_value`] applied by the column's name; a column `types` doesn't
+/// list stays as it is.
+pub(crate) fn typed_pairs(
+    v: Variant,
+    types: &[ResultColumn],
+    pairs: &mut [(String, serde_json::Value)],
+) {
+    for (name, value) in pairs.iter_mut() {
+        if let Some(col) = types.iter().find(|c| &c.name == name) {
+            if let Some(new) = typed_value(v, col, value) {
+                *value = new;
+            }
+        }
+    }
+}
+
 /// The one table a plain `SELECT … FROM t [WHERE …] [ORDER BY …] [LIMIT
 /// …]` reads (its schema, if named, and name), as written; `None` for a
 /// join, a subquery or anything else. RisingWave's results carry no column
@@ -1019,8 +1203,40 @@ pub(crate) fn canonical_options(v: Variant, t: &mut TableSchema) {
         ix.options
             .insert(VECTOR_OPTION.into(), body(v, &snapshot, ix, &vi));
         if supported(v) {
-            ix.kind = Some(algorithm_for(v, &vi, ix.kind.as_deref()).0);
+            ix.vector = Some(as_written(v, &snapshot, ix, &vi));
+            ix.kind = ix.vector.as_ref().and_then(|w| w.algorithm.clone());
         }
+    }
+}
+
+/// `vi` as this variant writes it ([`body`]): its algorithm (a sibling's
+/// `hnsw` is CockroachDB's `cspann`), the distance it gets when none is
+/// named, and only the parameters a translated algorithm knows. Two
+/// indexes the variant would make the same compare the same.
+fn as_written(v: Variant, t: &TableSchema, ix: &IndexDef, vi: &VectorIndex) -> VectorIndex {
+    let (alg, translated) = algorithm_for(v, vi, ix.kind.as_deref());
+    let metric = vi
+        .metric
+        .as_deref()
+        .map(|m| m.trim().to_ascii_lowercase())
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| match (v, ix.columns.first()) {
+            (Variant::RisingWave, _) => metric::L2.to_string(),
+            (_, Some(first)) => default_metric(&alg, key_type(first, &t.columns)).to_string(),
+            (_, None) => default_metric(&alg, "vector").to_string(),
+        });
+    let known = params_of(&alg);
+    let params = vi
+        .params
+        .iter()
+        .filter(|(k, _)| !translated || known.contains(&k.as_str()))
+        .filter(|(_, val)| !val.trim().is_empty())
+        .map(|(k, val)| (k.clone(), val.trim().to_string()))
+        .collect();
+    VectorIndex {
+        algorithm: Some(alg),
+        metric: Some(metric),
+        params,
     }
 }
 
@@ -1870,6 +2086,168 @@ mod tests {
                 "{v:?} {cols:?} {alg:?} {m:?}"
             );
         }
+    }
+
+    fn typed(name: &str, ty: &str) -> ResultColumn {
+        ResultColumn::new(name, ty)
+    }
+
+    /// Typed scripts: the literal follows the target column's type.
+    #[test]
+    fn values_follow_their_column_type() {
+        let pg = Variant::Postgres;
+        let some = |v, c: &ResultColumn, x: serde_json::Value| typed_value(v, c, &x);
+        // A dense vector (array or text) into sparsevec: its notation.
+        let s = typed("s", "sparsevec(5)");
+        assert_eq!(
+            some(pg, &s, json!([0, 1.5, 0, 2, 0])),
+            Some(json!("{2:1.5,4:2}/5"))
+        );
+        assert_eq!(
+            some(pg, &s, json!("[0,1.5,0,2,0]")),
+            Some(json!("{2:1.5,4:2}/5"))
+        );
+        assert_eq!(some(pg, &s, json!("{2:1.5}/5")), None);
+        assert_eq!(
+            some(pg, &typed("s", "sparsevec"), json!([1, 0])),
+            Some(json!("{1:1}/2"))
+        );
+        // Zeros and ones into bit(n), as a result (`bit`) or a describe
+        // (`bit(4)`) names it; CockroachDB's BIT too.
+        for ty in ["bit(4)", "bit", "bit varying(8)", "varbit"] {
+            assert_eq!(
+                some(pg, &typed("b", ty), json!([1, 0, 1, 1])),
+                Some(json!("1011")),
+                "{ty}"
+            );
+        }
+        assert_eq!(
+            some(pg, &typed("b", "bit(4)"), json!("[0,1,1,0]")),
+            Some(json!("0110"))
+        );
+        assert_eq!(some(pg, &typed("b", "bit(4)"), json!("1011")), None);
+        assert_eq!(some(pg, &typed("b", "bit(2)"), json!([1, 2])), None);
+        assert_eq!(
+            some(Variant::Cockroach, &typed("b", "BIT(2)"), json!([1, 0])),
+            Some(json!("10"))
+        );
+        // H2's BIT is a boolean.
+        assert_eq!(some(Variant::H2, &typed("b", "BIT"), json!([1, 0])), None);
+        // Dense vector types and json take the value's own literal.
+        for ty in [
+            "vector(3)",
+            "halfvec(3)",
+            "extensions.vector(3)",
+            "jsonb",
+            "json",
+            "text",
+            "",
+        ] {
+            assert_eq!(some(pg, &typed("v", ty), json!([1, 2.5, 3])), None, "{ty}");
+        }
+        assert_eq!(
+            some(Variant::Cockroach, &typed("v", "VECTOR(3)"), json!([1, 2])),
+            None
+        );
+        assert_eq!(
+            some(
+                Variant::RisingWave,
+                &typed("v", "vector(3)"),
+                json!("[1,2]")
+            ),
+            None
+        );
+        // A JSON array into a PostgreSQL array: `{…}`, numbers as they came.
+        let a = typed("a", "real[]");
+        assert_eq!(some(pg, &a, json!([1, 2.5, -3])), Some(json!("{1,2.5,-3}")));
+        assert_eq!(some(pg, &a, json!("[1,2.5]")), Some(json!("{1,2.5}")));
+        assert_eq!(some(pg, &a, json!("{1,2.5}")), None);
+        assert_eq!(
+            some(pg, &typed("a", "_int8"), json!([9007199254740993u64, null])),
+            Some(json!("{9007199254740993,NULL}"))
+        );
+        assert_eq!(
+            some(pg, &typed("a", "text[]"), json!(["a", "b \"c\" \\", true])),
+            Some(json!(r#"{"a","b \"c\" \\",true}"#))
+        );
+        assert_eq!(
+            some(pg, &typed("a", "integer[]"), json!([[1, 2], [3, 4]])),
+            Some(json!("{{1,2},{3,4}}"))
+        );
+        assert_eq!(some(Variant::Redshift, &a, json!([1, 2])), None);
+        // CrateDB: a vector sent as text into FLOAT_VECTOR is the array
+        // (its numbers as written); a result's `float_vector(2)`, a
+        // describe's `FLOAT_VECTOR(2)`, another engine's vector column.
+        let cr = Variant::CrateDb;
+        for c in [
+            typed("v", "FLOAT_VECTOR(2)"),
+            typed("v", "float_vector(2)"),
+            typed("v", "VECTOR(2, FLOAT32)")
+                .with_vector(VectorMeta::dense(Some(2), VectorElement::F32)),
+        ] {
+            assert_eq!(
+                some(cr, &c, json!("[1.0,2.5]")),
+                Some(json!([1.0, 2.5])),
+                "{c:?}"
+            );
+            assert_eq!(
+                some(cr, &c, json!("{\"1.0\",\"2.5\"}")),
+                Some(json!([1, 2.5]))
+            );
+            assert_eq!(some(cr, &c, json!([1, 2])), None);
+            assert_eq!(some(cr, &c, json!("text")), None);
+        }
+        assert_eq!(
+            some(
+                cr,
+                &typed("a", "ARRAY(BIGINT)"),
+                json!("[9007199254740993]")
+            ),
+            Some(json!([9007199254740993u64]))
+        );
+        assert_eq!(
+            some(cr, &typed("a", "_int8"), json!("[1,2]")),
+            Some(json!([1, 2]))
+        );
+        // A JSON array into CrateDB text: its text, quoted.
+        assert_eq!(
+            some(cr, &typed("t", "TEXT"), json!([1, 2])),
+            Some(json!("[1,2]"))
+        );
+        assert_eq!(some(cr, &typed("o", "OBJECT"), json!([1, 2])), None);
+        // Untyped (no type, no mark): as it is.
+        assert_eq!(some(cr, &typed("v", ""), json!("[1,2]")), None);
+    }
+
+    #[test]
+    fn typed_rows_and_pairs_change_only_what_their_type_says() {
+        let cols = [
+            typed("id", "int4"),
+            typed("s", "sparsevec(3)"),
+            typed("b", "bit"),
+        ];
+        let rows = vec![vec![json!(1), json!([0, 2, 0]), json!([1, 1, 0])]];
+        let out = typed_rows(Variant::Postgres, &cols, &rows);
+        assert_eq!(out[0], vec![json!(1), json!("{2:2}/3"), json!("110")]);
+        // Nothing to change: the same rows.
+        let plain = vec![vec![json!(1), json!("{2:2}/3"), json!("110")]];
+        assert!(matches!(
+            typed_rows(Variant::Postgres, &cols, &plain),
+            std::borrow::Cow::Borrowed(_)
+        ));
+        // More cells than types: the rest as they are.
+        let wide = vec![vec![json!(1), json!([0, 2, 0]), json!([1]), json!([1, 0])]];
+        assert_eq!(
+            typed_rows(Variant::Postgres, &cols, &wide)[0][3],
+            json!([1, 0])
+        );
+        let mut pairs = vec![
+            ("b".to_string(), json!([0, 1])),
+            ("x".to_string(), json!([0, 1])),
+        ];
+        typed_pairs(Variant::Postgres, &cols, &mut pairs);
+        assert_eq!(pairs[0].1, json!("01"));
+        assert_eq!(pairs[1].1, json!([0, 1]));
     }
 
     /// A table from pgvector on a variant without vectors (a conversion
