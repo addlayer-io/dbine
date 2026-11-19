@@ -1510,6 +1510,11 @@ mod tests {
         // Db2 for i and z/OS: without LUW's own.
         let iz = names(&db2_static(None, false));
         assert!(iz.contains("LISTAGG") && !iz.contains("THIS_WEEK") && !iz.contains("YMD_BETWEEN"));
+        // Vectors: Db2 LUW 12.1.2 and later (DBMS_VER 12.01.0200).
+        let has = |v: &str| names(&db2_static(Some(v), true)).contains("VECTOR_DISTANCE");
+        assert!(has("12.01.0200") && has("12.01.0300"));
+        assert!(!has("12.01.0100") && !has("11.05.0900"));
+        assert!(!iz.contains("VECTOR_DISTANCE"));
     }
 
     #[test]
