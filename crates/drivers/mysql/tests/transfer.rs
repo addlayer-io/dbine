@@ -8,7 +8,8 @@
 //!
 //! Each engine reads `DBINE_TEST_<ENGINE>_URL` (`mysql://user:pass@host:port`),
 //! defaulting to the container's port; a server that doesn't answer is
-//! skipped. The MySQL test turns `local_infile` on for its second run (to
+//! skipped. When `dbine-test-manticore` doesn't boot, a temporary one does
+//! (see the header of `tests/vectors.rs`). The MySQL test turns `local_infile` on for its second run (to
 //! try both load paths) and restores it.
 
 use dbine_driver::transfer::{

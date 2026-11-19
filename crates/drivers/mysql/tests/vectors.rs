@@ -2,11 +2,14 @@
 //! table with a vector column and a vector index made from a `TableSchema`
 //! through the driver's own DDL (as the designer would), rows inserted with
 //! `insert_script`, read back (query and table browse) with the column
-//! marked as vectors and the cells whole, the typed scripts (a JSON
-//! column next to the vector one, with the types a describe gives), the
-//! describe and the index read back (also in the index usage view), a
-//! similarity query, an `update_script`, and a transfer (same engine, and
-//! pgvector-shaped text cells as another family's source).
+//! marked as vectors and the cells whole (MariaDB: also aliased
+//! expressions, derived tables and CTEs), the typed scripts (a JSON column
+//! next to the vector one, with the types a describe gives, and on MySQL 9
+//! and MariaDB those a result gives), the describe and the index read back
+//! (also in the index usage view), a similarity query, an `update_script`,
+//! and a transfer (same engine, and pgvector-shaped text cells as another
+//! family's source). Doris and StarRocks also check that an AGGREGATE KEY
+//! table takes no vector index.
 //!
 //! Each test reads `DBINE_TEST_<ENGINE>_URL` (`mysql://user:pass@host:port`)
 //! and is skipped without it; what it creates is dropped first and at the
@@ -14,28 +17,57 @@
 //!
 //! ```sh
 //! docker start dbine-test-mysql9 dbine-test-mariadb dbine-test-tidb8 \
-//!   dbine-test-greptimedb dbine-test-manticore
+//!   dbine-test-greptimedb
 //! DBINE_TEST_MYSQL9_URL=mysql://root:pw@127.0.0.1:27201 \
 //! DBINE_TEST_MARIADB_URL=mysql://root:pw@127.0.0.1:25012 \
 //! DBINE_TEST_TIDB8_URL=mysql://root@127.0.0.1:25044 \
 //! DBINE_TEST_GREPTIMEDB_URL=mysql://127.0.0.1:25017 \
-//! DBINE_TEST_MANTICORE_URL=mysql://127.0.0.1:25016 \
 //!   cargo test -p dbine-driver-mysql --test vectors -- --ignored --nocapture
 //! ```
 //!
-//! The heavy servers, one at a time (`docker start dbine-test-oceanbase`,
-//! then `dbine-test-doris`, then `dbine-test-starrocks`; their ports with
-//! `docker port`): `DBINE_TEST_OCEANBASE_URL=mysql://root@test:pw@127.0.0.1:25035`
-//! (the `test` tenant; OceanBase wants 6 GB free in the VM),
-//! `DBINE_TEST_DORIS_URL=mysql://root@127.0.0.1:25031`,
-//! `DBINE_TEST_STARROCKS_URL=mysql://root@127.0.0.1:25030` (its FE needs
-//! `ADMIN SET FRONTEND CONFIG ("enable_experimental_vector" = "true")`,
-//! which the test sets). Databend has no container of its own: `docker run
-//! -d --name dbine-test-databend -e QUERY_DEFAULT_USER=dbine -e
-//! QUERY_DEFAULT_PASSWORD=pw -p 127.0.0.1:25307:3307 datafuselabs/databend`,
-//! `DBINE_TEST_DATABEND_URL=mysql://dbine:pw@127.0.0.1:25307`, removed after.
-//! TiDB's vector index needs TiFlash: `DBINE_TEST_TIDB_TIFLASH_URL` points at
-//! a cluster with one (`tiup playground`), the test adds the replica.
+//! Manticore: `dbine-test-manticore` (port 25016) when it boots. When it
+//! doesn't (its saved state can leave it failing with `FATAL: port 0 is
+//! out of range`), a temporary one, removed after with its volume:
+//!
+//! ```sh
+//! docker run -d --name dbine-test-manticore-vec -p 127.0.0.1:25316:9306 \
+//!   manticoresearch/manticore:latest
+//! DBINE_TEST_MANTICORE_URL=mysql://127.0.0.1:25316 \
+//!   cargo test -p dbine-driver-mysql --test vectors -- --ignored manticore
+//! docker rm -f -v dbine-test-manticore-vec
+//! ```
+//!
+//! The heavy servers, one at a time (their ports with `docker port`):
+//! - Doris: `docker start dbine-test-doris`,
+//!   `DBINE_TEST_DORIS_URL=mysql://root@127.0.0.1:25031`.
+//! - StarRocks: `docker start dbine-test-starrocks`,
+//!   `DBINE_TEST_STARROCKS_URL=mysql://root@127.0.0.1:25030` (its FE needs
+//!   `ADMIN SET FRONTEND CONFIG ("enable_experimental_vector" = "true")`,
+//!   which the test sets).
+//! - OceanBase (wants about 6 GB free in the VM), the `test` tenant:
+//!   `docker start dbine-test-oceanbase` (port 25035) when it boots; when
+//!   it doesn't (a full disk can leave its clog failing with -4016), a
+//!   temporary one, ready once its log says `boot success!` (a few
+//!   minutes), removed after with its volume:
+//!
+//!   ```sh
+//!   docker run -d --name dbine-test-oceanbase-vec -e MODE=slim \
+//!     -e OB_TENANT_PASSWORD=pw -p 127.0.0.1:25335:2881 \
+//!     oceanbase/oceanbase-ce:4.4.2-lts
+//!   docker logs -f dbine-test-oceanbase-vec   # until "boot success!"
+//!   DBINE_TEST_OCEANBASE_URL=mysql://root@test:pw@127.0.0.1:25335 \
+//!     cargo test -p dbine-driver-mysql --test vectors -- --ignored oceanbase
+//!   docker rm -f -v dbine-test-oceanbase-vec
+//!   ```
+//! - Databend has no container of its own: `docker run -d --name
+//!   dbine-test-databend -e QUERY_DEFAULT_USER=dbine -e
+//!   QUERY_DEFAULT_PASSWORD=pw -p 127.0.0.1:25307:3307
+//!   datafuselabs/databend`,
+//!   `DBINE_TEST_DATABEND_URL=mysql://dbine:pw@127.0.0.1:25307`, removed
+//!   after (`docker rm -f -v dbine-test-databend`).
+//! - TiDB's vector index needs TiFlash: `DBINE_TEST_TIDB_TIFLASH_URL`
+//!   points at a cluster with one (`tiup playground`); the test adds the
+//!   replica.
 
 use dbine_driver::transfer::{
     BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn,
