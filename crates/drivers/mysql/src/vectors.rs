@@ -35,11 +35,12 @@ fn q(name: &str) -> String {
     quote_ident(Quote::Backtick, name)
 }
 
-/// The engine stores vectors and the driver handles them. Every engine of
-/// the crate has a vector type (MySQL since 9.0; Aurora MySQL and Cloud SQL,
-/// which behave as MySQL, take it once their version does).
-pub(crate) fn supported(_v: Variant) -> bool {
-    true
+/// The engine stores vectors and the driver handles them: every engine of
+/// the crate (MySQL since 9.0), but not the managed MySQL services, which
+/// run MySQL 8 (Aurora MySQL has no vector type; Cloud SQL's embeddings are
+/// `VARBINARY` columns with its own functions and SCANN indexes).
+pub(crate) fn supported(v: Variant) -> bool {
+    !matches!(v, Variant::AuroraMySql | Variant::CloudSqlMySql)
 }
 
 /// The kind of a vector index as each engine reads it back.

@@ -444,7 +444,10 @@ impl Driver for MySqlDriver {
     }
 
     fn capabilities(&self) -> Capabilities {
-        design::capabilities(self.variant)
+        let mut c = design::capabilities(self.variant);
+        // Aurora MySQL and Cloud SQL behave as MySQL, but not its VECTOR.
+        c.vectors = vectors::supported(self.product);
+        c
     }
 
     /// "Nueva base de datos"'s options (see [`create_db`]).
@@ -574,7 +577,13 @@ impl Driver for MySqlDriver {
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
-        Some(design::designer(self.variant))
+        let mut d = design::designer(self.variant);
+        if !vectors::supported(self.product) {
+            let own = vectors::data_types(self.variant);
+            d.data_types.retain(|t| !own.contains(t));
+            d.vector_indexes = None;
+        }
+        Some(d)
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
@@ -1279,6 +1288,16 @@ mod tests {
             .fields
             .iter()
             .any(|f| f.key == CA_CERT && f.label == "ssl-ca"));
+        // MySQL 9's vectors aren't the managed MySQL 8 services'; VeloDB is Doris.
+        assert!(get("mysql").capabilities().vectors);
+        for managed in ["aurora-mysql", "cloudsql-mysql"] {
+            let d = get(managed);
+            assert!(!d.capabilities().vectors, "{managed}");
+            let spec = d.designer().unwrap();
+            assert!(spec.vector_indexes.is_none() && !spec.data_types.contains(&"vector(1536)"));
+        }
+        assert!(get("velodb").capabilities().vectors);
+        assert!(get("velodb").designer().unwrap().vector_indexes.is_some());
     }
 
     #[test]
