@@ -676,10 +676,7 @@ impl Driver for MySqlDriver {
         rows: &[Vec<serde_json::Value>],
     ) -> Result<String> {
         let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
-        let slots: Vec<vectors::Slot> = columns
-            .iter()
-            .map(|c| vectors::slot(self.product, c))
-            .collect();
+        let slots = vectors::slots(self.product, columns);
         let rows: Vec<Vec<serde_json::Value>> = rows
             .iter()
             .map(|r| {
@@ -1401,11 +1398,34 @@ mod tests {
             untyped.contains("STRING_TO_VECTOR('[1,2]')") && untyped.contains("'[0.5, 0]'"),
             "{untyped}"
         );
+        // A result's wire types: MariaDB sends its vectors as a VAR_STRING
+        // (unmarked: as without types) and its JSON as a BLOB, which never
+        // holds one; MySQL 9's vectors have a wire type of their own.
         let blob = insert("mariadb", ["", "var_string", "blob", ""]);
         assert!(
-            blob.contains("VEC_FromText('[1,2]')") && blob.contains("'[0.5, 0]'"),
+            blob.contains("(1, VEC_FromText('[1,2.5]'), '[1,2]', '[0.5, 0]')"),
             "{blob}"
         );
+        let wire = insert("mysql", ["longlong", "vector", "blob", "var_string"]);
+        assert!(
+            wire.contains("(1, STRING_TO_VECTOR('[1,2.5]'), '[1,2]', '[0.5, 0]')"),
+            "{wire}"
+        );
+        // Manticore: a DESCRIBE's `string` and `text` take an array as its
+        // JSON text; over the wire every text column is a `string`, and an
+        // array goes as a multi-value, as without types.
+        let described = insert("manticore", ["bigint", "mva", "string", "float_vector"]);
+        assert!(
+            described.contains("(1, (1,2.5), '[1,2]', (0.5,0))"),
+            "{described}"
+        );
+        let text = insert("manticore", ["bigint", "text", "text", "string"]);
+        assert!(
+            text.contains("(1, '[1,2.5]', '[1,2]', '[0.5, 0]')"),
+            "{text}"
+        );
+        let wire = insert("manticore", ["longlong", "string", "string", "string"]);
+        assert!(wire.contains("(1, (1,2.5), (1,2), '[0.5, 0]')"), "{wire}");
         // A result's column marked as vectors, whatever its wire type.
         let marked = get("mariadb")
             .insert_script_typed(

@@ -777,7 +777,64 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         } else {
             (2, json!("[0.5,0.5,0]"), json!([4, 5]))
         };
-        assert_eq!(left, [want]);
+        assert_eq!(left, std::slice::from_ref(&want));
+
+        // 3e. The same with a result's types (what a copy or a grid save
+        // has): the wire's spellings and the vector mark. MariaDB sends
+        // its JSON as a BLOB and its vectors as a VAR_STRING; MySQL 9 its
+        // vectors as a type of their own. (Manticore's wire calls every
+        // text column `string`: a result says no more than no types.)
+        if matches!(id, "mysql" | "mariadb") {
+            let browse = must(&mut s, "SELECT * FROM `vec_typed`").await;
+            let rtypes = browse.results[0].columns.clone();
+            eprintln!("{id}: result columns {rtypes:?}");
+            let rows: Vec<Vec<Value>> = vec![rtypes
+                .iter()
+                .map(|col| match col.name.as_str() {
+                    "id" => json!(3),
+                    "v" => json!("[0, 1, 0]"),
+                    "j" => json!([8, 9]),
+                    _ => json!("2024-01-01 00:00:03"),
+                })
+                .collect()];
+            let ins = d
+                .insert_script_typed(&table("vec_typed"), &rtypes, &rows)
+                .expect("insert_script_typed (result types)");
+            eprintln!("{id}: result-typed {ins}");
+            for stmt in statements(&ins) {
+                must(&mut s, &stmt).await;
+            }
+            let up = d
+                .update_script_typed(
+                    &table("vec_typed"),
+                    &[RowChange {
+                        key: vec![("id".into(), json!(3))],
+                        set: vec![("v".into(), json!("[1, 1, 0]")), ("j".into(), json!([10]))],
+                        row: Vec::new(),
+                    }],
+                    &rtypes,
+                )
+                .expect("update_script_typed (result types)");
+            eprintln!("{id}: result-typed {up}");
+            for stmt in statements(&up) {
+                must(&mut s, &stmt).await;
+            }
+            assert_eq!(
+                typed_rows(&mut s, id).await,
+                [want.clone(), (3, json!("[1,1,0]"), json!([10]))]
+            );
+            let del = d
+                .delete_script_typed(
+                    &table("vec_typed"),
+                    &[vec![("id".to_string(), json!(3))]],
+                    &rtypes,
+                )
+                .expect("delete_script_typed (result types)");
+            for stmt in statements(&del) {
+                must(&mut s, &stmt).await;
+            }
+            assert_eq!(typed_rows(&mut s, id).await, [want]);
+        }
         eprintln!("{id}: typed scripts ok");
     }
 

@@ -214,9 +214,41 @@ pub(crate) enum Slot {
     Unknown,
 }
 
-/// The slot of a target column, from its type as a result or a describe
-/// gives it (`type_name`, `vector`).
-pub(crate) fn slot(v: Variant, c: &dbine_driver::ResultColumn) -> Slot {
+/// The slots of a list of target columns (an insert's columns, an
+/// update's types), each from its type as a result or a describe gives it
+/// (`type_name`, `vector`). A Manticore `string` is a string attribute
+/// when the list is a DESCRIBE's ([`manticore_described`]).
+pub(crate) fn slots(v: Variant, types: &[dbine_driver::ResultColumn]) -> Vec<Slot> {
+    let described = v.base() == Variant::Manticore && manticore_described(types);
+    types.iter().map(|c| slot_in(v, c, described)).collect()
+}
+
+/// Spellings only Manticore's DESCRIBE uses (its wire sends `longlong`,
+/// `long`, `float` and `string`): a list of types with one of them comes
+/// from a describe, where `string` is a string attribute. Over the wire,
+/// `string` is any text column (string, full-text field, JSON, multi-value
+/// attribute), so it says nothing alone.
+fn manticore_described(types: &[dbine_driver::ResultColumn]) -> bool {
+    types.iter().any(|c| {
+        let t = c.type_name.trim().to_ascii_lowercase();
+        let base = t.split_whitespace().next().unwrap_or("");
+        matches!(
+            base,
+            "bigint"
+                | "uint"
+                | "text"
+                | "mva"
+                | "mva64"
+                | "multi"
+                | "multi64"
+                | "float_vector"
+                | "bool"
+        )
+    })
+}
+
+/// The slot of one column (`described`: its list is a Manticore DESCRIBE's).
+fn slot_in(v: Variant, c: &dbine_driver::ResultColumn, described: bool) -> Slot {
     if c.vector.as_ref().is_some_and(|m| !m.sparse) || meta(v, &c.type_name).is_some() {
         return Slot::Vector;
     }
@@ -233,9 +265,29 @@ pub(crate) fn slot(v: Variant, c: &dbine_driver::ResultColumn) -> Slot {
         (_, "json" | "jsonb") => Slot::Text,
         (Variant::Doris | Variant::StarRocks | Variant::Databend, "array") => Slot::List,
         (Variant::Manticore, "mva" | "mva64" | "multi" | "multi64") => Slot::List,
-        // Manticore sends its multi-values and strings alike over the wire.
+        // A full-text field (a DESCRIBE spelling only: the wire says
+        // `string`), and a string attribute as a describe gives it.
+        (Variant::Manticore, "text") => Slot::Text,
+        (Variant::Manticore, "string") if described => Slot::Text,
+        // Over the wire, its multi-values and strings come alike.
         (Variant::Manticore, _) => Slot::Unknown,
         (_, "variant" | "string") if olap => Slot::Text,
+        // MySQL 9's vectors have a wire type of their own (`vector`, marked
+        // as one), so no string or blob of its, from the wire or the
+        // catalog, holds one.
+        (
+            Variant::MySql,
+            "string" | "var_string" | "varchar" | "blob" | "tiny_blob" | "medium_blob"
+            | "long_blob" | "binary" | "varbinary" | "tinyblob" | "mediumblob" | "longblob",
+        ) => Slot::Text,
+        // MariaDB sends its vectors as a VAR_STRING (binary): a BLOB (its
+        // JSON and TEXT columns too) or a fixed STRING isn't one, nor is a
+        // catalog's binary type (its vectors say `vector(n)`).
+        (
+            Variant::MariaDb,
+            "string" | "blob" | "tiny_blob" | "medium_blob" | "long_blob" | "binary" | "varbinary"
+            | "tinyblob" | "mediumblob" | "longblob",
+        ) => Slot::Text,
         // Catalog spellings only: the wire's `var_string` / `blob` also
         // carry MariaDB's and SingleStore's vectors.
         (
@@ -268,12 +320,13 @@ pub(crate) fn slots_by_name(
     v: Variant,
     types: &[dbine_driver::ResultColumn],
 ) -> impl Fn(&str) -> Slot + '_ {
+    let slots = slots(v, types);
     move |name: &str| {
         types
             .iter()
-            .find(|c| c.name == name)
-            .or_else(|| types.iter().find(|c| c.name.eq_ignore_ascii_case(name)))
-            .map_or(Slot::Unknown, |c| slot(v, c))
+            .position(|c| c.name == name)
+            .or_else(|| types.iter().position(|c| c.name.eq_ignore_ascii_case(name)))
+            .map_or(Slot::Unknown, |i| slots[i])
     }
 }
 
@@ -1986,13 +2039,25 @@ mod tests {
     #[test]
     fn typed_values_follow_their_columns_slot() {
         use dbine_driver::ResultColumn;
+        let slot = |v, c: &ResultColumn| slots(v, std::slice::from_ref(c))[0];
         let s = |v, ty: &str| slot(v, &ResultColumn::new("c", ty));
         assert_eq!(s(Variant::MySql, "vector(3)"), Slot::Vector);
         assert_eq!(s(Variant::MySql, "JSON"), Slot::Text);
+        // MySQL 9's vectors come as their own wire type: a string or a
+        // blob, from the wire or the catalog, isn't one.
+        for ty in ["blob", "var_string", "string", "long_blob", "varbinary(8)"] {
+            assert_eq!(s(Variant::MySql, ty), Slot::Text, "{ty}");
+            assert_eq!(s(Variant::AuroraMySql, ty), Slot::Text, "{ty}");
+        }
         assert_eq!(s(Variant::MariaDb, "longtext"), Slot::Text);
+        // MariaDB's come as a VAR_STRING: its JSON's BLOB isn't one.
         assert_eq!(s(Variant::MariaDb, "var_string"), Slot::Unknown);
-        assert_eq!(s(Variant::MariaDb, "blob"), Slot::Unknown);
+        for ty in ["blob", "long_blob", "string", "binary(4)", "varbinary(8)"] {
+            assert_eq!(s(Variant::MariaDb, ty), Slot::Text, "{ty}");
+        }
         assert_eq!(s(Variant::MariaDb, ""), Slot::Unknown);
+        // Where the wire's blob may carry a vector, as before.
+        assert_eq!(s(Variant::SingleStore, "blob"), Slot::Unknown);
         assert_eq!(s(Variant::TiDb, "vector"), Slot::Vector);
         assert_eq!(s(Variant::TiDb, "varchar(20)"), Slot::Text);
         assert_eq!(s(Variant::Doris, "ARRAY<FLOAT>"), Slot::Vector);
@@ -2003,7 +2068,24 @@ mod tests {
         assert_eq!(s(Variant::Manticore, "float_vector"), Slot::Vector);
         assert_eq!(s(Variant::Manticore, "mva64"), Slot::List);
         assert_eq!(s(Variant::Manticore, "json"), Slot::Text);
+        assert_eq!(s(Variant::Manticore, "text"), Slot::Text);
+        // Over the wire every text column is a `string`; in a DESCRIBE's
+        // list (spellings only it uses), a string attribute.
         assert_eq!(s(Variant::Manticore, "string"), Slot::Unknown);
+        let wire = [
+            ResultColumn::new("id", "longlong"),
+            ResultColumn::new("s", "string"),
+        ];
+        assert_eq!(slots(Variant::Manticore, &wire)[1], Slot::Unknown);
+        let described = [
+            ResultColumn::new("id", "bigint"),
+            ResultColumn::new("s", "string"),
+            ResultColumn::new("m", "mva"),
+        ];
+        assert_eq!(
+            slots(Variant::Manticore, &described),
+            [Slot::Unknown, Slot::Text, Slot::List]
+        );
         // A sparse vector keeps its engine's text.
         let sparse =
             ResultColumn::new("c", "").with_vector(VectorMeta::sparse(Some(3), VectorElement::F32));
