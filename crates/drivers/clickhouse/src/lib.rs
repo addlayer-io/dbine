@@ -269,8 +269,9 @@ impl Driver for ClickHouseDriver {
             jobs: true,
             // The same, managed whole; see `scheduler`.
             scheduler: true,
-            // Array(Float32) / Array(BFloat16) and vector_similarity indexes.
-            vectors: self.flavor == Flavor::ClickHouse,
+            // Array(Float32) / Array(BFloat16) and vector_similarity indexes;
+            // Timeplus has array(float32) and the distances, no vector index.
+            vectors: true,
             ..Default::default()
         }
     }

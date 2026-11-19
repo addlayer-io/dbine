@@ -529,3 +529,70 @@ async fn vectors_end_to_end() {
         std::panic::resume_unwind(e.into_panic());
     }
 }
+
+/// Timeplus Proton: `array(float32)` is its embedding type (it has the
+/// distances, no vector index). A stream described and a vector read;
+/// `DBINE_TEST_TIMEPLUS_URL` (default `http://localhost:25119`).
+#[tokio::test]
+#[ignore]
+async fn timeplus_vectors() {
+    let url = std::env::var("DBINE_TEST_TIMEPLUS_URL")
+        .unwrap_or_else(|_| "http://localhost:25119".into());
+    let url = reqwest::Url::parse(&url).expect("URL");
+    let c = ConnectionConfig {
+        driver: "timeplus".into(),
+        host: url.host_str().unwrap().into(),
+        port: url.port().unwrap_or(0),
+        ..Default::default()
+    };
+    let d = dbine_driver_clickhouse::drivers()
+        .into_iter()
+        .find(|d| d.info().id == "timeplus")
+        .unwrap();
+    let name = format!("dbine_vec_tp_{}", std::process::id());
+    let mut s = d.connect(&c, None).await.expect("connect");
+    run(&mut s, &format!("DROP STREAM IF EXISTS {name}")).await;
+    let r = {
+        let (d, c, name) = (d.clone(), c.clone(), name.clone());
+        tokio::spawn(async move {
+            let mut s = d.connect(&c, None).await.expect("connect");
+            assert!(d.capabilities().vectors);
+            assert!(d.designer().unwrap().data_types.contains(&"array(float32)"));
+            run(
+                &mut s,
+                &format!("CREATE STREAM {name} (id uint64, v array(float32))"),
+            )
+            .await;
+            let cols = s
+                .columns(&ObjectRef {
+                    kind: kinds::STREAM.into(),
+                    schema: None,
+                    name: name.clone(),
+                })
+                .await
+                .unwrap();
+            assert!(
+                cols.iter()
+                    .any(|c| c.name == "v" && c.data_type == "array(float32)"),
+                "{cols:?}"
+            );
+            let out = run(
+                &mut s,
+                "SELECT cast([0.1, 2, 1e-7], 'array(float32)') AS v, cosine_distance(v, [0.1, 2, 0]) AS d",
+            )
+            .await;
+            let r = &out.results[0];
+            assert_eq!(
+                r.columns[0].vector.as_ref().unwrap().element,
+                VectorElement::F32
+            );
+            assert_eq!(r.rows[0][0], json!("[0.1,2,0.0000001]"));
+            assert!(r.columns[1].vector.is_none());
+        })
+    };
+    let r = r.await;
+    run(&mut s, &format!("DROP STREAM IF EXISTS {name}")).await;
+    if let Err(e) = r {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}

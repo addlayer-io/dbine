@@ -10,6 +10,10 @@
 //! vector only where a `vector_similarity` index says so (the index, not
 //! the result, knows it). A ClickHouse array has no fixed length: the
 //! dimension is the index's.
+//!
+//! Timeplus Proton (3.0) has `array(float32)` and the distances
+//! (`cosine_distance`, `l2_distance`…) but neither `bfloat16` nor a vector
+//! index.
 
 use dbine_driver::vector::{metric, param};
 use dbine_driver::{VectorElement, VectorIndex, VectorMeta};

@@ -129,6 +129,8 @@ pub fn designer(flavor: Flavor) -> DesignerSpec {
                 "uint8", "uint16", "uint32", "uint64", "int8", "int16", "int32", "int64", "float32", "float64",
                 "decimal(18, 2)", "bool", "string", "low_cardinality(string)", "uuid", "date", "datetime",
                 "datetime64(3)", "ipv4", "json", "array(string)", "map(string, string)", "tuple(string, uint32)",
+                // Embeddings: Proton has the distance functions but no vector index.
+                "array(float32)",
             ])
         },
     }
