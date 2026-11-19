@@ -231,6 +231,10 @@ pub(crate) fn read_cell(kind: Read, v: &Json, f: &Json) -> Cell {
         return Cell::Null;
     }
     if kind == Read::Nested {
+        // A vector: its canonical text.
+        if let Some(t) = super::is_vector(f).then(|| super::vector_text(v)).flatten() {
+            return Cell::Json(t);
+        }
         let mut out = String::new();
         nested(v, f, is_repeated(f), &mut out);
         return Cell::Json(out);

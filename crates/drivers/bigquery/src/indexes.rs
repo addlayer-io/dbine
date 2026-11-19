@@ -7,9 +7,21 @@
 //! (`ALL COLUMNS`, `a`, `b OPTIONS(…)`); `STORING (…)` goes into
 //! [`IndexDef::include`], and `PARTITION BY` plus each `OPTIONS (…)` entry
 //! into [`IndexDef::options`] under their own names.
+//!
+//! A vector index also gets its [`IndexDef::vector`]: `index_type` as the
+//! algorithm (`ivf`, `tree_ah`), `distance_type` as the metric (`cosine`,
+//! `l2` for EUCLIDEAN, BigQuery's default, `ip` for DOT_PRODUCT), and
+//! `ivf_options.num_lists` as `lists`, `tree_ah_options`' entries under
+//! their names. When the index is written, those settings win over the
+//! native options (the designer edits them there).
 
 use crate::ddl::{ident, table_name};
-use dbine_driver::{IndexDef, SyncScript, TableChange, TableSchema};
+use dbine_driver::vector::{metric, param};
+use dbine_driver::{
+    IndexDef, SyncScript, TableChange, TableSchema, VectorIndex, VectorIndexSpec, VectorParamSpec,
+};
+use serde_json::Value as Json;
+use std::collections::BTreeMap;
 
 pub const SEARCH: &str = "SEARCH";
 pub const VECTOR: &str = "VECTOR";
@@ -23,8 +35,170 @@ fn kind(ix: &IndexDef) -> Option<&'static str> {
     match ix.kind.as_deref().map(str::trim) {
         Some(k) if k.eq_ignore_ascii_case(SEARCH) => Some("SEARCH INDEX"),
         Some(k) if k.eq_ignore_ascii_case(VECTOR) => Some("VECTOR INDEX"),
+        // The designer may give only the vector settings.
+        _ if ix.vector.is_some() => Some("VECTOR INDEX"),
         _ => None,
     }
+}
+
+/// A vector index's `OPTIONS` entries.
+const VECTOR_OPTIONS: &[&str] = &[
+    "index_type",
+    "distance_type",
+    "ivf_options",
+    "tree_ah_options",
+];
+
+/// `tree_ah_options` entries, under their own names in the parameters.
+const TREE_AH: &[&str] = &["leaf_node_embedding_count", "normalization_type"];
+
+/// The designer's vector index: IVF (the number of lists) or TREE_AH
+/// (BigQuery's ScaNN: leaf size, normalization), with the distance; the
+/// filter columns go to `STORING`, which `VECTOR_SEARCH` pre-filters on.
+pub fn designer() -> VectorIndexSpec {
+    let p = |key, alg: &'static str, default| VectorParamSpec {
+        key,
+        algorithms: vec![alg],
+        default,
+    };
+    VectorIndexSpec {
+        algorithms: vec!["ivf", "tree_ah"],
+        metrics: vec![metric::COSINE, metric::L2, metric::IP],
+        params: vec![
+            p(param::LISTS, "ivf", ""),
+            p("leaf_node_embedding_count", "tree_ah", "1000"),
+            p("normalization_type", "tree_ah", "NONE"),
+        ],
+        filter_columns: true,
+    }
+}
+
+/// `'IVF'` → `IVF`; `'{"num_lists": 5}'` → `{"num_lists": 5}`.
+fn unquoted(v: &str) -> String {
+    crate::ddl::unquote(v)
+}
+
+/// The vector settings of a vector index's `OPTIONS`.
+pub fn vector_of(options: &BTreeMap<String, String>) -> VectorIndex {
+    let get = |k: &str| options.get(k).map(|v| unquoted(v));
+    let algorithm = get("index_type").map(|t| t.to_ascii_lowercase());
+    let metric = Some(
+        match get("distance_type")
+            .unwrap_or_else(|| "EUCLIDEAN".into())
+            .to_ascii_uppercase()
+            .as_str()
+        {
+            "COSINE" => metric::COSINE.to_string(),
+            "EUCLIDEAN" => metric::L2.to_string(),
+            "DOT_PRODUCT" => metric::IP.to_string(),
+            other => other.to_ascii_lowercase(),
+        },
+    );
+    let mut params = BTreeMap::new();
+    let json = |k: &str| {
+        get(k)
+            .and_then(|s| serde_json::from_str::<Json>(&s).ok())
+            .and_then(|j| j.as_object().cloned())
+            .unwrap_or_default()
+    };
+    let text = |v: &Json| match v {
+        Json::String(s) => s.clone(),
+        other => other.to_string(),
+    };
+    if let Some(n) = json("ivf_options").get("num_lists") {
+        params.insert(param::LISTS.to_string(), text(n));
+    }
+    for (k, v) in json("tree_ah_options") {
+        params.insert(k, text(&v));
+    }
+    VectorIndex {
+        algorithm,
+        metric,
+        params,
+    }
+}
+
+/// The index's options, with a vector index's settings from its
+/// [`IndexDef::vector`] in BigQuery's words (IVF when no algorithm was
+/// chosen).
+pub fn effective_options(ix: &IndexDef) -> BTreeMap<String, String> {
+    let Some(v) = &ix.vector else {
+        return ix.options.clone();
+    };
+    let mut o: BTreeMap<String, String> = ix
+        .options
+        .iter()
+        .filter(|(k, _)| !VECTOR_OPTIONS.contains(&k.as_str()))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    let tree = v
+        .algorithm
+        .as_deref()
+        .is_some_and(|a| a.eq_ignore_ascii_case("tree_ah"));
+    o.insert(
+        "index_type".into(),
+        if tree { "'TREE_AH'" } else { "'IVF'" }.into(),
+    );
+    if let Some(m) = &v.metric {
+        let d = match m.as_str() {
+            metric::COSINE => "COSINE".to_string(),
+            metric::L2 => "EUCLIDEAN".into(),
+            metric::IP => "DOT_PRODUCT".into(),
+            other => other.to_ascii_uppercase(),
+        };
+        o.insert("distance_type".into(), format!("'{d}'"));
+    }
+    let num = |s: &str| {
+        let s = s.trim();
+        s.parse::<i64>()
+            .map(Json::from)
+            .unwrap_or_else(|_| Json::String(s.to_string()))
+    };
+    let mut sub = serde_json::Map::new();
+    if tree {
+        for (k, val) in v
+            .params
+            .iter()
+            .filter(|(k, v)| TREE_AH.contains(&k.as_str()) && !v.trim().is_empty())
+        {
+            sub.insert(k.clone(), num(val));
+        }
+    } else if let Some(n) = v.params.get(param::LISTS).filter(|n| !n.trim().is_empty()) {
+        sub.insert("num_lists".into(), num(n));
+    }
+    if !sub.is_empty() {
+        o.insert(
+            if tree {
+                "tree_ah_options"
+            } else {
+                "ivf_options"
+            }
+            .into(),
+            crate::ddl::lit(&Json::Object(sub).to_string()),
+        );
+    }
+    o
+}
+
+/// A vector index as BigQuery writes it: one column (the vector; the
+/// designer's filter columns are `STORING`), the vector kind and its
+/// options from its settings. Any other index is left as it is.
+pub fn prepared(ix: &IndexDef) -> IndexDef {
+    if ix.vector.is_none() {
+        return ix.clone();
+    }
+    let mut out = ix.clone();
+    out.kind = Some(VECTOR.into());
+    out.unique = false;
+    out.options = effective_options(ix);
+    if out.columns.len() > 1 {
+        for c in out.columns.split_off(1) {
+            if !out.include.iter().any(|i| i.eq_ignore_ascii_case(&c)) {
+                out.include.push(c);
+            }
+        }
+    }
+    out
 }
 
 /// The text inside the parentheses that open at byte `open`.
@@ -124,6 +298,7 @@ pub fn parse(name: &str, kind: &str, ddl: &str) -> Option<IndexDef> {
         columns: split_top(cols).iter().map(|c| entry(c)).collect(),
         ..Default::default()
     };
+    let vector = kind.eq_ignore_ascii_case(VECTOR);
     if let Some(at) = find_word(ddl, "STORING", rest) {
         let open = at + ddl[at..].find('(')?;
         let (inc, end) = balanced(ddl, open)?;
@@ -150,6 +325,9 @@ pub fn parse(name: &str, kind: &str, ddl: &str) -> Option<IndexDef> {
                     .insert(k.trim().to_lowercase(), v.trim().to_string());
             }
         }
+    }
+    if vector {
+        ix.vector = Some(vector_of(&ix.options));
     }
     Some(ix)
 }
@@ -182,6 +360,7 @@ fn column_entry(c: &str) -> String {
 /// One index's CREATE statement.
 pub fn create(t: &TableSchema, ix: &IndexDef, if_not_exists: bool) -> Option<String> {
     let word = kind(ix)?;
+    let ix = &prepared(ix);
     let mut s = format!(
         "CREATE {word} {}{} ON {} ({})",
         if if_not_exists { "IF NOT EXISTS " } else { "" },
@@ -236,6 +415,9 @@ pub fn drop(t: &TableSchema, ix: &IndexDef) -> Option<String> {
 /// The index statements of a table sync: a changed index is dropped and
 /// made again. They go after the columns change.
 pub fn sync(old: &TableSchema, new: &TableSchema) -> (Vec<String>, Vec<String>) {
+    // Vector indexes as written: a designer's change to their settings is a
+    // change, an untouched one isn't.
+    let (old, new) = (&with_prepared(old), &with_prepared(new));
     let same = |a: &IndexDef, b: &IndexDef| {
         let low = |v: &[String]| v.iter().map(|c| c.to_lowercase()).collect::<Vec<_>>();
         let mut ia = low(&a.include);
@@ -267,6 +449,13 @@ pub fn sync(old: &TableSchema, new: &TableSchema) -> (Vec<String>, Vec<String>) 
         }
     }
     (drops, creates)
+}
+
+fn with_prepared(t: &TableSchema) -> TableSchema {
+    TableSchema {
+        indexes: t.indexes.iter().map(prepared).collect(),
+        ..t.clone()
+    }
 }
 
 /// The indexes of `Alter` changes, planned apart from the generic planner
@@ -370,6 +559,73 @@ mod tests {
             false
         )
         .is_none());
+    }
+
+    #[test]
+    fn vector_indexes_carry_their_settings() {
+        let ix = parse("vx", VECTOR, "CREATE VECTOR INDEX vx ON `p.ds.t`(emb) STORING(kind) OPTIONS(index_type = 'IVF', distance_type = 'COSINE', ivf_options = '{\"num_lists\": 2500}')").unwrap();
+        let v = ix.vector.clone().unwrap();
+        assert_eq!(v.algorithm.as_deref(), Some("ivf"));
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        assert_eq!(v.params.get("lists").map(String::as_str), Some("2500"));
+        let t = TableSchema {
+            schema: Some("ds".into()),
+            name: "t".into(),
+            ..Default::default()
+        };
+        assert_eq!(create(&t, &ix, false).unwrap(), "CREATE VECTOR INDEX `vx` ON `ds`.`t` (`emb`) STORING (`kind`) OPTIONS (distance_type = 'COSINE', index_type = 'IVF', ivf_options = '{\"num_lists\":2500}');");
+        // TREE_AH, and EUCLIDEAN when the index doesn't say.
+        let ix = parse("tx", VECTOR, "CREATE VECTOR INDEX tx ON ds.t(emb) OPTIONS(index_type = 'TREE_AH', tree_ah_options = '{\"leaf_node_embedding_count\": 500, \"normalization_type\": \"L2\"}')").unwrap();
+        let v = ix.vector.clone().unwrap();
+        assert_eq!(v.algorithm.as_deref(), Some("tree_ah"));
+        assert_eq!(v.metric.as_deref(), Some("l2"));
+        assert_eq!(
+            v.params
+                .get("leaf_node_embedding_count")
+                .map(String::as_str),
+            Some("500")
+        );
+        assert_eq!(
+            v.params.get("normalization_type").map(String::as_str),
+            Some("L2")
+        );
+        assert_eq!(create(&t, &ix, true).unwrap(), "CREATE VECTOR INDEX IF NOT EXISTS `tx` ON `ds`.`t` (`emb`) OPTIONS (distance_type = 'EUCLIDEAN', index_type = 'TREE_AH', tree_ah_options = '{\"leaf_node_embedding_count\":500,\"normalization_type\":\"L2\"}');");
+        // From the designer: only the settings and a filter column.
+        let mut d = VectorIndex {
+            algorithm: Some("ivf".into()),
+            metric: Some("ip".into()),
+            ..Default::default()
+        };
+        d.params.insert("lists".into(), "100".into());
+        d.params
+            .insert("leaf_node_embedding_count".into(), "9".into());
+        let designed = IndexDef {
+            name: "dx".into(),
+            columns: vec!["emb".into(), "kind".into()],
+            vector: Some(d),
+            ..Default::default()
+        };
+        assert!(supported(&designed));
+        assert_eq!(create(&t, &designed, false).unwrap(), "CREATE VECTOR INDEX `dx` ON `ds`.`t` (`emb`) STORING (`kind`) OPTIONS (distance_type = 'DOT_PRODUCT', index_type = 'IVF', ivf_options = '{\"num_lists\":100}');");
+        assert_eq!(
+            drop(&t, &designed).unwrap(),
+            "DROP VECTOR INDEX IF EXISTS `dx` ON `ds`.`t`;"
+        );
+        // Read back the same: nothing to sync; a new distance remakes it.
+        let read = TableSchema {
+            indexes: vec![parse("vx", VECTOR, "CREATE VECTOR INDEX vx ON `p.ds.t`(emb) OPTIONS(index_type = 'IVF', distance_type = 'COSINE', ivf_options = '{\"num_lists\": 2500}')").unwrap()],
+            ..t.clone()
+        };
+        assert_eq!(sync(&read, &read), (vec![], vec![]));
+        let mut edited = read.clone();
+        edited.indexes[0].vector.as_mut().unwrap().metric = Some("l2".into());
+        let (d, c) = sync(&read, &edited);
+        assert_eq!(d, vec!["DROP VECTOR INDEX IF EXISTS `vx` ON `ds`.`t`;"]);
+        assert!(c[0].contains("distance_type = 'EUCLIDEAN'"), "{c:?}");
+        let spec = designer();
+        assert_eq!(spec.algorithms, ["ivf", "tree_ah"]);
+        assert_eq!(spec.metrics, ["cosine", "l2", "ip"]);
+        assert!(spec.filter_columns);
     }
 
     #[test]

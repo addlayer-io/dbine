@@ -289,6 +289,8 @@ impl Driver for BigQueryDriver {
             jobs: true,
             // Scheduled queries managed whole (see `scheduler`).
             scheduler: true,
+            // ARRAY<FLOAT64> embeddings and vector indexes.
+            vectors: true,
             ..Default::default()
         }
     }
@@ -896,10 +898,16 @@ fn push_result(r: &QueryResult, max_rows: usize, out: &mut QueryOutcome) {
     out.begin_result(
         r.fields
             .iter()
-            .map(|f| ResultColumn {
-                name: str_of(f, "name").to_string(),
-                type_name: type_label(f),
-                vector: None,
+            .map(|f| {
+                let c = ResultColumn::new(str_of(f, "name"), type_label(f));
+                if is_vector(f) {
+                    c.with_vector(dbine_driver::VectorMeta::dense(
+                        None,
+                        dbine_driver::VectorElement::F64,
+                    ))
+                } else {
+                    c
+                }
             })
             .collect(),
     );
@@ -1576,10 +1584,36 @@ fn flatten_fields(fields: &[Json], prefix: &str, out: &mut Vec<ColumnInfo>) {
     }
 }
 
+/// `ARRAY<FLOAT64>`, BigQuery's embedding type (the one `VECTOR_SEARCH`
+/// and `ML.GENERATE_EMBEDDING` use): a vector of any length.
+pub(crate) fn is_vector(f: &Json) -> bool {
+    is_repeated(f) && matches!(str_of(f, "type"), "FLOAT" | "FLOAT64")
+}
+
+/// An `ARRAY<FLOAT64>` value (`[{"v": "0.1"}, …]`) as the vector text
+/// (`[0.1,2]`); NaN and ±∞ are `null`. `None` if it isn't one.
+pub(crate) fn vector_text(v: &Json) -> Option<String> {
+    let vals = v
+        .as_array()?
+        .iter()
+        .map(|e| match e.get("v").unwrap_or(e) {
+            Json::String(s) => s.parse::<f64>().ok(),
+            Json::Number(n) => n.as_f64(),
+            _ => None,
+        })
+        .collect::<Option<Vec<f64>>>()?;
+    Some(dbine_driver::vector::text(vals))
+}
+
 /// A result cell: scalars typed, arrays and records as compact JSON text.
 fn cell(v: &Json, f: &Json) -> Json {
     if v.is_null() {
         return Json::Null;
+    }
+    if is_vector(f) {
+        if let Some(t) = vector_text(v) {
+            return Json::String(t);
+        }
     }
     if is_repeated(f) || is_record(f) {
         Json::String(typed(v, f, is_repeated(f)).to_string())
@@ -1671,6 +1705,45 @@ mod tests {
 
     /// The Google API is https (verified by reqwest's roots); only a typed
     /// emulator endpoint changes the scheme.
+    #[test]
+    fn float64_arrays_are_vectors() {
+        let f = json!({"name": "emb", "type": "FLOAT", "mode": "REPEATED"});
+        let ints = json!({"name": "ids", "type": "INTEGER", "mode": "REPEATED"});
+        assert!(is_vector(&f));
+        assert!(!is_vector(&ints));
+        assert!(!is_vector(&json!({"name": "x", "type": "FLOAT"})));
+        assert_eq!(
+            cell(&json!([{"v": "0.1"}, {"v": "2.0"}, {"v": "-3.5e-7"}]), &f),
+            json!("[0.1,2,-0.00000035]")
+        );
+        assert_eq!(
+            cell(&json!([{"v": "1"}, {"v": "2"}]), &ints),
+            json!("[1,2]")
+        );
+        let r = QueryResult {
+            has_schema: true,
+            fields: vec![json!({"name": "id", "type": "INTEGER"}), f.clone()],
+            rows: vec![json!({"f": [{"v": "1"}, {"v": [{"v": "1.5"}, {"v": "2"}]}]})],
+            total_rows: None,
+            dml_rows: None,
+            more: false,
+        };
+        let mut out = QueryOutcome::default();
+        push_result(&r, 10, &mut out);
+        let res = &out.results[0];
+        assert_eq!(res.columns[0].vector, None);
+        assert_eq!(
+            res.columns[1].vector,
+            Some(dbine_driver::VectorMeta::dense(
+                None,
+                dbine_driver::VectorElement::F64
+            ))
+        );
+        assert_eq!(res.columns[1].type_name, "ARRAY<FLOAT>");
+        assert_eq!(res.rows[0][1], json!("[1.5,2]"));
+        assert!(BigQueryDriver { info: info() }.capabilities().vectors);
+    }
+
     #[test]
     fn tls_is_in_the_url() {
         assert_eq!(info().tls, dbine_driver::TlsSupport::InUrl);

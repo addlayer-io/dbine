@@ -165,13 +165,18 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
         s.push(';');
         out.push(s);
     }
-    // Search and vector indexes are BigQuery's only ones.
+    // Search and vector indexes are BigQuery's only ones; any other is
+    // said, not silently left out.
     if parts.indexes {
-        out.extend(
-            t.indexes
-                .iter()
-                .filter_map(|ix| crate::indexes::create(t, ix, parts.if_exists)),
-        );
+        for ix in &t.indexes {
+            match crate::indexes::create(t, ix, parts.if_exists) {
+                Some(s) => out.push(s),
+                None => out.push(format!(
+                    "-- BigQuery solo tiene índices vectoriales y de búsqueda: el índice {} no se crea.",
+                    ident(&ix.name)
+                )),
+            }
+        }
     }
     if parts.foreign_keys {
         for fk in &t.foreign_keys {
@@ -206,8 +211,31 @@ pub fn value(v: &Json) -> String {
         Json::Bool(b) => if *b { "TRUE" } else { "FALSE" }.into(),
         Json::Number(n) => n.to_string(),
         Json::String(s) => lit(s),
+        // A vector (`vector::rows_for_scripts`).
+        Json::Array(_) => match dbine_driver::vector::parse_value(v) {
+            Some(nums) => vector_literal(&nums),
+            None => lit(&v.to_string()),
+        },
         other => lit(&other.to_string()),
     }
+}
+
+/// A vector as an `ARRAY<FLOAT64>` literal: typed, since an untyped
+/// `[1, 2]` is an ARRAY<INT64>, which a FLOAT64 array column doesn't take.
+pub fn vector_literal(v: &[f64]) -> String {
+    let items: Vec<String> = v
+        .iter()
+        .map(|x| {
+            let s = x.to_string();
+            // A whole number past INT64 isn't an integer literal.
+            if s.len() > 15 && !s.contains('.') {
+                format!("{s}.0")
+            } else {
+                s
+            }
+        })
+        .collect();
+    format!("ARRAY<FLOAT64>[{}]", items.join(", "))
 }
 
 pub fn insert_script(
@@ -387,11 +415,15 @@ pub fn designer() -> DesignerSpec {
         "INTERVAL",
         "ARRAY<STRING>",
         "ARRAY<INT64>",
+        // Embeddings (the type VECTOR_SEARCH takes).
+        "ARRAY<FLOAT64>",
         "STRUCT<a INT64, b STRING>",
     ]);
     d.auto_increment = false;
     d.comments = true;
-    d.indexes = false;
+    // Only vector indexes (search indexes are written by hand).
+    d.indexes = true;
+    d.vector_indexes = Some(crate::indexes::designer());
     d.table_options = vec![
         Field::new(PARTITION_BY, "Particionar por", FieldKind::Text)
             .placeholder("DATE(creado) / _PARTITIONDATE / RANGE_BUCKET(id, GENERATE_ARRAY(0, 1000, 10))")
@@ -768,6 +800,54 @@ mod tests {
             ]),
         ];
         assemble("ds", &tables, &columns, &options, &desc, &keys, &refs)
+    }
+
+    #[test]
+    fn vectors_are_float64_array_literals() {
+        assert_eq!(
+            value(&serde_json::json!([1.0, 0.25, -3])),
+            "ARRAY<FLOAT64>[1, 0.25, -3]"
+        );
+        assert_eq!(
+            value(&serde_json::json!([1e300])).len(),
+            "ARRAY<FLOAT64>[]".len() + 301 + 2
+        );
+        assert_eq!(value(&serde_json::json!(["a"])), "'[\"a\"]'");
+        let s = insert_script(
+            Some("ds"),
+            "t",
+            &["id".into(), "emb".into()],
+            &[vec![serde_json::json!(1), serde_json::json!([0.5, 2])]],
+        );
+        assert_eq!(
+            s,
+            "INSERT INTO `ds`.`t` (`id`, `emb`) VALUES\n  (1, ARRAY<FLOAT64>[0.5, 2]);"
+        );
+        let d = designer();
+        assert!(d.indexes);
+        assert!(d.data_types.contains(&"ARRAY<FLOAT64>"));
+        assert!(d.vector_indexes.is_some());
+        // A plain index has no BigQuery form: said in the script.
+        let t = TableSchema {
+            name: "t".into(),
+            indexes: vec![dbine_driver::IndexDef {
+                name: "ix".into(),
+                columns: vec!["a".into()],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let ddl = table_ddl(
+            &t,
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            ddl.starts_with("-- BigQuery solo tiene índices vectoriales"),
+            "{ddl}"
+        );
     }
 
     #[test]
