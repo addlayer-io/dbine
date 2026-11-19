@@ -1,0 +1,17 @@
+# libSQL / Turso vector search (docs.turso.tech/features/ai-and-embeddings),
+# checked against sqld 0.24. These come only from the server's own list
+# (pragma_function_list, and pragma_module_list for vector_top_k): plain
+# SQLite has none of them, so the file gives their argument names and no
+# versions.
+s vector(text) -> blob
+s vector32(text) -> blob
+s vector64(text) -> blob
+s vector16(text) -> blob
+s vectorb16(text) -> blob
+s vector8(text) -> blob
+s vector1bit(text) -> blob
+s vector_extract(vector) -> text
+s vector_distance_cos(a, b) -> real
+s vector_distance_l2(a, b) -> real
+s libsql_vector_idx(column, setting, ...)
+t vector_top_k(index, vector, k)

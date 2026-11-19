@@ -63,6 +63,7 @@ use dbine_driver::transfer::{
 };
 use dbine_driver::{Error, Result};
 use dbine_driver_sqlite::transfer::{column_list, qualified_columns, select_sql, table_name};
+use dbine_driver_sqlite::vector;
 use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
 use serde_json::Value;
@@ -475,6 +476,64 @@ fn columns(cols: &[Col], not_null: &HashMap<String, bool>) -> Vec<TransferColumn
         .collect()
 }
 
+/// Which of the read's columns are libSQL vector columns (`F32_BLOB(3)`…).
+fn vector_flags(cols: &[TransferColumn]) -> Vec<bool> {
+    cols.iter()
+        .map(|c| vector::column_type(&c.type_name).is_some())
+        .collect()
+}
+
+/// A row with its vector cells as DBine's vector text, which every target
+/// loads (see `dbine_driver::vector`).
+fn vectorize(cells: Vec<Cell>, vectors: &[bool]) -> Vec<Cell> {
+    if !vectors.contains(&true) {
+        return cells;
+    }
+    cells
+        .into_iter()
+        .enumerate()
+        .map(|(i, c)| {
+            if vectors.get(i).copied().unwrap_or(false) {
+                vector::read_cell(c)
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+/// The libSQL vector format of each of the load's columns in the target
+/// table (`None`: not a vector column).
+async fn target_vectors(client: &mut Client, spec: &LoadSpec) -> Result<Vec<Option<vector::Kind>>> {
+    let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
+    let sql = format!(
+        "SELECT name, type FROM pragma_table_info({}, {})",
+        lit(&spec.table.name),
+        lit(spec.table.schema().unwrap_or("main"))
+    );
+    let r = client.execute(&sql).await?;
+    let types: HashMap<String, String> = r
+        .rows
+        .into_iter()
+        .filter_map(|row| {
+            Some((
+                row.first()?.as_str()?.to_lowercase(),
+                row.get(1)?.as_str()?.to_string(),
+            ))
+        })
+        .collect();
+    Ok(spec
+        .columns
+        .iter()
+        .map(|c| {
+            types
+                .get(&c.to_lowercase())
+                .and_then(|t| vector::column_type(t))
+                .map(|(k, _)| k)
+        })
+        .collect())
+}
+
 pub(crate) async fn read_batches(
     s: &mut LibsqlSession,
     spec: &ReadSpec,
@@ -544,6 +603,7 @@ async fn read_paged(
     let r: Result<bool> = async {
         let (mut last, mut limit, mut begun) = (None::<i64>, FIRST_PAGE, false);
         let mut names: Vec<String> = Vec::new();
+        let mut vectors: Vec<bool> = Vec::new();
         loop {
             let mut cond: Vec<String> = Vec::new();
             if let Some(l) = last {
@@ -589,6 +649,7 @@ async fn read_paged(
             if !begun {
                 let all = columns(&result.cols, not_null);
                 names = all.iter().skip(1).map(|c| c.name.clone()).collect();
+                vectors = vector_flags(&all[1.min(all.len())..]);
                 sink.lock()
                     .map_err(lock_err)?
                     .begin(&all[1.min(all.len())..])?;
@@ -634,7 +695,10 @@ async fn read_paged(
                         };
                     }
                 }
-                builder.push(cells, &mut *sink.lock().map_err(lock_err)?)?;
+                builder.push(
+                    vectorize(cells, &vectors),
+                    &mut *sink.lock().map_err(lock_err)?,
+                )?;
             }
             if n < limit {
                 return Ok(true);
@@ -672,6 +736,7 @@ async fn read_cursor(
 ) -> Result<()> {
     let mut buf: Vec<u8> = Vec::new();
     let (mut header, mut ended) = (false, false);
+    let mut vectors: Vec<bool> = Vec::new();
     let mut handle = |line: &[u8]| -> Result<()> {
         if line.iter().all(u8::is_ascii_whitespace) {
             return Ok(());
@@ -683,10 +748,11 @@ async fn read_cursor(
         let mut v: CursorLine = serde_json::from_slice(line)
             .map_err(|e| Error::Query(format!("respuesta inválida del cursor: {e}")))?;
         match v.kind.as_deref() {
-            Some("step_begin") => sink
-                .lock()
-                .map_err(lock_err)?
-                .begin(&columns(&v.cols, not_null))?,
+            Some("step_begin") => {
+                let cols = columns(&v.cols, not_null);
+                vectors = vector_flags(&cols);
+                sink.lock().map_err(lock_err)?.begin(&cols)?
+            }
             Some("row") => {
                 exact_floats(v.row.iter_mut().map(|h| &mut h.0), &float_texts(line))?;
                 let cells: Vec<Cell> = v.row.into_iter().map(|h| h.0).collect();
@@ -700,7 +766,10 @@ async fn read_cursor(
                             .into(),
                     ));
                 }
-                builder.push(cells, &mut *sink.lock().map_err(lock_err)?)?;
+                builder.push(
+                    vectorize(cells, &vectors),
+                    &mut *sink.lock().map_err(lock_err)?,
+                )?;
             }
             Some("step_end") => ended = true,
             Some("step_error") | Some("error") => {
@@ -1264,6 +1333,8 @@ pub(crate) async fn bulk_load(
     } else {
         spec.commit_bytes
     };
+    // Vector text into a vector column goes as its blob.
+    let vectors = target_vectors(&mut s.client, spec).await?;
     let (mut total, mut rows, mut bytes) = (0u64, 0u64, 0u64);
     let mut ld = Loader {
         client: &mut s.client,
@@ -1272,7 +1343,16 @@ pub(crate) async fn bulk_load(
         pow: None,
     };
     let r: Result<()> = async {
-        while let Some(batch) = source.next().await {
+        while let Some(mut batch) = source.next().await {
+            if vectors.iter().any(Option::is_some) {
+                for row in &mut batch.rows {
+                    for (c, k) in row.iter_mut().zip(&vectors) {
+                        if let Some(b) = k.and_then(|k| vector::load_cell(k, c)) {
+                            *c = b;
+                        }
+                    }
+                }
+            }
             let mut start = 0;
             for (i, row) in batch.rows.iter().enumerate() {
                 if row.len() != ncols {

@@ -23,6 +23,7 @@ use dbine_driver_sqlite::properties::{self, Flavor};
 use dbine_driver_sqlite::schema::Rows;
 use dbine_driver_sqlite::{
     functions as sqlite_functions, index_usage, monitor as sqlite_monitor, plan, schema, stats,
+    vector,
 };
 use hrana::{Client, StmtResult};
 use serde_json::Value;
@@ -128,6 +129,7 @@ impl Driver for LibsqlDriver {
             foreign_keys: true,
             monitor: true,
             database_properties: true,
+            vectors: true,
             ..Default::default()
         }
     }
@@ -142,8 +144,44 @@ impl Driver for LibsqlDriver {
         properties::script(Flavor::Libsql, database, changes)
     }
 
+    /// SQLite's, with libSQL's vector types and vector index.
     fn designer(&self) -> Option<DesignerSpec> {
-        Some(schema::designer())
+        Some(schema::libsql_designer())
+    }
+
+    /// The contract's scripts, with a vector as `vector32('[…]')`.
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
+        Ok(vector::scripts::insert(
+            target,
+            columns,
+            rows,
+            vector::libsql_literal,
+        ))
+    }
+
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
+        Ok(vector::scripts::update(
+            target,
+            changes,
+            vector::libsql_literal,
+        ))
+    }
+
+    fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
+        Ok(vector::scripts::delete(
+            target,
+            keys,
+            vector::libsql_literal,
+        ))
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
@@ -340,10 +378,15 @@ fn push_result(r: StmtResult, max_rows: usize, out: &mut QueryOutcome) {
     out.begin_result(
         r.cols
             .into_iter()
-            .map(|(name, type_name)| ResultColumn {
-                name,
-                type_name,
-                vector: None,
+            .map(|(name, type_name)| {
+                // libSQL's vector types (`F32_BLOB(3)`…); the rows are
+                // decoded already (`hrana::vector_cell`).
+                let meta = dbine_driver_sqlite::vector::meta(&type_name);
+                let col = ResultColumn::new(name, type_name);
+                match meta {
+                    Some(m) => col.with_vector(m),
+                    None => col,
+                }
             })
             .collect(),
     );
@@ -391,10 +434,18 @@ impl LibsqlSession {
     }
 }
 
-const LIST_OBJECTS: &str = "SELECT type, name, tbl_name, COALESCE(sql, '') FROM sqlite_master
- WHERE type IN ('table', 'view', 'trigger') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
-   AND name NOT LIKE '\\_litestream\\_%' ESCAPE '\\' AND name NOT LIKE 'libsql\\_%' ESCAPE '\\'
- ORDER BY name";
+/// Tables, views and triggers, without SQLite's, Litestream's and libSQL's
+/// own (the vector indexes' shadow tables included).
+fn list_objects_sql() -> String {
+    format!(
+        "SELECT m.type, m.name, m.tbl_name, COALESCE(m.sql, '') FROM sqlite_master m
+ WHERE m.type IN ('table', 'view', 'trigger') AND m.name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+   AND m.name NOT LIKE '\\_litestream\\_%' ESCAPE '\\' AND m.name NOT LIKE 'libsql\\_%' ESCAPE '\\'
+   AND {}
+ ORDER BY m.name",
+        schema::NOT_VECTOR_SHADOW
+    )
+}
 
 /// Why the process list and cancelling don't apply, in Spanish (for the
 /// error and the docs).
@@ -458,7 +509,7 @@ impl Session for LibsqlSession {
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
-        let r = self.client.execute(LIST_OBJECTS).await?;
+        let r = self.client.execute(&list_objects_sql()).await?;
         Ok(r.rows
             .iter()
             .filter_map(|row| {

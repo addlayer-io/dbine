@@ -1,0 +1,491 @@
+//! libSQL's vector columns (`F32_BLOB(3)`, `FLOAT64(768)`…): which declared
+//! types they are, and their blobs as DBine's vector text and back.
+//!
+//! libSQL keeps a vector in a blob. `F32` is its little-endian floats, with
+//! nothing else (an even length); the other formats end with a type byte
+//! (an odd length): 2 `F64`, 3 `1BIT`, 4 `8`, 5 `F16`, 6 `BF16`, so a blob
+//! says what it holds. Checked against sqld 0.24 (`hex(vector64('[1,2,3]'))`
+//! and friends):
+//!
+//! - `F64`, `F16`, `BF16`: the little-endian numbers, then the type byte.
+//! - `8`: one byte per dimension `q`, zeros up to a multiple of 4, `alpha`
+//!   and `shift` (little-endian `f32`), a zero byte, the number of padding
+//!   bytes, the type byte; a value is `alpha · q + shift`.
+//! - `1BIT`: the bits, the first dimension in the lowest bit; a zero byte
+//!   when needed to keep the length odd; `8 · (length − 1) − dims`; the
+//!   type byte. A bit reads as 1 or −1, as `vector_extract` writes it.
+//!
+//! A SQLite file written by libSQL keeps these columns, so the SQLite driver
+//! reads them too (it can't create their indexes: `libsql_vector_idx` is
+//! libSQL's).
+
+use dbine_driver::transfer::Cell;
+use dbine_driver::vector as v;
+use dbine_driver::{VectorElement, VectorMeta};
+
+/// A libSQL vector format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    F32,
+    F64,
+    F16,
+    Bf16,
+    /// 8-bit, scaled (`alpha · q + shift`).
+    F8,
+    /// One bit per dimension.
+    Bit,
+}
+
+impl Kind {
+    /// The column type (`F32_BLOB`…).
+    pub fn type_name(self) -> &'static str {
+        match self {
+            Kind::F32 => "F32_BLOB",
+            Kind::F64 => "F64_BLOB",
+            Kind::F16 => "F16_BLOB",
+            Kind::Bf16 => "FB16_BLOB",
+            Kind::F8 => "F8_BLOB",
+            Kind::Bit => "F1BIT_BLOB",
+        }
+    }
+
+    /// The function that makes one from text (`vector32('[1,2]')`).
+    pub fn function(self) -> &'static str {
+        match self {
+            Kind::F32 => "vector32",
+            Kind::F64 => "vector64",
+            Kind::F16 => "vector16",
+            Kind::Bf16 => "vectorb16",
+            Kind::F8 => "vector8",
+            Kind::Bit => "vector1bit",
+        }
+    }
+
+    /// Its numbers as DBine names them. The 8-bit format is libSQL's own
+    /// (scaled bytes that read as floats): neither `i8` nor `u8`.
+    pub fn element(self) -> VectorElement {
+        match self {
+            Kind::F32 => VectorElement::F32,
+            Kind::F64 => VectorElement::F64,
+            Kind::F16 => VectorElement::F16,
+            Kind::Bf16 => VectorElement::Bf16,
+            Kind::F8 => VectorElement::Other,
+            Kind::Bit => VectorElement::Bit,
+        }
+    }
+
+    /// The format for a vector of `e`s: the one that holds them exactly
+    /// (bytes fit in `F32`).
+    pub fn for_element(e: VectorElement) -> Kind {
+        match e {
+            VectorElement::F64 => Kind::F64,
+            VectorElement::F16 => Kind::F16,
+            VectorElement::Bf16 => Kind::Bf16,
+            VectorElement::Bit => Kind::Bit,
+            VectorElement::F32 | VectorElement::I8 | VectorElement::U8 | VectorElement::Other => {
+                Kind::F32
+            }
+        }
+    }
+}
+
+/// The vector format a declared column type names, and its dimensions:
+/// `F32_BLOB(3)`, `F64_BLOB`, `FLOAT32(3)`… The `FLOATnn` spellings count
+/// only with a dimension: a bare `FLOAT64` is an ordinary REAL column.
+pub fn column_type(decl: &str) -> Option<(Kind, Option<u32>)> {
+    let decl = decl.trim();
+    let (name, dims) = match decl.find('(') {
+        Some(p) => {
+            let args = decl[p + 1..].trim_end().strip_suffix(')')?;
+            (decl[..p].trim(), Some(args.trim().parse::<u32>().ok()?))
+        }
+        None => (decl, None),
+    };
+    let name = name.to_ascii_uppercase();
+    let (kind, blob) = match name.as_str() {
+        "F32_BLOB" => (Kind::F32, true),
+        "F64_BLOB" => (Kind::F64, true),
+        "F16_BLOB" => (Kind::F16, true),
+        "FB16_BLOB" => (Kind::Bf16, true),
+        "F8_BLOB" => (Kind::F8, true),
+        "F1BIT_BLOB" => (Kind::Bit, true),
+        "FLOAT32" => (Kind::F32, false),
+        "FLOAT64" => (Kind::F64, false),
+        "FLOAT16" => (Kind::F16, false),
+        "FLOATB16" => (Kind::Bf16, false),
+        "FLOAT8" => (Kind::F8, false),
+        "FLOAT1BIT" => (Kind::Bit, false),
+        _ => return None,
+    };
+    (blob || dims.is_some()).then_some((kind, dims))
+}
+
+/// What a result column of this declared type holds, when it's a vector.
+pub fn meta(decl: &str) -> Option<VectorMeta> {
+    column_type(decl).map(|(k, dims)| VectorMeta::dense(dims, k.element()))
+}
+
+/// A libSQL vector blob as DBine's vector text (`[1,2.5]`); `None` when
+/// the bytes aren't one.
+pub fn text(b: &[u8]) -> Option<String> {
+    if b.len().is_multiple_of(2) {
+        return v::from_f32_le(b).map(v::text);
+    }
+    let (&ty, body) = b.split_last()?;
+    match ty {
+        2 => v::from_f64_le(body).map(v::text),
+        5 => v::from_f16_le(body).map(v::text),
+        6 => v::from_bf16_le(body).map(v::text),
+        4 => {
+            // q…, padding, alpha, shift, 0, padding count.
+            let (&pad, rest) = body.split_last()?;
+            let rest = rest.split_last()?.1;
+            let dims = rest.len().checked_sub(8 + pad as usize)?;
+            let f = |at: usize| Some(f32::from_le_bytes(rest.get(at..at + 4)?.try_into().ok()?));
+            let (alpha, shift) = (f(dims + pad as usize)?, f(dims + pad as usize + 4)?);
+            Some(v::text(
+                rest[..dims].iter().map(|&q| alpha * q as f32 + shift),
+            ))
+        }
+        3 => {
+            let (&left, rest) = body.split_last()?;
+            let dims = (8 * body.len()).checked_sub(left as usize)?;
+            if dims > 8 * rest.len() {
+                return None;
+            }
+            Some(v::text((0..dims).map(|i| {
+                if rest[i / 8] >> (i % 8) & 1 == 1 {
+                    1i8
+                } else {
+                    -1
+                }
+            })))
+        }
+        _ => None,
+    }
+}
+
+/// A vector's numbers in libSQL's `kind` blob (what [`text`] reads).
+pub fn encode(kind: Kind, values: &[f64]) -> Vec<u8> {
+    match kind {
+        Kind::F32 => v::to_f32_le(values),
+        Kind::F64 => [v::to_f64_le(values), vec![2]].concat(),
+        Kind::F16 => [v::to_f16_le(values), vec![5]].concat(),
+        Kind::Bf16 => [v::to_bf16_le(values), vec![6]].concat(),
+        Kind::F8 => {
+            // As libSQL quantizes: `alpha = (max − min) / 255`, `shift =
+            // min`, each value rounded to its nearest step, in f32.
+            let f: Vec<f32> = values.iter().map(|&x| x as f32).collect();
+            let min = f.iter().copied().fold(f32::INFINITY, f32::min);
+            let max = f.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+            let (alpha, shift) = if f.is_empty() {
+                (0.0, 0.0)
+            } else {
+                ((max - min) / 255.0, min)
+            };
+            let pad = (4 - f.len() % 4) % 4;
+            let mut out: Vec<u8> = f
+                .iter()
+                .map(|&x| {
+                    if alpha > 0.0 {
+                        ((x - shift) / alpha).round().clamp(0.0, 255.0) as u8
+                    } else {
+                        0
+                    }
+                })
+                .collect();
+            out.extend(std::iter::repeat_n(0, pad));
+            out.extend(alpha.to_le_bytes());
+            out.extend(shift.to_le_bytes());
+            out.extend([0, pad as u8, 4]);
+            out
+        }
+        Kind::Bit => {
+            let mut out = vec![0u8; values.len().div_ceil(8)];
+            for (i, &x) in values.iter().enumerate() {
+                if x > 0.0 {
+                    out[i / 8] |= 1 << (i % 8);
+                }
+            }
+            if out.len().is_multiple_of(2) {
+                out.push(0);
+            }
+            let left = 8 * (out.len() + 1) - values.len();
+            out.extend([left as u8, 3]);
+            out
+        }
+    }
+}
+
+/// A result cell of a vector column: a blob as vector text, text that
+/// holds an array as the canonical one; anything else as it is (`None`).
+pub fn cell_text(blob: Option<&[u8]>, text_value: Option<&str>) -> Option<String> {
+    match (blob, text_value) {
+        (Some(b), _) => text(b),
+        (None, Some(t)) => v::parse(t).map(v::text),
+        _ => None,
+    }
+}
+
+/// A transfer cell read from a vector column: its blob as DBine's vector
+/// text (`Cell::Text`, what every target loads), text holding an array as
+/// the canonical one; anything else as it is.
+pub fn read_cell(c: Cell) -> Cell {
+    match c {
+        Cell::Bytes(b) => match text(&b) {
+            Some(t) => Cell::Text(t),
+            None => Cell::Bytes(b),
+        },
+        Cell::Text(t) => match v::parse(&t) {
+            Some(n) => Cell::Text(v::text(n)),
+            None => Cell::Text(t),
+        },
+        other => other,
+    }
+}
+
+/// A transfer cell going into a vector column of format `kind`: vector
+/// text (or JSON) as libSQL's blob. `None`: it goes as it is (a blob
+/// already, a NULL…).
+pub fn load_cell(kind: Kind, c: &Cell) -> Option<Cell> {
+    match c {
+        Cell::Text(s) | Cell::Json(s) => v::parse(s).map(|n| Cell::Bytes(encode(kind, &n))),
+        _ => None,
+    }
+}
+
+/// The numbers of a vector value of an edit or insert script: a JSON array
+/// of numbers (text that looks like one stays text).
+fn script_vector(value: &serde_json::Value) -> Option<Vec<f64>> {
+    match value {
+        serde_json::Value::Array(_) => v::parse_value(value),
+        _ => None,
+    }
+}
+
+/// The SQL that writes a vector value of an edit or insert script: libSQL's
+/// `vector32('[…]')`. The scripts don't know the column's format, so it's
+/// the usual one, `F32` (see `docs/engine-support.md`).
+pub fn libsql_literal(value: &serde_json::Value) -> Option<String> {
+    script_vector(value).map(|n| format!("vector32('{}')", v::text(n)))
+}
+
+/// The same for a SQLite file, which has no `vector32()`: the `F32` blob
+/// itself (`X'0000803F'`).
+pub fn sqlite_literal(value: &serde_json::Value) -> Option<String> {
+    let values = script_vector(value)?;
+    let hex: String = encode(Kind::F32, &values)
+        .iter()
+        .map(|b| format!("{b:02X}"))
+        .collect();
+    Some(format!("X'{hex}'"))
+}
+
+/// Insert, update and delete scripts as the driver contract's defaults
+/// write them for SQLite, with vectors as `vector` writes them.
+pub mod scripts {
+    use dbine_driver::ddl::{self, SqlFlavor};
+    use dbine_driver::sql::Quote;
+    use dbine_driver::{ObjectRef, RowChange};
+    use serde_json::Value;
+
+    const FLAVOR: SqlFlavor = SqlFlavor {
+        quote: Quote::Double,
+        ..SqlFlavor::ansi()
+    };
+
+    fn literal(v: &Value, vector: fn(&Value) -> Option<String>) -> String {
+        vector(v).unwrap_or_else(|| ddl::sql_literal(&FLAVOR, v))
+    }
+
+    pub fn insert(
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<Value>],
+        vector: fn(&Value) -> Option<String>,
+    ) -> String {
+        ddl::insert_script_with(
+            &FLAVOR,
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+            100,
+            &|v| literal(v, vector),
+        )
+    }
+
+    pub fn update(
+        target: &ObjectRef,
+        changes: &[RowChange],
+        vector: fn(&Value) -> Option<String>,
+    ) -> String {
+        ddl::update_script_with(FLAVOR.quote, target.schema(), &target.name, changes, &|v| {
+            literal(v, vector)
+        })
+    }
+
+    pub fn delete(
+        target: &ObjectRef,
+        keys: &[Vec<(String, Value)>],
+        vector: fn(&Value) -> Option<String>,
+    ) -> String {
+        ddl::delete_script_with(FLAVOR.quote, target.schema(), &target.name, keys, &|v| {
+            literal(v, vector)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unhex(s: &str) -> Vec<u8> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn declared_types() {
+        assert_eq!(column_type("F32_BLOB(3)"), Some((Kind::F32, Some(3))));
+        assert_eq!(
+            column_type("f64_blob ( 768 )"),
+            Some((Kind::F64, Some(768)))
+        );
+        assert_eq!(column_type("FB16_BLOB"), Some((Kind::Bf16, None)));
+        assert_eq!(column_type("FLOAT1BIT(8)"), Some((Kind::Bit, Some(8))));
+        assert_eq!(column_type("FLOAT8(4)"), Some((Kind::F8, Some(4))));
+        // A bare FLOAT64 is a REAL; other types aren't vectors.
+        for no in ["FLOAT64", "FLOAT", "BLOB", "F32_BLOB(x)", "INTEGER", ""] {
+            assert_eq!(column_type(no), None, "{no}");
+        }
+        assert_eq!(
+            meta("F16_BLOB(2)"),
+            Some(VectorMeta::dense(Some(2), VectorElement::F16))
+        );
+    }
+
+    /// The blobs sqld 0.24 wrote for these vectors (`hex(vector…('[…]'))`),
+    /// and what `vector_extract` showed for them.
+    #[test]
+    fn libsql_blobs_decode() {
+        let cases = [
+            ("0000803F0000004000004040", "[1,2,3]"),
+            (
+                "000000000000F03F0000000000000040000000000000084002",
+                "[1,2,3]",
+            ),
+            ("003C0040004205", "[1,2,3]"),
+            ("803F0040404006", "[1,2,3]"),
+            ("050D03", "[1,-1,1]"),
+            ("CD01001703", "[1,-1,1,1,-1,-1,1,1,1]"),
+            ("FFFFFF01001703", &format!("[{}]", ["1"; 25].join(","))),
+            // 8-bit: [0.5,-1,3,7] as libSQL quantized it.
+            (
+                "30007FFF8180003D000080BF000004",
+                "[0.5058825,-1,2.984314,7]",
+            ),
+            // Its padding bytes are whatever was in memory.
+            ("0000696E000000000000803F000204", "[1,1]"),
+        ];
+        for (hex, want) in cases {
+            assert_eq!(text(&unhex(hex)).as_deref(), Some(want), "{hex}");
+        }
+        assert_eq!(text(&[1, 2, 3, 4, 5, 9]), None, "even, but not f32s");
+        assert_eq!(text(&[1, 2, 7]), None, "unknown type byte");
+        assert_eq!(text(&[]).as_deref(), Some("[]"));
+    }
+
+    #[test]
+    fn encoding_matches_libsql() {
+        let v = [1.0, 2.0, 3.0];
+        assert_eq!(encode(Kind::F32, &v), unhex("0000803F0000004000004040"));
+        assert_eq!(
+            encode(Kind::F64, &v),
+            unhex("000000000000F03F0000000000000040000000000000084002")
+        );
+        assert_eq!(encode(Kind::F16, &v), unhex("003C0040004205"));
+        assert_eq!(encode(Kind::Bf16, &v), unhex("803F0040404006"));
+        assert_eq!(encode(Kind::Bit, &[1.0, -2.0, 3.0]), unhex("050D03"));
+        assert_eq!(
+            encode(Kind::Bit, &[1.0, -1.0, 1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0]),
+            unhex("CD01001703")
+        );
+        for d in [1, 2, 7, 8, 9, 15, 16, 17, 24, 25] {
+            let ones = vec![1.0; d];
+            let b = encode(Kind::Bit, &ones);
+            assert_eq!(b.len() % 2, 1, "{d}");
+            assert_eq!(text(&b), Some(v::text(ones.iter().map(|&x| x as f32))));
+        }
+        assert_eq!(
+            encode(Kind::F8, &v),
+            unhex("007FFF008180003C0000803F000104")
+        );
+        assert_eq!(
+            encode(Kind::F8, &[0.5, -1.0, 3.0, 7.0]),
+            unhex("30007FFF8180003D000080BF000004")
+        );
+        // Round trips through the decoder for every format.
+        let w = [0.25, -1.5, 3.0, 0.0, 8.0];
+        for k in [Kind::F32, Kind::F64, Kind::F16, Kind::Bf16] {
+            assert_eq!(text(&encode(k, &w)).as_deref(), Some("[0.25,-1.5,3,0,8]"));
+        }
+        let q = text(&encode(Kind::F8, &w)).unwrap();
+        let back = v::parse(&q).unwrap();
+        assert!(back.iter().zip(w).all(|(a, b)| (a - b).abs() < 0.03), "{q}");
+    }
+
+    #[test]
+    fn transfer_cells() {
+        let blob = encode(Kind::F16, &[1.0, -2.0]);
+        assert_eq!(read_cell(Cell::Bytes(blob)), Cell::Text("[1,-2]".into()));
+        assert_eq!(
+            read_cell(Cell::Text("[1.0]".into())),
+            Cell::Text("[1]".into())
+        );
+        assert_eq!(read_cell(Cell::Null), Cell::Null);
+        assert_eq!(
+            load_cell(Kind::F64, &Cell::Text("[1.5]".into())),
+            Some(Cell::Bytes(encode(Kind::F64, &[1.5])))
+        );
+        assert_eq!(load_cell(Kind::F32, &Cell::Bytes(vec![0; 4])), None);
+        assert_eq!(load_cell(Kind::F32, &Cell::Text("no".into())), None);
+    }
+
+    #[test]
+    fn script_literals() {
+        let val = serde_json::json!([1, 2.5]);
+        assert_eq!(libsql_literal(&val).as_deref(), Some("vector32('[1,2.5]')"));
+        assert_eq!(sqlite_literal(&val).as_deref(), Some("X'0000803F00002040'"));
+        assert_eq!(libsql_literal(&serde_json::json!("x")), None);
+        // Text that looks like a vector is still text.
+        assert_eq!(libsql_literal(&serde_json::json!("[1,2]")), None);
+        let t = dbine_driver::ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "t".into(),
+        };
+        let rows = vec![vec![serde_json::json!(1), val.clone(), "[3]".into()]];
+        let cols = ["id".to_string(), "v".into(), "s".into()];
+        assert_eq!(
+            scripts::insert(&t, &cols, &rows, libsql_literal),
+            "INSERT INTO \"t\" (\"id\", \"v\", \"s\") VALUES\n  (1, vector32('[1,2.5]'), '[3]');"
+        );
+        let change = dbine_driver::RowChange {
+            key: vec![("id".into(), serde_json::json!(1))],
+            set: vec![("v".into(), serde_json::json!([0.5]))],
+            row: Vec::new(),
+        };
+        assert_eq!(
+            scripts::update(&t, &[change], sqlite_literal),
+            "UPDATE \"t\" SET \"v\" = X'0000003F' WHERE \"id\" = 1;"
+        );
+        assert_eq!(
+            cell_text(None, Some(" [1, 2.50] ")).as_deref(),
+            Some("[1,2.5]")
+        );
+        assert_eq!(cell_text(None, Some("hola")), None);
+    }
+}
