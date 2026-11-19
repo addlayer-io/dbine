@@ -191,6 +191,13 @@ const isEdited = (r: number, c: number) => !isDeleted(r) && !isAdded(r) && !!pro
 // -- vectors (composables/vector.ts) ----------------------------------------------------
 /** Each column's vectors (the driver's mark, or a vector type name); null: none. */
 const vecMetas = computed(() => props.columns.map(vectorMeta));
+/** How many characters of numbers fit in column `c` next to its dims badge
+ *  (a wider column shows more of them). */
+function vecChars(c: number) {
+  const charW = 7.2 * (gridFontSize.value / 12);
+  const badge = 6 + 5 * charW;
+  return Math.max(8, Math.min(400, Math.floor(((widths.value[c] ?? 0) - 16 - badge) / charW)));
+}
 /** The vector cells in view as the grid shows them: their first numbers and
  *  dimensions (row → column → preview), never the 500-character cut. A cell
  *  that doesn't read as a vector shows its text. */
@@ -198,9 +205,10 @@ const vecShown = computed(() => {
   const out = new Map<number, Map<number, VectorPreview>>();
   const cols = vecMetas.value.flatMap((m, c) => (m ? [c] : []));
   if (!cols.length) return out;
+  const chars = cols.map(vecChars);
   for (const { i } of visible.value) {
-    for (const c of cols) {
-      const p = isUnset(i, c) ? null : vectorPreview(valueAt(i, c), vecMetas.value[c]);
+    for (const [k, c] of cols.entries()) {
+      const p = isUnset(i, c) ? null : vectorPreview(valueAt(i, c), vecMetas.value[c], chars[k]);
       if (!p) continue;
       let row = out.get(i);
       if (!row) out.set(i, (row = new Map()));
