@@ -69,6 +69,10 @@ pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
     }
 }
 
+/// ScyllaDB's longest vector (`vector<float, 16000>`); Cassandra takes
+/// longer ones.
+const SCYLLA_MAX_DIMS: u32 = 16000;
+
 /// A vector's element type as CQL spells it inside `vector<…, n>`: the
 /// numbers an embedding is made of.
 fn vector_element(cql: &str) -> Option<VectorElement> {
@@ -230,6 +234,15 @@ impl Cql {
         };
         if !self.vectors {
             return super::vector_fallback(self, t);
+        }
+        if self.scylla && *n > SCYLLA_MAX_DIMS {
+            return Rendered::exact("list<float>").with(
+                Warning,
+                TypeApproximated,
+                format!(
+                    "ScyllaDB tiene vectores de hasta {SCYLLA_MAX_DIMS} dimensiones: uno de {n} queda como list<float>."
+                ),
+            );
         }
         let float = Rendered::exact(format!("vector<float, {n}>"));
         match element {
@@ -664,6 +677,11 @@ impl Dialect for Cql {
                         .into(),
                 )
             }
+            Some(L::Vector { dims: Some(n), .. }) if self.scylla && *n > SCYLLA_MAX_DIMS => {
+                return Err(format!(
+                    "ScyllaDB tiene vectores de hasta {SCYLLA_MAX_DIMS} dimensiones, y su columna tiene {n}"
+                ))
+            }
             Some(L::Vector { dims, .. }) => *dims,
             _ => None,
         };
@@ -1079,6 +1097,14 @@ mod tests {
                 assert_eq!(r.native, "vector<float, 8>");
                 assert_eq!(r.notes[0].severity, Severity::Info);
             }
+            // ScyllaDB's longest vector is 16000; Cassandra takes more.
+            let r = d.render_type(&vector(Some(20000), VectorElement::F32));
+            if id == "scylladb" {
+                assert_eq!(r.native, "list<float>");
+                assert!(r.notes[0].message.contains("16000"), "{r:?}");
+            } else {
+                assert_eq!(r.native, "vector<float, 20000>");
+            }
             let r = d.render_type(&vector(Some(16), VectorElement::Bit));
             assert_eq!(r.native, "vector<float, 16>");
             assert_eq!(r.notes[0].severity, Severity::Warning);
@@ -1454,11 +1480,28 @@ mod tests {
                 .unwrap_err();
             assert!(e.contains("disperso"), "{e}");
         }
+        // ScyllaDB's vectors have up to 16000 dimensions; Cassandra's more.
+        let long = col(Some(20000), false);
+        let e = lookup("scylladb")
+            .unwrap()
+            .vector_index(&cosine, Some(&long))
+            .unwrap_err();
+        assert!(e.contains("16000"), "{e}");
+        assert!(lookup("scylladb")
+            .unwrap()
+            .vector_index(&cosine, Some(&col(Some(16000), false)))
+            .is_ok());
         let c = lookup("cassandra").unwrap();
+        assert!(c.vector_index(&cosine, Some(&long)).is_ok());
         let one = col(Some(1), false);
         assert!(c.vector_index(&cosine, Some(&one)).is_err());
         assert!(c.vector_index(&VectorIndex::default(), Some(&one)).is_err());
         assert!(c.vector_index(&l2, Some(&one)).is_ok());
+        // ScyllaDB measures cosine on one dimension too.
+        assert!(lookup("scylladb")
+            .unwrap()
+            .vector_index(&cosine, Some(&one))
+            .is_ok());
         assert!(!lookup("keyspaces").unwrap().caps().vector_indexes);
         assert!(c.caps().vector_indexes);
     }
