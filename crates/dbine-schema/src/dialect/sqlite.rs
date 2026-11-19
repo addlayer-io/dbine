@@ -559,6 +559,105 @@ mod tests {
         );
     }
 
+    /// libSQL and SQLite share this dialect (`for_driver` gives both the
+    /// same one), so a libSQL vector index moving into either is a
+    /// same-family move: the converter keeps it as it is and never asks
+    /// `vector_index`. Into libSQL (a migration) the drivers' DDL writes an
+    /// index the server holds as it is, even an L2 one on 1-bit vectors
+    /// (with a warning). Into SQLite the DDL leaves it out with a comment
+    /// saying why; the conversion report says so only when the caller
+    /// narrows the target's caps with its designer (`Options.target_caps`),
+    /// SQLite's having no vector indexes.
+    #[test]
+    fn a_libsql_vector_index_moves_within_the_family() {
+        use crate::convert::{convert, Options};
+        use dbine_driver::{ColumnDef, DdlParts, IndexDef, TableSchema, VectorIndex};
+        let col = |name: &str, ty: &str| ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            nullable: true,
+            ..Default::default()
+        };
+        // As the libSQL driver reads an L2 index made by hand on 1-bit
+        // vectors: its key kept in the `vector` option.
+        let t = TableSchema {
+            name: "docs".into(),
+            columns: vec![col("id", "INTEGER"), col("bits", "F1BIT_BLOB(8)")],
+            indexes: vec![IndexDef {
+                name: "docs_bits".into(),
+                columns: vec!["bits".into()],
+                options: [(
+                    "vector".to_string(),
+                    "libsql_vector_idx(\"bits\", 'metric=l2')".to_string(),
+                )]
+                .into(),
+                vector: Some(VectorIndex {
+                    metric: Some("l2".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let parts = DdlParts {
+            create: true,
+            indexes: true,
+            ..Default::default()
+        };
+        let driver = |id: &str| dbine_drivers::find(id).unwrap();
+        let dropped = |issues: &[crate::Issue]| {
+            issues.iter().any(|i| {
+                i.code == IssueCode::IndexDropped
+                    && i.message
+                        .contains("el destino no tiene índices vectoriales")
+            })
+        };
+        let r = convert(
+            std::slice::from_ref(&t),
+            "libsql",
+            "libsql",
+            &Options::default(),
+        )
+        .unwrap();
+        assert_eq!(r.tables[0].indexes, t.indexes, "{:?}", r.issues);
+        let ddl = driver("libsql").table_ddl(&r.tables[0], parts).unwrap();
+        assert!(
+            ddl.contains("-- El índice vectorial «docs_bits» mide con distancia L2")
+                && ddl.contains("(libsql_vector_idx(\"bits\", 'metric=l2'));"),
+            "{ddl}"
+        );
+        let r = convert(
+            std::slice::from_ref(&t),
+            "libsql",
+            "sqlite",
+            &Options::default(),
+        )
+        .unwrap();
+        assert_eq!(r.tables[0].indexes.len(), 1);
+        assert!(!dropped(&r.issues), "{:?}", r.issues);
+        let ddl = driver("sqlite").table_ddl(&r.tables[0], parts).unwrap();
+        assert!(
+            !ddl.contains("CREATE INDEX")
+                && ddl.contains("-- El índice vectorial «docs_bits» no se crea: SQLite no tiene libsql_vector_idx"),
+            "{ddl}"
+        );
+        let narrowed = |id: &str| Options {
+            target_caps: Some(Sqlite.caps().narrow(&driver(id).designer().unwrap())),
+            ..Options::default()
+        };
+        let r = convert(
+            std::slice::from_ref(&t),
+            "libsql",
+            "sqlite",
+            &narrowed("sqlite"),
+        )
+        .unwrap();
+        assert!(r.tables[0].indexes.is_empty());
+        assert!(dropped(&r.issues), "{:?}", r.issues);
+        let r = convert(&[t], "libsql", "libsql", &narrowed("libsql")).unwrap();
+        assert_eq!(r.tables[0].indexes.len(), 1, "{:?}", r.issues);
+    }
+
     #[test]
     fn vector_index_needs_a_dense_vector_with_a_dimension() {
         use dbine_driver::{VectorElement as E, VectorIndex};
