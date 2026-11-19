@@ -1850,7 +1850,7 @@ What was tested against a real server:
 | Solr | Field types and `copyField` | Explicit pending item. |
 | InfluxDB | Sync | It has no DDL: measurements and fields appear when writing. |
 | IoTDB | Indexes and `CHECK` | The engine does not have them. |
-| Redis | Everything | It has no schema. |
+| Redis, Valkey, Dragonfly | Keys | Keys are data, with no schema: only the search indexes are compared. |
 
 ### Sync: relational engines
 
@@ -1904,11 +1904,13 @@ What was tested against a real server:
 | Neo4j, Memgraph | indexes and constraints | properties are not declared | yes |
 | IoTDB | new and dropped series | type, encoding, compression | yes |
 | KDB+ | tables in memory: create, drop, add and drop columns, casts, key (`xkey`) | partitioned and splayed tables (refused); no cast between some types (`guid`, general lists: left as a warning); views and functions | yes |
+| Redis, Valkey, Dragonfly | search indexes: create, drop, and a changed one (fields, prefixes, vector index settings) made again: `FT.DROPINDEX` keeps the documents and `FT.CREATE` indexes them again | keys (data, with no schema: a change that includes one is refused); Redis and Dragonfly keep indexes in database 0 only | Redis 8 and valkey-search |
 
 No sync (the comparison works all the same):
 
-- **Redis, etcd:** they have no schema, only keys with values. To move data,
-  use copy or export.
+- **etcd:** it has no schema, only keys with values. To move data, use copy
+  or export. Redis, Valkey and Dragonfly sync their search indexes only (see
+  the table above); their keys are moved the same way.
 - **Flight SQL:** it is a protocol, not an engine; connect with the driver of
   the database behind it.
 - **Drill:** it queries files; its tables are created with `CREATE TABLE AS`
@@ -4904,7 +4906,7 @@ here: that is **Rename…**.
 | Apache Arrow Flight SQL | Modify… | It is a protocol, not an engine: the DDL depends on the backend and there is no portable one. Connect with the database's own driver. |
 | Power BI | Modify… | A model has no designer and no sync: DBine reads its definition and never writes it (see [Power BI](#power-bi-semantic-models)). Compare schemas still works, compare only. |
 | CouchDB | Modify… | It has sync (indexes and design docs), but no designer: documents have no schema, so there is no table to open. |
-| Redis, Valkey, Dragonfly | Modify… | They have a key designer, but no sync: keys have no schema to alter. |
+| Redis, Valkey, Dragonfly | Modify… | They have a key designer, but keys have no schema to alter. Their search indexes are synced from Compare schemas. |
 | etcd | Modify… | It has a key designer, but no sync: it has no schema, only keys with values. |
 | Cosmos DB | Changing an existing container | The sync only creates and drops containers: the partition key, unique keys, index policy, TTL and RU/s are changed from the portal or the Azure CLI, not with SQL. The script warns and does not run. |
 | Cassandra, ScyllaDB, Keyspaces | Changing a column's type or the primary key | The engine has no `ALTER` for that: the table has to be recreated. The script warns and does not run. |

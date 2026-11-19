@@ -303,11 +303,18 @@ impl Driver for RedisDriver {
         })
     }
 
+    /// "Comparar esquemas" applies the search indexes' changes (see
+    /// [`Driver::sync_script`]); keys are data, with no schema to sync.
+    fn supports_schema_sync_for(&self, kind: &str) -> bool {
+        kind == kinds::INDEX
+    }
+
     /// Keys are data, not tables: the only schema is the search indexes
     /// (see [`Session::database_schema`]), made again when they change
     /// (`FT.DROPINDEX` keeps the documents, `FT.CREATE` indexes them).
     /// `supports_schema_sync` stays off: the app offers "Modificar…" on
-    /// the designer's kind (keys) with it, and keys can't be altered.
+    /// the designer's kind (keys) with it, and keys can't be altered;
+    /// [`Driver::supports_schema_sync_for`] says it per kind.
     fn sync_script(
         &self,
         changes: &[dbine_driver::TableChange],

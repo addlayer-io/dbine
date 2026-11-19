@@ -30,6 +30,7 @@ import { trackFeature } from '../composables/telemetry';
 import { vKeyActivate } from '../composables/keyActivate';
 import { vectorIndexLine } from '../composables/vectorLabels';
 import { sameVectorIndex } from '../composables/vector';
+import { syncsKinds } from '../composables/schemaSync';
 
 // "Comparar esquemas": two databases side by side, WinMerge style. Each
 // difference can be carried to the other side (→ / ←); that only edits an
@@ -1010,10 +1011,17 @@ function has(model: DbModel | null | undefined, s: SideId, m: Pick<Mark, 'type' 
 const origHas = (s: SideId, m: Pick<Mark, 'type' | 'ck' | 'okind' | 'section' | 'probe'>) => has(sides[s].orig, s, m) && has(sides[s].work, s, m);
 /** Left / right / both, each with why it can't be picked; the lit one undoes the drop. */
 function dropOptions(m: Mark | null, what: Pick<Mark, 'type' | 'ck' | 'okind' | 'section' | 'probe'>, extra: (s: SideId) => string | null = () => null, labels = 'drop'): DropOption[] {
+  // The kind of the table the element is (or is in) on that side; a code
+  // object goes by the driver's flag.
+  const kinds = (s: SideId) => {
+    if (what.type === 'object') return [];
+    const found = findTable(sides[s].orig, s, what.ck) ?? findTable(sides[s].work, s, what.ck);
+    return found ? [found.kind] : [];
+  };
   const why = (s: SideId) => {
-    if (struck(m, s)) return syncBlocked(s);
+    if (struck(m, s)) return syncBlocked(s, kinds(s));
     if (!origHas(s, what)) return t('compare:drop.missing');
-    return syncBlocked(s) ?? extra(s);
+    return syncBlocked(s, kinds(s)) ?? extra(s);
   };
   return DROP_TOS.map((to) => {
     const on = m?.drop === to;
@@ -1373,10 +1381,14 @@ const sideName = (s: SideId) => {
 const tabLabel = (s: SideId) => `${s === 'left' ? t('compare:left') : t('compare:right')} · ${sideName(s)}`;
 const where = (s: SideId) => `«${sides[s].database || connName(sides[s].connectionId)}» (${connName(sides[s].connectionId)})`;
 const readOnly = (s: SideId) => !!conns.byId(sides[s].connectionId)?.config.read_only;
-function syncBlocked(s: SideId): string | null {
+/** The kinds of the tables (collections, search indexes…) side `s`'s pending changes touch. */
+const pendingKinds = (s: SideId) => pending.value[s].tables.flatMap((c) => (c.op === 'alter' ? [c.old.kind, c.new.kind] : [c.table.kind]));
+/** Why side `s` can't take changes to objects of `kinds` (by default, its
+ *  pending ones'); with none, as the driver's flag says. */
+function syncBlocked(s: SideId, kinds: string[] = pendingKinds(s)): string | null {
   if (readOnly(s)) return t('compare:sync.readOnly');
   const d = driverOf(sides[s].connectionId);
-  if (d && !d.supports_schema_sync) return t('compare:sync.unsupported', { engine: d.name });
+  if (d && !syncsKinds(d, kinds)) return t('compare:sync.unsupported', { engine: d.name });
   return null;
 }
 /** Why "Sincronizar" can't run: a side with changes that can't take them. */
