@@ -1372,3 +1372,91 @@ async fn databend_vectors() {
     })
     .await;
 }
+
+/// Doris and StarRocks build vector indexes on neither engine's AGGREGATE
+/// KEY tables: an existing one is described as such, and a schema sync
+/// that adds a vector index to it says so instead of writing an index the
+/// engine refuses ("ANN index can only be built on table with DUP_KEYS").
+async fn aggregate_key_table(id: &'static str, env: &str) {
+    let Ok(url) = std::env::var(env) else {
+        eprintln!("{env} not set; skipping");
+        return;
+    };
+    let d = driver(id);
+    let cfg = parse_url(id, &url);
+    let mut admin = d.connect(&cfg, None).await.expect("connect");
+    let db = "dbine_vec_agg";
+    let drop = format!("DROP DATABASE IF EXISTS {db}");
+    let _ = run(&mut admin, &drop).await;
+    must(&mut admin, &format!("CREATE DATABASE {db}")).await;
+    let outcome = tokio::spawn(async move {
+        let d = driver(id);
+        let cfg = parse_url(id, &url);
+        let mut s = d.connect(&cfg, Some(db)).await.expect("connect");
+        must(
+            &mut s,
+            "CREATE TABLE agg_items (id INT NOT NULL, n BIGINT SUM DEFAULT \"0\", \
+             v ARRAY<FLOAT> REPLACE NOT NULL) AGGREGATE KEY(id) \
+             DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")",
+        )
+        .await;
+        let schema = s.database_schema().await.expect("database_schema");
+        let old = schema
+            .iter()
+            .find(|t| t.name == "agg_items")
+            .expect("agg_items described")
+            .clone();
+        assert_eq!(
+            old.options.get("key_model").map(String::as_str),
+            Some("aggregate"),
+            "{:?}",
+            old.options
+        );
+        let mut new = old.clone();
+        new.indexes
+            .push(vindex("iv", Some("hnsw"), Some("l2"), &[("dim", "3")]));
+        let script = d
+            .sync_script(&[dbine_driver::TableChange::Alter {
+                old: old.clone(),
+                new,
+            }])
+            .expect("sync_script");
+        eprintln!("{id}: aggregate sync {script:?}");
+        let all = script.statements.join("\n");
+        assert!(
+            !all.contains("USING ANN") && !all.contains("USING VECTOR"),
+            "{all}"
+        );
+        assert!(
+            all.contains("solo en tablas DUPLICATE KEY")
+                || script
+                    .warnings
+                    .iter()
+                    .any(|w| w.contains("solo en tablas DUPLICATE KEY")),
+            "{script:?}"
+        );
+        // What the sync writes runs (the notes are comments).
+        for stmt in &script.statements {
+            for one in statements(stmt) {
+                must(&mut s, &one).await;
+            }
+        }
+    })
+    .await;
+    let _ = run(&mut admin, &drop).await;
+    if let Err(e) = outcome {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn doris_aggregate_key_takes_no_vector_index() {
+    aggregate_key_table("doris", "DBINE_TEST_DORIS_URL").await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn starrocks_aggregate_key_takes_no_vector_index() {
+    aggregate_key_table("starrocks", "DBINE_TEST_STARROCKS_URL").await;
+}

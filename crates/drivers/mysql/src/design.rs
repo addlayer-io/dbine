@@ -1089,14 +1089,15 @@ fn is_call(d: &str) -> bool {
 
 /// The key model a StarRocks / Doris table is made with: the designer's
 /// `key_model`, else UNIQUE (Doris) / PRIMARY (StarRocks) with a primary
-/// key, DUPLICATE without one.
+/// key, DUPLICATE without one. An AGGREGATE KEY table as described is made
+/// DUPLICATE KEY (its columns' aggregation types aren't read).
 fn olap_model(v: Variant, t: &TableSchema) -> &'static str {
     let pk = t
         .primary_key
         .as_ref()
         .is_some_and(|k| !k.columns.is_empty());
     match (opt(t, "key_model").unwrap_or("auto"), v) {
-        ("duplicate", _) => "DUPLICATE",
+        ("duplicate" | "aggregate", _) => "DUPLICATE",
         ("primary", Variant::StarRocks) => "PRIMARY",
         ("unique" | "primary", _) => "UNIQUE",
         _ if !pk => "DUPLICATE",
@@ -1265,8 +1266,15 @@ fn olap_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<String> {
                     continue;
                 }
                 // Doris builds ANN indexes on DUPLICATE KEY tables only,
-                // StarRocks its vector indexes on DUPLICATE or PRIMARY KEY.
-                match (v, olap_model(v, t)) {
+                // StarRocks its vector indexes on DUPLICATE or PRIMARY KEY:
+                // never on an AGGREGATE KEY table (one that exists, as
+                // described; the designer makes none).
+                let model = if opt(t, "key_model") == Some("aggregate") {
+                    "AGGREGATE"
+                } else {
+                    olap_model(v, t)
+                };
+                match (v, model) {
                     (_, "DUPLICATE") | (Variant::StarRocks, "PRIMARY") => {}
                     (Variant::Doris, _) => {
                         notes.push(vector_index_or_note(Err(Error::Unsupported(format!(
@@ -2729,6 +2737,36 @@ mod tests {
         assert!(s.contains("CREATE INDEX `iv` ON `items` (`v`) USING ANN PROPERTIES(\"index_type\" = \"hnsw\", \"metric_type\" = \"l2_distance\", \"dim\" = \"3\", \"max_degree\" = \"32\");"), "{s}");
         let s = table_ddl(Variant::StarRocks, &t, all).unwrap();
         assert!(s.contains("USING VECTOR (\"index_type\" = \"hnsw\", \"metric_type\" = \"l2_distance\", \"dim\" = \"3\", \"M\" = \"32\", \"is_vector_normed\" = \"false\")"), "{s}");
+        // An AGGREGATE KEY table as described (no primary key): neither
+        // engine builds a vector index on it. A sync adds only indexes.
+        let mut agg = t.clone();
+        agg.primary_key = None;
+        agg.options.insert("key_model".into(), "aggregate".into());
+        let indexes = DdlParts {
+            indexes: true,
+            ..Default::default()
+        };
+        for (v, note) in [
+            (
+                Variant::Doris,
+                "-- Doris crea índices ANN solo en tablas DUPLICATE KEY",
+            ),
+            (
+                Variant::StarRocks,
+                "-- StarRocks crea índices vectoriales solo en tablas DUPLICATE KEY o PRIMARY KEY",
+            ),
+        ] {
+            let s = table_ddl(v, &agg, indexes).unwrap();
+            assert!(
+                s.contains(note) && !s.contains("USING ANN") && !s.contains("USING VECTOR"),
+                "{v:?}: {s}"
+            );
+        }
+        // Its CREATE is still DUPLICATE KEY (the aggregation types of its
+        // columns aren't read).
+        agg.indexes.clear();
+        let s = table_ddl(Variant::Doris, &agg, all).unwrap();
+        assert!(s.contains("DUPLICATE KEY(`id`)"), "{s}");
         // Without the dimension: said in the script.
         t.indexes[0].vector = Some(vi(None, None, &[]));
         assert!(table_ddl(Variant::Doris, &t, all)

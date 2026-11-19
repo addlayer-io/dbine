@@ -1384,7 +1384,14 @@ impl MySqlSession {
                     .or_default()
                     .push(def.name.clone()),
                 "DUP" | "AGG" if olap => {
-                    t.options.insert("key_model".into(), "duplicate".into());
+                    // An AGGREGATE KEY table says so: its vector indexes
+                    // can't be built (see `design::olap_model`).
+                    let model = if key == "AGG" {
+                        "aggregate"
+                    } else {
+                        "duplicate"
+                    };
+                    t.options.insert("key_model".into(), model.into());
                     let k = t.options.entry("key_columns".into()).or_default();
                     k.push_str(&format!(
                         "{}{}",
