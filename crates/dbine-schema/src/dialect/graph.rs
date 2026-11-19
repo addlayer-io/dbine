@@ -246,7 +246,7 @@ impl Dialect for Cypher {
             comments: false,
             max_identifier: 255,
             case: IdentCase::Preserve,
-            vector_indexes: true,
+            vector_indexes: self.flavor != Flavor::Neptune,
         }
     }
 
@@ -589,7 +589,8 @@ impl Dialect for OrientDb {
             comments: false,
             max_identifier: 128,
             case: IdentCase::Preserve,
-            vector_indexes: true,
+            // OrientDB 3.2 has no vector indexes.
+            vector_indexes: false,
         }
     }
 }
@@ -793,6 +794,75 @@ mod tests {
             assert!(pg.tables[0].indexes.is_empty());
             assert!(pg.issues.iter().any(|i| i.code == IssueCode::IndexDropped));
         }
+    }
+
+    /// The family's engines without vector indexes say so: a vector
+    /// index from pgvector is left out with that reason, not with a
+    /// reason about its column.
+    #[test]
+    fn engines_without_vector_indexes_say_so() {
+        use dbine_driver::{ColumnDef, IndexDef, VectorIndex};
+        let t = TableSchema {
+            name: "docs".into(),
+            columns: vec![ColumnDef {
+                name: "emb".into(),
+                data_type: "vector(3)".into(),
+                nullable: true,
+                ..Default::default()
+            }],
+            indexes: vec![IndexDef {
+                name: "docs_emb".into(),
+                columns: vec!["emb".into()],
+                kind: Some("hnsw".into()),
+                vector: Some(VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some("cosine".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        for to in [
+            "orientdb",
+            "trino",
+            "presto",
+            "athena",
+            "databricks",
+            "dremio",
+            "drill",
+            "iotdb",
+            "tdengine",
+            "influxdb",
+            "ksqldb",
+            "phoenix",
+            "kdb",
+        ] {
+            assert!(
+                !crate::dialect::for_driver(to)
+                    .unwrap()
+                    .caps()
+                    .vector_indexes,
+                "{to}"
+            );
+            // Drill and InfluxDB take no tables made elsewhere.
+            let Ok(c) = crate::convert(
+                std::slice::from_ref(&t),
+                "postgres",
+                to,
+                &Default::default(),
+            ) else {
+                assert!(["drill", "influxdb"].contains(&to), "{to}");
+                continue;
+            };
+            assert!(
+                c.tables[0].indexes.iter().all(|i| i.vector.is_none()),
+                "{to}"
+            );
+        }
+        let ok = crate::convert(&[t], "postgres", "kdb", &Default::default()).unwrap();
+        assert!(ok.issues.iter().any(|i| i.code == IssueCode::IndexDropped
+            && i.message.contains("no tiene índices vectoriales")));
     }
 
     /// pgvector's `vector(3)` with an HNSW index into Neo4j and Memgraph:

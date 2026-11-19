@@ -343,7 +343,8 @@ impl Dialect for Hive {
             comments: true,
             max_identifier: if delta { 255 } else { 128 },
             case: IdentCase::Lower,
-            vector_indexes: true,
+            // No vector indexes: `convert` leaves them out, said.
+            vector_indexes: false,
         }
     }
 
