@@ -11,14 +11,24 @@
 //! each JSON value to the column's type (uuid, timestamp, blob `0x…`,
 //! decimal…), which plain literals can't do without knowing the types.
 //! Edited rows are `UPDATE` with `fromJson('…')` values for the same reason.
+//! A vector comes as a JSON array and goes the same way: `INSERT … JSON`
+//! and `fromJson('[0.1,0.2]')` take it for a `vector<float, n>`.
+//!
+//! Vector indexes ([`IndexDef::vector`]) are SAI on Cassandra (`USING
+//! 'sai' WITH OPTIONS = {'similarity_function': …}`) and `vector_index`
+//! on ScyllaDB (`CREATE CUSTOM INDEX … USING 'vector_index'`, with its
+//! graph and quantization options and filter columns).
 
 use crate::cql::{ident, qualified};
+use crate::Flavor;
 use dbine_driver::filter::{insert_where, ColumnFilter, FilterOp};
+use dbine_driver::vector::{metric, param};
 use dbine_driver::{
     kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, IndexDef,
-    ObjectRef, Result, RowChange, TableSchema,
+    ObjectRef, Result, RowChange, TableSchema, VectorIndex, VectorIndexSpec, VectorParamSpec,
 };
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 const DATA_TYPES: &[&str] = &[
     "text",
@@ -67,6 +77,7 @@ pub fn designer(driver_id: &str) -> DesignerSpec {
         ("TimeWindowCompactionStrategy", "Time window (TWCS)"),
     ];
     if is_scylla(driver_id) {
+        data_types.push("vector<float, 3>");
         compaction.push(("IncrementalCompactionStrategy", "Incremental (ICS)"));
     } else if !is_keyspaces(driver_id) {
         data_types.push("vector<float, 3>");
@@ -126,8 +137,161 @@ pub fn designer(driver_id: &str) -> DesignerSpec {
             ]
         },
         columns_required: true,
-        vector_indexes: None,
+        vector_indexes: vector_spec(driver_id),
     }
+}
+
+/// What a vector index can be in the designer. Cassandra's SAI takes only
+/// the distance (its graph settings need a server flag,
+/// `SAI_VECTOR_ALLOW_CUSTOM_PARAMETERS`, so they're kept when read but not
+/// offered); ScyllaDB's `vector_index` also takes the graph's settings, a
+/// quantization and filter columns. Keyspaces has no vectors.
+fn vector_spec(driver_id: &str) -> Option<VectorIndexSpec> {
+    if is_keyspaces(driver_id) {
+        return None;
+    }
+    let metrics = vec![metric::COSINE, metric::L2, metric::IP];
+    if !is_scylla(driver_id) {
+        return Some(VectorIndexSpec {
+            algorithms: Vec::new(),
+            metrics,
+            params: Vec::new(),
+            filter_columns: false,
+        });
+    }
+    let p = |key: &'static str, default: &'static str| VectorParamSpec {
+        key,
+        algorithms: Vec::new(),
+        default,
+    };
+    Some(VectorIndexSpec {
+        algorithms: Vec::new(),
+        metrics,
+        params: vec![
+            p(param::M, "16"),
+            p(param::EF_CONSTRUCTION, "128"),
+            p("search_beam_width", "128"),
+            p(param::QUANTIZATION, "f32"),
+            p("oversampling", "1.0"),
+            p("rescoring", "false"),
+        ],
+        filter_columns: true,
+    })
+}
+
+/// Standard distance names and CQL's `similarity_function`.
+const SIMILARITIES: &[(&str, &str)] = &[
+    (metric::COSINE, "COSINE"),
+    (metric::L2, "EUCLIDEAN"),
+    (metric::IP, "DOT_PRODUCT"),
+];
+
+/// Standard parameter names and the index options they are, on both
+/// engines.
+const PARAMS: &[(&str, &str)] = &[
+    (param::M, "maximum_node_connections"),
+    (param::EF_CONSTRUCTION, "construction_beam_width"),
+    (param::QUANTIZATION, "quantization"),
+];
+
+/// Options of a vector index besides those (and `similarity_function`):
+/// ScyllaDB's and DataStax's.
+const VECTOR_OPTIONS: &[&str] = &[
+    "search_beam_width",
+    "oversampling",
+    "rescoring",
+    "source_model",
+    "optimize_for",
+];
+
+/// Options a flavor's vector index takes, as named in `WITH OPTIONS`.
+fn takes_option(flavor: Flavor, option: &str) -> bool {
+    match flavor {
+        Flavor::Scylla => !matches!(option, "source_model" | "optimize_for"),
+        _ => !matches!(
+            option,
+            "search_beam_width" | "oversampling" | "rescoring" | "quantization"
+        ),
+    }
+}
+
+/// A `similarity_function` as the standard name (an unknown one as the
+/// engine spells it, lower case).
+pub(crate) fn metric_of(similarity: &str) -> String {
+    let s = similarity.trim();
+    SIMILARITIES
+        .iter()
+        .find(|(_, cql)| cql.eq_ignore_ascii_case(s))
+        .map_or_else(|| s.to_ascii_lowercase(), |(m, _)| m.to_string())
+}
+
+/// The `similarity_function` of a metric: a standard name or CQL's own.
+fn similarity_of(m: &str) -> Result<&'static str> {
+    let m = m.trim();
+    SIMILARITIES
+        .iter()
+        .find(|(std, cql)| std.eq_ignore_ascii_case(m) || cql.eq_ignore_ascii_case(m))
+        .map(|(_, cql)| *cql)
+        .ok_or_else(|| {
+            Error::Query(format!(
+                "CQL no tiene la distancia «{m}» para índices vectoriales: solo coseno (COSINE), euclídea (EUCLIDEAN) y producto punto (DOT_PRODUCT)."
+            ))
+        })
+}
+
+/// A vector index's search settings from its `WITH OPTIONS` (as
+/// `system_schema.indexes` keeps them), and the options that aren't
+/// those. The distance is always set (COSINE when the index doesn't say,
+/// the engines' default), so two indexes that search alike read alike.
+pub(crate) fn vector_of(
+    options: BTreeMap<String, String>,
+) -> (VectorIndex, BTreeMap<String, String>) {
+    let mut v = VectorIndex {
+        metric: Some(metric::COSINE.into()),
+        ..Default::default()
+    };
+    let mut rest = BTreeMap::new();
+    for (k, val) in options {
+        let key = k.to_ascii_lowercase();
+        if key == "similarity_function" {
+            v.metric = Some(metric_of(&val));
+        } else if let Some((std, _)) = PARAMS.iter().find(|(_, o)| *o == key) {
+            v.params.insert(std.to_string(), val);
+        } else if VECTOR_OPTIONS.contains(&key.as_str()) {
+            v.params.insert(key, val);
+        } else if key != "index_version" {
+            // ScyllaDB's `index_version` is the server's own stamp.
+            rest.insert(k, val);
+        }
+    }
+    (v, rest)
+}
+
+/// A vector index's `WITH OPTIONS` pairs, in CQL's names, for `flavor`.
+/// Parameters the flavor has no option for are left out (a ScyllaDB
+/// `search_beam_width` on Cassandra).
+fn vector_options(v: &VectorIndex, flavor: Flavor) -> Result<Vec<(String, String)>> {
+    let mut out = Vec::new();
+    if let Some(m) = v.metric.as_deref().filter(|m| !m.trim().is_empty()) {
+        out.push((
+            "similarity_function".to_string(),
+            similarity_of(m)?.to_string(),
+        ));
+    }
+    for (k, val) in &v.params {
+        if val.trim().is_empty() {
+            continue;
+        }
+        let key = k.trim().to_ascii_lowercase();
+        let option = PARAMS
+            .iter()
+            .find(|(std, o)| *std == key || *o == key)
+            .map_or(key.clone(), |(_, o)| o.to_string());
+        if takes_option(flavor, &option) {
+            out.push((option, val.trim().to_string()));
+        }
+    }
+    Ok(out)
 }
 
 pub fn templates(driver_id: &str) -> Vec<CreateTemplate> {
@@ -296,7 +460,89 @@ fn unquote(s: &str) -> &str {
         .unwrap_or(s)
 }
 
-pub(crate) fn index_ddl(table: &str, ix: &IndexDef, if_exists: bool) -> Result<String> {
+/// A vector index: SAI on Cassandra, `vector_index` on ScyllaDB (with
+/// filter columns after the vector column, and a local index's partition
+/// columns in the `pk` option, as `system_schema` keeps its target).
+fn vector_index_ddl(
+    table: &str,
+    ix: &IndexDef,
+    v: &VectorIndex,
+    if_exists: bool,
+    flavor: Flavor,
+) -> Result<String> {
+    if flavor == Flavor::Keyspaces {
+        return Err(Error::Query(
+            "Amazon Keyspaces no tiene índices vectoriales.".into(),
+        ));
+    }
+    if ix.columns.is_empty() {
+        return Err(Error::Query(format!(
+            "El índice vectorial {} necesita la columna del vector.",
+            ix.name
+        )));
+    }
+    let scylla = flavor == Flavor::Scylla;
+    if ix.columns.len() > 1 && !scylla {
+        return Err(Error::Query(format!(
+            "El índice vectorial {} lleva una sola columna en Cassandra (SAI no tiene columnas de filtro).",
+            ix.name
+        )));
+    }
+    let mut pairs = vector_options(v, flavor)?;
+    // Other options the index had (none of SAI's text ones apply to a
+    // vector), except a local index's partition columns, which go in the
+    // target.
+    for (k, val) in &ix.options {
+        if k != "pk" && !pairs.iter().any(|(o, _)| o.eq_ignore_ascii_case(k)) {
+            pairs.push((k.clone(), val.clone()));
+        }
+    }
+    let mut target: Vec<String> = Vec::new();
+    if let Some(pk) = ix.options.get("pk").filter(|_| scylla) {
+        let cols: Vec<String> = pk
+            .split(',')
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .map(|c| ident(unquote(c)))
+            .collect();
+        target.push(format!("({})", cols.join(", ")));
+    }
+    target.extend(ix.columns.iter().map(|c| ident(unquote(c.trim()))));
+    let name = if ix.name.trim().is_empty() {
+        String::new()
+    } else {
+        format!("{} ", ident(&ix.name))
+    };
+    let options = if pairs.is_empty() {
+        String::new()
+    } else {
+        let pairs: Vec<String> = pairs
+            .iter()
+            .map(|(k, v)| format!("{}: {}", lit(k), lit(v)))
+            .collect();
+        format!(" WITH OPTIONS = {{{}}}", pairs.join(", "))
+    };
+    Ok(format!(
+        "CREATE {}INDEX {}{name}ON {table} ({}) USING '{}'{options};",
+        if scylla { "CUSTOM " } else { "" },
+        if if_exists { "IF NOT EXISTS " } else { "" },
+        target.join(", "),
+        if scylla { "vector_index" } else { "sai" },
+    ))
+}
+
+pub(crate) fn index_ddl(
+    table: &str,
+    ix: &IndexDef,
+    if_exists: bool,
+    flavor: Flavor,
+) -> Result<String> {
+    if let Some(v) = &ix.vector {
+        if ix.unique {
+            return Err(Error::Query("CQL no tiene índices únicos.".into()));
+        }
+        return vector_index_ddl(table, ix, v, if_exists, flavor);
+    }
     if ix.unique {
         return Err(Error::Query("CQL no tiene índices únicos.".into()));
     }
@@ -341,7 +587,7 @@ pub(crate) fn index_ddl(table: &str, ix: &IndexDef, if_exists: bool) -> Result<S
     ))
 }
 
-pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
+pub fn table_ddl(t: &TableSchema, parts: DdlParts, flavor: Flavor) -> Result<String> {
     if t.name.trim().is_empty() {
         return Err(Error::Query("La tabla necesita un nombre.".into()));
     }
@@ -425,7 +671,7 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     }
     if parts.indexes {
         for ix in &t.indexes {
-            out.push(index_ddl(&table, ix, parts.if_exists)?);
+            out.push(index_ddl(&table, ix, parts.if_exists, flavor)?);
         }
     }
     Ok(if out.is_empty() {
@@ -776,7 +1022,7 @@ mod tests {
             indexes: true,
             foreign_keys: true,
         };
-        let ddl = table_ddl(&events(), all).unwrap();
+        let ddl = table_ddl(&events(), all, Flavor::Cassandra).unwrap();
         assert_eq!(
             ddl,
             "DROP TABLE IF EXISTS app.\"Events\";\n\
@@ -811,26 +1057,28 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            table_ddl(&t, create).unwrap(),
+            table_ddl(&t, create, Flavor::Cassandra).unwrap(),
             "CREATE TABLE users (\n    id uuid,\n    at timestamp,\n    name text,\n    PRIMARY KEY (id, at)\n);\n"
         );
         t.primary_key = None;
-        assert!(table_ddl(&t, create)
+        assert!(table_ddl(&t, create, Flavor::Cassandra)
             .unwrap_err()
             .to_string()
             .contains("partición"));
         t.columns[0]
             .options
             .insert("partition_key".into(), "true".into());
-        assert!(table_ddl(&t, create).unwrap().contains("PRIMARY KEY (id)"));
+        assert!(table_ddl(&t, create, Flavor::Cassandra)
+            .unwrap()
+            .contains("PRIMARY KEY (id)"));
         // STATIC without clustering columns, STATIC key, both kinds of key.
         t.columns[2].options.insert("static".into(), "true".into());
-        assert!(table_ddl(&t, create).is_err());
+        assert!(table_ddl(&t, create, Flavor::Cassandra).is_err());
         t.columns[2].options.clear();
         t.columns[0]
             .options
             .insert("clustering_key".into(), "true".into());
-        assert!(table_ddl(&t, create).is_err());
+        assert!(table_ddl(&t, create, Flavor::Cassandra).is_err());
     }
 
     #[test]
@@ -842,6 +1090,7 @@ mod tests {
                 indexes: true,
                 ..Default::default()
             },
+            Flavor::Cassandra,
         )
         .unwrap();
         assert_eq!(ix.lines().count(), 2);
@@ -853,7 +1102,8 @@ mod tests {
             DdlParts {
                 indexes: true,
                 ..Default::default()
-            }
+            },
+            Flavor::Cassandra,
         )
         .is_err());
         assert_eq!(index_target("\"Name\""), "\"Name\"");
@@ -868,7 +1118,7 @@ mod tests {
         sai.options.insert("case_sensitive".into(), "false".into());
         sai.options.insert("normalize".into(), "true".into());
         assert_eq!(
-            index_ddl("t", &sai, false).unwrap(),
+            index_ddl("t", &sai, false, Flavor::Cassandra).unwrap(),
             "CREATE INDEX n_sai ON t (name) USING 'sai' WITH OPTIONS = {'case_sensitive': 'false', 'normalize': 'true'};"
         );
         let mut bad = t;
@@ -878,9 +1128,224 @@ mod tests {
             DdlParts {
                 create: true,
                 ..Default::default()
-            }
+            },
+            Flavor::Cassandra,
         )
         .is_err());
+    }
+
+    fn vec_ix(name: &str, cols: &[&str], metric: Option<&str>) -> IndexDef {
+        IndexDef {
+            name: name.into(),
+            columns: cols.iter().map(|c| c.to_string()).collect(),
+            kind: Some("sai".into()),
+            vector: Some(VectorIndex {
+                metric: metric.map(str::to_string),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn vector_indexes_per_engine() {
+        // Cassandra: SAI with the distance as similarity_function.
+        let ix = vec_ix("docs_emb", &["emb"], Some("ip"));
+        assert_eq!(
+            index_ddl("ks.docs", &ix, false, Flavor::Cassandra).unwrap(),
+            "CREATE INDEX docs_emb ON ks.docs (emb) USING 'sai' WITH OPTIONS = {'similarity_function': 'DOT_PRODUCT'};"
+        );
+        // No metric: the engine's default (COSINE), nothing written.
+        assert_eq!(
+            index_ddl("t", &vec_ix("i", &["v"], None), true, Flavor::Cassandra).unwrap(),
+            "CREATE INDEX IF NOT EXISTS i ON t (v) USING 'sai';"
+        );
+        // ScyllaDB: a custom vector_index, with its graph settings and
+        // filter columns; options it doesn't have are left out.
+        let mut sc = vec_ix("docs_emb", &["emb", "Lang"], Some("l2"));
+        let v = sc.vector.as_mut().unwrap();
+        v.params.insert("m".into(), "24".into());
+        v.params.insert("ef_construction".into(), "200".into());
+        v.params.insert("quantization".into(), "i8".into());
+        v.params.insert("search_beam_width".into(), "64".into());
+        v.params.insert("source_model".into(), "ADA002".into());
+        assert_eq!(
+            index_ddl("ks.docs", &sc, false, Flavor::Scylla).unwrap(),
+            "CREATE CUSTOM INDEX docs_emb ON ks.docs (emb, \"Lang\") USING 'vector_index' WITH OPTIONS = {'similarity_function': 'EUCLIDEAN', 'construction_beam_width': '200', 'maximum_node_connections': '24', 'quantization': 'i8', 'search_beam_width': '64'};"
+        );
+        // A local index (partition columns first).
+        let mut local = vec_ix("l", &["emb"], None);
+        local.options.insert("pk".into(), "tenant, Day".into());
+        assert_eq!(
+            index_ddl("t", &local, false, Flavor::Scylla).unwrap(),
+            "CREATE CUSTOM INDEX l ON t ((tenant, \"Day\"), emb) USING 'vector_index';"
+        );
+        // Cassandra keeps its own graph settings, not ScyllaDB's.
+        let c = index_ddl("t", &sc, false, Flavor::Cassandra);
+        assert!(c.unwrap_err().to_string().contains("una sola columna"));
+        sc.columns.truncate(1);
+        assert_eq!(
+            index_ddl("t", &sc, false, Flavor::Cassandra).unwrap(),
+            "CREATE INDEX docs_emb ON t (emb) USING 'sai' WITH OPTIONS = {'similarity_function': 'EUCLIDEAN', 'construction_beam_width': '200', 'maximum_node_connections': '24', 'source_model': 'ADA002'};"
+        );
+        // A distance CQL doesn't have, and Keyspaces.
+        let e = index_ddl(
+            "t",
+            &vec_ix("i", &["v"], Some("hamming")),
+            false,
+            Flavor::Cassandra,
+        );
+        assert!(e.unwrap_err().to_string().contains("hamming"));
+        assert!(index_ddl("t", &ix, false, Flavor::Keyspaces).is_err());
+        let mut u = ix.clone();
+        u.unique = true;
+        assert!(index_ddl("t", &u, false, Flavor::Cassandra).is_err());
+    }
+
+    #[test]
+    fn vector_index_options_read_back() {
+        let opts = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        // What system_schema.indexes keeps (target and class_name aside).
+        let (v, rest) = vector_of(opts(&[
+            ("similarity_function", "DOT_PRODUCT"),
+            ("maximum_node_connections", "12"),
+            ("construction_beam_width", "90"),
+            ("search_beam_width", "64"),
+            ("index_version", "b9e5bd00-e425-11f1-93fd-6faaa0439a7d"),
+            ("pk", "g"),
+        ]));
+        assert_eq!(v.metric.as_deref(), Some("ip"));
+        assert_eq!(v.algorithm, None);
+        assert_eq!(
+            v.params,
+            opts(&[
+                ("ef_construction", "90"),
+                ("m", "12"),
+                ("search_beam_width", "64")
+            ])
+        );
+        assert_eq!(rest, opts(&[("pk", "g")]));
+        // No similarity_function: COSINE, the engines' default.
+        let (v, rest) = vector_of(BTreeMap::new());
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        assert!(v.params.is_empty() && rest.is_empty());
+        // Round trip: what is read is what is written.
+        let ix = IndexDef {
+            name: "i".into(),
+            columns: vec!["v".into()],
+            kind: Some("vector_index".into()),
+            vector: Some(
+                vector_of(opts(&[
+                    ("similarity_function", "EUCLIDEAN"),
+                    ("quantization", "f16"),
+                    ("rescoring", "true"),
+                ]))
+                .0,
+            ),
+            ..Default::default()
+        };
+        assert_eq!(
+            index_ddl("t", &ix, false, Flavor::Scylla).unwrap(),
+            "CREATE CUSTOM INDEX i ON t (v) USING 'vector_index' WITH OPTIONS = {'similarity_function': 'EUCLIDEAN', 'quantization': 'f16', 'rescoring': 'true'};"
+        );
+        assert_eq!(metric_of("Cosine"), "cosine");
+        assert_eq!(metric_of("WHATEVER"), "whatever");
+    }
+
+    #[test]
+    fn the_designer_offers_vectors() {
+        let c = designer("cassandra");
+        assert!(c.data_types.contains(&"vector<float, 3>"));
+        let v = c.vector_indexes.unwrap();
+        assert_eq!(v.metrics, ["cosine", "l2", "ip"]);
+        assert!(v.params.is_empty() && !v.filter_columns && v.algorithms.is_empty());
+        let s = designer("scylladb");
+        assert!(s.data_types.contains(&"vector<float, 3>"));
+        let v = s.vector_indexes.unwrap();
+        assert!(v.filter_columns);
+        let keys: Vec<&str> = v.params.iter().map(|p| p.key).collect();
+        assert_eq!(
+            keys,
+            [
+                "m",
+                "ef_construction",
+                "search_beam_width",
+                "quantization",
+                "oversampling",
+                "rescoring"
+            ]
+        );
+        let k = designer("keyspaces");
+        assert!(k.vector_indexes.is_none());
+        assert!(!k.data_types.iter().any(|t| t.starts_with("vector")));
+    }
+
+    /// A table with a vector column and its index, as the designer makes it.
+    #[test]
+    fn a_vector_table_from_the_designer() {
+        let t = TableSchema {
+            name: "docs".into(),
+            schema: Some("ks".into()),
+            columns: vec![
+                col("id", "int", &[("partition_key", "true")]),
+                col("body", "text", &[]),
+                col("emb", "vector<float, 3>", &[]),
+            ],
+            indexes: vec![vec_ix("docs_emb", &["emb"], Some("cosine"))],
+            ..Default::default()
+        };
+        let all = DdlParts {
+            create: true,
+            indexes: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            table_ddl(&t, all, Flavor::Cassandra).unwrap(),
+            "CREATE TABLE ks.docs (\n    id int,\n    body text,\n    emb vector<float, 3>,\n    PRIMARY KEY (id)\n);\n\
+             CREATE INDEX docs_emb ON ks.docs (emb) USING 'sai' WITH OPTIONS = {'similarity_function': 'COSINE'};\n"
+        );
+        assert!(table_ddl(&t, all, Flavor::Scylla)
+            .unwrap()
+            .contains("CREATE CUSTOM INDEX docs_emb ON ks.docs (emb) USING 'vector_index' WITH OPTIONS = {'similarity_function': 'COSINE'};"));
+    }
+
+    /// A vector edited in the grid comes as a JSON array: INSERT JSON and
+    /// fromJson take it as it is.
+    #[test]
+    fn vectors_in_scripts_are_json_arrays() {
+        let target = ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: Some("ks".into()),
+            name: "docs".into(),
+        };
+        let s = insert_script(
+            &target,
+            &["id".to_string(), "emb".into()],
+            &[vec![Value::from(1), serde_json::json!([0.1, -2.0, 3.5])]],
+        )
+        .unwrap();
+        assert_eq!(
+            s,
+            "INSERT INTO ks.docs JSON '{\"id\":1,\"emb\":[0.1,-2.0,3.5]}';\n"
+        );
+        let u = update_script(
+            &target,
+            &[RowChange {
+                key: vec![("id".into(), Value::from(1))],
+                set: vec![("emb".into(), serde_json::json!([1, 2.5, 3]))],
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            u,
+            "UPDATE ks.docs SET emb = fromJson('[1,2.5,3]') WHERE id = fromJson('1');\n"
+        );
     }
 
     #[test]

@@ -5,6 +5,7 @@
 
 use crate::cql::{ident, qualified};
 use crate::ddl::{index_ddl, is_true, keys, table_ddl, table_options};
+use crate::Flavor;
 use dbine_driver::{ColumnDef, DdlParts, IndexDef, Result, SyncScript, TableChange, TableSchema};
 
 const CREATE: DdlParts = DdlParts {
@@ -61,6 +62,7 @@ fn ix_same(a: &IndexDef, b: &IndexDef) -> bool {
         && a.unique == b.unique
         && kind(&a.kind) == kind(&b.kind)
         && a.options == b.options
+        && a.vector == b.vector
 }
 
 /// Partition key, and the clustering columns with their order (descending?).
@@ -82,17 +84,18 @@ fn key_shape(t: &TableSchema) -> Result<KeyShape> {
     ))
 }
 
-pub fn sync_script(keyspaces: bool, changes: &[TableChange]) -> Result<SyncScript> {
+pub fn sync_script(flavor: Flavor, changes: &[TableChange]) -> Result<SyncScript> {
+    let keyspaces = flavor == Flavor::Keyspaces;
     let mut p = Plan::default();
     for ch in changes {
         match ch {
             TableChange::Create { table } => {
-                p.creates.push(table_ddl(table, CREATE)?);
+                p.creates.push(table_ddl(table, CREATE, flavor)?);
                 if !table.indexes.is_empty() {
                     if keyspaces {
                         p.warnings.push(format!("Amazon Keyspaces no tiene índices secundarios: los índices de {} no se crean.", display(table)));
                     } else {
-                        p.creates.push(table_ddl(table, INDEXES)?);
+                        p.creates.push(table_ddl(table, INDEXES, flavor)?);
                     }
                 }
             }
@@ -101,9 +104,9 @@ pub fn sync_script(keyspaces: bool, changes: &[TableChange]) -> Result<SyncScrip
                     "Se borra la tabla {} con todos sus datos.",
                     display(table)
                 ));
-                p.drop_tables.push(table_ddl(table, DROP)?);
+                p.drop_tables.push(table_ddl(table, DROP, flavor)?);
             }
-            TableChange::Alter { old, new } => alter_table(keyspaces, old, new, &mut p)?,
+            TableChange::Alter { old, new } => alter_table(flavor, old, new, &mut p)?,
         }
     }
     let statements = [p.drop_tables, p.pre, p.columns, p.post, p.creates]
@@ -118,7 +121,8 @@ pub fn sync_script(keyspaces: bool, changes: &[TableChange]) -> Result<SyncScrip
     })
 }
 
-fn alter_table(keyspaces: bool, old: &TableSchema, new: &TableSchema, p: &mut Plan) -> Result<()> {
+fn alter_table(flavor: Flavor, old: &TableSchema, new: &TableSchema, p: &mut Plan) -> Result<()> {
+    let keyspaces = flavor == Flavor::Keyspaces;
     let schema = new.schema.as_deref().filter(|s| !s.is_empty());
     let name = qualified(schema, &new.name);
     let tname = display(new);
@@ -189,7 +193,7 @@ fn alter_table(keyspaces: bool, old: &TableSchema, new: &TableSchema, p: &mut Pl
     } else {
         p.pre.extend(drop_ix);
         for ix in new_ix {
-            p.post.push(index_ddl(&name, ix, false)?);
+            p.post.push(index_ddl(&name, ix, false, flavor)?);
         }
     }
 
@@ -327,7 +331,7 @@ mod tests {
         new.indexes = vec![ix("users_email", "Email"), ix("users_name", "name")];
         new.options
             .insert("default_time_to_live".into(), "3600".into());
-        let s = sync_script(false, &[TableChange::Alter { old, new }]).unwrap();
+        let s = sync_script(Flavor::Cassandra, &[TableChange::Alter { old, new }]).unwrap();
         assert_eq!(
             s.statements,
             vec![
@@ -347,13 +351,65 @@ mod tests {
         );
     }
 
+    /// A vector index whose distance changed is made again with the new
+    /// one, on each engine's syntax; an equal one is left alone.
+    #[test]
+    fn vector_index_changes() {
+        let vix = |metric: &str| IndexDef {
+            name: "users_emb".into(),
+            columns: vec!["emb".into()],
+            kind: Some("sai".into()),
+            vector: Some(dbine_driver::VectorIndex {
+                metric: Some(metric.into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let mut old = table(
+            vec![col("id", "uuid"), col("emb", "vector<float, 3>")],
+            &["id"],
+        );
+        old.indexes = vec![vix("cosine")];
+        let same = sync_script(
+            Flavor::Cassandra,
+            &[TableChange::Alter {
+                old: old.clone(),
+                new: old.clone(),
+            }],
+        )
+        .unwrap();
+        assert!(same.statements.is_empty(), "{:?}", same.statements);
+        let mut new = old.clone();
+        new.indexes = vec![vix("ip")];
+        let s = sync_script(
+            Flavor::Cassandra,
+            &[TableChange::Alter {
+                old: old.clone(),
+                new: new.clone(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            [
+                "DROP INDEX ks.users_emb;",
+                "CREATE INDEX users_emb ON ks.users (emb) USING 'sai' WITH OPTIONS = {'similarity_function': 'DOT_PRODUCT'};"
+            ]
+        );
+        let s = sync_script(Flavor::Scylla, &[TableChange::Create { table: new }]).unwrap();
+        assert_eq!(
+            s.statements[1],
+            "CREATE CUSTOM INDEX users_emb ON ks.users (emb) USING 'vector_index' WITH OPTIONS = {'similarity_function': 'DOT_PRODUCT'};"
+        );
+    }
+
     #[test]
     fn table_comment_set_changed_and_removed() {
         let old = table(vec![col("id", "uuid")], &["id"]);
         let mut new = old.clone();
         new.options.insert("comment".into(), "it's users".into());
         let s = sync_script(
-            false,
+            Flavor::Cassandra,
             &[TableChange::Alter {
                 old: old.clone(),
                 new: new.clone(),
@@ -364,7 +420,11 @@ mod tests {
             s.statements,
             ["ALTER TABLE ks.users WITH comment = 'it''s users';"]
         );
-        let s = sync_script(false, &[TableChange::Alter { old: new, new: old }]).unwrap();
+        let s = sync_script(
+            Flavor::Cassandra,
+            &[TableChange::Alter { old: new, new: old }],
+        )
+        .unwrap();
         assert_eq!(s.statements, ["ALTER TABLE ks.users WITH comment = '';"]);
         assert!(s.warnings.is_empty(), "{:?}", s.warnings);
     }
@@ -379,7 +439,7 @@ mod tests {
             vec![col("id", "uuid"), col("ts", "timestamp"), col("v", "text")],
             &["id", "ts"],
         );
-        let s = sync_script(false, &[TableChange::Alter { old, new }]).unwrap();
+        let s = sync_script(Flavor::Cassandra, &[TableChange::Alter { old, new }]).unwrap();
         assert!(s.statements.is_empty());
         assert_eq!(
             s.warnings,
@@ -396,7 +456,7 @@ mod tests {
             ..table(vec![col("id", "int")], &["id"])
         };
         let s = sync_script(
-            false,
+            Flavor::Cassandra,
             &[
                 TableChange::Create { table: t.clone() },
                 TableChange::Drop { table: gone },
@@ -416,7 +476,7 @@ mod tests {
             vec!["Se borra la tabla ks.legacy con todos sus datos."]
         );
 
-        let s = sync_script(true, &[TableChange::Create { table: t }]).unwrap();
+        let s = sync_script(Flavor::Keyspaces, &[TableChange::Create { table: t }]).unwrap();
         assert_eq!(s.statements.len(), 1);
         assert_eq!(s.warnings, vec!["Amazon Keyspaces no tiene índices secundarios: los índices de ks.users no se crean."]);
     }

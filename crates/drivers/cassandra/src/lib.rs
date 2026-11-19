@@ -276,6 +276,9 @@ impl Driver for CassandraDriver {
             // No CQL ends another client's query or connection.
             processes: processes::unsupported_reason(self.flavor).is_none(),
             database_properties: true,
+            // `vector<float, n>` with SAI (Cassandra 5) or `vector_index`
+            // (ScyllaDB); Keyspaces has no vector type.
+            vectors: self.flavor != Flavor::Keyspaces,
             ..Default::default()
         }
     }
@@ -289,7 +292,7 @@ impl Driver for CassandraDriver {
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
-        ddl::table_ddl(table, parts)
+        ddl::table_ddl(table, parts, self.flavor)
     }
 
     fn supports_schema_sync(&self) -> bool {
@@ -305,7 +308,7 @@ impl Driver for CassandraDriver {
         &self,
         changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
-        sync::sync_script(self.flavor == Flavor::Keyspaces, changes)
+        sync::sync_script(self.flavor, changes)
     }
 
     /// Primary key columns only (see [`rename`]).
@@ -1132,10 +1135,12 @@ impl CassandraSession {
                 out.begin_result(
                     rows.column_specs()
                         .iter()
-                        .map(|c| ResultColumn {
-                            name: c.name().to_string(),
-                            type_name: type_name(c.typ()),
-                            vector: None,
+                        .map(|c| {
+                            let col = ResultColumn::new(c.name(), type_name(c.typ()));
+                            match value::vector_meta(c.typ()) {
+                                Some(m) => col.with_vector(m),
+                                None => col,
+                            }
                         })
                         .collect(),
                 );
@@ -1203,6 +1208,10 @@ impl CassandraSession {
                 for (k, v) in m {
                     if matches!(k, CqlValue::Text(k) if k == "target") {
                         if let CqlValue::Text(t) = v {
+                            if let Some((cols, _)) = json_target(t) {
+                                keys.indexed.extend(cols);
+                                continue;
+                            }
                             // `values(tags)`, `"Name"`, `full(x)`…
                             let t = t
                                 .rsplit('(')
@@ -1218,6 +1227,40 @@ impl CassandraSession {
         }
         Ok(Some(keys))
     }
+}
+
+/// A ScyllaDB vector index's target as `system_schema.indexes` keeps it
+/// when the index has filter or partition columns
+/// (`{"tc":"v","fc":["a"],"pk":["g"]}`): the vector column with the filter
+/// columns after it, and a local index's partition columns. `None` for a
+/// plain target (`v`, `"V"`, `values(tags)`…).
+pub(crate) fn json_target(target: &str) -> Option<(Vec<String>, Vec<String>)> {
+    let t = target.trim();
+    if !t.starts_with('{') {
+        return None;
+    }
+    let j: serde_json::Value = serde_json::from_str(t).ok()?;
+    let list = |k: &str| -> Vec<String> {
+        j.get(k)
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let mut columns = vec![j.get("tc")?.as_str()?.to_string()];
+    columns.extend(list("fc"));
+    Some((columns, list("pk")))
+}
+
+/// The column a plain index target names (`v`, `"V"` → `V`).
+fn unquote_target(target: &str) -> &str {
+    let t = target.trim();
+    t.strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(t)
 }
 
 /// `frozen<list<…>>`, `frozen<set<…>>` or `frozen<map<…>>`.
@@ -1627,7 +1670,27 @@ impl DbSession for CassandraSession {
                 Some(c) => Some(c),
                 None => None,
             };
+            let mut options: BTreeMap<String, String> = map_entries(r, 3)
+                .into_iter()
+                .filter(|(k, _)| k != "target" && k != "class_name")
+                .collect();
             let mut target = map_value(r, 3, "target").unwrap_or_default();
+            // A ScyllaDB vector index with filter or partition columns.
+            if let Some((columns, pk)) = json_target(&target) {
+                if !pk.is_empty() {
+                    options.insert("pk".into(), pk.join(", "));
+                }
+                let (v, rest) = ddl::vector_of(options);
+                t.indexes.push(IndexDef {
+                    name: text(r, 1),
+                    columns,
+                    kind,
+                    options: rest,
+                    vector: Some(v),
+                    ..Default::default()
+                });
+                continue;
+            }
             // Scylla reports an index on a set's values as `keys(col)`,
             // which its own CREATE INDEX refuses for sets.
             if let Some(col) = target
@@ -1655,11 +1718,19 @@ impl DbSession for CassandraSession {
                 }
             }
             // The rest of the map is the index's `WITH OPTIONS` (SAI's
-            // case_sensitive / normalize / similarity_function, SASI's mode…).
-            let options = map_entries(r, 3)
-                .into_iter()
-                .filter(|(k, _)| k != "target" && k != "class_name")
-                .collect();
+            // case_sensitive / normalize, SASI's mode…); a vector index's
+            // distance and graph settings are its `vector`.
+            let on_vector = t.columns.iter().any(|c| {
+                c.name == unquote_target(&target) && c.data_type.trim().starts_with("vector<")
+            });
+            let vector_kind = matches!(kind.as_deref(), Some("sai" | "vector_index"));
+            let vector = if on_vector && vector_kind {
+                let (v, rest) = ddl::vector_of(std::mem::take(&mut options));
+                options = rest;
+                Some(v)
+            } else {
+                None
+            };
             t.indexes.push(IndexDef {
                 name: text(r, 1),
                 columns: vec![target],
@@ -1667,6 +1738,7 @@ impl DbSession for CassandraSession {
                 kind,
                 filter: None,
                 options,
+                vector,
                 ..Default::default()
             });
         }
@@ -1986,6 +2058,21 @@ mod tests {
         );
         assert_eq!(position("line 3:0 mismatched input"), Some((3, 0)));
         assert_eq!(position("Undefined column name nope"), None);
+    }
+
+    #[test]
+    fn scylla_vector_targets() {
+        assert_eq!(
+            json_target(r#"{"tc":"v","fc":["id","Lang"]}"#),
+            Some((vec!["v".into(), "id".into(), "Lang".into()], vec![]))
+        );
+        assert_eq!(
+            json_target(r#"{"tc":"v","pk":["g"]}"#),
+            Some((vec!["v".into()], vec!["g".into()]))
+        );
+        assert_eq!(json_target("v"), None);
+        assert_eq!(json_target("values(tags)"), None);
+        assert_eq!(unquote_target("\"Emb\""), "Emb");
     }
 
     #[test]

@@ -57,10 +57,16 @@ pub(crate) fn assemble(columns: &[Column], indexes: &[IndexRow]) -> Vec<IndexUsa
         });
     }
     for (name, kind, target, class) in indexes {
+        // A ScyllaDB vector index with filter columns: the vector column,
+        // then them.
+        let key_columns = match crate::json_target(target) {
+            Some((columns, _)) => columns,
+            None => vec![target.trim_matches('"').to_string()],
+        };
         out.push(IndexUsage {
             name: name.clone(),
             kind: kind_of(kind, class.as_deref()),
-            key_columns: vec![target.trim_matches('"').to_string()],
+            key_columns,
             ..Default::default()
         });
     }
