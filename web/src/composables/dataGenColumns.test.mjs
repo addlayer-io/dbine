@@ -17,14 +17,15 @@ export async function resolve(spec, ctx, next) {
 }`));
 const { autoOf, generatorOptions, paramsOf, sampleVectorOf, sentSpecs, unclassifiedVector } = await import('./dataGenColumns.ts');
 
-const col = (name, data_type, auto) => ({ name, data_type, auto, nullable: true, primary_key: false, auto_increment: false, foreign_key: null });
+const col = (name, data_type, auto, vector) => ({ name, data_type, auto, nullable: true, primary_key: false, auto_increment: false, foreign_key: null, ...(vector === undefined ? {} : { vector }) });
 const auto = (extra = {}) => ({ generator: 'auto', params: {}, null_percent: 0, ...extra });
 const specsOf = (cols, over = {}) => Object.fromEntries(cols.map((c) => [c.name, over[c.name] ?? auto()]));
 
 // pgvector: the backend reads `vector(1536)` and picks the vector generator.
 const PG = [col('id', 'int8', 'sequence'), col('titulo', 'text', 'text'), col('embedding', 'vector(1536)', 'vector')];
-// A Redis search index as the driver describes it: the backend's catalog
-// doesn't read `VECTOR(3, FLOAT32)` (its "auto" picks decimals on 'float').
+// A Redis search index as an older backend described it: its catalog didn't
+// read `VECTOR(3, FLOAT32)` (its "auto" picked decimals on 'float') and the
+// columns came without their vector.
 const REDIS = [col('id', 'key', 'text'), col('title', 'TEXT', 'text'), col('embedding', 'VECTOR(3, FLOAT32)', 'decimal')];
 
 test("a vector the backend doesn't read as one is filled with vectors of its type's dimensions", () => {
@@ -100,4 +101,51 @@ test('the sample shows vectors by the type, else where the backend fills them wi
   assert.deepEqual(sampleVectorOf(col('r', 'array', 'fixed'), auto()), { meta: null, shown: null });
   assert.deepEqual(sampleVectorOf(PG[1], auto()), { meta: null, shown: null });
   assert.deepEqual(sampleVectorOf(undefined, undefined), { meta: null, shown: null });
+});
+
+// The backend says each vector column's vector (`vector`): the dialog goes
+// by it before the type's name.
+test("the backend's vector comes first", () => {
+  // A Redis search index as the backend describes it now: its INT8 field
+  // is a vector of 3 bytes, filled by the backend's "auto".
+  const i8 = { dims: 3, element: 'i8' };
+  const NEW = [col('id', 'key', 'text'), col('title', 'TEXT', 'text'), col('emb', 'VECTOR(3, INT8)', 'vector', i8)];
+  assert.equal(unclassifiedVector(NEW[2]), null);
+  assert.equal(autoOf(NEW[2]), 'vector');
+  // Left to "auto": nothing to send; chosen by hand, its dims go along.
+  assert.deepEqual(sentSpecs(NEW, specsOf(NEW)), []);
+  assert.deepEqual(sentSpecs(NEW, specsOf(NEW, { emb: auto({ generator: 'vector' }) })), [
+    { name: 'emb', generator: 'vector', params: { dims: '3' }, null_percent: 0 },
+  ]);
+  assert.deepEqual(paramsOf(NEW[2], auto({ generator: 'vector' })), []);
+  // The sample shows its bytes as a vector of its element.
+  assert.deepEqual(sampleVectorOf(NEW[2], auto()), { meta: i8, shown: i8 });
+  assert.deepEqual(generatorOptions(['text', 'vector'], NEW), ['auto', 'text', 'vector']);
+
+  // A type whose name the dialog doesn't read: the backend's dims fix it.
+  const doc = col('resumen', 'array', 'vector', { dims: 8, element: 'f32' });
+  assert.deepEqual(paramsOf(doc, auto({ generator: 'vector' })), []);
+  assert.deepEqual(sentSpecs([doc], { resumen: auto({ generator: 'vector' }) }), [
+    { name: 'resumen', generator: 'vector', params: { dims: '8' }, null_percent: 0 },
+  ]);
+  assert.deepEqual(sampleVectorOf(doc, auto()), { meta: { dims: 8, element: 'f32' }, shown: { dims: 8, element: 'f32' } });
+
+  // A vector the backend reads, though its "auto" isn't the vector one
+  // (a foreign key's values, an identity): the backend's call.
+  const fk = col('ref', 'vector(3)', 'fk', { dims: 3, element: 'f32' });
+  assert.equal(unclassifiedVector(fk), null);
+  assert.equal(autoOf(fk), 'fk');
+  assert.deepEqual(sentSpecs([fk], specsOf([fk])), []);
+  assert.deepEqual(generatorOptions(['text'], [fk]), ['auto', 'text']);
+
+  // A sparse vector: shown in its engine's text, never sent as dense.
+  const sp = { dims: 5, element: 'f32', sparse: true };
+  const sparse = col('terms', 'sparsevec(5)', 'vector', sp);
+  assert.equal(unclassifiedVector(sparse), null);
+  assert.deepEqual(sampleVectorOf(sparse, auto()), { meta: sp, shown: sp });
+
+  // A null vector (as JSON may say "none") falls back to the type.
+  const old = col('emb', 'VECTOR(3, FLOAT32)', 'decimal', null);
+  assert.deepEqual(unclassifiedVector(old), { dims: 3, element: 'f32' });
+  assert.equal(autoOf(old), 'vector');
 });

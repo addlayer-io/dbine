@@ -981,6 +981,27 @@ pub struct PreviewColumn {
     pub auto_increment: bool,
     pub foreign_key: Option<String>,
     pub auto: String,
+    /// The vectors the column holds (dense or sparse), as its type reads on
+    /// the table's engine; the dialog goes by it before the type's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector: Option<VectorMeta>,
+}
+
+impl PreviewColumn {
+    /// A column as the dialog gets it: what the catalog says, its foreign
+    /// key's label, what "auto" picks and its vectors.
+    fn of(m: &Meta, p: &Plan, fk_labels: &BTreeMap<String, String>) -> Self {
+        PreviewColumn {
+            name: m.info.name.clone(),
+            data_type: m.info.data_type.clone(),
+            nullable: m.info.nullable,
+            primary_key: m.info.primary_key,
+            auto_increment: m.info.auto_increment,
+            foreign_key: fk_labels.get(&m.info.name).cloned(),
+            auto: p.auto.get(&m.info.name).cloned().unwrap_or_default(),
+            vector: m.vector.clone(),
+        }
+    }
 }
 
 /// The table's columns, its single-column unique keys, and each foreign
@@ -1082,15 +1103,7 @@ pub async fn datagen_preview(
         let sample = rows(&mut p, &mut rng, 1, args.rows.clamp(1, 20), &mut seen);
         let table_columns = metas
             .iter()
-            .map(|m| PreviewColumn {
-                name: m.info.name.clone(),
-                data_type: m.info.data_type.clone(),
-                nullable: m.info.nullable,
-                primary_key: m.info.primary_key,
-                auto_increment: m.info.auto_increment,
-                foreign_key: fk_labels.get(&m.info.name).cloned(),
-                auto: p.auto.get(&m.info.name).cloned().unwrap_or_default(),
-            })
+            .map(|m| PreviewColumn::of(m, &p, &fk_labels))
             .collect();
         Ok(Preview {
             table_columns,
@@ -1436,6 +1449,31 @@ mod tests {
         let plain = meta("name", "varchar(10)", false);
         assert!(!offered(std::slice::from_ref(&plain)).contains(&"vector"));
         assert!(offered(&[plain, m]).contains(&"vector"));
+    }
+
+    /// Each column goes to the dialog with its vector, as its type reads on
+    /// the engine (dims and numbers); the others go without one.
+    #[test]
+    fn the_dialog_gets_each_columns_vector() {
+        let mut rng = Rng::new(Some(13));
+        let mut e8 = meta("e8", "VECTOR(16, INT8)", false);
+        e8.vector = Some(VectorMeta::dense(Some(16), VectorElement::I8));
+        let mut s = meta("terms", "sparsevec(5)", false);
+        s.vector = Some(VectorMeta::sparse(Some(5), VectorElement::F32));
+        let metas = [meta("id", "int", true), meta("title", "text", false), e8, s];
+        let p = plan(&metas, &[], &mut rng).unwrap();
+        let cols: Vec<Value> = metas
+            .iter()
+            .map(|m| serde_json::to_value(PreviewColumn::of(m, &p, &BTreeMap::new())).unwrap())
+            .collect();
+        assert_eq!(cols[2]["vector"], json!({"dims": 16, "element": "i8"}));
+        assert_eq!(cols[2]["auto"], json!("vector"));
+        assert_eq!(
+            cols[3]["vector"],
+            json!({"dims": 5, "element": "f32", "sparse": true})
+        );
+        assert!(cols[0].get("vector").is_none() && cols[1].get("vector").is_none());
+        assert_eq!(cols[1]["auto"], json!("text"));
     }
 
     /// A Redis (Valkey, Dragonfly) search index's vector field, read as

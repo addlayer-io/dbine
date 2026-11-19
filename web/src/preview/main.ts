@@ -270,9 +270,9 @@ function addDocView() {
 
 // view=datagen&set=vectors: "Generar datos de prueba…" of a table with a
 // vector column, over a fake sample. &table=redis: a Redis search index,
-// whose `VECTOR(3, FLOAT32)` field the backend's catalog doesn't read as a
-// vector ("auto" picks decimals), answered as datagen_preview does for what
-// it's sent. `window.__dgCalls`: the columns each preview was sent;
+// whose `VECTOR(3, FLOAT32)` field an older backend didn't read as a vector
+// (no `vector` with the column, "auto" picks decimals), answered as
+// datagen_preview does for what it's sent. `window.__dgCalls`: the columns each preview was sent;
 // `window.__dgRuns`: what "Generar" sent (datagen_run, answered at once).
 function dataGenView() {
   let cb = 0;
