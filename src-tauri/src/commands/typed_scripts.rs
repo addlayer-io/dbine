@@ -205,6 +205,95 @@ pub(crate) mod tests {
         }
     }
 
+    /// A real driver whose script methods also note, as [`Recorder`] does,
+    /// which one ran and with what types: a path that runs its scripts
+    /// (a subset into SQLite) is checked for the typed calls it makes.
+    pub(crate) struct Spy {
+        pub(crate) inner: &'static std::sync::Arc<dyn Driver>,
+        pub(crate) rec: Recorder,
+    }
+
+    impl Spy {
+        pub(crate) fn new(inner: &'static std::sync::Arc<dyn Driver>) -> Spy {
+            Spy {
+                inner,
+                rec: Recorder::default(),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Driver for Spy {
+        fn info(&self) -> &dbine_driver::DriverInfo {
+            self.inner.info()
+        }
+        async fn connect(
+            &self,
+            cfg: &dbine_driver::ConnectionConfig,
+            database: Option<&str>,
+        ) -> dbine_driver::Result<Box<dyn dbine_driver::Session>> {
+            self.inner.connect(cfg, database).await
+        }
+        fn data_load_wrap(&self, table: &dbine_driver::TableSchema) -> (String, String) {
+            self.inner.data_load_wrap(table)
+        }
+        fn script_separator(&self) -> &'static str {
+            self.inner.script_separator()
+        }
+        fn insert_script(
+            &self,
+            target: &ObjectRef,
+            columns: &[String],
+            rows: &[Vec<Value>],
+        ) -> dbine_driver::Result<String> {
+            self.rec.insert_script(target, columns, rows)?;
+            self.inner.insert_script(target, columns, rows)
+        }
+        fn insert_script_typed(
+            &self,
+            target: &ObjectRef,
+            columns: &[ResultColumn],
+            rows: &[Vec<Value>],
+        ) -> dbine_driver::Result<String> {
+            self.rec.insert_script_typed(target, columns, rows)?;
+            self.inner.insert_script_typed(target, columns, rows)
+        }
+        fn update_script(
+            &self,
+            target: &ObjectRef,
+            changes: &[RowChange],
+        ) -> dbine_driver::Result<String> {
+            self.rec.update_script(target, changes)?;
+            self.inner.update_script(target, changes)
+        }
+        fn update_script_typed(
+            &self,
+            target: &ObjectRef,
+            changes: &[RowChange],
+            types: &[ResultColumn],
+        ) -> dbine_driver::Result<String> {
+            self.rec.update_script_typed(target, changes, types)?;
+            self.inner.update_script_typed(target, changes, types)
+        }
+        fn delete_script(
+            &self,
+            target: &ObjectRef,
+            keys: &[Vec<(String, Value)>],
+        ) -> dbine_driver::Result<String> {
+            self.rec.delete_script(target, keys)?;
+            self.inner.delete_script(target, keys)
+        }
+        fn delete_script_typed(
+            &self,
+            target: &ObjectRef,
+            keys: &[Vec<(String, Value)>],
+            types: &[ResultColumn],
+        ) -> dbine_driver::Result<String> {
+            self.rec.delete_script_typed(target, keys, types)?;
+            self.inner.delete_script_typed(target, keys, types)
+        }
+    }
+
     pub(crate) fn table(name: &str) -> ObjectRef {
         ObjectRef {
             kind: "table".into(),

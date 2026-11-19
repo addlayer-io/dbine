@@ -92,8 +92,13 @@ pub(crate) fn insert_script_with(
     state: &AppState,
     args: &InsertScriptArgs,
 ) -> CommandResult<String> {
+    insert_script_for(driver_of(state, &args.connection_id)?.as_ref(), args)
+}
+
+/// [`insert_script_with`] on its connection's `driver`.
+fn insert_script_for(driver: &dyn Driver, args: &InsertScriptArgs) -> CommandResult<String> {
     Ok(typed_scripts::insert(
-        driver_of(state, &args.connection_id)?.as_ref(),
+        driver,
         &args.target,
         &args.columns,
         &args.types,
@@ -152,11 +157,15 @@ pub(crate) fn update_script_with(
     state: &AppState,
     args: &UpdateScriptArgs,
 ) -> CommandResult<String> {
-    let driver = driver_of(state, &args.connection_id)?;
+    update_script_for(driver_of(state, &args.connection_id)?.as_ref(), args)
+}
+
+/// [`update_script_with`] on its connection's `driver`.
+fn update_script_for(driver: &dyn Driver, args: &UpdateScriptArgs) -> CommandResult<String> {
     let types = &args.types;
     if args.deletes.is_none() && args.inserts.is_none() {
         return Ok(typed_scripts::update(
-            driver.as_ref(),
+            driver,
             &args.target,
             &args.changes,
             types,
@@ -164,16 +173,11 @@ pub(crate) fn update_script_with(
     }
     let mut parts = Vec::new();
     if let Some(deletes) = &args.deletes {
-        parts.push(typed_scripts::delete(
-            driver.as_ref(),
-            &args.target,
-            deletes,
-            types,
-        )?);
+        parts.push(typed_scripts::delete(driver, &args.target, deletes, types)?);
     }
     if !args.changes.is_empty() {
         parts.push(typed_scripts::update(
-            driver.as_ref(),
+            driver,
             &args.target,
             &args.changes,
             types,
@@ -181,7 +185,7 @@ pub(crate) fn update_script_with(
     }
     if let Some(inserts) = &args.inserts {
         parts.extend(super::data_compare::new_rows_parts(
-            driver.as_ref(),
+            driver,
             &args.target,
             inserts,
             &args.identity,
@@ -550,5 +554,75 @@ mod tests {
             .starts_with("DROP TABLE"));
         assert_eq!(drop_of("postgres", "index"), None);
         assert_eq!(drop_of("postgres", "extension"), None);
+    }
+
+    /// The grid's copy and save: with the result's types, every part of
+    /// the script (deletes, updates, new rows, and a copied INSERT) goes to
+    /// the driver's typed method with them; without types, the untyped
+    /// methods, as older callers get.
+    #[test]
+    fn the_grids_scripts_are_typed_by_the_results_columns() {
+        use crate::commands::typed_scripts::tests::{table, Recorder};
+        use dbine_driver::{VectorElement, VectorMeta};
+        use serde_json::json;
+        let rec = Recorder::default();
+        let types = vec![
+            ResultColumn::new("id", "int4"),
+            ResultColumn::new("emb", "halfvec(2)")
+                .with_vector(VectorMeta::dense(Some(2), VectorElement::F16)),
+        ];
+        let change = RowChange {
+            key: vec![("id".into(), json!(1))],
+            set: vec![("emb".into(), json!([1.0, 2.0]))],
+            row: vec![],
+        };
+        let save = |types: Vec<ResultColumn>, deletes: bool, inserts: bool| UpdateScriptArgs {
+            connection_id: String::new(),
+            target: table("t"),
+            changes: vec![change.clone()],
+            deletes: deletes.then(|| vec![vec![("id".to_string(), json!(2))]]),
+            inserts: inserts.then(|| vec![vec![("emb".to_string(), json!([3.0, 4.0]))]]),
+            identity: vec![],
+            columns: vec![],
+            types,
+        };
+        let kinds = |calls: &[(String, Vec<ResultColumn>)]| -> Vec<String> {
+            calls.iter().map(|c| c.0.clone()).collect()
+        };
+        let sig = |cols: &[ResultColumn]| -> Vec<(String, String, Option<VectorMeta>)> {
+            cols.iter()
+                .map(|c| (c.name.clone(), c.type_name.clone(), c.vector.clone()))
+                .collect()
+        };
+        update_script_for(&rec, &save(types.clone(), true, true)).unwrap();
+        let calls = rec.take();
+        assert_eq!(
+            kinds(&calls),
+            ["delete_typed", "update_typed", "insert_typed"]
+        );
+        for (what, cols) in &calls[..2] {
+            assert_eq!(sig(cols), sig(&types), "{what}");
+        }
+        assert_eq!(sig(&calls[2].1), sig(&types[1..]));
+        // Only edits (an older UI's save): the typed update alone.
+        update_script_for(&rec, &save(types.clone(), false, false)).unwrap();
+        assert_eq!(kinds(&rec.take()), ["update_typed"]);
+        // No types: untyped, every part.
+        update_script_for(&rec, &save(vec![], true, true)).unwrap();
+        assert_eq!(kinds(&rec.take()), ["delete", "update", "insert"]);
+
+        // "Copiar como INSERT".
+        let copy = |types: Vec<ResultColumn>| InsertScriptArgs {
+            connection_id: String::new(),
+            target: table("t"),
+            columns: vec!["id".into(), "emb".into()],
+            rows: vec![vec![json!(1), json!([1.0, 2.0])]],
+            types,
+        };
+        insert_script_for(&rec, &copy(types.clone())).unwrap();
+        insert_script_for(&rec, &copy(vec![])).unwrap();
+        let calls = rec.take();
+        assert_eq!(kinds(&calls), ["insert_typed", "insert"]);
+        assert_eq!(sig(&calls[0].1), sig(&types));
     }
 }

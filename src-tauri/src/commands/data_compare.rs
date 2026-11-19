@@ -1500,6 +1500,17 @@ fn side_script(
         .config;
     let driver = dbine_drivers::find(&cfg.driver)
         .ok_or_else(|| CommandError::BadRequest(format!("no hay driver '{}'", cfg.driver)))?;
+    side_script_on(driver.as_ref(), d, to_right, plan)
+}
+
+/// [`side_script`] in the target's `driver`.
+fn side_script_on(
+    driver: &dyn dbine_driver::Driver,
+    d: &Diff,
+    to_right: bool,
+    plan: Plan<'_>,
+) -> CommandResult<DataScript> {
+    let target = if to_right { &d.right } else { &d.left };
     // The target's column names.
     let names: Vec<String> = d
         .columns
@@ -1525,7 +1536,7 @@ fn side_script(
     if !plan.delete.is_empty() {
         let keys: Vec<Vec<(String, Value)>> = plan.delete.iter().map(|r| key_of(r)).collect();
         parts.push(typed_scripts::delete(
-            driver.as_ref(),
+            driver,
             &target.object,
             &keys,
             &types,
@@ -1545,7 +1556,7 @@ fn side_script(
             })
             .collect();
         parts.push(typed_scripts::update(
-            driver.as_ref(),
+            driver,
             &target.object,
             &changes,
             &types,
@@ -1558,7 +1569,7 @@ fn side_script(
             &d.left_identity
         };
         parts.extend(insert_parts(
-            driver.as_ref(),
+            driver,
             &target.object,
             &names,
             &types,
@@ -1566,7 +1577,7 @@ fn side_script(
             &plan.insert.iter().map(|r| typed_row(r)).collect::<Vec<_>>(),
         )?);
     }
-    let (script, statements) = assemble(driver.as_ref(), parts);
+    let (script, statements) = assemble(driver, parts);
     Ok(DataScript {
         connection_id: target.connection_id.clone(),
         database: target.database.clone(),
@@ -1724,8 +1735,8 @@ fn assemble(driver: &dyn dbine_driver::Driver, parts: Vec<String>) -> (String, u
 mod tests {
     use super::{
         as_bool, as_number, assemble, canon, insert_parts, is_bool_type, is_number_type,
-        new_rows_parts, plans, rows_of, script_value, write_as, ChangedRow, Choices,
-        DataCompareArgs, DataRowsArgs, Diff, Dir, Pick, RowKind, Side, SHOWN,
+        new_rows_parts, plans, rows_of, script_value, side_script_on, write_as, ChangedRow,
+        Choices, DataCompareArgs, DataRowsArgs, Diff, Dir, Pick, RowKind, Side, SHOWN,
     };
     use dbine_driver::filter::{ColumnFilter, FilterOp};
     use dbine_driver::SortKey;
@@ -2084,6 +2095,64 @@ mod tests {
         assert_eq!(kinds, ["insert_typed", "insert_typed", "insert"]);
         assert_eq!(calls[0].1[0].type_name, "halfvec(2)");
         assert_eq!(calls[1].1[0].type_name, "int");
+    }
+
+    /// A sync's deletes, updates and inserts each go to the target driver's
+    /// typed method, with the target side's columns and vectors; a side
+    /// whose types aren't known gets the untyped methods, as before.
+    #[test]
+    fn a_sides_script_is_typed_in_every_part() {
+        use crate::commands::typed_scripts::tests::Recorder;
+        let mut d = diff(false);
+        d.columns.push(("v".into(), "V".into()));
+        for r in d.only_left.iter_mut().chain(&mut d.only_right).chain(
+            d.changed
+                .iter_mut()
+                .flat_map(|c| [&mut c.left, &mut c.right]),
+        ) {
+            r.push(json!("[1,2]"));
+        }
+        d.left_types.push("vector(2)".into());
+        d.right_types.push("halfvec(2)".into());
+        let f16_2 = VectorMeta::dense(Some(2), VectorElement::F16);
+        d.left_vectors = vec![
+            None,
+            None,
+            Some(VectorMeta::dense(Some(2), VectorElement::F32)),
+        ];
+        d.right_vectors = vec![None, None, Some(f16_2.clone())];
+        let everything = Choices {
+            changed: pick(Dir::Right),
+            only_left: pick(Dir::Right),
+            only_right: pick(Dir::Right),
+        };
+        let rec = Recorder::default();
+        let (right, _) = plans(&d, &everything).unwrap();
+        let s = side_script_on(&rec, &d, true, right).unwrap();
+        assert_eq!((s.deletes, s.updates, s.inserts), (1, 1, 1));
+        let calls = rec.take();
+        let kinds: Vec<&str> = calls.iter().map(|c| c.0.as_str()).collect();
+        assert_eq!(kinds, ["delete_typed", "update_typed", "insert_typed"]);
+        for (what, cols) in &calls {
+            let named: Vec<(&str, &str)> = cols
+                .iter()
+                .map(|c| (c.name.as_str(), c.type_name.as_str()))
+                .collect();
+            assert_eq!(
+                named,
+                [("id", "int"), ("a", "text"), ("V", "halfvec(2)")],
+                "{what}"
+            );
+            assert_eq!(cols[2].vector, Some(f16_2.clone()), "{what}");
+        }
+
+        // Neither types nor vectors known on the target: untyped.
+        d.right_types = vec![];
+        d.right_vectors = vec![];
+        let (right, _) = plans(&d, &everything).unwrap();
+        side_script_on(&rec, &d, true, right).unwrap();
+        let kinds: Vec<String> = rec.take().into_iter().map(|c| c.0).collect();
+        assert_eq!(kinds, ["delete", "update", "insert"]);
     }
 
     /// BigQuery's `ARRAY<FLOAT64>`, which its catalog types as an array but

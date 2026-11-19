@@ -2871,6 +2871,72 @@ mod tests {
     use dbine_core::{SavedConnection, StateStore};
     use dbine_driver::ConnectionConfig;
 
+    /// A migration's insert-script path is typed by the target: each
+    /// column's type as the target describes it (the job's expected
+    /// columns), with the vector that type holds on the target's engine.
+    /// The transfer's default would give the names and types only.
+    #[test]
+    fn a_migrations_scripts_are_typed_by_the_target() {
+        let pg = dbine_drivers::find("postgres").unwrap().clone();
+        let e = MigrationEndpoints {
+            state: AppState::new(StateStore::open_in_memory().unwrap()),
+            run_id: "t".into(),
+            source: ("src".into(), String::new()),
+            target: ("tgt".into(), String::new()),
+            source_driver: pg.clone(),
+            target_driver: pg,
+            seq: AtomicU64::new(0),
+        };
+        let col = |name: &str, ty: &str| TransferColumn {
+            name: name.into(),
+            type_name: ty.into(),
+            nullable: true,
+        };
+        let expected = vec![col("id", "integer"), col("emb", "vector(3)")];
+        let types = e.column_types(&expected);
+        let named: Vec<(&str, &str)> = types
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_name.as_str()))
+            .collect();
+        assert_eq!(named, [("id", "integer"), ("emb", "vector(3)")]);
+        assert!(types[0].vector.is_none());
+        assert_eq!(types[1].vector.as_ref().and_then(|m| m.dims), Some(3));
+        let table = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "t".into(),
+        };
+        let job = TransferJob {
+            name: "t".into(),
+            source: ReadSpec {
+                table: table.clone(),
+                columns: None,
+                filter: None,
+            },
+            target: LoadSpec {
+                table,
+                columns: vec!["id".into(), "emb".into()],
+                table_lock: false,
+                keep_identity: false,
+                commit_rows: LoadSpec::DEFAULT_COMMIT_ROWS,
+                commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
+            },
+            row_estimate: None,
+            truncate: None,
+            empty_first: false,
+            before: String::new(),
+            after: String::new(),
+            post: vec![],
+            preexisting: false,
+            expected_columns: expected,
+            vector_columns: vec!["emb".into()],
+            mode: TransferMode::Copy,
+        };
+        let by_job = e.job_types(&job);
+        assert_eq!(by_job.len(), 2);
+        assert_eq!(by_job[1].vector, types[1].vector);
+    }
+
     /// kdb+ empties a table in place: dropping and recreating it from the
     /// clone's column-less schema used to leave it without columns.
     #[test]
