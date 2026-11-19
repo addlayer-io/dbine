@@ -261,27 +261,40 @@ async fn fresh_database(
     cfg: &ConnectionConfig,
     cockroach: bool,
 ) -> Box<dyn Session> {
-    drop_database(d, cfg, cockroach).await;
+    fresh_named(d, cfg, cockroach, DB).await
+}
+
+async fn fresh_named(
+    d: &dyn Driver,
+    cfg: &ConnectionConfig,
+    cockroach: bool,
+    db: &str,
+) -> Box<dyn Session> {
+    drop_named(d, cfg, cockroach, db).await;
     let mut admin = d.connect(cfg, None).await.expect("connect");
-    run(&mut admin, &format!("CREATE DATABASE {DB}")).await;
+    run(&mut admin, &format!("CREATE DATABASE {db}")).await;
     drop(admin);
-    d.connect(cfg, Some(DB))
+    d.connect(cfg, Some(db))
         .await
         .expect("connect to the test database")
 }
 
 async fn drop_database(d: &dyn Driver, cfg: &ConnectionConfig, cockroach: bool) {
+    drop_named(d, cfg, cockroach, DB).await
+}
+
+async fn drop_named(d: &dyn Driver, cfg: &ConnectionConfig, cockroach: bool, db: &str) {
     let Ok(mut admin) = d.connect(cfg, None).await else {
         return;
     };
     let sql = if cockroach {
-        format!("DROP DATABASE IF EXISTS {DB} CASCADE")
+        format!("DROP DATABASE IF EXISTS {db} CASCADE")
     } else {
-        format!("DROP DATABASE IF EXISTS {DB} WITH (FORCE)")
+        format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)")
     };
     if let Err(e) = try_run(&mut admin, &sql).await {
         // Servers before PostgreSQL 13 (or forks) without WITH (FORCE).
-        let plain = format!("DROP DATABASE IF EXISTS {DB}");
+        let plain = format!("DROP DATABASE IF EXISTS {db}");
         if let Err(e2) = try_run(&mut admin, &plain).await {
             eprintln!("cleanup: {e} / {e2}");
         }
@@ -670,4 +683,397 @@ async fn cloudberry_vectors() {
 #[ignore]
 async fn opengauss_vectors() {
     pgvector_round_trip("opengauss", "DBINE_TEST_OPENGAUSS_URL", None).await;
+}
+
+// ------------------------------------------------------------ CockroachDB
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn cockroach_vectors() {
+    let Ok(url) = std::env::var("DBINE_TEST_COCKROACH_URL") else {
+        eprintln!("DBINE_TEST_COCKROACH_URL not set; skipping");
+        return;
+    };
+    let cfg = parse_url("cockroachdb", &url);
+    let d = driver("cockroachdb");
+    assert!(d.capabilities().vectors);
+    let spec = d.designer().unwrap();
+    assert_eq!(spec.vector_indexes.as_ref().unwrap().algorithms, ["cspann"]);
+    assert!(spec.data_types.contains(&"VECTOR(1536)"));
+    let mut s = fresh_database(&*d, &cfg, true).await;
+    let body = async {
+        // 1. A table with two vector indexes, one with a prefix column; a
+        // pgvector-spelled type (halfvec) comes out as VECTOR.
+        let t = table(
+            "public",
+            "items",
+            vec![
+                col("id", "INT8", false),
+                col("uid", "INT8", true),
+                col("v", "VECTOR(3)", true),
+                col("h", "halfvec(3)", true),
+            ],
+            vec![
+                vindex("ix_v", &["v"], None, metric::COSINE, &[]),
+                vindex(
+                    "ix_vu",
+                    &["v", "uid"],
+                    Some("cspann"),
+                    metric::L2,
+                    &[("min_partition_size", "16"), ("max_partition_size", "128")],
+                ),
+                // pgvector's HNSW from a PostgreSQL schema: C-SPANN, without
+                // HNSW's parameters.
+                vindex("ix_h", &["h"], Some("hnsw"), metric::IP, &[("m", "16")]),
+            ],
+        );
+        let ddl = d.table_ddl(&t, ALL).unwrap();
+        eprintln!("{ddl}");
+        assert!(ddl.contains("\"h\" VECTOR(3)"), "{ddl}");
+        assert!(ddl.contains("CREATE VECTOR INDEX \"ix_vu\" ON \"public\".\"items\" (\"uid\", \"v\" vector_l2_ops) WITH (max_partition_size=128, min_partition_size=16);"), "{ddl}");
+        for st in ddl.split(";\n") {
+            run(&mut s, st).await;
+        }
+        // 2. Rows.
+        let target = obj("public", "items");
+        let cols: Vec<String> = ["id", "uid", "v", "h"].map(String::from).to_vec();
+        let rows = vec![
+            vec![json!(1), json!(7), json!([1, 2.5, -3]), json!([1, 0, 0])],
+            vec![json!(2), json!(7), json!([0.5, 0, 1]), json!([0, 1, 0])],
+            vec![json!(3), json!(8), json!([-1, -1, -1]), json!([0, 0, 1])],
+        ];
+        run(&mut s, &d.insert_script(&target, &cols, &rows).unwrap()).await;
+        // 3. Read back.
+        let out = run(&mut s, "SELECT id, v FROM public.items ORDER BY id").await;
+        let r = &out.results[0];
+        assert_eq!(r.columns[1].type_name, "vector(3)");
+        assert_eq!(
+            r.columns[1].vector,
+            Some(VectorMeta::dense(Some(3), VectorElement::F32))
+        );
+        assert_eq!(r.rows[0][1], json!("[1,2.5,-3]"));
+        let browse = s.browse_query(&target, 10);
+        let out = run(&mut s, &browse).await;
+        assert!(out.results[0]
+            .columns
+            .iter()
+            .any(|c| c.name == "v" && c.vector.is_some()));
+        // 4. Describe.
+        let read = read_table(&mut s, "public", "items").await;
+        assert_eq!(column(&read, "v").data_type, "vector(3)");
+        assert_eq!(column(&read, "h").data_type, "vector(3)");
+        // 5. The vector indexes (pg_am says `prefix`; they are C-SPANN).
+        assert_vector_index(index(&read, "ix_v"), "cspann", metric::COSINE, &[]);
+        let vu = index(&read, "ix_vu");
+        assert_vector_index(
+            vu,
+            "cspann",
+            metric::L2,
+            &[("min_partition_size", "16"), ("max_partition_size", "128")],
+        );
+        assert_eq!(vu.columns, ["v", "uid"]);
+        assert_vector_index(index(&read, "ix_h"), "cspann", metric::IP, &[]);
+        let again = d
+            .table_ddl(
+                &read,
+                DdlParts {
+                    indexes: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert!(again.contains("(\"uid\", \"v\" vector_l2_ops) WITH (max_partition_size=128, min_partition_size=16)"), "{again}");
+        sync_round_trip(&*d, &mut s, &read, "ix_v", metric::L2, "vector_l2_ops").await;
+        let read = read_table(&mut s, "public", "items").await;
+        assert_vector_index(index(&read, "ix_v"), "cspann", metric::L2, &[]);
+        // 6. Similarity, also with the prefix column.
+        let near = cells(
+            &mut s,
+            "SELECT id FROM public.items ORDER BY v <-> '[1,2.5,-3]' LIMIT 1",
+        )
+        .await;
+        assert_eq!(near, [[Some("1".to_string())]]);
+        let near = cells(
+            &mut s,
+            "SELECT id FROM public.items WHERE uid = 8 ORDER BY v <-> '[1,2.5,-3]' LIMIT 1",
+        )
+        .await;
+        assert_eq!(near, [[Some("3".to_string())]]);
+        // 7. An edit.
+        let change = RowChange {
+            key: vec![("id".into(), json!(2))],
+            set: vec![("v".into(), json!([9, 8, 7.5]))],
+            row: Vec::new(),
+        };
+        run(&mut s, &d.update_script(&target, &[change]).unwrap()).await;
+        let got = cells(&mut s, "SELECT v FROM public.items WHERE id = 2").await;
+        assert_eq!(got, [[Some("[9,8,7.5]".into())]]);
+        // 8. A transfer to a copy (CockroachDB has no bulk load: INSERTs).
+        let mut copy = t.clone();
+        copy.name = "items_copy".into();
+        copy.indexes.clear();
+        run(&mut s, &d.table_ddl(&copy, ALL).unwrap()).await;
+        let mut s2 = d.connect(&cfg, Some(DB)).await.unwrap();
+        let announced = transfer(
+            &mut s,
+            &target,
+            &*d,
+            &mut s2,
+            &obj("public", "items_copy"),
+            &["id", "uid", "v", "h"],
+        )
+        .await;
+        assert_eq!(announced[2].type_name, "vector(3)");
+        let diff = cells(&mut s, "SELECT count(*) FROM (SELECT id, v::STRING, h::STRING FROM public.items EXCEPT SELECT id, v::STRING, h::STRING FROM public.items_copy)").await;
+        assert_eq!(diff, [[Some("0".to_string())]]);
+        drop(s2);
+    };
+    let cleanup = async {
+        drop_database(&*d, &cfg, true).await;
+    };
+    guarded(body, cleanup).await;
+}
+
+// --------------------------------------------------------------- CrateDB
+
+/// The tables the CrateDB test makes (its schema goes with them).
+async fn drop_crate_tables(s: &mut Box<dyn Session>) {
+    for t in ["items", "items_copy"] {
+        if let Err(e) = try_run(s, &format!("DROP TABLE IF EXISTS {DB}.{t}")).await {
+            eprintln!("cleanup: {e}");
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn cratedb_vectors() {
+    let Ok(url) = std::env::var("DBINE_TEST_CRATEDB_URL") else {
+        eprintln!("DBINE_TEST_CRATEDB_URL not set; skipping");
+        return;
+    };
+    let cfg = parse_url("cratedb", &url);
+    let d = driver("cratedb");
+    assert!(d.capabilities().vectors);
+    // FLOAT_VECTOR is indexed (HNSW) by being declared: no index to make.
+    let spec = d.designer().unwrap();
+    assert!(spec.vector_indexes.is_none());
+    assert!(spec.data_types.contains(&"FLOAT_VECTOR(3)"));
+    let mut s = d.connect(&cfg, None).await.expect("connect");
+    drop_crate_tables(&mut s).await;
+    let mut s2 = d.connect(&cfg, None).await.expect("connect");
+    let body = async {
+        // 1. The table; a vector index (from a PostgreSQL schema) adds
+        // nothing, and a pgvector type comes out as FLOAT_VECTOR.
+        let t = table(
+            DB,
+            "items",
+            vec![col("id", "INTEGER", false), col("v", "vector(3)", true)],
+            vec![vindex("ix_v", &["v"], Some("hnsw"), metric::COSINE, &[])],
+        );
+        let ddl = d.table_ddl(&t, ALL).unwrap();
+        eprintln!("{ddl}");
+        assert!(ddl.contains("\"v\" FLOAT_VECTOR(3)"), "{ddl}");
+        assert!(!ddl.contains("INDEX"), "{ddl}");
+        run(&mut s, &ddl).await;
+        // 2. Rows: vectors as array literals.
+        let target = obj(DB, "items");
+        let cols: Vec<String> = ["id", "v"].map(String::from).to_vec();
+        let rows = vec![
+            vec![json!(1), json!([1, 2.5, -3])],
+            vec![json!(2), json!([0.5, 0, 1])],
+            vec![json!(3), json!([-1, -1, -1])],
+        ];
+        let ins = d.insert_script(&target, &cols, &rows).unwrap();
+        assert!(ins.contains("[1,2.5,-3]") && !ins.contains("'[1"), "{ins}");
+        run(&mut s, &ins).await;
+        run(&mut s, &format!("REFRESH TABLE {DB}.items")).await;
+        // 3. Read back: real[] on the wire, a vector to DBine.
+        let out = run(&mut s, &format!("SELECT id, v FROM {DB}.items ORDER BY id")).await;
+        let r = &out.results[0];
+        assert_eq!(r.columns[1].type_name, "float_vector(3)");
+        assert_eq!(
+            r.columns[1].vector,
+            Some(VectorMeta::dense(Some(3), VectorElement::F32))
+        );
+        assert_eq!(r.rows[0][1], json!("[1,2.5,-3]"));
+        assert_eq!(r.rows[1][1], json!("[0.5,0,1]"));
+        let browse = s.browse_query(&target, 10);
+        let out = run(&mut s, &browse).await;
+        assert!(out.results[0]
+            .columns
+            .iter()
+            .any(|c| c.name == "v" && c.vector.is_some()));
+        // 4. Describe.
+        let read = read_table(&mut s, DB, "items").await;
+        assert_eq!(column(&read, "v").data_type, "FLOAT_VECTOR(3)");
+        // 5. No index object: the column's own HNSW.
+        assert!(read.indexes.iter().all(|i| i.vector.is_none()));
+        // 6. Similarity.
+        let near = cells(&mut s, &format!("SELECT id FROM {DB}.items WHERE knn_match(v, [1, 2.5, -3], 1) ORDER BY _score DESC LIMIT 1")).await;
+        assert_eq!(near, [[Some("1".to_string())]]);
+        // 7. An edit.
+        let change = RowChange {
+            key: vec![("id".into(), json!(2))],
+            set: vec![("v".into(), json!([9, 8, 7.5]))],
+            row: Vec::new(),
+        };
+        run(&mut s, &d.update_script(&target, &[change]).unwrap()).await;
+        run(&mut s, &format!("REFRESH TABLE {DB}.items")).await;
+        let out = run(&mut s, &format!("SELECT v FROM {DB}.items WHERE id = 2")).await;
+        assert_eq!(out.results[0].rows[0][0], json!("[9,8,7.5]"));
+        // 8. A transfer to a copy (no bulk load: INSERTs with array literals).
+        let mut copy = t.clone();
+        copy.name = "items_copy".into();
+        run(&mut s, &d.table_ddl(&copy, ALL).unwrap()).await;
+        let announced = transfer(
+            &mut s,
+            &target,
+            &*d,
+            &mut s2,
+            &obj(DB, "items_copy"),
+            &["id", "v"],
+        )
+        .await;
+        assert_eq!(announced[1].type_name, "FLOAT_VECTOR(3)");
+        run(&mut s, &format!("REFRESH TABLE {DB}.items_copy")).await;
+        let a = run(&mut s, &format!("SELECT id, v FROM {DB}.items ORDER BY id")).await;
+        let b = run(
+            &mut s,
+            &format!("SELECT id, v FROM {DB}.items_copy ORDER BY id"),
+        )
+        .await;
+        assert_eq!(a.results[0].rows, b.results[0].rows);
+    };
+    let cleanup = async {
+        let mut c = d.connect(&cfg, None).await.expect("connect");
+        drop_crate_tables(&mut c).await;
+    };
+    guarded(body, cleanup).await;
+}
+
+// ------------------------------------------------- between the engines
+
+/// pgvector → CockroachDB → pgvector and pgvector → CrateDB → pgvector:
+/// the vectors arrive whole each way (bulk load into PostgreSQL, INSERTs
+/// with each target's literal into the others).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn transfers_between_engines() {
+    let (Ok(pg_url), Ok(crdb_url), Ok(crate_url)) = (
+        std::env::var("DBINE_TEST_PGVECTOR_URL"),
+        std::env::var("DBINE_TEST_COCKROACH_URL"),
+        std::env::var("DBINE_TEST_CRATEDB_URL"),
+    ) else {
+        eprintln!("DBINE_TEST_PGVECTOR_URL, DBINE_TEST_COCKROACH_URL or DBINE_TEST_CRATEDB_URL not set; skipping");
+        return;
+    };
+    const X: &str = "dbine_vec_x";
+    let (pgd, crdbd, crated) = (driver("postgres"), driver("cockroachdb"), driver("cratedb"));
+    let (pgc, crdbc, cratec) = (
+        parse_url("postgres", &pg_url),
+        parse_url("cockroachdb", &crdb_url),
+        parse_url("cratedb", &crate_url),
+    );
+    let mut pg = fresh_named(&*pgd, &pgc, false, X).await;
+    let mut crdb = fresh_named(&*crdbd, &crdbc, true, X).await;
+    let mut cr = crated.connect(&cratec, None).await.unwrap();
+    let _ = try_run(&mut cr, &format!("DROP TABLE IF EXISTS {X}.dst")).await;
+    let body = async {
+        run(&mut pg, "CREATE EXTENSION IF NOT EXISTS vector").await;
+        let vec_cols = |v: &str, h: &str| {
+            vec![
+                col("id", "integer", false),
+                col("v", v, true),
+                col("h", h, true),
+            ]
+        };
+        for (name, cols) in [
+            ("src", vec_cols("vector(3)", "halfvec(3)")),
+            ("from_crdb", vec_cols("vector(3)", "halfvec(3)")),
+            ("from_crate", vec_cols("vector(3)", "halfvec(3)")),
+        ] {
+            run(
+                &mut pg,
+                &pgd.table_ddl(&table("public", name, cols, vec![]), ALL)
+                    .unwrap(),
+            )
+            .await;
+        }
+        // The PostgreSQL table as it is, created on the others (a schema
+        // conversion within the family keeps the types as they are).
+        let src_schema = read_table(&mut pg, "public", "src").await;
+        let mut on_crdb = src_schema.clone();
+        on_crdb.name = "dst".into();
+        run(&mut crdb, &crdbd.table_ddl(&on_crdb, ALL).unwrap()).await;
+        let mut on_crate = src_schema.clone();
+        on_crate.schema = Some(X.into());
+        on_crate.name = "dst".into();
+        run(&mut cr, &crated.table_ddl(&on_crate, ALL).unwrap()).await;
+        run(&mut pg, "INSERT INTO public.src VALUES (1, '[1,2.5,-3]', '[1,2,3]'), (2, '[0.125,-0,1e-3]', '[0.5,0,1]'), (3, NULL, NULL)").await;
+        let cols = ["id", "v", "h"];
+        let mut pg2 = pgd.connect(&pgc, Some(X)).await.unwrap();
+        // pgvector → CockroachDB → pgvector.
+        transfer(
+            &mut pg,
+            &obj("public", "src"),
+            &*crdbd,
+            &mut crdb,
+            &obj("public", "dst"),
+            &cols,
+        )
+        .await;
+        let mut crdb2 = crdbd.connect(&crdbc, Some(X)).await.unwrap();
+        transfer(
+            &mut crdb2,
+            &obj("public", "dst"),
+            &*pgd,
+            &mut pg2,
+            &obj("public", "from_crdb"),
+            &cols,
+        )
+        .await;
+        // pgvector → CrateDB → pgvector.
+        let mut cr2 = crated.connect(&cratec, None).await.unwrap();
+        transfer(
+            &mut pg,
+            &obj("public", "src"),
+            &*crated,
+            &mut cr,
+            &obj(X, "dst"),
+            &cols,
+        )
+        .await;
+        run(&mut cr, &format!("REFRESH TABLE {X}.dst")).await;
+        let out = run(&mut cr, &format!("SELECT v, h FROM {X}.dst WHERE id = 1")).await;
+        assert_eq!(
+            out.results[0].rows[0],
+            vec![json!("[1,2.5,-3]"), json!("[1,2,3]")]
+        );
+        transfer(
+            &mut cr2,
+            &obj(X, "dst"),
+            &*pgd,
+            &mut pg2,
+            &obj("public", "from_crate"),
+            &cols,
+        )
+        .await;
+        for back in ["from_crdb", "from_crate"] {
+            // By value: -0 and 0 are the same number (JSON says `-0` and
+            // reads it as 0).
+            let diff = cells(&mut pg, &format!("SELECT count(*) FROM (SELECT id, v, h FROM public.src EXCEPT SELECT id, v, h FROM public.{back}) x")).await;
+            assert_eq!(diff, [[Some("0".to_string())]], "{back}");
+            let n = cells(&mut pg, &format!("SELECT count(*) FROM public.{back}")).await;
+            assert_eq!(n, [[Some("3".to_string())]], "{back}");
+        }
+    };
+    let cleanup = async {
+        drop_named(&*pgd, &pgc, false, X).await;
+        drop_named(&*crdbd, &crdbc, true, X).await;
+        if let Ok(mut c) = crated.connect(&cratec, None).await {
+            let _ = try_run(&mut c, &format!("DROP TABLE IF EXISTS {X}.dst")).await;
+        }
+    };
+    guarded(body, cleanup).await;
 }
