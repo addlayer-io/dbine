@@ -1,17 +1,19 @@
 # libSQL / Turso vector search (docs.turso.tech/features/ai-and-embeddings),
-# checked against sqld 0.24. These come only from the server's own list
-# (pragma_function_list, and pragma_module_list for vector_top_k): plain
-# SQLite has none of them, so the file gives their argument names and no
-# versions.
-s vector(text) -> blob
-s vector32(text) -> blob
-s vector64(text) -> blob
-s vector16(text) -> blob
-s vectorb16(text) -> blob
-s vector8(text) -> blob
-s vector1bit(text) -> blob
-s vector_extract(vector) -> text
-s vector_distance_cos(a, b) -> real
-s vector_distance_l2(a, b) -> real
-s libsql_vector_idx(column, setting, ...)
-t vector_top_k(index, vector, k)
+# checked against sqld 0.24. Where the server lists its functions
+# (pragma_function_list, and pragma_module_list for vector_top_k) this file
+# gives their argument names; where it doesn't (a host that restricts
+# pragmas), the libSQL driver offers them from here. Plain SQLite has none
+# of them. libSQL reports its SQLite base as the version: vector search came
+# in libSQL releases on SQLite 3.45.1, so since=3.45.1 (a lower bound).
+s vector(text) -> blob since=3.45.1
+s vector32(text) -> blob since=3.45.1
+s vector64(text) -> blob since=3.45.1
+s vector16(text) -> blob since=3.45.1
+s vectorb16(text) -> blob since=3.45.1
+s vector8(text) -> blob since=3.45.1
+s vector1bit(text) -> blob since=3.45.1
+s vector_extract(vector) -> text since=3.45.1
+s vector_distance_cos(a, b) -> real since=3.45.1
+s vector_distance_l2(a, b) -> real since=3.45.1
+s libsql_vector_idx(column, setting, ...) since=3.45.1
+t vector_top_k(index, vector, k) since=3.45.1

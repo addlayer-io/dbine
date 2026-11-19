@@ -503,7 +503,7 @@ impl Session for LibsqlSession {
                     .and_then(|row| row.first())
                     .and_then(text)
                     .unwrap_or_default();
-                Ok(sqlite_functions::fallback(&version))
+                Ok(sqlite_functions::libsql_fallback(&version))
             }
         }
     }

@@ -110,6 +110,14 @@ pub fn fallback(version: &str) -> Vec<FunctionInfo> {
     parse_catalog(shared::SQLITE, Some(version))
 }
 
+/// The same on a libSQL server (one that restricts the pragma): SQLite's
+/// catalog and libSQL's vector functions, for its `version`.
+pub fn libsql_fallback(version: &str) -> Vec<FunctionInfo> {
+    let mut out = fallback(version);
+    out.extend(parse_catalog(LIBSQL, Some(version)));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +138,33 @@ mod tests {
             entries += 1;
         }
         assert!(entries > 150, "{entries}");
+    }
+
+    #[test]
+    fn libsql_without_the_pragma_keeps_its_vector_functions() {
+        let c = libsql_fallback("3.47.0");
+        for n in [
+            "vector32",
+            "vector_extract",
+            "vector_distance_cos",
+            "vector_top_k",
+        ] {
+            assert!(c.iter().any(|f| f.name == n), "{n}");
+        }
+        assert!(c.iter().any(|f| f.name == "abs"));
+        let top = c.iter().find(|f| f.name == "vector_top_k").unwrap();
+        assert_eq!(top.kind, FunctionKind::Table);
+        // A libSQL older than its vector search, and plain SQLite.
+        assert!(!libsql_fallback("3.44.0")
+            .iter()
+            .any(|f| f.name == "vector32"));
+        assert!(!fallback("3.47.0").iter().any(|f| f.name == "vector32"));
+        // Every line of the file reads.
+        let entries = LIBSQL
+            .lines()
+            .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
+            .count();
+        assert_eq!(parse_catalog(LIBSQL, None).len(), entries);
     }
 
     #[test]
