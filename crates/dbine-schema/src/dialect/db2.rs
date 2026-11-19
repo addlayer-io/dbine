@@ -489,6 +489,7 @@ impl Dialect for Db2 {
                 128
             },
             case: IdentCase::Upper,
+            vector_indexes: true,
         }
     }
 }
@@ -1202,6 +1203,6 @@ mod tests {
             .native
             .starts_with("VECTOR"));
         // No vector indexes in Db2.
-        assert!(luw.vector_index(&VectorIndex::default()).is_err());
+        assert!(luw.vector_index(&VectorIndex::default(), None).is_err());
     }
 }

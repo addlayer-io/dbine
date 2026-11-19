@@ -153,6 +153,7 @@ impl Dialect for Manticore {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
         let m = v.metric.as_deref().unwrap_or(metric::L2);
@@ -189,6 +190,7 @@ impl Dialect for Manticore {
             max_identifier: 64,
             // Names are case-insensitive and kept in lower case.
             case: IdentCase::Lower,
+            vector_indexes: true,
         }
     }
 

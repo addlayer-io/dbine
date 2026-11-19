@@ -118,6 +118,10 @@ pub struct IndexUsage {
     /// Derived: how healthy that ratio is (`None` without seeks or scans).
     #[serde(default)]
     pub seek_health: Option<SeekHealth>,
+    /// Set for a vector (similarity search) index: its algorithm, metric
+    /// and build parameters, as in [`crate::IndexDef::vector`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector: Option<crate::vector::VectorIndex>,
 }
 
 /// How an index is read: mostly by seeks (good) or by scans (bad).

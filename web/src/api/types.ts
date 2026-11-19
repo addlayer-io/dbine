@@ -210,6 +210,8 @@ export interface IndexUsage {
   seek_ratio?: number | null;
   /** good ≥ 0.8, warn ≥ 0.5, bad below (columnstore: never bad); null without seeks or scans. */
   seek_health?: 'good' | 'warn' | 'bad' | null;
+  /** Set for a vector (similarity search) index: algorithm, metric and build parameters. */
+  vector?: import('./schema-types').VectorIndex;
 }
 
 /** A table's indexes, their usage and its foreign keys. */

@@ -632,6 +632,7 @@ impl Dialect for Cql {
             comments: false,
             max_identifier: 48,
             case: IdentCase::Lower,
+            vector_indexes: true,
         }
     }
 
@@ -639,7 +640,11 @@ impl Dialect for Cql {
     /// CQL has. The settings go on as they came (with the source's
     /// algorithm): [`Dialect::finalize`] keeps those the flavor takes and
     /// reports the rest (see `Cql::vector_indexes`).
-    fn vector_index(&self, v: &VectorIndex) -> Result<(Option<String>, VectorIndex), String> {
+    fn vector_index(
+        &self,
+        v: &VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
+    ) -> Result<(Option<String>, VectorIndex), String> {
         if !self.vectors {
             return Err("Amazon Keyspaces no tiene índices vectoriales".into());
         }
@@ -1138,7 +1143,10 @@ mod tests {
             params: params(&[("m", "16"), ("ef_construction", "64"), ("lists", "100")]),
         };
         // The distance is mapped; the settings go on to finalize.
-        let (kind, v) = lookup("cassandra").unwrap().vector_index(&hnsw).unwrap();
+        let (kind, v) = lookup("cassandra")
+            .unwrap()
+            .vector_index(&hnsw, None)
+            .unwrap();
         assert_eq!(kind.as_deref(), Some("sai"));
         assert_eq!(v.metric.as_deref(), Some("cosine"));
         let ix = |kind: &str, v: VectorIndex| dbine_driver::IndexDef {
@@ -1173,7 +1181,10 @@ mod tests {
             &["lists=100", "Cassandra no los tiene"]
         ));
         // ScyllaDB: vector_index with the graph settings it has.
-        let (kind, v) = lookup("scylladb").unwrap().vector_index(&hnsw).unwrap();
+        let (kind, v) = lookup("scylladb")
+            .unwrap()
+            .vector_index(&hnsw, None)
+            .unwrap();
         assert_eq!(kind.as_deref(), Some("vector_index"));
         let (t, r) = finalized(
             "scylladb",
@@ -1196,7 +1207,7 @@ mod tests {
             metric: Some("l2".into()),
             params: params(&[("quantization", "int8")]),
         };
-        let (_, v) = lookup("scylladb").unwrap().vector_index(&q).unwrap();
+        let (_, v) = lookup("scylladb").unwrap().vector_index(&q, None).unwrap();
         let (t, r) = finalized(
             "scylladb",
             vector_table("vector<float, 3>", ix("vector_index", v), false),
@@ -1212,10 +1223,13 @@ mod tests {
         };
         assert!(lookup("cassandra")
             .unwrap()
-            .vector_index(&l1)
+            .vector_index(&l1, None)
             .unwrap_err()
             .contains("l1"));
-        assert!(lookup("keyspaces").unwrap().vector_index(&hnsw).is_err());
+        assert!(lookup("keyspaces")
+            .unwrap()
+            .vector_index(&hnsw, None)
+            .is_err());
     }
 
     /// Within CQL: a ScyllaDB vector_index to Cassandra is an SAI index

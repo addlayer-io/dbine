@@ -132,6 +132,29 @@ pub mod param {
     pub const ALL: &[&str] = &[M, EF_CONSTRUCTION, LISTS, QUANTIZATION];
 }
 
+/// Whether two indexes search the same way: the same algorithm and metric
+/// (case and blanks don't matter) and the same build parameters (keys
+/// without case, values trimmed, empty ones left out). Both `None` is the
+/// same; one vector index and one ordinary index are not.
+pub fn same_index(a: &Option<VectorIndex>, b: &Option<VectorIndex>) -> bool {
+    fn norm(v: &VectorIndex) -> (String, String, Vec<(String, String)>) {
+        let low = |x: &Option<String>| x.as_deref().unwrap_or("").trim().to_lowercase();
+        let mut params: Vec<(String, String)> = v
+            .params
+            .iter()
+            .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_string()))
+            .filter(|(_, v)| !v.is_empty())
+            .collect();
+        params.sort();
+        (low(&v.algorithm), low(&v.metric), params)
+    }
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => norm(a) == norm(b),
+        _ => false,
+    }
+}
+
 /// A vector's numbers as its result / transfer text: a JSON array, each
 /// number written the shortest way that reads back the same. A value that
 /// isn't finite (NaN, ∞) is written `null`.
@@ -532,6 +555,34 @@ mod tests {
         let out = rows_for_scripts(&cols, &rows);
         assert_eq!(out[0], vec![json!(1), json!([1.0, 2.5]), json!("{1:1}/5")]);
         assert_eq!(out[1], rows[1]);
+    }
+
+    #[test]
+    fn indexes_compare_without_case_or_blank_params() {
+        let ix = |alg: &str, metric: &str, params: &[(&str, &str)]| {
+            Some(VectorIndex {
+                algorithm: Some(alg.into()),
+                metric: Some(metric.into()),
+                params: params
+                    .iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect(),
+            })
+        };
+        assert!(same_index(&None, &None));
+        assert!(!same_index(&ix("hnsw", "cosine", &[]), &None));
+        assert!(same_index(
+            &ix("HNSW", " Cosine", &[("M", "16 "), ("lists", "")]),
+            &ix("hnsw", "cosine", &[("m", "16")])
+        ));
+        assert!(!same_index(
+            &ix("hnsw", "cosine", &[]),
+            &ix("hnsw", "l2", &[])
+        ));
+        assert!(!same_index(
+            &ix("hnsw", "cosine", &[("m", "16")]),
+            &ix("hnsw", "cosine", &[("m", "32")])
+        ));
     }
 
     #[test]

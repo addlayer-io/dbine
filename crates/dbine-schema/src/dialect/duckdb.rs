@@ -360,6 +360,7 @@ impl Dialect for DuckDb {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
         let metric = match v.metric.as_deref() {
@@ -482,6 +483,7 @@ impl Dialect for DuckDb {
             comments: true,
             max_identifier: 255,
             case: IdentCase::Preserve,
+            vector_indexes: true,
         }
     }
 }
@@ -544,7 +546,7 @@ mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect(),
         };
-        let (kind, out) = DuckDb.vector_index(&v).unwrap();
+        let (kind, out) = DuckDb.vector_index(&v, None).unwrap();
         assert_eq!(kind.as_deref(), Some("HNSW"));
         assert_eq!(out.algorithm.as_deref(), Some("hnsw"));
         assert_eq!(out.metric.as_deref(), Some("cosine"));
@@ -553,10 +555,13 @@ mod tests {
             [("m".to_string(), "20".to_string())]
         );
         let e = DuckDb
-            .vector_index(&VectorIndex {
-                metric: Some("hamming".into()),
-                ..Default::default()
-            })
+            .vector_index(
+                &VectorIndex {
+                    metric: Some("hamming".into()),
+                    ..Default::default()
+                },
+                None,
+            )
             .unwrap_err();
         assert!(e.contains("hamming"), "{e}");
     }
@@ -586,9 +591,8 @@ mod tests {
             [(&"m".to_string(), &"8".to_string())],
             "the dimension went to the column"
         );
-        assert!(issues
-            .iter()
-            .any(|i| i.code == IssueCode::TypeChanged && i.message.contains("FLOAT[3]")));
+        // The converter takes the index's dimension for the column, so the
+        // array arrives as FLOAT[3] with no change to report.
         // The render's "no dimension" warning is taken back.
         assert!(!issues.iter().any(|i| i.message == NO_DIMS), "{issues:?}");
         let (t, _) = one(ch("Array(BFloat16)", &[("dimensions", "4")]), "clickhouse");

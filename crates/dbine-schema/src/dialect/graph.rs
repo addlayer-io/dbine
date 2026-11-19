@@ -244,6 +244,7 @@ impl Dialect for Cypher {
             comments: false,
             max_identifier: 255,
             case: IdentCase::Preserve,
+            vector_indexes: true,
         }
     }
 
@@ -255,6 +256,7 @@ impl Dialect for Cypher {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
         let keep = |keys: &[&str]| {
@@ -580,6 +582,7 @@ impl Dialect for OrientDb {
             comments: false,
             max_identifier: 128,
             case: IdentCase::Preserve,
+            vector_indexes: true,
         }
     }
 }
@@ -627,11 +630,14 @@ mod tests {
         };
         // pgvector's HNSW on Neo4j: its settings, under Neo4j's names later.
         let (kind, got) = d
-            .vector_index(&v(
-                Some("hnsw"),
-                Some("cosine"),
-                &[("m", "24"), ("ef_construction", "200")],
-            ))
+            .vector_index(
+                &v(
+                    Some("hnsw"),
+                    Some("cosine"),
+                    &[("m", "24"), ("ef_construction", "200")],
+                ),
+                None,
+            )
             .unwrap();
         assert_eq!(kind.as_deref(), Some("VECTOR"));
         assert_eq!(
@@ -643,22 +649,25 @@ mod tests {
             )
         );
         let (_, got) = d
-            .vector_index(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]))
+            .vector_index(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]), None)
             .unwrap();
         assert_eq!(got, v(Some("hnsw"), Some("l2"), &[]));
-        assert!(d.vector_index(&v(None, Some("ip"), &[])).is_err());
+        assert!(d.vector_index(&v(None, Some("ip"), &[]), None).is_err());
         let mg = lookup("memgraph").unwrap();
         assert!(mg
-            .vector_index(&v(None, Some("cosine"), &[]))
+            .vector_index(&v(None, Some("cosine"), &[]), None)
             .unwrap_err()
             .contains("dimensión"));
         let (_, got) = mg
-            .vector_index(&v(None, Some("ip"), &[("dimensions", "3"), ("m", "16")]))
+            .vector_index(
+                &v(None, Some("ip"), &[("dimensions", "3"), ("m", "16")]),
+                None,
+            )
             .unwrap();
         assert_eq!(got, v(None, Some("ip"), &[("dimensions", "3")]));
         assert!(lookup("neptune")
             .unwrap()
-            .vector_index(&v(None, None, &[]))
+            .vector_index(&v(None, None, &[]), None)
             .is_err());
     }
 

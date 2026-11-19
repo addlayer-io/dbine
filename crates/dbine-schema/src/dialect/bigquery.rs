@@ -298,6 +298,7 @@ impl Dialect for BigQuery {
             comments: true,
             max_identifier: 300,
             case: IdentCase::Preserve,
+            vector_indexes: true,
         }
     }
 
@@ -349,6 +350,7 @@ impl Dialect for BigQuery {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
         let metric = match v.metric.as_deref() {
@@ -761,24 +763,27 @@ mod tests {
                 .collect(),
         };
         let (kind, got) = BigQuery
-            .vector_index(&v(
-                Some("hnsw"),
-                Some("cosine"),
-                &[("m", "16"), ("ef_construction", "64")],
-            ))
+            .vector_index(
+                &v(
+                    Some("hnsw"),
+                    Some("cosine"),
+                    &[("m", "16"), ("ef_construction", "64")],
+                ),
+                None,
+            )
             .unwrap();
         assert_eq!(kind.as_deref(), Some("VECTOR"));
         assert_eq!(got, v(Some("ivf"), Some("cosine"), &[]));
         let (_, got) = BigQuery
-            .vector_index(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]))
+            .vector_index(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]), None)
             .unwrap();
         assert_eq!(got, v(Some("ivf"), Some("l2"), &[("lists", "100")]));
         let (_, got) = BigQuery
-            .vector_index(&v(Some("scann"), Some("ip"), &[("lists", "100")]))
+            .vector_index(&v(Some("scann"), Some("ip"), &[("lists", "100")]), None)
             .unwrap();
         assert_eq!(got, v(Some("tree_ah"), Some("ip"), &[]));
         assert!(BigQuery
-            .vector_index(&v(None, Some("hamming"), &[]))
+            .vector_index(&v(None, Some("hamming"), &[]), None)
             .unwrap_err()
             .contains("hamming"));
     }

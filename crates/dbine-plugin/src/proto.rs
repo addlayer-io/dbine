@@ -122,6 +122,10 @@ pub enum Call {
         target: ObjectRef,
         columns: Vec<String>,
         rows: Vec<Vec<Value>>,
+        /// The columns' types, in `columns`' order (empty: untyped; an
+        /// older app sends none).
+        #[serde(default)]
+        types: Vec<dbine_driver::ResultColumn>,
     },
     FilteredBrowse {
         driver: String,
@@ -132,11 +136,17 @@ pub enum Call {
         driver: String,
         target: ObjectRef,
         changes: Vec<RowChange>,
+        /// The target's column types (empty: untyped).
+        #[serde(default)]
+        types: Vec<dbine_driver::ResultColumn>,
     },
     DeleteScript {
         driver: String,
         target: ObjectRef,
         keys: Vec<Vec<(String, Value)>>,
+        /// The target's column types (empty: untyped).
+        #[serde(default)]
+        types: Vec<dbine_driver::ResultColumn>,
     },
     SecurityScript {
         driver: String,

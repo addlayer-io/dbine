@@ -55,6 +55,7 @@ impl Dialect for Couchbase {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
         map_vector_index(
@@ -154,7 +155,7 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
         };
-        let (kind, out) = d.vector_index(&ivf).unwrap();
+        let (kind, out) = d.vector_index(&ivf, None).unwrap();
         assert_eq!((kind, out.algorithm), (None, None));
         assert_eq!(out.metric.as_deref(), Some("l2"));
         assert_eq!(out.params.len(), 1);
@@ -162,6 +163,6 @@ mod tests {
             metric: Some("jaccard".into()),
             ..Default::default()
         };
-        assert!(d.vector_index(&jaccard).is_err());
+        assert!(d.vector_index(&jaccard, None).is_err());
     }
 }

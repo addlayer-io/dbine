@@ -358,6 +358,7 @@ impl Dialect for Oracle {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
         let algorithm = match v
@@ -420,6 +421,7 @@ impl Dialect for Oracle {
             comments: true,
             max_identifier: 128,
             case: IdentCase::Upper,
+            vector_indexes: true,
         }
     }
 
@@ -728,7 +730,7 @@ mod tests {
             ]
             .into(),
         };
-        let (kind, m) = Oracle.vector_index(&hnsw).unwrap();
+        let (kind, m) = Oracle.vector_index(&hnsw, None).unwrap();
         assert_eq!(kind.as_deref(), Some("VECTOR"));
         assert_eq!(m.algorithm.as_deref(), Some("hnsw"));
         assert_eq!(m.params.len(), 2);
@@ -737,7 +739,7 @@ mod tests {
             metric: Some("l2".into()),
             params: [("lists".to_string(), "100".to_string())].into(),
         };
-        let (_, m) = Oracle.vector_index(&ivf).unwrap();
+        let (_, m) = Oracle.vector_index(&ivf, None).unwrap();
         assert_eq!(m.algorithm.as_deref(), Some("ivf"));
         assert_eq!(m.params.get("lists").map(String::as_str), Some("100"));
         let diskann = VectorIndex {
@@ -746,7 +748,7 @@ mod tests {
         };
         assert_eq!(
             Oracle
-                .vector_index(&diskann)
+                .vector_index(&diskann, None)
                 .unwrap()
                 .1
                 .algorithm
@@ -757,6 +759,6 @@ mod tests {
             metric: Some("chebyshev".into()),
             ..Default::default()
         };
-        assert!(Oracle.vector_index(&odd).is_err());
+        assert!(Oracle.vector_index(&odd, None).is_err());
     }
 }

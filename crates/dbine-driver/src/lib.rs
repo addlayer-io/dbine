@@ -657,6 +657,44 @@ pub trait Driver: Send + Sync {
         ))
     }
 
+    /// [`Driver::insert_script`] knowing the target columns' types, in the
+    /// order of the rows' cells (`type_name` and `vector` as a result or a
+    /// describe gives them). Drivers whose vector literal depends on the
+    /// column's type (its element, the form it's stored in) override it;
+    /// the default ignores the types.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        self.insert_script(target, &names, rows)
+    }
+
+    /// [`Driver::update_script`] knowing the target's column types (by
+    /// name, in any order; a column not listed is untyped).
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        let _ = types;
+        self.update_script(target, changes)
+    }
+
+    /// [`Driver::delete_script`] knowing the target's column types.
+    fn delete_script_typed(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        let _ = types;
+        self.delete_script(target, keys)
+    }
+
     /// Statements around a table's data in a generated script, for engines
     /// that need them to load explicit key values: SQL Server's
     /// `SET IDENTITY_INSERT … ON/OFF`, PostgreSQL's sequence resync after

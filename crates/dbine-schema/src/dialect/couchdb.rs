@@ -225,6 +225,7 @@ pub(crate) fn json_caps(max_identifier: usize) -> Caps {
         comments: false,
         max_identifier,
         case: IdentCase::Lower,
+        vector_indexes: true,
     }
 }
 
@@ -343,7 +344,7 @@ mod tests {
             .notes
             .iter()
             .any(|n| n.code == IssueCode::TypeApproximated));
-        assert!(CouchDb.vector_index(&VectorIndex::default()).is_err());
+        assert!(CouchDb.vector_index(&VectorIndex::default(), None).is_err());
         assert_eq!(
             CouchDb.parse_type(&parse("vector(3)")),
             L::Other {

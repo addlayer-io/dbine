@@ -327,6 +327,7 @@ impl Dialect for Search {
             comments: true,
             max_identifier: 255,
             case: IdentCase::Lower,
+            vector_indexes: true,
         }
     }
 
@@ -386,7 +387,7 @@ impl Dialect for Search {
             let Some(v) = ix.vector.as_ref().filter(|_| on_moved) else {
                 continue;
             };
-            match self.vector_index(v) {
+            match self.vector_index(v, None) {
                 Ok((kind, v)) => {
                     ix.kind = kind;
                     ix.vector = Some(v);
@@ -455,7 +456,11 @@ impl Dialect for Search {
     /// Another engine's vector index as a field's ANN index: HNSW (or
     /// Elasticsearch's `flat`) with `m` and `ef_construction`; the inner
     /// product that takes any vector (`max_inner_product`).
-    fn vector_index(&self, v: &VectorIndex) -> Result<(Option<String>, VectorIndex), String> {
+    fn vector_index(
+        &self,
+        v: &VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
+    ) -> Result<(Option<String>, VectorIndex), String> {
         let metric = match v.metric.as_deref().map(str::to_ascii_lowercase).as_deref() {
             None => None,
             Some("cosine") => Some("cosine"),
@@ -864,46 +869,55 @@ mod tests {
             ]
             .into(),
         };
-        let (kind, v) = es.vector_index(&pg_hnsw).unwrap();
+        let (kind, v) = es.vector_index(&pg_hnsw, None).unwrap();
         assert_eq!(kind, None);
         assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
         // Any vector's inner product, not dot_product (unit length only).
         assert_eq!(v.metric.as_deref(), Some("max_inner_product"));
         assert_eq!(v.params, pg_hnsw.params);
         assert_eq!(
-            os.vector_index(&pg_hnsw).unwrap().1.metric.as_deref(),
+            os.vector_index(&pg_hnsw, None).unwrap().1.metric.as_deref(),
             Some("ip")
         );
-        assert!(od.vector_index(&pg_hnsw).unwrap_err().contains("ip"));
+        assert!(od.vector_index(&pg_hnsw, None).unwrap_err().contains("ip"));
         // IVF and others: HNSW with the engine's parameters.
         let ivf = VectorIndex {
             algorithm: Some("ivfflat".into()),
             metric: Some("l2".into()),
             params: [("lists".to_string(), "100".to_string())].into(),
         };
-        let (_, v) = es.vector_index(&ivf).unwrap();
+        let (_, v) = es.vector_index(&ivf, None).unwrap();
         assert_eq!(
             (v.algorithm.as_deref(), v.metric.as_deref()),
             (Some("hnsw"), Some("l2"))
         );
         assert!(v.params.is_empty());
         assert!(es
-            .vector_index(&VectorIndex {
-                metric: Some("jaccard".into()),
-                ..Default::default()
-            })
+            .vector_index(
+                &VectorIndex {
+                    metric: Some("jaccard".into()),
+                    ..Default::default()
+                },
+                None
+            )
             .is_err());
         assert!(es
-            .vector_index(&VectorIndex {
-                metric: Some("l1".into()),
-                ..Default::default()
-            })
+            .vector_index(
+                &VectorIndex {
+                    metric: Some("l1".into()),
+                    ..Default::default()
+                },
+                None
+            )
             .is_err());
         assert_eq!(
-            os.vector_index(&VectorIndex {
-                metric: Some("l1".into()),
-                ..Default::default()
-            })
+            os.vector_index(
+                &VectorIndex {
+                    metric: Some("l1".into()),
+                    ..Default::default()
+                },
+                None
+            )
             .unwrap()
             .1
             .metric

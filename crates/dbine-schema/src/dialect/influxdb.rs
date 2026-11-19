@@ -123,6 +123,7 @@ impl Dialect for InfluxDb {
             comments: false,
             max_identifier: 255,
             case: IdentCase::Preserve,
+            vector_indexes: true,
         }
     }
 

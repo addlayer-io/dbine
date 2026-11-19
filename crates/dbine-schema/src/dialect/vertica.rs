@@ -258,6 +258,7 @@ impl Dialect for Vertica {
             comments: false,
             max_identifier: 128,
             case: IdentCase::Preserve,
+            vector_indexes: true,
         }
     }
 

@@ -119,6 +119,10 @@ pub struct Caps {
     /// Longest identifier, in bytes.
     pub max_identifier: usize,
     pub case: IdentCase,
+    /// Vector (similarity search) indexes. The IDE narrows it with the
+    /// target driver's designer: an engine of the family without them
+    /// (MySQL 8 next to MySQL 9) says so with no `vector_indexes`.
+    pub vector_indexes: bool,
 }
 
 pub const ALL_ACTIONS: &[&str] = &[
@@ -138,6 +142,7 @@ impl Caps {
         self.defaults &= spec.defaults;
         self.nullability &= spec.nullability;
         self.comments &= spec.comments;
+        self.vector_indexes &= spec.vector_indexes.is_some();
         self
     }
 }
@@ -183,12 +188,15 @@ pub trait Dialect: Send + Sync {
     /// A vector index of another family as this family's: its index kind
     /// (`None`: the default) and its algorithm, metric and parameters in
     /// this family's names, or `Err` with why it can't be (no vector
-    /// indexes, a metric it lacks…), and the index is left out.
+    /// indexes, a metric it lacks…), and the index is left out. `column` is
+    /// the logical type of the vector column it searches (its dimension and
+    /// element), when the source says it.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        column: Option<&LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
-        let _ = v;
+        let _ = (v, column);
         Err("el destino no tiene índices vectoriales".into())
     }
 }

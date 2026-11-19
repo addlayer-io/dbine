@@ -223,6 +223,7 @@ impl Dialect for Databend {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
         let m = v.metric.as_deref().unwrap_or(metric::COSINE);
@@ -259,6 +260,7 @@ impl Dialect for Databend {
             max_identifier: 255,
             // Unquoted names are folded to lower case.
             case: IdentCase::Lower,
+            vector_indexes: true,
         }
     }
 

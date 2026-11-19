@@ -374,6 +374,7 @@ impl Dialect for Snowflake {
             comments: true,
             max_identifier: 255,
             case: IdentCase::Upper,
+            vector_indexes: true,
         }
     }
 
@@ -383,6 +384,7 @@ impl Dialect for Snowflake {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         let mut params = std::collections::BTreeMap::new();
         if let Some(d) = v.params.get(DIMENSIONS) {

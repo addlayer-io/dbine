@@ -409,6 +409,7 @@ impl Dialect for MySql {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         if let Some(m) = v.metric.as_deref() {
             if !VECTOR_METRICS.contains(&m) {
@@ -452,6 +453,7 @@ impl Dialect for MySql {
             comments: true,
             max_identifier: 64,
             case: IdentCase::Preserve,
+            vector_indexes: true,
         }
     }
 
@@ -774,15 +776,18 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
         };
-        let (kind, v) = MySql.vector_index(&pg).unwrap();
+        let (kind, v) = MySql.vector_index(&pg, None).unwrap();
         assert_eq!(kind.as_deref(), Some("VECTOR"));
         assert_eq!(v.metric.as_deref(), Some("cosine"));
         assert_eq!(v.params.len(), 2);
         assert!(MySql
-            .vector_index(&VectorIndex {
-                metric: Some("hamming".into()),
-                ..Default::default()
-            })
+            .vector_index(
+                &VectorIndex {
+                    metric: Some("hamming".into()),
+                    ..Default::default()
+                },
+                None
+            )
             .is_err());
     }
 

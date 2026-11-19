@@ -347,6 +347,7 @@ impl Dialect for MsSql {
             comments: true,
             max_identifier: 128,
             case: IdentCase::Preserve,
+            vector_indexes: true,
         }
     }
 
@@ -359,6 +360,7 @@ impl Dialect for MsSql {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::metric;
         let m = v.metric.as_deref().map(str::to_ascii_lowercase);
@@ -526,6 +528,7 @@ impl Dialect for MsSqlNoVectors {
     fn vector_index(
         &self,
         _: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         Err("Fabric Warehouse y Babelfish no tienen tipo vectorial ni índices vectoriales".into())
     }
@@ -687,7 +690,7 @@ mod tests {
         assert_eq!(MsSqlNoVectors.render_type(&L::Bool).native, "bit");
         assert_eq!(MsSqlNoVectors.id(), "mssql");
         let e = MsSqlNoVectors
-            .vector_index(&dbine_driver::VectorIndex::default())
+            .vector_index(&dbine_driver::VectorIndex::default(), None)
             .unwrap_err();
         assert!(e.contains("Fabric"), "{e}");
     }
@@ -732,7 +735,7 @@ mod tests {
             metric: Some("l2".into()),
             params: [("m".to_string(), "16".to_string())].into(),
         };
-        let (kind, mapped) = MsSql.vector_index(&hnsw).unwrap();
+        let (kind, mapped) = MsSql.vector_index(&hnsw, None).unwrap();
         assert_eq!(kind.as_deref(), Some("VECTOR"));
         assert_eq!(mapped.algorithm.as_deref(), Some("diskann"));
         assert_eq!(mapped.metric.as_deref(), Some("l2"));
@@ -741,7 +744,7 @@ mod tests {
             metric: Some("l1".into()),
             ..Default::default()
         };
-        assert!(MsSql.vector_index(&l1).is_err());
+        assert!(MsSql.vector_index(&l1, None).is_err());
     }
 
     #[test]

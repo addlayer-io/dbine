@@ -285,6 +285,7 @@ impl Dialect for Hana {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
         let metric = match v.metric.as_deref().map(str::to_ascii_lowercase).as_deref() {
@@ -334,6 +335,7 @@ impl Dialect for Hana {
             comments: true,
             max_identifier: 127,
             case: IdentCase::Upper,
+            vector_indexes: true,
         }
     }
 }
@@ -778,13 +780,13 @@ mod tests {
             ]
             .into(),
         };
-        let (kind, m) = Hana.vector_index(&hnsw).unwrap();
+        let (kind, m) = Hana.vector_index(&hnsw, None).unwrap();
         assert_eq!(kind.as_deref(), Some("HNSW VECTOR"));
         assert_eq!(m.params.len(), 1);
         let ip = VectorIndex {
             metric: Some("ip".into()),
             ..Default::default()
         };
-        assert!(Hana.vector_index(&ip).is_err());
+        assert!(Hana.vector_index(&ip, None).is_err());
     }
 }

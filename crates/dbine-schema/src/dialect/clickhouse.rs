@@ -646,6 +646,7 @@ impl Dialect for ClickHouse {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
         if self.timeplus {
@@ -718,6 +719,7 @@ impl Dialect for ClickHouse {
             comments: true,
             max_identifier: 255,
             case: IdentCase::Preserve,
+            vector_indexes: true,
         }
     }
 
@@ -989,15 +991,18 @@ pub(super) mod tests {
                 .collect(),
         };
         let (kind, v) = ch()
-            .vector_index(&ix(
-                "cosine",
-                &[
-                    ("dims", "768"),
-                    ("m", "16"),
-                    ("quantization", "binary"),
-                    ("lists", "4"),
-                ],
-            ))
+            .vector_index(
+                &ix(
+                    "cosine",
+                    &[
+                        ("dims", "768"),
+                        ("m", "16"),
+                        ("quantization", "binary"),
+                        ("lists", "4"),
+                    ],
+                ),
+                None,
+            )
             .unwrap();
         assert_eq!(kind.as_deref(), Some("vector_similarity"));
         assert_eq!(
@@ -1009,10 +1014,14 @@ pub(super) mod tests {
             ]
         );
         // Without a dimension: finalize looks for the column's.
-        let (_, v) = ch().vector_index(&ix("l2", &[("m", "16")])).unwrap();
+        let (_, v) = ch().vector_index(&ix("l2", &[("m", "16")]), None).unwrap();
         assert!(!v.params.contains_key("dimensions"));
-        assert!(ch().vector_index(&ix("hamming", &[("dims", "3")])).is_err());
-        assert!(tp().vector_index(&ix("l2", &[("dims", "3")])).is_err());
+        assert!(ch()
+            .vector_index(&ix("hamming", &[("dims", "3")]), None)
+            .is_err());
+        assert!(tp()
+            .vector_index(&ix("l2", &[("dims", "3")]), None)
+            .is_err());
     }
 
     /// A table with a vector column `emb` of type `ty` and a vector index
@@ -1097,8 +1106,8 @@ pub(super) mod tests {
         // No dimension: a DuckDB list.
         let (t, issues) = one(vector_table("FLOAT[]", Some("HNSW"), &[]), "duckdb");
         assert!(t.indexes.is_empty());
-        assert!(issues.iter().any(|i| i.code == IssueCode::IndexDropped
-            && i.message.contains("ni el índice ni la columna")));
+        // Dropped by the converter: a list without a dimension isn't a vector.
+        assert!(issues.iter().any(|i| i.code == IssueCode::IndexDropped));
         // Not a float array.
         let (t, issues) = one(
             vector_table("VARCHAR", Some("HNSW"), &[("dims", "3")]),

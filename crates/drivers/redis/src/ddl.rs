@@ -2262,14 +2262,14 @@ mod tests {
         j.fields[1].identifier = "$.emb".into();
         known.put_index("t", 0, &j);
         let s = super::insert_script(&idx, &cols, std::slice::from_ref(&row), &known).unwrap();
+        let got = parsed(&s);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0][..3], ["JSON.SET", "doc:7", "$"]);
+        // The document's key order follows serde_json's map, which a
+        // workspace build may switch to insertion order: compare values.
         assert_eq!(
-            parsed(&s),
-            [vec![
-                "JSON.SET",
-                "doc:7",
-                "$",
-                "{\"emb\":[1,0,0,0.5],\"meta\":{\"title\":\"Hola\"}}"
-            ]]
+            serde_json::from_str::<serde_json::Value>(&got[0][3]).unwrap(),
+            serde_json::json!({"emb": [1, 0, 0, 0.5], "meta": {"title": "Hola"}})
         );
         j.fields[0].identifier = "$.tags[*]".into();
         known.put_index("t", 0, &j);

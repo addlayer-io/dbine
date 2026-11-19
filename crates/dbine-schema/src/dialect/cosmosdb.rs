@@ -78,6 +78,7 @@ impl Dialect for CosmosDb {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::metric;
         // The squared euclidean distance (Couchbase's `l2_squared`) has the
@@ -252,7 +253,7 @@ mod tests {
             metric: Some("ip".into()),
             params: [("m".to_string(), "16".to_string())].into(),
         };
-        let (kind, out) = d.vector_index(&hnsw).unwrap();
+        let (kind, out) = d.vector_index(&hnsw, None).unwrap();
         assert_eq!(
             (kind, out.algorithm, out.metric.as_deref()),
             (None, None, Some("ip"))
@@ -263,14 +264,14 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            d.vector_index(&disk).unwrap().1.algorithm.as_deref(),
+            d.vector_index(&disk, None).unwrap().1.algorithm.as_deref(),
             Some("diskANN")
         );
         let hamming = VectorIndex {
             metric: Some("hamming".into()),
             ..Default::default()
         };
-        assert!(d.vector_index(&hamming).is_err());
+        assert!(d.vector_index(&hamming, None).is_err());
         // Couchbase's squared euclidean goes on (the driver writes
         // euclidean and says so).
         let sq = VectorIndex {
@@ -278,7 +279,7 @@ mod tests {
             metric: Some("l2_squared".into()),
             ..Default::default()
         };
-        let (_, out) = d.vector_index(&sq).unwrap();
+        let (_, out) = d.vector_index(&sq, None).unwrap();
         assert_eq!(
             (out.algorithm.as_deref(), out.metric.as_deref()),
             (Some("diskANN"), Some("l2_squared"))

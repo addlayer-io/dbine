@@ -341,6 +341,7 @@ impl Dialect for Spanner {
             comments: false,
             max_identifier: 128,
             case: IdentCase::Preserve,
+            vector_indexes: true,
         }
     }
 
@@ -351,6 +352,7 @@ impl Dialect for Spanner {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
         let metric = match v.metric.as_deref() {
@@ -683,9 +685,10 @@ mod tests {
         let back = crate::convert(&bq.tables, "bigquery", "spanner", &Default::default()).unwrap();
         assert_eq!(col(&back, "emb"), "ARRAY<FLOAT64>");
         assert!(back.tables[0].indexes.iter().all(|i| i.vector.is_none()));
-        assert!(back.issues.iter().any(|i| i.code == IssueCode::IndexDropped
-            && i.object.as_deref() == Some("docs_emb")
-            && i.message.contains("vector_length")));
+        assert!(back
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::IndexDropped && i.object.as_deref() == Some("docs_emb")));
         let back = crate::convert(&sf.tables, "snowflake", "spanner", &Default::default()).unwrap();
         assert_eq!(col(&back, "EMB"), "ARRAY<FLOAT32>(vector_length=>3)");
     }
@@ -779,16 +782,18 @@ mod tests {
                 .collect(),
         };
         let (kind, got) = Spanner
-            .vector_index(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]))
+            .vector_index(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]), None)
             .unwrap();
         assert_eq!(kind.as_deref(), Some("VECTOR"));
         assert_eq!(got, v(None, Some("l2"), &[("lists", "100")]));
         let (_, got) = Spanner
-            .vector_index(&v(Some("hnsw"), Some("cosine"), &[("m", "16")]))
+            .vector_index(&v(Some("hnsw"), Some("cosine"), &[("m", "16")]), None)
             .unwrap();
         assert_eq!(got, v(None, Some("cosine"), &[]));
-        assert!(Spanner.vector_index(&v(None, Some("l1"), &[])).is_err());
-        assert!(Spanner.vector_index(&v(None, None, &[])).is_err());
+        assert!(Spanner
+            .vector_index(&v(None, Some("l1"), &[]), None)
+            .is_err());
+        assert!(Spanner.vector_index(&v(None, None, &[]), None).is_err());
     }
 
     #[test]

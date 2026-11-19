@@ -1241,6 +1241,22 @@ impl Driver for RemoteDriver {
             target: target.clone(),
             columns: columns.to_vec(),
             rows: rows.to_vec(),
+            types: Vec::new(),
+        })?)
+    }
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[dbine_driver::ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        // An older host ignores `types` and writes the untyped script.
+        text(self.blocking(Call::InsertScript {
+            driver: self.id(),
+            target: target.clone(),
+            columns: columns.iter().map(|c| c.name.clone()).collect(),
+            rows: rows.to_vec(),
+            types: columns.to_vec(),
         })?)
     }
     fn filtered_browse(&self, browse: &str, filters: &[ColumnFilter]) -> Result<String> {
@@ -1268,10 +1284,19 @@ impl Driver for RemoteDriver {
         })?)
     }
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
+        self.update_script_typed(target, changes, &[])
+    }
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[RowChange],
+        types: &[dbine_driver::ResultColumn],
+    ) -> Result<String> {
         text(self.blocking(Call::UpdateScript {
             driver: self.id(),
             target: target.clone(),
             changes: changes.to_vec(),
+            types: types.to_vec(),
         })?)
     }
     fn delete_script(
@@ -1279,10 +1304,19 @@ impl Driver for RemoteDriver {
         target: &ObjectRef,
         keys: &[Vec<(String, serde_json::Value)>],
     ) -> Result<String> {
+        self.delete_script_typed(target, keys, &[])
+    }
+    fn delete_script_typed(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+        types: &[dbine_driver::ResultColumn],
+    ) -> Result<String> {
         text(self.blocking(Call::DeleteScript {
             driver: self.id(),
             target: target.clone(),
             keys: keys.to_vec(),
+            types: types.to_vec(),
         })?)
     }
     fn data_load_wrap(&self, table: &TableSchema) -> (String, String) {

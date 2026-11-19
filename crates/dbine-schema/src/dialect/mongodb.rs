@@ -310,6 +310,7 @@ impl Dialect for Mongo {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         vector_index(v, "MongoDB")
     }
@@ -329,6 +330,7 @@ impl Dialect for Mongo {
             comments: true,
             max_identifier: 255,
             case: IdentCase::Lower,
+            vector_indexes: true,
         }
     }
 
@@ -621,7 +623,7 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
         };
-        let (kind, v) = mongo.vector_index(&hnsw).unwrap();
+        let (kind, v) = mongo.vector_index(&hnsw, None).unwrap();
         assert_eq!(kind, None);
         assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
         assert_eq!(v.params.len(), 2);
@@ -629,7 +631,7 @@ mod tests {
             metric: Some("l1".into()),
             ..Default::default()
         };
-        assert!(mongo.vector_index(&l1).is_err());
+        assert!(mongo.vector_index(&l1, None).is_err());
         // Couchbase's squared euclidean goes on for the driver to write as
         // l2 (with a warning).
         let sq = VectorIndex {
@@ -637,7 +639,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            mongo.vector_index(&sq).unwrap().1.metric.as_deref(),
+            mongo.vector_index(&sq, None).unwrap().1.metric.as_deref(),
             Some("l2_squared")
         );
     }

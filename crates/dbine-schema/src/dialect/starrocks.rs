@@ -731,6 +731,7 @@ impl Dialect for Olap {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
         let engine = self.name();
@@ -781,6 +782,7 @@ impl Dialect for Olap {
             comments: true,
             max_identifier: 64,
             case: IdentCase::Preserve,
+            vector_indexes: true,
         }
     }
 
@@ -989,16 +991,16 @@ mod tests {
             metric: Some("cosine".into()),
             params: [("m".to_string(), "16".to_string())].into(),
         };
-        let (k, v) = sr().vector_index(&pg).unwrap();
+        let (k, v) = sr().vector_index(&pg, None).unwrap();
         assert_eq!(k.as_deref(), Some("VECTOR"));
         assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
-        assert!(doris().vector_index(&pg).is_err());
+        assert!(doris().vector_index(&pg, None).is_err());
         let l2 = VectorIndex {
             metric: Some("l2".into()),
             algorithm: Some("ivfflat".into()),
             ..pg.clone()
         };
-        let (k, v) = doris().vector_index(&l2).unwrap();
+        let (k, v) = doris().vector_index(&l2, None).unwrap();
         assert_eq!(
             (k.as_deref(), v.algorithm.as_deref()),
             (Some("ANN"), Some("ivf"))

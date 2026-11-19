@@ -142,6 +142,7 @@ impl Dialect for Postgres {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric as m, param};
         let metric = match v.metric.as_deref().map(|x| x.trim().to_ascii_lowercase()) {
@@ -313,6 +314,7 @@ impl Dialect for Postgres {
             comments: true,
             max_identifier: 63,
             case: IdentCase::Lower,
+            vector_indexes: true,
         }
     }
 
@@ -750,15 +752,18 @@ mod tests {
                 .collect(),
         };
         let (kind, v) = Postgres
-            .vector_index(&vi(
-                "hnsw",
-                "cosine",
-                &[
-                    ("m", "32"),
-                    ("ef_construction", "200"),
-                    ("quantization", "int8"),
-                ],
-            ))
+            .vector_index(
+                &vi(
+                    "hnsw",
+                    "cosine",
+                    &[
+                        ("m", "32"),
+                        ("ef_construction", "200"),
+                        ("quantization", "int8"),
+                    ],
+                ),
+                None,
+            )
             .unwrap();
         assert_eq!(kind.as_deref(), Some("hnsw"));
         assert_eq!(
@@ -766,22 +771,25 @@ mod tests {
             vi("hnsw", "cosine", &[("m", "32"), ("ef_construction", "200")])
         );
         let (kind, v) = Postgres
-            .vector_index(&vi("IVF_FLAT", "euclidean", &[("lists", "100")]))
+            .vector_index(&vi("IVF_FLAT", "euclidean", &[("lists", "100")]), None)
             .unwrap();
         assert_eq!(kind.as_deref(), Some("ivfflat"));
         assert_eq!(v, vi("ivfflat", "l2", &[("lists", "100")]));
         // DiskANN, C-SPANN, a flat index…: HNSW.
         let (_, v) = Postgres
-            .vector_index(&vi("diskann", "dot_product", &[("num_neighbors", "50")]))
+            .vector_index(
+                &vi("diskann", "dot_product", &[("num_neighbors", "50")]),
+                None,
+            )
             .unwrap();
         assert_eq!(v, vi("hnsw", "ip", &[]));
         let (_, v) = Postgres
-            .vector_index(&dbine_driver::VectorIndex::default())
+            .vector_index(&dbine_driver::VectorIndex::default(), None)
             .unwrap();
         assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
         assert_eq!(v.metric, None);
         assert!(Postgres
-            .vector_index(&vi("hnsw", "chebyshev", &[]))
+            .vector_index(&vi("hnsw", "chebyshev", &[]), None)
             .is_err());
         // Other families' spellings: Oracle's, Elasticsearch's, OpenSearch's…
         for (from, to) in [
@@ -795,7 +803,7 @@ mod tests {
             ("MANHATTAN", "l1"),
             ("hamming_distance", "hamming"),
         ] {
-            let (_, v) = Postgres.vector_index(&vi("hnsw", from, &[])).unwrap();
+            let (_, v) = Postgres.vector_index(&vi("hnsw", from, &[]), None).unwrap();
             assert_eq!(v.metric.as_deref(), Some(to), "{from}");
         }
     }
@@ -851,7 +859,7 @@ mod tests {
         }
         // To a family without vectors: a list of floats, and the vector
         // index left out with its reason.
-        let c = crate::convert::convert(&[vector_table()], "postgres", "sqlite", &opts).unwrap();
+        let c = crate::convert::convert(&[vector_table()], "postgres", "firebird", &opts).unwrap();
         assert!(c.tables[0].indexes.is_empty());
         assert!(c
             .issues

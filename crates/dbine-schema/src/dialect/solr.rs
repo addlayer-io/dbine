@@ -228,6 +228,7 @@ impl Dialect for Solr {
             comments: false,
             max_identifier: 255,
             case: IdentCase::Preserve,
+            vector_indexes: true,
         }
     }
 
@@ -331,7 +332,11 @@ impl Dialect for Solr {
     /// Another engine's vector index as a field's HNSW graph, with `m` and
     /// `ef_construction`; the inner product that takes any vector
     /// (`maximum_inner_product`).
-    fn vector_index(&self, v: &VectorIndex) -> Result<(Option<String>, VectorIndex), String> {
+    fn vector_index(
+        &self,
+        v: &VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
+    ) -> Result<(Option<String>, VectorIndex), String> {
         let metric = match v.metric.as_deref().map(str::to_ascii_lowercase).as_deref() {
             None => None,
             Some("cosine") => Some("cosine"),
@@ -551,7 +556,7 @@ mod tests {
             ]
             .into(),
         };
-        let (kind, out) = Solr.vector_index(&pg).unwrap();
+        let (kind, out) = Solr.vector_index(&pg, None).unwrap();
         assert_eq!(kind, None);
         assert_eq!(out.metric.as_deref(), Some("maximum_inner_product"));
         assert_eq!(out.params, pg.params);
@@ -560,16 +565,19 @@ mod tests {
             metric: Some("l2".into()),
             params: [("lists".to_string(), "9".to_string())].into(),
         };
-        let out = Solr.vector_index(&ivf).unwrap().1;
+        let out = Solr.vector_index(&ivf, None).unwrap().1;
         assert_eq!(
             (out.algorithm.as_deref(), out.params.len()),
             (Some("hnsw"), 0)
         );
         assert!(Solr
-            .vector_index(&VectorIndex {
-                metric: Some("l1".into()),
-                ..Default::default()
-            })
+            .vector_index(
+                &VectorIndex {
+                    metric: Some("l1".into()),
+                    ..Default::default()
+                },
+                None
+            )
             .is_err());
     }
 }

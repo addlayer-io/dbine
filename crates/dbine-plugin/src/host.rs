@@ -639,10 +639,14 @@ impl State {
                 target,
                 columns,
                 rows,
-            } => Reply::Text(
+                types,
+            } => Reply::Text(if types.is_empty() {
                 self.driver(&driver)?
-                    .insert_script(&target, &columns, &rows)?,
-            ),
+                    .insert_script(&target, &columns, &rows)?
+            } else {
+                self.driver(&driver)?
+                    .insert_script_typed(&target, &types, &rows)?
+            }),
             Call::FilteredBrowse {
                 driver,
                 browse,
@@ -665,12 +669,20 @@ impl State {
                 driver,
                 target,
                 changes,
-            } => Reply::Text(self.driver(&driver)?.update_script(&target, &changes)?),
+                types,
+            } => Reply::Text(
+                self.driver(&driver)?
+                    .update_script_typed(&target, &changes, &types)?,
+            ),
             Call::DeleteScript {
                 driver,
                 target,
                 keys,
-            } => Reply::Text(self.driver(&driver)?.delete_script(&target, &keys)?),
+                types,
+            } => Reply::Text(
+                self.driver(&driver)?
+                    .delete_script_typed(&target, &keys, &types)?,
+            ),
             Call::SecurityScript { driver, action } => {
                 Reply::Text(self.driver(&driver)?.security_script(&action)?)
             }

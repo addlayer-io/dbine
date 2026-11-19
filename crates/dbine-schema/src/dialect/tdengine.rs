@@ -279,6 +279,7 @@ impl Dialect for TDengine {
             comments: true,
             max_identifier: 64,
             case: IdentCase::Lower,
+            vector_indexes: true,
         }
     }
 

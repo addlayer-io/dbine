@@ -225,6 +225,7 @@ impl Dialect for Dremio {
             comments: false,
             max_identifier: 128,
             case: IdentCase::Preserve,
+            vector_indexes: true,
         }
     }
 

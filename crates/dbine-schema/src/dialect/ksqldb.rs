@@ -211,6 +211,7 @@ impl Dialect for KsqlDb {
             max_identifier: 255,
             // Unquoted names are upper-cased.
             case: IdentCase::Upper,
+            vector_indexes: true,
         }
     }
 

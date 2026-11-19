@@ -241,6 +241,7 @@ impl Dialect for Sqlite {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
+        _column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         libsql_vector_index(v)
     }
@@ -259,6 +260,7 @@ impl Dialect for Sqlite {
             comments: false,
             max_identifier: 1024,
             case: IdentCase::Preserve,
+            vector_indexes: true,
         }
     }
 
@@ -576,10 +578,13 @@ mod tests {
                 .collect(),
         };
         let (kind, v) = Sqlite
-            .vector_index(&ix(
-                "cosine",
-                &[("m", "16"), ("ef_construction", "64"), ("lists", "100")],
-            ))
+            .vector_index(
+                &ix(
+                    "cosine",
+                    &[("m", "16"), ("ef_construction", "64"), ("lists", "100")],
+                ),
+                None,
+            )
             .unwrap();
         assert_eq!(kind, None);
         assert_eq!(v.algorithm, None, "DiskANN, libSQL's only one");
@@ -592,10 +597,10 @@ mod tests {
             ]
         );
         let (_, v) = Sqlite
-            .vector_index(&ix("l2", &[("quantization", "int8")]))
+            .vector_index(&ix("l2", &[("quantization", "int8")]), None)
             .unwrap();
         assert_eq!(v.params["quantization"], "float8");
-        let e = Sqlite.vector_index(&ix("ip", &[])).unwrap_err();
+        let e = Sqlite.vector_index(&ix("ip", &[]), None).unwrap_err();
         assert!(e.contains("coseno o L2"), "{e}");
     }
 
