@@ -970,6 +970,85 @@ fn static_catalog(version: &str) -> Vec<dbine_driver::FunctionInfo> {
 mod tests {
     use super::*;
 
+    /// A sync refuses a vector index libSQL can't make only when it makes
+    /// or changes it: one the table already has stays as the server has it.
+    #[test]
+    fn sync_checks_the_vector_indexes_it_makes() {
+        use dbine_driver::{ColumnDef, IndexDef, TableChange, VectorIndex};
+        let t = |metric: &str| TableSchema {
+            name: "docs".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "INTEGER".into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "bits".into(),
+                    data_type: "F1BIT_BLOB(8)".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            indexes: vec![IndexDef {
+                name: "docs_bits".into(),
+                columns: vec!["bits".into()],
+                vector: Some(VectorIndex {
+                    metric: Some(metric.into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let d = drivers().pop().unwrap();
+        // An L2 index on 1-bit vectors already there (made by hand): a new
+        // column doesn't touch it.
+        let mut wider = t("l2");
+        wider.columns.push(ColumnDef {
+            name: "note".into(),
+            data_type: "TEXT".into(),
+            nullable: true,
+            ..Default::default()
+        });
+        d.sync_script(&[TableChange::Alter {
+            old: t("l2"),
+            new: wider,
+        }])
+        .unwrap();
+        // Making one is refused, with why.
+        let e = d
+            .sync_script(&[TableChange::Alter {
+                old: t("cosine"),
+                new: t("l2"),
+            }])
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("«docs_bits»") && e.contains("1 bit"), "{e}");
+        assert!(d
+            .sync_script(&[TableChange::Create { table: t("l2") }])
+            .is_err());
+        assert!(d
+            .table_ddl(
+                &t("l2"),
+                DdlParts {
+                    create: true,
+                    indexes: true,
+                    ..Default::default()
+                }
+            )
+            .is_err());
+        // Without the indexes, the table alone is fine.
+        d.table_ddl(
+            &t("l2"),
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+
     /// Without the server's list, the static catalog keeps libSQL's vector
     /// functions (from the libSQL that has them).
     #[test]
