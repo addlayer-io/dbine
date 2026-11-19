@@ -269,6 +269,14 @@ pub fn type_name(v: &Json) -> &'static str {
         Json::Number(n) if n.is_f64() => "FLOAT",
         Json::Number(_) => "INTEGER",
         Json::String(_) => "STRING",
+        // Floats only: what a vector index indexes (an embedding).
+        Json::Array(a)
+            if !a.is_empty()
+                && a.iter()
+                    .all(|x| x.as_number().is_some_and(serde_json::Number::is_f64)) =>
+        {
+            "LIST<FLOAT>"
+        }
         Json::Array(_) => "LIST",
         Json::Object(o) if o.contains_key("srid") => "POINT",
         Json::Object(_) => "MAP",

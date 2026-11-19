@@ -9,11 +9,11 @@ use crate::ddl::{create, drop, table_ddl, IndexSpec, CONSTRAINT};
 use crate::{Flavor, RELATIONSHIP};
 use dbine_driver::{kinds, DdlParts, Error, Result, SyncScript, TableChange, TableSchema};
 
-fn specs(t: &TableSchema) -> Vec<IndexSpec> {
+fn specs(f: Flavor, t: &TableSchema) -> Vec<IndexSpec> {
     let rel = t.kind == RELATIONSHIP;
     t.indexes
         .iter()
-        .map(|ix| IndexSpec::from_index(&t.name, rel, ix))
+        .map(|ix| IndexSpec::from_index(f, &t.name, rel, ix))
         .collect()
 }
 
@@ -112,7 +112,7 @@ pub fn sync_script(f: Flavor, changes: &[TableChange]) -> Result<SyncScript> {
                 }
             }
             TableChange::Create { table } => {
-                for s in specs(table) {
+                for s in specs(f, table) {
                     creates.push(stmt(create(f, &s, false)?));
                 }
             }
@@ -127,12 +127,12 @@ pub fn sync_script(f: Flavor, changes: &[TableChange]) -> Result<SyncScript> {
                         "nodos"
                     }
                 ));
-                for s in specs(table) {
+                for s in specs(f, table) {
                     drops.push(stmt(drop(f, &s, false)?));
                 }
             }
             TableChange::Alter { old, new } => {
-                let (os, ns) = (specs(old), specs(new));
+                let (os, ns) = (specs(f, old), specs(f, new));
                 for o in &os {
                     if !ns.iter().any(|n| pairs(f, o, n) && same(o, n)) {
                         drops.push(stmt(drop(f, o, false)?));

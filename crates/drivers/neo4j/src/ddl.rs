@@ -13,9 +13,10 @@
 
 use crate::cypher::{comment_text, ident, property, string};
 use crate::{Flavor, LABEL, RELATIONSHIP};
+use dbine_driver::vector::{metric, param};
 use dbine_driver::{
     kinds, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, IndexDef, ObjectRef,
-    Result, RowChange, TableSchema,
+    Result, RowChange, TableSchema, VectorIndex, VectorIndexSpec, VectorParamSpec,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -39,6 +40,7 @@ fn index_types(f: Flavor) -> Vec<(&'static str, &'static str)> {
             ("RANGE", "Índice por etiqueta/propiedad"),
             ("TEXT", "Índice de texto"),
             ("POINT", "Índice espacial (point)"),
+            ("VECTOR", "Índice vectorial"),
             ("UNIQUE", "Restricción de unicidad"),
             ("EXISTS", "Restricción de existencia"),
         ],
@@ -46,11 +48,288 @@ fn index_types(f: Flavor) -> Vec<(&'static str, &'static str)> {
     }
 }
 
+/// The vector index settings the designer asks for, shown with the
+/// VECTOR type and stored under the engine's own names (Neo4j's
+/// `indexConfig`, Memgraph's `WITH CONFIG`).
+fn vector_fields(f: Flavor) -> Vec<Field> {
+    let vector = &["VECTOR"];
+    match f {
+        Flavor::Neo4j => vec![
+            Field::new("vector.dimensions", "Dimensiones", FieldKind::Number)
+                .placeholder("1536")
+                .when("index_type", vector),
+            Field::new(
+                "vector.similarity_function",
+                "Similitud",
+                FieldKind::Select(vec![("COSINE", "Coseno"), ("EUCLIDEAN", "Euclídea")]),
+            )
+            .default_value("COSINE")
+            .when("index_type", vector),
+            Field::new(
+                "vector.hnsw.m",
+                "Conexiones por nodo (M)",
+                FieldKind::Number,
+            )
+            .placeholder("16")
+            .when("index_type", vector),
+            Field::new(
+                "vector.hnsw.ef_construction",
+                "Candidatos al construir (ef_construction)",
+                FieldKind::Number,
+            )
+            .placeholder("100")
+            .when("index_type", vector),
+        ],
+        Flavor::Memgraph => vec![
+            Field::new("dimension", "Dimensiones", FieldKind::Number)
+                .placeholder("1536")
+                .when("index_type", vector),
+            Field::new(
+                "metric",
+                "Métrica",
+                FieldKind::Select(vec![
+                    ("cos", "Coseno"),
+                    ("l2sq", "Euclídea al cuadrado (l2sq)"),
+                    ("ip", "Producto escalar"),
+                    ("hamming", "Hamming"),
+                    ("tanimoto", "Tanimoto"),
+                    ("sorensen", "Sorensen"),
+                    ("pearson", "Pearson"),
+                    ("haversine", "Haversine"),
+                    ("divergence", "Divergencia"),
+                ]),
+            )
+            .default_value("cos")
+            .when("index_type", vector),
+            Field::new("capacity", "Capacidad", FieldKind::Number)
+                .placeholder("1000")
+                .when("index_type", vector),
+            Field::new(
+                "scalar_kind",
+                "Tipo de los números",
+                FieldKind::Select(vec![
+                    ("f32", "f32"),
+                    ("f16", "f16"),
+                    ("bf16", "bf16"),
+                    ("f64", "f64"),
+                    ("i8", "i8"),
+                    ("b1x8", "b1x8"),
+                ]),
+            )
+            .default_value("f32")
+            .when("index_type", vector),
+        ],
+        Flavor::Neptune => Vec::new(),
+    }
+}
+
+/// What a vector index takes ([`DesignerSpec::vector_indexes`]): Neo4j's
+/// HNSW with cosine or euclidean similarity; Memgraph's (usearch) with its
+/// metrics. The dimension goes in the index on both.
+pub fn vector_index_spec(f: Flavor) -> Option<VectorIndexSpec> {
+    let p = |key, default| VectorParamSpec {
+        key,
+        algorithms: Vec::new(),
+        default,
+    };
+    match f {
+        Flavor::Neo4j => Some(VectorIndexSpec {
+            algorithms: Vec::new(),
+            metrics: vec![metric::COSINE, metric::L2],
+            params: vec![
+                p(DIMENSIONS, ""),
+                p(param::M, "16"),
+                p(param::EF_CONSTRUCTION, "100"),
+                p(param::QUANTIZATION, ""),
+            ],
+            filter_columns: false,
+        }),
+        Flavor::Memgraph => Some(VectorIndexSpec {
+            algorithms: Vec::new(),
+            metrics: vec![
+                metric::COSINE,
+                metric::L2,
+                metric::IP,
+                metric::HAMMING,
+                "tanimoto",
+                "sorensen",
+                "pearson",
+                "haversine",
+                "divergence",
+            ],
+            params: vec![
+                p(DIMENSIONS, ""),
+                p("capacity", "1000"),
+                p(param::QUANTIZATION, ""),
+            ],
+            filter_columns: false,
+        }),
+        Flavor::Neptune => None,
+    }
+}
+
+/// The vector parameter with the dimension (both engines keep it in the
+/// index).
+pub const DIMENSIONS: &str = "dimensions";
+
+/// A vector index's settings among Neo4j's `indexConfig` entries.
+const NEO4J_VECTOR: &[&str] = &[
+    "vector.dimensions",
+    "vector.similarity_function",
+    "vector.hnsw.m",
+    "vector.hnsw.ef_construction",
+    "vector.quantization.enabled",
+];
+/// …and among Memgraph's `WITH CONFIG` entries.
+const MEMGRAPH_VECTOR: &[&str] = &[
+    "dimension",
+    "metric",
+    "capacity",
+    "scalar_kind",
+    "resize_coefficient",
+];
+
+fn vector_keys(f: Flavor) -> &'static [&'static str] {
+    match f {
+        Flavor::Neo4j => NEO4J_VECTOR,
+        Flavor::Memgraph => MEMGRAPH_VECTOR,
+        Flavor::Neptune => &[],
+    }
+}
+
+/// A vector index's settings from its options (as the catalog reads them,
+/// defaults left out), in the standard names where they fit.
+pub fn vector_of(f: Flavor, o: &BTreeMap<String, String>) -> VectorIndex {
+    let mut v = VectorIndex::default();
+    let get = |k: &str| o.get(k).map(|x| x.trim().to_string());
+    match f {
+        Flavor::Neo4j => {
+            v.algorithm = Some("hnsw".into());
+            v.metric =
+                get("vector.similarity_function").map(|m| match m.to_ascii_uppercase().as_str() {
+                    "COSINE" => metric::COSINE.to_string(),
+                    "EUCLIDEAN" => metric::L2.to_string(),
+                    other => other.to_ascii_lowercase(),
+                });
+            for (k, std) in [
+                ("vector.dimensions", DIMENSIONS),
+                ("vector.hnsw.m", param::M),
+                ("vector.hnsw.ef_construction", param::EF_CONSTRUCTION),
+            ] {
+                if let Some(x) = get(k) {
+                    v.params.insert(std.to_string(), x);
+                }
+            }
+            // Only `false` is shown (`true` is the default).
+            if get("vector.quantization.enabled").is_some_and(|q| q.eq_ignore_ascii_case("false")) {
+                v.params.insert(param::QUANTIZATION.into(), "none".into());
+            }
+        }
+        Flavor::Memgraph => {
+            v.metric = get("metric").map(|m| match m.as_str() {
+                "cos" => metric::COSINE.to_string(),
+                "l2sq" => metric::L2.to_string(),
+                other => other.to_string(),
+            });
+            if let Some(d) = get("dimension") {
+                v.params.insert(DIMENSIONS.into(), d);
+            }
+            if let Some(c) = get("capacity") {
+                v.params.insert("capacity".into(), c);
+            }
+            if let Some(k) = get("scalar_kind").filter(|k| k != "f32") {
+                v.params.insert(param::QUANTIZATION.into(), k);
+            }
+        }
+        Flavor::Neptune => {}
+    }
+    v
+}
+
+/// A vector index's settings as the engine's options: what
+/// [`IndexSpec::options`] holds for it.
+pub fn vector_options(f: Flavor, v: &VectorIndex) -> BTreeMap<String, String> {
+    let mut o = BTreeMap::new();
+    let p = |k: &str| {
+        v.params
+            .get(k)
+            .map(|x| x.trim().to_string())
+            .filter(|x| !x.is_empty())
+    };
+    let off = |q: &str| {
+        matches!(
+            q.to_ascii_lowercase().as_str(),
+            "none" | "false" | "off" | "f32"
+        )
+    };
+    match f {
+        Flavor::Neo4j => {
+            if let Some(m) = &v.metric {
+                let m = match m.as_str() {
+                    metric::COSINE => "COSINE".to_string(),
+                    metric::L2 => "EUCLIDEAN".into(),
+                    other => other.to_ascii_uppercase(),
+                };
+                o.insert("vector.similarity_function".into(), m);
+            }
+            for (std, k) in [
+                (DIMENSIONS, "vector.dimensions"),
+                (param::M, "vector.hnsw.m"),
+                (param::EF_CONSTRUCTION, "vector.hnsw.ef_construction"),
+            ] {
+                if let Some(x) = p(std) {
+                    o.insert(k.into(), x);
+                }
+            }
+            if p(param::QUANTIZATION).is_some_and(|q| off(&q)) {
+                o.insert("vector.quantization.enabled".into(), "false".into());
+            }
+        }
+        Flavor::Memgraph => {
+            if let Some(m) = &v.metric {
+                let m = match m.as_str() {
+                    metric::COSINE => "cos",
+                    metric::L2 => "l2sq",
+                    other => other,
+                };
+                o.insert("metric".into(), m.into());
+            }
+            if let Some(d) = p(DIMENSIONS) {
+                o.insert("dimension".into(), d);
+            }
+            if let Some(c) = p("capacity") {
+                o.insert("capacity".into(), c);
+            }
+            if let Some(q) = p(param::QUANTIZATION).filter(|q| !off(q)) {
+                let k = match q.to_ascii_lowercase().as_str() {
+                    "int8" | "i8" => "i8".to_string(),
+                    "half" | "halfvec" | "float16" | "f16" => "f16".into(),
+                    "bfloat16" | "bf16" => "bf16".into(),
+                    "binary" | "bit" | "b1" | "b1x8" => "b1x8".into(),
+                    _ => q,
+                };
+                o.insert("scalar_kind".into(), k);
+            }
+        }
+        Flavor::Neptune => {}
+    }
+    o
+}
+
 pub fn designer(f: Flavor) -> Option<DesignerSpec> {
     if f == Flavor::Neptune {
         // Neptune indexes everything by itself and has no constraints.
         return None;
     }
+    let mut table_options = vec![
+        Field::new("target", "Etiqueta o tipo de relación", FieldKind::Text).required().placeholder("Persona"),
+        Field::new("entity", "Se aplica a", FieldKind::Select(vec![("node", "Nodos (etiqueta)"), ("relationship", "Relaciones (tipo)")]))
+            .default_value("node"),
+        Field::new("index_type", "Tipo", FieldKind::Select(index_types(f)))
+            .default_value("RANGE")
+            .help("Los índices aceleran búsquedas; las restricciones además validan los datos (y crean su índice)."),
+    ];
+    table_options.extend(vector_fields(f));
     Some(DesignerSpec {
         kind: kinds::INDEX,
         label: "Nuevo índice",
@@ -64,16 +343,10 @@ pub fn designer(f: Flavor) -> Option<DesignerSpec> {
         indexes: false,
         foreign_keys: false,
         column_options: Vec::new(),
-        table_options: vec![
-            Field::new("target", "Etiqueta o tipo de relación", FieldKind::Text).required().placeholder("Persona"),
-            Field::new("entity", "Se aplica a", FieldKind::Select(vec![("node", "Nodos (etiqueta)"), ("relationship", "Relaciones (tipo)")]))
-                .default_value("node"),
-            Field::new("index_type", "Tipo", FieldKind::Select(index_types(f)))
-                .default_value("RANGE")
-                .help("Los índices aceleran búsquedas; las restricciones además validan los datos (y crean su índice)."),
-        ],
+        table_options,
         // The columns are the properties; a Memgraph label index needs none.
-        columns_required: f == Flavor::Neo4j, vector_indexes: None,
+        columns_required: f == Flavor::Neo4j,
+        vector_indexes: vector_index_spec(f),
     })
 }
 
@@ -180,7 +453,7 @@ impl IndexSpec {
             })
     }
 
-    fn from_designer(t: &TableSchema) -> Result<Self> {
+    fn from_designer(f: Flavor, t: &TableSchema) -> Result<Self> {
         let target = t
             .options
             .get("target")
@@ -191,34 +464,75 @@ impl IndexSpec {
                 "Indicá la etiqueta o el tipo de relación.".into(),
             ));
         };
+        let kind = t
+            .options
+            .get("index_type")
+            .map(|s| s.to_ascii_uppercase())
+            .unwrap_or_else(|| "RANGE".into());
+        // A vector index's settings (`vector_fields`): the ones given, and
+        // not Memgraph's default element type (the catalog doesn't show it).
+        let options = if kind == "VECTOR" {
+            t.options
+                .iter()
+                .filter(|(k, v)| {
+                    vector_keys(f).contains(&k.as_str())
+                        && !v.trim().is_empty()
+                        && !(k.as_str() == "scalar_kind" && v.trim() == "f32")
+                })
+                .map(|(k, v)| (k.clone(), v.trim().to_string()))
+                .collect()
+        } else {
+            BTreeMap::new()
+        };
         Ok(Self {
             name: t.name.trim().to_string(),
             target,
             relationship: t.options.get("entity").map(String::as_str) == Some("relationship"),
-            kind: t
-                .options
-                .get("index_type")
-                .map(|s| s.to_ascii_uppercase())
-                .unwrap_or_else(|| "RANGE".into()),
+            kind,
             properties: t
                 .columns
                 .iter()
                 .map(|c| c.name.trim().to_string())
                 .filter(|c| !c.is_empty())
                 .collect(),
-            options: BTreeMap::new(),
+            options,
         })
     }
 
-    /// From an [`IndexDef`] of a label's schema (`kind` holds the type).
-    pub fn from_index(target: &str, relationship: bool, ix: &IndexDef) -> Self {
-        let kind = ix.kind.clone().unwrap_or_else(|| {
-            if ix.unique {
-                "UNIQUE".into()
-            } else {
-                "RANGE".into()
+    /// From an [`IndexDef`] of a label's schema (`kind` holds the type). A
+    /// vector index's settings ([`IndexDef::vector`]) win over its options,
+    /// in `f`'s names.
+    pub fn from_index(f: Flavor, target: &str, relationship: bool, ix: &IndexDef) -> Self {
+        let kind = match &ix.vector {
+            Some(_) => "VECTOR".to_string(),
+            None => ix.kind.clone().unwrap_or_else(|| {
+                if ix.unique {
+                    "UNIQUE".into()
+                } else {
+                    "RANGE".into()
+                }
+            }),
+        };
+        let options = match &ix.vector {
+            Some(v) => {
+                // Either engine's settings (Neo4j and Memgraph are one
+                // family: an index may come from the other).
+                let vector_key = |k: &str| {
+                    k.starts_with("vector.")
+                        || NEO4J_VECTOR.contains(&k)
+                        || MEMGRAPH_VECTOR.contains(&k)
+                };
+                let mut o: BTreeMap<String, String> = ix
+                    .options
+                    .iter()
+                    .filter(|(k, _)| !vector_key(k))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                o.extend(vector_options(f, v));
+                o
             }
-        });
+            None => ix.options.clone(),
+        };
         let target = ix
             .options
             .get(TARGETS)
@@ -231,7 +545,7 @@ impl IndexSpec {
             relationship,
             kind,
             properties: ix.columns.clone(),
-            options: ix.options.clone(),
+            options,
         }
     }
 }
@@ -354,6 +668,11 @@ pub fn create(f: Flavor, s: &IndexSpec, if_not_exists: bool) -> Result<String> {
                             "Un índice vectorial de Memgraph necesita un nombre.".into(),
                         ));
                     }
+                    if !s.options.contains_key("dimension") {
+                        return Err(Error::Query(
+                            "Un índice vectorial de Memgraph necesita la dimensión de los vectores.".into(),
+                        ));
+                    }
                     let mut cfg: Vec<String> = s
                         .options
                         .iter()
@@ -438,7 +757,7 @@ pub fn drop(f: Flavor, s: &IndexSpec, if_exists: bool) -> Result<String> {
 pub fn table_ddl(f: Flavor, t: &TableSchema, parts: DdlParts) -> Result<String> {
     let mut out: Vec<String> = Vec::new();
     if t.kind == kinds::INDEX || t.kind == CONSTRAINT {
-        let s = IndexSpec::from_designer(t)?;
+        let s = IndexSpec::from_designer(f, t)?;
         if parts.drop {
             out.push(drop(f, &s, parts.if_exists)?);
         }
@@ -459,7 +778,7 @@ pub fn table_ddl(f: Flavor, t: &TableSchema, parts: DdlParts) -> Result<String> 
     }
     if parts.indexes && f != Flavor::Neptune {
         for ix in &t.indexes {
-            let s = IndexSpec::from_index(&t.name, rel, ix);
+            let s = IndexSpec::from_index(f, &t.name, rel, ix);
             if parts.drop {
                 out.push(drop(f, &s, parts.if_exists)?);
             }
@@ -1022,6 +1341,153 @@ mod tests {
     }
 
     #[test]
+    fn vector_indexes_both_ways() {
+        let opts = |kv: &[(&str, &str)]| {
+            kv.iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect::<BTreeMap<_, _>>()
+        };
+        // Neo4j, as SHOW INDEXES reads it (defaults left out).
+        let neo = opts(&[
+            ("vector.dimensions", "3"),
+            ("vector.similarity_function", "COSINE"),
+            ("vector.hnsw.m", "32"),
+            ("vector.quantization.enabled", "false"),
+        ]);
+        let v = vector_of(Flavor::Neo4j, &neo);
+        assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        assert_eq!(v.params.get(DIMENSIONS).map(String::as_str), Some("3"));
+        assert_eq!(v.params.get("m").map(String::as_str), Some("32"));
+        assert_eq!(
+            v.params.get("quantization").map(String::as_str),
+            Some("none")
+        );
+        assert_eq!(vector_options(Flavor::Neo4j, &v), neo);
+        // Memgraph, as SHOW VECTOR INDEX INFO reads it.
+        let mg = opts(&[
+            ("dimension", "3"),
+            ("metric", "l2sq"),
+            ("scalar_kind", "f16"),
+        ]);
+        let v = vector_of(Flavor::Memgraph, &mg);
+        assert_eq!(v.metric.as_deref(), Some("l2"));
+        assert_eq!(
+            v.params.get("quantization").map(String::as_str),
+            Some("f16")
+        );
+        assert_eq!(vector_options(Flavor::Memgraph, &v), mg);
+        // One engine's index on the other (same family, so as it is): its
+        // settings in the other's names.
+        let ix = IndexDef {
+            name: "v".into(),
+            columns: vec!["emb".into()],
+            kind: Some("VECTOR".into()),
+            options: neo.clone(),
+            vector: Some(vector_of(Flavor::Neo4j, &neo)),
+            ..Default::default()
+        };
+        let on_mg = IndexSpec::from_index(Flavor::Memgraph, "Doc", false, &ix);
+        assert_eq!(
+            create(Flavor::Memgraph, &on_mg, false).unwrap(),
+            "CREATE VECTOR INDEX v ON :Doc(emb) WITH CONFIG {\"dimension\": 3, \"metric\": 'cos', \"capacity\": 1000}"
+        );
+        let on_neo = IndexSpec::from_index(Flavor::Neo4j, "Doc", false, &ix);
+        assert_eq!(
+            create(Flavor::Neo4j, &on_neo, true).unwrap(),
+            "CREATE VECTOR INDEX v IF NOT EXISTS\nFOR (e:Doc) ON (e.emb)\nOPTIONS {indexConfig: {`vector.dimensions`: 3, `vector.hnsw.m`: 32, `vector.quantization.enabled`: false, `vector.similarity_function`: 'COSINE'}}"
+        );
+        // Another family's (pgvector's HNSW, through the dialect): only its
+        // settings, which win over the options.
+        let mut pg = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("l2".into()),
+            ..Default::default()
+        };
+        pg.params.insert("ef_construction".into(), "64".into());
+        let ix = IndexDef {
+            name: "p".into(),
+            columns: vec!["emb".into()],
+            options: opts(&[("vector.similarity_function", "COSINE")]),
+            vector: Some(pg),
+            ..Default::default()
+        };
+        assert_eq!(
+            create(Flavor::Neo4j, &IndexSpec::from_index(Flavor::Neo4j, "Doc", false, &ix), false).unwrap(),
+            "CREATE VECTOR INDEX p\nFOR (e:Doc) ON (e.emb)\nOPTIONS {indexConfig: {`vector.hnsw.ef_construction`: 64, `vector.similarity_function`: 'EUCLIDEAN'}}"
+        );
+        // Memgraph can't make one without the dimension.
+        let no_dims = IndexSpec::from_index(Flavor::Memgraph, "Doc", false, &ix);
+        assert!(
+            matches!(create(Flavor::Memgraph, &no_dims, false), Err(Error::Query(m)) if m.contains("dimensión"))
+        );
+    }
+
+    #[test]
+    fn the_designer_makes_vector_indexes() {
+        for f in [Flavor::Neo4j, Flavor::Memgraph] {
+            let d = designer(f).unwrap();
+            assert!(d.vector_indexes.is_some());
+            let kinds = d
+                .table_options
+                .iter()
+                .find(|o| o.key == "index_type")
+                .map(|o| format!("{:?}", o.kind))
+                .unwrap();
+            assert!(kinds.contains("VECTOR"), "{kinds}");
+            // The settings only show with the VECTOR type.
+            for o in d.table_options.iter().skip(3) {
+                assert_eq!(o.when.as_ref().unwrap().values, ["VECTOR"], "{}", o.key);
+            }
+        }
+        let mut t = designed("VECTOR", "node", &["emb"]);
+        for (k, v) in [
+            ("vector.dimensions", "3"),
+            ("vector.similarity_function", "EUCLIDEAN"),
+            ("vector.hnsw.m", ""),
+            ("dimension", "9"),
+        ] {
+            t.options.insert(k.into(), v.into());
+        }
+        assert_eq!(
+            table_ddl(Flavor::Neo4j, &t, parts()).unwrap(),
+            "CREATE VECTOR INDEX ix IF NOT EXISTS\nFOR (e:Person) ON (e.emb)\nOPTIONS {indexConfig: {`vector.dimensions`: 3, `vector.similarity_function`: 'EUCLIDEAN'}};"
+        );
+        let mut t = designed("VECTOR", "node", &["emb"]);
+        for (k, v) in [
+            ("dimension", "3"),
+            ("metric", "ip"),
+            ("scalar_kind", "f32"),
+            ("capacity", "50"),
+        ] {
+            t.options.insert(k.into(), v.into());
+        }
+        assert_eq!(
+            table_ddl(Flavor::Memgraph, &t, parts()).unwrap(),
+            "CREATE VECTOR INDEX ix ON :Person(emb) WITH CONFIG {\"capacity\": 50, \"dimension\": 3, \"metric\": 'ip'};"
+        );
+        // Vectors in scripts are lists of floats.
+        let target = ObjectRef {
+            kind: LABEL.into(),
+            schema: None,
+            name: "Doc".into(),
+        };
+        let rows = dbine_driver::vector::rows_for_scripts(
+            &[
+                dbine_driver::ResultColumn::new("id", ""),
+                dbine_driver::ResultColumn::new("emb", "LIST<FLOAT>").with_vector(
+                    dbine_driver::VectorMeta::dense(Some(2), dbine_driver::VectorElement::F64),
+                ),
+            ],
+            &[vec![serde_json::json!(1), serde_json::json!("[0.5,2]")]],
+        );
+        assert_eq!(
+            insert_script(Flavor::Neo4j, &target, &["id".into(), "emb".into()], &rows).unwrap(),
+            "CREATE (:Doc {id: 1, emb: [0.5, 2.0]});\n"
+        );
+    }
+
+    #[test]
     fn neo4j_ddl() {
         let f = Flavor::Neo4j;
         assert_eq!(
@@ -1125,6 +1591,7 @@ mod tests {
             ..s.clone()
         };
         let ft = IndexSpec::from_index(
+            n,
             "A",
             false,
             &IndexDef {
