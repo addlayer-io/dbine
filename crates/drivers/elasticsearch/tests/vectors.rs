@@ -343,9 +343,32 @@ async fn exercise(case: Case, url: &str) {
         );
     }
 
-    // A document by id: its vectors typed as in a search.
+    // A document by id: its vectors typed as in a search. Elasticsearch
+    // 9.2+ leaves them out unless asked, and says so.
+    let es92 =
+        case.id == "elasticsearch" && dbine_driver::functions::version_at_least(&version, "9.2");
     for path in ["_doc", "_source"] {
-        let out = run(&mut s, &format!("GET /{INDEX}/{path}/1")).await;
+        if es92 {
+            let out = run(&mut s, &format!("GET /{INDEX}/{path}/1")).await;
+            assert!(
+                out.messages
+                    .iter()
+                    .any(|m| m.contains("_source_exclude_vectors=false")),
+                "{:?}",
+                out.messages
+            );
+        }
+        let ask = if es92 {
+            "?_source_exclude_vectors=false"
+        } else {
+            ""
+        };
+        let out = run(&mut s, &format!("GET /{INDEX}/{path}/1{ask}")).await;
+        assert!(
+            !out.messages.iter().any(|m| m.contains("exclude_vectors")),
+            "{:?}",
+            out.messages
+        );
         let r = &out.results[0];
         let at = r.columns.iter().position(|c| c.name == "emb").unwrap();
         assert!(r.columns[at].vector.is_some(), "{:?}", r.columns);
@@ -368,7 +391,7 @@ async fn exercise(case: Case, url: &str) {
 
     // Elasticsearch 9.2+ leaves vectors out of `_source`: a search that
     // doesn't ask for them says how; one that filters `_source` doesn't.
-    if case.id == "elasticsearch" && dbine_driver::functions::version_at_least(&version, "9.2") {
+    if es92 {
         let out = run(
             &mut s,
             &format!("POST /{INDEX}/_search\n{{\"query\": {{\"match_all\": {{}}}}}}"),
@@ -589,7 +612,8 @@ async fn elasticsearch9_vectors() {
                 "dense_vector(16, bit)",
                 VectorMeta::dense(Some(16), VectorElement::Bit),
             )),
-            vector: vi("hnsw", "ip", &[("m", "16"), ("ef_construction", "100")]),
+            // l2: the test's vectors aren't unit length (dot_product).
+            vector: vi("hnsw", "l2", &[("m", "16"), ("ef_construction", "100")]),
             knn: "POST /dbine_vec/_search\n{\"knn\": {\"field\": \"emb\", \"query_vector\": [1, 0, 0], \"k\": 2, \"num_candidates\": 10}}",
         },
         &url,

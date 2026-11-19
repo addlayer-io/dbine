@@ -875,35 +875,53 @@ impl EsSession {
         self.doc_vectors(&indices).await
     }
 
-    /// Hits without the vector fields their mapping has, on a server that
-    /// leaves them out of `_source`: say how to ask for them, unless the
-    /// search filters `_source` itself (`filtered`).
+    /// Documents (search hits, `_mget` docs, one read by id, or a bare
+    /// `_source`) without the vector fields their mapping has, on a server
+    /// that leaves them out of `_source`: say how to ask for them, unless
+    /// the request filters `_source` itself (`filtered`). `search`: in a
+    /// search's body, else as a URL parameter.
     fn vectors_left_out(
         &self,
-        resp: &J,
+        docs: &[&J],
         vectors: &[(String, vectors::VecType)],
         filtered: bool,
+        search: bool,
         out: &mut QueryOutcome,
     ) {
-        if vectors.is_empty() || filtered || !self.excludes_vectors() {
+        if docs.is_empty() || vectors.is_empty() || filtered || !self.excludes_vectors() {
             return;
         }
-        let hits = resp
-            .at(&["hits", "hits"])
-            .and_then(J::as_arr)
-            .unwrap_or(&[]);
-        let shown = hits.iter().any(|h| {
-            vectors.iter().any(|(n, _)| {
-                h.get("_source").and_then(|s| s.get(n)).is_some()
-                    || h.get("fields").and_then(|s| s.get(n)).is_some()
-            })
-        });
-        if !hits.is_empty() && !shown {
-            out.info(format!(
-                "Elasticsearch deja los vectores ({}) fuera de _source: para verlos, agregá \"_source\": {{\"exclude_vectors\": false}} a la búsqueda.",
-                vectors.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", ")
-            ));
+        let has = |d: &J, n: &str| {
+            d.get(n).is_some()
+                || d.get("_source").and_then(|s| s.get(n)).is_some()
+                || d.get("fields").and_then(|s| s.get(n)).is_some()
+        };
+        if docs.iter().any(|d| vectors.iter().any(|(n, _)| has(d, n))) {
+            return;
         }
+        let names = vectors
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.info(if search {
+            format!(
+                "Elasticsearch deja los vectores ({names}) fuera de _source: para verlos, agregá \"_source\": {{\"exclude_vectors\": false}} a la búsqueda."
+            )
+        } else {
+            format!(
+                "Elasticsearch deja los vectores ({names}) fuera de _source: para verlos, agregá ?_source_exclude_vectors=false a la petición."
+            )
+        });
+    }
+
+    /// The hits of a search response.
+    fn hits(resp: &J) -> Vec<&J> {
+        resp.at(&["hits", "hits"])
+            .and_then(J::as_arr)
+            .unwrap_or(&[])
+            .iter()
+            .collect()
     }
 
     /// A write's body with what the server needs that DBine writes another
@@ -1047,7 +1065,7 @@ impl EsSession {
                         flatten::push_search_typed(out, r, max_rows, &vectors);
                         let body = bodies.get(i).and_then(Option::as_ref);
                         let filtered = source_filtered(body, &req.path);
-                        self.vectors_left_out(r, &vectors, filtered, out);
+                        self.vectors_left_out(&Self::hits(r), &vectors, filtered, true, out);
                     }
                 }
             }
@@ -1055,15 +1073,27 @@ impl EsSession {
             flatten::push_search_typed(out, &resp, max_rows, &vectors);
             let body = req.body.as_deref().and_then(|b| J::parse(b).ok());
             let filtered = source_filtered(body.as_ref(), &req.path);
-            self.vectors_left_out(&resp, &vectors, filtered, out);
+            self.vectors_left_out(&Self::hits(&resp), &vectors, filtered, true, out);
         } else if let Some((index, doc)) = single_doc(req, &resp) {
             let vectors = self.doc_vectors(&[index]).await;
             flatten::push_docs_typed(out, [doc], max_rows, &vectors);
+            let filtered = source_filtered(None, &req.path);
+            self.vectors_left_out(&[&resp], &vectors, filtered, false, out);
         } else if let (Some(docs), true) = (
             resp.get("docs").and_then(J::as_arr),
             segs.contains(&"_mget"),
         ) {
             flatten::push_docs_typed(out, docs.iter().map(flatten::hit_doc), max_rows, &vectors);
+            let found: Vec<&J> = docs.iter().filter(|d| d.get("_source").is_some()).collect();
+            let body = req.body.as_deref().and_then(|b| J::parse(b).ok());
+            // `_mget` takes `_source` per document too.
+            let per_doc = body
+                .as_ref()
+                .and_then(|b| b.get("docs"))
+                .and_then(J::as_arr)
+                .is_some_and(|d| d.iter().any(|x| x.get("_source").is_some()));
+            let filtered = per_doc || source_filtered(body.as_ref(), &req.path);
+            self.vectors_left_out(&found, &vectors, filtered, false, out);
         } else if resp.get("columns").is_some() || resp.get("schema").is_some() {
             self.push_sql(&resp, max_rows, out).await?;
         } else {
@@ -2036,6 +2066,33 @@ mod tests {
             interrupted: Arc::default(),
             vector_fields: Default::default(),
         }
+    }
+
+    /// Documents without the vectors their mapping has, on 9.2+: how to
+    /// ask for them, in the body of a search or as a URL parameter.
+    #[test]
+    fn documents_without_their_vectors_say_how_to_ask() {
+        let v = vec![(
+            "emb".to_string(),
+            vectors::VecType::new("dense_vector", Some(3), vectors::Elem::Float),
+        )];
+        let doc = J::parse(r#"{"_index":"i","_id":"1","_source":{"t":"x"}}"#).unwrap();
+        let with = J::parse(r#"{"_index":"i","_id":"1","_source":{"emb":[1,2,3]}}"#).unwrap();
+        let bare = J::parse(r#"{"t":"x"}"#).unwrap();
+        let hint = |s: &EsSession, docs: &[&J], filtered: bool, search: bool| {
+            let mut out = QueryOutcome::default();
+            s.vectors_left_out(docs, &v, filtered, search, &mut out);
+            out.messages
+        };
+        let es92 = session("Elasticsearch 9.2.0", false);
+        assert!(hint(&es92, &[&doc], false, true)[0].contains("\"exclude_vectors\": false"));
+        assert!(hint(&es92, &[&bare], false, false)[0].contains("?_source_exclude_vectors=false"));
+        // Shown, filtered by the request, no documents, an older server: no hint.
+        assert!(hint(&es92, &[&doc, &with], false, true).is_empty());
+        assert!(hint(&es92, &[&doc], true, false).is_empty());
+        assert!(hint(&es92, &[], false, true).is_empty());
+        assert!(hint(&session("Elasticsearch 9.1.0", false), &[&doc], false, true).is_empty());
+        assert!(hint(&session("OpenSearch 3.0.0", true), &[&doc], false, true).is_empty());
     }
 
     /// Elasticsearch 9.2+ leaves vectors out of `_source`: the browse asks
