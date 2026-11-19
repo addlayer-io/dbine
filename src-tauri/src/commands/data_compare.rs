@@ -1469,7 +1469,7 @@ fn side_script(
 /// `to_right` says: as its column's type takes it ([`write_as`]), and a
 /// vector as an array where that column holds vectors (or, when it doesn't
 /// say its type, where the source's does).
-fn script_value(d: &Diff, to_right: bool, i: usize, v: &Value) -> Value {
+pub(crate) fn script_value(d: &Diff, to_right: bool, i: usize, v: &Value) -> Value {
     let (target_types, source_types, target_vectors, source_vectors) = if to_right {
         (
             &d.right_types,

@@ -668,7 +668,7 @@ fn value(g: &mut Gen, rng: &mut Rng, row: u64, len: Option<usize>) -> Value {
 
 /// A random vector as a JSON array: floats on the unit sphere (rounded to
 /// what the column keeps), or bytes and bits in their range.
-fn random_vector(rng: &mut Rng, dims: usize, element: VectorElement) -> Value {
+pub(crate) fn random_vector(rng: &mut Rng, dims: usize, element: VectorElement) -> Value {
     let nums: Vec<f64> = match element {
         VectorElement::I8 => (0..dims).map(|_| rng.range(-128, 127) as f64).collect(),
         VectorElement::U8 => (0..dims).map(|_| rng.range(0, 255) as f64).collect(),
