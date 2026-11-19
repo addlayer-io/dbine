@@ -7,6 +7,7 @@ import { errorMessage } from '../api/client';
 import type { ObjectRef } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { runTask } from '../stores/tasks';
+import type { VectorMeta } from '../api/types';
 import { shownVectorMeta, vectorPreview } from '../composables/vector';
 import VectorValue from './VectorValue.vue';
 
@@ -42,7 +43,16 @@ const PARAMS: Record<string, string[]> = {
   datetime: ['from', 'to'],
   text: ['min', 'max'],
   list: ['values'],
+  vector: ['dims'],
 };
+
+/** A column's settings: a vector's dimensions only where its type doesn't
+ *  fix them (`vector(1536)` takes vectors of 1536 numbers, nothing else). */
+function paramsOf(c: Column): string[] {
+  const g = specs.value[c.name]?.generator ?? 'auto';
+  if (g === 'vector' && shownVectorMeta({ type_name: c.data_type })?.dims) return [];
+  return PARAMS[g] ?? [];
+}
 
 function payload() {
   return Object.entries(specs.value)
@@ -75,12 +85,20 @@ function cell(v: unknown): string {
   if (v === null || v === undefined) return 'NULL';
   return typeof v === 'object' ? JSON.stringify(v) : String(v);
 }
-/** Each sample column's vectors, by the table column's type. */
-const sampleVectors = computed(() => (preview.value?.columns ?? []).map((name) =>
-  shownVectorMeta({ type_name: preview.value?.table_columns.find((c) => c.name === name)?.data_type })));
+/** Each sample column's vectors, by the table column's type; else, where
+ *  the type doesn't say it, dense ones when the backend fills the column
+ *  with vectors (its "auto" or the chosen generator is the vector one). */
+const sampleVectors = computed(() => (preview.value?.columns ?? []).map((name) => {
+  const c = preview.value?.table_columns.find((x) => x.name === name);
+  const typed = shownVectorMeta({ type_name: c?.data_type });
+  if (typed || !c) return { meta: typed, shown: typed };
+  const filled = c.auto === 'vector' || specs.value[name]?.generator === 'vector';
+  // Its element isn't known: the badge says only the dimensions.
+  return filled ? { meta: { element: 'f32' } as VectorMeta, shown: null } : { meta: null, shown: null };
+}));
 /** A sample vector as its first numbers and dims; null: shown as text. */
 function sampleVector(v: unknown, j: number) {
-  const meta = sampleVectors.value[j];
+  const meta = sampleVectors.value[j]?.meta;
   return meta && v !== null && v !== undefined ? vectorPreview(typeof v === 'string' ? v : JSON.stringify(v), meta) : null;
 }
 
@@ -161,7 +179,7 @@ function close() {
               </td>
               <td class="dg-params">
                 <el-input
-                  v-for="p in PARAMS[specs[c.name].generator] ?? []"
+                  v-for="p in paramsOf(c)"
                   :key="p"
                   v-model="specs[c.name].params[p]"
                   size="small"
@@ -183,7 +201,7 @@ function close() {
           <tbody>
             <tr v-for="(r, i) in preview.rows" :key="i">
               <td v-for="(v, j) in r" :key="j" :class="{ null: v === null }">
-                <VectorValue v-if="sampleVector(v, j)" :preview="sampleVector(v, j)!" :meta="sampleVectors[j]" />
+                <VectorValue v-if="sampleVector(v, j)" :preview="sampleVector(v, j)!" :meta="sampleVectors[j]?.shown" />
                 <template v-else>{{ cell(v) }}</template>
               </td>
             </tr>

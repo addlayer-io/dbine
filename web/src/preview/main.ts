@@ -276,13 +276,16 @@ function dataGenView() {
     transformCallback: () => ++cb, unregisterCallback: () => {}, convertFileSrc: (p: string) => p,
     invoke: async (cmd: string) => {
       if (cmd !== 'datagen_preview') throw { kind: 'preview', message: `"${cmd}" no está disponible en la vista previa` };
-      const col = (name: string, data_type: string) => ({ name, data_type, nullable: true, primary_key: name === 'id', auto_increment: name === 'id', foreign_key: null, auto: 'auto' });
+      const col = (name: string, data_type: string, auto: string) => ({ name, data_type, nullable: true, primary_key: name === 'id', auto_increment: name === 'id', foreign_key: null, auto });
       const { rows } = sampleVectorResult;
+      // `resumen`: a vector field whose type doesn't say so (a document's
+      // `array`); the backend's "auto" says it's filled with vectors.
+      const small = (i: number) => JSON.stringify(Array.from({ length: 8 }, (_, k) => Math.round(Math.sin(i * 7 + k) * 1000) / 1000));
       return {
-        table_columns: [col('id', 'int8'), col('titulo', 'text'), col('embedding', 'vector(1536)')],
-        generators: ['fixed', 'sequence', 'text'],
-        columns: ['id', 'titulo', 'embedding'],
-        rows: rows.slice(0, 8).map((r) => [r[0], r[1], r[2]]),
+        table_columns: [col('id', 'int8', 'sequence'), col('titulo', 'text', 'text'), col('embedding', 'vector(1536)', 'vector'), col('resumen', 'array', 'vector')],
+        generators: ['fixed', 'sequence', 'text', 'vector'],
+        columns: ['id', 'titulo', 'embedding', 'resumen'],
+        rows: rows.slice(0, 8).map((r, i) => [r[0], r[1], r[2], small(i)]),
       };
     },
   };

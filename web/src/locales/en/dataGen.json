@@ -39,7 +39,8 @@
     "company": "Company",
     "address": "Address",
     "list": "From a list",
-    "foreign_key": "From the referenced table"
+    "foreign_key": "From the referenced table",
+    "vector": "Vector (random numbers)"
   },
   "param": {
     "value": "value",
@@ -50,6 +51,7 @@
     "scale": "decimals",
     "from": "from YYYY-MM-DD",
     "to": "to YYYY-MM-DD",
-    "values": "values, comma-separated"
+    "values": "values, comma-separated",
+    "dims": "dimensions"
   }
 }
