@@ -47,6 +47,11 @@ pub(crate) struct VectorTarget {
     /// 2000, FerretDB's `cosmosSearch` (`vector-hnsw` / `vector-ivf`, on
     /// pgvector) 2000.
     pub max_dims: u32,
+    /// Its vector index searches BinData vectors (Atlas). DocumentDB's and
+    /// FerretDB's (`cosmosSearch`) search arrays of numbers only (a BinData
+    /// vector is left out, seen on FerretDB 2): int8 and bit vectors go
+    /// there as numbers.
+    pub binary: bool,
 }
 
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
@@ -55,6 +60,7 @@ pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
         vectors: VectorTarget {
             family: "MongoDB",
             max_dims: 8192,
+            binary: true,
         },
     };
     static DOCDB: Mongo = Mongo {
@@ -62,6 +68,7 @@ pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
         vectors: VectorTarget {
             family: "Amazon DocumentDB",
             max_dims: 2000,
+            binary: false,
         },
     };
     static FERRET: Mongo = Mongo {
@@ -69,6 +76,7 @@ pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
         vectors: VectorTarget {
             family: "FerretDB",
             max_dims: 2000,
+            binary: false,
         },
     };
     match driver_id {
@@ -312,6 +320,23 @@ impl Dialect for Mongo {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector {
+                dims,
+                element: dbine_driver::VectorElement::I8 | dbine_driver::VectorElement::Bit,
+                sparse: false,
+            } if !self.vectors.binary => Rendered::exact(match dims {
+                Some(n) => format!("vector({n})"),
+                None => "vector".into(),
+            })
+            .with(
+                Info,
+                TypeChanged,
+                format!(
+                    "{}: {} busca solo vectores guardados como arreglos de números (no BinData): sus valores van como números.",
+                    t.describe(),
+                    self.vectors.family
+                ),
+            ),
             L::Vector { .. } => render_vector(t).unwrap_or_else(|| super::vector_fallback(self, t)),
             L::Bool => Rendered::exact("bool"),
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {
@@ -736,6 +761,24 @@ mod tests {
             ..Default::default()
         };
         assert!(mongo.vector_index(&jaccard, Some(&bits)).is_err());
+        // Int8 and bit vectors: BinData on MongoDB (Atlas searches them),
+        // arrays of numbers where only arrays are searched.
+        for (id, want) in [
+            ("mongodb", "vector(8, bit)"),
+            ("documentdb", "vector(8)"),
+            ("ferretdb", "vector(8)"),
+        ] {
+            let r = lookup(id).unwrap().render_type(&col(Some(8), E::Bit));
+            assert_eq!(r.native, want, "{id}");
+            assert_eq!(r.notes.is_empty(), id == "mongodb", "{id}");
+        }
+        assert_eq!(
+            lookup("ferretdb")
+                .unwrap()
+                .render_type(&col(Some(3), E::I8))
+                .native,
+            "vector(3)"
+        );
         // Each target's most dimensions: wider is dropped with the reason.
         for (id, max) in [("mongodb", 8192), ("documentdb", 2000), ("ferretdb", 2000)] {
             let d = lookup(id).unwrap();
