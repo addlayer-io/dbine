@@ -800,13 +800,28 @@ fn cql_err(e: ExecutionError, stmt: &str) -> Error {
         return Error::Query(e.to_string());
     };
     let code = db.code(&scylla::frame::protocol_features::ProtocolFeatures::default());
-    let mut se = ScriptError::new(msg.clone()).with_code(format!("{code:04X}"));
+    let text = match refusal_hint(msg) {
+        Some(h) => format!("{} ({h})", msg.trim_end()),
+        None => msg.clone(),
+    };
+    let mut se = ScriptError::new(text).with_code(format!("{code:04X}"));
     if let Some((line, col)) = position(msg) {
         se = se
             .at_line(line)
             .at_offset(steps::offset_of(stmt, line, col + 1));
     }
     Error::Statement(Box::new(se))
+}
+
+/// What to do about a refusal the server doesn't explain: ScyllaDB creates
+/// vector indexes only in keyspaces with tablets ("Creating a vector index
+/// requires the base table's keyspace to use tablets"), which a keyspace
+/// can't turn on after it's created.
+fn refusal_hint(msg: &str) -> Option<&'static str> {
+    let m = msg.to_ascii_lowercase();
+    (m.contains("vector index") && m.contains("tablets")).then_some(
+        "ScyllaDB crea índices vectoriales solo en keyspaces con tablets, que no se activan después de crear el keyspace: la tabla tiene que ir a un keyspace nuevo con tablets y NetworkTopologyStrategy",
+    )
 }
 
 /// `line 1:7 no viable alternative…`: line (1-based) and column (0-based).
@@ -2118,6 +2133,16 @@ mod tests {
         );
         assert_eq!(position("line 3:0 mismatched input"), Some((3, 0)));
         assert_eq!(position("Undefined column name nope"), None);
+    }
+
+    #[test]
+    fn vector_index_without_tablets_is_explained() {
+        let h = refusal_hint(
+            "Creating a vector index requires the base table's keyspace to use tablets",
+        )
+        .unwrap();
+        assert!(h.contains("tablets") && h.contains("keyspace nuevo"), "{h}");
+        assert_eq!(refusal_hint("Undefined column name nope"), None);
     }
 
     #[test]

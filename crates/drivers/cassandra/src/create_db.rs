@@ -46,7 +46,7 @@ pub(crate) fn fields(f: Flavor) -> Vec<Field> {
             if f == Flavor::Scylla {
                 out.push(
                     Field::new("tablets", "Tablets", yes_no())
-                        .help("Vacío: lo que diga el servidor (tablets activos por defecto desde ScyllaDB 6). No funciona con SimpleStrategy."),
+                        .help("Vacío: lo que diga el servidor (tablets activos por defecto desde ScyllaDB 6). No funciona con SimpleStrategy. Sin tablets el keyspace no admite índices vectoriales, y no se activan después."),
                 );
             }
             out

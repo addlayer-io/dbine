@@ -397,6 +397,39 @@ async fn body(id: &str, url: &str) {
     let out = run(&mut s, check).await;
     assert_eq!(out.results[0].rows[0][1], json!("{\"a\": 1}"));
     assert_eq!(vectors(&out), [(4, "[1,1,0]".to_string())]);
+    // Another engine's JSON value (a `jsonb` synced or imported) into the
+    // text column: its JSON text, not a map or a list the server refuses.
+    let doc = vec![json!(5), json!({"a": [1, 2]}), json!([0, 1, 0])];
+    let ins = d
+        .insert_script_typed(&table("docs"), &typed, std::slice::from_ref(&doc))
+        .unwrap();
+    run(&mut s, &ins).await;
+    let upd = d
+        .update_script_typed(
+            &table("docs"),
+            &[RowChange {
+                key: vec![("id".into(), json!(4))],
+                set: vec![("body".into(), json!([true, null]))],
+                ..Default::default()
+            }],
+            &typed,
+        )
+        .unwrap();
+    run(&mut s, &upd).await;
+    let mut rows = run(&mut s, "SELECT id, body FROM docs WHERE id IN (4, 5);")
+        .await
+        .results[0]
+        .rows
+        .clone();
+    rows.sort_by_key(|r| r[0].as_i64());
+    assert_eq!(
+        rows,
+        vec![
+            vec![json!(4), json!("[true,null]")],
+            vec![json!(5), json!("{\"a\":[1,2]}")]
+        ]
+    );
+    run(&mut s, "DELETE FROM docs WHERE id = 5;").await;
     let del = d
         .delete_script_typed(&table("docs"), &[vec![("id".into(), json!(4))]], &typed)
         .unwrap();
@@ -525,6 +558,57 @@ async fn cassandra_vectors() {
 async fn scylladb_vectors() {
     let url = std::env::var("DBINE_TEST_SCYLLADB_URL").unwrap_or_else(|_| "localhost:25413".into());
     vectors_on("scylladb", &url).await;
+}
+
+/// ScyllaDB creates vector indexes only in keyspaces with tablets: the
+/// designer's index in a keyspace without them is refused, and the error
+/// says why and what to do.
+#[tokio::test]
+#[ignore]
+async fn scylladb_vector_index_needs_tablets() {
+    let url = std::env::var("DBINE_TEST_SCYLLADB_URL").unwrap_or_else(|_| "localhost:25413".into());
+    let mut admin = open("scylladb", &url, None).await;
+    let drop = format!("DROP KEYSPACE IF EXISTS {KS};");
+    run(&mut admin, &drop).await;
+    run(
+        &mut admin,
+        &format!("CREATE KEYSPACE {KS} WITH replication = {{'class': 'NetworkTopologyStrategy', 'replication_factor': 1}} AND tablets = {{'enabled': false}};"),
+    )
+    .await;
+    let r = AssertUnwindSafe(async {
+        let d = driver("scylladb");
+        let mut s = open("scylladb", &url, Some(KS)).await;
+        let mut t = docs("scylladb", "docs");
+        let tables = DdlParts {
+            create: true,
+            ..Default::default()
+        };
+        let indexes = t.indexes.clone();
+        t.indexes.clear();
+        run(&mut s, &d.table_ddl(&t, tables).unwrap()).await;
+        t.indexes = indexes;
+        let only = DdlParts {
+            indexes: true,
+            ..Default::default()
+        };
+        let ddl = d.table_ddl(&t, only).unwrap();
+        let mut out = QueryOutcome::default();
+        let e = match s.execute(&ddl, 10, &mut out).await {
+            Err(e) => e.to_string(),
+            Ok(()) => out.error.clone().unwrap_or_default(),
+        };
+        println!("{e}");
+        assert!(
+            e.contains("tablets") && e.contains("keyspace nuevo con tablets"),
+            "{ddl}: {e}"
+        );
+    })
+    .catch_unwind()
+    .await;
+    run(&mut admin, &drop).await;
+    if let Err(p) = r {
+        std::panic::resume_unwind(p);
+    }
 }
 
 /// The value the grid sends for an edited vector is a JSON array; a text
