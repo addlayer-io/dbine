@@ -66,6 +66,94 @@ export const sampleResult: { columns: ResultColumn[]; rows: Cell[][] } = {
     cities.map((c, j) => [m, c, 120 + ((i * 37 + j * 53) % 90), String((15000 + ((i * 3100 + j * 2700) % 9000)).toFixed(2))] as Cell[])),
 };
 
+// -- vectors (view=results&set=vectors, view=vecviewer, view=designer&engine=pgvector|oracle) ----
+/** A vector of `dims` numbers, the same for the same `seed`, shaped like an
+ *  embedding (small values, normalized-ish). */
+function embedding(seed: number, dims: number): number[] {
+  return Array.from({ length: dims }, (_, i) => Math.round(Math.sin(seed * 7.3 + i * 1.7) * Math.cos(i * 0.31 + seed) * 10_000) / 40_000);
+}
+/** Results with vectors, as the drivers send them: dense vectors as JSON
+ *  arrays of numbers (whole), marked on the column; a sparse one as the
+ *  engine writes it; an int8 one; and a vector type with no mark (a stored
+ *  notebook result: the type name says it). */
+export const sampleVectorResult: { columns: ResultColumn[]; rows: Cell[][] } = {
+  columns: [
+    { name: 'id', type_name: 'int8' },
+    { name: 'titulo', type_name: 'text' },
+    { name: 'embedding', type_name: 'vector(1536)', vector: { dims: 1536, element: 'f32' } },
+    { name: 'resumen', type_name: 'halfvec(8)', vector: { dims: 8, element: 'f16' } },
+    { name: 'cuantizado', type_name: 'VECTOR(8, INT8)', vector: { dims: 8, element: 'i8' } },
+    { name: 'terminos', type_name: 'sparsevec(30522)', vector: { dims: 30522, element: 'f32', sparse: true } },
+    { name: 'sin_marca', type_name: 'vector(3)' },
+  ],
+  rows: Array.from({ length: 40 }, (_, i) => [
+    i + 1,
+    ['Manual de instalación', 'Guía de migración', 'Notas de la versión', 'Preguntas frecuentes', 'Seguridad'][i % 5] + ` ${i + 1}`,
+    i === 6 ? null : JSON.stringify(embedding(i, 1536)),
+    JSON.stringify(embedding(i + 100, 8)),
+    JSON.stringify(embedding(i + 200, 8).map((x) => Math.max(-128, Math.min(127, Math.round(x * 500))))),
+    `{${(i % 7) + 1}:0.${(i * 37) % 100 || 5},${(i % 11) + 120}:1.5,${(i % 13) + 2048}:0.25}/30522`,
+    JSON.stringify(embedding(i + 300, 3)),
+  ]),
+};
+
+/** Shaped like PostgreSQL + pgvector's DesignerSpec: HNSW and IVFFlat, the
+ *  six distances, their build parameters, no filter columns. */
+export const sampleDesignerPgvector: DesignerSpec = {
+  kind: 'table',
+  label: 'Nueva tabla',
+  data_types: ['bigint', 'integer', 'text', 'varchar(255)', 'jsonb', 'timestamptz', 'vector(1536)', 'halfvec(1536)', 'sparsevec(30522)', 'bit(1024)'],
+  schemas: true, primary_key: true, auto_increment: true, defaults: true, nullability: true,
+  comments: true, indexes: true, foreign_keys: true,
+  column_options: [], table_options: [], columns_required: true,
+  vector_indexes: {
+    algorithms: ['hnsw', 'ivfflat'],
+    metrics: ['l2', 'cosine', 'ip', 'l1', 'hamming', 'jaccard'],
+    params: [
+      { key: 'm', algorithms: ['hnsw'], default: '16' },
+      { key: 'ef_construction', algorithms: ['hnsw'], default: '64' },
+      { key: 'lists', algorithms: ['ivfflat'], default: '100' },
+    ],
+    filter_columns: false,
+  },
+};
+
+/** Shaped like Oracle 23ai's: its own parameter names (shown as they are),
+ *  and INCLUDE columns after the vector one. */
+export const sampleDesignerOracleVector: DesignerSpec = {
+  ...sampleDesignerPgvector,
+  data_types: ['NUMBER', 'VARCHAR2(200)', 'CLOB', 'VECTOR(1536, FLOAT32)', 'VECTOR(768, INT8)', 'VECTOR(*, *)'],
+  vector_indexes: {
+    algorithms: ['hnsw', 'ivf'],
+    metrics: ['cosine', 'l2', 'ip', 'l1', 'hamming', 'jaccard'],
+    params: [
+      { key: 'm', algorithms: ['hnsw'], default: '' },
+      { key: 'ef_construction', algorithms: ['hnsw'], default: '' },
+      { key: 'neighbor_partitions', algorithms: ['ivf'], default: '' },
+      { key: 'target_accuracy', algorithms: [], default: '90' },
+    ],
+    filter_columns: true,
+  },
+};
+
+/** A `documentos` table with an HNSW index on its embedding (pgvector). */
+export const sampleDesignerInitialPgvector: TableSchema = {
+  kind: 'table', schema: 'public', name: 'documentos',
+  columns: [
+    { name: 'id', data_type: 'bigint', nullable: false, default_value: null, auto_increment: true, comment: null, options: {} },
+    { name: 'contenido', data_type: 'text', nullable: true, default_value: null, auto_increment: false, comment: null, options: {} },
+    { name: 'embedding', data_type: 'vector(1536)', nullable: true, default_value: null, auto_increment: false, comment: null, options: {} },
+    { name: 'idioma', data_type: 'varchar(8)', nullable: true, default_value: null, auto_increment: false, comment: null, options: {} },
+  ],
+  primary_key: { name: 'documentos_pkey', columns: ['id'] },
+  foreign_keys: [],
+  indexes: [
+    { name: 'documentos_embedding_idx', columns: ['embedding'], unique: false, kind: 'hnsw', filter: null, vector: { algorithm: 'hnsw', metric: 'cosine', params: { m: '24', ef_construction: '128' } } },
+    { name: 'documentos_idioma_idx', columns: ['idioma'], unique: false, kind: 'btree', filter: null },
+  ],
+  comment: null, options: {},
+};
+
 // -- table designer (view=designer) --------------------------------------------------------
 function field(key: string, label: string, kind: FieldKind, o: Partial<Field> = {}): Field {
   return { key, label, kind, required: false, secret: false, placeholder: '', default: '', help: '', ...o };
@@ -269,6 +357,10 @@ export const sampleSchema: TableSchema[] = [
     { foreign_keys: [fk('direccion_id', 'direcciones', 'id', { ref_schema: 'ventas' })] }),
   tbl('sistema', 'auditoria', 'id bigint !, tabla varchar(64) !, operacion char(1) !, registro_id varchar(64) !, usuario varchar(64) !, fecha timestamptz !, datos jsonb',
     { primary_key: { name: 'pk_auditoria', columns: ['id'] }, indexes: [ix('ix_auditoria_fecha', 'fecha'), ix('ix_auditoria_tabla', 'tabla, registro_id')], comment: 'Bitácora de cambios (sin claves foráneas)' }),
+  // Embeddings of the products' descriptions, with an HNSW index (pgvector).
+  tbl('ventas', 'productos_embeddings', 'id bigint !, producto_id bigint !, modelo varchar(60) !, embedding vector(1536) !',
+    { foreign_keys: [fk('producto_id', 'productos', 'id', { on_delete: 'CASCADE' })],
+      indexes: [{ ...ix('ix_productos_embeddings_hnsw', 'embedding'), kind: 'hnsw', vector: { algorithm: 'hnsw', metric: 'cosine', params: { m: '16', ef_construction: '64' } } }] }),
 ];
 
 /** 150 tables × 20 columns with ~1.3 foreign keys each (performance check). */

@@ -4,7 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { invoke } from '@tauri-apps/api/core';
 import { errorMessage } from '../api/client';
 import type { Field, Language, QueryOutcome } from '../api/types';
-import type { DdlParts, DesignerSpec, ForeignKeyDef, IndexDef, TableSchema } from '../api/schema-types';
+import type { DdlParts, DesignerSpec, ForeignKeyDef, IndexDef, TableSchema, VectorIndex } from '../api/schema-types';
 import type { CodeObject, SyncScript } from '../api/compare';
 import CodeEditor from '../components/CodeEditor.vue';
 import { useTranslation } from 'i18next-vue';
@@ -13,6 +13,8 @@ import { lineComment } from '../composables/scriptComment';
 import { isProdConnection } from '../composables/tags';
 import { useConnectionsStore } from '../stores/connections';
 import { vKeyActivate } from '../composables/keyActivate';
+import { vectorOfType } from '../composables/vector';
+import { metricLabel, paramLabel, vectorIndexLine } from '../composables/vectorLabels';
 
 // Designer for a new table / collection / index / key… in any engine. What
 // it offers comes entirely from the driver's DesignerSpec; it builds a
@@ -92,6 +94,10 @@ interface IdxRow {
   key: number; name: string; columns: string[]; unique: boolean; kind: string; filter: string;
   /** Edit mode: the index's name in the database (null: a new one). */
   orig?: string | null;
+  /** A vector index ("Vectorial", where the spec offers them): `columns[0]`
+   *  is the vector column, filter columns follow. Empty algorithm / metric /
+   *  param: the engine's default. */
+  vector: boolean; algorithm: string; metric: string; params: Record<string, string>;
 }
 interface FkRow {
   key: number; name: string; columns: string[]; target: string; ref_columns: string[];
@@ -169,6 +175,7 @@ function load() {
   idxs.value = (t?.indexes ?? []).map((i) => ({
     key: nextKey(), name: i.name, columns: [...i.columns], unique: i.unique, kind: i.kind ?? '', filter: i.filter ?? '',
     orig: props.alter ? i.name : null,
+    vector: !!i.vector, algorithm: i.vector?.algorithm ?? '', metric: i.vector?.metric ?? '', params: { ...i.vector?.params },
   }));
   fks.value = (t?.foreign_keys ?? []).map((f) => ({
     key: nextKey(), name: f.name ?? '', columns: [...f.columns], target: targetKey(f.ref_schema, f.ref_table),
@@ -245,11 +252,15 @@ const table = computed<TableSchema>(() => {
     indexes: spec.indexes
       ? idxs.value.map((i): IndexDef => {
         const o = srcIdx(i);
+        // A vector index: what the row chose, where the spec offers them;
+        // elsewhere (edit mode) the index's own, so it's never lost.
+        const vector = spec.vector_indexes ? (i.vector ? vectorOf(i) : undefined) : o?.vector;
         return {
-          name: i.name.trim(), columns: [...i.columns], unique: i.unique,
+          name: i.name.trim(), columns: [...i.columns], unique: i.unique && !vector,
           kind: i.kind.trim() || null, filter: i.filter.trim() || null,
           ...(o?.include?.length ? { include: o.include.map(cur).filter(alive) } : {}),
           ...(o?.options && Object.keys(o.options).length ? { options: { ...o.options } } : {}),
+          ...(vector ? { vector } : {}),
         };
       })
       : [],
@@ -306,6 +317,11 @@ const issues = computed(() => {
       seen.add(x.name.trim().toLowerCase());
       if (!x.columns.length) err('indexes', t('designer:issues.pickColumn', { label }));
       for (const c of x.columns) if (!colNames.value.includes(c)) warn('indexes', t('designer:issues.notAColumn', { label, column: c }));
+      if (spec.vector_indexes && x.vector) {
+        const first = x.columns[0];
+        if (first && colNames.value.includes(first) && !vectorColumns.value.includes(first)) warn('indexes', t('vectors:designer.notVectorColumn', { label, column: first }));
+        if (!spec.vector_indexes.filter_columns && x.columns.length > 1) err('indexes', t('vectors:designer.noFilterColumns', { label }));
+      }
     }
   }
   if (spec.foreign_keys) {
@@ -504,7 +520,67 @@ function addIndex() {
   const base = `${props.spec.kind === 'collection' ? 'idx' : 'ix'}_${name.value.trim() || t('designer:defaultTableName')}`;
   let n = idxs.value.length + 1;
   while (idxs.value.some((i) => i.name === `${base}_${n}`)) n++;
-  idxs.value.push({ key: nextKey(), name: `${base}_${n}`, columns: [], unique: false, kind: '', filter: '' });
+  idxs.value.push({ key: nextKey(), name: `${base}_${n}`, columns: [], unique: false, kind: '', filter: '', vector: false, algorithm: '', metric: '', params: {} });
+}
+
+// -- vector indexes (spec.vector_indexes) ------------------------------------------------------
+const vspec = computed(() => props.spec.vector_indexes ?? null);
+/** Columns of a vector type (`vector(1536)`, `VECTOR(3, FLOAT32)`…). */
+const vectorColumns = computed(() => cols.value.filter((c) => c.name.trim() && vectorOfType(c.data_type)).map((c) => c.name.trim()));
+/** The vector column's choices: the vector columns first, then the rest. */
+const vectorColumnOptions = computed(() => [...vectorColumns.value, ...colNames.value.filter((n) => !vectorColumns.value.includes(n))]);
+
+/** "Vectorial" on: the defaults (the first algorithm and metric), the
+ *  vector column first, not unique. Off: an ordinary index again. */
+function toggleVector(x: IdxRow, on: boolean) {
+  x.vector = on;
+  const vs = vspec.value;
+  if (!on || !vs) return;
+  x.unique = false;
+  if (!x.orig) x.kind = '';
+  if (!x.algorithm) x.algorithm = vs.algorithms[0] ?? '';
+  if (!x.metric) x.metric = vs.metrics[0] ?? '';
+  const vcol = x.columns.find((c) => vectorColumns.value.includes(c)) ?? (x.columns.length ? undefined : vectorColumns.value[0]);
+  if (vcol) x.columns = [vcol, ...x.columns.filter((c) => c !== vcol)];
+  if (!vs.filter_columns) x.columns = x.columns.slice(0, 1);
+}
+function setVectorColumn(x: IdxRow, col: string) {
+  x.columns = col ? [col, ...x.columns.slice(1).filter((c) => c !== col)] : x.columns.slice(1);
+}
+function setFilterColumns(x: IdxRow, list: string[]) {
+  x.columns = [...x.columns.slice(0, 1), ...list.filter((c) => c !== x.columns[0])];
+}
+/** The build parameters of the row's algorithm (no algorithms listed: all). */
+const paramsFor = (x: IdxRow) => (vspec.value?.params ?? []).filter((p) => !p.algorithms.length || p.algorithms.includes(x.algorithm));
+/** Another algorithm: the spec's parameters of the old one go. */
+function setAlgorithm(x: IdxRow, a: string) {
+  x.algorithm = a;
+  const keep = new Set(paramsFor(x).map((p) => p.key));
+  for (const p of vspec.value?.params ?? []) if (!keep.has(p.key)) delete x.params[p.key];
+}
+/** The metrics offered, plus the index's own when the spec doesn't list it. */
+const metricsFor = (x: IdxRow) => {
+  const list = vspec.value?.metrics ?? [];
+  return x.metric && !list.includes(x.metric) ? [...list, x.metric] : list;
+};
+const algorithmsFor = (x: IdxRow) => {
+  const list = vspec.value?.algorithms ?? [];
+  return x.algorithm && !list.includes(x.algorithm) ? [...list, x.algorithm] : list;
+};
+/** The row's vector index as IndexDef.vector (empty choices left out). */
+function vectorOf(x: IdxRow): VectorIndex {
+  const params = Object.fromEntries(Object.entries(x.params).map(([k, v]) => [k, String(v ?? '').trim()]).filter(([, v]) => v));
+  return {
+    ...(x.algorithm ? { algorithm: x.algorithm } : {}),
+    ...(x.metric ? { metric: x.metric } : {}),
+    ...(Object.keys(params).length ? { params } : {}),
+  };
+}
+/** Edit mode, an engine whose designer doesn't create vector indexes: the
+ *  index's own, shown (and kept as it is). */
+function keptVector(x: IdxRow): string {
+  if (vspec.value || !x.orig) return '';
+  return vectorIndexLine(props.initial?.indexes.find((i) => i.name === x.orig)?.vector);
 }
 
 // -- foreign keys --------------------------------------------------------------------------
@@ -988,26 +1064,77 @@ defineExpose({ table });
               <th class="dz-h-name">{{ $t('designer:columns.name') }}</th>
               <th class="dz-h-cols">{{ $t('designer:sections.columns') }}</th>
               <th class="dz-h-flag">{{ $t('designer:indexes.unique') }}</th>
+              <th v-if="vspec" class="dz-h-flag dz-h-vec" :title="$t('vectors:designer.toggleHint')">{{ $t('vectors:designer.toggle') }}</th>
               <th class="dz-h-opt">{{ $t('designer:columns.type') }}</th>
               <th class="dz-h-filter">{{ $t('designer:indexes.filter') }}</th>
               <th class="dz-h-actions" />
             </tr>
           </thead>
           <tbody>
-            <tr v-for="x in idxs" :key="x.key">
+            <template v-for="x in idxs" :key="x.key">
+            <tr :class="{ 'dz-vec-main': vspec && x.vector }">
               <td class="dz-name"><el-input v-model="x.name" :class="{ invalid: !x.name.trim() }" :placeholder="$t('designer:namePlaceholder')" spellcheck="false" /></td>
               <td class="dz-cols">
-                <el-select v-model="x.columns" :class="{ invalid: !x.columns.length }" multiple filterable allow-create default-first-option collapse-tags collapse-tags-tooltip :max-collapse-tags="3" :placeholder="$t('designer:columnsPlaceholder')">
+                <el-select
+                  v-if="vspec && x.vector" :model-value="x.columns[0] ?? ''" :class="{ invalid: !x.columns.length }" filterable
+                  :placeholder="$t('vectors:designer.vectorColumnPlaceholder')" :aria-label="$t('vectors:designer.vectorColumn')"
+                  @update:model-value="(v: string) => setVectorColumn(x, v)"
+                >
+                  <el-option v-for="n in vectorColumnOptions" :key="n" :label="n" :value="n">
+                    <span>{{ n }}</span><span v-if="vectorColumns.includes(n)" class="dz-vec-tag">{{ $t('vectors:designer.vectorType') }}</span>
+                  </el-option>
+                </el-select>
+                <el-select v-else v-model="x.columns" :class="{ invalid: !x.columns.length }" multiple filterable allow-create default-first-option collapse-tags collapse-tags-tooltip :max-collapse-tags="3" :placeholder="$t('designer:columnsPlaceholder')">
                   <el-option v-for="n in colNames" :key="n" :label="n" :value="n" />
                 </el-select>
               </td>
-              <td class="dz-flag"><el-checkbox v-model="x.unique" /></td>
-              <td class="dz-opt"><el-input v-model="x.kind" :placeholder="$t('designer:defaultPlaceholder')" spellcheck="false" /></td>
+              <td class="dz-flag"><el-checkbox v-model="x.unique" :disabled="!!vspec && x.vector" /></td>
+              <td v-if="vspec" class="dz-flag">
+                <el-switch :model-value="x.vector" size="small" :aria-label="$t('vectors:designer.toggle')" @update:model-value="(v: string | number | boolean) => toggleVector(x, !!v)" />
+              </td>
+              <td class="dz-opt"><el-input v-model="x.kind" :disabled="!!vspec && x.vector" :placeholder="$t('designer:defaultPlaceholder')" spellcheck="false" /></td>
               <td class="dz-filter"><el-input v-model="x.filter" :placeholder="$t('designer:indexes.filterPlaceholder')" spellcheck="false" /></td>
               <td class="dz-actions">
                 <button :aria-label="$t('common:remove')" class="ide-icon-btn dz-del" :title="$t('common:remove')" @click="idxs.splice(idxs.indexOf(x), 1)"><el-icon><ei-close /></el-icon></button>
               </td>
             </tr>
+            <!-- A vector index's choices: algorithm, distance, build parameters, filter columns. -->
+            <tr v-if="vspec && x.vector" class="dz-vec-row">
+              <td :colspan="7">
+                <div class="dz-vec">
+                  <label v-if="algorithmsFor(x).length" class="dz-vec-field">
+                    <span>{{ $t('vectors:designer.algorithm') }}</span>
+                    <el-select :model-value="x.algorithm" @update:model-value="(v: string) => setAlgorithm(x, v)">
+                      <el-option v-for="a in algorithmsFor(x)" :key="a" :label="a" :value="a" />
+                    </el-select>
+                  </label>
+                  <label v-if="metricsFor(x).length" class="dz-vec-field">
+                    <span>{{ $t('vectors:designer.metric') }}</span>
+                    <el-select v-model="x.metric">
+                      <el-option v-for="m in metricsFor(x)" :key="m" :label="metricLabel(m)" :value="m" />
+                    </el-select>
+                  </label>
+                  <label v-for="p in paramsFor(x)" :key="p.key" class="dz-vec-field">
+                    <span>{{ paramLabel(p.key) }}</span>
+                    <el-input v-model="x.params[p.key]" :placeholder="p.default || $t('vectors:designer.paramPlaceholder')" spellcheck="false" />
+                  </label>
+                  <label v-if="vspec.filter_columns" class="dz-vec-field dz-vec-wide">
+                    <span>{{ $t('vectors:designer.filterColumns') }}</span>
+                    <el-select
+                      :model-value="x.columns.slice(1)" multiple filterable collapse-tags collapse-tags-tooltip :max-collapse-tags="3"
+                      :placeholder="$t('vectors:designer.filterColumnsPlaceholder')"
+                      @update:model-value="(v: string[]) => setFilterColumns(x, v)"
+                    >
+                      <el-option v-for="n in colNames.filter((c) => c !== x.columns[0])" :key="n" :label="n" :value="n" />
+                    </el-select>
+                  </label>
+                </div>
+              </td>
+            </tr>
+            <tr v-else-if="keptVector(x)" class="dz-vec-row">
+              <td :colspan="7"><div class="dz-vec-kept">{{ $t('vectors:index.summary', { text: keptVector(x) }) }}</div></td>
+            </tr>
+            </template>
           </tbody>
         </table>
         <div v-if="!idxs.length" class="dz-empty">{{ $t('designer:indexes.empty') }}</div>
@@ -1237,6 +1364,20 @@ defineExpose({ table });
 }
 .dz-name :deep(input) { color: var(--nm-text-strong); }
 .dz-type :deep(input) { color: var(--nm-syn-type); }
+
+/* a vector index's choices, under its row */
+.dz-grid tr.dz-vec-main td { border-bottom-color: transparent; }
+.dz-grid tr.dz-vec-row td { padding: 0 6px 6px; }
+.dz-grid tr.dz-vec-row:hover td { background: transparent; }
+.dz-vec { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 6px 8px; border-left: 2px solid var(--nm-syn-type); background: var(--nm-overlay-row); }
+.dz-h-vec { width: 96px; }
+.dz-vec-field { display: flex; flex-direction: column; gap: 2px; flex: 0 0 auto; min-width: 190px; }
+.dz-vec-field > span { font-size: 11px; color: var(--nm-text-dim); white-space: nowrap; }
+.dz-vec-wide { width: 300px; }
+.dz-vec :deep(.el-input__wrapper), .dz-vec :deep(.el-select__wrapper) { background: var(--ide-input) !important; }
+.dz-vec :deep(input) { font-family: var(--nm-mono); font-size: 12px; }
+.dz-vec-kept { padding: 2px 8px 0; font-size: 11.5px; color: var(--nm-text-dim); font-family: var(--nm-mono); }
+.dz-vec-tag { margin-left: 8px; font-size: 10.5px; color: var(--nm-syn-type); }
 
 .dz-empty { padding: 14px 12px 4px; color: var(--nm-text-dim); font-size: 12.5px; }
 .dz-add {

@@ -23,6 +23,9 @@
 //   ("Conectar <gestor>", each step: preview/account-samples.ts)
 // |connstring[&include=1][&reveal=1][&engine=sqlserver] ("Copiar cadena de conexión…": preview/connstring-samples.ts)
 // |connection&source=vault-account|bitwarden-account|aws-account|keepass-account|onepassword-account|vault-missing (the account block of each manager)
+// |results&set=vectors[&edit=1] (vector columns: each cell's first numbers and dimensions; &edit=1 the grid editable, with the changes
+//   update_script would get under it)|vecviewer[&col=embedding|cuantizado|terminos] (a vector in the cell viewer)
+// |designer&engine=pgvector|oracle[&new=1][&section=indexes] (vector indexes in the table designer: preview/samples.ts)
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next, { i18nReady } from '../i18n';
@@ -76,7 +79,11 @@ import { installTauriMock, sampleImportTables, sampleKindLabels, sampleScriptObj
 import TableDesignerView, { type DesignerSection } from '../views/TableDesignerView.vue';
 import {
   sampleDesignerMssql, sampleDesignerMongo, sampleExistingTables, sampleDesignerInitialMssql, sampleDesignerInitialMongo,
+  sampleDesignerInitialPgvector, sampleDesignerOracleVector, sampleDesignerPgvector, sampleVectorResult,
 } from './samples';
+import CellViewer from '../components/CellViewer.vue';
+import { buildChanges, buildInserts } from '../composables/gridEdit';
+import type { Cell } from '../api/types';
 
 import MultiDbRunDialog from '../components/MultiDbRunDialog.vue';
 import App from '../App.vue';
@@ -143,9 +150,22 @@ function dialogView() {
 }
 if (['script', 'import', 'run'].includes(view)) installTauriMock();
 
-// view=designer[&engine=mongo][&new=1][&section=indexes|foreign_keys|options|script]
+// view=designer[&engine=mongo|pgvector|oracle][&new=1][&section=indexes|foreign_keys|options|script]
 function designer() {
-  const mongo = params.get('engine') === 'mongo';
+  const engine = params.get('engine');
+  if (engine === 'pgvector' || engine === 'oracle') {
+    // A table with a vector index (pgvector: HNSW / IVFFlat; Oracle: its own parameters and INCLUDE columns).
+    // `window.__pvDesigner.table`: the TableSchema it builds (what table_ddl would get).
+    return h(TableDesignerView, {
+      ref: (el: unknown) => { (window as unknown as Record<string, unknown>).__pvDesigner = el; },
+      connectionId: 'x', database: 'docs', spec: engine === 'oracle' ? sampleDesignerOracleVector : sampleDesignerPgvector,
+      schemas: ['public'], existingTables: [],
+      initial: params.get('new') ? undefined : sampleDesignerInitialPgvector,
+      language: 'sql', dialect: engine === 'oracle' ? 'oracle' : 'postgres',
+      initialSection: (params.get('section') as DesignerSection | null) ?? 'indexes',
+    });
+  }
+  const mongo = engine === 'mongo';
   return h(TableDesignerView, {
     connectionId: 'x', database: mongo ? 'telemetria' : 'ventas',
     spec: mongo ? sampleDesignerMongo : sampleDesignerMssql,
@@ -233,6 +253,51 @@ function fkJumpView() {
   return h('div', { style: 'width: 760px; height: 300px; display: flex; flex-direction: column; background: var(--ide-editor)' }, [
     h(ResultGrid, { columns, rows, links, onFollow: (l: { table: { name: string } }, r: number) => console.log('follow', l.table.name, r) }),
   ]);
+}
+
+// view=results&set=vectors[&edit=1]: results with vector columns. With
+// &edit=1 the grid alone, editable (a vector edit is checked: a JSON array
+// of numbers with the column's dimensions), its edits applied here, and
+// under it the changes and new rows as update_script gets them (vectors as
+// arrays of numbers, never in the WHERE).
+const pvVecEdits = reactive<Record<number, Record<number, Cell>>>({});
+const pvVecAdded = reactive<Record<number, Cell>[]>([]);
+function vectorsView() {
+  const { columns, rows } = sampleVectorResult;
+  if (!params.get('edit')) {
+    return h(ResultsPane, {
+      running: false, title: 'documentos', dialect: 'postgres',
+      outcome: { results: [{ columns, rows, total_rows: rows.length, truncated: false, rows_affected: null }], messages: [], error: null, elapsed_ms: 21, plans: [] },
+    });
+  }
+  const setup = { target: { kind: 'table', schema: 'public', name: 'documentos' }, keyColumns: ['id'], all: false, note: null, identity: [] };
+  const all = [...rows, ...pvVecAdded.map(() => columns.map(() => null as Cell))];
+  const edits: Record<number, Record<number, Cell>> = { ...pvVecEdits };
+  pvVecAdded.forEach((cells, k) => { edits[rows.length + k] = cells; });
+  let changes = '';
+  try {
+    changes = JSON.stringify({ changes: buildChanges(columns, rows, pvVecEdits, setup, 'postgres'), inserts: buildInserts(columns, pvVecAdded) }, null, 1);
+  } catch (e) { changes = String(e); }
+  return h('div', { style: 'flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--ide-editor)' }, [
+    h('div', { style: 'flex: 1; min-height: 0; display: flex; flex-direction: column' }, [h(ResultGrid, {
+      columns, rows: all, editable: true, insertable: true, added: pvVecAdded.length, edits,
+      onAdd: () => pvVecAdded.push({}),
+      onEdit: (r: number, c: number, v: Cell | undefined) => {
+        const set = r >= rows.length ? pvVecAdded[r - rows.length] : (pvVecEdits[r] ??= {});
+        if (v === undefined) delete set[c]; else set[c] = v;
+        if (r < rows.length && !Object.keys(set).length) delete pvVecEdits[r];
+        console.log('edit', r, c, JSON.stringify(v));
+      },
+    })]),
+    h('pre', { id: 'pv-changes', style: 'height: 30vh; margin: 0; overflow: auto; padding: 6px 10px; font-size: 11px; border-top: 1px solid var(--nm-border); color: var(--nm-text)' }, changes),
+  ]);
+}
+
+// view=vecviewer[&col=embedding|cuantizado|terminos]: a vector in the cell viewer.
+function vecViewerView() {
+  const { columns, rows } = sampleVectorResult;
+  const c = Math.max(0, columns.findIndex((x) => x.name === (params.get('col') ?? 'embedding')));
+  return h(CellViewer, { title: columns[c].name, value: rows[1][c], vector: columns[c].vector ?? null, onClose: () => console.log('close') });
 }
 
 // view=filters: the column filter row, filtering the sample locally, and
@@ -361,6 +426,8 @@ const app = createApp({
             running: false, title: 'pedidos',
             outcome: { results: [{ ...sampleDocuments, total_rows: sampleDocuments.rows.length, truncated: false, rows_affected: null }], messages: [], error: null, elapsed_ms: 12, plans: [] },
           })
+        : view === 'vecviewer' ? vecViewerView()
+        : view === 'results' && params.get('set') === 'vectors' ? vectorsView()
         : view === 'results'
           ? h(ResultsPane, {
             running: false, title: 'Ventas', dialect: 'mssql',
