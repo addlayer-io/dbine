@@ -888,6 +888,83 @@ mod tests {
     }
 
     #[test]
+    fn every_engine_lists_its_vector_functions() {
+        for (engine, text, version, want) in [
+            (
+                "mysql",
+                MYSQL,
+                "9.1.0",
+                &["STRING_TO_VECTOR", "VECTOR_TO_STRING", "VECTOR_DIM"][..],
+            ),
+            (
+                "mariadb",
+                MARIADB,
+                "11.8.2",
+                &[
+                    "VEC_FromText",
+                    "VEC_ToText",
+                    "VEC_DISTANCE_COSINE",
+                    "VEC_DISTANCE",
+                ],
+            ),
+            (
+                "tidb",
+                TIDB,
+                "8.5.0",
+                &["VEC_COSINE_DISTANCE", "VEC_L2_DISTANCE", "VEC_FROM_TEXT"],
+            ),
+            (
+                "oceanbase",
+                OCEANBASE,
+                "4.4.0",
+                &["L2_DISTANCE", "COSINE_DISTANCE", "VECTOR_DISTANCE"],
+            ),
+            (
+                "singlestore",
+                SINGLESTORE,
+                "8.9.0",
+                &["DOT_PRODUCT", "EUCLIDEAN_DISTANCE", "JSON_ARRAY_PACK"],
+            ),
+            (
+                "doris",
+                DORIS,
+                "4.0.0",
+                &[
+                    "l2_distance_approximate",
+                    "inner_product_approximate",
+                    "cosine_distance",
+                ],
+            ),
+            (
+                "starrocks",
+                STARROCKS,
+                "3.4.0",
+                &["approx_l2_distance", "approx_cosine_similarity"],
+            ),
+            (
+                "greptimedb",
+                GREPTIMEDB,
+                "1.0.0",
+                &["vec_cos_distance", "vec_l2sq_distance", "parse_vec"],
+            ),
+            ("manticore", MANTICORE, "13.0.0", &["KNN", "KNN_DIST"]),
+            (
+                "databend",
+                DATABEND,
+                "1.2.700",
+                &["cosine_distance", "l2_distance", "inner_product"],
+            ),
+        ] {
+            let c = parse_catalog(text, Some(version));
+            for f in want {
+                assert!(names(&c).contains(f), "{engine}: {f}");
+            }
+        }
+        // MySQL 8 servers don't get MySQL 9's.
+        assert!(!names(&parse_catalog(MYSQL, Some("8.4.3"))).contains(&"STRING_TO_VECTOR"));
+    }
+
+    #[test]
     fn mysql_help_topics_give_their_signatures_and_first_paragraph() {
         let (sigs, desc) = help_topic(
             "Syntax:\nROUND(X), ROUND(X,D)\n\nRounds the argument X to D decimal places. The\nrounding algorithm depends on the data type of X.\n\nURL: https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html\n",
