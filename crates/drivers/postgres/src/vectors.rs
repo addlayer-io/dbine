@@ -153,6 +153,17 @@ pub(crate) fn sibling_types(v: Variant, t: &TableSchema) -> std::borrow::Cow<'_,
     std::borrow::Cow::Owned(out)
 }
 
+/// [`sibling_types`] in place.
+pub(crate) fn to_variant(v: Variant, t: &mut TableSchema) {
+    let mapped = match sibling_types(v, t) {
+        std::borrow::Cow::Owned(o) => Some(o),
+        std::borrow::Cow::Borrowed(_) => None,
+    };
+    if let Some(o) = mapped {
+        *t = o;
+    }
+}
+
 /// A result column whose type the prepared statement described
 /// (`typname`, `typmod`): a vector column gets its metadata and its type
 /// with the dimension (`vector(3)`), as `format_type` writes it.
@@ -805,7 +816,8 @@ pub(crate) fn finish_read(v: Variant, t: &mut TableSchema) {
 
 /// Every vector index of `t` with its [`VECTOR_OPTION`] for comparing: the
 /// DDL body, in place of the key list and the storage parameters it
-/// already says.
+/// already says; its kind, the algorithm this variant writes (a sibling's
+/// `hnsw` is CockroachDB's `cspann`).
 pub(crate) fn canonical_options(v: Variant, t: &mut TableSchema) {
     let snapshot = t.clone();
     for ix in t.indexes.iter_mut() {
@@ -818,6 +830,9 @@ pub(crate) fn canonical_options(v: Variant, t: &mut TableSchema) {
         }
         ix.options
             .insert(VECTOR_OPTION.into(), body(v, &snapshot, ix, &vi));
+        if supported(v) {
+            ix.kind = Some(algorithm_for(v, &vi, ix.kind.as_deref()).0);
+        }
     }
 }
 

@@ -1373,7 +1373,16 @@ pub(crate) fn crate_sync(script: &mut dbine_driver::SyncScript, changes: &[Table
             None => new.name.clone(),
         };
         let mut what = Vec::new();
-        let (mut oi, mut ni) = (old.indexes.clone(), new.indexes.clone());
+        // A vector index (from a pgvector schema) is no index there: a
+        // FLOAT_VECTOR column is indexed by being declared.
+        let plain = |t: &dbine_driver::TableSchema| -> Vec<IndexDef> {
+            t.indexes
+                .iter()
+                .filter(|ix| ix.vector.is_none())
+                .cloned()
+                .collect()
+        };
+        let (mut oi, mut ni) = (plain(old), plain(new));
         oi.sort_by(|a, b| a.name.cmp(&b.name));
         ni.sort_by(|a, b| a.name.cmp(&b.name));
         if oi != ni {

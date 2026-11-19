@@ -56,8 +56,12 @@ pub fn sync_script(
     let f = flavor(v);
     let cd = |t: &TableSchema, c: &dbine_driver::ColumnDef| column_def(v, &f, t, c);
     let dd = |t: &TableSchema, p: DdlParts| Ok(table_ddl(v, t, p));
-    // Vector indexes compare by their DDL (a changed metric or parameter
-    // makes them again), whatever each side's options say.
+    // A sibling's vector types in this variant's spelling (a pgvector
+    // `halfvec(3)` is CockroachDB's `VECTOR(3)`, CrateDB's
+    // `FLOAT_VECTOR(3)`), so the diff doesn't see a type change there is
+    // no way to make; then vector indexes compare by their DDL (a changed
+    // metric or parameter makes them again), whatever each side's options
+    // say.
     let changes: Vec<dbine_driver::TableChange> = changes
         .iter()
         .cloned()
@@ -65,10 +69,13 @@ pub fn sync_script(
             use dbine_driver::TableChange as T;
             match &mut ch {
                 T::Alter { old, new } => {
+                    crate::vectors::to_variant(v, old);
+                    crate::vectors::to_variant(v, new);
                     crate::vectors::canonical_options(v, old);
                     crate::vectors::canonical_options(v, new);
                 }
                 T::Create { table } | T::Drop { table } => {
+                    crate::vectors::to_variant(v, table);
                     crate::vectors::canonical_options(v, table)
                 }
             }
@@ -1339,6 +1346,70 @@ mod tests {
             "INSERT INTO \"s\".\"t\" (\"a\", \"b\", \"c\") VALUES\n  (1, E'a\\\\b', TRUE);"
         );
         assert!(insert_script(Variant::Redshift, None, "t", &cols, &rows).contains("'a\\\\b'"));
+    }
+
+    /// A pgvector schema synced onto CockroachDB or CrateDB: the sibling's
+    /// vector types are the target's, so no type change (CockroachDB has no
+    /// `halfvec`) and no warning come out; CrateDB's vector "index" is the
+    /// column itself.
+    #[test]
+    fn sync_from_pgvector_onto_siblings_sees_no_vector_change() {
+        use dbine_driver::{TableChange, VectorIndex};
+        let col = |n: &str, t: &str| ColumnDef {
+            name: n.into(),
+            data_type: t.into(),
+            nullable: true,
+            ..Default::default()
+        };
+        let hnsw = IndexDef {
+            name: "t_v_idx".into(),
+            columns: vec!["v".into()],
+            kind: Some("hnsw".into()),
+            vector: Some(VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                params: [("m".to_string(), "16".to_string())].into(),
+            }),
+            ..Default::default()
+        };
+        let pg = TableSchema {
+            schema: Some("public".into()),
+            name: "t".into(),
+            columns: vec![
+                col("id", "bigint"),
+                col("v", "vector(3)"),
+                col("h", "halfvec(3)"),
+            ],
+            indexes: vec![hnsw.clone()],
+            ..Default::default()
+        };
+        let mut crdb = pg.clone();
+        crdb.columns[1].data_type = "vector(3)".into();
+        crdb.columns[2].data_type = "vector(3)".into();
+        crdb.indexes[0].kind = Some("cspann".into());
+        crdb.indexes[0].vector = Some(VectorIndex {
+            algorithm: Some("cspann".into()),
+            metric: Some("cosine".into()),
+            params: Default::default(),
+        });
+        let s = sync_script(
+            Variant::Cockroach,
+            &[TableChange::Alter {
+                old: crdb,
+                new: pg.clone(),
+            }],
+        )
+        .unwrap();
+        assert!(s.statements.is_empty(), "{:?}", s.statements);
+        assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+
+        let mut cr = pg.clone();
+        cr.columns[1].data_type = "FLOAT_VECTOR(3)".into();
+        cr.columns[2].data_type = "FLOAT_VECTOR(3)".into();
+        cr.indexes.clear();
+        let s = sync_script(Variant::CrateDb, &[TableChange::Alter { old: cr, new: pg }]).unwrap();
+        assert!(s.statements.is_empty(), "{:?}", s.statements);
+        assert!(s.warnings.is_empty(), "{:?}", s.warnings);
     }
 
     /// A JSON array of big integers (a `json` / `jsonb` value, or a load
