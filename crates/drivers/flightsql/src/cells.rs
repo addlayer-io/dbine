@@ -24,8 +24,15 @@ pub fn vector_meta(t: &DataType) -> Option<VectorMeta> {
 }
 
 /// A list of floats (fixed or not) as the vector text (`[0.1,2]`), each
-/// number at its own precision; `None` when it isn't one or holds a null.
+/// number at its own precision; `None` when it isn't one or holds a null,
+/// NaN or ±∞ (the vector text would write those as `null`).
 pub fn float_list_text(a: &dyn Array, row: usize) -> Option<String> {
+    let text = float_list_text_any(a, row)?;
+    // The canonical text writes non-finite numbers as `null`.
+    (!text.contains("null")).then_some(text)
+}
+
+fn float_list_text_any(a: &dyn Array, row: usize) -> Option<String> {
     let values = match a.data_type() {
         DataType::FixedSizeList(..) => a.as_fixed_size_list().value(row),
         DataType::List(_) => a.as_list::<i32>().value(row),
@@ -250,6 +257,15 @@ mod tests {
         assert_eq!(vector_meta(l.data_type()), None);
         assert_eq!(cell(&l, 0), json!("[0.5,1.5]"));
         assert_eq!(cell(&l, 1), json!("[1.0,null]"));
+        // NaN: no vector text (it'd read back as a null element).
+        let nan = FixedSizeListArray::try_new(
+            item,
+            2,
+            Arc::new(Float32Array::from(vec![f32::NAN, 1.0])),
+            None,
+        )
+        .unwrap();
+        assert_eq!(float_list_text(&nan, 0), None);
     }
 
     #[test]

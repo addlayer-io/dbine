@@ -127,23 +127,23 @@ async fn vectors_end_to_end() {
 }
 
 async fn scenario(d: &dyn Driver, s: &mut Box<dyn Session>) {
-    // 1. The table, from a TableSchema.
-    let docs = TableSchema {
-        kind: kinds::TABLE.into(),
-        name: "dbine_vec_docs".into(),
-        columns: vec![col("id", "INTEGER"), col("emb", "FLOAT[3]")],
-        ..Default::default()
-    };
-    let create = d
+    // 1. The table. Flight SQL has no DDL of its own (the driver writes
+    // none: the engine behind does), so it's the engine's SQL.
+    assert!(d
         .table_ddl(
-            &docs,
+            &TableSchema {
+                kind: kinds::TABLE.into(),
+                name: "dbine_vec_docs".into(),
+                columns: vec![col("id", "INTEGER"), col("emb", "FLOAT[3]")],
+                ..Default::default()
+            },
             DdlParts {
                 create: true,
                 ..Default::default()
             },
         )
-        .unwrap();
-    run(s, &create).await;
+        .is_err());
+    run(s, "CREATE TABLE dbine_vec_docs (id INTEGER, emb FLOAT[3])").await;
 
     // 2. Rows from the insert script, vectors as JSON arrays.
     let ins = d
@@ -165,6 +165,8 @@ async fn scenario(d: &dyn Driver, s: &mut Box<dyn Session>) {
     let v = r.columns[1].vector.as_ref().expect("vector column");
     assert_eq!(v.dims, Some(3));
     assert_eq!(v.element, VectorElement::F32);
+    // The engine's SQL type, not Arrow's FixedSizeList.
+    assert_eq!(r.columns[1].type_name, "FLOAT[3]");
     assert_eq!(r.columns[0].vector, None);
     let cells: Vec<_> = r.rows.iter().map(|row| row[1].clone()).collect();
     assert_eq!(
@@ -226,22 +228,7 @@ async fn scenario(d: &dyn Driver, s: &mut Box<dyn Session>) {
     });
     assert_eq!(got.rows[0][1], Cell::Json("[1,0,0]".into()));
     assert_eq!(got.rows[1][1], Cell::Json("[0.5,0.25,-1]".into()));
-    let copy = TableSchema {
-        name: "dbine_vec_copy".into(),
-        ..docs.clone()
-    };
-    run(
-        s,
-        &d.table_ddl(
-            &copy,
-            DdlParts {
-                create: true,
-                ..Default::default()
-            },
-        )
-        .unwrap(),
-    )
-    .await;
+    run(s, "CREATE TABLE dbine_vec_copy (id INTEGER, emb FLOAT[3])").await;
     let spec = LoadSpec {
         table: table("dbine_vec_copy"),
         columns: vec!["id".into(), "emb".into()],

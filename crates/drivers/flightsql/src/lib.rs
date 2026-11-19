@@ -205,10 +205,14 @@ impl Driver for FlightSqlDriver {
     }
 
     /// Flight SQL has no command to create catalogs; the monitor reads
-    /// what the engine behind exposes.
+    /// what the engine behind exposes. Vectors: Arrow fixed-size float
+    /// lists (DuckDB's `FLOAT[3]`) are marked and read as vectors, keep
+    /// their dimension in describes (the SQL type name) and load from
+    /// vector text; indexes are the engine behind's, not Flight SQL's.
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             monitor: true,
+            vectors: true,
             ..Default::default()
         }
     }
@@ -1030,10 +1034,31 @@ impl FlightSession {
     }
 }
 
-/// A result column: its Arrow type, and whether it holds vectors.
+/// A result column: the engine's SQL type name when the server sends it
+/// (`ARROW:FLIGHT:SQL:TYPE_NAME`), else its Arrow type, and whether it
+/// holds vectors. Query results seldom carry the name (GizmoSQL's don't):
+/// a vector column is then named as an array of its floats with its
+/// dimension (`FLOAT[3]`, `DOUBLE[768]`), not Arrow's `FixedSizeList(3 x
+/// Float32, field: '')`.
 fn result_column(f: &arrow_schema::Field) -> ResultColumn {
-    let c = ResultColumn::new(f.name().clone(), f.data_type().to_string());
-    match cells::vector_meta(f.data_type()) {
+    let vector = cells::vector_meta(f.data_type());
+    let type_name = f
+        .metadata()
+        .get("ARROW:FLIGHT:SQL:TYPE_NAME")
+        .filter(|t| !t.trim().is_empty())
+        .cloned()
+        .or_else(|| {
+            let v = vector.as_ref()?;
+            let of = match v.element {
+                dbine_driver::VectorElement::F64 => "DOUBLE",
+                dbine_driver::VectorElement::F16 => "FLOAT16",
+                _ => "FLOAT",
+            };
+            Some(format!("{of}[{}]", v.dims?))
+        })
+        .unwrap_or_else(|| f.data_type().to_string());
+    let c = ResultColumn::new(f.name().clone(), type_name);
+    match vector {
         Some(v) => c.with_vector(v),
         None => c,
     }
@@ -1822,6 +1847,49 @@ fn parse_size(s: &str) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
+    /// A FixedSizeList<Float32>(3) column with DuckDB's SQL type name: a
+    /// vector of 3, typed `FLOAT[3]`; without the name, the Arrow type.
+    #[test]
+    fn vector_columns_say_the_sql_type() {
+        use arrow_schema::{DataType, Field};
+        let item = std::sync::Arc::new(Field::new("item", DataType::Float32, true));
+        let ty = DataType::FixedSizeList(item, 3);
+        let named = Field::new("emb", ty.clone(), true).with_metadata(
+            [(
+                "ARROW:FLIGHT:SQL:TYPE_NAME".to_string(),
+                "FLOAT[3]".to_string(),
+            )]
+            .into_iter()
+            .collect(),
+        );
+        let c = result_column(&named);
+        assert_eq!(c.type_name, "FLOAT[3]");
+        assert_eq!(
+            c.vector,
+            Some(dbine_driver::VectorMeta::dense(
+                Some(3),
+                dbine_driver::VectorElement::F32
+            ))
+        );
+        // Without the name (query results): the floats and the dimension.
+        let bare = result_column(&Field::new("emb", ty, true));
+        assert_eq!(bare.type_name, "FLOAT[3]");
+        assert!(bare.vector.is_some());
+        let f64s = DataType::FixedSizeList(
+            std::sync::Arc::new(Field::new("item", DataType::Float64, true)),
+            768,
+        );
+        assert_eq!(
+            result_column(&Field::new("e", f64s, true)).type_name,
+            "DOUBLE[768]"
+        );
+        assert_eq!(
+            result_column(&Field::new("n", DataType::Int64, true)).type_name,
+            "Int64"
+        );
+        assert!(drivers()[0].capabilities().vectors);
+    }
+
     use super::*;
 
     #[test]
