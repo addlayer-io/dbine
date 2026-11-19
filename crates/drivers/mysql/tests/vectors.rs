@@ -177,6 +177,9 @@ struct Case {
     update: bool,
     /// Bulk load works (Manticore has none).
     transfer: bool,
+    /// A schema sync that changes the vector index to this metric (the
+    /// engines that rebuild an index with ALTER / CREATE INDEX).
+    sync_metric: Option<&'static str>,
 }
 
 fn vindex(
@@ -331,6 +334,7 @@ struct CaseData {
     header: String,
     update: bool,
     transfer: bool,
+    sync_metric: Option<String>,
 }
 
 impl From<&Case> for CaseData {
@@ -345,6 +349,7 @@ impl From<&Case> for CaseData {
             header: c.header.into(),
             update: c.update,
             transfer: c.transfer,
+            sync_metric: c.sync_metric.map(Into::into),
         }
     }
 }
@@ -474,6 +479,54 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         assert!(!again.contains("\n-- "), "{again}");
     }
 
+    // 4b. A schema sync that changes the index's distance: the old one
+    // dropped, the new one created with the engine's syntax.
+    if let Some(m) = &c.sync_metric {
+        let mut new = t.clone();
+        let ix = new.indexes.iter_mut().find(|i| i.vector.is_some()).unwrap();
+        ix.vector.as_mut().unwrap().metric = Some(m.clone());
+        ix.options.clear();
+        let script = d
+            .sync_script(&[dbine_driver::TableChange::Alter {
+                old: t.clone(),
+                new,
+            }])
+            .expect("sync_script");
+        eprintln!("{id}: sync {:?}", script.statements);
+        for stmt in &script.statements {
+            for one in stmt.split(";\n") {
+                let one = one.trim().trim_end_matches(';');
+                if !one.is_empty() {
+                    must(&mut s, one).await;
+                }
+            }
+        }
+        if matches!(id, "doris" | "starrocks") {
+            // The index change is an asynchronous job.
+            for _ in 0..60 {
+                let t = s.database_schema().await.unwrap();
+                let t = t.iter().find(|t| t.name == "vec_items").unwrap();
+                if t.indexes.iter().any(|i| {
+                    i.vector.as_ref().and_then(|v| v.metric.as_deref()) == Some(m.as_str())
+                }) {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            }
+        }
+        let after = s.database_schema().await.unwrap();
+        let t = after.iter().find(|t| t.name == "vec_items").unwrap();
+        let ix = t
+            .indexes
+            .iter()
+            .find(|i| i.vector.is_some())
+            .expect("index after sync");
+        assert_eq!(
+            ix.vector.as_ref().unwrap().metric.as_deref(),
+            Some(m.as_str())
+        );
+    }
+
     // 6. Similarity.
     let out = must(&mut s, &c.similarity).await;
     let ids: Vec<i64> = out.results[0]
@@ -600,6 +653,7 @@ async fn mysql9_vectors() {
         options: vec![],
         update: true,
         transfer: true,
+        sync_metric: None,
     })
     .await;
 }
@@ -621,6 +675,7 @@ async fn mariadb_vectors() {
         options: vec![],
         update: true,
         transfer: true,
+        sync_metric: Some("l2"),
     })
     .await;
 }
@@ -644,6 +699,7 @@ async fn tidb_vectors() {
         options: vec![],
         update: true,
         transfer: true,
+        sync_metric: None,
     })
     .await;
 }
@@ -671,6 +727,7 @@ async fn greptimedb_vectors() {
         // No UPDATE: a row is replaced by inserting it again.
         update: false,
         transfer: true,
+        sync_metric: None,
     })
     .await;
 }
@@ -692,6 +749,7 @@ async fn manticore_vectors() {
         options: vec![],
         update: true,
         transfer: false,
+        sync_metric: None,
     })
     .await;
 }

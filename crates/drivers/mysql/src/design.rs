@@ -963,6 +963,19 @@ fn mysql_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<String> {
     if parts.indexes && v != Variant::Databend {
         for ix in &t.indexes {
             if ix.vector.is_some() {
+                // MariaDB indexes NOT NULL vectors only.
+                let nullable = ix.columns.first().and_then(|c| {
+                    t.columns
+                        .iter()
+                        .find(|x| x.name.eq_ignore_ascii_case(c) && x.nullable)
+                });
+                if let (Variant::MariaDb, Some(c)) = (v, nullable) {
+                    out.push(vector_index_or_note(Err(Error::Unsupported(format!(
+                        "MariaDB indexa vectores de columnas NOT NULL: el índice vectorial «{}» pide «{}» NOT NULL",
+                        ix.name, c.name
+                    ))))?);
+                    continue;
+                }
                 out.push(vector_index_or_note(crate::vectors::create_index(
                     v,
                     &q(&t.name),
@@ -2357,6 +2370,14 @@ mod tests {
         )
         .unwrap();
         assert!(s.contains("-- MariaDB no tiene la distancia «ip»"), "{s}");
+        // MariaDB indexes NOT NULL columns only: said.
+        let mut nullable = vector_table(None, vi(None, Some("l2"), &[]));
+        nullable.columns[1].nullable = true;
+        let s = table_ddl(Variant::MariaDb, &nullable, all).unwrap();
+        assert!(
+            s.contains("-- MariaDB indexa vectores de columnas NOT NULL"),
+            "{s}"
+        );
         // A parameter that isn't a number: refused.
         assert!(table_ddl(
             Variant::MariaDb,
