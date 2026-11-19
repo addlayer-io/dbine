@@ -127,6 +127,12 @@ pub enum LoginTypeFlag {
 }
 
 pub(crate) const FEA_EXT_FEDAUTH: u8 = 0x02u8;
+// PATCH(dbine): the vector type (SQL Server 2025, Azure SQL). With this
+// feature acknowledged the server sends `vector` columns as their own TDS
+// type (0xF5) instead of JSON text.
+pub(crate) const FEA_EXT_VECTORSUPPORT: u8 = 0x0Eu8;
+/// The vector feature version DBine's tiberius speaks.
+pub(crate) const VECTOR_SUPPORT_VERSION: u8 = 0x01;
 pub(crate) const FEA_EXT_TERMINATOR: u8 = 0xFFu8;
 pub(crate) const FED_AUTH_LIBRARYSECURITYTOKEN: u8 = 0x01;
 
@@ -199,6 +205,8 @@ pub struct LoginMessage<'a> {
     /// the default database to connect to
     db_name: Cow<'a, str>,
     fed_auth_ext: Option<FedAuthExt>,
+    // PATCH(dbine): ask for the vector type (FEATUREEXT VECTORSUPPORT).
+    vector_support: bool,
 }
 
 // `SecretString` has no `PartialEq`; this test-only impl compares the exposed
@@ -224,6 +232,7 @@ impl PartialEq for LoginMessage<'_> {
             && self.server_name == other.server_name
             && self.db_name == other.db_name
             && self.fed_auth_ext == other.fed_auth_ext
+            && self.vector_support == other.vector_support
             && self.password.expose_secret() == other.password.expose_secret()
     }
 }
@@ -257,6 +266,7 @@ impl std::fmt::Debug for LoginMessage<'_> {
             .field("server_name", &self.server_name)
             .field("db_name", &self.db_name)
             .field("fed_auth_ext", &self.fed_auth_ext)
+            .field("vector_support", &self.vector_support)
             .finish()
     }
 }
@@ -379,6 +389,19 @@ impl<'a> LoginMessage<'a> {
         })
     }
 
+    // PATCH(dbine): the vector type.
+    /// Ask the server to send `vector` columns as the vector TDS type
+    /// (FEATUREEXT VECTORSUPPORT, version 1). Servers without it ignore the
+    /// request and keep sending JSON text.
+    pub fn vector_support(&mut self, on: bool) {
+        self.vector_support = on;
+        if on {
+            self.option_flags_3.insert(OptionFlag3::ExtensionUsed);
+        } else if self.fed_auth_ext.is_none() {
+            self.option_flags_3.remove(OptionFlag3::ExtensionUsed);
+        }
+    }
+
     pub fn readonly(&mut self, readonly: bool) {
         if readonly {
             self.type_flags.insert(LoginTypeFlag::ReadOnlyIntent);
@@ -427,14 +450,22 @@ impl<'a> LoginMessage<'a> {
             len += bytes.len();
         }
 
+        // PATCH(dbine): FeatureExt with several features (fed auth, vectors).
+        if self.fed_auth_ext.is_some() || self.vector_support {
+            // 4 (FeatureExt data offset) + 1 (FEA_EXT_TERMINATOR).
+            len += 5;
+        }
         if let Some(ref ext) = self.fed_auth_ext {
-            // 4 (FeatureExt data offset) + 1 (FEA_EXT_FEDAUTH) + 4 (feature ext
-            // length) + 1 (options) + 4 (token length) + token bytes + nonce
-            // + 1 (FEA_EXT_TERMINATOR).
-            len += 15 + utf16_bytes(ext.fed_auth_token.expose_secret());
+            // 1 (FEA_EXT_FEDAUTH) + 4 (feature ext length) + 1 (options) + 4
+            // (token length) + token bytes + nonce.
+            len += 10 + utf16_bytes(ext.fed_auth_token.expose_secret());
             if ext.nonce.is_some() {
                 len += 32;
             }
+        }
+        if self.vector_support {
+            // 1 (FEA_EXT_VECTORSUPPORT) + 4 (length) + 1 (version).
+            len += 6;
         }
 
         len
@@ -570,7 +601,10 @@ impl<'a> LoginMessage<'a> {
         cursor.write_u32::<LittleEndian>(0)?;
 
         // FeatureExt
-        if let Some(fed_auth_ext) = self.fed_auth_ext {
+        // PATCH(dbine): the block is written for fed auth, the vector type or
+        // both; each feature follows the other and one terminator ends it.
+        let has_feature_ext = self.fed_auth_ext.is_some() || self.vector_support;
+        if has_feature_ext {
             // update fea_ext_offset
             cursor.set_position(fea_ext_offset);
             cursor.write_u16::<LittleEndian>(data_offset as u16)?;
@@ -579,7 +613,8 @@ impl<'a> LoginMessage<'a> {
             cursor.set_position(data_offset as u64);
             data_offset += 4;
             cursor.write_u32::<LittleEndian>(data_offset as u32)?;
-
+        }
+        if let Some(fed_auth_ext) = self.fed_auth_ext {
             cursor.write_u8(FEA_EXT_FEDAUTH)?;
 
             // SECURITY (fed-auth token): the token is a bearer credential. Like
@@ -627,7 +662,13 @@ impl<'a> LoginMessage<'a> {
             if let Some(nonce) = fed_auth_ext.nonce {
                 cursor.write_all(nonce.as_ref())?;
             }
-
+        }
+        if self.vector_support {
+            cursor.write_u8(FEA_EXT_VECTORSUPPORT)?;
+            cursor.write_u32::<LittleEndian>(1)?;
+            cursor.write_u8(VECTOR_SUPPORT_VERSION)?;
+        }
+        if has_feature_ext {
             cursor.write_u8(FEA_EXT_TERMINATOR)?;
         }
 
@@ -812,6 +853,10 @@ mod tests {
                             nonce,
                         };
                         ret.fed_auth_ext = Some(fed_auth_ext);
+                    } else if fe == FEA_EXT_VECTORSUPPORT {
+                        assert_eq!(cursor.read_u32::<LittleEndian>()?, 1);
+                        assert_eq!(cursor.read_u8()?, VECTOR_SUPPORT_VERSION);
+                        ret.vector_support = true;
                     } else {
                         unimplemented!("unsupported feature ext {:?}", fe);
                     }
@@ -1141,5 +1186,48 @@ mod tests {
         login.password("hunter2");
         // The stored `SecretString` exposes exactly the plaintext provided.
         assert_eq!(login.password.expose_secret(), "hunter2");
+    }
+
+    // PATCH(dbine): the vector type's feature request.
+    #[test]
+    fn vector_support_round_trips_alone_and_with_fed_auth() {
+        let mut login = LoginMessage::new();
+        login.vector_support(true);
+        assert!(login.option_flags_3.contains(OptionFlag3::ExtensionUsed));
+        let expected = login.encoded_len();
+        let mut payload = BytesMut::new();
+        login.clone().encode(&mut payload).unwrap();
+        assert_eq!(payload.len(), expected);
+        // The block ends with VECTORSUPPORT, length 1, version 1, terminator.
+        assert_eq!(
+            &payload[payload.len() - 7..],
+            [
+                FEA_EXT_VECTORSUPPORT,
+                1,
+                0,
+                0,
+                0,
+                VECTOR_SUPPORT_VERSION,
+                FEA_EXT_TERMINATOR
+            ]
+        );
+        assert_eq!(LoginMessage::decode(&mut payload).unwrap(), login);
+
+        let mut both = LoginMessage::new();
+        both.password("p".repeat(50));
+        both.aad_token("fake-aad-token", true, Some([2u8; 32]));
+        both.vector_support(true);
+        let expected = both.encoded_len();
+        let mut payload = BytesMut::new();
+        both.clone().encode(&mut payload).unwrap();
+        assert_eq!(payload.len(), expected);
+        assert_eq!(LoginMessage::decode(&mut payload).unwrap(), both);
+
+        // Off again: no FeatureExt at all.
+        let mut off = LoginMessage::new();
+        off.vector_support(true);
+        off.vector_support(false);
+        assert!(!off.option_flags_3.contains(OptionFlag3::ExtensionUsed));
+        assert_eq!(off.encoded_len(), LoginMessage::new().encoded_len());
     }
 }

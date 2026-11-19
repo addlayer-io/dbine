@@ -13,6 +13,15 @@ pub(crate) fn udt_name_of(ty: &TypeInfo) -> Option<String> {
     }
 }
 
+// PATCH(dbine): the vector type.
+/// A vector column's shape, from its column metadata.
+pub(crate) fn vector_type_of(ty: &TypeInfo) -> Option<crate::VectorType> {
+    match ty {
+        TypeInfo::Vector(v) => Some(*v),
+        _ => None,
+    }
+}
+
 /// A column of data from a query.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -23,18 +32,34 @@ pub struct Column {
     /// `geography`, `hierarchyid`…).
     #[cfg_attr(feature = "serde", serde(default))]
     pub(crate) udt_name: Option<String>,
+    // PATCH(dbine): a vector column's size and element type.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub(crate) vector_type: Option<crate::VectorType>,
 }
 
 impl Column {
     /// Construct a new Column.
     pub fn new(name: String, column_type: ColumnType) -> Self {
-        Self { name, column_type, udt_name: None }
+        Self {
+            name,
+            column_type,
+            udt_name: None,
+            vector_type: None,
+        }
     }
 
     /// The name of a user-defined type column's type (`geometry`,
     /// `geography`, `hierarchyid`…); `None` for other columns.
     pub fn udt_name(&self) -> Option<&str> {
         self.udt_name.as_deref()
+    }
+
+    // PATCH(dbine): the vector type.
+    /// A `vector` column's size and element type (its dimensions with
+    /// [`VectorType::dimensions`](crate::VectorType::dimensions)); `None` for
+    /// other columns.
+    pub fn vector_type(&self) -> Option<crate::VectorType> {
+        self.vector_type
     }
 
     /// The name of the column.
@@ -122,6 +147,10 @@ pub enum ColumnType {
     NText,
     /// An SQL variant type.
     SSVariant,
+    // PATCH(dbine): the vector type.
+    /// A `vector(n[, float32|float16])` value (SQL Server 2025, Azure SQL),
+    /// with [`Config::vector_support`](crate::Config::vector_support) on.
+    Vector,
 }
 
 impl From<&TypeInfo> for ColumnType {
@@ -180,6 +209,7 @@ impl From<&TypeInfo> for ColumnType {
                 VarLenType::Image => Self::Image,
                 VarLenType::NText => Self::NText,
                 VarLenType::SSVariant => Self::SSVariant,
+                VarLenType::Vector => Self::Vector,
             },
             TypeInfo::VarLenSizedPrecision { ty, .. } => match ty {
                 VarLenType::Guid => Self::Guid,
@@ -210,9 +240,11 @@ impl From<&TypeInfo> for ColumnType {
                 VarLenType::Image => Self::Image,
                 VarLenType::NText => Self::NText,
                 VarLenType::SSVariant => Self::SSVariant,
+                VarLenType::Vector => Self::Vector,
             },
             TypeInfo::Xml { .. } => Self::Xml,
             TypeInfo::Udt(_) => Self::Udt,
+            TypeInfo::Vector(_) => Self::Vector,
         }
     }
 }

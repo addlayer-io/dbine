@@ -31,6 +31,7 @@ pub fn designer() -> DesignerSpec {
     DesignerSpec {
         schemas: true,
         comments: true,
+        vector_indexes: Some(vector_index_spec()),
         ..DesignerSpec::sql_table(vec![
             "int",
             "bigint",
@@ -60,7 +61,20 @@ pub fn designer() -> DesignerSpec {
             "varbinary(50)",
             "xml",
             "rowversion",
+            "vector(1536)",
         ])
+    }
+}
+
+/// `CREATE VECTOR INDEX … WITH (METRIC = …, TYPE = 'DiskANN')`: one
+/// algorithm, three distances, no build parameters to set.
+pub fn vector_index_spec() -> dbine_driver::VectorIndexSpec {
+    use dbine_driver::vector::metric;
+    dbine_driver::VectorIndexSpec {
+        algorithms: vec!["diskann"],
+        metrics: vec![metric::COSINE, metric::L2, metric::IP],
+        params: Vec::new(),
+        filter_columns: false,
     }
 }
 
@@ -502,7 +516,9 @@ pub fn literal(v: &Value) -> String {
     match v {
         Value::String(s) if is_hex_binary(s) => s.clone(),
         Value::String(s) => nlit(s),
-        Value::Array(_) | Value::Object(_) => nlit(&v.to_string()),
+        // A vector as its JSON text, which the server converts.
+        Value::Array(_) => crate::vector::literal(v).unwrap_or_else(|| nlit(&v.to_string())),
+        Value::Object(_) => nlit(&v.to_string()),
         other => ddl::sql_literal(&FLAVOR, other),
     }
 }
@@ -586,7 +602,7 @@ SELECT s.name, t.name, i.name, i.is_primary_key, i.is_unique, i.type_desc, i.fil
   JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
   JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
  WHERE t.is_ms_shipped = 0 AND i.index_id > 0 AND i.is_hypothetical = 0
-   AND (ic.key_ordinal > 0 OR ic.is_included_column = 1 OR i.type IN (5, 6))
+   AND (ic.key_ordinal > 0 OR ic.is_included_column = 1 OR i.type IN (5, 6, 8))
  ORDER BY s.name, t.name, i.name, ic.is_included_column, ic.key_ordinal, ic.index_column_id";
 
 pub const FOREIGN_KEYS_SQL: &str = "

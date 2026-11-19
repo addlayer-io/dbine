@@ -1,5 +1,6 @@
 //! Bulk transfer against a real server: typed reads, `INSERT BULK` loads
 //! and native copies (raw TDS rows and decoded), checked with `EXCEPT`.
+//! Each test drops the databases it made when it ends, also when it fails.
 //! Reads `DBINE_TEST_SQLSERVER_URL` (`mssql://user:pass@host:port`), by
 //! default the `dbine-test-sqlserver` container:
 //!
@@ -66,7 +67,43 @@ fn table(name: &str) -> ObjectRef {
     }
 }
 
-async fn fresh_databases() {
+/// Drops the test's databases when the test ends, also when it fails
+/// partway: every test deletes what it made.
+struct DropDatabases(&'static [&'static str]);
+
+impl Drop for DropDatabases {
+    fn drop(&mut self) {
+        let dbs = self.0;
+        // Its own runtime on its own thread: the test's may be unwinding.
+        let _ = std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime")
+                .block_on(async move {
+                    let Ok(mut admin) = driver().connect(&config(), Some("master")).await else {
+                        return;
+                    };
+                    for db in dbs {
+                        let _ = admin
+                            .execute(
+                                &format!("IF DB_ID('{db}') IS NOT NULL BEGIN ALTER DATABASE [{db}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{db}]; END"),
+                                1,
+                                &mut QueryOutcome::default(),
+                            )
+                            .await;
+                    }
+                })
+        })
+        .join();
+    }
+}
+
+/// The source and target databases, made again; dropped when the returned
+/// guard goes.
+#[must_use]
+async fn fresh_databases() -> DropDatabases {
+    let guard = DropDatabases(&[SRC_DB, DST_DB]);
     let mut admin = driver()
         .connect(&config(), Some("master"))
         .await
@@ -84,6 +121,7 @@ async fn fresh_databases() {
         )
         .await;
     }
+    guard
 }
 
 /// Which copy mode the driver logged (`raw` / `decoded`).
@@ -349,7 +387,7 @@ fn load_spec(name: &str, commit_rows: u64) -> LoadSpec {
 #[ignore]
 async fn transfer_every_type() {
     modes();
-    fresh_databases().await;
+    let _databases = fresh_databases().await;
     let mut src = driver().connect(&config(), Some(SRC_DB)).await.unwrap();
     let mut dst = driver().connect(&config(), Some(DST_DB)).await.unwrap();
     // Sessions ask for 32767-byte packets (the server grants 32576).
@@ -524,6 +562,7 @@ async fn transfer_benchmark_1m() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(1_000_000);
     let mut admin = driver().connect(&config(), Some("master")).await.unwrap();
+    let _databases = DropDatabases(&["dbine_bench_src", "dbine_bench_dst"]);
     for db in ["dbine_bench_src", "dbine_bench_dst"] {
         run(
             &mut admin,
@@ -750,7 +789,7 @@ async fn bench_read_then_load(load: &LoadSpec) -> u64 {
 #[ignore]
 async fn copy_native_fails_fast_when_the_load_fails() {
     modes();
-    fresh_databases().await;
+    let _databases = fresh_databases().await;
     let mut src = driver().connect(&config(), Some(SRC_DB)).await.unwrap();
     let mut dst = driver().connect(&config(), Some(DST_DB)).await.unwrap();
     // 40 chunks of 1000 rows: well over the 16 the reader may be ahead.
@@ -818,7 +857,7 @@ async fn copy_native_fails_fast_when_the_load_fails() {
 #[ignore]
 async fn copy_native_decimal_38_38() {
     modes();
-    fresh_databases().await;
+    let _databases = fresh_databases().await;
     let mut src = driver().connect(&config(), Some(SRC_DB)).await.unwrap();
     let mut dst = driver().connect(&config(), Some(DST_DB)).await.unwrap();
     let create = "CREATE TABLE dbo.dec38 (id int NOT NULL PRIMARY KEY, d decimal(38,38) NULL)";

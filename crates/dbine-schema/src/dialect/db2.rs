@@ -162,6 +162,47 @@ impl Db2 {
         }
     }
 
+    /// `VECTOR(n, FLOAT32 | INT8)` on Db2 LUW (12.1.2); Db2 for i and z/OS,
+    /// and a vector without dimension or sparse, take the fallback.
+    fn vector(&self, t: &L) -> Rendered {
+        use dbine_driver::VectorElement as E;
+        use IssueCode::*;
+        use Severity::*;
+        let L::Vector {
+            dims: Some(n),
+            element,
+            sparse: false,
+        } = t
+        else {
+            return super::vector_fallback(self, t);
+        };
+        if self.platform != Platform::Luw {
+            return super::vector_fallback(self, t);
+        }
+        match element {
+            E::F32 => Rendered::exact(format!("VECTOR({n}, FLOAT32)")),
+            E::I8 => Rendered::exact(format!("VECTOR({n}, INT8)")),
+            E::F64 => Rendered::exact(format!("VECTOR({n}, FLOAT32)")).with(
+                Loss,
+                PrecisionLoss,
+                "Db2 guarda vectores de FLOAT32 o INT8: los float64 pierden precisión.",
+            ),
+            _ => Rendered::exact(format!("VECTOR({n}, FLOAT32)")).with(
+                Info,
+                TypeChanged,
+                format!(
+                    "{}: como FLOAT32 (Db2 LUW 12.1.2 o posterior).",
+                    t.describe()
+                ),
+            ),
+        }
+        .with(
+            Info,
+            TypeChanged,
+            "El tipo VECTOR de Db2 existe desde Db2 LUW 12.1.2.",
+        )
+    }
+
     fn binary(&self, len: Option<u32>, fixed: bool) -> Rendered {
         let lim = self.limits();
         match len {
@@ -278,6 +319,20 @@ impl Dialect for Db2 {
                 tz: t.with_tz,
             },
             "xml" => L::Xml,
+            // Db2 LUW 12.1.2: `VECTOR(n, FLOAT32 | INT8)`.
+            "vector" => L::Vector {
+                dims: p(0),
+                element: match t
+                    .args
+                    .get(1)
+                    .map(|a| a.trim().to_ascii_uppercase())
+                    .as_deref()
+                {
+                    Some("INT8") => dbine_driver::VectorElement::I8,
+                    _ => dbine_driver::VectorElement::F32,
+                },
+                sparse: false,
+            },
             "rowid" => L::RowVersion,
             n => match spatial_kind(n) {
                 Some(kind) => L::Geometry {
@@ -298,7 +353,7 @@ impl Dialect for Db2 {
         let lim = self.limits();
         let zos = self.platform == Platform::Zos;
         match t {
-            L::Vector { .. } => super::vector_fallback(self, t),
+            L::Vector { .. } => self.vector(t),
             L::Bool if zos => Rendered::exact("SMALLINT").with(Info, TypeChanged, "Db2 for z/OS no tiene BOOLEAN: se usa SMALLINT (0/1)."),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
@@ -1105,5 +1160,48 @@ mod tests {
         assert_eq!(zos().caps().max_identifier, 30);
         assert_eq!(luw().caps().case, IdentCase::Upper);
         assert!(lookup("db2x").is_none());
+    }
+
+    #[test]
+    fn vectors_on_luw_only() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        let luw = Db2 {
+            platform: Platform::Luw,
+        };
+        let zos = Db2 {
+            platform: Platform::Zos,
+        };
+        let ty = |s: &str| luw.parse_type(&crate::parse::parse(s));
+        let v = |dims, element| L::Vector {
+            dims,
+            element,
+            sparse: false,
+        };
+        assert_eq!(ty("VECTOR(3, FLOAT32)"), v(Some(3), E::F32));
+        assert_eq!(ty("VECTOR(8, INT8)"), v(Some(8), E::I8));
+        assert_eq!(
+            luw.render_type(&ty("VECTOR(3, FLOAT32)")).native,
+            "VECTOR(3, FLOAT32)"
+        );
+        assert_eq!(
+            luw.render_type(&ty("VECTOR(8, INT8)")).native,
+            "VECTOR(8, INT8)"
+        );
+        // pgvector's vector(3).
+        assert_eq!(
+            luw.render_type(&v(Some(3), E::F32)).native,
+            "VECTOR(3, FLOAT32)"
+        );
+        // z/OS and i have no vectors; LUW needs the dimension.
+        assert!(!zos
+            .render_type(&v(Some(3), E::F32))
+            .native
+            .starts_with("VECTOR"));
+        assert!(!luw
+            .render_type(&v(None, E::F32))
+            .native
+            .starts_with("VECTOR"));
+        // No vector indexes in Db2.
+        assert!(luw.vector_index(&VectorIndex::default()).is_err());
     }
 }

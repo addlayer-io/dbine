@@ -62,6 +62,11 @@ impl CatColumn {
         self.ty == "timestamp"
     }
 
+    /// `vector(n)` (SQL Server 2025, Azure SQL).
+    fn vector(&self) -> bool {
+        self.ty == "vector"
+    }
+
     fn type_name(&self) -> String {
         format_type(&self.ty, self.max_len, self.precision, self.scale)
     }
@@ -100,6 +105,8 @@ async fn catalog(s: &mut SqlServerSession, table: &ObjectRef) -> Result<Vec<CatC
     } else {
         COLUMNS_SQL.to_string()
     };
+    // A vector column's dimensions and element type.
+    let sql = s.vector_shape(&sql).await;
     let rows = s.rows(&sql, &[&table_name(table)]).await?;
     if rows.is_empty() {
         return Err(Error::Query(format!(
@@ -280,7 +287,14 @@ pub(crate) async fn read_batches(
                 QueryItem::Row(row) => {
                     let cells = row
                         .into_iter()
-                        .map(to_cell)
+                        .zip(&cols)
+                        .map(|(d, c)| {
+                            if c.vector() {
+                                Ok(vector_to_cell(d))
+                            } else {
+                                to_cell(d)
+                            }
+                        })
                         .collect::<std::result::Result<Vec<_>, _>>()
                         .map_err(Error::Query)?;
                     builder.push(cells, &mut sink)?;
@@ -299,6 +313,22 @@ pub(crate) async fn read_batches(
     }
     builder.flush(&mut sink)?;
     Ok(builder.rows)
+}
+
+/// A vector column's value as its JSON-array text: decoded from the
+/// binary form (float32), or the server's text (float16) made canonical.
+pub(crate) fn vector_to_cell(d: ColumnData<'static>) -> Cell {
+    match d {
+        ColumnData::Binary(Some(b)) => match crate::vector::decode(&b) {
+            Some(t) => Cell::Text(t),
+            None => Cell::Bytes(b.into_owned()),
+        },
+        ColumnData::String(Some(t)) => {
+            Cell::Text(crate::vector::canonical(&t).unwrap_or_else(|| t.into_owned()))
+        }
+        ColumnData::Binary(None) | ColumnData::String(None) => Cell::Null,
+        d => to_cell(d).unwrap_or(Cell::Null),
+    }
 }
 
 /// A decoded value as a transfer cell, without loss.
@@ -600,6 +630,8 @@ pub(crate) enum Kind {
     Time(u8),
     DateTime2(u8),
     Dto(u8),
+    /// `vector(n)`: its binary form (SQL Server 2025, Azure SQL).
+    Vector(tiberius::VectorType),
 }
 
 pub(crate) fn kind_of(ty: &TypeInfo) -> std::result::Result<Kind, String> {
@@ -644,6 +676,7 @@ pub(crate) fn kind_of(ty: &TypeInfo) -> std::result::Result<Kind, String> {
         },
         TypeInfo::VarLenSizedPrecision { .. } => Kind::Decimal,
         TypeInfo::Xml { .. } => Kind::Xml,
+        TypeInfo::Vector(v) => Kind::Vector(*v),
         other => return Err(format!("tipo {other:?} no admitido en la carga masiva")),
     })
 }
@@ -725,6 +758,35 @@ fn numeric_of(c: Cell) -> std::result::Result<Numeric, String> {
     }
 }
 
+/// A vector cell (JSON-array text, or another SQL Server's binary form) as
+/// the binary form of a column of type `t`.
+fn vector_of(c: Cell, t: &tiberius::VectorType) -> std::result::Result<Vec<u8>, String> {
+    let dims = t.dimensions();
+    let values = match c {
+        // Already the binary form (a copy from SQL Server): checked by
+        // decoding it.
+        Cell::Bytes(b) => match crate::vector::decode(&b) {
+            Some(text) => dbine_driver::vector::parse(&text).unwrap_or_default(),
+            None => return Err("no es un vector".into()),
+        },
+        other => {
+            let s = cell_text(other);
+            dbine_driver::vector::parse(&s).ok_or_else(|| {
+                let shown: String = s.chars().take(40).collect();
+                format!("«{shown}» no es un vector (un arreglo JSON de números)")
+            })?
+        }
+    };
+    if let Some(n) = dims.filter(|&n| n as usize != values.len()) {
+        return Err(format!(
+            "el vector tiene {} dimensiones y la columna {n}",
+            values.len()
+        ));
+    }
+    crate::vector::encode(&values, t.base_type)
+        .ok_or_else(|| "tipo de elemento del vector desconocido".to_string())
+}
+
 fn stamp_of(c: Cell) -> std::result::Result<Stamp, String> {
     let s = cell_text(c);
     parse_stamp(&s).ok_or_else(|| format!("«{s}» no es una fecha u hora"))
@@ -788,6 +850,7 @@ impl Kind {
                     other => cell_text(other).into_bytes(),
                 })
             ),
+            Kind::Vector(t) => val!(Binary, Cow::Owned(vector_of(c, &t)?)),
             Kind::DateTime => val!(DateTime, {
                 let st = stamp_of(c)?;
                 // 1/300 s ticks, rounded to the nearest.

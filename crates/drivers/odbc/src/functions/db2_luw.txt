@@ -32,3 +32,10 @@ s YMD_BETWEEN(expression1, expression2) -> DECIMAL since=11.1
 # Comparison, NULL handling and miscellaneous
 s HASH4(expression [, algorithm]) -> BIGINT since=11.1
 s HASH8(expression [, algorithm]) -> BIGINT since=11.1
+
+# Vectors (Db2 12.1.2, DBMS_VER 12.01.0200)
+s VECTOR(expression, dimension, coordinate_type) -> VECTOR since=12.01.0200
+s VECTOR_DIMENSION_COUNT(vector) -> INTEGER since=12.01.0200
+s VECTOR_DISTANCE(vector1, vector2, distance_metric) -> DOUBLE since=12.01.0200
+s VECTOR_NORM(vector, norm_type) -> DOUBLE since=12.01.0200
+s VECTOR_SERIALIZE(vector) -> CLOB since=12.01.0200

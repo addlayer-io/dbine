@@ -147,6 +147,12 @@ impl<'a> Display for MetaDataColumn<'a> {
             },
             TypeInfo::Xml { .. } => write!(f, "xml")?,
             TypeInfo::Udt(info) => write!(f, "{}.{}", info.schema_name, info.type_name)?,
+            // PATCH(dbine): the vector type, as T-SQL declares it.
+            TypeInfo::Vector(v) => match (v.dimensions(), v.base_type.name()) {
+                (Some(n), Some("float32")) => write!(f, "vector({n})")?,
+                (Some(n), Some(t)) => write!(f, "vector({n}, {t})")?,
+                _ => return Err(std::fmt::Error),
+            },
         }
 
         Ok(())
@@ -264,6 +270,8 @@ impl BaseMetaDataColumn {
                 // A null `sql_variant` carries no base type, so surface a
                 // generic null value.
                 VarLenType::SSVariant => ColumnData::String(None),
+                // PATCH(dbine): a vector's binary form.
+                VarLenType::Vector => ColumnData::Binary(None),
             },
             TypeInfo::VarLenSizedPrecision { ty, .. } => match ty {
                 VarLenType::Guid => ColumnData::Guid(None),
@@ -299,9 +307,12 @@ impl BaseMetaDataColumn {
                 // A null `sql_variant` carries no base type, so surface a
                 // generic null value.
                 VarLenType::SSVariant => ColumnData::String(None),
+                // PATCH(dbine): a vector's binary form.
+                VarLenType::Vector => ColumnData::Binary(None),
             },
             TypeInfo::Xml { .. } => ColumnData::Xml(None),
             TypeInfo::Udt(_) => ColumnData::Binary(None),
+            TypeInfo::Vector(_) => ColumnData::Binary(None),
         }
     }
 }
@@ -474,6 +485,7 @@ impl<'a> TokenColMetaData<'a> {
             name: x.col_name.to_string(),
             column_type: ColumnType::from(&x.base.ty),
             udt_name: crate::row::udt_name_of(&x.base.ty),
+            vector_type: crate::row::vector_type_of(&x.base.ty),
         })
     }
 }

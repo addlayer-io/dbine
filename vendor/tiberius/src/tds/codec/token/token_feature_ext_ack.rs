@@ -1,4 +1,4 @@
-use crate::{Error, SqlReadBytes, FEA_EXT_FEDAUTH, FEA_EXT_TERMINATOR};
+use crate::{Error, SqlReadBytes, FEA_EXT_FEDAUTH, FEA_EXT_TERMINATOR, FEA_EXT_VECTORSUPPORT};
 use futures_util::AsyncReadExt;
 
 #[derive(Debug)]
@@ -16,6 +16,9 @@ pub enum FedAuthAck {
 #[allow(dead_code)]
 pub enum FeatureAck {
     FedAuth(FedAuthAck),
+    // PATCH(dbine): the server sends `vector` columns as the vector type, in
+    // this version of its binary form.
+    VectorSupport { version: u8 },
 }
 
 impl TokenFeatureExtAck {
@@ -50,6 +53,20 @@ impl TokenFeatureExtAck {
                 };
 
                 features.push(FeatureAck::FedAuth(FedAuthAck::SecurityToken { nonce }))
+            } else if feature_id == FEA_EXT_VECTORSUPPORT {
+                // PATCH(dbine): the vector type's acknowledgement, one byte.
+                let data_len = src.read_u32_le().await?;
+                if data_len != 1 {
+                    return Err(Error::Protocol(
+                        format!(
+                            "invalid Feature_Ext_Ack token: vector support data length {}",
+                            data_len
+                        )
+                        .into(),
+                    ));
+                }
+                let version = src.read_u8().await?;
+                features.push(FeatureAck::VectorSupport { version })
             } else {
                 return Err(Error::Protocol(
                     format!("unsupported feature {}", feature_id).into(),
@@ -84,6 +101,7 @@ mod tests {
             FeatureAck::FedAuth(FedAuthAck::SecurityToken { nonce }) => {
                 assert_eq!(*nonce, Some([7u8; 32]));
             }
+            other => panic!("{other:?}"),
         }
     }
 
@@ -102,6 +120,7 @@ mod tests {
             FeatureAck::FedAuth(FedAuthAck::SecurityToken { nonce }) => {
                 assert!(nonce.is_none());
             }
+            other => panic!("{other:?}"),
         }
     }
 
@@ -128,6 +147,36 @@ mod tests {
         let err = TokenFeatureExtAck::decode(&mut buf.into_sql_read_bytes())
             .await
             .expect_err("unsupported feature must error");
+        assert!(matches!(err, Error::Protocol(_)));
+    }
+
+    // PATCH(dbine): the vector type's acknowledgement, after fed auth's.
+    #[tokio::test]
+    async fn decodes_vector_support() {
+        let mut buf = BytesMut::new();
+        buf.put_u8(FEA_EXT_FEDAUTH);
+        buf.put_u32_le(0);
+        buf.put_u8(FEA_EXT_VECTORSUPPORT);
+        buf.put_u32_le(1);
+        buf.put_u8(1);
+        buf.put_u8(FEA_EXT_TERMINATOR);
+
+        let ack = TokenFeatureExtAck::decode(&mut buf.into_sql_read_bytes())
+            .await
+            .unwrap();
+        assert_eq!(ack.features.len(), 2);
+        assert!(matches!(
+            ack.features[1],
+            FeatureAck::VectorSupport { version: 1 }
+        ));
+
+        let mut buf = BytesMut::new();
+        buf.put_u8(FEA_EXT_VECTORSUPPORT);
+        buf.put_u32_le(2);
+        buf.extend_from_slice(&[1, 0]);
+        let err = TokenFeatureExtAck::decode(&mut buf.into_sql_read_bytes())
+            .await
+            .expect_err("a vector ack is one byte");
         assert!(matches!(err, Error::Protocol(_)));
     }
 

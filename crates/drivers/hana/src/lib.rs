@@ -27,6 +27,7 @@ mod stats;
 mod steps;
 mod structure;
 mod transfer;
+mod vector;
 
 use dbine_driver::sql::{leading_keyword, select_top, Limit, Quote, ScriptDefaults, ScriptDialect};
 use dbine_driver::{
@@ -162,7 +163,21 @@ fn message(e: &HdbError) -> String {
         m.push_str(&s.to_string());
         src = s.source();
     }
+    // A REAL_VECTOR result the client can't decode: what to do.
+    if let Some(why) = vector::explain(&m) {
+        m = format!("{why} ({m})");
+    }
     m
+}
+
+/// A value as a HANA literal: a vector through `TO_REAL_VECTOR`, the rest
+/// as the generic SQL literals.
+fn literal(v: &Value) -> String {
+    match v {
+        Value::Array(_) => vector::literal(v)
+            .unwrap_or_else(|| dbine_driver::ddl::sql_literal(&schema::flavor(), v)),
+        _ => dbine_driver::ddl::sql_literal(&schema::flavor(), v),
+    }
 }
 
 fn err(e: HdbError) -> Error {
@@ -471,7 +486,9 @@ impl Driver for HanaDriver {
             // The same scheduler jobs, created, changed and dropped from the
             // designer (see `scheduler`).
             scheduler: true,
-            vectors: false,
+            // REAL_VECTOR (HANA Cloud): describes, DDL, literals,
+            // transfers and HNSW vector indexes (see `vector`).
+            vectors: true,
         }
     }
 
@@ -519,13 +536,14 @@ impl Driver for HanaDriver {
         rows: &[Vec<Value>],
     ) -> Result<String> {
         // No multi-row VALUES in HANA: one INSERT per row.
-        Ok(dbine_driver::ddl::insert_script(
+        Ok(dbine_driver::ddl::insert_script_with(
             &schema::flavor(),
             target.schema(),
             &target.name,
             columns,
             rows,
             1,
+            &literal,
         ))
     }
 
@@ -534,20 +552,22 @@ impl Driver for HanaDriver {
         target: &ObjectRef,
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
-        Ok(dbine_driver::ddl::update_script(
-            &schema::flavor(),
+        Ok(dbine_driver::ddl::update_script_with(
+            schema::flavor().quote,
             target.schema(),
             &target.name,
             changes,
+            &literal,
         ))
     }
 
     fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
-        Ok(dbine_driver::ddl::delete_script(
-            &schema::flavor(),
+        Ok(dbine_driver::ddl::delete_script_with(
+            schema::flavor().quote,
             target.schema(),
             &target.name,
             keys,
+            &literal,
         ))
     }
 
@@ -713,13 +733,92 @@ fn int(v: &HdbValue) -> Option<i64> {
 }
 
 impl HanaSession {
+    /// A browse query (`SELECT *` of a table, filtered or sorted or not) of
+    /// a table with `REAL_VECTOR` columns, as the same query with each
+    /// column named and the vectors read as text, and those columns with
+    /// their dimension. `None` for any other query, or a table without
+    /// vectors.
+    async fn browse_vectors_as_text(
+        &self,
+        sql: &str,
+    ) -> Option<(String, Vec<(String, Option<i64>)>)> {
+        let (schema, table, rest) = vector::browsed_table(sql)?;
+        let rows = self
+            .conn
+            .query(&vector::all_columns_sql(&schema, &table))
+            .await
+            .ok()?
+            .into_rows()
+            .await
+            .ok()?;
+        let cols: Vec<(String, String, Option<i64>)> = rows
+            .into_iter()
+            .filter_map(|mut r| {
+                let name = text(&r.next_value()?)?;
+                let ty = text(&r.next_value()?)?;
+                let len = r
+                    .next_value()
+                    .and_then(|v| text(&v))
+                    .and_then(|n| n.parse().ok());
+                Some((name, ty, len))
+            })
+            .collect();
+        let known: Vec<(String, Option<i64>)> = cols
+            .iter()
+            .filter(|(_, ty, _)| vector::is_vector(ty))
+            .map(|(n, _, d)| (n.clone(), *d))
+            .collect();
+        if known.is_empty() {
+            return None;
+        }
+        let list: Vec<String> = cols
+            .iter()
+            .map(|(n, ty, _)| {
+                if vector::is_vector(ty) {
+                    vector::read_expr(&quote(n))
+                } else {
+                    quote(n)
+                }
+            })
+            .collect();
+        Some((format!("SELECT {}{rest}", list.join(", ")), known))
+    }
+
     /// One statement of a script; its error is placed in the statement.
     async fn run_one(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let response = self.conn.statement(stmt).await;
         self.warnings(out).await;
-        let response = response.map_err(|e| stmt_err(e, stmt, 0))?;
+        let response = match response {
+            Ok(r) => r,
+            // A server that sends REAL_VECTOR itself, which the client can't
+            // decode: a table's browse goes again with its vectors as text.
+            Err(e) if vector::explain(&message(&e)).is_some() => {
+                let Some((sql, known)) = self.browse_vectors_as_text(stmt).await else {
+                    return Err(stmt_err(e, stmt, 0));
+                };
+                let r = self
+                    .conn
+                    .statement(&sql)
+                    .await
+                    .map_err(|e| stmt_err(e, stmt, 0))?;
+                return push_response(&self.conn, r, max_rows, out, &known).await;
+            }
+            Err(e) => {
+                let e = stmt_err(e, stmt, 0);
+                // REAL_VECTOR is HANA Cloud's: on another server, say so.
+                if !vector::mentions_vectors(stmt) {
+                    return Err(e);
+                }
+                let version = single_text(&self.conn, "SELECT VERSION FROM SYS.M_DATABASE")
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                return Err(vector::with_release_hint(e, &version));
+            }
+        };
         let before = out.results.len();
-        push_response(response, max_rows, out).await?;
+        push_response(&self.conn, response, max_rows, out, &[]).await?;
         let reads = out.results[before..].iter().all(|r| !r.columns.is_empty());
         match leading_keyword(stmt, &ScriptDialect::generic()).as_deref() {
             Some("commit" | "rollback") => self.dirty = false,
@@ -1366,14 +1465,21 @@ impl Session for HanaSession {
 
 // ------------------------------------------------------------- execution
 
+/// `known`: result columns (by name) that hold a vector's text, with their
+/// dimension (a browse read again with `TO_NVARCHAR`, see
+/// [`HanaSession::browse_vectors_as_text`]).
 async fn push_response(
+    conn: &Connection,
     response: HdbResponse,
     max_rows: usize,
     out: &mut QueryOutcome,
+    known: &[(String, Option<i64>)],
 ) -> Result<()> {
     for rv in response {
         match rv {
-            HdbReturnValue::ResultSet(rs) => push_result_set(rs, max_rows, out).await?,
+            HdbReturnValue::ResultSet(rs) => {
+                push_result_set(conn, rs, max_rows, out, known).await?
+            }
             HdbReturnValue::AffectedRows(v) => out.push_affected(v.iter().map(|n| *n as u64).sum()),
             HdbReturnValue::OutputParameters(op) => {
                 let (descriptors, values) = op.into_descriptors_and_values();
@@ -1401,25 +1507,119 @@ async fn push_response(
     Ok(())
 }
 
-async fn push_result_set(mut rs: ResultSet, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+async fn push_result_set(
+    conn: &Connection,
+    mut rs: ResultSet,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+    known: &[(String, Option<i64>)],
+) -> Result<()> {
     let md = rs.metadata();
+    let mut dims = vector_columns(conn, &md).await;
+    // Vectors read as text: marked by name, their cells made canonical.
+    let mut texts = vec![false; dims.len()];
+    for (i, f) in md.iter().enumerate() {
+        if let Some((_, d)) = known.iter().find(|(n, _)| n == f.displayname()) {
+            dims[i] = Some(*d);
+            texts[i] = true;
+        }
+    }
     out.begin_result(
         md.iter()
-            .map(|f| ResultColumn {
-                name: f.displayname().to_string(),
-                type_name: format!("{:?}", f.type_id()),
-                vector: None,
+            .zip(&dims)
+            .map(|(f, d)| match d {
+                Some(n) => ResultColumn::new(f.displayname(), vector::type_name(*n)).with_vector(
+                    dbine_driver::VectorMeta::dense(
+                        n.and_then(|n| u32::try_from(n).ok()),
+                        dbine_driver::VectorElement::F32,
+                    ),
+                ),
+                None => ResultColumn::new(f.displayname(), format!("{:?}", f.type_id())),
             })
             .collect(),
     );
     while let Some(row) = rs.next_row().await.map_err(err)? {
         let mut cells = Vec::with_capacity(row.len());
-        for v in row {
-            cells.push(cell(v).await);
+        for (i, v) in row.into_iter().enumerate() {
+            cells.push(if texts.get(i) == Some(&true) {
+                match cell(v).await {
+                    Value::String(t) => vector::canonical(&t).into(),
+                    other => other,
+                }
+            } else if matches!(dims.get(i), Some(Some(_))) {
+                vector_cell(v).await
+            } else {
+                cell(v).await
+            });
         }
         out.push_row(cells, max_rows);
     }
     Ok(())
+}
+
+/// For each result column, `Some(dimension)` when it's a table's
+/// `REAL_VECTOR` column the server sent as binary (see [`vector`]): the
+/// catalog of the tables the binary columns come from says which. A
+/// catalog that can't be read marks nothing.
+async fn vector_columns(
+    conn: &Connection,
+    md: &hdbconnect_async::ResultSetMetadata,
+) -> Vec<Option<Option<i64>>> {
+    // (schema, table) → its vector columns and their dimensions.
+    type Columns = Vec<(String, Option<i64>)>;
+    let mut found: std::collections::HashMap<(String, String), Columns> =
+        std::collections::HashMap::new();
+    for f in md.iter().filter(|f| vector::may_be_vector(f.type_id())) {
+        let key = (f.schemaname().to_string(), f.tablename().to_string());
+        if key.0.is_empty() || key.1.is_empty() || found.contains_key(&key) {
+            continue;
+        }
+        let rows = match conn.query(&vector::columns_sql(&key.0, &key.1)).await {
+            Ok(rs) => rs.into_rows().await.ok(),
+            Err(_) => None,
+        };
+        let cols = rows
+            .into_iter()
+            .flatten()
+            .filter_map(|mut r| {
+                let name = text(&r.next_value()?)?;
+                let dims = r
+                    .next_value()
+                    .and_then(|v| text(&v))
+                    .and_then(|n| n.parse().ok());
+                Some((name, dims))
+            })
+            .collect();
+        found.insert(key, cols);
+    }
+    md.iter()
+        .map(|f| {
+            if !vector::may_be_vector(f.type_id()) {
+                return None;
+            }
+            found
+                .get(&(f.schemaname().to_string(), f.tablename().to_string()))?
+                .iter()
+                .find(|(c, _)| c == f.columnname())
+                .map(|(_, d)| *d)
+        })
+        .collect()
+}
+
+/// A vector cell the server sent as binary: its JSON-array text.
+async fn vector_cell(v: HdbValue<'static>) -> Value {
+    let bytes = match v {
+        HdbValue::BINARY(b) => b,
+        HdbValue::ASYNC_BLOB(mut b) => match b.read_slice(0, BLOB_CAP).await {
+            Ok(bytes) => bytes,
+            Err(e) => return format!("<{}>", message(&e)).into(),
+        },
+        other => return cell(other).await,
+    };
+    match vector::decode(&bytes) {
+        Some(t) => t.into(),
+        None => json_bytes(&bytes),
+    }
 }
 
 /// A cell as JSON.
@@ -1508,6 +1708,8 @@ fn format_type(ty: &str, len: Option<i64>, scale: Option<i64>) -> String {
             (Some(p), Some(s)) => format!("DECIMAL({p},{s})"),
             _ => "DECIMAL".to_string(),
         },
+        // LENGTH is the dimension (0: any).
+        vector::TYPE => vector::type_name(len),
         _ => ty.to_string(),
     }
 }
@@ -1515,6 +1717,50 @@ fn format_type(ty: &str, len: Option<i64>, scale: Option<i64>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vectors_in_scripts_and_types() {
+        let d = drivers().remove(0);
+        assert!(d.capabilities().vectors);
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("APP".into()),
+            name: "DOCS".into(),
+        };
+        let ins = d
+            .insert_script(
+                &t,
+                &["ID".into(), "EMB".into()],
+                &[vec![
+                    serde_json::json!(1),
+                    serde_json::json!([0.5, 1.0, -2.0]),
+                ]],
+            )
+            .unwrap();
+        assert_eq!(
+            ins,
+            "INSERT INTO \"APP\".\"DOCS\" (\"ID\", \"EMB\") VALUES (1, TO_REAL_VECTOR('[0.5,1,-2]'));"
+        );
+        let up = d
+            .update_script(
+                &t,
+                &[dbine_driver::RowChange {
+                    key: vec![("ID".into(), serde_json::json!(1))],
+                    set: vec![("EMB".into(), serde_json::json!([1, 2, 3]))],
+                    ..Default::default()
+                }],
+            )
+            .unwrap();
+        assert!(
+            up.contains("SET \"EMB\" = TO_REAL_VECTOR('[1,2,3]')"),
+            "{up}"
+        );
+        assert_eq!(
+            format_type("REAL_VECTOR", Some(1536), None),
+            "REAL_VECTOR(1536)"
+        );
+        assert_eq!(format_type("REAL_VECTOR", Some(0), None), "REAL_VECTOR");
+    }
 
     #[test]
     fn update_script_by_key() {

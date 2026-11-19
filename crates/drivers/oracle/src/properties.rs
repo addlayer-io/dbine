@@ -163,7 +163,8 @@ impl OracleSession {
                     .unwrap_or_default();
                 let objects = c
                     .query_row(
-                        "SELECT TO_CHAR(COUNT(*)), TO_CHAR(COUNT(CASE WHEN object_type = 'TABLE' THEN 1 END)) FROM dba_objects WHERE owner = :1",
+                        "SELECT TO_CHAR(COUNT(*)), TO_CHAR(COUNT(CASE WHEN object_type = 'TABLE' THEN 1 END)) FROM dba_objects
+                          WHERE owner = :1 AND NOT REGEXP_LIKE(object_name, '^VECTOR\\$.+\\$[0-9]+_[0-9]+_[0-9]+\\$')",
                         &[&name],
                     )
                     .map_err(err)

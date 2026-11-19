@@ -3,9 +3,26 @@
 //! `STATISTICS IO/TIME` messages, "(N filas afectadas)" per statement
 //! (unless `SET NOCOUNT ON`), every error with its line, and `USE`.
 
-use super::{cell, err, is_desync, is_plan_column, spatial_cell, ResultColumn, SqlServerSession};
+use super::{
+    cell, err, is_desync, is_plan_column, spatial_cell, vector_cell, ResultColumn, SqlServerSession,
+};
+
+/// How a result column's cells are written.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum CellKind {
+    Plain,
+    /// `geometry` / `geography`: SQL Server's serialization, whole.
+    Spatial,
+    /// `vector`: its JSON-array text.
+    Vector,
+    /// A float16 `vector` of a browsed table, which arrives as the
+    /// server's JSON text: in the canonical form.
+    JsonVector,
+}
 use dbine_driver::sql::{split_script, ScriptDialect, ScriptStatement, StatementKind};
-use dbine_driver::{Error, Message, MessageLevel, QueryOutcome, Result, ScriptError};
+use dbine_driver::{
+    Error, Message, MessageLevel, QueryOutcome, Result, ScriptError, VectorElement, VectorMeta,
+};
 use futures::TryStreamExt;
 use std::sync::atomic::Ordering;
 use tiberius::{DoneKind, MessageItem, ServerMessage};
@@ -63,7 +80,7 @@ fn script_error(m: &ServerMessage, base: u32) -> ScriptError {
     } else {
         base
     };
-    let e = ScriptError::new(m.message.clone())
+    let e = ScriptError::new(crate::vector::with_release_hint(m.number, &m.message))
         .with_code(m.number.to_string())
         .at_line(line);
     if m.class >= FATAL_CLASS {
@@ -193,6 +210,16 @@ impl SqlServerSession {
         params: Option<&[&dyn tiberius::ToSql]>,
     ) -> Result<()> {
         let variant = self.variant;
+        // A browsed table's float16 vector columns (see `browsed_float16`).
+        let f16 = self.browse_f16.clone();
+        let float16 = |c: &tiberius::Column| {
+            if c.vector_type().is_some() {
+                return None;
+            }
+            f16.iter()
+                .find(|(n, _)| n == c.name())
+                .map(|&(_, dims)| dims)
+        };
         let mut first: Option<ScriptError> = None;
         let mut fatal: Option<ScriptError> = None;
         let mut broken: Option<tiberius::error::Error> = None;
@@ -213,7 +240,7 @@ impl SqlServerSession {
             let mut in_result = false;
             let mut merged: Option<String> = None;
             // The result's geometry / geography columns (their values go whole).
-            let mut spatial: Vec<bool> = Vec::new();
+            let mut spatial: Vec<CellKind> = Vec::new();
             loop {
                 let item = match stream.try_next().await {
                     Ok(Some(item)) => item,
@@ -249,18 +276,46 @@ impl SqlServerSession {
                         }
                         spatial = cols
                             .iter()
-                            .map(|c| matches!(c.udt_name(), Some("geometry" | "geography")))
+                            .map(|c| {
+                                if matches!(c.udt_name(), Some("geometry" | "geography")) {
+                                    CellKind::Spatial
+                                } else if c.vector_type().is_some() {
+                                    CellKind::Vector
+                                } else if float16(c).is_some() {
+                                    CellKind::JsonVector
+                                } else {
+                                    CellKind::Plain
+                                }
+                            })
                             .collect();
                         out.begin_result(
                             cols.iter()
-                                .map(|c| ResultColumn {
-                                    name: c.name().to_string(),
-                                    // A UDT by its name: `geometry`, `geography`, `hierarchyid`.
-                                    type_name: c.udt_name().map_or_else(
-                                        || format!("{:?}", c.column_type()),
-                                        str::to_string,
+                                .map(|c| match c.vector_type() {
+                                    // `vector(3)`, its cells JSON arrays.
+                                    Some(v) => ResultColumn::new(
+                                        c.name(),
+                                        crate::vector::wire_type_name(&v),
+                                    )
+                                    .with_vector(crate::vector::meta(&v)),
+                                    None if float16(c).is_some() => {
+                                        let dims = float16(c);
+                                        ResultColumn::new(
+                                            c.name(),
+                                            crate::vector::type_name(
+                                                dims,
+                                                tiberius::VectorBaseType::Float16,
+                                            ),
+                                        )
+                                        .with_vector(VectorMeta::dense(dims, VectorElement::F16))
+                                    }
+                                    None => ResultColumn::new(
+                                        c.name(),
+                                        // A UDT by its name: `geometry`, `geography`, `hierarchyid`.
+                                        c.udt_name().map_or_else(
+                                            || format!("{:?}", c.column_type()),
+                                            str::to_string,
+                                        ),
                                     ),
-                                    vector: None,
                                 })
                                 .collect(),
                         );
@@ -285,8 +340,16 @@ impl SqlServerSession {
                         None => out.push_row(
                             row.into_iter()
                                 .enumerate()
-                                .map(|(i, d)| {
-                                    spatial_cell(d, spatial.get(i).copied().unwrap_or(false))
+                                .map(|(i, d)| match spatial.get(i) {
+                                    Some(CellKind::Spatial) => spatial_cell(d, true),
+                                    Some(CellKind::Vector) => vector_cell(d),
+                                    Some(CellKind::JsonVector) => match cell(d) {
+                                        serde_json::Value::String(t) => {
+                                            crate::vector::canonical(&t).unwrap_or(t).into()
+                                        }
+                                        other => other,
+                                    },
+                                    _ => cell(d),
                                 })
                                 .collect(),
                             max_rows,

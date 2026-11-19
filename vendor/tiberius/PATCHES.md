@@ -205,6 +205,54 @@ files kept). Every changed site is marked `PATCH(dbine)` in the source.
     1.1 for old servers"). Tests: `legacy_tls_stream::tests`,
     `map_handshake_error_tells_old_tls_versions_apart`.
 
+12. **The vector type (SQL Server 2025, Azure SQL)** — `Config::vector_support(true)`
+    asks for it in LOGIN7 (FEATUREEXT `VECTORSUPPORT`, 0x0E, version 1), so
+    `vector` columns arrive as their own TDS type (0xF5) instead of JSON
+    text, and a result says which columns hold vectors and their
+    dimensions. Off by default, as upstream; servers without vectors ignore
+    the request. Version 1 covers float32 only: the server sends `float16`
+    vectors (a preview feature) as JSON text even when asked for version 2.
+    * `src/tds/codec/login.rs` — `LoginMessage::vector_support`; the
+      FeatureExt block now holds fed auth, the vector feature or both
+      (`encoded_len` follows). `src/client/config.rs`,
+      `src/client/connection.rs` — the setting, passed to the login.
+    * `src/tds/codec/token/token_feature_ext_ack.rs` — the acknowledgement
+      (`FeatureAck::VectorSupport { version }`).
+    * `src/tds/codec/type_info.rs` — `VarLenType::Vector` (0xF5) and
+      `TypeInfo::Vector(VectorType { size, base_type })`: TYPE_INFO is a
+      USHORTLEN size (the 8-byte header plus the elements) and the element
+      type (0 float32, 1 float16); `VectorType::dimensions`,
+      `VECTOR_HEADER_SIZE`. Encoded the same way for bulk metadata.
+    * `src/tds/codec/column_data.rs` — a value is USHORTLEN bytes (0xFFFF
+      NULL), decoded as `ColumnData::Binary` holding the vector's binary form
+      (header 0xA9, 0x01, element count u16 LE, element type, 3 reserved
+      bytes, then the elements little-endian); `ColumnData::Binary` encodes
+      into a vector column as is (its length must be the column's).
+    * `src/row.rs` — `ColumnType::Vector`, `Column::vector_type()`.
+      `src/tds/codec/token/token_col_metadata.rs` — `INSERT BULK` declares
+      `vector(n)` / `vector(n, float16)`; its NULL is `Binary(None)`.
+    * `src/tds/codec/token/token_row/raw.rs` — raw rows copy a vector as
+      USHORTLEN bytes (`RawMetadata::check_compatible` compares the types).
+    * Tests: `vector_support_round_trips_alone_and_with_fed_auth`
+      (login.rs), `decodes_vector_support` (token_feature_ext_ack.rs),
+      `vector_dimensions` and the TYPE_INFO round trip (type_info.rs). Live
+      ones in DBine's `crates/drivers/sqlserver/tests/vectors.rs` (results,
+      `INSERT BULK` into a vector column, raw and decoded native copies).
+    * `src/client/connection.rs` — `asks_vector_support`: the login asks
+      for the vector feature only when the PRELOGIN answer is from a TDS
+      7.4 server (SQL Server 2012, major version 11, and later), which
+      skips features it doesn't know (MS-TDS 2.2.6.4: "If the server does
+      not support the specific feature, it MUST skip the feature data");
+      a TDS 7.3 server (2008, 2008 R2) gets no FeatureExt for it. Test:
+      `vector_support_only_for_tds_74_servers`.
+    * `src/client.rs` — `insert_bulk_columns` builds the `INSERT BULK`
+      column list with a fallible `write!`: a column whose type has no
+      T-SQL name (`MetaDataColumn`'s `Display` fails for a vector of an
+      unknown element type or a size that isn't whole elements, and for a
+      var-len type without its precision) is a `BulkInput` error instead
+      of the panic `format!` gave. Test:
+      `insert_bulk_columns_refuse_types_without_a_name`.
+
 ## Not vendored: TLS test fixtures
 
 `docker/` (the upstream Dockerfiles and the self-signed test CA, server

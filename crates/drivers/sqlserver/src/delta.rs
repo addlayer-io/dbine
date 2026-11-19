@@ -355,7 +355,8 @@ fn col_hash(c: &Col, alias: Option<&str>, sizes_only: bool) -> String {
     }
     let v = match c.ty.as_str() {
         "text" => format!("CAST({n} AS varchar(max))"),
-        "ntext" | "xml" => format!("CAST({n} AS nvarchar(max))"),
+        // A vector doesn't cast to varbinary: its JSON text is as exact.
+        "ntext" | "xml" | "vector" => format!("CAST({n} AS nvarchar(max))"),
         _ => n.clone(),
     };
     format!("CASE WHEN {n} IS NULL THEN 0x00 ELSE 0x01 + CAST(CAST(DATALENGTH({v}) AS int) AS binary(4)) + CAST({v} AS varbinary(max)) END")
@@ -1658,9 +1659,12 @@ mod tests {
             col("t", "text"),
             col("x", "xml"),
             col("m", "nvarchar(max)"),
+            col("v", "vector"),
         ];
         let refs: Vec<&Col> = cols.iter().collect();
         let full = row_bytes(&refs, None, DeltaDepth::Full);
+        // A vector doesn't cast to varbinary: hashed as its JSON text.
+        assert!(full.contains("CAST(CAST([v] AS nvarchar(max)) AS varbinary(max))"));
         assert!(full.starts_with("CASE WHEN [a] IS NULL THEN 0x00 ELSE 0x01 + CAST(CAST(DATALENGTH([a]) AS int) AS binary(4)) + CAST([a] AS varbinary(max)) END"));
         assert!(full.contains("CAST(CAST([t] AS varchar(max)) AS varbinary(max))"));
         assert!(full.contains("CAST(CAST([x] AS nvarchar(max)) AS varbinary(max))"));
