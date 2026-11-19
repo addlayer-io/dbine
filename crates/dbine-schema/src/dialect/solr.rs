@@ -331,12 +331,25 @@ impl Dialect for Solr {
 
     /// Another engine's vector index as a field's HNSW graph, with `m` and
     /// `ef_construction`; the inner product that takes any vector
-    /// (`maximum_inner_product`).
+    /// (`maximum_inner_product`). With the column's type: a column that
+    /// isn't a `knn_vector` here (no dimension, sparse) has none, and the
+    /// Hamming distance of bit vectors, which Solr keeps as numbers, isn't
+    /// there (their L2 ranks the same and stays).
     fn vector_index(
         &self,
         v: &VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, VectorIndex), String> {
+        match column {
+            Some(L::Vector { sparse: true, .. }) => {
+                return Err("Solr no tiene vectores dispersos".into())
+            }
+            Some(L::Vector { dims: None, .. }) => {
+                return Err("Solr necesita la dimensión del vector".into())
+            }
+            Some(L::Vector { .. }) | None => {}
+            Some(_) => return Err("su columna no es un vector en Solr".into()),
+        }
         let metric = match v.metric.as_deref().map(str::to_ascii_lowercase).as_deref() {
             None => None,
             Some("cosine") => Some("cosine"),
@@ -579,5 +592,40 @@ mod tests {
                 None
             )
             .is_err());
+    }
+
+    #[test]
+    fn vector_indexes_follow_the_column() {
+        let ix = |metric: &str| VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some(metric.into()),
+            ..Default::default()
+        };
+        let vec = |dims: Option<u32>, element, sparse| L::Vector {
+            dims,
+            element,
+            sparse,
+        };
+        let metric = |v: VectorIndex, c: L| {
+            Solr.vector_index(&v, Some(&c))
+                .map(|(_, v)| v.metric.unwrap_or_default())
+        };
+        // Bytes take every distance; bits, kept as numbers, their L2 (it
+        // ranks as Hamming does) but not Hamming.
+        assert_eq!(
+            metric(ix("cosine"), vec(Some(4), VectorElement::I8, false)).unwrap(),
+            "cosine"
+        );
+        let bits = vec(Some(16), VectorElement::Bit, false);
+        assert_eq!(metric(ix("l2"), bits.clone()).unwrap(), "l2");
+        assert!(metric(ix("hamming"), bits).is_err());
+        // Not a knn_vector here: no vector index, and why.
+        assert!(metric(ix("l2"), vec(None, VectorElement::F32, false))
+            .unwrap_err()
+            .contains("dimensión"));
+        assert!(metric(ix("ip"), vec(Some(9), VectorElement::F32, true))
+            .unwrap_err()
+            .contains("dispersos"));
+        assert!(metric(ix("l2"), L::Text { unicode: true }).is_err());
     }
 }

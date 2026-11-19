@@ -207,6 +207,25 @@ impl Search {
         }
     }
 
+    /// The dimension and element of the vector field a column of logical
+    /// type `column` is on this flavor, or why it isn't one (it renders as
+    /// a list of numbers).
+    fn target_vector(&self, column: &L) -> Result<(Option<u32>, VectorElement), String> {
+        let engine = self.engine();
+        let L::Vector { dims, sparse, .. } = column else {
+            return Err(format!("su columna no es un vector en {engine}"));
+        };
+        let rendered = self.render_type(column);
+        match self.parse_type(&crate::parse::parse(&rendered.native)) {
+            L::Vector { dims, element, .. } => Ok((dims, element)),
+            _ if *sparse => Err(format!(
+                "{engine} no tiene índices vectoriales de vectores dispersos"
+            )),
+            _ if dims.is_none() => Err(format!("{engine} necesita la dimensión del vector")),
+            _ => Err(format!("su columna no es un vector en {engine}")),
+        }
+    }
+
     fn json_type(&self) -> &'static str {
         match self.flavor {
             Flavor::Elastic => "flattened",
@@ -369,7 +388,7 @@ impl Dialect for Search {
             Flavor::Elastic => "dense_vector",
             _ => "knn_vector",
         };
-        let mut moved: Vec<String> = Vec::new();
+        let mut moved: Vec<(String, L)> = Vec::new();
         for c in &mut t.columns {
             let spec = crate::parse::parse(&c.data_type);
             if !matches!(spec.name.as_str(), "dense_vector" | "knn_vector") || spec.name == own {
@@ -380,14 +399,19 @@ impl Dialect for Search {
                 report.push(n.severity, n.code, &source_name, Some(&c.name), n.message);
             }
             c.data_type = r.native;
-            moved.push(c.name.clone());
+            let target = self.parse_type(&crate::parse::parse(&c.data_type));
+            moved.push((c.name.clone(), target));
         }
         for ix in &mut t.indexes {
-            let on_moved = ix.columns.first().is_some_and(|c| moved.contains(c));
-            let Some(v) = ix.vector.as_ref().filter(|_| on_moved) else {
+            let column = ix
+                .columns
+                .first()
+                .and_then(|c| moved.iter().find(|(m, _)| m == c))
+                .map(|(_, l)| l);
+            let Some((v, column)) = ix.vector.as_ref().zip(column) else {
                 continue;
             };
-            match self.vector_index(v, None) {
+            match self.vector_index(v, Some(column)) {
                 Ok((kind, v)) => {
                     ix.kind = kind;
                     ix.vector = Some(v);
@@ -455,27 +479,51 @@ impl Dialect for Search {
 
     /// Another engine's vector index as a field's ANN index: HNSW (or
     /// Elasticsearch's `flat`) with `m` and `ef_construction`; the inner
-    /// product that takes any vector (`max_inner_product`).
+    /// product that takes any vector (`max_inner_product`). With the
+    /// column's type, what its vector field is here decides: bit (binary)
+    /// vectors are searched by Hamming (their L2 ranks the same) and only
+    /// they are; OpenSearch searches bytes with Lucene, which has no L1;
+    /// Elasticsearch quantizes only floats, int4 an even dimension and BBQ
+    /// from 64. A column that isn't a vector field here has none.
     fn vector_index(
         &self,
         v: &VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, VectorIndex), String> {
-        let metric = match v.metric.as_deref().map(str::to_ascii_lowercase).as_deref() {
-            None => None,
-            Some("cosine") => Some("cosine"),
-            Some("l2") => Some("l2"),
-            Some("ip") if self.flavor == Flavor::Elastic => Some("max_inner_product"),
-            Some("ip") if self.flavor == Flavor::OpenSearch => Some("ip"),
-            Some("hamming") if self.flavor != Flavor::OpenDistro => Some("hamming"),
-            Some("l1") if self.flavor != Flavor::Elastic => Some("l1"),
-            Some(m) => {
-                return Err(format!(
-                    "{} no tiene la distancia «{m}» en sus índices vectoriales",
-                    self.engine()
+        let engine = self.engine();
+        let target = column.map(|c| self.target_vector(c)).transpose()?;
+        let bits = target.is_some_and(|(_, e)| e == VectorElement::Bit);
+        let bytes = target.is_some_and(|(_, e)| e == VectorElement::I8);
+        let metric =
+            match v.metric.as_deref().map(str::to_ascii_lowercase).as_deref() {
+                None => None,
+                Some("hamming" | "l2") if bits => Some("hamming"),
+                Some(m) if bits => {
+                    return Err(format!(
+                    "{engine} busca los vectores de bits solo por distancia de Hamming, no «{m}»"
                 ))
-            }
-        };
+                }
+                Some("hamming") if target.is_some() => {
+                    return Err(format!(
+                        "en {engine} la distancia de Hamming es solo de vectores de bits"
+                    ))
+                }
+                Some("l1") if bytes && self.flavor == Flavor::OpenSearch => return Err(
+                    "OpenSearch busca los vectores byte con Lucene, que no tiene la distancia «l1»"
+                        .into(),
+                ),
+                Some("cosine") => Some("cosine"),
+                Some("l2") => Some("l2"),
+                Some("ip") if self.flavor == Flavor::Elastic => Some("max_inner_product"),
+                Some("ip") if self.flavor == Flavor::OpenSearch => Some("ip"),
+                Some("hamming") if self.flavor != Flavor::OpenDistro => Some("hamming"),
+                Some("l1") if self.flavor != Flavor::Elastic => Some("l1"),
+                Some(m) => {
+                    return Err(format!(
+                        "{engine} no tiene la distancia «{m}» en sus índices vectoriales"
+                    ))
+                }
+            };
         let algorithm = match v
             .algorithm
             .as_deref()
@@ -499,11 +547,24 @@ impl Dialect for Search {
             }
         }
         if self.flavor == Flavor::Elastic {
+            // Quantized floats only: int4 needs an even dimension, BBQ 64
+            // or more.
+            let fits = |q: &str| match target {
+                None => true,
+                Some((dims, e)) => {
+                    matches!(e, VectorElement::F32 | VectorElement::Bf16)
+                        && match q {
+                            "int4" => dims.is_some_and(|d| d.is_multiple_of(2)),
+                            "bbq" => dims.is_some_and(|d| d >= 64),
+                            _ => true,
+                        }
+                }
+            };
             if let Some(q) = v
                 .params
                 .get(param::QUANTIZATION)
                 .map(|q| q.to_ascii_lowercase())
-                .filter(|q| matches!(q.as_str(), "int8" | "int4" | "bbq"))
+                .filter(|q| matches!(q.as_str(), "int8" | "int4" | "bbq") && fits(q))
             {
                 params.insert(param::QUANTIZATION.to_string(), q);
             }
@@ -923,6 +984,235 @@ mod tests {
             .metric
             .as_deref(),
             Some("l1")
+        );
+    }
+
+    #[test]
+    fn vector_indexes_follow_the_column() {
+        let es = lookup("elasticsearch").unwrap();
+        let os = lookup("opensearch").unwrap();
+        let od = lookup("opendistro").unwrap();
+        let ix = |metric: &str, params: &[(&str, &str)]| VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some(metric.into()),
+            params: params
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        };
+        let vec = |dims: u32, element| L::Vector {
+            dims: Some(dims),
+            element,
+            sparse: false,
+        };
+        let metric = |d: &dyn Dialect, v: VectorIndex, c: L| {
+            d.vector_index(&v, Some(&c))
+                .map(|(_, v)| v.metric.unwrap_or_default())
+        };
+        // Bits: Hamming (their L2 ranks the same), nothing else; only where
+        // the column stays a bit vector (by eights, never on Open Distro).
+        let bits = vec(16, VectorElement::Bit);
+        for d in [es, os] {
+            assert_eq!(
+                metric(d, ix("hamming", &[]), bits.clone()).unwrap(),
+                "hamming"
+            );
+            assert_eq!(metric(d, ix("l2", &[]), bits.clone()).unwrap(), "hamming");
+            assert!(metric(d, ix("cosine", &[]), bits.clone())
+                .unwrap_err()
+                .contains("Hamming"));
+            assert!(metric(d, ix("hamming", &[]), vec(3, VectorElement::F32)).is_err());
+        }
+        assert!(metric(es, ix("hamming", &[]), vec(10, VectorElement::Bit)).is_err());
+        assert!(metric(od, ix("hamming", &[]), bits.clone()).is_err());
+        assert_eq!(metric(od, ix("l2", &[]), bits).unwrap(), "l2");
+        // OpenSearch searches bytes with Lucene: no L1 there.
+        assert!(metric(os, ix("l1", &[]), vec(3, VectorElement::I8)).is_err());
+        assert_eq!(
+            metric(os, ix("l1", &[]), vec(3, VectorElement::F32)).unwrap(),
+            "l1"
+        );
+        assert_eq!(
+            metric(os, ix("cosine", &[]), vec(3, VectorElement::I8)).unwrap(),
+            "cosine"
+        );
+        // Elasticsearch quantizes floats only, int4 an even dimension, BBQ
+        // from 64.
+        let quant = |q: &str, c: L| {
+            es.vector_index(&ix("cosine", &[("quantization", q)]), Some(&c))
+                .unwrap()
+                .1
+                .params
+                .get("quantization")
+                .cloned()
+        };
+        assert_eq!(
+            quant("int4", vec(4, VectorElement::F32)).as_deref(),
+            Some("int4")
+        );
+        assert_eq!(quant("int4", vec(3, VectorElement::F32)), None);
+        assert_eq!(quant("bbq", vec(32, VectorElement::F32)), None);
+        assert_eq!(
+            quant("bbq", vec(64, VectorElement::F32)).as_deref(),
+            Some("bbq")
+        );
+        assert_eq!(quant("int8", vec(3, VectorElement::I8)), None);
+        assert_eq!(
+            quant("int8", vec(3, VectorElement::F16)).as_deref(),
+            Some("int8")
+        );
+        // A column that isn't a vector field here has no vector index.
+        let free = L::Vector {
+            dims: None,
+            element: VectorElement::F32,
+            sparse: false,
+        };
+        assert!(os
+            .vector_index(&ix("l2", &[]), Some(&free))
+            .unwrap_err()
+            .contains("dimensión"));
+        assert!(es.vector_index(&ix("l2", &[]), Some(&free)).is_ok());
+        assert!(es
+            .vector_index(&ix("l2", &[]), Some(&vec(5000, VectorElement::F32)))
+            .is_err());
+        let sparse = L::Vector {
+            dims: Some(100),
+            element: VectorElement::F32,
+            sparse: true,
+        };
+        assert!(es
+            .vector_index(&ix("ip", &[]), Some(&sparse))
+            .unwrap_err()
+            .contains("dispersos"));
+        assert!(es
+            .vector_index(&ix("l2", &[]), Some(&L::Text { unicode: true }))
+            .is_err());
+    }
+
+    #[test]
+    fn foreign_vectors_move_by_their_column() {
+        let one = |src: &str, ty: &str, v: VectorIndex, dst: &str| {
+            let t = TableSchema {
+                kind: "table".into(),
+                name: "items".into(),
+                columns: vec![dbine_driver::ColumnDef {
+                    name: "emb".into(),
+                    data_type: ty.into(),
+                    ..Default::default()
+                }],
+                indexes: vec![dbine_driver::IndexDef {
+                    name: "items_emb".into(),
+                    columns: vec!["emb".into()],
+                    vector: Some(v),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            crate::convert(&[t], src, dst, &Default::default()).unwrap()
+        };
+        let l2 = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("l2".into()),
+            ..Default::default()
+        };
+        // MongoDB's bit vectors searched by euclidean distance: Hamming on
+        // the bit vectors of Elasticsearch and OpenSearch, L2 on the float
+        // ones of Open Distro and Solr.
+        for (dst, ty, metric) in [
+            ("elasticsearch", "dense_vector(16, bit)", "hamming"),
+            ("opensearch", "knn_vector(16, binary)", "hamming"),
+            ("opendistro", "knn_vector(16)", "l2"),
+            ("solr", "knn_vector(16)", "l2"),
+        ] {
+            let c = one("mongodb", "vector(16, bit)", l2.clone(), dst);
+            let t = &c.tables[0];
+            assert_eq!(t.columns[0].data_type, ty, "{dst}");
+            assert_eq!(
+                t.indexes[0]
+                    .vector
+                    .as_ref()
+                    .and_then(|v| v.metric.as_deref()),
+                Some(metric),
+                "{dst}: {:?}",
+                c.issues
+            );
+        }
+        // By cosine, bits have no vector index on Elasticsearch.
+        let cosine = VectorIndex {
+            metric: Some("cosine".into()),
+            ..l2.clone()
+        };
+        let c = one("mongodb", "vector(16, bit)", cosine, "elasticsearch");
+        assert!(c.tables[0].indexes.is_empty());
+        assert!(
+            c.issues.iter().any(|i| i.severity == Severity::Dropped
+                && i.object.as_deref() == Some("items_emb")
+                && i.message.contains("Hamming")),
+            "{:?}",
+            c.issues
+        );
+        // A ClickHouse array searched by a vector index that states its
+        // dimension: a vector field with its index.
+        let ch = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("cosine".into()),
+            params: [("dimensions".to_string(), "3".to_string())].into(),
+        };
+        for (dst, ty) in [
+            ("elasticsearch", "dense_vector(3)"),
+            ("opensearch", "knn_vector(3)"),
+            ("solr", "knn_vector(3)"),
+        ] {
+            let c = one("clickhouse", "Array(Float32)", ch.clone(), dst);
+            let t = &c.tables[0];
+            assert_eq!(t.columns[0].data_type, ty, "{dst}");
+            assert_eq!(t.indexes.len(), 1, "{dst}: {:?}", c.issues);
+        }
+        // pgvector's vector(3) with an int4-quantized index: Elasticsearch
+        // leaves the quantization to the engine (int4 needs an even
+        // dimension).
+        let q = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("cosine".into()),
+            params: [("quantization".to_string(), "int4".to_string())].into(),
+        };
+        let c = one("postgres", "vector(3)", q, "elasticsearch");
+        let v = c.tables[0].indexes[0].vector.clone().unwrap();
+        assert!(!v.params.contains_key("quantization"), "{v:?}");
+        // Between these engines too: Elasticsearch's bit vectors (l2_norm
+        // is Hamming) keep it on OpenSearch and lose the index on Open
+        // Distro, which has no bit vectors.
+        let hamming = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("hamming".into()),
+            ..Default::default()
+        };
+        let os = one(
+            "elasticsearch",
+            "dense_vector(16, bit)",
+            hamming.clone(),
+            "opensearch",
+        );
+        assert_eq!(
+            os.tables[0].indexes[0]
+                .vector
+                .as_ref()
+                .and_then(|v| v.metric.as_deref()),
+            Some("hamming")
+        );
+        let od = one(
+            "elasticsearch",
+            "dense_vector(16, bit)",
+            hamming,
+            "opendistro",
+        );
+        assert!(od.tables[0].indexes.is_empty());
+        assert!(
+            od.issues
+                .iter()
+                .any(|i| i.severity == Severity::Dropped && i.message.contains("Hamming")),
+            "{:?}",
+            od.issues
         );
     }
 
