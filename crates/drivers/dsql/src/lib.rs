@@ -693,6 +693,7 @@ impl DsqlSession {
                                     .get(i)
                                     .map(|t| t.name().to_string())
                                     .unwrap_or_default(),
+                                vector: None,
                             })
                             .collect(),
                     );

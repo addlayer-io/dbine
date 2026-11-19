@@ -79,7 +79,7 @@ pub fn designer() -> DesignerSpec {
                 .placeholder("{ \"indexingMode\": \"consistent\", \"includedPaths\": [{ \"path\": \"/*\" }] }")
                 .help("Vacío = la predeterminada (indexa todo)."),
         ],
-        columns_required: false,
+        columns_required: false, vector_indexes: None,
     }
 }
 

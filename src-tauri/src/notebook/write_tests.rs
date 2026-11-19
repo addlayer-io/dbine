@@ -352,6 +352,7 @@ fn live_source(name: &str, cols: &[(&str, &str)], rows: Vec<Vec<Value>>) -> Loca
                 .map(|(n, t)| ResultColumn {
                     name: (*n).into(),
                     type_name: (*t).into(),
+                    vector: None,
                 })
                 .collect(),
             rows,

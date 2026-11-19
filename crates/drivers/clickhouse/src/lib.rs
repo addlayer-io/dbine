@@ -1023,6 +1023,7 @@ async fn read_rows(
                         .map(|(n, t)| ResultColumn {
                             name: n.clone(),
                             type_name: t.clone(),
+                            vector: None,
                         })
                         .collect(),
                 );
@@ -1051,6 +1052,7 @@ async fn read_text(resp: reqwest::Response, out: &mut QueryOutcome, max_rows: us
     out.begin_result(vec![ResultColumn {
         name: "result".into(),
         type_name: String::new(),
+        vector: None,
     }]);
     while let Some(line) = lines.next().await? {
         if line.trim() == "__exception__" {

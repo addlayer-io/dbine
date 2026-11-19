@@ -63,6 +63,7 @@ pub(crate) fn render_json_type(t: &L, doubles_only: bool) -> Rendered {
     use IssueCode::*;
     use Severity::*;
     match t {
+        L::Vector { .. } => render_json_type(&L::Array { of: Box::new(L::Float { bytes: 8 }) }, doubles_only),
         L::Bool => Rendered::exact("boolean"),
         L::Int { bytes, unsigned } => {
             let r = Rendered::exact("integer");

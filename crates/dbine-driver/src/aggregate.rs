@@ -1134,6 +1134,7 @@ mod tests {
             .map(|n| ResultColumn {
                 name: n.to_string(),
                 type_name: String::new(),
+                vector: None,
             })
             .collect()
     }

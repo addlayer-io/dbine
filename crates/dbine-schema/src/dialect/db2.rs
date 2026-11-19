@@ -298,6 +298,7 @@ impl Dialect for Db2 {
         let lim = self.limits();
         let zos = self.platform == Platform::Zos;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool if zos => Rendered::exact("SMALLINT").with(Info, TypeChanged, "Db2 for z/OS no tiene BOOLEAN: se usa SMALLINT (0/1)."),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {

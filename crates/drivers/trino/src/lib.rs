@@ -681,6 +681,7 @@ impl TrinoSession {
                                 .map(|c| ResultColumn {
                                     name: c.name.clone(),
                                     type_name: c.ty.clone(),
+                                    vector: None,
                                 })
                                 .collect(),
                         );

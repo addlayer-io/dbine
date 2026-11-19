@@ -130,6 +130,7 @@ impl Dialect for Postgres {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("boolean"),
             L::Int { bytes, unsigned } => {
                 let b = L::signed_bytes_for(*bytes, *unsigned);

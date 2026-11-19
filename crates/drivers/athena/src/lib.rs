@@ -392,6 +392,7 @@ impl AthenaSession {
                 .map(|(n, t)| ResultColumn {
                     name: n.clone(),
                     type_name: t.clone(),
+                    vector: None,
                 })
                 .collect(),
         );

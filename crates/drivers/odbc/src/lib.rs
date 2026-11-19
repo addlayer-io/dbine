@@ -1035,6 +1035,7 @@ fn run_one(
                     .map(|c| ResultColumn {
                         name: c.name,
                         type_name: c.type_name,
+                        vector: None,
                     })
                     .collect(),
             );

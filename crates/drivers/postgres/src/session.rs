@@ -2119,6 +2119,7 @@ async fn run_script(
                         .map(|c| ResultColumn {
                             name: c.name().to_string(),
                             type_name: String::new(),
+                            vector: None,
                         })
                         .collect(),
                 );

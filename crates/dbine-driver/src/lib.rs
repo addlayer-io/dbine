@@ -44,6 +44,7 @@ pub mod sort;
 pub mod sql;
 pub mod stats;
 pub mod transfer;
+pub mod vector;
 pub mod write;
 
 pub use aggregate::{
@@ -87,12 +88,13 @@ pub use permissions::{Access, Permissions};
 pub use profiler::{ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted};
 pub use schema::{
     Capabilities, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, ForeignKeyDef,
-    IndexDef, KeyDef, TableSchema,
+    IndexDef, KeyDef, TableSchema, VectorIndexSpec, VectorParamSpec,
 };
 pub use security::{
     Grant, Principal, PrincipalKind, Privilege, SchemaOwnerKinds, SchemaSpec, SecurityAction,
     SecuritySpec,
 };
+pub use vector::{VectorElement, VectorIndex, VectorMeta};
 
 pub use sql::{ScriptDefaults, ScriptDialect, ScriptMode, ScriptStatement, StatementKind};
 
@@ -288,6 +290,9 @@ pub trait Driver: Send + Sync {
     /// Rows as a script in the driver's language that inserts them (SQL
     /// INSERTs, `insertMany`, `_bulk`, Redis commands…): copy, import and
     /// the database script use it. `target` is the table / collection.
+    /// A vector value comes as a JSON array of numbers
+    /// ([`vector::rows_for_scripts`]); the driver writes it as its engine's
+    /// vector literal.
     fn insert_script(
         &self,
         target: &ObjectRef,
@@ -439,7 +444,9 @@ pub trait Driver: Send + Sync {
     /// Rows edited in the results grid as code in the driver's language
     /// that applies the changes (`UPDATE … WHERE <key>` in SQL, `updateOne`
     /// in MongoDB, `HSET` in Redis…). DBine only shows / inserts it: the
-    /// user runs it. `target` is the table / collection.
+    /// user runs it. `target` is the table / collection. A vector value in
+    /// `set` comes as a JSON array of numbers, as in [`Driver::insert_script`];
+    /// vector columns are never part of `key`.
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
         if self.info().language != Language::Sql {
             return Err(Error::Unsupported(

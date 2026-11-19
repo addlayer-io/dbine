@@ -447,18 +447,22 @@ fn ventas() -> LocalSource {
                 ResultColumn {
                     name: "lon".into(),
                     type_name: "float8".into(),
+                    vector: None,
                 },
                 ResultColumn {
                     name: "lat".into(),
                     type_name: "float8".into(),
+                    vector: None,
                 },
                 ResultColumn {
                     name: "total".into(),
                     type_name: "int4".into(),
+                    vector: None,
                 },
                 ResultColumn {
                     name: "cliente".into(),
                     type_name: "int4".into(),
+                    vector: None,
                 },
             ],
             rows: vec![
@@ -747,10 +751,12 @@ async fn notebook_geo_a_geometry_from_a_cell_round_trips() {
                 ResultColumn {
                     name: "id".into(),
                     type_name: "INTEGER".into(),
+                    vector: None,
                 },
                 ResultColumn {
                     name: "g".into(),
                     type_name: "GEOMETRY".into(),
+                    vector: None,
                 },
             ],
             rows: vec![

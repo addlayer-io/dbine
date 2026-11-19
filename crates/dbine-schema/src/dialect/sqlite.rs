@@ -94,6 +94,7 @@ impl Dialect for Sqlite {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             // All are 8-byte INTEGER affinity; the name keeps the size.
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {

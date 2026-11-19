@@ -202,6 +202,7 @@ impl Dialect for Hive {
         let iceberg = f == Flavor::Athena;
         let s = || Rendered::exact("STRING");
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
                 let r = match L::signed_bytes_for(*bytes, *unsigned) {

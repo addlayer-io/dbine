@@ -155,6 +155,7 @@ impl Dialect for Kdb {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("boolean"),
             L::Int {
                 bytes: 1,

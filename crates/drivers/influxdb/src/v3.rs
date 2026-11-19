@@ -827,6 +827,7 @@ impl Session for SqlSession {
                     .map(|name| ResultColumn {
                         name,
                         type_name: String::new(),
+                        vector: None,
                     })
                     .collect(),
             );

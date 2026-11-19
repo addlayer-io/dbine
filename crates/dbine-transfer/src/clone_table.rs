@@ -3177,6 +3177,7 @@ mod tests {
                     .map(|c| ResultColumn {
                         name: c.to_string(),
                         type_name: String::new(),
+                        vector: None,
                     })
                     .collect(),
             );

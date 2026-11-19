@@ -163,6 +163,7 @@ impl Dialect for BigQuery {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOL"),
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {
                 1..=8 => Rendered::exact("INT64"),

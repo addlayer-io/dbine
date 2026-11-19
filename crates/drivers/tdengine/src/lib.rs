@@ -595,7 +595,11 @@ impl TdSession {
         out.begin_result(
             a.columns
                 .into_iter()
-                .map(|(name, type_name)| ResultColumn { name, type_name })
+                .map(|(name, type_name)| ResultColumn {
+                    name,
+                    type_name,
+                    vector: None,
+                })
                 .collect(),
         );
         for row in a.data {

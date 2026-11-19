@@ -73,7 +73,7 @@ pub fn designer(f: Flavor) -> Option<DesignerSpec> {
                 .help("Los índices aceleran búsquedas; las restricciones además validan los datos (y crean su índice)."),
         ],
         // The columns are the properties; a Memgraph label index needs none.
-        columns_required: f == Flavor::Neo4j,
+        columns_required: f == Flavor::Neo4j, vector_indexes: None,
     })
 }
 

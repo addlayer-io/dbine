@@ -110,7 +110,7 @@ pub fn designer() -> DesignerSpec {
             Field::new("expireAfterSeconds", "Expirar documentos (segundos)", FieldKind::Number)
                 .help("Solo para series temporales o colecciones agrupadas."),
         ],
-        columns_required: false,
+        columns_required: false, vector_indexes: None,
     }
 }
 

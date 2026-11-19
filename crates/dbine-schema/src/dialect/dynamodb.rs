@@ -105,6 +105,7 @@ impl Dialect for DynamoDb {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOL"),
             L::Int { .. } | L::Year => Rendered::exact("N"),
             L::Decimal { precision: Some(p), .. } if *p <= 38 => Rendered::exact("N"),

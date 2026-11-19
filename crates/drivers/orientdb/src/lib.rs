@@ -1052,6 +1052,7 @@ fn push_rows(out: &mut QueryOutcome, rows: &Rows, max_rows: usize) {
             .map(|k| ResultColumn {
                 name: k.clone(),
                 type_name: String::new(),
+                vector: None,
             })
             .collect(),
     );

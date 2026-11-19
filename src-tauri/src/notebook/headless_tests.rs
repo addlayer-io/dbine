@@ -477,6 +477,7 @@ fn notebook_headless_outcome_keeps_each_statement() {
                 columns: vec![dbine_driver::ResultColumn {
                     name: "n".into(),
                     type_name: "int".into(),
+                    vector: None,
                 }],
                 rows: vec![vec![json!(1)]],
                 total_rows: 7,

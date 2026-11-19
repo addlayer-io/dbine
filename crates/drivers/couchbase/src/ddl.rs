@@ -108,7 +108,7 @@ pub fn designer() -> DesignerSpec {
             Field::new("primary_index", "Crear índice primario", FieldKind::Bool)
                 .help("Permite consultar cualquier campo sin índices secundarios (más lento en colecciones grandes)."),
         ],
-        columns_required: false,
+        columns_required: false, vector_indexes: None,
     }
 }
 

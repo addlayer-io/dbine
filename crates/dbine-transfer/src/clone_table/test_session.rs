@@ -134,6 +134,7 @@ impl Session for Scripted {
                         .map(|i| ResultColumn {
                             name: format!("c{i}"),
                             type_name: String::new(),
+                            vector: None,
                         })
                         .collect(),
                     rows: rows

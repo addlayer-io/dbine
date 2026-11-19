@@ -179,6 +179,52 @@ pub trait Dialect: Send + Sync {
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         let _ = (t, report);
     }
+
+    /// A vector index of another family as this family's: its index kind
+    /// (`None`: the default) and its algorithm, metric and parameters in
+    /// this family's names, or `Err` with why it can't be (no vector
+    /// indexes, a metric it lacks…), and the index is left out.
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        let _ = v;
+        Err("el destino no tiene índices vectoriales".into())
+    }
+}
+
+/// How a family without a vector type takes one: as a list of its numbers
+/// (whatever this family renders lists as), without the dimension. A sparse
+/// vector goes as JSON.
+pub(crate) fn vector_fallback(d: &dyn Dialect, t: &LogicalType) -> Rendered {
+    use dbine_driver::VectorElement as E;
+    let LogicalType::Vector {
+        element, sparse, ..
+    } = t
+    else {
+        return d.render_type(t);
+    };
+    let inner = if *sparse {
+        LogicalType::Json { binary: false }
+    } else {
+        let of = match element {
+            E::F64 => LogicalType::Float { bytes: 8 },
+            E::I8 => LogicalType::int(1),
+            E::U8 | E::Bit => LogicalType::int(2),
+            _ => LogicalType::Float { bytes: 4 },
+        };
+        LogicalType::Array { of: Box::new(of) }
+    };
+    let r = d.render_type(&inner);
+    let native = r.native.clone();
+    r.with(
+        Severity::Warning,
+        IssueCode::TypeApproximated,
+        format!(
+            "{}: el destino no tiene tipo vectorial; queda {native}, sin la dimensión",
+            t.describe()
+        ),
+    )
 }
 
 /// Whether an index of the target accepts `INCLUDE (…)` columns.

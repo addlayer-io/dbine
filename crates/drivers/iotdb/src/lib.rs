@@ -562,12 +562,14 @@ fn to_table(v: &J, precision: Precision) -> Table {
         t.columns.push(ResultColumn {
             name: "Time".into(),
             type_name: "TIMESTAMP".into(),
+            vector: None,
         });
     }
     for (i, n) in names.iter().enumerate() {
         t.columns.push(ResultColumn {
             name: n.clone(),
             type_name: types.get(i).cloned().unwrap_or_default(),
+            vector: None,
         });
     }
     let n_rows = timestamps

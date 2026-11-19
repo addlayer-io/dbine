@@ -1135,6 +1135,7 @@ impl CassandraSession {
                         .map(|c| ResultColumn {
                             name: c.name().to_string(),
                             type_name: type_name(c.typ()),
+                            vector: None,
                         })
                         .collect(),
                 );

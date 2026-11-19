@@ -190,6 +190,7 @@ pub fn convert(
             if let Some(ix) = index(
                 t,
                 ix,
+                dst,
                 &caps,
                 &names,
                 same_family,
@@ -602,6 +603,7 @@ fn max_index_columns(target_family: &str) -> Option<usize> {
 fn index(
     t: &TableSchema,
     ix: &IndexDef,
+    target: &dyn Dialect,
     caps: &Caps,
     names: &Names,
     same_family: bool,
@@ -708,7 +710,30 @@ fn index(
         );
         filter = None;
     }
-    let kind = if same_family {
+    // A vector index moves only to a family that has them, in its terms.
+    let mut vector = ix.vector.clone();
+    let mut vector_kind = None;
+    if let (Some(v), false) = (&ix.vector, same_family) {
+        match target.vector_index(v) {
+            Ok((k, v)) => {
+                vector_kind = Some(k);
+                vector = Some(v);
+            }
+            Err(why) => {
+                report.push(
+                    Severity::Dropped,
+                    IssueCode::IndexDropped,
+                    &t.name,
+                    Some(&ix.name),
+                    format!("El índice vectorial «{}» no se crea: {why}.", ix.name),
+                );
+                return None;
+            }
+        }
+    }
+    let kind = if let Some(k) = vector_kind {
+        k
+    } else if same_family {
         ix.kind.clone()
     } else {
         if let Some(k) = ix
@@ -775,6 +800,7 @@ fn index(
         filter,
         include,
         options,
+        vector,
     })
 }
 

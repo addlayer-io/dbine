@@ -345,6 +345,7 @@ impl RawIndex {
                 Vec::new()
             },
             options: o,
+            vector: None,
         }
     }
 }
@@ -411,6 +412,7 @@ impl RawFullText {
             filter: None,
             include: Vec::new(),
             options: o,
+            vector: None,
         }
     }
 }

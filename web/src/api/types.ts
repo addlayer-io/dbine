@@ -487,9 +487,23 @@ export interface ColumnInfo {
 
 export type Cell = null | boolean | number | string;
 
+/** The type of a vector's numbers (`dbine_driver::VectorElement`). */
+export type VectorElement = 'f32' | 'f64' | 'f16' | 'bf16' | 'i8' | 'u8' | 'bit' | 'other';
+
+/** What a column knows about the vectors (embeddings) in it (`dbine_driver::VectorMeta`). */
+export interface VectorMeta {
+  /** Declared dimensions (absent: any length, or not known). */
+  dims?: number;
+  element: VectorElement;
+  /** Only the non-zero positions are stored; the cells keep the engine's text. */
+  sparse?: boolean;
+}
+
 export interface ResultColumn {
   name: string;
   type_name: string;
+  /** Set when the column holds vectors: its cells are a JSON array of numbers as text, whole. */
+  vector?: VectorMeta;
 }
 
 /** One key of the data grid's column sort (`dbine_driver::SortKey`); the

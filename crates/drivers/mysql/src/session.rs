@@ -513,6 +513,7 @@ async fn read_results<P: mysql_async::prelude::Protocol>(
                         .map(|c| ResultColumn {
                             name: c.name_str().into_owned(),
                             type_name: type_name(c.column_type()),
+                            vector: None,
                         })
                         .collect(),
                 );

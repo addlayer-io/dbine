@@ -610,6 +610,7 @@ fn rcol(name: &str, ty: &str) -> ResultColumn {
     ResultColumn {
         name: name.to_string(),
         type_name: ty.to_string(),
+        vector: None,
     }
 }
 

@@ -65,6 +65,18 @@ export interface IndexDef {
   include?: string[];
   /** Engine settings that make two indexes different (fill factor, a full-text index's catalog…). */
   options?: Record<string, string>;
+  /** Set for a vector (similarity search) index. */
+  vector?: VectorIndex;
+}
+
+/** How a vector index searches (`dbine_driver::VectorIndex`). */
+export interface VectorIndex {
+  /** The algorithm as the engine names it (`hnsw`, `ivfflat`, `diskann`…); absent: the engine's. */
+  algorithm?: string;
+  /** The distance: a standard name (`cosine`, `l2`, `ip`, `l1`, `hamming`, `jaccard`) or the engine's own. */
+  metric?: string;
+  /** Build parameters as the engine names them (`m`, `ef_construction`, `lists`…). */
+  params?: Record<string, string>;
 }
 
 export interface CheckDef {
@@ -105,6 +117,20 @@ export interface DesignerSpec {
   table_options: Field[];
   /** Whether the designer needs columns at all. */
   columns_required: boolean;
+  /** The vector indexes it creates (absent / null: none). */
+  vector_indexes?: VectorIndexSpec | null;
+}
+
+/** What a vector index can be in the designer (`dbine_driver::VectorIndexSpec`). */
+export interface VectorIndexSpec {
+  /** Algorithms offered (the first is the default); empty: the engine has one. */
+  algorithms: string[];
+  /** Distances offered, standard names where they fit (the first is the default); empty: not chosen. */
+  metrics: string[];
+  /** Build parameters with their default (shown as the placeholder). */
+  params: { key: string; algorithms: string[]; default: string }[];
+  /** The index takes filter columns after the vector column. */
+  filter_columns: boolean;
 }
 
 /** Starting script for an object without designer; `{schema}`/`{name}` are replaced by the UI. */
@@ -137,4 +163,6 @@ export interface Capabilities {
   jobs?: boolean;
   /** Its scheduler's objects are created, edited and deleted from DBine (the designer). */
   scheduler?: boolean;
+  /** It handles vectors (embeddings): vector columns, their dimension, literals and vector indexes. */
+  vectors?: boolean;
 }

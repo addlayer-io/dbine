@@ -562,6 +562,7 @@ impl Driver for MongoDriver {
             database_properties: true,
             jobs: false,
             scheduler: false,
+            vectors: false,
         }
     }
 
@@ -895,6 +896,7 @@ impl MongoSession {
                 out.begin_result(vec![ResultColumn {
                     name: key,
                     type_name: String::new(),
+                    vector: None,
                 }]);
                 for v in r.get_array("values").map(|a| a.as_slice()).unwrap_or(&[]) {
                     out.push_row(vec![convert::cell(v)], max_rows);
@@ -1009,6 +1011,7 @@ fn scalar(out: &mut QueryOutcome, name: &str, v: &Bson) -> Result<()> {
     out.begin_result(vec![ResultColumn {
         name: name.into(),
         type_name: convert::type_name(v).into(),
+        vector: None,
     }]);
     out.push_row(vec![convert::cell(v)], usize::MAX);
     Ok(())
@@ -1022,6 +1025,7 @@ fn push_docs(out: &mut QueryOutcome, docs: &[Document], max_rows: usize) {
             .map(|k| ResultColumn {
                 name: k.clone(),
                 type_name: String::new(),
+                vector: None,
             })
             .collect(),
     );

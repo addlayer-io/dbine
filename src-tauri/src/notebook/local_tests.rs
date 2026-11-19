@@ -19,6 +19,7 @@ fn col(name: &str, ty: &str) -> ResultColumn {
     ResultColumn {
         name: name.into(),
         type_name: ty.into(),
+        vector: None,
     }
 }
 

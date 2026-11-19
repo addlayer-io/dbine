@@ -113,6 +113,7 @@ impl Dialect for Hana {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes: 1, unsigned: true } => Rendered::exact("TINYINT"),
             L::Int { bytes, unsigned } => {

@@ -2608,6 +2608,7 @@ mod tests {
                             let columns = vec![ResultColumn {
                                 name: "id".into(),
                                 type_name: String::new(),
+                                vector: None,
                             }];
                             let _ = write_frame(
                                 &mut *out.lock().unwrap(),

@@ -119,6 +119,7 @@ impl Dialect for Databend {
         let text =
             |why: &str| Rendered::exact("VARCHAR").with(Warning, TypeApproximated, why.to_string());
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
                 let u = if *unsigned { " UNSIGNED" } else { "" };

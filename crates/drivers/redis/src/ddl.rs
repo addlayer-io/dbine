@@ -70,7 +70,7 @@ pub fn designer(driver_id: &str) -> DesignerSpec {
             Field::new("value", "Valor", FieldKind::Textarea)
                 .help("Solo para string y JSON (un documento JSON, p. ej. {\"a\": 1})."),
         ],
-        columns_required: false,
+        columns_required: false, vector_indexes: None,
     }
 }
 

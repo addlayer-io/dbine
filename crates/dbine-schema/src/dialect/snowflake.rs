@@ -139,6 +139,7 @@ impl Dialect for Snowflake {
         let text_note =
             |r: Rendered| r.with(Info, LengthLoss, "VARCHAR de Snowflake admite hasta 16 MB.");
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
                 // Digits of the largest value.

@@ -411,6 +411,7 @@ impl Driver for SnowflakeDriver {
             cancel_query: true,
             jobs: true,
             scheduler: true,
+            vectors: false,
         }
     }
 
@@ -925,6 +926,7 @@ impl SnowflakeSession {
                             .and_then(Json::as_str)
                             .unwrap_or("")
                             .to_string(),
+                        vector: None,
                     })
                     .collect(),
             );

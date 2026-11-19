@@ -126,6 +126,7 @@ pub fn designer(driver_id: &str) -> DesignerSpec {
             ]
         },
         columns_required: true,
+        vector_indexes: None,
     }
 }
 

@@ -286,6 +286,7 @@ impl Dialect for Olap {
         use Severity::*;
         let engine = self.name();
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
                 let b = L::signed_bytes_for(*bytes, *unsigned);

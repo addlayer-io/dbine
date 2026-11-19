@@ -142,6 +142,7 @@ impl Dialect for Informix {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
                 let r = match L::signed_bytes_for(*bytes, *unsigned) {

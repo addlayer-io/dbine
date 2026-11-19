@@ -1791,6 +1791,7 @@ mod tests {
             let columns = vec![ResultColumn {
                 name: "n".into(),
                 type_name: "int".into(),
+                vector: None,
             }];
             let rows = vec![vec![json!(1)], vec![json!(2)]];
             match &out.sink {

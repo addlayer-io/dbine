@@ -899,6 +899,7 @@ fn push_result(r: &QueryResult, max_rows: usize, out: &mut QueryOutcome) {
             .map(|f| ResultColumn {
                 name: str_of(f, "name").to_string(),
                 type_name: type_label(f),
+                vector: None,
             })
             .collect(),
     );

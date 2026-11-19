@@ -107,6 +107,7 @@ impl Cypher {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } if L::signed_bytes_for(*bytes, *unsigned) <= 8 => Rendered::exact("INTEGER"),
             L::Int { .. } => Rendered::exact("FLOAT").with(Loss, RangeLoss, "Los enteros son de 8 bytes: el valor queda como FLOAT y pierde precisión pasados los 15 dígitos."),
@@ -324,6 +325,7 @@ impl Dialect for OrientDb {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
                 let r = match L::signed_bytes_for(*bytes, *unsigned) {

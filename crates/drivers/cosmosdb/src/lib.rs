@@ -1509,6 +1509,7 @@ pub fn push_items(out: &mut QueryOutcome, items: &[Value], max_rows: usize) {
                 .map(|k| ResultColumn {
                     name: k.clone(),
                     type_name: String::new(),
+                    vector: None,
                 })
                 .collect(),
         );
@@ -1524,6 +1525,7 @@ pub fn push_items(out: &mut QueryOutcome, items: &[Value], max_rows: usize) {
         out.begin_result(vec![ResultColumn {
             name: "value".into(),
             type_name: String::new(),
+            vector: None,
         }]);
         for v in items {
             out.push_row(vec![cell(v)], max_rows);

@@ -67,7 +67,7 @@ pub fn designer() -> DesignerSpec {
                 .help("V para una clase de vértices, E para una de aristas, otra clase, o vacío para documentos."),
             Field::new("abstract", "Abstracta", FieldKind::Bool),
         ],
-        columns_required: false,
+        columns_required: false, vector_indexes: None,
     }
 }
 

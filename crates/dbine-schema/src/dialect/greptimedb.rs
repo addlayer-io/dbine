@@ -131,6 +131,7 @@ impl Dialect for GreptimeDb {
         use Severity::*;
         let text = |why: String| Rendered::exact("STRING").with(Warning, TypeApproximated, why);
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
                 let u = if *unsigned { " UNSIGNED" } else { "" };

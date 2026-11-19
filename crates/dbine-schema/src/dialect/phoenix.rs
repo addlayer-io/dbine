@@ -132,6 +132,7 @@ impl Dialect for Phoenix {
         use Severity::*;
         let varchar = |why: String| Rendered::exact("VARCHAR").with(Warning, TypeApproximated, why);
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
                 let b = L::signed_bytes_for(*bytes, *unsigned);

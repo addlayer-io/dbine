@@ -471,6 +471,7 @@ impl Driver for HanaDriver {
             // The same scheduler jobs, created, changed and dropped from the
             // designer (see `scheduler`).
             scheduler: true,
+            vectors: false,
         }
     }
 
@@ -1382,6 +1383,7 @@ async fn push_response(
                         .map(|d| ResultColumn {
                             name: d.name().unwrap_or_default().to_string(),
                             type_name: format!("{:?}", d.type_id()),
+                            vector: None,
                         })
                         .collect(),
                 );
@@ -1406,6 +1408,7 @@ async fn push_result_set(mut rs: ResultSet, max_rows: usize, out: &mut QueryOutc
             .map(|f| ResultColumn {
                 name: f.displayname().to_string(),
                 type_name: format!("{:?}", f.type_id()),
+                vector: None,
             })
             .collect(),
     );

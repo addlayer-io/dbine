@@ -7,6 +7,7 @@ fn col(name: &str) -> ResultColumn {
     ResultColumn {
         name: name.to_string(),
         type_name: String::new(),
+        vector: None,
     }
 }
 

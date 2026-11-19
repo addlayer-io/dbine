@@ -101,6 +101,7 @@ impl Dialect for Netezza {
             Rendered::exact(format!("NVARCHAR({MAX_NCHARS})")).with(Loss, LengthLoss, why)
         };
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes: 1, unsigned: false } => Rendered::exact("BYTEINT"),
             L::Int { bytes, unsigned } => {

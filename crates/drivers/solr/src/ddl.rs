@@ -91,7 +91,7 @@ pub fn designer() -> DesignerSpec {
             Field::new("numShards", "Shards (SolrCloud)", FieldKind::Number).placeholder("1"),
             Field::new("replicationFactor", "Réplicas (SolrCloud)", FieldKind::Number).placeholder("1"),
         ],
-        columns_required: false,
+        columns_required: false, vector_indexes: None,
     }
 }
 

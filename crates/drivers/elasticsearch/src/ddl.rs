@@ -151,7 +151,7 @@ pub fn designer(opensearch: bool) -> DesignerSpec {
             ),
         ],
         table_options,
-        columns_required: false,
+        columns_required: false, vector_indexes: None,
     }
 }
 

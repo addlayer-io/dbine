@@ -594,6 +594,7 @@ mod tests {
                 .map(|c| ResultColumn {
                     name: c.to_string(),
                     type_name: String::new(),
+                    vector: None,
                 })
                 .collect(),
             rows: vec![
@@ -669,6 +670,7 @@ mod tests {
         let col = |n: &str| ResultColumn {
             name: n.into(),
             type_name: String::new(),
+            vector: None,
         };
         let r = StatementResult {
             columns: vec![col("fieldKey"), col("fieldType")],

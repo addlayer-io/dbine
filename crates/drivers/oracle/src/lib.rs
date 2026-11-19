@@ -700,6 +700,7 @@ impl Driver for OracleDriver {
             jobs: true,
             // The whole Scheduler in the designer, see `scheduler`.
             scheduler: true,
+            vectors: false,
         }
     }
 
@@ -2579,6 +2580,7 @@ fn fetch(
                 } else {
                     m.data_type()
                 },
+                vector: None,
             })
             .collect(),
     );

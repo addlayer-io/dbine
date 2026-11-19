@@ -322,6 +322,7 @@ impl Driver for SqlServerDriver {
             // servers as `jobs`; Azure SQL Database answers with no kinds
             // and a note.
             scheduler: jobs::supported(self.variant),
+            vectors: false,
         }
     }
 

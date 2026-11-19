@@ -922,18 +922,22 @@ mod tests {
             ResultColumn {
                 name: "id".into(),
                 type_name: "int".into(),
+                vector: None,
             },
             ResultColumn {
                 name: "nombre".into(),
                 type_name: "varchar".into(),
+                vector: None,
             },
             ResultColumn {
                 name: "total".into(),
                 type_name: "decimal".into(),
+                vector: None,
             },
             ResultColumn {
                 name: "id".into(),
                 type_name: "int".into(),
+                vector: None,
             },
         ]
     }
@@ -978,14 +982,17 @@ mod tests {
             ResultColumn {
                 name: "=HYPERLINK(\"x\")".into(),
                 type_name: "varchar".into(),
+                vector: None,
             },
             ResultColumn {
                 name: "n".into(),
                 type_name: "varchar".into(),
+                vector: None,
             },
             ResultColumn {
                 name: "amount".into(),
                 type_name: "decimal".into(),
+                vector: None,
             },
         ];
         let rows = vec![
@@ -1055,6 +1062,7 @@ mod tests {
         let typed = vec![ResultColumn {
             name: "id".into(),
             type_name: "INTEGER".into(),
+            vector: None,
         }];
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("typed.csv");
@@ -1442,6 +1450,7 @@ mod tests {
             let cols = [ResultColumn {
                 name: "v".into(),
                 type_name: "varchar".into(),
+                vector: None,
             }];
             export_rows(&p, o, &cols, &[vec![json!(value)]]).unwrap();
             std::fs::read_to_string(&p).unwrap()

@@ -1080,6 +1080,7 @@ pub(crate) fn export_list(
     let column = |name: String, type_name: Option<&String>| ResultColumn {
         name,
         type_name: type_name.cloned().unwrap_or_default(),
+        vector: None,
     };
     let (rows, _) = passing(d, args);
     if args.kind != RowKind::Changed {

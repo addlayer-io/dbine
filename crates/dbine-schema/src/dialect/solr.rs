@@ -98,6 +98,7 @@ impl Dialect for Solr {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("boolean"),
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {
                 1..=4 => Rendered::exact("pint"),

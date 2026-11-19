@@ -842,6 +842,7 @@ impl FlightSession {
                     .map(|f| ResultColumn {
                         name: f.name().clone(),
                         type_name: f.data_type().to_string(),
+                        vector: None,
                     })
                     .collect(),
             );
@@ -857,6 +858,7 @@ impl FlightSession {
                             .map(|f| ResultColumn {
                                 name: f.name().clone(),
                                 type_name: f.data_type().to_string(),
+                                vector: None,
                             })
                             .collect(),
                     );

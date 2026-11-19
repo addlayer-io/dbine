@@ -340,7 +340,11 @@ fn push_result(r: StmtResult, max_rows: usize, out: &mut QueryOutcome) {
     out.begin_result(
         r.cols
             .into_iter()
-            .map(|(name, type_name)| ResultColumn { name, type_name })
+            .map(|(name, type_name)| ResultColumn {
+                name,
+                type_name,
+                vector: None,
+            })
             .collect(),
     );
     for row in r.rows {

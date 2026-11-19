@@ -144,6 +144,7 @@ impl Dialect for Oracle {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("NUMBER(1)").with(Info, TypeChanged, "Booleano como NUMBER(1) (Oracle recién tiene BOOLEAN desde 23ai)."),
             L::Int { bytes, unsigned } => {
                 let digits = match (bytes, unsigned) {

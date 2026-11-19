@@ -253,6 +253,7 @@ impl Dialect for ClickHouse {
         use Severity::*;
         let s = || self.string();
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact(self.n("Bool")),
             L::Int { bytes, unsigned } => self.int(*bytes, *unsigned),
             L::Decimal {

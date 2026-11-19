@@ -69,6 +69,7 @@ impl Dialect for Manticore {
         let string =
             |why: &str| Rendered::exact("string").with(Warning, TypeApproximated, why.to_string());
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("bool"),
             // `integer` is unsigned 32-bit; signed values need bigint.
             L::Int { bytes, unsigned: true } if *bytes <= 4 => Rendered::exact("integer"),

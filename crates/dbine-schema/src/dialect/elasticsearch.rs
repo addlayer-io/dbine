@@ -146,6 +146,7 @@ impl Dialect for Search {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("boolean"),
             L::Int { bytes, unsigned: false } => Rendered::exact(match bytes {
                 1 => "byte",

@@ -653,6 +653,7 @@ mod tests {
                 .map(|n| ResultColumn {
                     name: (*n).into(),
                     type_name: String::new(),
+                    vector: None,
                 })
                 .collect(),
             rows,
@@ -733,6 +734,7 @@ mod tests {
             columns: vec![ResultColumn {
                 name: "x".into(),
                 type_name: String::new(),
+                vector: None,
             }],
             rows: vec![vec![json!("a")]],
         };
@@ -758,6 +760,7 @@ mod tests {
             .map(|n| ResultColumn {
                 name: (*n).into(),
                 type_name: String::new(),
+                vector: None,
             })
             .collect(),
             rows,

@@ -488,6 +488,7 @@ impl InfluxQlSession {
                         .map(|name| ResultColumn {
                             name,
                             type_name: String::new(),
+                            vector: None,
                         })
                         .collect(),
                 );

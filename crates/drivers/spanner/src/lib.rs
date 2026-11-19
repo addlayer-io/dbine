@@ -1812,6 +1812,7 @@ fn push_rows(r: &Json, max_rows: usize, out: &mut QueryOutcome) {
                     .unwrap_or("")
                     .to_string(),
                 type_name: type_name(f.get("type").unwrap_or(&Json::Null)),
+                vector: None,
             })
             .collect(),
     );

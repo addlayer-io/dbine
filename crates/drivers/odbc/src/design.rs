@@ -284,6 +284,7 @@ pub fn capabilities(p: &Preset) -> Capabilities {
         database_properties: crate::properties::supported(p),
         jobs: crate::jobs::supported(p),
         scheduler: crate::scheduler::supported(p),
+        vectors: false,
     }
 }
 

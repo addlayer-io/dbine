@@ -1327,7 +1327,11 @@ fn run_statement(
             names
                 .into_iter()
                 .zip(types)
-                .map(|(name, type_name)| ResultColumn { name, type_name })
+                .map(|(name, type_name)| ResultColumn {
+                    name,
+                    type_name,
+                    vector: None,
+                })
                 .collect(),
         );
         let n = stmt.column_count();

@@ -979,6 +979,7 @@ fn run_stmt(
                 .map(|c| ResultColumn {
                     name: c.name().to_string(),
                     type_name: c.decl_type().unwrap_or("").to_string(),
+                    vector: None,
                 })
                 .collect();
             let spatial: Vec<bool> = columns

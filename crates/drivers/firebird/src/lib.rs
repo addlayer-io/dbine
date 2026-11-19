@@ -1574,6 +1574,7 @@ fn columns_of(row: &[Column]) -> Vec<ResultColumn> {
         .map(|c| ResultColumn {
             name: c.name.clone(),
             type_name: String::new(),
+            vector: None,
         })
         .collect()
 }

@@ -445,10 +445,12 @@ fn clientes() -> LocalSource {
             ResultColumn {
                 name: "CustomerID".into(),
                 type_name: "int".into(),
+                vector: None,
             },
             ResultColumn {
                 name: "nombre".into(),
                 type_name: "nvarchar".into(),
+                vector: None,
             },
         ],
         rows: vec![

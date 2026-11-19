@@ -260,6 +260,7 @@ impl SqlServerSession {
                                         || format!("{:?}", c.column_type()),
                                         str::to_string,
                                     ),
+                                    vector: None,
                                 })
                                 .collect(),
                         );

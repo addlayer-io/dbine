@@ -40,6 +40,7 @@ pub(crate) fn capabilities(v: Variant) -> Capabilities {
         database_properties: crate::properties::supported(v),
         jobs: crate::jobs::supported(v),
         scheduler: crate::jobs::supported(v),
+        vectors: false,
     }
 }
 

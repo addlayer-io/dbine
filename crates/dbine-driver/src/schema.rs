@@ -198,6 +198,11 @@ pub struct IndexDef {
     /// named as the engine names them.
     #[serde(default)]
     pub options: BTreeMap<String, String>,
+    /// Set for a vector (similarity search) index: its algorithm, metric
+    /// and build parameters. `columns` holds the vector column (and, where
+    /// the engine allows, the filter columns after it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector: Option<crate::vector::VectorIndex>,
 }
 
 /// Which parts of a table's DDL to produce ([`crate::Driver::table_ddl`]).
@@ -244,6 +249,50 @@ pub struct DesignerSpec {
     /// Whether the designer needs columns at all (a Mongo collection or a
     /// Redis key may be created without them).
     pub columns_required: bool,
+    /// The vector indexes the designer creates (`None`: none). An index
+    /// row with "Vectorial" on gets these choices, stored in
+    /// [`IndexDef::vector`].
+    #[serde(default)]
+    pub vector_indexes: Option<VectorIndexSpec>,
+}
+
+/// What a vector index can be in the designer ([`DesignerSpec::vector_indexes`]).
+// `VectorParamSpec`'s `&'static str` fields make its `Deserialize` need
+// `'de: 'static`; this struct has none of its own, so it says so.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(bound(deserialize = "'de: 'static"))]
+pub struct VectorIndexSpec {
+    /// Algorithms offered, as the engine names them (`hnsw`, `ivfflat`,
+    /// `diskann`…); the first is the default. Empty: the engine has one.
+    #[serde(default, deserialize_with = "crate::serde_static::strs")]
+    pub algorithms: Vec<&'static str>,
+    /// Distances offered, with the standard names of
+    /// [`crate::vector::metric`] where they fit; the first is the default.
+    /// Empty: the engine's own, not chosen.
+    #[serde(default, deserialize_with = "crate::serde_static::strs")]
+    pub metrics: Vec<&'static str>,
+    /// Build parameters, with their default value (empty: the engine's).
+    #[serde(default)]
+    pub params: Vec<VectorParamSpec>,
+    /// The index takes filter columns after the vector column (Oracle
+    /// `INCLUDE`, Cassandra, MongoDB `filter` fields…).
+    #[serde(default)]
+    pub filter_columns: bool,
+}
+
+/// One build parameter of a vector index ([`VectorIndexSpec::params`]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct VectorParamSpec {
+    /// The parameter's name, standard ([`crate::vector::param`]) or the
+    /// engine's.
+    #[serde(deserialize_with = "crate::serde_static::str")]
+    pub key: &'static str,
+    /// The algorithms it applies to (empty: every one).
+    #[serde(default, deserialize_with = "crate::serde_static::strs")]
+    pub algorithms: Vec<&'static str>,
+    /// Shown as the placeholder; empty: the engine's default.
+    #[serde(default, deserialize_with = "crate::serde_static::str")]
+    pub default: &'static str,
 }
 
 impl DesignerSpec {
@@ -265,6 +314,7 @@ impl DesignerSpec {
             column_options: Vec::new(),
             table_options: Vec::new(),
             columns_required: true,
+            vector_indexes: None,
         }
     }
 }
@@ -316,6 +366,11 @@ pub struct Capabilities {
     /// scheduler objects are created, edited and deleted from DBine.
     #[serde(default)]
     pub scheduler: bool,
+    /// The engine stores vectors (embeddings) and the driver handles them:
+    /// results mark vector columns, describes keep the dimension, scripts
+    /// write vector literals and vector indexes are read and created.
+    #[serde(default)]
+    pub vectors: bool,
 }
 
 #[cfg(test)]

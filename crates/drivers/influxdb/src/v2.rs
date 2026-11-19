@@ -823,7 +823,11 @@ impl Session for FluxSession {
                 t.columns
                     .into_iter()
                     .zip(t.types)
-                    .map(|(name, type_name)| ResultColumn { name, type_name })
+                    .map(|(name, type_name)| ResultColumn {
+                        name,
+                        type_name,
+                        vector: None,
+                    })
                     .collect(),
             );
             for row in t.rows {
@@ -890,7 +894,11 @@ impl Session for FluxSession {
                 t.columns
                     .into_iter()
                     .zip(t.types)
-                    .map(|(name, type_name)| ResultColumn { name, type_name })
+                    .map(|(name, type_name)| ResultColumn {
+                        name,
+                        type_name,
+                        vector: None,
+                    })
                     .collect(),
             );
             for row in t.rows {

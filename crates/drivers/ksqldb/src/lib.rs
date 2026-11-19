@@ -558,6 +558,7 @@ impl KsqlSession {
                                 .and_then(Value::as_str)
                                 .unwrap_or_default()
                                 .to_string(),
+                            vector: None,
                         })
                         .collect(),
                 );
@@ -613,6 +614,7 @@ impl KsqlSession {
         out.begin_result(vec![ResultColumn {
             name: "record".into(),
             type_name: String::new(),
+            vector: None,
         }]);
         let deadline = Some(Instant::now() + self.push_timeout);
         loop {
@@ -852,6 +854,7 @@ fn entity_table(e: &Value, max_rows: usize, out: &mut QueryOutcome) {
             .map(|c| ResultColumn {
                 name: c.clone(),
                 type_name: String::new(),
+                vector: None,
             })
             .collect(),
     );

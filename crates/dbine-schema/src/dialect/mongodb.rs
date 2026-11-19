@@ -141,6 +141,7 @@ impl Dialect for Mongo {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("bool"),
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {
                 1..=4 => Rendered::exact("int"),

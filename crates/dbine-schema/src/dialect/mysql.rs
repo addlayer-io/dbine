@@ -131,6 +131,7 @@ impl Dialect for MySql {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("tinyint(1)"),
             L::Int { bytes, unsigned } => {
                 let u = if *unsigned { " unsigned" } else { "" };

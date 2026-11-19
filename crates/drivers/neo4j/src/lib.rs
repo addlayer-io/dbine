@@ -327,6 +327,7 @@ impl Driver for GraphDriver {
             // The same APOC jobs, created, changed and cancelled from the
             // designer (see `scheduler`).
             scheduler: scheduler::supported(self.flavor),
+            vectors: false,
         }
     }
 
@@ -1097,6 +1098,7 @@ fn columns(fields: &[String]) -> Vec<ResultColumn> {
         .map(|f| ResultColumn {
             name: f.clone(),
             type_name: String::new(),
+            vector: None,
         })
         .collect()
 }

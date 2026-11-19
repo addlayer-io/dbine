@@ -137,6 +137,7 @@ impl Dialect for MsSql {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("bit"),
             L::Int { bytes: 1, unsigned: true } => Rendered::exact("tinyint"),
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {

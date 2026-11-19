@@ -44,6 +44,7 @@ fn col(name: &str, type_name: &str) -> ResultColumn {
     ResultColumn {
         name: name.into(),
         type_name: type_name.into(),
+        vector: None,
     }
 }
 
