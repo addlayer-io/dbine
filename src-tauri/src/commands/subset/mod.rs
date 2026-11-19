@@ -1108,19 +1108,19 @@ impl Writer<'_> {
             if rule.is_some() {
                 report.masked.push(name.clone());
             }
-            // The target's type on the target's engine, else the source's.
-            let vector = match tgt_col.map(|c| c.data_type.as_str()) {
+            // The target's type on the target's engine, else the source's:
+            // masks keep its vectors vectors.
+            let meta = match tgt_col.map(|c| c.data_type.as_str()) {
                 Some(t) if !t.is_empty() => vectors::of_type(p.tgt_driver.info().id, t),
                 _ => src_col.and_then(|c| vectors::of_type(p.src_driver.info().id, &c.data_type)),
-            }
-            .is_some_and(|m| !m.sparse);
+            };
             cols.push(Col {
                 at,
                 name: target.to_string(),
                 rule,
-                shape: Shape::of(ty),
+                shape: Shape::of_column(ty, meta.as_ref()),
                 nullable: tgt_col.is_none_or(|c| c.nullable),
-                vector,
+                vector: meta.is_some_and(|m| !m.sparse),
             });
         }
         if cols.is_empty() {
