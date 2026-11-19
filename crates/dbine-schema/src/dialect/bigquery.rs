@@ -6,8 +6,10 @@
 //! `CREATE VECTOR INDEX` (IVF or TREE_AH), the rest are dropped.
 //!
 //! Embeddings are `ARRAY<FLOAT64>` (what `ML.GENERATE_EMBEDDING` writes and
-//! `VECTOR_SEARCH` reads): that type reads as a vector of any length, since
-//! BigQuery doesn't declare the dimension.
+//! `VECTOR_SEARCH` reads), but so are prices, coordinates and series, and
+//! BigQuery declares no dimension: as a source, `ARRAY<FLOAT64>` stays a
+//! list of floats, so a plain array never turns into another engine's
+//! vector type. Another family's vector becomes `ARRAY<FLOAT64>`.
 
 use super::postgres::precision_loss;
 use super::{Caps, Dialect, IdentCase, Rendered};
@@ -91,14 +93,11 @@ impl Dialect for BigQuery {
         let p = |i| t.arg_u32(i);
         if let Some((head, args)) = generic(&t.raw) {
             return match head.as_str() {
-                "array" if args.len() == 1 => match nested(self, &args[0]) {
-                    // BigQuery's embedding type.
-                    L::Float { bytes: 8 } => L::Vector {
-                        dims: None,
-                        element: dbine_driver::VectorElement::F64,
-                        sparse: false,
-                    },
-                    of => L::Array { of: Box::new(of) },
+                // `ARRAY<FLOAT64>` is an embedding only when a vector index
+                // covers it, which the type alone doesn't say: a list of
+                // floats (see the module notes).
+                "array" if args.len() == 1 => L::Array {
+                    of: Box::new(nested(self, &args[0])),
                 },
                 // A record: the closest neutral type is a document.
                 "struct" => L::Json { binary: true },
@@ -305,12 +304,11 @@ impl Dialect for BigQuery {
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         not_enforced(t, report, "BigQuery");
         let name = t.name.clone();
+        let columns = t.columns.clone();
         t.indexes.retain(|ix| {
             let kind = ix.kind.as_deref().unwrap_or("").trim();
-            let keep = ix.vector.is_some()
-                || kind.eq_ignore_ascii_case("vector")
-                || kind.eq_ignore_ascii_case("search");
-            if !keep {
+            let vector = ix.vector.is_some() || kind.eq_ignore_ascii_case("vector");
+            if !vector && !kind.eq_ignore_ascii_case("search") {
                 report.push(
                     Severity::Dropped,
                     IssueCode::IndexDropped,
@@ -318,8 +316,30 @@ impl Dialect for BigQuery {
                     Some(&ix.name),
                     "BigQuery solo tiene índices vectoriales y de búsqueda: este índice no se crea.",
                 );
+                return false;
             }
-            keep
+            // A vector index takes an ARRAY<FLOAT64> column, nothing else
+            // (a sparse vector arrives as JSON).
+            let column = ix
+                .columns
+                .first()
+                .and_then(|c| columns.iter().find(|x| &x.name == c));
+            if let Some(c) = column.filter(|c| {
+                vector && !c.data_type.replace(' ', "").eq_ignore_ascii_case("ARRAY<FLOAT64>")
+            }) {
+                report.push(
+                    Severity::Dropped,
+                    IssueCode::IndexDropped,
+                    &name,
+                    Some(&ix.name),
+                    format!(
+                        "El índice vectorial «{}» no se crea: BigQuery lo hace solo sobre ARRAY<FLOAT64> y «{}» queda {}.",
+                        ix.name, c.name, c.data_type
+                    ),
+                );
+                return false;
+            }
+            true
         });
     }
 
@@ -334,9 +354,11 @@ impl Dialect for BigQuery {
         let metric = match v.metric.as_deref() {
             None => None,
             Some(m @ (metric::COSINE | metric::L2 | metric::IP)) => Some(m.to_string()),
-            Some(m) => return Err(format!(
+            Some(m) => {
+                return Err(format!(
                 "BigQuery no tiene la distancia «{m}» (solo coseno, euclídea y producto escalar)"
-            )),
+            ))
+            }
         };
         let tree = v
             .algorithm
@@ -668,22 +690,46 @@ mod tests {
     }
 
     #[test]
-    fn float64_arrays_are_vectors() {
+    fn vectors_become_float64_arrays() {
         use dbine_driver::VectorElement as E;
-        let v = L::Vector {
-            dims: None,
-            element: E::F64,
-            sparse: false,
+        // A plain float array (prices, a series) is no embedding: it stays
+        // a list of floats as a source, with no vector warning on targets
+        // without vectors.
+        let floats = L::Array {
+            of: Box::new(L::Float { bytes: 8 }),
         };
-        assert_eq!(lt("ARRAY<FLOAT64>"), v);
-        // Other arrays stay arrays.
+        assert_eq!(lt("ARRAY<FLOAT64>"), floats);
         assert_eq!(
             lt("ARRAY<INT64>"),
             L::Array {
                 of: Box::new(L::int(8))
             }
         );
-        // Round trip, and from a dimensioned vector of another engine.
+        assert_eq!(BigQuery.render_type(&floats).native, "ARRAY<FLOAT64>");
+        for to in ["postgres", "mysql", "sqlserver", "duckdb", "clickhouse"] {
+            let t = TableSchema {
+                name: "t".into(),
+                columns: vec![dbine_driver::ColumnDef {
+                    name: "prices".into(),
+                    data_type: "ARRAY<FLOAT64>".into(),
+                    nullable: true,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            let c = crate::convert(&[t], "bigquery", to, &Default::default()).unwrap();
+            assert!(
+                c.issues.iter().all(|i| !i.message.contains("vector")),
+                "{to}: {:?}",
+                c.issues
+            );
+        }
+        // Another engine's vector, with and without a dimension.
+        let v = L::Vector {
+            dims: None,
+            element: E::F64,
+            sparse: false,
+        };
         assert_eq!(BigQuery.render_type(&v).native, "ARRAY<FLOAT64>");
         let r = BigQuery.render_type(&L::Vector {
             dims: Some(3),
@@ -771,6 +817,34 @@ mod tests {
             .issues
             .iter()
             .any(|i| i.code == IssueCode::IndexDropped && i.object.as_deref() == Some("plain")));
+
+        // A vector index only on ARRAY<FLOAT64>.
+        let vx = |name: &str, col: &str| dbine_driver::IndexDef {
+            name: name.into(),
+            columns: vec![col.into()],
+            kind: Some("VECTOR".into()),
+            vector: Some(Default::default()),
+            ..Default::default()
+        };
+        let col = |name: &str, ty: &str| dbine_driver::ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            ..Default::default()
+        };
+        let mut t = TableSchema {
+            name: "t".into(),
+            columns: vec![col("emb", "ARRAY<FLOAT64>"), col("sparse", "JSON")],
+            indexes: vec![vx("ok", "emb"), vx("bad", "sparse")],
+            ..Default::default()
+        };
+        let mut report = Report::default();
+        BigQuery.finalize(&mut t, &mut report);
+        let names: Vec<_> = t.indexes.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(names, ["ok"]);
+        assert!(report
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::IndexDropped && i.object.as_deref() == Some("bad")));
     }
 
     #[test]

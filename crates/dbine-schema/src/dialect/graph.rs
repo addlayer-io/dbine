@@ -16,6 +16,10 @@
 //! as a vector too); the dimension and distance belong to the vector index
 //! (Neo4j `vector.dimensions` / `vector.similarity_function`, Memgraph
 //! `dimension` / `metric`), which another family's vector index becomes.
+//! As a source, a `LIST<FLOAT>` property stays a list (the type alone
+//! doesn't say it's an embedding); its index carries `dimensions`, which
+//! targets that need it in the column (Spanner's `vector_length`,
+//! Snowflake's `VECTOR(FLOAT, n)`) take from there.
 //!
 //! OrientDB: a table is a (document) class with a `CREATE PROPERTY` per
 //! column, NOT NULL, defaults and indexes, the primary key as a unique
@@ -296,9 +300,13 @@ impl Dialect for Cypher {
                     ) => Some(m.to_string()),
                     Some(m) => return Err(format!("Memgraph no tiene la distancia «{m}»")),
                 };
+                // Other families keep the dimension in the column's type,
+                // which this call doesn't receive (see the contract
+                // request in the vectors plan).
                 if !v.params.contains_key("dimensions") {
                     return Err(
-                        "Memgraph necesita la dimensión del índice y el origen no la dice".into(),
+                        "Memgraph necesita la dimensión en el índice y el índice de origen no la trae (está en el tipo de la columna); crealo a mano con su dimension"
+                            .into(),
                     );
                 }
                 dbine_driver::VectorIndex {
@@ -652,6 +660,85 @@ mod tests {
             .unwrap()
             .vector_index(&v(None, None, &[]))
             .is_err());
+    }
+
+    /// A label with an embedding and its vector index, as `database_schema`
+    /// reads it, converted to the families that keep the dimension in the
+    /// column (Spanner, Snowflake), to BigQuery (none) and to a family
+    /// without vectors: the plain list stays a list everywhere else.
+    #[test]
+    fn graph_embeddings_as_a_source() {
+        use dbine_driver::{ColumnDef, IndexDef, VectorIndex};
+        for from in ["neo4j", "memgraph"] {
+            let mut v = VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                ..Default::default()
+            };
+            v.params.insert("dimensions".into(), "3".into());
+            let t = TableSchema {
+                kind: "label".into(),
+                name: "Doc".into(),
+                columns: vec![
+                    ColumnDef {
+                        name: "emb".into(),
+                        data_type: "LIST<FLOAT>".into(),
+                        nullable: true,
+                        ..Default::default()
+                    },
+                    ColumnDef {
+                        name: "prices".into(),
+                        data_type: "LIST<FLOAT>".into(),
+                        nullable: true,
+                        ..Default::default()
+                    },
+                ],
+                indexes: vec![IndexDef {
+                    name: "doc_emb".into(),
+                    columns: vec!["emb".into()],
+                    kind: Some("VECTOR".into()),
+                    vector: Some(v),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            let conv = |to: &str| {
+                crate::convert(std::slice::from_ref(&t), from, to, &Default::default()).unwrap()
+            };
+            let ty = |c: &crate::Conversion, n: &str| {
+                c.tables[0]
+                    .columns
+                    .iter()
+                    .find(|x| x.name.eq_ignore_ascii_case(n))
+                    .unwrap()
+                    .data_type
+                    .clone()
+            };
+            let sp = conv("spanner");
+            assert_eq!(ty(&sp, "emb"), "ARRAY<FLOAT64>(vector_length=>3)", "{from}");
+            assert_eq!(ty(&sp, "prices"), "ARRAY<FLOAT64>");
+            assert!(sp.tables[0].indexes.iter().any(|i| i.vector.is_some()));
+            let sf = conv("snowflake");
+            assert_eq!(ty(&sf, "emb"), "VECTOR(FLOAT, 3)");
+            assert_eq!(ty(&sf, "prices"), "ARRAY");
+            let bq = conv("bigquery");
+            assert_eq!(ty(&bq, "emb"), "ARRAY<FLOAT64>");
+            let ix = bq.tables[0]
+                .indexes
+                .iter()
+                .find(|i| i.vector.is_some())
+                .unwrap();
+            assert_eq!(
+                ix.vector.as_ref().unwrap().metric.as_deref(),
+                Some("cosine")
+            );
+            let pg = conv("postgres");
+            assert_eq!(ty(&pg, "prices"), "double precision[]");
+            assert!(pg
+                .issues
+                .iter()
+                .all(|i| !i.message.contains("tipo vectorial")));
+        }
     }
 
     #[test]

@@ -346,7 +346,8 @@ impl Dialect for Spanner {
 
     /// COSINE, EUCLIDEAN or DOT_PRODUCT (the distance is required). An
     /// IVF index's lists are the tree's leaves (`num_leaves`); HNSW's
-    /// settings have no counterpart.
+    /// settings have no counterpart. A graph index's `dimensions` stays
+    /// for `finalize`, which sets the column's `vector_length` from it.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
@@ -367,7 +368,7 @@ impl Dialect for Spanner {
         let params = v
             .params
             .iter()
-            .filter(|(k, _)| k.as_str() == param::LISTS)
+            .filter(|(k, _)| k.as_str() == param::LISTS || k.as_str() == DIMENSIONS)
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         Ok((
@@ -383,6 +384,7 @@ impl Dialect for Spanner {
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         use IssueCode::*;
         use Severity::*;
+        vector_columns(t, report);
         for c in t.columns.iter_mut().filter(|c| c.auto_increment) {
             if c.data_type != "INT64" {
                 report.push(
@@ -436,6 +438,84 @@ impl Dialect for Spanner {
             );
         }
     }
+}
+
+/// The dimension a graph engine keeps in its vector index (Neo4j
+/// `vector.dimensions`, Memgraph `dimension`), not in the property.
+const DIMENSIONS: &str = "dimensions";
+
+/// Spanner makes a vector index only on an `ARRAY<FLOAT32|FLOAT64>` column
+/// with `vector_length`. A column that arrives without it takes the
+/// dimension the source index states (graph engines keep it there); when
+/// nothing states it, the index is left out and said, rather than written
+/// as a `CREATE VECTOR INDEX` that fails.
+fn vector_columns(t: &mut TableSchema, report: &mut Report) {
+    let name = t.name.clone();
+    let mut keep = Vec::with_capacity(t.indexes.len());
+    for mut ix in std::mem::take(&mut t.indexes) {
+        let vector = ix.vector.is_some()
+            || ix
+                .kind
+                .as_deref()
+                .is_some_and(|k| k.eq_ignore_ascii_case("vector"));
+        if !vector {
+            keep.push(ix);
+            continue;
+        }
+        let dims = ix
+            .vector
+            .as_mut()
+            .and_then(|v| v.params.remove(DIMENSIONS))
+            .and_then(|d| d.trim().parse::<u32>().ok())
+            .filter(|d| *d > 0);
+        let Some(col) = ix
+            .columns
+            .first()
+            .and_then(|c| t.columns.iter_mut().find(|x| &x.name == c))
+        else {
+            keep.push(ix);
+            continue;
+        };
+        if vector_length(&col.data_type).is_some() {
+            keep.push(ix);
+            continue;
+        }
+        let floats = generic(&col.data_type).is_some_and(|(h, a)| {
+            h == "array"
+                && a.len() == 1
+                && matches!(
+                    a[0].trim().to_ascii_uppercase().as_str(),
+                    "FLOAT32" | "FLOAT64"
+                )
+        });
+        match dims {
+            Some(n) if floats => {
+                col.data_type = format!("{}(vector_length=>{n})", col.data_type.trim());
+                report.push(
+                    Severity::Info,
+                    IssueCode::TypeChanged,
+                    &name,
+                    Some(&col.name),
+                    format!(
+                        "La columna toma la dimensión del índice vectorial «{}» (vector_length=>{n}): Spanner la necesita para crearlo.",
+                        ix.name
+                    ),
+                );
+                keep.push(ix);
+            }
+            _ => report.push(
+                Severity::Dropped,
+                IssueCode::IndexDropped,
+                &name,
+                Some(&ix.name),
+                format!(
+                    "El índice vectorial «{}» no se crea: Spanner lo hace solo sobre un ARRAY<FLOAT32> o ARRAY<FLOAT64> con vector_length, y «{}» queda {} sin dimensión conocida. Fijá la dimensión y crealo a mano.",
+                    ix.name, col.name, col.data_type
+                ),
+            ),
+        }
+    }
+    t.indexes = keep;
 }
 
 #[cfg(test)]
@@ -598,16 +678,93 @@ mod tests {
         );
 
         // And back: BigQuery's ARRAY<FLOAT64> has no dimension, so Spanner
-        // gets no vector_length and says so; the index keeps its distance.
+        // gets no vector_length, and its vector index (which needs one) is
+        // left out and said, not written to fail.
         let back = crate::convert(&bq.tables, "bigquery", "spanner", &Default::default()).unwrap();
         assert_eq!(col(&back, "emb"), "ARRAY<FLOAT64>");
-        let ix = &back.tables[0].indexes[0];
-        assert_eq!(
-            ix.vector.as_ref().unwrap().metric.as_deref(),
-            Some("cosine")
-        );
+        assert!(back.tables[0].indexes.iter().all(|i| i.vector.is_none()));
+        assert!(back.issues.iter().any(|i| i.code == IssueCode::IndexDropped
+            && i.object.as_deref() == Some("docs_emb")
+            && i.message.contains("vector_length")));
         let back = crate::convert(&sf.tables, "snowflake", "spanner", &Default::default()).unwrap();
         assert_eq!(col(&back, "EMB"), "ARRAY<FLOAT32>(vector_length=>3)");
+    }
+
+    /// A graph label's float list with a vector index that states its
+    /// dimension: the column takes it as vector_length and keeps the index.
+    #[test]
+    fn graph_vector_indexes_give_the_dimension() {
+        use dbine_driver::{ColumnDef, IndexDef, VectorIndex};
+        let index = |dims: Option<&str>| {
+            let mut v = VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                ..Default::default()
+            };
+            if let Some(d) = dims {
+                v.params.insert("dimensions".into(), d.into());
+            }
+            v.params.insert("m".into(), "16".into());
+            IndexDef {
+                name: "doc_emb".into(),
+                columns: vec!["emb".into()],
+                kind: Some("VECTOR".into()),
+                vector: Some(v),
+                ..Default::default()
+            }
+        };
+        let label = |ix: IndexDef| TableSchema {
+            kind: "label".into(),
+            name: "Doc".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "INTEGER".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "emb".into(),
+                    data_type: "LIST<FLOAT>".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            indexes: vec![ix],
+            ..Default::default()
+        };
+        for from in ["neo4j", "memgraph"] {
+            let c = crate::convert(
+                &[label(index(Some("3")))],
+                from,
+                "spanner",
+                &Default::default(),
+            )
+            .unwrap();
+            let t = &c.tables[0];
+            let emb = t.columns.iter().find(|c| c.name == "emb").unwrap();
+            assert_eq!(emb.data_type, "ARRAY<FLOAT64>(vector_length=>3)", "{from}");
+            let ix = t.indexes.iter().find(|i| i.vector.is_some()).unwrap();
+            let v = ix.vector.as_ref().unwrap();
+            assert_eq!(v.metric.as_deref(), Some("cosine"));
+            assert!(!v.params.contains_key("dimensions"));
+            assert_eq!(
+                c.columns
+                    .iter()
+                    .find(|m| m.column == "emb")
+                    .unwrap()
+                    .target_type,
+                emb.data_type
+            );
+
+            // No dimension anywhere: the index is left out, and said.
+            let c = crate::convert(&[label(index(None))], from, "spanner", &Default::default())
+                .unwrap();
+            assert!(c.tables[0].indexes.iter().all(|i| i.vector.is_none()));
+            assert!(c.issues.iter().any(
+                |i| i.code == IssueCode::IndexDropped && i.object.as_deref() == Some("doc_emb")
+            ));
+        }
     }
 
     #[test]
