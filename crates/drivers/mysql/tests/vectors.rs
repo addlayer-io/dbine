@@ -2,9 +2,14 @@
 //! table with a vector column and a vector index made from a `TableSchema`
 //! through the driver's own DDL (as the designer would), rows inserted with
 //! `insert_script`, read back (query and table browse) with the column
-//! marked as vectors and the cells whole, the describe and the index read
-//! back, a similarity query, an `update_script`, and a transfer (same
-//! engine, and pgvector-shaped text cells as another family's source).
+//! marked as vectors and the cells whole (MariaDB: also aliased
+//! expressions, derived tables and CTEs), the typed scripts (a JSON column
+//! next to the vector one, with the types a describe gives, and on MySQL 9
+//! and MariaDB those a result gives), the describe and the index read back
+//! (also in the index usage view), a similarity query, an `update_script`,
+//! and a transfer (same engine, and pgvector-shaped text cells as another
+//! family's source). Doris and StarRocks also check that an AGGREGATE KEY
+//! table takes no vector index.
 //!
 //! Each test reads `DBINE_TEST_<ENGINE>_URL` (`mysql://user:pass@host:port`)
 //! and is skipped without it; what it creates is dropped first and at the
@@ -12,31 +17,64 @@
 //!
 //! ```sh
 //! docker start dbine-test-mysql9 dbine-test-mariadb dbine-test-tidb8 \
-//!   dbine-test-greptimedb dbine-test-manticore
+//!   dbine-test-greptimedb
 //! DBINE_TEST_MYSQL9_URL=mysql://root:pw@127.0.0.1:27201 \
 //! DBINE_TEST_MARIADB_URL=mysql://root:pw@127.0.0.1:25012 \
 //! DBINE_TEST_TIDB8_URL=mysql://root@127.0.0.1:25044 \
 //! DBINE_TEST_GREPTIMEDB_URL=mysql://127.0.0.1:25017 \
-//! DBINE_TEST_MANTICORE_URL=mysql://127.0.0.1:25016 \
 //!   cargo test -p dbine-driver-mysql --test vectors -- --ignored --nocapture
 //! ```
 //!
-//! The heavy servers, one at a time (`docker start dbine-test-oceanbase`,
-//! then `dbine-test-doris`, then `dbine-test-starrocks`; their ports with
-//! `docker port`): `DBINE_TEST_OCEANBASE_URL=mysql://root@127.0.0.1:25035`,
-//! `DBINE_TEST_DORIS_URL=mysql://root@127.0.0.1:<9030's port>`,
-//! `DBINE_TEST_STARROCKS_URL=mysql://root@127.0.0.1:25030` (its FE needs
-//! `ADMIN SET FRONTEND CONFIG ("enable_experimental_vector" = "true")`,
-//! which the test sets), `DBINE_TEST_DATABEND_URL=mysql://root@127.0.0.1:<3307's port>`.
-//! TiDB's vector index needs TiFlash: `DBINE_TEST_TIDB_TIFLASH_URL` points at
-//! a cluster with one (`tiup playground`), the test adds the replica.
+//! Manticore: `dbine-test-manticore` (port 25016) when it boots. When it
+//! doesn't (its saved state can leave it failing with `FATAL: port 0 is
+//! out of range`), a temporary one, removed after with its volume:
+//!
+//! ```sh
+//! docker run -d --name dbine-test-manticore-vec -p 127.0.0.1:25316:9306 \
+//!   manticoresearch/manticore:latest
+//! DBINE_TEST_MANTICORE_URL=mysql://127.0.0.1:25316 \
+//!   cargo test -p dbine-driver-mysql --test vectors -- --ignored manticore
+//! docker rm -f -v dbine-test-manticore-vec
+//! ```
+//!
+//! The heavy servers, one at a time (their ports with `docker port`):
+//! - Doris: `docker start dbine-test-doris`,
+//!   `DBINE_TEST_DORIS_URL=mysql://root@127.0.0.1:25031`.
+//! - StarRocks: `docker start dbine-test-starrocks`,
+//!   `DBINE_TEST_STARROCKS_URL=mysql://root@127.0.0.1:25030` (its FE needs
+//!   `ADMIN SET FRONTEND CONFIG ("enable_experimental_vector" = "true")`,
+//!   which the test sets).
+//! - OceanBase (wants about 6 GB free in the VM), the `test` tenant:
+//!   `docker start dbine-test-oceanbase` (port 25035) when it boots; when
+//!   it doesn't (a full disk can leave its clog failing with -4016), a
+//!   temporary one, ready once its log says `boot success!` (a few
+//!   minutes), removed after with its volume:
+//!
+//!   ```sh
+//!   docker run -d --name dbine-test-oceanbase-vec -e MODE=slim \
+//!     -e OB_TENANT_PASSWORD=pw -p 127.0.0.1:25335:2881 \
+//!     oceanbase/oceanbase-ce:4.4.2-lts
+//!   docker logs -f dbine-test-oceanbase-vec   # until "boot success!"
+//!   DBINE_TEST_OCEANBASE_URL=mysql://root@test:pw@127.0.0.1:25335 \
+//!     cargo test -p dbine-driver-mysql --test vectors -- --ignored oceanbase
+//!   docker rm -f -v dbine-test-oceanbase-vec
+//!   ```
+//! - Databend has no container of its own: `docker run -d --name
+//!   dbine-test-databend -e QUERY_DEFAULT_USER=dbine -e
+//!   QUERY_DEFAULT_PASSWORD=pw -p 127.0.0.1:25307:3307
+//!   datafuselabs/databend`,
+//!   `DBINE_TEST_DATABEND_URL=mysql://dbine:pw@127.0.0.1:25307`, removed
+//!   after (`docker rm -f -v dbine-test-databend`).
+//! - TiDB's vector index needs TiFlash: `DBINE_TEST_TIDB_TIFLASH_URL`
+//!   points at a cluster with one (`tiup playground`); the test adds the
+//!   replica.
 
 use dbine_driver::transfer::{
     BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn,
 };
 use dbine_driver::{
     kinds, ColumnDef, ConnectionConfig, DdlParts, Driver, IndexDef, KeyDef, ObjectRef,
-    QueryOutcome, RowChange, Session, TableSchema, VectorIndex,
+    QueryOutcome, ResultColumn, RowChange, Session, TableSchema, VectorIndex,
 };
 use serde_json::{json, Value};
 use std::collections::VecDeque;
@@ -158,6 +196,22 @@ impl dbine_driver::RowSink for Rows {
     }
 }
 
+/// A query exported (rows to a sink, none kept): its header and rows.
+async fn export(
+    s: &mut Box<dyn Session>,
+    sql: &str,
+) -> (Vec<dbine_driver::ResultColumn>, Vec<Vec<Value>>) {
+    let sink = Arc::new(Mutex::new(Rows::default()));
+    let mut out = QueryOutcome {
+        sink: Some(dbine_driver::RowSinkRef(sink.clone())),
+        ..Default::default()
+    };
+    s.execute(sql, 100, &mut out).await.expect("export");
+    assert!(out.error.is_none(), "{sql}: {:?}", out.error);
+    let got = std::mem::take(&mut *sink.lock().unwrap());
+    (got.columns, got.rows)
+}
+
 struct Source(VecDeque<RowBatch>);
 
 #[dbine_driver::async_trait]
@@ -247,6 +301,9 @@ struct Case {
     before_index: Option<(&'static str, &'static str)>,
     /// Run on the server first (a setting the engine's vector indexes need).
     setup: Option<&'static str>,
+    /// The engine's JSON type, for the typed scripts' check (a JSON
+    /// column's array is its JSON text, never a vector literal).
+    json_type: Option<&'static str>,
 }
 
 fn vindex(
@@ -349,7 +406,7 @@ async fn cleanup(admin: &mut Box<dyn Session>, s: Option<&mut Box<dyn Session>>,
         }
         None => {
             if let Some(s) = s {
-                for t in ["vec_items", "vec_copy", "vec_pg"] {
+                for t in ["vec_items", "vec_copy", "vec_pg", "vec_typed"] {
                     let _ = run(s, &format!("DROP TABLE IF EXISTS {t}")).await;
                 }
             }
@@ -406,6 +463,8 @@ struct CaseData {
     transfer: bool,
     sync_metric: Option<String>,
     before_index: Option<(String, String)>,
+    /// The table of the typed scripts' check: the case's plus a JSON `j`.
+    typed: Option<TableSchema>,
 }
 
 impl From<&Case> for CaseData {
@@ -422,8 +481,44 @@ impl From<&Case> for CaseData {
             transfer: c.transfer,
             sync_metric: c.sync_metric.map(Into::into),
             before_index: c.before_index.map(|(a, b)| (a.into(), b.into())),
+            typed: c.json_type.map(|j| {
+                let mut t = schema(c, "vec_typed", false);
+                t.columns.push(ColumnDef {
+                    name: "j".into(),
+                    data_type: j.into(),
+                    nullable: true,
+                    ..Default::default()
+                });
+                t
+            }),
         }
     }
+}
+
+/// The typed check's rows (`id`, `v`, `j`), ordered by id: the vector's
+/// cell as it came, the JSON's parsed.
+async fn typed_rows(s: &mut Box<dyn Session>, id: &str) -> Vec<(i64, Value, Value)> {
+    let sql = if id == "manticore" {
+        "SELECT id, v, j FROM vec_typed ORDER BY id ASC"
+    } else {
+        "SELECT `id`, `v`, `j` FROM `vec_typed` ORDER BY `id`"
+    };
+    let out = must(s, sql).await;
+    out.results[0]
+        .rows
+        .iter()
+        .map(|r| {
+            let n = r[0]
+                .as_i64()
+                .or_else(|| r[0].as_str().and_then(|x| x.parse().ok()))
+                .unwrap();
+            let j = match &r[2] {
+                Value::String(t) => serde_json::from_str(t).unwrap_or_else(|_| r[2].clone()),
+                other => other.clone(),
+            };
+            (n, r[1].clone(), j)
+        })
+        .collect()
 }
 
 async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseData) {
@@ -464,6 +559,20 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
             prepared = true;
         }
         must(&mut s, &stmt).await;
+    }
+    if matches!(id, "doris" | "starrocks") && c.index_back.is_some() {
+        // The index is built by an asynchronous job (StarRocks' takes a
+        // while even on an empty table).
+        for _ in 0..60 {
+            let all = s.database_schema().await.expect("database_schema");
+            if all
+                .iter()
+                .any(|t| t.name == "vec_items" && t.indexes.iter().any(|i| i.vector.is_some()))
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
     }
 
     // 2. Rows from insert_script, vectors as JSON arrays.
@@ -565,6 +674,27 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
             let r = &out.results[0];
             assert!(r.columns[0].vector.is_some(), "{:?}", r.columns[0]);
             assert_eq!(r.rows[0][0], json!("[1,2.5,-3]"));
+            // What the wire doesn't place: an aliased expression (no
+            // table), a derived table it doesn't merge (base table, no
+            // schema, the alias as the column), one it merges (the derived
+            // table as the table), a CTE; also exported (rows to a sink).
+            for sql in [
+                "SELECT VEC_FromText('[1,0,0]') AS x",
+                "SELECT x FROM (SELECT VEC_FromText('[1,0,0]') AS x LIMIT 1) d",
+                "SELECT w FROM (SELECT `v` AS w FROM `vec_items` ORDER BY `id` LIMIT 1) d",
+                "SELECT d.v FROM (SELECT `v`, `id` FROM `vec_items`) AS d ORDER BY d.id LIMIT 1",
+                "WITH c AS (SELECT `id`, `v` FROM `vec_items` ORDER BY `id` LIMIT 1) SELECT v FROM c",
+            ] {
+                let mut fresh = d.connect(&cfg, db).await.expect("connect");
+                let out = must(&mut fresh, sql).await;
+                let r = &out.results[0];
+                assert!(r.columns[0].vector.is_some(), "{sql}: {:?}", r.columns[0]);
+                assert_eq!(r.rows[0][0], json!("[1,0,0]"), "{sql}");
+                let mut fresh = d.connect(&cfg, db).await.expect("connect");
+                let (cols, rows) = export(&mut fresh, sql).await;
+                assert!(cols[0].vector.is_some(), "export {sql}: {:?}", cols[0]);
+                assert_eq!(rows[0][0], json!("[1,0,0]"), "export {sql}");
+            }
         }
     }
 
@@ -617,6 +747,166 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         }
     }
 
+    // 3d. Typed scripts, with the types a describe gives: a JSON column's
+    // array is its JSON text and a vector column's text value the
+    // engine's vector literal (untyped, both would be vector literals and
+    // the text a plain string).
+    if let Some(typed) = &c.typed {
+        let ddl = d
+            .table_ddl(
+                typed,
+                DdlParts {
+                    create: true,
+                    ..Default::default()
+                },
+            )
+            .expect("typed table_ddl");
+        for stmt in statements(&ddl) {
+            must(&mut s, &stmt).await;
+        }
+        let described = s.database_schema().await.expect("database_schema");
+        let types: Vec<ResultColumn> = described
+            .iter()
+            .find(|t| t.name == "vec_typed")
+            .expect("vec_typed described")
+            .columns
+            .iter()
+            .map(|col| ResultColumn::new(col.name.clone(), col.data_type.clone()))
+            .collect();
+        eprintln!("{id}: typed columns {types:?}");
+        let row = |n: i64, v: Value, j: Value| -> Vec<Value> {
+            types
+                .iter()
+                .map(|col| match col.name.as_str() {
+                    "id" => json!(n),
+                    "v" => v.clone(),
+                    "j" => j.clone(),
+                    _ => json!(format!("2024-01-01 00:00:0{n}")),
+                })
+                .collect()
+        };
+        let rows = vec![
+            row(1, json!([1, 0, 0]), json!([1, 2, 3])),
+            row(2, json!("[0.5, 0.5, 0]"), json!([4, 5])),
+        ];
+        let ins = d
+            .insert_script_typed(&table("vec_typed"), &types, &rows)
+            .expect("insert_script_typed");
+        eprintln!("{id}: typed {ins}");
+        for stmt in statements(&ins) {
+            must(&mut s, &stmt).await;
+        }
+        if matches!(id, "doris" | "starrocks") {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+        assert_eq!(
+            typed_rows(&mut s, id).await,
+            [
+                (1, json!("[1,0,0]"), json!([1, 2, 3])),
+                (2, json!("[0.5,0.5,0]"), json!([4, 5]))
+            ]
+        );
+        if c.update {
+            let up = d
+                .update_script_typed(
+                    &table("vec_typed"),
+                    &[RowChange {
+                        key: vec![("id".into(), json!(2))],
+                        set: vec![
+                            ("v".into(), json!("[0.25, -4, 8]")),
+                            ("j".into(), json!([7])),
+                        ],
+                        row: Vec::new(),
+                    }],
+                    &types,
+                )
+                .expect("update_script_typed");
+            eprintln!("{id}: typed {up}");
+            for stmt in statements(&up) {
+                must(&mut s, &stmt).await;
+            }
+        }
+        let del = d
+            .delete_script_typed(
+                &table("vec_typed"),
+                &[vec![("id".to_string(), json!(1))]],
+                &types,
+            )
+            .expect("delete_script_typed");
+        eprintln!("{id}: typed {del}");
+        for stmt in statements(&del) {
+            must(&mut s, &stmt).await;
+        }
+        if matches!(id, "doris" | "starrocks") {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+        let left = typed_rows(&mut s, id).await;
+        let want = if c.update {
+            (2, json!("[0.25,-4,8]"), json!([7]))
+        } else {
+            (2, json!("[0.5,0.5,0]"), json!([4, 5]))
+        };
+        assert_eq!(left, std::slice::from_ref(&want));
+
+        // 3e. The same with a result's types (what a copy or a grid save
+        // has): the wire's spellings and the vector mark. MariaDB sends
+        // its JSON as a BLOB and its vectors as a VAR_STRING; MySQL 9 its
+        // vectors as a type of their own. (Manticore's wire calls every
+        // text column `string`: a result says no more than no types.)
+        if matches!(id, "mysql" | "mariadb") {
+            let browse = must(&mut s, "SELECT * FROM `vec_typed`").await;
+            let rtypes = browse.results[0].columns.clone();
+            eprintln!("{id}: result columns {rtypes:?}");
+            let rows: Vec<Vec<Value>> = vec![rtypes
+                .iter()
+                .map(|col| match col.name.as_str() {
+                    "id" => json!(3),
+                    "v" => json!("[0, 1, 0]"),
+                    "j" => json!([8, 9]),
+                    _ => json!("2024-01-01 00:00:03"),
+                })
+                .collect()];
+            let ins = d
+                .insert_script_typed(&table("vec_typed"), &rtypes, &rows)
+                .expect("insert_script_typed (result types)");
+            eprintln!("{id}: result-typed {ins}");
+            for stmt in statements(&ins) {
+                must(&mut s, &stmt).await;
+            }
+            let up = d
+                .update_script_typed(
+                    &table("vec_typed"),
+                    &[RowChange {
+                        key: vec![("id".into(), json!(3))],
+                        set: vec![("v".into(), json!("[1, 1, 0]")), ("j".into(), json!([10]))],
+                        row: Vec::new(),
+                    }],
+                    &rtypes,
+                )
+                .expect("update_script_typed (result types)");
+            eprintln!("{id}: result-typed {up}");
+            for stmt in statements(&up) {
+                must(&mut s, &stmt).await;
+            }
+            assert_eq!(
+                typed_rows(&mut s, id).await,
+                [want.clone(), (3, json!("[1,1,0]"), json!([10]))]
+            );
+            let del = d
+                .delete_script_typed(
+                    &table("vec_typed"),
+                    &[vec![("id".to_string(), json!(3))]],
+                    &rtypes,
+                )
+                .expect("delete_script_typed (result types)");
+            for stmt in statements(&del) {
+                must(&mut s, &stmt).await;
+            }
+            assert_eq!(typed_rows(&mut s, id).await, [want]);
+        }
+        eprintln!("{id}: typed scripts ok");
+    }
+
     // 4. The describe keeps the type with its dimension; 5. the index, its
     // vector settings.
     let schema = s.database_schema().await.expect("database_schema");
@@ -651,6 +941,21 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         let again = d.table_ddl(t, all).unwrap();
         assert!(again.contains(&c.marker), "{again}");
         assert!(refusals(&again).is_empty(), "{again}");
+        // 5b. The index view has the same vector settings (Manticore has
+        // no index list: its tables are the index).
+        match s.index_usage(&table("vec_items")).await {
+            Ok(Some(rep)) => {
+                let u = rep
+                    .indexes
+                    .iter()
+                    .find(|u| u.name == ix.name)
+                    .unwrap_or_else(|| panic!("{} not in {:?}", ix.name, rep.indexes));
+                assert_eq!(u.vector, ix.vector, "{u:?}");
+                eprintln!("{id}: index usage {u:?}");
+            }
+            Ok(None) => assert_eq!(id, "manticore"),
+            Err(e) => panic!("index_usage: {e}"),
+        }
     }
 
     // 4b. A schema sync that changes the index's distance: the old one
@@ -800,15 +1105,17 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
             .collect();
         assert_eq!(got, want.iter().collect::<Vec<_>>());
 
-        // A join's vector column is marked too (GreptimeDB's columns don't
-        // name their table: the query's tables are looked up).
-        if id != "manticore" {
+        // A join's vector column is marked too (GreptimeDB's and
+        // Manticore's columns don't name their table: the query's tables
+        // are looked up). Manticore joins by full table names.
+        {
             let mut fresh = d.connect(&cfg, db).await.expect("connect");
-            let out = must(
-                &mut fresh,
-                "SELECT a.id, a.v FROM vec_items a JOIN vec_copy b ON a.id = b.id ORDER BY a.id",
-            )
-            .await;
+            let sql = if id == "manticore" {
+                "SELECT vec_items.id, vec_items.v FROM vec_items INNER JOIN vec_copy ON vec_items.id = vec_copy.id ORDER BY vec_items.id ASC"
+            } else {
+                "SELECT a.id, a.v FROM vec_items a JOIN vec_copy b ON a.id = b.id ORDER BY a.id"
+            };
+            let out = must(&mut fresh, sql).await;
             let r = &out.results[0];
             assert!(r.columns[1].vector.is_some(), "join: {:?}", r.columns[1]);
             assert_eq!(r.rows.len(), 3);
@@ -842,6 +1149,7 @@ async fn mysql9_vectors() {
         sync_metric: None,
         before_index: None,
         setup: None,
+        json_type: Some("json"),
     })
     .await;
 }
@@ -866,6 +1174,7 @@ async fn mariadb_vectors() {
         sync_metric: Some("l2"),
         before_index: None,
         setup: None,
+        json_type: Some("JSON"),
     })
     .await;
 }
@@ -892,6 +1201,7 @@ async fn tidb_vectors() {
         sync_metric: None,
         before_index: None,
         setup: None,
+        json_type: Some("json"),
     })
     .await;
 }
@@ -922,6 +1232,7 @@ async fn greptimedb_vectors() {
         sync_metric: None,
         before_index: None,
         setup: None,
+        json_type: Some("JSON"),
     })
     .await;
 }
@@ -947,6 +1258,7 @@ async fn manticore_vectors() {
         sync_metric: None,
         before_index: None,
         setup: None,
+        json_type: Some("json"),
     })
     .await;
 }
@@ -975,6 +1287,7 @@ async fn tidb_tiflash_vector_index() {
             "SELECT AVAILABLE FROM information_schema.TIFLASH_REPLICA WHERE TABLE_SCHEMA = 'dbine_vec' AND TABLE_NAME = 'vec_items'",
         )),
         setup: None,
+        json_type: Some("json"),
     })
     .await;
 }
@@ -1000,6 +1313,7 @@ async fn oceanbase_vectors() {
         sync_metric: Some("cosine"),
         before_index: None,
         setup: None,
+        json_type: Some("json"),
     })
     .await;
 }
@@ -1030,6 +1344,7 @@ async fn doris_vectors() {
         sync_metric: Some("ip"),
         before_index: None,
         setup: None,
+        json_type: Some("JSON"),
     })
     .await;
 }
@@ -1060,6 +1375,7 @@ async fn starrocks_vectors() {
         before_index: None,
         // Its vector indexes are experimental: the FE has to allow them.
         setup: Some("ADMIN SET FRONTEND CONFIG (\"enable_experimental_vector\" = \"true\")"),
+        json_type: Some("JSON"),
     })
     .await;
 }
@@ -1084,6 +1400,95 @@ async fn databend_vectors() {
         sync_metric: Some("cosine"),
         before_index: None,
         setup: None,
+        json_type: Some("VARIANT"),
     })
     .await;
+}
+
+/// Doris and StarRocks build vector indexes on neither engine's AGGREGATE
+/// KEY tables: an existing one is described as such, and a schema sync
+/// that adds a vector index to it says so instead of writing an index the
+/// engine refuses ("ANN index can only be built on table with DUP_KEYS").
+async fn aggregate_key_table(id: &'static str, env: &str) {
+    let Ok(url) = std::env::var(env) else {
+        eprintln!("{env} not set; skipping");
+        return;
+    };
+    let d = driver(id);
+    let cfg = parse_url(id, &url);
+    let mut admin = d.connect(&cfg, None).await.expect("connect");
+    let db = "dbine_vec_agg";
+    let drop = format!("DROP DATABASE IF EXISTS {db}");
+    let _ = run(&mut admin, &drop).await;
+    must(&mut admin, &format!("CREATE DATABASE {db}")).await;
+    let outcome = tokio::spawn(async move {
+        let d = driver(id);
+        let cfg = parse_url(id, &url);
+        let mut s = d.connect(&cfg, Some(db)).await.expect("connect");
+        must(
+            &mut s,
+            "CREATE TABLE agg_items (id INT NOT NULL, n BIGINT SUM DEFAULT \"0\", \
+             v ARRAY<FLOAT> REPLACE NOT NULL) AGGREGATE KEY(id) \
+             DISTRIBUTED BY HASH(id) BUCKETS 1 PROPERTIES (\"replication_num\" = \"1\")",
+        )
+        .await;
+        let schema = s.database_schema().await.expect("database_schema");
+        let old = schema
+            .iter()
+            .find(|t| t.name == "agg_items")
+            .expect("agg_items described")
+            .clone();
+        assert_eq!(
+            old.options.get("key_model").map(String::as_str),
+            Some("aggregate"),
+            "{:?}",
+            old.options
+        );
+        let mut new = old.clone();
+        new.indexes
+            .push(vindex("iv", Some("hnsw"), Some("l2"), &[("dim", "3")]));
+        let script = d
+            .sync_script(&[dbine_driver::TableChange::Alter {
+                old: old.clone(),
+                new,
+            }])
+            .expect("sync_script");
+        eprintln!("{id}: aggregate sync {script:?}");
+        let all = script.statements.join("\n");
+        assert!(
+            !all.contains("USING ANN") && !all.contains("USING VECTOR"),
+            "{all}"
+        );
+        assert!(
+            all.contains("solo en tablas DUPLICATE KEY")
+                || script
+                    .warnings
+                    .iter()
+                    .any(|w| w.contains("solo en tablas DUPLICATE KEY")),
+            "{script:?}"
+        );
+        // What the sync writes runs (the notes are comments).
+        for stmt in &script.statements {
+            for one in statements(stmt) {
+                must(&mut s, &one).await;
+            }
+        }
+    })
+    .await;
+    let _ = run(&mut admin, &drop).await;
+    if let Err(e) = outcome {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn doris_aggregate_key_takes_no_vector_index() {
+    aggregate_key_table("doris", "DBINE_TEST_DORIS_URL").await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn starrocks_aggregate_key_takes_no_vector_index() {
+    aggregate_key_table("starrocks", "DBINE_TEST_STARROCKS_URL").await;
 }

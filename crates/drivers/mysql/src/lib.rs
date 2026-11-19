@@ -665,6 +665,67 @@ impl Driver for MySqlDriver {
         design::delete_script(self.variant, target, keys)
     }
 
+    /// With the target's types: an array for a JSON or text column is its
+    /// JSON text (not a vector literal), a vector column's text value is
+    /// written as the engine's vector literal, and a list column keeps its
+    /// array literal. The rest as [`Driver::insert_script`].
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[dbine_driver::ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        let slots = vectors::slots(self.product, columns);
+        let rows: Vec<Vec<serde_json::Value>> = rows
+            .iter()
+            .map(|r| {
+                r.iter()
+                    .enumerate()
+                    .map(|(i, x)| {
+                        vectors::typed_value(
+                            slots.get(i).copied().unwrap_or(vectors::Slot::Unknown),
+                            x,
+                        )
+                    })
+                    .collect()
+            })
+            .collect();
+        self.insert_script(target, &names, &rows)
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[dbine_driver::ResultColumn],
+    ) -> Result<String> {
+        let slot_of = vectors::slots_by_name(self.product, types);
+        let changes: Vec<dbine_driver::RowChange> = changes
+            .iter()
+            .map(|c| dbine_driver::RowChange {
+                key: vectors::typed_pairs(&c.key, &slot_of),
+                set: vectors::typed_pairs(&c.set, &slot_of),
+                row: vectors::typed_pairs(&c.row, &slot_of),
+            })
+            .collect();
+        self.update_script(target, &changes)
+    }
+
+    fn delete_script_typed(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+        types: &[dbine_driver::ResultColumn],
+    ) -> Result<String> {
+        let slot_of = vectors::slots_by_name(self.product, types);
+        let keys: Vec<Vec<(String, serde_json::Value)>> = keys
+            .iter()
+            .map(|k| vectors::typed_pairs(k, &slot_of))
+            .collect();
+        self.delete_script(target, &keys)
+    }
+
     fn filtered_browse(
         &self,
         browse: &str,
@@ -1250,6 +1311,182 @@ mod tests {
         // Manticore: comments don't split, no DELIMITER.
         let units = get("manticore").split_script("SELECT 1 /* ; */; -- x;\nSELECT 2");
         assert_eq!(units.len(), 2, "{units:?}");
+    }
+
+    /// The typed scripts write a JSON column's array as its JSON text, a
+    /// vector column's text value as the engine's vector literal, and an
+    /// engine list's array as its array literal; untyped, as before.
+    #[test]
+    fn typed_scripts_write_each_column_as_its_type() {
+        use dbine_driver::{ResultColumn, RowChange, VectorElement, VectorMeta};
+        use serde_json::json;
+        let get = |id: &str| drivers().into_iter().find(|d| d.info().id == id).unwrap();
+        let t = ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: None,
+            name: "t".into(),
+        };
+        let row = vec![json!(1), json!([1, 2.5]), json!([1, 2]), json!("[0.5, 0]")];
+        let names: Vec<String> = ["id", "v", "j", "w"].map(String::from).to_vec();
+        let insert = |id: &str, types: [&str; 4]| {
+            let cols: Vec<ResultColumn> = names
+                .iter()
+                .zip(types)
+                .map(|(n, ty)| ResultColumn::new(n.clone(), ty))
+                .collect();
+            get(id)
+                .insert_script_typed(&t, &cols, std::slice::from_ref(&row))
+                .unwrap()
+        };
+        let cases: &[(&str, [&str; 4], &str)] = &[
+            (
+                "mysql",
+                ["int", "vector(2)", "json", "vector(2)"],
+                "(1, STRING_TO_VECTOR('[1,2.5]'), '[1,2]', STRING_TO_VECTOR('[0.5,0]'))",
+            ),
+            (
+                "mariadb",
+                ["int(11)", "vector(2)", "longtext", "vector(2)"],
+                "(1, VEC_FromText('[1,2.5]'), '[1,2]', VEC_FromText('[0.5,0]'))",
+            ),
+            (
+                "tidb",
+                ["int", "vector", "json", "vector(2)"],
+                "(1, '[1,2.5]', '[1,2]', '[0.5,0]')",
+            ),
+            (
+                "doris",
+                ["INT", "ARRAY<FLOAT>", "JSON", "array<float>"],
+                "(1, [1,2.5], '[1,2]', [0.5,0])",
+            ),
+            (
+                "starrocks",
+                ["int", "array<int(11)>", "varchar(65533)", "ARRAY<FLOAT>"],
+                "(1, [1,2.5], '[1,2]', [0.5,0])",
+            ),
+            (
+                "databend",
+                ["Int32", "VECTOR(2)", "Variant", "VECTOR(2)"],
+                "(1, [1,2.5], '[1,2]', [0.5,0])",
+            ),
+            (
+                "greptimedb",
+                ["Int32", "Vector(2)", "Json", "VECTOR(2)"],
+                "(1, '[1,2.5]', '[1,2]', '[0.5,0]')",
+            ),
+            (
+                "manticore",
+                ["bigint", "mva", "json", "float_vector"],
+                "(`id`, `v`, `j`, `w`) VALUES (1, (1,2.5), '[1,2]', (0.5,0))",
+            ),
+            // No vectors on the managed MySQL 8 products: JSON text.
+            (
+                "aurora-mysql",
+                ["int", "json", "json", "text"],
+                "(1, '[1,2.5]', '[1,2]', '[0.5, 0]')",
+            ),
+        ];
+        for (id, types, want) in cases {
+            let sql = insert(id, *types);
+            assert!(sql.contains(want), "{id}: {sql}");
+        }
+        // Without types (or with nothing the type says), arrays are vectors.
+        let untyped = get("mysql")
+            .insert_script(&t, &names, std::slice::from_ref(&row))
+            .unwrap();
+        assert!(
+            untyped.contains("STRING_TO_VECTOR('[1,2]')") && untyped.contains("'[0.5, 0]'"),
+            "{untyped}"
+        );
+        // A result's wire types: MariaDB sends its vectors as a VAR_STRING
+        // (unmarked: as without types) and its JSON as a BLOB, which never
+        // holds one; MySQL 9's vectors have a wire type of their own.
+        let blob = insert("mariadb", ["", "var_string", "blob", ""]);
+        assert!(
+            blob.contains("(1, VEC_FromText('[1,2.5]'), '[1,2]', '[0.5, 0]')"),
+            "{blob}"
+        );
+        let wire = insert("mysql", ["longlong", "vector", "blob", "var_string"]);
+        assert!(
+            wire.contains("(1, STRING_TO_VECTOR('[1,2.5]'), '[1,2]', '[0.5, 0]')"),
+            "{wire}"
+        );
+        // Manticore: a DESCRIBE's `string` and `text` take an array as its
+        // JSON text; over the wire every text column is a `string`, and an
+        // array goes as a multi-value, as without types.
+        let described = insert("manticore", ["bigint", "mva", "string", "float_vector"]);
+        assert!(
+            described.contains("(1, (1,2.5), '[1,2]', (0.5,0))"),
+            "{described}"
+        );
+        let text = insert("manticore", ["bigint", "text", "text", "string"]);
+        assert!(
+            text.contains("(1, '[1,2.5]', '[1,2]', '[0.5, 0]')"),
+            "{text}"
+        );
+        let wire = insert("manticore", ["longlong", "string", "string", "string"]);
+        assert!(wire.contains("(1, (1,2.5), (1,2), '[0.5, 0]')"), "{wire}");
+        // A result's column marked as vectors, whatever its wire type.
+        let marked = get("mariadb")
+            .insert_script_typed(
+                &t,
+                &[ResultColumn::new("v", "var_string")
+                    .with_vector(VectorMeta::dense(Some(2), VectorElement::F32))],
+                &[vec![json!("[3,4]")]],
+            )
+            .unwrap();
+        assert!(marked.contains("VEC_FromText('[3,4]')"), "{marked}");
+
+        // Updates and deletes: types by name, in any order and case.
+        let types = [
+            ResultColumn::new("J", "json"),
+            ResultColumn::new("v", "vector(2)"),
+        ];
+        let change = RowChange {
+            key: vec![("id".into(), json!(7))],
+            set: vec![
+                ("v".into(), json!("[0.25,-4]")),
+                ("j".into(), json!([1, 2])),
+            ],
+            row: Vec::new(),
+        };
+        let up = get("mysql")
+            .update_script_typed(&t, std::slice::from_ref(&change), &types)
+            .unwrap();
+        assert!(
+            up.contains("`v` = STRING_TO_VECTOR('[0.25,-4]')") && up.contains("`j` = '[1,2]'"),
+            "{up}"
+        );
+        let up = get("mysql")
+            .update_script(&t, std::slice::from_ref(&change))
+            .unwrap();
+        assert!(
+            up.contains("`v` = '[0.25,-4]'") && up.contains("`j` = STRING_TO_VECTOR('[1,2]')"),
+            "{up}"
+        );
+        // Manticore: a float_vector change goes as a partial REPLACE, a JSON
+        // attribute's array as its text.
+        let m = get("manticore")
+            .update_script_typed(
+                &t,
+                std::slice::from_ref(&change),
+                &[
+                    ResultColumn::new("v", "float_vector"),
+                    ResultColumn::new("j", "json"),
+                ],
+            )
+            .unwrap();
+        assert_eq!(
+            m,
+            "REPLACE INTO `t` SET `v` = (0.25,-4), `j` = '[1,2]' WHERE id = 7;"
+        );
+        let keys = vec![vec![("j".to_string(), json!([1, 2]))]];
+        let del = get("mariadb")
+            .delete_script_typed(&t, &keys, &types)
+            .unwrap();
+        assert!(del.contains("`j` = '[1,2]'"), "{del}");
+        let del = get("mariadb").delete_script(&t, &keys).unwrap();
+        assert!(del.contains("`j` = VEC_FromText('[1,2]')"), "{del}");
     }
 
     #[test]

@@ -103,11 +103,43 @@ pub(crate) fn index_dim(v: &dbine_driver::VectorIndex) -> Option<u32> {
         .filter(|n| *n > 0)
 }
 
+/// The dimension of the vectors an index searches, as the source says it:
+/// its column's type (`column`, the logical type `convert` hands to
+/// [`Dialect::vector_index`]), else the index's own (Doris' `dim`,
+/// Manticore's `knn_dims`).
+pub(crate) fn searched_dims(v: &dbine_driver::VectorIndex, column: Option<&L>) -> Option<u32> {
+    match column {
+        Some(L::Vector { dims: Some(n), .. }) if *n > 0 => Some(*n),
+        _ => index_dim(v),
+    }
+}
+
+/// Why `engine`'s vector indexes can't take an index on `column`: a sparse
+/// vector (none of this crate's engines index one), or a vector whose
+/// dimension nothing says when the engine needs it (`needs_dim`).
+pub(crate) fn refuse_column(
+    engine: &str,
+    v: &dbine_driver::VectorIndex,
+    column: Option<&L>,
+    needs_dim: bool,
+) -> Result<(), String> {
+    match column {
+        Some(L::Vector { sparse: true, .. }) => {
+            Err(format!("{engine} no indexa vectores dispersos"))
+        }
+        Some(L::Vector { .. }) if needs_dim && searched_dims(v, column).is_none() => Err(format!(
+            "{engine} necesita la dimensión de los vectores y no se conoce"
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Another family's index parameters this family takes (`keep`), plus the
-/// dimension the index holds, under `dim`.
+/// dimension of the vectors it searches ([`searched_dims`]), under `dim`.
 pub(crate) fn index_params(
     v: &dbine_driver::VectorIndex,
     keep: &[&str],
+    column: Option<&L>,
 ) -> std::collections::BTreeMap<String, String> {
     let mut out: std::collections::BTreeMap<String, String> = v
         .params
@@ -115,7 +147,7 @@ pub(crate) fn index_params(
         .filter(|(k, _)| keep.contains(&k.as_str()))
         .map(|(k, val)| (k.clone(), val.clone()))
         .collect();
-    if let Some(n) = index_dim(v) {
+    if let Some(n) = searched_dims(v, column) {
         out.insert("dim".into(), n.to_string());
     }
     out
@@ -160,9 +192,11 @@ fn forget_type_notes(report: &mut Report, column: &str) {
 
 /// Vector columns and indexes on a target engine, in `finalize`:
 /// - a vector index's column becomes the engine's vector type: with the
-///   dimension of its type, else the one the source index held (Doris'
-///   `dim`, Manticore's `knn_dims`), which also turns a column the source
-///   indexed as vectors but typed otherwise (Doris' `ARRAY<FLOAT>`) into one;
+///   dimension of its type, else the one the index holds (Doris' `dim`,
+///   Manticore's `knn_dims`, or the column's, put there by
+///   [`Dialect::vector_index`]). `convert` already turned a list of numbers
+///   the source searched with a stated dimension (Doris' `ARRAY<FLOAT>`)
+///   into a vector;
 /// - where the engine keeps the dimension in the index, it goes there;
 /// - an index whose column can't be a vector (or lacks the dimension the
 ///   engine needs) is dropped and said, never written on another type;
@@ -241,19 +275,9 @@ pub(crate) fn settle_vectors(t: &mut TableSchema, report: &mut Report, target: &
                 );
                 continue;
             }
-            (None, Some(n)) => {
-                let o = origin(c).to_string();
-                forget_type_notes(report, &o);
-                report.push(
-                    Warning,
-                    TypeChanged,
-                    &table,
-                    Some(&o),
-                    format!("«{o}» lleva el índice vectorial «{name}» en el origen: queda como vector de {n} dimensiones."),
-                );
-                c.data_type = (target.ty)(Some(n));
-            }
-            (None, None) => {
+            // A list of numbers the source searched with a stated dimension
+            // already came as a vector (`convert`): anything else isn't one.
+            (None, _) => {
                 drop(
                     report,
                     format!("su columna «{col}» no es un vector en {engine}"),
@@ -536,9 +560,9 @@ impl Dialect for Olap {
         match t {
             L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
             // The vector index's column: ARRAY<FLOAT>, its dimension in
-            // the index (`dim`).
-            L::Vector { dims, element, .. } => {
-                let r = Rendered::exact(with_dim("ARRAY<FLOAT>", *dims));
+            // the index (`dim`, from `vector_index`).
+            L::Vector { element, .. } => {
+                let r = Rendered::exact("ARRAY<FLOAT>");
                 if *element == dbine_driver::VectorElement::F32 {
                     r
                 } else {
@@ -726,15 +750,16 @@ impl Dialect for Olap {
     }
 
     /// Doris' ANN index (hnsw / ivf; L2 and inner product) and StarRocks'
-    /// vector index (hnsw / ivfpq; L2 and cosine). The dimension (`dim`)
-    /// comes from the column's type in [`Dialect::finalize`].
+    /// vector index (hnsw / ivfpq; L2 and cosine), with the dimension
+    /// (`dim`) of the column it searches.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
         let engine = self.name();
+        refuse_column(engine, v, column, true)?;
         let metrics: &[&str] = if self.doris {
             &[metric::L2, metric::IP]
         } else {
@@ -756,7 +781,7 @@ impl Dialect for Olap {
             (true, true) => "ivf",
             (true, false) => "ivfpq",
         };
-        let params = index_params(v, &[param::M, param::EF_CONSTRUCTION, param::LISTS]);
+        let params = index_params(v, &[param::M, param::EF_CONSTRUCTION, param::LISTS], column);
         Ok((
             Some(if self.doris { "ANN" } else { "VECTOR" }.into()),
             dbine_driver::VectorIndex {
@@ -806,6 +831,44 @@ impl Dialect for Olap {
             .map(|k| k.columns.clone())
             .unwrap_or_default();
 
+        // Vector indexes: on an ARRAY<FLOAT> column, with its dimension
+        // (`dim`) in the index; the column can't be NULL. Settled before the
+        // key model, which a vector index makes DUPLICATE KEY: only the ones
+        // that are created count.
+        settle_vectors(
+            t,
+            report,
+            &VectorTarget {
+                engine,
+                ty: &|_| "ARRAY<FLOAT>".to_string(),
+                is_vector: &|ty| {
+                    matches!(
+                        self.parse_type(&parse::parse(ty)),
+                        L::Array { of } if *of == L::Float { bytes: 4 }
+                    )
+                    .then_some(None)
+                },
+                dim_param: Some("dim"),
+                needs_dim: true,
+                fallback: None,
+            },
+        );
+        for ix in &t.indexes {
+            let Some(col) = ix.columns.first().filter(|_| ix.vector.is_some()) else {
+                continue;
+            };
+            if let Some(c) = t.columns.iter_mut().find(|c| c.name == *col && c.nullable) {
+                c.nullable = false;
+                report.push(
+                    Info,
+                    NullabilityChanged,
+                    &table,
+                    Some(col),
+                    format!("{engine} indexa vectores de una columna NOT NULL: la columna queda NOT NULL."),
+                );
+            }
+        }
+
         if !t.options.contains_key("key_model") {
             // StarRocks' PRIMARY KEY takes integers, strings, dates and booleans;
             // UNIQUE / DUPLICATE sort keys also take decimals.
@@ -834,6 +897,24 @@ impl Dialect for Olap {
                     ),
                 );
                 ("duplicate", first.into_iter().collect::<Vec<_>>())
+            } else if t.indexes.iter().any(|i| i.vector.is_some())
+                && bad_for(false).is_none()
+                && (self.doris || bad_for(true).is_some())
+            {
+                // Doris builds ANN indexes on DUPLICATE KEY tables only,
+                // StarRocks its vector indexes on DUPLICATE or PRIMARY KEY
+                // (not UNIQUE, where a key PRIMARY KEY can't hold ends up).
+                let list = pk.join(", ");
+                let why = if self.doris {
+                    "Doris crea índices ANN solo en tablas DUPLICATE KEY"
+                } else {
+                    "StarRocks crea índices vectoriales solo en tablas DUPLICATE KEY o PRIMARY KEY, y esta clave no entra en PRIMARY KEY"
+                };
+                report.push(Warning, PrimaryKeyDropped, &table, Some(&list), format!(
+                    "{why}: la tabla queda DUPLICATE KEY({list}) y no garantiza la unicidad de su clave primaria."
+                ));
+                t.primary_key = None;
+                ("duplicate", pk.clone())
             } else if !self.doris && bad_for(true).is_none() {
                 ("primary", pk.clone())
             } else if bad_for(false).is_none() {
@@ -893,42 +974,6 @@ impl Dialect for Olap {
             );
         }
 
-        // Vector indexes: on an ARRAY<FLOAT> column, with its dimension
-        // (`dim`) in the index; the column can't be NULL.
-        settle_vectors(
-            t,
-            report,
-            &VectorTarget {
-                engine,
-                ty: &|_| "ARRAY<FLOAT>".to_string(),
-                is_vector: &|ty| {
-                    matches!(
-                        self.parse_type(&parse::parse(ty)),
-                        L::Array { of } if *of == L::Float { bytes: 4 }
-                    )
-                    .then_some(None)
-                },
-                dim_param: Some("dim"),
-                needs_dim: true,
-                fallback: None,
-            },
-        );
-        for ix in &t.indexes {
-            let Some(col) = ix.columns.first().filter(|_| ix.vector.is_some()) else {
-                continue;
-            };
-            if let Some(c) = t.columns.iter_mut().find(|c| c.name == *col && c.nullable) {
-                c.nullable = false;
-                report.push(
-                    Info,
-                    NullabilityChanged,
-                    &table,
-                    Some(col),
-                    format!("{engine} indexa vectores de una columna NOT NULL: la columna queda NOT NULL."),
-                );
-            }
-        }
-
         // One-column, non-unique indexes on scalar columns only (and the
         // vector indexes, on their ARRAY<FLOAT> column, with their dim).
         let mut kept = Vec::new();
@@ -984,7 +1029,7 @@ mod tests {
             element: VectorElement::F32,
             sparse: false,
         };
-        assert_eq!(doris().render_type(&v3).native, "ARRAY<FLOAT> /* dim=3 */");
+        assert_eq!(doris().render_type(&v3).native, "ARRAY<FLOAT>");
         // A pgvector HNSW cosine index: StarRocks has cosine, Doris doesn't.
         let pg = VectorIndex {
             algorithm: Some("hnsw".into()),
@@ -1000,11 +1045,28 @@ mod tests {
             algorithm: Some("ivfflat".into()),
             ..pg.clone()
         };
-        let (k, v) = doris().vector_index(&l2, None).unwrap();
+        let (k, v) = doris().vector_index(&l2, Some(&v3)).unwrap();
         assert_eq!(
             (k.as_deref(), v.algorithm.as_deref()),
             (Some("ANN"), Some("ivf"))
         );
+        // The dimension is the searched column's.
+        assert_eq!(v.params.get("dim").map(String::as_str), Some("3"));
+        // A vector of unknown dimension, or a sparse one: no index.
+        let any = L::Vector {
+            dims: None,
+            element: VectorElement::F32,
+            sparse: false,
+        };
+        let e = sr().vector_index(&l2, Some(&any)).unwrap_err();
+        assert!(e.contains("necesita la dimensión"), "{e}");
+        let sparse = L::Vector {
+            dims: Some(30_000),
+            element: VectorElement::F32,
+            sparse: true,
+        };
+        let e = doris().vector_index(&l2, Some(&sparse)).unwrap_err();
+        assert!(e.contains("dispersos"), "{e}");
         // finalize: the dim goes into the index, the column NOT NULL.
         let mut t = TableSchema {
             name: "items".into(),
@@ -1017,7 +1079,7 @@ mod tests {
                 },
                 ColumnDef {
                     name: "v".into(),
-                    data_type: "ARRAY<FLOAT> /* dim=3 */".into(),
+                    data_type: "ARRAY<FLOAT>".into(),
                     nullable: true,
                     ..Default::default()
                 },

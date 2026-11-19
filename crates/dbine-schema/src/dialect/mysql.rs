@@ -409,8 +409,21 @@ impl Dialect for MySql {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        // Every engine of the family indexes dense vectors of a fixed
+        // dimension (TiDB's `vector` without one takes no index).
+        match column {
+            Some(L::Vector { sparse: true, .. }) => {
+                return Err(
+                    "MariaDB, TiDB, OceanBase y SingleStore no indexan vectores dispersos".into(),
+                )
+            }
+            Some(L::Vector { .. }) if super::starrocks::searched_dims(v, column).is_none() => {
+                return Err("los índices vectoriales de MariaDB, TiDB, OceanBase y SingleStore necesitan la dimensión de los vectores y no se conoce".into())
+            }
+            _ => {}
+        }
         if let Some(m) = v.metric.as_deref() {
             if !VECTOR_METRICS.contains(&m) {
                 return Err(format!(
@@ -419,7 +432,7 @@ impl Dialect for MySql {
             }
         }
         // And the dimension the index holds (Manticore's knn_dims,
-        // Doris' dim): finalize gives it to the column.
+        // Doris' dim) or its column's: finalize gives it to the column.
         let params = super::starrocks::index_params(
             v,
             &[
@@ -427,6 +440,7 @@ impl Dialect for MySql {
                 dbine_driver::vector::param::EF_CONSTRUCTION,
                 dbine_driver::vector::param::LISTS,
             ],
+            column,
         );
         Ok((
             Some("VECTOR".into()),
@@ -789,6 +803,63 @@ mod tests {
                 None
             )
             .is_err());
+        // The searched column: its dimension rides to finalize; one of
+        // unknown dimension, or a sparse one, takes no index.
+        let (_, v) = MySql.vector_index(&pg, Some(&v3)).unwrap();
+        assert_eq!(v.params.get("dim").map(String::as_str), Some("3"));
+        let any = L::Vector {
+            dims: None,
+            element: E::F32,
+            sparse: false,
+        };
+        let e = MySql.vector_index(&pg, Some(&any)).unwrap_err();
+        assert!(e.contains("necesitan la dimensión"), "{e}");
+        let mut with_dim = pg.clone();
+        with_dim.params.insert("knn_dims".into(), "3".into());
+        assert!(MySql.vector_index(&with_dim, Some(&any)).is_ok());
+        let sparse = L::Vector {
+            dims: Some(9),
+            element: E::F32,
+            sparse: true,
+        };
+        let e = MySql.vector_index(&pg, Some(&sparse)).unwrap_err();
+        assert!(e.contains("dispersos"), "{e}");
+    }
+
+    /// A searched list of numbers whose index states its dimension moves as
+    /// a vector out of Doris and StarRocks (`convert`), also to families
+    /// outside this one; Manticore's float_vector too, whose dimension the
+    /// driver repeats as the index's `dims` option (`knn_dims` is its own
+    /// name, which `convert` doesn't read).
+    #[test]
+    fn olap_vectors_leave_as_vectors() {
+        use crate::convert::{convert, Options};
+        for from in ["doris", "starrocks", "manticore"] {
+            for (to, want) in [
+                ("postgres", "vector(3)"),
+                ("clickhouse", "Array(Float32)"),
+                ("mariadb", "vector(3)"),
+            ] {
+                let c = convert(&[dim_in_index(from)], from, to, &Options::default()).unwrap();
+                let t = &c.tables[0];
+                let v = t.columns.iter().find(|c| c.name == "v").unwrap();
+                assert_eq!(v.data_type, want, "{from} -> {to}: {:?}", c.issues);
+                assert!(
+                    t.indexes.iter().any(|i| i.vector.is_some()),
+                    "{from} -> {to}: {:?}",
+                    c.issues
+                );
+            }
+        }
+        // A sparse vector's index isn't taken by the family's engines.
+        let mut t = vector_table();
+        t.columns[1].data_type = "sparsevec(30000)".into();
+        let c = convert(&[t], "postgres", "mariadb", &Options::default()).unwrap();
+        assert!(c.tables[0].indexes.iter().all(|i| i.vector.is_none()));
+        assert!(c
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::IndexDropped && i.message.contains("dispersos")));
     }
 
     /// A table with a vector column and a vector index, as the MySQL family
@@ -836,6 +907,20 @@ mod tests {
             "manticore" => ("float_vector", "KNN", "knn_dims"),
             _ => ("ARRAY<FLOAT>", "ANN", "dim"),
         };
+        // Manticore's KNN settings as the driver reads them back: the
+        // native ones, and the dimension under `dims`.
+        let options = match engine {
+            "manticore" => [
+                ("knn_type", "hnsw"),
+                ("knn_dims", "3"),
+                ("hnsw_similarity", "L2"),
+                ("dims", "3"),
+            ]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+            _ => Default::default(),
+        };
         TableSchema {
             name: "items".into(),
             columns: vec![
@@ -860,6 +945,7 @@ mod tests {
                 name: "v".into(),
                 columns: vec!["v".into()],
                 kind: Some(kind.into()),
+                options,
                 vector: Some(dbine_driver::VectorIndex {
                     algorithm: Some("hnsw".into()),
                     metric: Some("l2".into()),
@@ -917,6 +1003,67 @@ mod tests {
                     c.issues
                 );
             }
+        }
+    }
+
+    /// A Manticore table as its driver describes it converts to another
+    /// family with its vectors' dimension (`float_vector` doesn't say it;
+    /// the KNN index does). Live: `DBINE_TEST_MANTICORE_URL`
+    /// (`mysql://127.0.0.1:port`), skipped without it; the table is dropped
+    /// first and at the end.
+    #[tokio::test]
+    #[ignore]
+    async fn manticore_described_converts_with_its_dimension() {
+        use crate::convert::{convert, Options};
+        let Ok(url) = std::env::var("DBINE_TEST_MANTICORE_URL") else {
+            eprintln!("DBINE_TEST_MANTICORE_URL not set; skipping");
+            return;
+        };
+        let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
+        let (host, port) = rest.rsplit_once(':').expect("host:port");
+        let cfg = dbine_driver::ConnectionConfig {
+            driver: "manticore".into(),
+            host: host.into(),
+            port: port.parse().expect("port"),
+            ..Default::default()
+        };
+        let d = dbine_drivers::find("manticore").expect("manticore driver");
+        let mut s = d.connect(&cfg, None).await.expect("connect");
+        let drop = "DROP TABLE IF EXISTS dbine_conv_items";
+        let mut out = dbine_driver::QueryOutcome::default();
+        let _ = s.execute(drop, 10, &mut out).await;
+        let mut out = dbine_driver::QueryOutcome::default();
+        s.execute(
+            "CREATE TABLE dbine_conv_items (title text, v float_vector knn_type='hnsw' knn_dims='3' hnsw_similarity='L2')",
+            10,
+            &mut out,
+        )
+        .await
+        .expect("create");
+        let described = s.database_schema().await;
+        let mut out = dbine_driver::QueryOutcome::default();
+        let _ = s.execute(drop, 10, &mut out).await;
+        let t = described
+            .expect("database_schema")
+            .into_iter()
+            .find(|t| t.name == "dbine_conv_items")
+            .expect("described");
+        for (to, want) in [("postgres", "vector(3)"), ("clickhouse", "Array(Float32)")] {
+            let c = convert(
+                std::slice::from_ref(&t),
+                "manticore",
+                to,
+                &Options::default(),
+            )
+            .unwrap();
+            let t = &c.tables[0];
+            let v = t.columns.iter().find(|c| c.name == "v").unwrap();
+            assert_eq!(v.data_type, want, "{to}: {:?}", c.issues);
+            assert!(
+                t.indexes.iter().any(|i| i.vector.is_some()),
+                "{to}: {:?}",
+                c.issues
+            );
         }
     }
 
@@ -984,6 +1131,60 @@ mod tests {
         assert_eq!(v.data_type, "vector");
     }
 
+    /// Doris (and StarRocks, with a key PRIMARY KEY can't hold) take a
+    /// vector index only on DUPLICATE KEY tables, but only an index that is
+    /// created costs the table its key: one with filter columns, or on a
+    /// vector of unknown dimension, is left out and the key stays.
+    #[test]
+    fn a_vector_index_left_out_keeps_the_olap_key() {
+        use crate::convert::{convert, Options};
+        // A filter column (pgvector-like source) and a vector of unknown
+        // dimension (TiDB's `vector`, same family).
+        let mut filtered = vector_table();
+        filtered.columns.push(ColumnDef {
+            name: "cat".into(),
+            data_type: "int".into(),
+            nullable: true,
+            ..Default::default()
+        });
+        filtered.indexes[0].columns.push("cat".into());
+        let mut no_dim = vector_table();
+        no_dim.columns[1].data_type = "vector".into();
+        let mut decimal_key = no_dim.clone();
+        decimal_key.columns[0].data_type = "decimal(10,2)".into();
+        for (t, from, to, model) in [
+            (&filtered, "mariadb", "doris", "unique"),
+            (&no_dim, "tidb", "doris", "unique"),
+            (&decimal_key, "tidb", "starrocks", "unique"),
+        ] {
+            let c = convert(std::slice::from_ref(t), from, to, &Options::default()).unwrap();
+            let t = &c.tables[0];
+            assert!(
+                t.indexes.iter().all(|i| i.vector.is_none()),
+                "{from} -> {to}"
+            );
+            assert!(
+                c.issues.iter().any(|i| i.code == IssueCode::IndexDropped),
+                "{from} -> {to}: {:?}",
+                c.issues
+            );
+            assert_eq!(
+                t.options.get("key_model").map(String::as_str),
+                Some(model),
+                "{from} -> {to}: {:?}",
+                c.issues
+            );
+            assert!(t.primary_key.is_some(), "{from} -> {to}");
+            assert!(
+                !c.issues
+                    .iter()
+                    .any(|i| i.code == IssueCode::PrimaryKeyDropped),
+                "{from} -> {to}: {:?}",
+                c.issues
+            );
+        }
+    }
+
     #[test]
     fn vectors_cross_into_the_family_engines() {
         use crate::convert::{convert, Options};
@@ -1003,6 +1204,18 @@ mod tests {
         for to in ["starrocks", "doris"] {
             let c = conv(to);
             let t = &c.tables[0];
+            // Doris' ANN index takes DUPLICATE KEY tables only: said.
+            if to == "doris" {
+                assert_eq!(
+                    t.options.get("key_model").map(String::as_str),
+                    Some("duplicate")
+                );
+                assert!(c
+                    .issues
+                    .iter()
+                    .any(|i| i.code == IssueCode::PrimaryKeyDropped
+                        && i.message.contains("DUPLICATE KEY")));
+            }
             let v = t.columns.iter().find(|c| c.name == "v").unwrap();
             assert_eq!(v.data_type, "ARRAY<FLOAT>", "{to}");
             assert!(!v.nullable, "{to}");

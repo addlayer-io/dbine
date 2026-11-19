@@ -197,6 +197,150 @@ pub(crate) fn edit_value(v: &serde_json::Value) -> Option<Vec<f64>> {
     }
 }
 
+/// What a target column's type says about a JSON array written into it,
+/// for the typed scripts (`Driver::*_script_typed`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Slot {
+    /// A vector column: an array of numbers, or text holding one (a
+    /// result's cell, Manticore's `0.1,0.2`), as the engine's vector literal.
+    Vector,
+    /// The engine's own list type (Doris / StarRocks / Databend `ARRAY`,
+    /// Manticore's multi-values): its array literal, as without types.
+    List,
+    /// JSON or text: an array is its JSON text, never a vector literal.
+    Text,
+    /// Nothing the type tells (no type, a binary or wire type that a
+    /// vector may come as): as without types.
+    Unknown,
+}
+
+/// The slots of a list of target columns (an insert's columns, an
+/// update's types), each from its type as a result or a describe gives it
+/// (`type_name`, `vector`). A Manticore `string` is a string attribute
+/// when the list is a DESCRIBE's ([`manticore_described`]).
+pub(crate) fn slots(v: Variant, types: &[dbine_driver::ResultColumn]) -> Vec<Slot> {
+    let described = v.base() == Variant::Manticore && manticore_described(types);
+    types.iter().map(|c| slot_in(v, c, described)).collect()
+}
+
+/// Spellings only Manticore's DESCRIBE uses (its wire sends `longlong`,
+/// `long`, `float` and `string`): a list of types with one of them comes
+/// from a describe, where `string` is a string attribute. Over the wire,
+/// `string` is any text column (string, full-text field, JSON, multi-value
+/// attribute), so it says nothing alone.
+fn manticore_described(types: &[dbine_driver::ResultColumn]) -> bool {
+    types.iter().any(|c| {
+        let t = c.type_name.trim().to_ascii_lowercase();
+        let base = t.split_whitespace().next().unwrap_or("");
+        matches!(
+            base,
+            "bigint"
+                | "uint"
+                | "text"
+                | "mva"
+                | "mva64"
+                | "multi"
+                | "multi64"
+                | "float_vector"
+                | "bool"
+        )
+    })
+}
+
+/// The slot of one column (`described`: its list is a Manticore DESCRIBE's).
+fn slot_in(v: Variant, c: &dbine_driver::ResultColumn, described: bool) -> Slot {
+    if c.vector.as_ref().is_some_and(|m| !m.sparse) || meta(v, &c.type_name).is_some() {
+        return Slot::Vector;
+    }
+    let t = c.type_name.trim().to_ascii_lowercase();
+    let base = t
+        .split(|ch: char| ch == '(' || ch == '<' || ch.is_whitespace())
+        .next()
+        .unwrap_or("");
+    let olap = matches!(
+        v.base(),
+        Variant::Doris | Variant::StarRocks | Variant::Databend | Variant::GreptimeDb
+    );
+    match (v.base(), base) {
+        (_, "json" | "jsonb") => Slot::Text,
+        (Variant::Doris | Variant::StarRocks | Variant::Databend, "array") => Slot::List,
+        (Variant::Manticore, "mva" | "mva64" | "multi" | "multi64") => Slot::List,
+        // A full-text field (a DESCRIBE spelling only: the wire says
+        // `string`), and a string attribute as a describe gives it.
+        (Variant::Manticore, "text") => Slot::Text,
+        (Variant::Manticore, "string") if described => Slot::Text,
+        // Over the wire, its multi-values and strings come alike.
+        (Variant::Manticore, _) => Slot::Unknown,
+        (_, "variant" | "string") if olap => Slot::Text,
+        // MySQL 9's vectors have a wire type of their own (`vector`, marked
+        // as one), so no string or blob of its, from the wire or the
+        // catalog, holds one.
+        (
+            Variant::MySql,
+            "string" | "var_string" | "varchar" | "blob" | "tiny_blob" | "medium_blob"
+            | "long_blob" | "binary" | "varbinary" | "tinyblob" | "mediumblob" | "longblob",
+        ) => Slot::Text,
+        // MariaDB sends its vectors as a VAR_STRING (binary): a BLOB (its
+        // JSON and TEXT columns too) or a fixed STRING isn't one, nor is a
+        // catalog's binary type (its vectors say `vector(n)`).
+        (
+            Variant::MariaDb,
+            "string" | "blob" | "tiny_blob" | "medium_blob" | "long_blob" | "binary" | "varbinary"
+            | "tinyblob" | "mediumblob" | "longblob",
+        ) => Slot::Text,
+        // Catalog spellings only: the wire's `var_string` / `blob` also
+        // carry MariaDB's and SingleStore's vectors.
+        (
+            _,
+            "char" | "varchar" | "tinytext" | "text" | "mediumtext" | "longtext" | "enum" | "set",
+        ) => Slot::Text,
+        _ => Slot::Unknown,
+    }
+}
+
+/// A value for a column of `slot`: a vector's text as an array of numbers
+/// (the engine's vector literal follows), an array for a JSON or text
+/// column as its JSON text; anything else as it is.
+pub(crate) fn typed_value(slot: Slot, x: &serde_json::Value) -> serde_json::Value {
+    match (slot, x) {
+        (Slot::Vector, serde_json::Value::String(s)) => match parse_text(s) {
+            Some(values) => {
+                serde_json::Value::Array(values.into_iter().map(dbine_driver::json_f64).collect())
+            }
+            None => x.clone(),
+        },
+        (Slot::Text, serde_json::Value::Array(_)) => serde_json::Value::String(x.to_string()),
+        _ => x.clone(),
+    }
+}
+
+/// The slots of `types` by column name (any case), for the update and
+/// delete scripts, whose columns come by name.
+pub(crate) fn slots_by_name(
+    v: Variant,
+    types: &[dbine_driver::ResultColumn],
+) -> impl Fn(&str) -> Slot + '_ {
+    let slots = slots(v, types);
+    move |name: &str| {
+        types
+            .iter()
+            .position(|c| c.name == name)
+            .or_else(|| types.iter().position(|c| c.name.eq_ignore_ascii_case(name)))
+            .map_or(Slot::Unknown, |i| slots[i])
+    }
+}
+
+/// `(column, value)` pairs with each value made for its column's slot.
+pub(crate) fn typed_pairs(
+    pairs: &[(String, serde_json::Value)],
+    slot_of: &dyn Fn(&str) -> Slot,
+) -> Vec<(String, serde_json::Value)> {
+    pairs
+        .iter()
+        .map(|(k, x)| (k.clone(), typed_value(slot_of(k), x)))
+        .collect()
+}
+
 // ------------------------------------------------------------- metrics
 
 /// (standard, native) metric names per engine.
@@ -1313,6 +1457,12 @@ pub(crate) fn manticore_indexes(create: &str) -> Vec<IndexDef> {
                 "knn_type" => vi.algorithm = Some(val.to_ascii_lowercase()),
                 "hnsw_similarity" => vi.metric = Some(standard_metric(v, &val)),
                 _ => {
+                    // The dimension under the standard key too, where a
+                    // conversion to another family looks for it (the
+                    // column's type, `float_vector`, doesn't say it).
+                    if k == "knn_dims" {
+                        options.insert(DIMS_OPTION.into(), val.clone());
+                    }
                     vi.params.insert(standard_param(v, &k), val);
                 }
             }
@@ -1328,6 +1478,10 @@ pub(crate) fn manticore_indexes(create: &str) -> Vec<IndexDef> {
     }
     out
 }
+
+/// The index option that repeats a Manticore KNN index's `knn_dims` under
+/// a name schema conversion reads as the vectors' dimension.
+const DIMS_OPTION: &str = "dims";
 
 /// `float_vector knn_type=…` as the bare type (the KNN settings are the
 /// column's vector index).
@@ -1395,6 +1549,18 @@ impl SeenColumns {
         }
     }
 
+    /// A result column the wire places (schema, table, column): by its
+    /// schema's lookup, else by its table's (an export of a query over
+    /// that table looked the table up, not the schema).
+    pub(crate) fn known_at(&self, v: Variant, schema: &str, table: &str, column: &str) -> Known {
+        match self.known(schema, table, column) {
+            Known::Unknown if self.table_fresh(schema, table) => {
+                self.known_in(v, &[(schema.to_string(), table.to_string())], column)
+            }
+            k => k,
+        }
+    }
+
     pub(crate) fn insert(&mut self, schema: &str, cols: SchemaColumns) {
         self.schemas
             .insert(schema.to_string(), (std::time::Instant::now(), cols));
@@ -1414,8 +1580,19 @@ impl SeenColumns {
     /// A result column named `column` of a query over `tables`: a vector
     /// when the tables that have a column of that name all have it as the
     /// same vector type (a join's other table may have one of another type,
-    /// which the name alone can't tell from it).
+    /// which the name alone can't tell from it). Manticore names a join's
+    /// columns `table.column`: that table's alone.
     pub(crate) fn known_in(&self, v: Variant, tables: &[(String, String)], column: &str) -> Known {
+        if let Some((t, c)) = column.rsplit_once('.') {
+            let own: Vec<(String, String)> = tables
+                .iter()
+                .filter(|(_, table)| table.eq_ignore_ascii_case(t))
+                .cloned()
+                .collect();
+            if !own.is_empty() && !c.is_empty() {
+                return self.known_in(v, &own, c);
+            }
+        }
         let column = column.to_ascii_lowercase();
         let mut found: Option<&String> = None;
         for (schema, table) in tables {
@@ -1449,10 +1626,19 @@ pub(crate) fn looked_up(v: Variant) -> bool {
     v.base() != Variant::MySql
 }
 
-/// Engines whose result columns don't say which table they come from: the
-/// tables a query reads are looked up whole ([`from_tables`]).
+/// Engines whose result columns may not say which table they come from
+/// (GreptimeDB, Manticore, StarRocks, Databend; Doris depending on the
+/// version): the tables a query reads are looked up whole
+/// ([`from_tables`]) for the columns the wire doesn't place.
 pub(crate) fn by_query_tables(v: Variant) -> bool {
-    matches!(v.base(), Variant::GreptimeDb | Variant::Manticore)
+    matches!(
+        v.base(),
+        Variant::GreptimeDb
+            | Variant::Manticore
+            | Variant::StarRocks
+            | Variant::Doris
+            | Variant::Databend
+    )
 }
 
 /// A MariaDB result column made by an expression that returns a vector
@@ -1477,8 +1663,9 @@ enum Token {
     },
     Dot,
     Comma,
-    /// A parenthesized group, skipped whole.
-    Group,
+    /// A parenthesized group, skipped whole (its text, for
+    /// [`SelectNames`], which looks inside).
+    Group(String),
     Other,
 }
 
@@ -1572,7 +1759,7 @@ fn tokens(sql: &str) -> Option<Vec<Token>> {
                     quoted: false,
                 });
             }
-            out.push(Token::Group);
+            out.push(Token::Group(inner));
         } else if c.is_alphanumeric() || c == '_' || c == '$' {
             let mut text = String::new();
             while i < chars.len()
@@ -1670,6 +1857,397 @@ pub(crate) fn from_tables(sql: &str) -> Option<Vec<(Option<String>, String)>> {
         i += 1;
     }
     (!out.is_empty() && !expect).then_some(out)
+}
+
+/// What a statement says about the result columns MariaDB's wire doesn't
+/// place (probed on 11.8):
+/// - an aliased expression has no table: `VEC_FromText('[…]') AS x` is a
+///   vector only by its alias;
+/// - a derived table or a CTE MariaDB doesn't merge (`FROM (SELECT v AS w
+///   FROM t LIMIT 1) d`) sends its columns with the base table but no
+///   schema, named by the alias (`w`); one it merges, with the schema but
+///   the derived table's name as the table (`d`).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct SelectNames {
+    /// Names (lower case) given to a `VEC_FromText(…)`.
+    vectors: std::collections::HashSet<String>,
+    /// Alias → the column it renames (`v AS w`: `w` → `v`), lower case.
+    aliases: std::collections::HashMap<String, String>,
+    /// Names (lower case) of the derived tables and CTEs.
+    derived: std::collections::HashSet<String>,
+    /// The tables the statement names, at any depth (`[schema.]table`).
+    tables: Vec<(Option<String>, String)>,
+}
+
+/// Words that end a select list.
+const LIST_END: &[&str] = &[
+    "from",
+    "into",
+    "union",
+    "where",
+    "group",
+    "order",
+    "limit",
+    "having",
+    "window",
+    "for",
+    "lock",
+    "except",
+    "intersect",
+];
+
+/// Words that may follow an expression or a table without being its alias.
+const NOT_ALIAS: &[&str] = &[
+    "from",
+    "where",
+    "group",
+    "order",
+    "limit",
+    "having",
+    "union",
+    "into",
+    "for",
+    "window",
+    "join",
+    "straight_join",
+    "inner",
+    "left",
+    "right",
+    "cross",
+    "natural",
+    "outer",
+    "full",
+    "on",
+    "using",
+    "and",
+    "or",
+    "xor",
+    "not",
+    "is",
+    "in",
+    "like",
+    "between",
+    "regexp",
+    "rlike",
+    "div",
+    "mod",
+    "collate",
+    "over",
+    "then",
+    "else",
+    "end",
+    "when",
+    "asc",
+    "desc",
+    "lock",
+    "offset",
+    "except",
+    "intersect",
+    "returning",
+    "select",
+    "as",
+    "with",
+    "partition",
+    "use",
+    "force",
+    "ignore",
+    "escape",
+    "values",
+    "set",
+    "procedure",
+];
+
+/// Select-list modifiers before the first item.
+const MODIFIERS: &[&str] = &[
+    "all",
+    "distinct",
+    "distinctrow",
+    "high_priority",
+    "straight_join",
+    "sql_small_result",
+    "sql_big_result",
+    "sql_buffer_result",
+    "sql_cache",
+    "sql_no_cache",
+    "sql_calc_found_rows",
+];
+
+fn bare_word(t: Option<&Token>) -> Option<String> {
+    match t {
+        Some(Token::Word {
+            text,
+            quoted: false,
+        }) => Some(text.to_ascii_lowercase()),
+        _ => None,
+    }
+}
+
+/// A name that can be an alias: quoted, or a word that isn't a keyword
+/// following an expression.
+fn alias_word(t: Option<&Token>) -> Option<String> {
+    match t {
+        Some(Token::Word { text, quoted: true }) => Some(text.to_ascii_lowercase()),
+        Some(Token::Word {
+            text,
+            quoted: false,
+        }) if !NOT_ALIAS.contains(&text.to_ascii_lowercase().as_str()) => {
+            Some(text.to_ascii_lowercase())
+        }
+        _ => None,
+    }
+}
+
+fn is_subquery(inner: &str) -> bool {
+    tokens(inner).is_some_and(|t| {
+        t.iter()
+            .any(|x| bare_word(Some(x)).is_some_and(|w| w == "select"))
+    })
+}
+
+impl SelectNames {
+    pub(crate) fn of(sql: &str) -> Self {
+        let mut out = SelectNames::default();
+        if let Some(t) = tokens(sql) {
+            out.walk(&t, 0);
+        }
+        out
+    }
+
+    fn walk(&mut self, t: &[Token], depth: usize) {
+        if depth > 32 {
+            return;
+        }
+        for i in 0..t.len() {
+            if let Token::Group(inner) = &t[i] {
+                if let Some(sub) = tokens(inner) {
+                    self.walk(&sub, depth + 1);
+                }
+                continue;
+            }
+            match bare_word(t.get(i)).as_deref() {
+                Some("from" | "join" | "straight_join") => self.table_refs(t, i + 1),
+                Some("with") => self.ctes(t, i + 1),
+                // `tokens` puts a `select` before a subquery's group: the
+                // group's own list is read inside it.
+                Some("select") if !matches!(t.get(i + 1), Some(Token::Group(g)) if is_subquery(g)) =>
+                {
+                    let end = (i + 1..t.len())
+                        .find(|&k| {
+                            bare_word(t.get(k)).is_some_and(|w| LIST_END.contains(&w.as_str()))
+                        })
+                        .unwrap_or(t.len());
+                    for item in t[i + 1..end].split(|x| matches!(x, Token::Comma)) {
+                        self.item(item);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// A FROM / JOIN list from `k`: tables, and derived tables' aliases.
+    fn table_refs(&mut self, t: &[Token], mut k: usize) {
+        loop {
+            let derived = match t.get(k) {
+                Some(Token::Word { text, .. }) if alias_word(t.get(k)).is_some() => {
+                    if matches!(t.get(k + 1), Some(Token::Dot)) {
+                        let Some(Token::Word { text: table, .. }) = t.get(k + 2) else {
+                            return;
+                        };
+                        self.tables.push((Some(text.clone()), table.clone()));
+                        k += 3;
+                    } else {
+                        self.tables.push((None, text.clone()));
+                        k += 1;
+                    }
+                    false
+                }
+                // `tokens`' `select` before a subquery's group.
+                Some(Token::Word { .. }) if matches!(t.get(k + 1), Some(Token::Group(_))) => {
+                    k += 2;
+                    true
+                }
+                Some(Token::Group(g)) => {
+                    k += 1;
+                    is_subquery(g)
+                }
+                _ => return,
+            };
+            if bare_word(t.get(k)).as_deref() == Some("as") {
+                k += 1;
+            }
+            if let Some(alias) = alias_word(t.get(k)) {
+                if derived {
+                    self.derived.insert(alias);
+                }
+                k += 1;
+            }
+            if !matches!(t.get(k), Some(Token::Comma)) {
+                return;
+            }
+            k += 1;
+        }
+    }
+
+    /// `WITH [RECURSIVE] c [(cols)] AS (…), …` from `k`: the CTEs' names.
+    fn ctes(&mut self, t: &[Token], mut k: usize) {
+        if bare_word(t.get(k)).as_deref() == Some("recursive") {
+            k += 1;
+        }
+        while let Some(name) = alias_word(t.get(k)) {
+            self.derived.insert(name);
+            k += 1;
+            if matches!(t.get(k), Some(Token::Group(_))) {
+                k += 1;
+            }
+            if bare_word(t.get(k)).as_deref() != Some("as") {
+                return;
+            }
+            k += 1;
+            // `tokens`' `select`, then the CTE's group.
+            if bare_word(t.get(k)).as_deref() == Some("select") {
+                k += 1;
+            }
+            if !matches!(t.get(k), Some(Token::Group(_))) {
+                return;
+            }
+            k += 1;
+            if !matches!(t.get(k), Some(Token::Comma)) {
+                return;
+            }
+            k += 1;
+        }
+    }
+
+    /// One select-list item: `VEC_FromText(…) [AS] x` or `[t.]v [AS] w`.
+    fn item(&mut self, mut item: &[Token]) {
+        while let Some(w) = bare_word(item.first()) {
+            if !MODIFIERS.contains(&w.as_str()) {
+                break;
+            }
+            item = &item[1..];
+        }
+        let n = item.len();
+        let (expr, alias) = if n >= 3 && bare_word(item.get(n - 2)).as_deref() == Some("as") {
+            match alias_word(item.last()).or_else(|| match item.last() {
+                Some(Token::Word { text, .. }) => Some(text.to_ascii_lowercase()),
+                _ => None,
+            }) {
+                Some(a) => (&item[..n - 2], a),
+                None => return,
+            }
+        } else if n >= 2
+            && matches!(item[n - 2], Token::Word { .. } | Token::Group(_))
+            && alias_word(item.last()).is_some()
+        {
+            (&item[..n - 1], alias_word(item.last()).unwrap_or_default())
+        } else {
+            return;
+        };
+        match expr {
+            [Token::Word {
+                text,
+                quoted: false,
+            }, Token::Group(_)]
+                if text.eq_ignore_ascii_case("vec_fromtext") =>
+            {
+                self.vectors.insert(alias);
+            }
+            [.., Token::Word { text, .. }]
+                if expr.len() % 2 == 1
+                    && expr.iter().enumerate().all(|(i, x)| {
+                        matches!((i % 2, x), (0, Token::Word { .. }) | (1, Token::Dot))
+                    })
+                    && expr.len() <= 5 =>
+            {
+                let column = text.to_ascii_lowercase();
+                if column != alias {
+                    self.aliases.insert(alias, column);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// A result column with no table named `name` (or `org_name`) holds
+    /// vectors made by `VEC_FromText`.
+    pub(crate) fn names_vector(&self, name: &str, org_name: &str) -> Option<VectorMeta> {
+        [name, org_name]
+            .iter()
+            .any(|n| !n.is_empty() && self.vectors.contains(&n.to_ascii_lowercase()))
+            .then(|| VectorMeta::dense(None, VectorElement::F32))
+    }
+
+    /// Where a result column the wire names by a derived table is looked
+    /// up: `schema` empty, or `table` a derived table or CTE of the
+    /// statement. The statement's tables (those named `table` when some
+    /// are; the unqualified in `schema`, else in `current`), and the column
+    /// the alias `column` renames. `None` for any other column.
+    pub(crate) fn derived_place(
+        &self,
+        schema: &str,
+        table: &str,
+        column: &str,
+        current: Option<&str>,
+    ) -> Option<(Vec<(String, String)>, String)> {
+        if table.is_empty()
+            || (!schema.is_empty() && !self.derived.contains(&table.to_ascii_lowercase()))
+        {
+            return None;
+        }
+        let mut tables: Vec<(String, String)> = Vec::new();
+        for (s, t) in &self.tables {
+            if self.derived.contains(&t.to_ascii_lowercase()) && s.is_none() {
+                continue;
+            }
+            let s = match s {
+                Some(s) => s.clone(),
+                None if !schema.is_empty() => schema.to_string(),
+                None => match current {
+                    Some(c) => c.to_string(),
+                    None => continue,
+                },
+            };
+            if !tables
+                .iter()
+                .any(|(a, b)| *a == s && b.eq_ignore_ascii_case(t))
+            {
+                tables.push((s, t.clone()));
+            }
+        }
+        let own: Vec<(String, String)> = tables
+            .iter()
+            .filter(|(_, t)| t.eq_ignore_ascii_case(table))
+            .cloned()
+            .collect();
+        let tables = if own.is_empty() { tables } else { own };
+        if tables.is_empty() {
+            return None;
+        }
+        let column = self
+            .aliases
+            .get(&column.to_ascii_lowercase())
+            .cloned()
+            .unwrap_or_else(|| column.to_string());
+        Some((tables, column))
+    }
+
+    /// The statement has derived tables or CTEs.
+    pub(crate) fn has_derived(&self) -> bool {
+        !self.derived.is_empty()
+    }
+
+    /// The tables the statement names (any depth), the unqualified in
+    /// `current`; derived tables and CTEs left out.
+    pub(crate) fn tables_in(&self, current: Option<&str>) -> Vec<(String, String)> {
+        self.tables
+            .iter()
+            .filter(|(s, t)| s.is_some() || !self.derived.contains(&t.to_ascii_lowercase()))
+            .filter_map(|(s, t)| {
+                Some((s.clone().or_else(|| current.map(String::from))?, t.clone()))
+            })
+            .collect()
+    }
 }
 
 /// The catalog query for every column of some tables of a schema (table,
@@ -1848,6 +2426,76 @@ mod tests {
         assert_eq!(edit_value(&json!([1, 2.5])), Some(vec![1.0, 2.5]));
         assert_eq!(edit_value(&json!("[1,2]")), None);
         assert_eq!(edit_value(&json!(["a"])), None);
+    }
+
+    #[test]
+    fn typed_values_follow_their_columns_slot() {
+        use dbine_driver::ResultColumn;
+        let slot = |v, c: &ResultColumn| slots(v, std::slice::from_ref(c))[0];
+        let s = |v, ty: &str| slot(v, &ResultColumn::new("c", ty));
+        assert_eq!(s(Variant::MySql, "vector(3)"), Slot::Vector);
+        assert_eq!(s(Variant::MySql, "JSON"), Slot::Text);
+        // MySQL 9's vectors come as their own wire type: a string or a
+        // blob, from the wire or the catalog, isn't one.
+        for ty in ["blob", "var_string", "string", "long_blob", "varbinary(8)"] {
+            assert_eq!(s(Variant::MySql, ty), Slot::Text, "{ty}");
+            assert_eq!(s(Variant::AuroraMySql, ty), Slot::Text, "{ty}");
+        }
+        assert_eq!(s(Variant::MariaDb, "longtext"), Slot::Text);
+        // MariaDB's come as a VAR_STRING: its JSON's BLOB isn't one.
+        assert_eq!(s(Variant::MariaDb, "var_string"), Slot::Unknown);
+        for ty in ["blob", "long_blob", "string", "binary(4)", "varbinary(8)"] {
+            assert_eq!(s(Variant::MariaDb, ty), Slot::Text, "{ty}");
+        }
+        assert_eq!(s(Variant::MariaDb, ""), Slot::Unknown);
+        // Where the wire's blob may carry a vector, as before.
+        assert_eq!(s(Variant::SingleStore, "blob"), Slot::Unknown);
+        assert_eq!(s(Variant::TiDb, "vector"), Slot::Vector);
+        assert_eq!(s(Variant::TiDb, "varchar(20)"), Slot::Text);
+        assert_eq!(s(Variant::Doris, "ARRAY<FLOAT>"), Slot::Vector);
+        assert_eq!(s(Variant::Doris, "ARRAY<INT>"), Slot::List);
+        assert_eq!(s(Variant::Doris, "VARIANT"), Slot::Text);
+        assert_eq!(s(Variant::Databend, "Array(Float32)"), Slot::List);
+        assert_eq!(s(Variant::GreptimeDb, "String"), Slot::Text);
+        assert_eq!(s(Variant::Manticore, "float_vector"), Slot::Vector);
+        assert_eq!(s(Variant::Manticore, "mva64"), Slot::List);
+        assert_eq!(s(Variant::Manticore, "json"), Slot::Text);
+        assert_eq!(s(Variant::Manticore, "text"), Slot::Text);
+        // Over the wire every text column is a `string`; in a DESCRIBE's
+        // list (spellings only it uses), a string attribute.
+        assert_eq!(s(Variant::Manticore, "string"), Slot::Unknown);
+        let wire = [
+            ResultColumn::new("id", "longlong"),
+            ResultColumn::new("s", "string"),
+        ];
+        assert_eq!(slots(Variant::Manticore, &wire)[1], Slot::Unknown);
+        let described = [
+            ResultColumn::new("id", "bigint"),
+            ResultColumn::new("s", "string"),
+            ResultColumn::new("m", "mva"),
+        ];
+        assert_eq!(
+            slots(Variant::Manticore, &described),
+            [Slot::Unknown, Slot::Text, Slot::List]
+        );
+        // A sparse vector keeps its engine's text.
+        let sparse =
+            ResultColumn::new("c", "").with_vector(VectorMeta::sparse(Some(3), VectorElement::F32));
+        assert_eq!(slot(Variant::MySql, &sparse), Slot::Unknown);
+
+        assert_eq!(
+            typed_value(Slot::Vector, &json!("[1, 2.50]")),
+            json!([1.0, 2.5])
+        );
+        assert_eq!(
+            typed_value(Slot::Vector, &json!("0.5,0.25")),
+            json!([0.5, 0.25])
+        );
+        assert_eq!(typed_value(Slot::Vector, &json!("hello")), json!("hello"));
+        assert_eq!(typed_value(Slot::Text, &json!([1, 2])), json!("[1,2]"));
+        assert_eq!(typed_value(Slot::Text, &json!("[1,2]")), json!("[1,2]"));
+        assert_eq!(typed_value(Slot::List, &json!([1, 2])), json!([1, 2]));
+        assert_eq!(typed_value(Slot::Unknown, &json!("[1]")), json!("[1]"));
     }
 
     #[test]
@@ -2254,6 +2902,10 @@ mod tests {
         let r = manticore_indexes(create);
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].vector, ix.vector);
+        // The dimension also under the key a conversion to another family
+        // reads (`float_vector` doesn't say it).
+        assert_eq!(r[0].options.get("dims").map(String::as_str), Some("4"));
+        assert_eq!(r[0].options.get("knn_dims").map(String::as_str), Some("4"));
         assert_eq!(
             manticore_base_type("float_vector knn_type='hnsw'"),
             "float_vector"
@@ -2364,6 +3016,21 @@ mod tests {
         // which one came, so not marked.
         s.insert_table("public", "b", cols(&[("v", "binary")]));
         assert_eq!(s.known_in(v, &both, "v"), Known::NotVector);
+        // Manticore names a join's columns after their table.
+        let m = Variant::Manticore;
+        s.insert_table("public", "a", cols(&[("v", "float_vector")]));
+        assert_eq!(
+            s.known_in(m, &both, "a.v"),
+            Known::Vector("float_vector".into())
+        );
+        assert_eq!(s.known_in(m, &both, "b.v"), Known::NotVector);
+        assert_eq!(s.known_in(m, &both, "c.v"), Known::NotVector);
+        // A column the wire places, its table looked up (not its schema).
+        assert_eq!(
+            s.known_at(m, "public", "a", "v"),
+            Known::Vector("float_vector".into())
+        );
+        assert_eq!(s.known_at(m, "public", "zz", "v"), Known::Unknown);
         s.clear();
         assert_eq!(s.known_in(v, &[a], "v"), Known::Unknown);
         // MariaDB's VEC_FromText(…) column.
@@ -2372,7 +3039,93 @@ mod tests {
         assert!(expression_vector(Variant::MariaDb, "VEC_ToText(v)").is_none());
         assert!(expression_vector(Variant::MySql, "VEC_FromText('[1]')").is_none());
         assert!(by_query_tables(Variant::Manticore) && by_query_tables(Variant::GreptimeDb));
+        assert!(by_query_tables(Variant::StarRocks) && by_query_tables(Variant::VeloDb));
+        assert!(by_query_tables(Variant::Databend));
         assert!(!by_query_tables(Variant::MariaDb));
+    }
+
+    /// MariaDB's wire leaves an aliased expression with no table and names
+    /// a derived table's columns by their alias (no schema, or the derived
+    /// table as the table): the statement says where they come from.
+    #[test]
+    fn select_names_place_what_mariadbs_wire_doesnt() {
+        let db = Some("db");
+        let tv = |s: &str| vec![(s.to_string(), "t".to_string())];
+        // Aliased expressions, with and without AS.
+        let n = SelectNames::of(
+            "SELECT VEC_FromText('[1,2]') AS x, vec_fromtext(@a) `Y`, VEC_ToText(v) AS txt, \
+             v AS w, t.v z, 'from' AS s FROM vprobe.t",
+        );
+        assert!(n.names_vector("x", "").is_some());
+        assert!(n.names_vector("y", "").is_some());
+        assert!(n.names_vector("q", "x").is_some());
+        assert!(n.names_vector("txt", "").is_none());
+        assert!(n.names_vector("w", "").is_none());
+        assert_eq!(n.tables, [(Some("vprobe".into()), "t".into())]);
+        // The wire places these (schema and a real table): nothing to do.
+        assert_eq!(n.derived_place("vprobe", "t", "w", db), None);
+        // No schema: a derived table's; the alias names `v`.
+        assert_eq!(
+            n.derived_place("", "t", "w", None),
+            Some((tv("vprobe"), "v".into()))
+        );
+        assert_eq!(
+            n.derived_place("", "t", "z", None),
+            Some((tv("vprobe"), "v".into()))
+        );
+        // A derived table MariaDB doesn't merge: base table, no schema.
+        let n = SelectNames::of("SELECT w, d.id FROM (SELECT t.v AS w, id FROM t LIMIT 1) d");
+        assert_eq!(
+            n.derived_place("", "t", "w", db),
+            Some((tv("db"), "v".into()))
+        );
+        assert_eq!(
+            n.derived_place("", "t", "id", db),
+            Some((tv("db"), "id".into()))
+        );
+        assert_eq!(n.derived_place("", "t", "w", None), None);
+        // One it merges: the schema, and the derived table as the table.
+        let n = SelectNames::of("SELECT v FROM (SELECT v FROM t) AS d");
+        assert_eq!(
+            n.derived_place("vprobe", "d", "v", db),
+            Some((tv("vprobe"), "v".into()))
+        );
+        // A CTE: its own name isn't a table.
+        let n = SelectNames::of("WITH c AS (SELECT v FROM t LIMIT 1) SELECT v FROM c");
+        assert!(n.has_derived());
+        assert_eq!(
+            n.derived_place("", "t", "v", db),
+            Some((tv("db"), "v".into()))
+        );
+        assert_eq!(n.tables_in(db), tv("db"));
+        // A derived table of an aliased expression: no table at all.
+        let n = SelectNames::of("SELECT x FROM (SELECT VEC_FromText('[1,2]') AS x LIMIT 1) d");
+        assert!(n.names_vector("x", "x").is_some());
+        // Joins with a derived table: every named table, the derived one's
+        // own when the wire says it.
+        let n = SelectNames::of(
+            "SELECT a.v, b.w FROM s1.t1 a JOIN (SELECT v AS w FROM t2 GROUP BY v) b ON a.id = b.id",
+        );
+        assert_eq!(
+            n.tables,
+            [(Some("s1".into()), "t1".into()), (None, "t2".into())]
+        );
+        assert_eq!(
+            n.derived_place("", "t2", "w", db),
+            Some((vec![("db".into(), "t2".into())], "v".into()))
+        );
+        assert_eq!(
+            n.derived_place("db", "b", "w", db).map(|(t, _)| t.len()),
+            Some(2)
+        );
+        // Keywords and modifiers aren't aliases.
+        let n =
+            SelectNames::of("SELECT DISTINCT v FROM t WHERE v IS NOT NULL ORDER BY v DESC LIMIT 1");
+        assert!(n.aliases.is_empty() && n.vectors.is_empty() && !n.has_derived());
+        let n = SelectNames::of("SELECT CASE WHEN a THEN b END x, (SELECT 1) AS y FROM t");
+        assert!(n.aliases.is_empty() && n.vectors.is_empty());
+        // Unreadable text: nothing.
+        assert_eq!(SelectNames::of("SELECT 'x"), SelectNames::default());
     }
 
     #[test]

@@ -363,6 +363,27 @@ pub(crate) fn sync_script(
         .cloned()
         .map(|mut c| {
             if let dbine_driver::TableChange::Alter { old, new } = &mut c {
+                // The same build (an algorithm named or not, a default
+                // written out or not) is the same index: the generic
+                // planner also compares the vector settings as given.
+                for nix in new.indexes.iter_mut() {
+                    let same =
+                        old.indexes
+                            .iter()
+                            .find(|o| o.name == nix.name)
+                            .and_then(|o| match (&o.vector, &nix.vector) {
+                                (Some(ov), Some(nv))
+                                    if crate::vectors::settings_key(v, ov)
+                                        == crate::vectors::settings_key(v, nv) =>
+                                {
+                                    Some(ov.clone())
+                                }
+                                _ => None,
+                            });
+                    if let Some(ov) = same {
+                        nix.vector = Some(ov);
+                    }
+                }
                 for ix in old.indexes.iter_mut().chain(new.indexes.iter_mut()) {
                     crate::vectors::for_sync(v, ix);
                 }
@@ -1066,6 +1087,25 @@ fn is_call(d: &str) -> bool {
         })
 }
 
+/// The key model a StarRocks / Doris table is made with: the designer's
+/// `key_model`, else UNIQUE (Doris) / PRIMARY (StarRocks) with a primary
+/// key, DUPLICATE without one. An AGGREGATE KEY table as described is made
+/// DUPLICATE KEY (its columns' aggregation types aren't read).
+fn olap_model(v: Variant, t: &TableSchema) -> &'static str {
+    let pk = t
+        .primary_key
+        .as_ref()
+        .is_some_and(|k| !k.columns.is_empty());
+    match (opt(t, "key_model").unwrap_or("auto"), v) {
+        ("duplicate" | "aggregate", _) => "DUPLICATE",
+        ("primary", Variant::StarRocks) => "PRIMARY",
+        ("unique" | "primary", _) => "UNIQUE",
+        _ if !pk => "DUPLICATE",
+        (_, Variant::StarRocks) => "PRIMARY",
+        _ => "UNIQUE",
+    }
+}
+
 /// StarRocks and Doris: a key model, key columns first, hash distribution.
 fn olap_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<String> {
     let name = q(&t.name);
@@ -1082,14 +1122,7 @@ fn olap_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<String> {
             .as_ref()
             .map(|k| k.columns.clone())
             .unwrap_or_default();
-        let model = match (opt(t, "key_model").unwrap_or("auto"), v) {
-            ("duplicate", _) => "DUPLICATE",
-            ("primary", Variant::StarRocks) => "PRIMARY",
-            ("unique" | "primary", _) => "UNIQUE",
-            _ if pk.is_empty() => "DUPLICATE",
-            (_, Variant::StarRocks) => "PRIMARY",
-            _ => "UNIQUE",
-        };
+        let model = olap_model(v, t);
         let keys: Vec<String> = match opt(t, "key_columns") {
             Some(k) => k
                 .split(',')
@@ -1231,6 +1264,32 @@ fn olap_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<String> {
                         c.name
                     ))))?);
                     continue;
+                }
+                // Doris builds ANN indexes on DUPLICATE KEY tables only,
+                // StarRocks its vector indexes on DUPLICATE or PRIMARY KEY:
+                // never on an AGGREGATE KEY table (one that exists, as
+                // described; the designer makes none).
+                let model = if opt(t, "key_model") == Some("aggregate") {
+                    "AGGREGATE"
+                } else {
+                    olap_model(v, t)
+                };
+                match (v, model) {
+                    (_, "DUPLICATE") | (Variant::StarRocks, "PRIMARY") => {}
+                    (Variant::Doris, _) => {
+                        notes.push(vector_index_or_note(Err(Error::Unsupported(format!(
+                            "Doris crea índices ANN solo en tablas DUPLICATE KEY: el índice vectorial «{}» pide el modelo DUPLICATE KEY",
+                            ix.name
+                        ))))?);
+                        continue;
+                    }
+                    _ => {
+                        notes.push(vector_index_or_note(Err(Error::Unsupported(format!(
+                            "StarRocks crea índices vectoriales solo en tablas DUPLICATE KEY o PRIMARY KEY: el índice vectorial «{}» pide uno de esos modelos",
+                            ix.name
+                        ))))?);
+                        continue;
+                    }
                 }
                 // ANN (Doris) / VECTOR (StarRocks) with their properties.
                 let (kind, props, note) = match crate::vectors::olap_index(v, ix) {
@@ -1898,7 +1957,9 @@ pub(crate) fn manticore_value(v: &Value) -> String {
         Value::Bool(b) => (if *b { "1" } else { "0" }).to_string(),
         Value::Number(n) => n.to_string(),
         Value::String(s) => text(s),
-        Value::Array(a) if a.iter().all(Value::is_number) => {
+        // Integers (multi-values) as they are, exactly; floats (a vector)
+        // the shortest way that reads back the same.
+        Value::Array(a) if a.iter().all(|n| n.is_i64() || n.is_u64()) => {
             format!(
                 "({})",
                 a.iter()
@@ -1906,6 +1967,10 @@ pub(crate) fn manticore_value(v: &Value) -> String {
                     .collect::<Vec<_>>()
                     .join(",")
             )
+        }
+        Value::Array(a) if a.iter().all(Value::is_number) => {
+            let values: Vec<f64> = a.iter().filter_map(Value::as_f64).collect();
+            crate::vectors::literal(crate::Variant::Manticore, &values)
         }
         other => text(&other.to_string()),
     }
@@ -2644,10 +2709,64 @@ mod tests {
             vi(Some("hnsw"), Some("l2"), &[("dim", "3"), ("m", "32")]),
         );
         t.columns[1].data_type = "ARRAY<FLOAT>".into();
+        // Doris builds ANN indexes on DUPLICATE KEY tables only (a primary
+        // key alone makes it UNIQUE KEY): said in the script.
+        let s = table_ddl(Variant::Doris, &t, all).unwrap();
+        assert!(
+            s.contains("UNIQUE KEY(`id`)")
+                && s.contains("-- Doris crea índices ANN solo en tablas DUPLICATE KEY")
+                && !s.contains("USING ANN"),
+            "{s}"
+        );
+        // StarRocks: PRIMARY KEY (its default with a key) or DUPLICATE KEY.
+        let s = table_ddl(Variant::StarRocks, &t, all).unwrap();
+        assert!(
+            s.contains("PRIMARY KEY(`id`)") && s.contains("USING VECTOR"),
+            "{s}"
+        );
+        t.options.insert("key_model".into(), "unique".into());
+        let s = table_ddl(Variant::StarRocks, &t, all).unwrap();
+        assert!(
+            s.contains(
+                "-- StarRocks crea índices vectoriales solo en tablas DUPLICATE KEY o PRIMARY KEY"
+            ) && !s.contains("USING VECTOR"),
+            "{s}"
+        );
+        t.options.insert("key_model".into(), "duplicate".into());
         let s = table_ddl(Variant::Doris, &t, all).unwrap();
         assert!(s.contains("CREATE INDEX `iv` ON `items` (`v`) USING ANN PROPERTIES(\"index_type\" = \"hnsw\", \"metric_type\" = \"l2_distance\", \"dim\" = \"3\", \"max_degree\" = \"32\");"), "{s}");
         let s = table_ddl(Variant::StarRocks, &t, all).unwrap();
         assert!(s.contains("USING VECTOR (\"index_type\" = \"hnsw\", \"metric_type\" = \"l2_distance\", \"dim\" = \"3\", \"M\" = \"32\", \"is_vector_normed\" = \"false\")"), "{s}");
+        // An AGGREGATE KEY table as described (no primary key): neither
+        // engine builds a vector index on it. A sync adds only indexes.
+        let mut agg = t.clone();
+        agg.primary_key = None;
+        agg.options.insert("key_model".into(), "aggregate".into());
+        let indexes = DdlParts {
+            indexes: true,
+            ..Default::default()
+        };
+        for (v, note) in [
+            (
+                Variant::Doris,
+                "-- Doris crea índices ANN solo en tablas DUPLICATE KEY",
+            ),
+            (
+                Variant::StarRocks,
+                "-- StarRocks crea índices vectoriales solo en tablas DUPLICATE KEY o PRIMARY KEY",
+            ),
+        ] {
+            let s = table_ddl(v, &agg, indexes).unwrap();
+            assert!(
+                s.contains(note) && !s.contains("USING ANN") && !s.contains("USING VECTOR"),
+                "{v:?}: {s}"
+            );
+        }
+        // Its CREATE is still DUPLICATE KEY (the aggregation types of its
+        // columns aren't read).
+        agg.indexes.clear();
+        let s = table_ddl(Variant::Doris, &agg, all).unwrap();
+        assert!(s.contains("DUPLICATE KEY(`id`)"), "{s}");
         // Without the dimension: said in the script.
         t.indexes[0].vector = Some(vi(None, None, &[]));
         assert!(table_ddl(Variant::Doris, &t, all)
@@ -2682,7 +2801,7 @@ mod tests {
         assert!(ins(Variant::MariaDb).contains("(1, VEC_FromText('[1,2.5,-3]'))"));
         assert!(ins(Variant::TiDb).contains("(1, '[1,2.5,-3]')"));
         assert!(ins(Variant::Doris).contains("(1, [1,2.5,-3])"));
-        assert!(ins(Variant::Manticore).contains("VALUES (1, (1.0,2.5,-3))"));
+        assert!(ins(Variant::Manticore).contains("VALUES (1, (1,2.5,-3))"));
         let changes = vec![RowChange {
             key: vec![("id".into(), json!(1))],
             set: vec![("v".into(), json!([0.5, 4]))],

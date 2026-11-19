@@ -223,9 +223,11 @@ impl Dialect for Databend {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
+        // VECTOR(n): no vector index without the dimension.
+        super::starrocks::refuse_column("Databend", v, column, true)?;
         let m = v.metric.as_deref().unwrap_or(metric::COSINE);
         if ![metric::COSINE, metric::L2, metric::L1].contains(&m) {
             return Err(format!(
@@ -233,7 +235,7 @@ impl Dialect for Databend {
                 "Databend", "cosine, l2, l1"
             ));
         }
-        let params = super::starrocks::index_params(v, &[param::M, param::EF_CONSTRUCTION]);
+        let params = super::starrocks::index_params(v, &[param::M, param::EF_CONSTRUCTION], column);
         Ok((
             Some("VECTOR".into()),
             dbine_driver::VectorIndex {

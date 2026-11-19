@@ -248,9 +248,11 @@ impl Dialect for GreptimeDb {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
+        // VECTOR(n): no vector index without the dimension.
+        super::starrocks::refuse_column("GreptimeDB", v, column, true)?;
         if let Some(m) = v
             .metric
             .as_deref()
@@ -261,8 +263,11 @@ impl Dialect for GreptimeDb {
                 "GreptimeDB", "l2, cosine, ip"
             ));
         }
-        let params =
-            super::starrocks::index_params(v, &[param::M, param::EF_CONSTRUCTION, "ef_search"]);
+        let params = super::starrocks::index_params(
+            v,
+            &[param::M, param::EF_CONSTRUCTION, "ef_search"],
+            column,
+        );
         Ok((
             Some("VECTOR".into()),
             dbine_driver::VectorIndex {
