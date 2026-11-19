@@ -338,7 +338,8 @@ fn algorithms(v: Variant) -> &'static [&'static str] {
         Variant::Yugabyte => &["ybhnsw"],
         Variant::Timescale => &["hnsw", "diskann", "ivfflat"],
         Variant::AlloyDb => &["hnsw", "scann", "ivfflat"],
-        Variant::OpenGauss => &["hnsw", "ivfflat"],
+        // DataVec, built in since 7.0.
+        Variant::OpenGauss => &["hnsw", "ivfflat", "diskann"],
         Variant::RisingWave => &["hnsw", "flat"],
         _ if pgvector(v) => &["hnsw", "ivfflat"],
         _ => &[],
@@ -869,7 +870,8 @@ pub(crate) fn designer_spec(v: Variant) -> Option<VectorIndexSpec> {
             params.push(p(param::M, vec!["hnsw"], "16"));
             params.push(p(param::EF_CONSTRUCTION, vec!["hnsw"], "64"));
             params.push(p(param::LISTS, vec!["ivfflat"], "100"));
-            if algs.contains(&"diskann") {
+            // pgvectorscale's (openGauss' DiskANN takes its defaults).
+            if v == Variant::Timescale {
                 params.push(p("num_neighbors", vec!["diskann"], "50"));
                 params.push(p("search_list_size", vec!["diskann"], "100"));
                 params.push(p("max_alpha", vec!["diskann"], "1.2"));
@@ -1478,6 +1480,9 @@ mod tests {
             .unwrap()
             .algorithms
             .contains(&"diskann"));
+        let og = designer_spec(Variant::OpenGauss).unwrap();
+        assert!(og.algorithms.contains(&"diskann"));
+        assert!(!og.params.iter().any(|p| p.key == "num_neighbors"));
         assert!(designer_spec(Variant::AlloyDb)
             .unwrap()
             .algorithms

@@ -400,7 +400,10 @@ async fn round_trip(id: &str, env: &str, extra: Option<(IndexDef, &str, &str)>, 
     assert!(spec.data_types.contains(&"vector(1536)"));
     let mut s = fresh_database(&*d, &cfg, false).await;
     let body = async {
-        run(&mut s, "CREATE EXTENSION IF NOT EXISTS vector").await;
+        // openGauss' DataVec is built in: no extension to create.
+        if id != "opengauss" {
+            run(&mut s, "CREATE EXTENSION IF NOT EXISTS vector").await;
+        }
         let extra_ext = extra
             .as_ref()
             .map(|(_, ext, _)| *ext)
