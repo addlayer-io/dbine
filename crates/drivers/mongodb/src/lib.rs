@@ -693,7 +693,9 @@ impl Driver for MongoDriver {
 
     /// Vectors in the form the columns' types name (`vector(N, float32 |
     /// int8 | bit)`: BinData, `vector(N)`: an array); a column whose type
-    /// doesn't say keeps the form recent results showed.
+    /// doesn't say is an array. Only the caller's types decide: the hint
+    /// recent results leave (kept by collection name only) is for callers
+    /// without types.
     fn insert_script_typed(
         &self,
         target: &ObjectRef,
@@ -704,7 +706,7 @@ impl Driver for MongoDriver {
         let binary = if self.flavor == Flavor::DocumentDb {
             Default::default()
         } else {
-            vector::typed_binary_fields(columns, vector::binary_fields(&target.name))
+            vector::typed_binary_fields(columns)
         };
         ddl::insert_script(target, &names, rows, &binary)
     }

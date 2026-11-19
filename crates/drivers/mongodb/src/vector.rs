@@ -169,19 +169,14 @@ pub(crate) fn text_of(b: &Bson) -> Option<String> {
 
 // ---------------------------------------------------------------- field types
 
-/// `vector(N)`, `vector(N, int8)`, `vector(N, bit)` (`vector` without a
-/// known dimension).
-pub(crate) fn type_name(dims: Option<u32>, element: VectorElement) -> String {
-    let el = match element {
-        VectorElement::I8 => Some("int8"),
-        VectorElement::Bit => Some("bit"),
-        _ => None,
-    };
-    match (dims, el) {
-        (Some(n), Some(e)) => format!("vector({n}, {e})"),
-        (Some(n), None) => format!("vector({n})"),
-        (None, Some(e)) => format!("vector({e})"),
-        (None, None) => "vector".into(),
+/// `vector(N)` (`vector` without a known dimension): a field of arrays of
+/// numbers, or one that holds both forms. It never names an element: an
+/// element in the type means BinData ([`binary_type_name`]), so an insert
+/// would write every new document's vector as BinData.
+pub(crate) fn type_name(dims: Option<u32>) -> String {
+    match dims {
+        Some(n) => format!("vector({n})"),
+        None => "vector".into(),
     }
 }
 
@@ -261,24 +256,66 @@ pub(crate) fn typed_form(c: &dbine_driver::ResultColumn) -> Option<Option<Vector
 }
 
 /// The BinData vector fields of an insert into a collection with
-/// `columns`: those whose type says BinData; a column whose type says
-/// nothing keeps what `recent` (recent results, [`binary_fields`]) says.
+/// `columns`: those whose type (or vector element) says BinData. A column
+/// whose type says nothing is an array: what recent results of a
+/// same-named collection showed ([`binary_fields`], kept by name only,
+/// across connections and databases) never decides a typed insert.
 pub(crate) fn typed_binary_fields(
     columns: &[dbine_driver::ResultColumn],
-    mut recent: std::collections::HashMap<String, VectorElement>,
 ) -> std::collections::HashMap<String, VectorElement> {
-    for c in columns {
-        match typed_form(c) {
-            Some(Some(el)) => {
-                recent.insert(c.name.clone(), el);
-            }
-            Some(None) => {
-                recent.remove(&c.name);
-            }
-            None => {}
-        }
+    columns
+        .iter()
+        .filter_map(|c| Some((c.name.clone(), typed_form(c)??)))
+        .collect()
+}
+
+/// How a result field's values (nulls left out) hold vectors.
+#[derive(Debug)]
+pub(crate) enum FieldVectors {
+    /// Not all of them are vectors.
+    None,
+    /// Arrays of numbers only (a vector when an index searches the field),
+    /// with their dimension when they share one.
+    Arrays(Option<u32>),
+    /// A BinData vector among them: the field's column, and the element
+    /// when every value is BinData of that one element. Such a field says
+    /// it (`vector(3, int8)`, [`binary_type_name`]); a field that mixes
+    /// BinData and arrays is `vector(3)` ([`type_name`]), so an insert
+    /// with its column writes an array.
+    Binary(dbine_driver::ResultColumn, Option<VectorElement>),
+}
+
+pub(crate) fn field_vectors(name: &str, vals: &[&Bson]) -> FieldVectors {
+    let metas: Option<Vec<VectorMeta>> = vals.iter().map(|x| value_meta(x)).collect();
+    let Some(metas) = metas.filter(|m| !m.is_empty()) else {
+        return FieldVectors::None;
+    };
+    let dims = metas[0]
+        .dims
+        .filter(|d| metas.iter().all(|m| m.dims == Some(*d)));
+    let binary: Vec<VectorElement> = vals
+        .iter()
+        .zip(&metas)
+        .filter(|(x, _)| matches!(x, Bson::Binary(_)))
+        .map(|(_, m)| m.element)
+        .collect();
+    if binary.is_empty() {
+        return FieldVectors::Arrays(dims);
     }
-    recent
+    let el = if binary.iter().all(|e| *e == binary[0]) {
+        binary[0]
+    } else {
+        VectorElement::Other
+    };
+    let all = (el != VectorElement::Other && binary.len() == vals.len()).then_some(el);
+    let t = match all {
+        Some(el) => binary_type_name(dims, el),
+        None => type_name(dims),
+    };
+    FieldVectors::Binary(
+        dbine_driver::ResultColumn::new(name, t).with_vector(VectorMeta::dense(dims, el)),
+        all,
+    )
 }
 
 // ---------------------------------------------------------------- metrics
@@ -829,12 +866,12 @@ pub(crate) fn describe_fields(t: &mut TableSchema) {
                     c.data_type = if binary {
                         binary_type_name(dims, el)
                     } else {
-                        type_name(dims, el)
+                        type_name(dims)
                     };
                 }
                 None => t.columns.push(dbine_driver::ColumnDef {
                     name: path.clone(),
-                    data_type: type_name(dims, VectorElement::F32),
+                    data_type: type_name(dims),
                     nullable: true,
                     ..Default::default()
                 }),
@@ -1412,6 +1449,16 @@ pub(crate) fn for_flavor(t: &TableSchema, flavor: Flavor) -> (TableSchema, Vec<S
                 ));
                 vi.metric = Some(metric::L2.into());
             }
+            // Over bits (the schema conversion lets hamming through only
+            // there), euclidean ranks the neighbors as hamming does; no
+            // kind of the family has hamming.
+            Some(m) if m.eq_ignore_ascii_case(metric::HAMMING) => {
+                changed.push(
+                    "la distancia hamming queda l2 (euclidean: sobre vectores de bits los vecinos más cercanos son los mismos)"
+                        .into(),
+                );
+                vi.metric = Some(metric::L2.into());
+            }
             Some(m) if !known_metric(m) => {
                 lost.push(format!("la distancia {m} (queda cosine)"));
                 vi.metric = Some(metric::COSINE.into());
@@ -1806,40 +1853,17 @@ impl crate::MongoSession {
                 .filter_map(|d| d.get(&k))
                 .filter(|x| !matches!(x, Bson::Null | Bson::Undefined))
                 .collect();
-            let metas: Option<Vec<VectorMeta>> = vals.iter().map(|x| value_meta(x)).collect();
-            let Some(metas) = metas.filter(|m| !m.is_empty()) else {
-                continue;
-            };
-            let dims = metas[0]
-                .dims
-                .filter(|d| metas.iter().all(|m| m.dims == Some(*d)));
-            let binary: Vec<VectorElement> = vals
-                .iter()
-                .zip(&metas)
-                .filter(|(x, _)| matches!(x, Bson::Binary(_)))
-                .map(|(_, m)| m.element)
-                .collect();
-            if binary.is_empty() {
-                arrays.push((k, dims));
-            } else {
-                let el = if binary.iter().all(|e| *e == binary[0]) {
-                    binary[0]
-                } else {
-                    VectorElement::Other
-                };
-                // Inserts follow a field whose vectors are all BinData of
-                // one element (a mixed field keeps arrays).
-                let all = el != VectorElement::Other && binary.len() == vals.len();
-                if all {
-                    noted.push((k.clone(), el));
+            match field_vectors(&k, &vals) {
+                FieldVectors::None => {}
+                FieldVectors::Arrays(dims) => arrays.push((k, dims)),
+                FieldVectors::Binary(c, all) => {
+                    // Inserts follow a field whose vectors are all BinData
+                    // of one element (a mixed field keeps arrays).
+                    if let Some(el) = all {
+                        noted.push((k.clone(), el));
+                    }
+                    out.insert(k, c);
                 }
-                let t = if all {
-                    binary_type_name(dims, el)
-                } else {
-                    type_name(dims, el)
-                };
-                let c = ResultColumn::new(k.clone(), t).with_vector(VectorMeta::dense(dims, el));
-                out.insert(k, c);
             }
         }
         if let Some(c) = coll {
@@ -1850,7 +1874,7 @@ impl crate::MongoSession {
             for (k, dims) in arrays {
                 if let Some(m) = paths.get(&k) {
                     let m = VectorMeta::dense(m.dims.or(dims), VectorElement::F32);
-                    let c = ResultColumn::new(k.clone(), type_name(m.dims, m.element));
+                    let c = ResultColumn::new(k.clone(), type_name(m.dims));
                     out.insert(k, c.with_vector(m));
                 }
             }
@@ -1939,10 +1963,17 @@ mod tests {
 
     #[test]
     fn field_types_spell_dims_and_element() {
-        assert_eq!(type_name(Some(3), VectorElement::F32), "vector(3)");
-        assert_eq!(type_name(Some(3), VectorElement::I8), "vector(3, int8)");
-        assert_eq!(type_name(Some(9), VectorElement::Bit), "vector(9, bit)");
-        assert_eq!(type_name(None, VectorElement::F32), "vector");
+        assert_eq!(type_name(Some(3)), "vector(3)");
+        assert_eq!(type_name(None), "vector");
+        // An element in the type means BinData.
+        assert_eq!(
+            binary_type_name(Some(3), VectorElement::I8),
+            "vector(3, int8)"
+        );
+        assert_eq!(
+            binary_type_name(Some(9), VectorElement::Bit),
+            "vector(9, bit)"
+        );
         for (t, want) in [
             ("vector(1536)", (Some(1536), VectorElement::F32)),
             ("VECTOR(3, int8)", (Some(3), VectorElement::I8)),
@@ -2589,25 +2620,27 @@ mod tests {
             Some(VectorElement::F32)
         );
         assert_eq!(binary_element("string"), None);
-        // The columns' types win over what recent results noted; a column
-        // whose type says nothing keeps it.
-        let recent = [
-            ("a".to_string(), VectorElement::I8),
-            ("b".to_string(), VectorElement::Bit),
-        ]
-        .into_iter()
-        .collect();
-        let got = typed_binary_fields(
+        // Only the columns' types decide: what recent results of a
+        // same-named collection noted (on any connection) doesn't, also
+        // for a column whose type says nothing (a result's plain field).
+        note_binary_fields(
+            "vec_typed_hint_test",
             &[
-                ResultColumn::new("a", "vector(3)"),
-                ResultColumn::new("b", ""),
-                ResultColumn::new("c", "vector(2, float32)"),
+                ("a".to_string(), VectorElement::I8),
+                ("b".to_string(), VectorElement::Bit),
             ],
-            recent,
         );
+        assert_eq!(binary_fields("vec_typed_hint_test").len(), 2);
+        let got = typed_binary_fields(&[
+            ResultColumn::new("a", "vector(3)"),
+            ResultColumn::new("b", ""),
+            ResultColumn::new("c", "vector(2, float32)"),
+            ResultColumn::new("d", "").with_vector(VectorMeta::dense(Some(3), VectorElement::I8)),
+        ]);
         assert_eq!(got.get("a"), None);
-        assert_eq!(got.get("b"), Some(&VectorElement::Bit));
+        assert_eq!(got.get("b"), None);
         assert_eq!(got.get("c"), Some(&VectorElement::F32));
+        assert_eq!(got.get("d"), Some(&VectorElement::I8));
     }
 
     #[test]
@@ -2656,12 +2689,16 @@ mod tests {
                 field("arr", "array"),
                 field("both", "vector(3, float32)|array"),
                 field("i8", "vector(3, int8)"),
+                field("i8_both", "vector(3, int8)|array"),
+                field("bits_both", "array|vector(3, bit)"),
             ],
             indexes: vec![
                 ix("a", "bin"),
                 ix("b", "arr"),
                 ix("c", "both"),
                 ix("d", "i8"),
+                ix("e", "i8_both"),
+                ix("f", "bits_both"),
             ],
             ..Default::default()
         };
@@ -2678,6 +2715,60 @@ mod tests {
         assert_eq!(ty("arr"), "vector(3)");
         assert_eq!(ty("both"), "vector(3)");
         assert_eq!(ty("i8"), "vector(3, int8)");
+        // Mixed int8 / bit fields are arrays too: an insert with the
+        // describe's type writes an array, never BinData.
+        assert_eq!(ty("i8_both"), "vector(3)");
+        assert_eq!(ty("bits_both"), "vector(3)");
+        for n in ["i8_both", "bits_both"] {
+            let c = dbine_driver::ResultColumn::new(n, ty(n));
+            assert_eq!(typed_form(&c), Some(None), "{n}");
+        }
+    }
+
+    #[test]
+    fn result_fields_mixing_forms_are_arrays() {
+        let bin = |el: VectorElement, n: &[f64]| Bson::Binary(encode(n, el));
+        let arr = Bson::Array(vec![
+            Bson::Double(1.0),
+            Bson::Double(2.0),
+            Bson::Double(3.0),
+        ]);
+        let i8 = bin(VectorElement::I8, &[1.0, 2.0, 3.0]);
+        let bits = bin(VectorElement::Bit, &[1.0, 0.0, 1.0]);
+        let f32 = bin(VectorElement::F32, &[0.5, 2.0, 3.0]);
+        let col = |vals: &[&Bson]| match field_vectors("v", vals) {
+            FieldVectors::Binary(c, all) => (c, all),
+            other => panic!("{other:?}"),
+        };
+        // All BinData of one element: the type names it, inserts follow it.
+        for (v, el, t) in [
+            (&i8, VectorElement::I8, "vector(3, int8)"),
+            (&bits, VectorElement::Bit, "vector(3, bit)"),
+            (&f32, VectorElement::F32, "vector(3, float32)"),
+        ] {
+            let (c, all) = col(&[v, v]);
+            assert_eq!((c.type_name.as_str(), all), (t, Some(el)));
+            assert_eq!(typed_form(&c), Some(Some(el)));
+        }
+        // Mixed with arrays: `vector(3)`, and an insert with the result's
+        // column writes an array.
+        for v in [&i8, &bits, &f32] {
+            let (c, all) = col(&[v, &arr]);
+            assert_eq!((c.type_name.as_str(), all), ("vector(3)", None));
+            assert_eq!(typed_form(&c), Some(None));
+            assert!(typed_binary_fields(&[c]).is_empty());
+        }
+        // BinData of two elements: `vector(3)` too.
+        let (c, all) = col(&[&i8, &bits]);
+        assert_eq!((c.type_name.as_str(), all), ("vector(3)", None));
+        assert!(matches!(
+            field_vectors("v", &[&arr]),
+            FieldVectors::Arrays(Some(3))
+        ));
+        assert!(matches!(
+            field_vectors("v", &[&arr, &Bson::String("x".into())]),
+            FieldVectors::None
+        ));
     }
 
     #[test]
@@ -2732,5 +2823,17 @@ mod tests {
         let (out, w) = for_flavor(&table("vector(8, int8)", Some("cosine")), Flavor::Mongo);
         assert_eq!(metric_of(&out), metric::COSINE);
         assert!(w.is_empty(), "{w:?}");
+        // DocumentDB's `vector` and FerretDB's `cosmosSearch` have no
+        // hamming either: euclidean too (not the cosine an unknown metric
+        // gets), said.
+        for f in [Flavor::DocumentDb, Flavor::Ferret] {
+            let (out, w) = for_flavor(&table("vector(8, bit)", Some("hamming")), f);
+            assert_eq!(metric_of(&out), metric::L2, "{f:?}");
+            assert!(
+                w.iter()
+                    .any(|x| x.contains("la distancia hamming queda l2")),
+                "{f:?}: {w:?}"
+            );
+        }
     }
 }
