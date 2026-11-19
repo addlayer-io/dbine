@@ -1041,15 +1041,38 @@ pub async fn approve_secret_source(args: ApproveSecretSourceArgs) -> CommandResu
 pub(crate) mod tests {
     use super::*;
 
-    /// A fresh folder under the system's temp dir.
-    pub fn temp_dir(name: &str) -> std::path::PathBuf {
+    /// A fresh folder under the system's temp dir, removed (with what the
+    /// test put there) when it's dropped, at the end of the test, passed or
+    /// not.
+    pub struct TempDir(std::path::PathBuf);
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    impl std::ops::Deref for TempDir {
+        type Target = std::path::Path;
+        fn deref(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl AsRef<std::path::Path> for TempDir {
+        fn as_ref(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    pub fn temp_dir(name: &str) -> TempDir {
         let d = std::env::temp_dir().join(format!(
             "dbine-test-{name}-{}-{}",
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
         std::fs::create_dir_all(&d).unwrap();
-        d
+        TempDir(d)
     }
 
     fn cmd(c: &str) -> SecretSource {

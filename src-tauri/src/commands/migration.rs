@@ -3035,14 +3035,31 @@ mod tests {
         );
     }
 
-    fn dir(tag: &str) -> PathBuf {
+    /// A test's own folder (its state, databases and runs), removed when
+    /// it's dropped, at the end of the test, passed or not.
+    struct Dir(PathBuf);
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    impl std::ops::Deref for Dir {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    fn dir(tag: &str) -> Dir {
         let d = std::env::temp_dir().join(format!(
             "dbine-migration-{tag}-{}-{}",
             std::process::id(),
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
         ));
         std::fs::create_dir_all(&d).unwrap();
-        d
+        Dir(d)
     }
 
     fn sqlite(state: &AppState, id: &str, path: &Path) {
@@ -3119,7 +3136,7 @@ mod tests {
         (Arc::new(move |v| s.lock().unwrap().push(v)), seen)
     }
 
-    async fn setup(tag: &str) -> (AppState, MigrationRuns, PathBuf) {
+    async fn setup(tag: &str) -> (AppState, MigrationRuns, Dir) {
         let d = dir(tag);
         let state = AppState::new(StateStore::open(&d.join("state.sqlite")).unwrap());
         sqlite(&state, "src", &d.join("src.db"));
@@ -3440,7 +3457,7 @@ mod tests {
 
     /// Two fresh databases on dbine-test-postgres, the source with a parent / child pair (a foreign
     /// key, an index, an identity, a check and a view).
-    async fn pg_setup(tag: &str) -> (AppState, MigrationRuns) {
+    async fn pg_setup(tag: &str) -> (AppState, MigrationRuns, Dir) {
         let d = dir(tag);
         let state = AppState::new(StateStore::open(&d.join("state.sqlite")).unwrap());
         postgres(&state, "admin", "postgres");
@@ -3466,7 +3483,8 @@ mod tests {
              INSERT INTO child SELECT g, g % 20 + 1, 'n' || g, decode(repeat('ab', g % 50), 'hex') FROM generate_series(1, 5000) g;",
         )
         .await;
-        (state, MigrationRuns::open(&d))
+        let runs = MigrationRuns::open(&d);
+        (state, runs, d)
     }
 
     async fn pg_scalar(state: &AppState, conn: &str, sql: &str) -> i64 {
@@ -3488,7 +3506,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     #[ignore = "needs dbine-test-postgres on localhost:25010"]
     async fn clones_then_syncs_postgres() {
-        let (state, runs) = pg_setup("pg").await;
+        let (state, runs, _d) = pg_setup("pg").await;
 
         // The preview: the driver's script, from the target's capabilities.
         let mut a = pg_args("pgc", MigrationMode::Clone);
