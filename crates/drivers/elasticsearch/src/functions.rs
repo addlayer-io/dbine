@@ -18,6 +18,12 @@
 //!
 //! The async functions only make the requests; what their answers lead to
 //! is decided by [`from_show_functions_reply`] and [`from_plugins`].
+//!
+//! Besides, the vector functions of Painless for `script_score` (the
+//! query DSL's own entries, offered inside the script's string):
+//! Elasticsearch's (`cosineSimilarity`, `dotProduct`, `l1norm`, `l2norm`,
+//! `hamming`) and the k-NN plugin's on OpenSearch and Open Distro
+//! (`l2Squared`, `l1Norm`, `cosineSimilarity`…), by the server's version.
 
 use crate::json::J;
 use crate::{http, EsSession};
@@ -27,6 +33,11 @@ use std::time::Duration;
 const ELASTICSEARCH: &str = include_str!("functions/elasticsearch.txt");
 const OPENSEARCH: &str = include_str!("functions/opensearch.txt");
 const OPENDISTRO: &str = include_str!("functions/opendistro.txt");
+const PAINLESS: &str = include_str!("functions/painless.txt");
+const KNN_PAINLESS: &str = include_str!("functions/knn_painless.txt");
+
+/// What Open Distro's k-NN plugin (1.13) has of [`KNN_PAINLESS`].
+const OPENDISTRO_KNN: &[&str] = &["l2Squared", "l1Norm", "cosineSimilarity"];
 
 /// The editor language of every entry: the console's SQL lines.
 const SQL: &str = "sql";
@@ -48,11 +59,28 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 const ES_SQL_SINCE: &str = "7.0";
 
 pub async fn catalog(s: &EsSession) -> Vec<FunctionInfo> {
-    if s.opensearch || s.opendistro {
+    let mut out = if s.opensearch || s.opendistro {
         plugin_catalog(s).await
     } else {
         elastic_catalog(s).await
+    };
+    out.extend(vector_functions(s.opensearch, s.opendistro, &s.version));
+    out
+}
+
+/// Painless's vector functions on this server (see the module's doc).
+pub fn vector_functions(opensearch: bool, open_distro: bool, version: &str) -> Vec<FunctionInfo> {
+    if open_distro {
+        // The server gives Elasticsearch's version, not the plugin's.
+        return parse_catalog(KNN_PAINLESS, None)
+            .into_iter()
+            .filter(|f| OPENDISTRO_KNN.contains(&f.name.as_str()))
+            .collect();
     }
+    parse_catalog(
+        if opensearch { KNN_PAINLESS } else { PAINLESS },
+        Some(version),
+    )
 }
 
 async fn elastic_catalog(s: &EsSession) -> Vec<FunctionInfo> {
@@ -300,6 +328,52 @@ mod tests {
 
     fn names(c: Vec<FunctionInfo>) -> std::collections::BTreeSet<String> {
         c.into_iter().map(|f| f.name).collect()
+    }
+
+    #[test]
+    fn painless_vector_functions_by_server() {
+        let names = |c: Vec<FunctionInfo>| c.into_iter().map(|f| f.name).collect::<Vec<_>>();
+        let es = vector_functions(false, false, "Elasticsearch 8.15.3");
+        assert!(es
+            .iter()
+            .all(|f| f.language.is_empty() && f.kind == FunctionKind::Scalar));
+        assert_eq!(
+            names(es),
+            [
+                "cosineSimilarity",
+                "dotProduct",
+                "l1norm",
+                "l2norm",
+                "hamming"
+            ]
+        );
+        assert!(
+            !names(vector_functions(false, false, "Elasticsearch 8.14.0"))
+                .contains(&"hamming".to_string())
+        );
+        assert!(vector_functions(false, false, "Elasticsearch 7.2.0").is_empty());
+        assert_eq!(
+            names(vector_functions(true, false, "OpenSearch 2.17.1")),
+            [
+                "l2Squared",
+                "l1Norm",
+                "cosineSimilarity",
+                "lInfNorm",
+                "innerProduct",
+                "hamming"
+            ]
+        );
+        assert_eq!(
+            names(vector_functions(true, false, "OpenSearch 2.11.0")).len(),
+            3
+        );
+        assert_eq!(
+            names(vector_functions(false, true, "Elasticsearch 7.10.2")),
+            ["l2Squared", "l1Norm", "cosineSimilarity"]
+        );
+        for text in [PAINLESS, KNN_PAINLESS] {
+            each_line_parses(text);
+        }
     }
 
     #[test]

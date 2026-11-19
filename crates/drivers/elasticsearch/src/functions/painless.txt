@@ -1,0 +1,9 @@
+# Elasticsearch's Painless vector functions, for `script_score` (the
+# script's `source`, a string in the console's JSON): what the reference
+# documents ("Script score query", vector functions). `since=` is the first
+# release with the form; hamming takes byte and bit vectors.
+s cosineSimilarity(query_vector, field) -> double since=7.3
+s dotProduct(query_vector, field) -> double since=7.3
+s l1norm(query_vector, field) -> double since=7.3
+s l2norm(query_vector, field) -> double since=7.3
+s hamming(query_vector, field) -> double since=8.15

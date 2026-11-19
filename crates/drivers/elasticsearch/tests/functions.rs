@@ -8,7 +8,9 @@
 //! ```
 //!
 //! Each function offered is sent to the server, which must know it. The
-//! tests create one index, `dbine_fn_probe`, and delete it.
+//! tests create one index, `dbine_fn_probe`, and delete it; the Painless
+//! vector functions run in a `script_score` over `dbine_fn_vectors`, also
+//! deleted.
 
 use dbine_driver::functions::{parse_catalog, version_at_least};
 use dbine_driver::{ConnectionConfig, FunctionInfo, FunctionKind};
@@ -16,6 +18,86 @@ use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
 const INDEX: &str = "dbine_fn_probe";
+const VECTORS: &str = "dbine_fn_vectors";
+
+/// The catalog's SQL entries, and its Painless vector functions (no
+/// language: the query DSL's own).
+fn split(all: Vec<FunctionInfo>) -> (Vec<FunctionInfo>, Vec<FunctionInfo>) {
+    all.into_iter().partition(|f| f.language == "sql")
+}
+
+/// Runs every Painless vector function in a `script_score` over a float
+/// vector field (`hamming`, over a byte or binary one): the names the
+/// server didn't know.
+async fn painless_unknown(url: &str, opensearch: bool, functions: &[FunctionInfo]) -> Vec<String> {
+    let base = format!("{url}/{VECTORS}");
+    let _ = call(reqwest::Method::DELETE, &base, None).await;
+    let (mapping, doc) = if opensearch {
+        (
+            json!({ "settings": { "index.knn": true }, "mappings": { "properties": {
+                "v": { "type": "knn_vector", "dimension": 3 },
+                "b": { "type": "knn_vector", "dimension": 16, "data_type": "binary",
+                       "method": { "name": "hnsw", "engine": "faiss", "space_type": "hamming" } } } } }),
+            json!({ "v": [1, 0, 0], "b": [1, 2] }),
+        )
+    } else {
+        (
+            json!({ "mappings": { "properties": {
+                "v": { "type": "dense_vector", "dims": 3 },
+                "b": { "type": "dense_vector", "dims": 2, "element_type": "byte" } } } }),
+            json!({ "v": [1, 0, 0], "b": [1, 2] }),
+        )
+    };
+    // Open Distro has no binary vectors (nor hamming).
+    let mapping = if functions.iter().any(|f| f.name == "hamming") {
+        mapping
+    } else {
+        json!({ "settings": mapping.get("settings").cloned().unwrap_or(json!({})),
+                "mappings": { "properties": { "v": mapping["mappings"]["properties"]["v"].clone() } } })
+    };
+    let (status, body) = call(reqwest::Method::PUT, &base, Some(mapping)).await;
+    assert!(status < 300, "{body}");
+    let doc = if functions.iter().any(|f| f.name == "hamming") {
+        doc
+    } else {
+        json!({ "v": [1, 0, 0] })
+    };
+    let (status, body) = call(
+        reqwest::Method::POST,
+        &format!("{base}/_doc?refresh=true"),
+        Some(doc),
+    )
+    .await;
+    assert!(status < 300, "{body}");
+    let mut unknown = Vec::new();
+    for f in functions {
+        let (field, q) = if f.name == "hamming" {
+            ("b", json!([1, 2]))
+        } else {
+            ("v", json!([1.0, 0.5, 0.0]))
+        };
+        let arg = if opensearch {
+            format!("doc['{field}']")
+        } else {
+            format!("'{field}'")
+        };
+        let source = format!("1 + {}(params.q, {arg})", f.name);
+        let (status, body) = call(
+            reqwest::Method::POST,
+            &format!("{base}/_search"),
+            Some(
+                json!({ "query": { "script_score": { "query": { "match_all": {} },
+                "script": { "source": source, "params": { "q": q } } } } }),
+            ),
+        )
+        .await;
+        if status >= 400 {
+            unknown.push(format!("{source}: {body}"));
+        }
+    }
+    let _ = call(reqwest::Method::DELETE, &base, None).await;
+    unknown
+}
 
 async fn catalog(id: &str, url: &str) -> (String, Vec<FunctionInfo>) {
     let cfg = ConnectionConfig {
@@ -215,7 +297,22 @@ async fn elasticsearch_sql_functions() {
     let Ok(url) = std::env::var("DBINE_TEST_ELASTICSEARCH_URL") else {
         return;
     };
-    let (v, c) = catalog("elasticsearch", &url).await;
+    let (v, all) = catalog("elasticsearch", &url).await;
+    let (c, painless) = split(all);
+    assert_eq!(
+        names(&painless),
+        [
+            "cosineSimilarity",
+            "dotProduct",
+            "hamming",
+            "l1norm",
+            "l2norm"
+        ]
+        .map(String::from)
+        .into()
+    );
+    let unknown = painless_unknown(&url, false, &painless).await;
+    assert!(unknown.is_empty(), "{unknown:#?}");
     let at = |m| version_at_least(&v, m);
     assert!(c.iter().all(|f| f.language == "sql"));
     let have = names(&c);
@@ -288,7 +385,11 @@ async fn opensearch_sql_functions() {
     let Ok(url) = std::env::var("DBINE_TEST_OPENSEARCH_URL") else {
         return;
     };
-    let (v, c) = catalog("opensearch", &url).await;
+    let (v, all) = catalog("opensearch", &url).await;
+    let (c, painless) = split(all);
+    assert!(names(&painless).contains("l2Squared") && names(&painless).contains("hamming"));
+    let unknown = painless_unknown(&url, true, &painless).await;
+    assert!(unknown.is_empty(), "{unknown:#?}");
     let at = |m| version_at_least(&v, m);
     assert!(c.iter().all(|f| f.language == "sql"));
     let have = names(&c);
@@ -325,7 +426,16 @@ async fn opendistro_sql_functions() {
     let Ok(url) = std::env::var("DBINE_TEST_OPENDISTRO_URL") else {
         return;
     };
-    let (_, c) = catalog("opendistro", &url).await;
+    let (_, all) = catalog("opendistro", &url).await;
+    let (c, painless) = split(all);
+    assert_eq!(
+        names(&painless),
+        ["cosineSimilarity", "l1Norm", "l2Squared"]
+            .map(String::from)
+            .into()
+    );
+    let unknown = painless_unknown(&url, true, &painless).await;
+    assert!(unknown.is_empty(), "{unknown:#?}");
     assert!(c.iter().all(|f| f.language == "sql"));
     let have = names(&c);
     // The plugin's own version (1.13.x in the container), not Elasticsearch's.
