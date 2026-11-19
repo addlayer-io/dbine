@@ -109,7 +109,17 @@ async fn exercise(url: &str) {
         ..Default::default()
     };
     let mut s = d.connect(&cfg, None).await.expect("connect");
-    println!("{}", s.server_version().await.unwrap());
+    let version = s.server_version().await.unwrap();
+    println!("{version}");
+    // A standalone server's cores share their configset's schema: each one
+    // gets its own (see the module's doc).
+    let standalone = !version.contains("SolrCloud");
+    let config = |name: &str| {
+        standalone
+            .then(|| ("configSet".to_string(), name.to_string()))
+            .into_iter()
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
     cleanup(&mut s).await;
 
     // 1. The collection, from the designer's model.
@@ -137,6 +147,7 @@ async fn exercise(url: &str) {
             vector: Some(vector.clone()),
             ..Default::default()
         }],
+        options: config(COLL),
         ..Default::default()
     };
     let parts = DdlParts {
@@ -256,6 +267,7 @@ async fn exercise(url: &str) {
     let mut copy = got.clone();
     copy.name = COPY.into();
     copy.options.remove("configSet");
+    copy.options.extend(config(COPY));
     run(&mut s, &d.table_ddl(&copy, parts).unwrap()).await;
     let sink = Arc::new(Mutex::new(Collect::default()));
     let spec = ReadSpec {
