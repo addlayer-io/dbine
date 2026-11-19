@@ -442,81 +442,156 @@ pub(crate) fn typed_pairs(
     }
 }
 
-/// The one table a plain `SELECT … FROM t [WHERE …] [ORDER BY …] [LIMIT
-/// …]` reads (its schema, if named, and name), as written; `None` for a
-/// join, a subquery or anything else. RisingWave's results carry no column
-/// types DBine can read, so its vector columns are found by their table.
-pub(crate) fn single_table(sql: &str) -> Option<(Option<String>, String)> {
+/// The tables a top-level `SELECT` (or `WITH … SELECT`) reads, as written
+/// (their schema, if named, and name): each one named right after `FROM`,
+/// `JOIN` or a comma of a `FROM` list, aliased or not. A subquery or a
+/// function in `FROM` adds none; any other statement reads none.
+/// RisingWave's results carry no column types DBine can read, so its
+/// vector columns are found by the tables read.
+pub(crate) fn read_tables(sql: &str) -> Vec<(Option<String>, String)> {
     let sql = sql.trim().trim_end_matches(';').trim();
-    if !sql.get(..6)?.eq_ignore_ascii_case("select") {
-        return None;
+    let first = sql
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .next()
+        .unwrap_or("");
+    if !first.eq_ignore_ascii_case("select") && !first.eq_ignore_ascii_case("with") {
+        return Vec::new();
     }
-    // ` FROM ` at depth 0, outside quotes.
-    let bytes = sql.as_bytes();
-    let (mut depth, mut quote, mut at) = (0i32, None::<u8>, None);
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        match (quote, b) {
-            (Some(q), c) if c == q => quote = None,
-            (Some(_), _) => {}
-            (None, b'\'' | b'"') => quote = Some(b),
-            (None, b'(') => depth += 1,
-            (None, b')') => depth -= 1,
-            (None, _)
-                if depth == 0
-                    && bytes[i].is_ascii_whitespace()
-                    && sql
-                        .get(i + 1..i + 6)
-                        .is_some_and(|w| w.eq_ignore_ascii_case("from "))
-                    && at.is_none() =>
+    let tokens = top_level_tokens(sql);
+    let mut out = Vec::new();
+    // In a `FROM` list (its commas name tables), and whether the next name
+    // is a table.
+    let (mut in_from, mut expect) = (false, false);
+    for (i, tok) in tokens.iter().enumerate() {
+        match tok {
+            // A keyword: an unquoted word where no name is due (`ONLY` and
+            // `LATERAL` come before one).
+            Token::Name {
+                parts,
+                quoted: false,
+            } if parts.len() == 1
+                && (!expect || matches!(parts[0].as_str(), "only" | "lateral")) =>
             {
-                at = Some(i + 6);
+                match parts[0].as_str() {
+                    "from" => (in_from, expect) = (true, true),
+                    "join" => expect = true,
+                    // `FROM ONLY t`, `FROM LATERAL …`: the name still comes.
+                    "only" | "lateral" => {}
+                    "where" | "group" | "having" | "order" | "limit" | "offset" | "fetch"
+                    | "window" | "union" | "intersect" | "except" | "for" | "returning" => {
+                        (in_from, expect) = (false, false)
+                    }
+                    _ => {}
+                }
             }
-            _ => {}
+            Token::Name { parts, .. } => {
+                // A function in FROM (`generate_series(1, 3)`) is no table.
+                if expect && !matches!(tokens.get(i + 1), Some(Token::Group)) {
+                    let mut parts = parts.clone();
+                    let name = parts.pop().unwrap_or_default();
+                    out.push((parts.pop(), name));
+                }
+                expect = false;
+            }
+            Token::Comma => expect = in_from,
+            Token::Group | Token::Other => expect = false,
         }
-        i += 1;
     }
-    let rest = sql[at?..].trim_start();
-    // An identifier, maybe quoted, maybe qualified.
-    let mut parts: Vec<String> = Vec::new();
-    let mut r = rest;
-    loop {
-        let (part, after) = if let Some(q) = r.strip_prefix('"') {
-            let end = q.find('"')?;
-            (q[..end].to_string(), &q[end + 1..])
+    out
+}
+
+/// A token of SQL outside parentheses and quotes ([`read_tables`]).
+enum Token {
+    /// A name, maybe quoted, maybe qualified (`"public".items`); unquoted
+    /// parts in lower case.
+    Name {
+        parts: Vec<String>,
+        quoted: bool,
+    },
+    Comma,
+    /// A parenthesized group, whole.
+    Group,
+    /// Anything else: a literal, an operator.
+    Other,
+}
+
+/// `sql`'s tokens at depth 0 ([`Token`]).
+fn top_level_tokens(sql: &str) -> Vec<Token> {
+    let chars: Vec<char> = sql.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    let word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    while i < chars.len() {
+        let c = chars[i];
+        if c.is_whitespace() {
+            i += 1;
+        } else if c == ',' {
+            out.push(Token::Comma);
+            i += 1;
+        } else if c == '(' {
+            // The whole group, with its quotes.
+            let (mut depth, mut quote) = (0i32, None::<char>);
+            while i < chars.len() {
+                match (quote, chars[i]) {
+                    (Some(q), x) if x == q => quote = None,
+                    (Some(_), _) => {}
+                    (None, '\'' | '"') => quote = Some(chars[i]),
+                    (None, '(') => depth += 1,
+                    (None, ')') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            i += 1;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            out.push(Token::Group);
+        } else if c == '\'' {
+            i += 1;
+            while i < chars.len() && chars[i] != '\'' {
+                i += 1;
+            }
+            i += 1;
+            out.push(Token::Other);
+        } else if c == '"' || word(c) {
+            // A name: parts joined by dots.
+            let (mut parts, mut quoted) = (Vec::new(), false);
+            loop {
+                if chars.get(i) == Some(&'"') {
+                    let start = i + 1;
+                    let mut end = start;
+                    while end < chars.len() && chars[end] != '"' {
+                        end += 1;
+                    }
+                    parts.push(chars[start..end.min(chars.len())].iter().collect());
+                    quoted = true;
+                    i = end + 1;
+                } else {
+                    let start = i;
+                    while i < chars.len() && word(chars[i]) {
+                        i += 1;
+                    }
+                    let part: String = chars[start..i].iter().collect();
+                    parts.push(part.to_lowercase());
+                }
+                if chars.get(i) == Some(&'.')
+                    && chars.get(i + 1).is_some_and(|&n| n == '"' || word(n))
+                {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            out.push(Token::Name { parts, quoted });
         } else {
-            let end = r
-                .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
-                .unwrap_or(r.len());
-            if end == 0 {
-                return None;
-            }
-            (r[..end].to_ascii_lowercase(), &r[end..])
-        };
-        parts.push(part);
-        match after.strip_prefix('.') {
-            Some(more) => r = more,
-            None => {
-                r = after;
-                break;
-            }
+            out.push(Token::Other);
+            i += 1;
         }
     }
-    let tail = r.trim_start().to_ascii_lowercase();
-    let ends = tail.is_empty()
-        || ["where ", "order ", "limit ", "offset ", "fetch "]
-            .iter()
-            .any(|w| tail.starts_with(w));
-    if !ends {
-        return None;
-    }
-    let name = parts.pop()?;
-    match parts.len() {
-        0 => Some((None, name)),
-        1 => Some((parts.pop(), name)),
-        _ => None,
-    }
+    out
 }
 
 // ------------------------------------------------------------------ indexes
@@ -1903,29 +1978,51 @@ mod tests {
     }
 
     #[test]
-    fn the_table_a_select_reads() {
-        let t = |s: &str| single_table(s);
+    fn the_tables_a_select_reads() {
+        let t = |s: &str| read_tables(s);
+        let named = |n: &str| (None, n.to_string());
+        let qualified = |s: &str, n: &str| (Some(s.to_string()), n.to_string());
         assert_eq!(
             t("SELECT * FROM \"public\".\"items\" LIMIT 100"),
-            Some((Some("public".into()), "items".into()))
+            [qualified("public", "items")]
         );
         assert_eq!(
             t("select id, v from items where id = 1 order by id;"),
-            Some((None, "items".into()))
+            [named("items")]
+        );
+        assert_eq!(t("SELECT v FROM s.Items"), [qualified("s", "items")]);
+        assert_eq!(
+            t("SELECT v FROM s.\"Items\" AS x"),
+            [qualified("s", "Items")]
         );
         assert_eq!(
-            t("SELECT v FROM s.Items"),
-            Some((Some("s".into()), "items".into()))
+            t("SELECT a.id, b.v FROM s.a x JOIN b ON x.id = b.id LEFT OUTER JOIN c USING (id)"),
+            [qualified("s", "a"), named("b"), named("c")]
         );
-        assert_eq!(t("SELECT * FROM a JOIN b ON a.id = b.id"), None);
-        assert_eq!(t("SELECT * FROM a, b"), None);
         assert_eq!(
-            t("SELECT (SELECT 1 FROM x) FROM y"),
-            Some((None, "y".into()))
+            t("SELECT * FROM a, b c, s.d"),
+            [named("a"), named("b"), qualified("s", "d")]
         );
-        assert_eq!(t("SELECT * FROM (SELECT 1) x"), None);
-        assert_eq!(t("SELECT 1"), None);
-        assert_eq!(t("INSERT INTO t SELECT * FROM u"), None);
+        assert_eq!(t("SELECT (SELECT 1 FROM x) FROM y"), [named("y")]);
+        assert_eq!(
+            t("SELECT * FROM (SELECT 1 FROM z) x JOIN y ON true"),
+            [named("y")]
+        );
+        assert_eq!(
+            t("WITH c AS (SELECT v FROM t) SELECT c.v FROM c ORDER BY c.v <-> '[1,2]' LIMIT 3"),
+            [named("c")]
+        );
+        assert_eq!(
+            t("SELECT id, v <-> '[1, 2]' AS d FROM items, generate_series(1, 2) g WHERE v IS NOT NULL GROUP BY id, v"),
+            [named("items")]
+        );
+        assert_eq!(
+            t("SELECT 'from x' FROM \"from\" UNION SELECT v FROM u"),
+            [named("from"), named("u")]
+        );
+        assert!(t("SELECT 1").is_empty());
+        assert!(t("INSERT INTO t SELECT * FROM u").is_empty());
+        assert!(t("selectx FROM u").is_empty());
     }
 
     #[test]

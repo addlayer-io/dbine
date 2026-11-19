@@ -2224,20 +2224,41 @@ impl Shape {
     }
 }
 
-/// RisingWave's vector columns of a plain `SELECT … FROM t`
-/// ([`crate::vectors::single_table`]): the result's columns named as a
-/// `vector(n)` column of `t`, whose cells read as vectors, get their
-/// metadata.
+/// RisingWave's vector columns of a `SELECT` over tables (one, a join, a
+/// `FROM` list; [`crate::vectors::read_tables`]): a result column named
+/// as a `vector(n)` column of the tables read, and as no column of
+/// another type there, whose cells read as vectors of that dimension,
+/// gets its metadata. A computed or renamed vector stays unmarked:
+/// RisingWave can't describe the statement, and the simple protocol's
+/// column types don't reach DBine.
 async fn rw_vectors(client: &Client, sql: &str, r: &mut StatementResult) {
-    let Some((schema, table)) = crate::vectors::single_table(sql) else {
+    let tables = crate::vectors::read_tables(sql);
+    if tables.is_empty() {
         return;
-    };
+    }
     let v = Variant::RisingWave;
-    let schema = schema.map_or_else(|| "current_schema()".to_string(), |s| lit(v, &s));
+    let read = tables
+        .iter()
+        .map(|(schema, table)| {
+            let schema = schema
+                .as_deref()
+                .map_or_else(|| "current_schema()".to_string(), |s| lit(v, s));
+            format!(
+                "(table_schema = {schema} AND table_name = {})",
+                lit(v, table)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let names = r
+        .columns
+        .iter()
+        .map(|c| lit(v, &c.name))
+        .collect::<Vec<_>>()
+        .join(", ");
     let q = format!(
         "SELECT column_name, data_type FROM information_schema.columns
-         WHERE table_schema = {schema} AND table_name = {} AND data_type LIKE 'vector%'",
-        lit(v, &table)
+         WHERE ({read}) AND column_name IN ({names})"
     );
     let rows = match client.simple_query(&q).await {
         Ok(m) => rows(m),
@@ -2246,18 +2267,29 @@ async fn rw_vectors(client: &Client, sql: &str, r: &mut StatementResult) {
             return;
         }
     };
+    // Each name's types among the tables read.
+    let mut types: std::collections::BTreeMap<String, Vec<String>> = Default::default();
     for row in rows {
-        let (Some(name), Some(ty)) = (row.get(0), row.get(1)) else {
+        if let (Some(name), Some(ty)) = (row.get(0), row.get(1)) {
+            types
+                .entry(name.to_string())
+                .or_default()
+                .push(ty.to_string());
+        }
+    }
+    for i in 0..r.columns.len() {
+        let Some(tys) = types.get(&r.columns[i].name) else {
+            continue;
+        };
+        let Some(ty) = tys.first().filter(|t| tys.iter().all(|x| x == *t)) else {
             continue;
         };
         let Some(meta) = crate::vectors::meta_of_type(v, ty) else {
             continue;
         };
-        let Some(i) = r.columns.iter().position(|c| c.name == name) else {
-            continue;
-        };
         let cells_are_vectors = r.rows.iter().all(|row| match row.get(i) {
-            Some(serde_json::Value::String(s)) => dbine_driver::vector::parse(s).is_some(),
+            Some(serde_json::Value::String(s)) => dbine_driver::vector::parse(s)
+                .is_some_and(|x| meta.dims.is_none_or(|n| x.len() == n as usize)),
             Some(serde_json::Value::Null) | None => true,
             _ => false,
         });
