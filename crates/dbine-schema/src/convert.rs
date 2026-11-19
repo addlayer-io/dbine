@@ -341,8 +341,11 @@ fn column(
     }
     let col_name = c.name.as_str();
 
-    // Type.
-    let native = if same_family {
+    // Type. A vector into an engine without vectors, even one of the same
+    // family (pgvector into Redshift, libSQL into SQLite), takes the
+    // family's list of numbers, said.
+    let fallback = !caps.vectors && matches!(logical, LogicalType::Vector { .. });
+    let native = if same_family && !fallback {
         c.data_type.clone()
     } else if let LogicalType::Other { native } = &logical {
         report.push(
@@ -354,7 +357,12 @@ fn column(
         );
         native.clone()
     } else {
-        let r = dst.render_type(&logical);
+        // A family without vectors renders its own fallback.
+        let r = if fallback && dst.caps().vectors {
+            dialect::vector_fallback(dst, &logical)
+        } else {
+            dst.render_type(&logical)
+        };
         for n in r.notes {
             report.push(n.severity, n.code, &t.name, Some(col_name), n.message);
         }
@@ -753,7 +761,7 @@ fn index(
     // A vector index moves only to an engine that has them, on a column
     // that is a vector there too, in its family's terms.
     if ix.vector.is_some() {
-        let why = if !caps.vector_indexes {
+        let why = if !caps.vector_indexes || !caps.vectors {
             Some("el destino no tiene índices vectoriales".to_string())
         } else if !same_family && !matches!(vector_column, Some(LogicalType::Vector { .. })) {
             Some("su columna no es un vector".to_string())

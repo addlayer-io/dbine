@@ -342,6 +342,7 @@ impl Dialect for Spanner {
             max_identifier: 128,
             case: IdentCase::Preserve,
             vector_indexes: true,
+            vectors: true,
         }
     }
 

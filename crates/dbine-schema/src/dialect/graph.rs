@@ -308,6 +308,7 @@ impl Dialect for Cypher {
             max_identifier: 255,
             case: IdentCase::Preserve,
             vector_indexes: self.flavor != Flavor::Neptune,
+            vectors: self.flavor != Flavor::Neptune,
         }
     }
 
@@ -696,6 +697,7 @@ impl Dialect for OrientDb {
             case: IdentCase::Preserve,
             // OrientDB 3.2 has no vector indexes.
             vector_indexes: false,
+            vectors: false,
         }
     }
 }

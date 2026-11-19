@@ -348,6 +348,7 @@ impl Dialect for MsSql {
             max_identifier: 128,
             case: IdentCase::Preserve,
             vector_indexes: true,
+            vectors: true,
         }
     }
 
@@ -492,12 +493,8 @@ impl Dialect for MsSql {
 
 /// T-SQL engines without vectors (Fabric Warehouse, Babelfish): SQL
 /// Server's types and rules, but a vector goes as its numbers in JSON text
-/// (with a warning) and a vector index is left out with the reason.
-///
-/// Not mapped yet: the core (`super::core`) sends `fabric` and `babelfish`
-/// to [`MsSql`]; mapping them here is the one-line change this family asked
-/// for.
-#[allow(dead_code)]
+/// (with a warning) and a vector index is left out with the reason, also
+/// from SQL Server (the same family).
 pub struct MsSqlNoVectors;
 
 impl Dialect for MsSqlNoVectors {
@@ -523,6 +520,7 @@ impl Dialect for MsSqlNoVectors {
     fn caps(&self) -> Caps {
         Caps {
             vector_indexes: false,
+            vectors: false,
             ..MsSql.caps()
         }
     }

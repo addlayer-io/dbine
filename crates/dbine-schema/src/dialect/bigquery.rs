@@ -299,6 +299,7 @@ impl Dialect for BigQuery {
             max_identifier: 300,
             case: IdentCase::Preserve,
             vector_indexes: true,
+            vectors: true,
         }
     }
 

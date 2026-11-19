@@ -328,6 +328,7 @@ impl Dialect for Search {
             max_identifier: 255,
             case: IdentCase::Lower,
             vector_indexes: true,
+            vectors: true,
         }
     }
 

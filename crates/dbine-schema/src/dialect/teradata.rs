@@ -248,6 +248,7 @@ impl Dialect for Teradata {
             max_identifier: 128,
             case: IdentCase::Preserve,
             vector_indexes: false,
+            vectors: false,
         }
     }
 }

@@ -294,6 +294,7 @@ impl Dialect for Sqlite {
             max_identifier: 1024,
             case: IdentCase::Preserve,
             vector_indexes: true,
+            vectors: true,
         }
     }
 

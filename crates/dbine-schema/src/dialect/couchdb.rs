@@ -226,6 +226,7 @@ pub(crate) fn json_caps(max_identifier: usize) -> Caps {
         max_identifier,
         case: IdentCase::Lower,
         vector_indexes: true,
+        vectors: true,
     }
 }
 
@@ -303,7 +304,10 @@ impl Dialect for CouchDb {
     }
 
     fn caps(&self) -> Caps {
-        json_caps(238)
+        Caps {
+            vectors: false,
+            ..json_caps(238)
+        }
     }
 
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {

@@ -263,6 +263,7 @@ impl Dialect for Databend {
             // Unquoted names are folded to lower case.
             case: IdentCase::Lower,
             vector_indexes: true,
+            vectors: true,
         }
     }
 

@@ -468,6 +468,7 @@ impl Dialect for MySql {
             max_identifier: 64,
             case: IdentCase::Preserve,
             vector_indexes: true,
+            vectors: true,
         }
     }
 

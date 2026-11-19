@@ -281,6 +281,7 @@ impl Dialect for TDengine {
             case: IdentCase::Lower,
             // No vector indexes: `convert` leaves them out, said.
             vector_indexes: false,
+            vectors: false,
         }
     }
 

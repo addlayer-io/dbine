@@ -150,6 +150,7 @@ impl Dialect for DynamoDb {
             max_identifier: 255,
             case: IdentCase::Preserve,
             vector_indexes: true,
+            vectors: false,
         }
     }
 

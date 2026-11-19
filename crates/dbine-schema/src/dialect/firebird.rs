@@ -230,6 +230,7 @@ impl Dialect for Firebird {
             max_identifier: 63,
             case: IdentCase::Upper,
             vector_indexes: false,
+            vectors: false,
         }
     }
 

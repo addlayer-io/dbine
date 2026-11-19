@@ -306,6 +306,7 @@ impl Dialect for Phoenix {
             case: IdentCase::Upper,
             // No vector indexes: `convert` leaves them out, said.
             vector_indexes: false,
+            vectors: false,
         }
     }
 

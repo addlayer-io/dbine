@@ -436,6 +436,7 @@ impl Dialect for DuckDb {
             max_identifier: 255,
             case: IdentCase::Preserve,
             vector_indexes: true,
+            vectors: true,
         }
     }
 }

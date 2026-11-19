@@ -379,6 +379,7 @@ impl Dialect for Snowflake {
             // list searched by an index that states its dimension still
             // becomes VECTOR(FLOAT, n).
             vector_indexes: false,
+            vectors: true,
         }
     }
 

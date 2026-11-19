@@ -229,6 +229,7 @@ impl Dialect for Solr {
             max_identifier: 255,
             case: IdentCase::Preserve,
             vector_indexes: true,
+            vectors: true,
         }
     }
 

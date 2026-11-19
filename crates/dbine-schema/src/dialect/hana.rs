@@ -362,6 +362,7 @@ impl Dialect for Hana {
             max_identifier: 127,
             case: IdentCase::Upper,
             vector_indexes: true,
+            vectors: true,
         }
     }
 }

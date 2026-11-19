@@ -193,6 +193,7 @@ impl Dialect for Manticore {
             // Names are case-insensitive and kept in lower case.
             case: IdentCase::Lower,
             vector_indexes: true,
+            vectors: true,
         }
     }
 

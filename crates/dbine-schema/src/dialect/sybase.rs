@@ -411,6 +411,7 @@ impl Dialect for Ase {
             max_identifier: 255,
             case: IdentCase::Preserve,
             vector_indexes: false,
+            vectors: false,
         }
     }
 
@@ -664,6 +665,7 @@ impl Dialect for SqlAnywhere {
             max_identifier: 128,
             case: IdentCase::Preserve,
             vector_indexes: false,
+            vectors: false,
         }
     }
 }

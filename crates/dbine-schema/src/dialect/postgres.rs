@@ -352,6 +352,7 @@ impl Dialect for Postgres {
             max_identifier: 63,
             case: IdentCase::Lower,
             vector_indexes: true,
+            vectors: true,
         }
     }
 

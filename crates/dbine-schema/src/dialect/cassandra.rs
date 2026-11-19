@@ -253,7 +253,15 @@ impl Cql {
             return super::vector_fallback(self, t);
         };
         if !self.vectors {
-            return super::vector_fallback(self, t);
+            let list = super::vector_fallback(self, t).native;
+            return Rendered::exact(list.clone()).with(
+                Warning,
+                TypeApproximated,
+                format!(
+                    "Amazon Keyspaces no tiene vectores: {} pasa a {list}, sin la dimensión.",
+                    t.describe()
+                ),
+            );
         }
         if self.scylla && *n > SCYLLA_MAX_DIMS {
             return Rendered::exact("list<float>").with(
@@ -795,6 +803,7 @@ impl Dialect for Cql {
             max_identifier: 48,
             case: IdentCase::Lower,
             vector_indexes: self.vectors,
+            vectors: self.vectors,
         }
     }
 
@@ -1880,7 +1889,9 @@ mod tests {
             "scylladb",
         );
         assert_eq!(t.indexes.len(), 1);
-        // Keyspaces has no vectors: a list, said, and no index.
+        // Keyspaces has no vectors: a list, said (by the conversion, which
+        // takes the family's list for a vector within the family too), and
+        // no index.
         let (t, issues) = one(
             source("vector<float, 3>", "sai", Some("cosine")),
             "cassandra",
@@ -1889,11 +1900,10 @@ mod tests {
         assert_eq!(t.columns[1].data_type, "list<float>");
         assert!(t.indexes.is_empty());
         assert!(
-            has(
-                &issues,
-                IssueCode::TypeApproximated,
-                &["Keyspaces", "emb", "vector<float, 3>"]
-            ),
+            issues.iter().any(|i| i.code == IssueCode::TypeApproximated
+                && i.object.as_deref() == Some("emb")
+                && i.message.contains("Keyspaces")
+                && i.message.contains("list<float>")),
             "{issues:?}"
         );
         // A frozen vector in a key stays frozen as a list.

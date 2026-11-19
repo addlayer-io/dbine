@@ -808,6 +808,7 @@ impl Dialect for Olap {
             max_identifier: 64,
             case: IdentCase::Preserve,
             vector_indexes: true,
+            vectors: true,
         }
     }
 

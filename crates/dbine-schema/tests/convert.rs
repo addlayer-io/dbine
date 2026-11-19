@@ -737,3 +737,101 @@ fn conversions_take_the_target_driver_s_caps() {
         assert!(target_caps(driver(id)).unwrap().vector_indexes, "{id}");
     }
 }
+
+/// A vector moving into an engine of its family without vectors takes the
+/// family's list of numbers, said, and its vector index is left out.
+#[test]
+fn vectors_into_engines_of_the_family_without_them() {
+    use dbine_driver::VectorIndex;
+    let driver = |id: &str| &**dbine_drivers::find(id).unwrap();
+    let opts = |id: &str| Options::default().for_target(driver(id));
+    let docs = |ty: &str, kind: &str| {
+        let mut t = table(
+            "docs",
+            vec![not_null(col("id", "integer")), col("emb", ty)],
+            &["id"],
+        );
+        t.indexes.push(IndexDef {
+            name: "docs_emb".into(),
+            columns: vec!["emb".into()],
+            kind: Some(kind.into()),
+            vector: Some(VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        vec![t]
+    };
+    let approximated = |r: &dbine_schema::Conversion| {
+        r.issues.iter().any(|i| {
+            i.code == IssueCode::TypeApproximated
+                && i.object.as_deref() == Some("emb")
+                && i.message.contains("vectorial")
+        })
+    };
+    let no_vector_index = |r: &dbine_schema::Conversion| {
+        r.tables[0].indexes.is_empty()
+            && r.issues.iter().any(|i| {
+                i.code == IssueCode::IndexDropped && i.object.as_deref() == Some("docs_emb")
+            })
+    };
+    for to in [
+        "materialize",
+        "h2",
+        "yellowbrick",
+        "redshift",
+        "denodo",
+        "dsql",
+    ] {
+        let r = convert(&docs("vector(3)", "hnsw"), "postgres", to, &opts(to)).unwrap();
+        assert_eq!(ty(&r.tables[0], "emb"), "real[]", "{to}");
+        assert!(approximated(&r), "{to}: {:?}", r.issues);
+        assert!(no_vector_index(&r), "{to}: {:?}", r.issues);
+    }
+    // Without the driver, the family's caps keep it.
+    let r = convert(
+        &docs("vector(3)", "hnsw"),
+        "postgres",
+        "h2",
+        &Options::default(),
+    )
+    .unwrap();
+    assert_eq!(ty(&r.tables[0], "emb"), "vector(3)");
+    // Into an engine of the family with vectors it stays.
+    for to in ["postgres", "timescaledb", "yugabytedb"] {
+        let r = convert(&docs("vector(3)", "hnsw"), "postgres", to, &opts(to)).unwrap();
+        assert_eq!(ty(&r.tables[0], "emb"), "vector(3)", "{to}");
+        assert_eq!(r.tables[0].indexes.len(), 1, "{to}: {:?}", r.issues);
+    }
+    // libSQL into SQLite.
+    let r = convert(
+        &docs("F32_BLOB(3)", "vector"),
+        "libsql",
+        "sqlite",
+        &opts("sqlite"),
+    )
+    .unwrap();
+    assert_ne!(ty(&r.tables[0], "emb"), "F32_BLOB(3)");
+    assert!(approximated(&r), "{:?}", r.issues);
+    assert!(no_vector_index(&r), "{:?}", r.issues);
+    let r = convert(
+        &docs("F32_BLOB(3)", "vector"),
+        "libsql",
+        "libsql",
+        &opts("libsql"),
+    )
+    .unwrap();
+    assert_eq!(ty(&r.tables[0], "emb"), "F32_BLOB(3)");
+    // SQL Server into Fabric and Babelfish: their dialect has no vectors,
+    // with the driver or without it.
+    for to in ["fabric", "babelfish"] {
+        for o in [opts(to), Options::default()] {
+            let r = convert(&docs("vector(3)", "vector"), "sqlserver", to, &o).unwrap();
+            assert_ne!(ty(&r.tables[0], "emb"), "vector(3)", "{to}");
+            assert!(approximated(&r), "{to}: {:?}", r.issues);
+            assert!(r.tables[0].indexes.is_empty(), "{to}");
+        }
+    }
+}

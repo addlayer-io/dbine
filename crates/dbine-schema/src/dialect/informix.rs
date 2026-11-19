@@ -278,6 +278,7 @@ impl Dialect for Informix {
             max_identifier: 128,
             case: IdentCase::Lower,
             vector_indexes: false,
+            vectors: false,
         }
     }
 

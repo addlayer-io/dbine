@@ -490,6 +490,7 @@ impl Dialect for Db2 {
             },
             case: IdentCase::Upper,
             vector_indexes: false,
+            vectors: self.platform == Platform::Luw,
         }
     }
 }

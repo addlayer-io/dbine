@@ -107,6 +107,7 @@ impl Dialect for PowerBi {
             case: IdentCase::Preserve,
             // A semantic model has no vectors (and takes no tables).
             vector_indexes: false,
+            vectors: false,
         }
     }
 
