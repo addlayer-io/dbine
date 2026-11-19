@@ -19,9 +19,12 @@
 //! `copy_to`…) travel in the column's `extra` JSON.
 //!
 //! Vector fields are typed with their dimension (`dense_vector(1536)`,
-//! `knn_vector(768, byte)`) and their ANN index is a vector index of the
-//! designer, named after the field (see [`crate::vectors`]): every other
-//! index is refused, since each field is indexed by its own mapping.
+//! `knn_vector(768, byte)`, the multi-vector `rank_vectors(128)`) and their
+//! ANN index is a vector index of the designer, named after the field (see
+//! [`crate::vectors`]): every other index is refused, since each field is
+//! indexed by its own mapping. A `dense_vector` without a vector index is
+//! written `index: false`, so it reads back the same. `semantic_text`
+//! takes its `inference_id` in the extra JSON.
 
 use crate::json::{Obj, J};
 use crate::vectors::{self, VecType};
@@ -94,6 +97,11 @@ pub(crate) fn designer(flavor: Flavor) -> DesignerSpec {
             "dense_vector(1536, byte)",
             "dense_vector(1024, bit)",
             "sparse_vector",
+            // Elasticsearch embeds its text with the inference endpoint
+            // given as {"inference_id": …} in the extra JSON (8.15+).
+            "semantic_text",
+            // Several vectors per document, searched by MaxSim (8.18+).
+            "rank_vectors(128)",
             "version",
             "histogram",
         ]),
@@ -398,17 +406,30 @@ pub(crate) fn field_mapping(c: &ColumnDef, flavor: Flavor, ix: Option<&IndexDef>
     if let Some(a) = opt(&c.options, "analyzer") {
         m.push(("analyzer".into(), J::Str(a.to_string())));
     }
+    let dense = vt.as_ref().filter(|t| t.base == "dense_vector");
     for key in ["index", "doc_values"] {
-        if let Some(b) = bool_opt(&c.options, key, &what(key))? {
-            if key == "index" && ix.is_some() {
-                if b == J::Bool(false) {
-                    return Err(Error::Query(format!(
-                        "Campo {}: tiene un índice vectorial y la opción «Indexado» en No.",
-                        c.name
-                    )));
-                }
-                continue;
+        let b = bool_opt(&c.options, key, &what(key))?;
+        if key == "index" && ix.is_some() {
+            if b == Some(J::Bool(false)) {
+                return Err(Error::Query(format!(
+                    "Campo {}: tiene un índice vectorial y la opción «Indexado» en No.",
+                    c.name
+                )));
             }
+            continue;
+        }
+        if let (Some(t), "index") = (dense, key) {
+            // Without a vector index of its own a dense vector isn't
+            // indexed (Elasticsearch 8.11+ would build its default one),
+            // unless «Indexado» asks for the engine's index.
+            if b == Some(J::Bool(true)) {
+                vectors::write_index(flavor, &mut m, &IndexDef::default(), t)?;
+            } else {
+                m.push(("index".into(), J::Bool(false)));
+            }
+            continue;
+        }
+        if let Some(b) = b {
             m.push((key.into(), b));
         }
     }
@@ -547,7 +568,7 @@ pub(crate) fn table_vector_indexes(
             .map(vector_type)
             .transpose()?
             .flatten()
-            .filter(|v| !v.sparse);
+            .filter(|v| !v.sparse && !v.multi);
         let Some(vt) = vt else {
             return Err(Error::Query(format!(
                 "El índice vectorial «{name}» es sobre «{col}», que no es un campo {}.",
@@ -572,25 +593,20 @@ fn knn_on(settings: &Obj) -> bool {
 }
 
 /// The vector index OpenSearch needs for a byte or binary `knn_vector`
-/// with k-NN on: Lucene's HNSW for bytes, Faiss's with Hamming for bits
-/// (the only engines that take them).
-fn implicit_os_index(c: &ColumnDef) -> Result<Option<IndexDef>> {
+/// with k-NN on: the engine's own for that element (Lucene for bytes,
+/// Faiss with Hamming for bits, see [`vectors::write_index`]), since the
+/// server's default engine can't take them.
+pub(crate) fn implicit_os_index(c: &ColumnDef) -> Result<Option<IndexDef>> {
     let Some(t) = vector_type(c)?.filter(|t| t.base == "knn_vector") else {
         return Ok(None);
     };
-    let (engine, metric) = match t.elem {
-        vectors::Elem::Byte => ("lucene", None),
-        vectors::Elem::Bit => ("faiss", Some(dbine_driver::vector::metric::HAMMING)),
-        _ => return Ok(None),
-    };
+    if !matches!(t.elem, vectors::Elem::Byte | vectors::Elem::Bit) {
+        return Ok(None);
+    }
     Ok(Some(IndexDef {
         name: c.name.trim().to_string(),
         columns: vec![c.name.trim().to_string()],
-        vector: Some(dbine_driver::VectorIndex {
-            algorithm: Some("hnsw".into()),
-            metric: metric.map(Into::into),
-            params: [("engine".to_string(), engine.to_string())].into(),
-        }),
+        vector: Some(dbine_driver::VectorIndex::default()),
         ..Default::default()
     }))
 }
@@ -1611,7 +1627,11 @@ mod tests {
             p["tags"],
             json!({"type": "nested", "properties": {"label": {"type": "keyword"}}})
         );
-        assert_eq!(p["vec"], json!({"type": "dense_vector", "dims": 3}));
+        // No vector index: not indexed.
+        assert_eq!(
+            p["vec"],
+            json!({"type": "dense_vector", "dims": 3, "index": false})
+        );
         assert!(p.get("_id").is_none());
 
         let mut t = books();
@@ -2098,22 +2118,59 @@ mod tests {
             create_body(&back, Flavor::Elastic)["mappings"],
             body["mappings"]
         );
-        // A byte vector without a vector index: the engine's default.
+        // A byte vector without a vector index: not indexed (8.11+ would
+        // build its default one), and read back the same.
         let t = vector_table("dense_vector(4, byte)", None);
+        let body = create_body(&t, Flavor::Elastic);
         assert_eq!(
-            create_body(&t, Flavor::Elastic)["mappings"]["properties"]["emb"],
-            json!({"type": "dense_vector", "dims": 4, "element_type": "byte"})
+            body["mappings"]["properties"]["emb"],
+            json!({"type": "dense_vector", "dims": 4, "element_type": "byte", "index": false})
         );
-        // Not indexed: read back with "Indexado" off and no vector index.
+        let back = index_schema(
+            "docs",
+            &J::parse(&body.to_string()).unwrap(),
+            Flavor::Elastic,
+        );
+        assert!(back.indexes.is_empty());
+        let emb = back.columns.iter().find(|c| c.name == "emb").unwrap();
+        assert_eq!(
+            (emb.data_type.as_str(), emb.options.is_empty()),
+            ("dense_vector(4, byte)", true)
+        );
+        // «Indexado» on without a vector index: the engine's index, with
+        // its distance (8.0–8.10 require one), listed as a vector index.
+        let mut on = vector_table("dense_vector(3)", None);
+        on.columns[1].options.insert("index".into(), "true".into());
+        let body = create_body(&on, Flavor::Elastic);
+        assert_eq!(
+            body["mappings"]["properties"]["emb"],
+            json!({"type": "dense_vector", "dims": 3, "index": true, "similarity": "cosine"})
+        );
+        let back = index_schema(
+            "docs",
+            &J::parse(&body.to_string()).unwrap(),
+            Flavor::Elastic,
+        );
+        assert_eq!(back.indexes[0].vector, Some(vi(None, Some("cosine"), &[])));
+        assert!(back.columns[1].options.is_empty());
+        // Bits: the engine's only distance.
+        let mut bits = vector_table("dense_vector(16, bit)", Some(vi(None, None, &[])));
+        bits.indexes[0].vector = Some(vi(Some("hnsw"), None, &[]));
+        assert_eq!(
+            create_body(&bits, Flavor::Elastic)["mappings"]["properties"]["emb"],
+            json!({"type": "dense_vector", "dims": 16, "element_type": "bit", "index": true, "similarity": "l2_norm"})
+        );
+        // Not indexed, as the server gives it: no vector index, no option.
         let got = J::parse(
             r#"{"mappings":{"properties":{"emb":{"type":"dense_vector","dims":3,"index":false}}}}"#,
         )
         .unwrap();
         let s = index_schema("docs", &got, Flavor::Elastic);
         assert!(s.indexes.is_empty());
-        assert_eq!(
-            s.columns[0].options.get("index").map(String::as_str),
-            Some("false")
+        assert!(
+            s.columns[0].options.is_empty(),
+            "{:?}",
+            s.columns[0].options
         );
         assert_eq!(
             create_body(&s, Flavor::Elastic)["mappings"]["properties"]["emb"],
@@ -2279,6 +2336,94 @@ mod tests {
             Flavor::OpenDistro
         )
         .is_err());
+    }
+
+    #[test]
+    fn semantic_text_and_rank_vectors() {
+        let es = designer(Flavor::Elastic);
+        assert!(es.data_types.contains(&"semantic_text"));
+        assert!(es.data_types.contains(&"rank_vectors(128)"));
+        let mut t = vector_table("rank_vectors(4, byte)", None);
+        t.columns.push(col(
+            "body",
+            "semantic_text",
+            &[("extra", r#"{"inference_id":"my-elser"}"#)],
+        ));
+        let body = create_body(&t, Flavor::Elastic);
+        let p = &body["mappings"]["properties"];
+        assert_eq!(
+            p["emb"],
+            json!({"type": "rank_vectors", "dims": 4, "element_type": "byte"})
+        );
+        assert_eq!(
+            p["body"],
+            json!({"type": "semantic_text", "inference_id": "my-elser"})
+        );
+        let back = index_schema(
+            "docs",
+            &J::parse(&body.to_string()).unwrap(),
+            Flavor::Elastic,
+        );
+        let emb = back.columns.iter().find(|c| c.name == "emb").unwrap();
+        assert_eq!(emb.data_type, "rank_vectors(4, byte)");
+        assert!(emb.options.is_empty(), "{:?}", emb.options);
+        assert!(back.indexes.is_empty());
+        let b = back.columns.iter().find(|c| c.name == "body").unwrap();
+        assert_eq!(b.data_type, "semantic_text");
+        assert_eq!(
+            b.options.get("extra").map(String::as_str),
+            Some(r#"{"inference_id":"my-elser"}"#)
+        );
+        // No ANN index on a multi-vector field.
+        let t = vector_table("rank_vectors(4)", Some(vi(None, None, &[])));
+        assert!(index_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+            Flavor::Elastic
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn opensearch_byte_and_binary_indexes_naming_no_engine() {
+        // The designer's engine field left empty.
+        let mut t = vector_table(
+            "knn_vector(1536, byte)",
+            Some(vi(Some("hnsw"), Some("l2"), &[("m", "16")])),
+        );
+        t.columns.push(col("bits", "knn_vector(1024, binary)", &[]));
+        t.indexes.push(IndexDef {
+            name: "bits_idx".into(),
+            columns: vec!["bits".into()],
+            vector: Some(vi(Some("hnsw"), None, &[("ef_construction", "100")])),
+            ..Default::default()
+        });
+        let body = create_body(&t, Flavor::OpenSearch);
+        let p = &body["mappings"]["properties"];
+        assert_eq!(
+            p["emb"]["method"],
+            json!({"name": "hnsw", "space_type": "l2", "engine": "lucene", "parameters": {"m": 16}})
+        );
+        assert_eq!(
+            p["bits"]["method"],
+            json!({"name": "hnsw", "space_type": "hamming", "engine": "faiss", "parameters": {"ef_construction": 100}})
+        );
+        // The designer's first distance (l2) on bits: refused with why.
+        t.indexes[1].vector = Some(vi(Some("hnsw"), Some("l2"), &[]));
+        let e = index_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+            Flavor::OpenSearch,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("hamming"), "{e}");
     }
 
     #[test]

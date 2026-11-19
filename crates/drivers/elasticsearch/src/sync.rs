@@ -8,11 +8,12 @@
 //!
 //! A vector field's ANN index (its vector index) is part of its mapping: a
 //! new field gets it in the same update, and changing or dropping one on
-//! an existing field needs a reindex, so it warns.
+//! an existing field needs a reindex, so it warns. Settings left to the
+//! engine match what it chose ([`vectors::same_index`]).
 
 use crate::ddl::{
-    analysis_opt, check_index_name, field_mapping, index_ddl, json_obj_opt, opt, put_field,
-    table_vector_indexes, vector_index_of, MAPPINGS_EXTRA, META_FIELDS,
+    analysis_opt, check_index_name, field_mapping, implicit_os_index, index_ddl, json_obj_opt, opt,
+    put_field, table_vector_indexes, vector_index_of, vector_type, MAPPINGS_EXTRA, META_FIELDS,
 };
 use crate::json::{Obj, J};
 use crate::{vectors, Flavor};
@@ -102,13 +103,28 @@ fn alter(
     // Where a field's ANN index lives: Open Distro's are the index's own
     // settings, OpenSearch's need `index.knn`, both fixed at creation.
     let knn_on = |t: &TableSchema| opt(&t.options, "knn") == Some("true");
-    let od_of = |t: &TableSchema| -> Result<Option<String>> {
+    // Open Distro's k-NN settings, its defaults filled in (l2, m 16,
+    // ef_construction 512).
+    let od_of = |t: &TableSchema| -> Result<Option<Vec<(String, String)>>> {
         let ixs = table_vector_indexes(t, flavor)?;
         if ixs.is_empty() {
             return Ok(None);
         }
         let pairs: Vec<(&IndexDef, &vectors::VecType)> = ixs.iter().map(|(i, v)| (*i, v)).collect();
-        Ok(Some(J::Obj(vectors::od_settings(&pairs)?).compact()))
+        let set = vectors::od_settings(&pairs)?;
+        let mut out: Vec<(String, String)> = [
+            ("knn.space_type", "l2"),
+            ("knn.algo_param.m", "16"),
+            ("knn.algo_param.ef_construction", "512"),
+        ]
+        .iter()
+        .map(|(k, d)| {
+            let v = set.iter().find(|(x, _)| x == k).map(|(_, v)| v.text());
+            (k.to_string(), v.unwrap_or_else(|| d.to_string()))
+        })
+        .collect();
+        out.sort();
+        Ok(Some(out))
     };
     if flavor == Flavor::OpenDistro {
         let (o, n) = (od_of(old)?, od_of(new)?);
@@ -119,9 +135,16 @@ fn alter(
         }
     }
     // The vector index a field gets in the update, if the index can take it.
-    let index_for = |c: &ColumnDef, warnings: &mut Vec<String>| -> Option<IndexDef> {
-        let ix = vector_of(new, c)?;
-        match flavor {
+    let index_for = |c: &ColumnDef, warnings: &mut Vec<String>| -> Result<Option<IndexDef>> {
+        let Some(ix) = vector_of(new, c) else {
+            // In a k-NN index OpenSearch indexes every knn_vector, and its
+            // default engine takes floats only.
+            return match flavor {
+                Flavor::OpenSearch if knn_on(old) => implicit_os_index(c),
+                _ => Ok(None),
+            };
+        };
+        Ok(match flavor {
             Flavor::OpenDistro => None,
             Flavor::OpenSearch if !knn_on(old) => {
                 warnings.push(format!(
@@ -131,7 +154,21 @@ fn alter(
                 None
             }
             _ => Some(ix),
-        }
+        })
+    };
+    // Whether a field's vector index changed, the engine's defaults filled
+    // in (what the designer leaves empty is what the server chose).
+    let index_changed = |o: &ColumnDef, n: &ColumnDef| -> Result<bool> {
+        let Some(t) = vector_type(n)? else {
+            return Ok(false);
+        };
+        Ok(!vectors::same_index(
+            flavor,
+            vector_of(old, o).as_ref(),
+            vector_of(new, n).as_ref(),
+            &t,
+            knn_on(old),
+        ))
     };
     // Analysis (analyzers, tokenizers, filters…): only on a closed index,
     // and before the fields that use it.
@@ -178,7 +215,7 @@ fn alter(
                         }
                     }
                 }
-                let ix = index_for(n, warnings);
+                let ix = index_for(n, warnings)?;
                 put.push((n.clone(), ix));
             }
             Some(o) if ty(&o) != ty(n) => warnings.push(format!(
@@ -189,11 +226,7 @@ fn alter(
                 "{name}.{}: la mayoría de los parámetros de un campo (analizador, formato, index…) no se cambian sin reindexar; se deja como está.",
                 n.name
             )),
-            Some(o)
-                if flavor != Flavor::OpenDistro
-                    && params(&o, flavor, vector_of(old, &o).as_ref())?
-                        != params(n, flavor, vector_of(new, n).as_ref())? =>
-            {
+            Some(o) if flavor != Flavor::OpenDistro && index_changed(&o, n)? => {
                 warnings.push(format!(
                     "{name}.{}: el índice vectorial de un campo (distancia, algoritmo, parámetros) no se cambia ni se quita sin reindexar en uno nuevo; se deja como está.",
                     n.name
@@ -516,10 +549,11 @@ mod tests {
             Flavor::Elastic,
         )
         .unwrap();
+        // HNSW parameters without a quantization: the engine's (int8).
         assert_eq!(
             mapping(&s),
             serde_json::json!({"properties": {"emb": {"type": "dense_vector", "dims": 3, "index": true,
-                "similarity": "cosine", "index_options": {"type": "hnsw", "m": 16}}}})
+                "similarity": "cosine", "index_options": {"type": "int8_hnsw", "m": 16}}}})
         );
         assert!(s.warnings.is_empty(), "{:?}", s.warnings);
         // Its index changed or dropped: a reindex, so it only warns.
@@ -617,6 +651,171 @@ mod tests {
             Flavor::Elastic
         )
         .is_err());
+    }
+
+    /// A vector index as the server reads it back.
+    fn described(ty: &str, vi: dbine_driver::VectorIndex, options: &[(&str, &str)]) -> TableSchema {
+        let mut t = with_vector(ty, "cosine");
+        t.indexes[0].vector = Some(vi);
+        t.indexes[0].options = options
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        t
+    }
+
+    fn vix(
+        alg: Option<&str>,
+        metric: Option<&str>,
+        params: &[(&str, &str)],
+    ) -> dbine_driver::VectorIndex {
+        dbine_driver::VectorIndex {
+            algorithm: alg.map(Into::into),
+            metric: metric.map(Into::into),
+            params: params
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    fn warnings(old: TableSchema, new: TableSchema, flavor: Flavor) -> Vec<String> {
+        let s = sync_script(&[TableChange::Alter { old, new }], flavor).unwrap();
+        assert!(s.statements.is_empty(), "{:?}", s.statements);
+        s.warnings
+    }
+
+    #[test]
+    fn what_the_engine_chose_matches_what_was_left_empty() {
+        // Elasticsearch 8.15 reads back its defaults: int8 HNSW, m 16, ef 100.
+        let server = described(
+            "dense_vector(3)",
+            vix(
+                Some("hnsw"),
+                Some("cosine"),
+                &[
+                    ("m", "16"),
+                    ("ef_construction", "100"),
+                    ("quantization", "int8"),
+                ],
+            ),
+            &[("similarity", "cosine")],
+        );
+        let mut designer = server.clone();
+        designer.indexes[0].vector = Some(vix(Some("hnsw"), Some("cosine"), &[]));
+        designer.indexes[0].options.clear();
+        assert!(warnings(server.clone(), designer.clone(), Flavor::Elastic).is_empty());
+        // Nothing chosen but the index: cosine, the engine's.
+        designer.indexes[0].vector = Some(vix(None, None, &[]));
+        assert!(warnings(server.clone(), designer.clone(), Flavor::Elastic).is_empty());
+        // What does differ still warns: another distance, another m, none.
+        designer.indexes[0].vector = Some(vix(None, Some("l2"), &[]));
+        assert_eq!(
+            warnings(server.clone(), designer.clone(), Flavor::Elastic).len(),
+            1
+        );
+        designer.indexes[0].vector = Some(vix(None, None, &[("m", "32")]));
+        assert_eq!(
+            warnings(server.clone(), designer.clone(), Flavor::Elastic).len(),
+            1
+        );
+        designer.indexes.clear();
+        assert_eq!(warnings(server.clone(), designer, Flavor::Elastic).len(), 1);
+        // max_inner_product and dot_product are both `ip`, but not the same.
+        let mip = described(
+            "dense_vector(3)",
+            vix(Some("hnsw"), Some("ip"), &[]),
+            &[("similarity", "max_inner_product")],
+        );
+        let mut dot = mip.clone();
+        dot.indexes[0]
+            .options
+            .insert("similarity".into(), "dot_product".into());
+        assert!(warnings(mip.clone(), mip.clone(), Flavor::Elastic).is_empty());
+        assert_eq!(warnings(mip, dot, Flavor::Elastic).len(), 1);
+
+        // OpenSearch k-NN index: a knn_vector without a vector index has
+        // the engine's (l2, m 16, ef 100), whichever engine it is.
+        let mut os_server = described(
+            "knn_vector(3)",
+            vix(
+                Some("hnsw"),
+                Some("l2"),
+                &[("engine", "faiss"), ("m", "16")],
+            ),
+            &[],
+        );
+        os_server.options.insert("knn".into(), "true".into());
+        let mut none = os_server.clone();
+        none.indexes.clear();
+        assert!(warnings(os_server.clone(), none.clone(), Flavor::OpenSearch).is_empty());
+        let mut cos = os_server.clone();
+        cos.indexes[0].vector = Some(vix(None, Some("cosine"), &[]));
+        assert_eq!(warnings(os_server, cos, Flavor::OpenSearch).len(), 1);
+        // Open Distro: its index settings, defaults filled in.
+        let mut od_server = described("knn_vector(3)", vix(Some("hnsw"), Some("l2"), &[]), &[]);
+        od_server.options.insert("knn".into(), "true".into());
+        let mut od_designer = od_server.clone();
+        od_designer.indexes[0].vector = Some(vix(
+            Some("hnsw"),
+            Some("l2"),
+            &[("m", "16"), ("ef_construction", "512")],
+        ));
+        assert!(warnings(od_server, od_designer, Flavor::OpenDistro).is_empty());
+    }
+
+    #[test]
+    fn opensearch_byte_and_binary_fields_get_their_engine() {
+        // A new byte or binary field of an existing k-NN index, with or
+        // without a vector index naming no engine.
+        let mut old = idx();
+        old.options.insert("knn".into(), "true".into());
+        let mut new = old.clone();
+        new.columns.push(col("b", "knn_vector(4, byte)"));
+        new.columns.push(col("bits", "knn_vector(16, binary)"));
+        new.columns.push(col("bi", "knn_vector(4, byte)"));
+        new.indexes.push(IndexDef {
+            name: "bi".into(),
+            columns: vec!["bi".into()],
+            vector: Some(vix(Some("hnsw"), Some("cosine"), &[("m", "8")])),
+            ..Default::default()
+        });
+        let s = sync_script(
+            &[TableChange::Alter {
+                old: old.clone(),
+                new,
+            }],
+            Flavor::OpenSearch,
+        )
+        .unwrap();
+        let p = &mapping(&s)["properties"];
+        assert_eq!(
+            p["b"]["method"],
+            serde_json::json!({"name": "hnsw", "engine": "lucene"})
+        );
+        assert_eq!(
+            p["bits"]["method"],
+            serde_json::json!({"name": "hnsw", "space_type": "hamming", "engine": "faiss"})
+        );
+        assert_eq!(
+            p["bi"]["method"],
+            serde_json::json!({"name": "hnsw", "space_type": "cosinesimil", "engine": "lucene", "parameters": {"m": 8}})
+        );
+        // Without k-NN, no method at all.
+        let mut plain = idx();
+        plain.columns.push(col("b", "knn_vector(4, byte)"));
+        let s = sync_script(
+            &[TableChange::Alter {
+                old: idx(),
+                new: plain,
+            }],
+            Flavor::OpenSearch,
+        )
+        .unwrap();
+        assert_eq!(
+            mapping(&s)["properties"]["b"],
+            serde_json::json!({"type": "knn_vector", "dimension": 4, "data_type": "byte"})
+        );
     }
 
     #[test]

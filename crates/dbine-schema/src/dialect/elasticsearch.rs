@@ -79,6 +79,9 @@ fn field_type(name: &str) -> L {
     match name {
         "text" | "match_only_text" | "search_as_you_type" | "completion" | "wildcard"
         | "keyword" | "constant_keyword" | "version" => L::Text { unicode: true },
+        // Text whose embeddings Elasticsearch computes itself: the text is
+        // what other engines can take.
+        "semantic_text" => L::Text { unicode: true },
         "long" => L::int(8),
         "integer" | "token_count" => L::int(4),
         "short" => L::int(2),
@@ -115,9 +118,11 @@ fn field_type(name: &str) -> L {
             srid: Some(4326),
             geography: true,
         },
+        // `rank_vectors` holds several vectors per document: an array of
+        // arrays, not one vector.
         "object" | "nested" | "flattened" | "flat_object" | "sparse_vector" | "rank_features"
-        | "histogram" | "percolator" | "integer_range" | "long_range" | "float_range"
-        | "double_range" | "date_range" | "ip_range" => L::Json { binary: true },
+        | "rank_vectors" | "histogram" | "percolator" | "integer_range" | "long_range"
+        | "float_range" | "double_range" | "date_range" | "ip_range" => L::Json { binary: true },
         _ => L::Other {
             native: name.to_string(),
         },
@@ -575,6 +580,9 @@ mod tests {
         assert_eq!(p("nested"), L::Json { binary: true });
         assert!(matches!(p("geo_point"), L::Geometry { .. }));
         assert!(matches!(p("alias"), L::Other { .. }));
+        assert_eq!(p("semantic_text"), L::Text { unicode: true });
+        assert_eq!(p("rank_vectors(128)"), L::Json { binary: true });
+        assert_eq!(p("rank_vectors(128, byte)"), L::Json { binary: true });
     }
 
     #[test]

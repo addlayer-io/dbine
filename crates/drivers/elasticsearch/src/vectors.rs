@@ -2,7 +2,9 @@
 //! the pieces of them the Solr driver shares.
 //!
 //! - **Types.** Elasticsearch `dense_vector` (`dims`, `element_type` float,
-//!   byte, bit or bfloat16) and `sparse_vector`; OpenSearch and Open Distro
+//!   byte, bit or bfloat16), `sparse_vector` and the multi-vector
+//!   `rank_vectors` (8.18+: several vectors per document, so its cells keep
+//!   their JSON and it has no ANN index); OpenSearch and Open Distro
 //!   `knn_vector` (`dimension`, OpenSearch's `data_type` float, byte or
 //!   binary). DBine spells a vector field's type with its dimension and
 //!   element (`dense_vector(1536)`, `dense_vector(1536, byte)`,
@@ -24,10 +26,13 @@
 //!     `knn.algo_param.*`, shared by all its vector fields (its k-NN plugin
 //!     has no `method`).
 //!
-//!   A vector field without a vector index gets the engine's default
-//!   (Elasticsearch 8.11+ indexes it; OpenSearch only with `index.knn`).
-//!   The native settings also go in [`IndexDef::options`] so a schema
-//!   compare sees them.
+//!   A vector field without a vector index isn't indexed where the engine
+//!   lets a field say so (Elasticsearch `index: false`); in an OpenSearch
+//!   k-NN index every `knn_vector` is, with the engine's defaults, so a
+//!   schema sync takes "no vector index" and those defaults as the same
+//!   ([`same_index`]). Settings left empty are the engine's choice. The
+//!   native settings also go in [`IndexDef::options`] so a schema compare
+//!   sees them.
 //! - **Cells.** A dense vector is the canonical JSON array text
 //!   ([`dbine_driver::vector`]): byte vectors given as hex strings decode
 //!   to their numbers, and bit (binary) vectors, stored as packed bytes,
@@ -63,6 +68,9 @@ pub struct VecType {
     pub dims: Option<u32>,
     pub elem: Elem,
     pub sparse: bool,
+    /// Several vectors per value (`rank_vectors`): not a vector column in
+    /// results, and no ANN index.
+    pub multi: bool,
     /// How a result column names it (DBine's spelling with the dimension).
     pub type_name: String,
     /// The engine gives back the float32 it stores (Solr), in whatever
@@ -78,6 +86,7 @@ impl VecType {
             dims,
             elem,
             sparse: base == "sparse_vector",
+            multi: base == "rank_vectors",
             type_name: String::new(),
             single: false,
         };
@@ -124,7 +133,7 @@ impl VecType {
         if ty == "sparse_vector" {
             return Some(VecType::new(ty, None, Elem::Float));
         }
-        if ty != "dense_vector" && ty != "knn_vector" {
+        if !matches!(ty, "dense_vector" | "knn_vector" | "rank_vectors") {
             return None;
         }
         let dims = ["dims", "dimension"]
@@ -148,7 +157,10 @@ impl VecType {
             None => (ty, None),
         };
         let base = base.to_ascii_lowercase();
-        if !matches!(base.as_str(), "dense_vector" | "knn_vector") {
+        if !matches!(
+            base.as_str(),
+            "dense_vector" | "knn_vector" | "rank_vectors"
+        ) {
             return None;
         }
         let bad = || {
@@ -324,7 +336,8 @@ pub fn load_json(text: &str, t: &VecType) -> Option<String> {
 }
 
 /// The vector fields of a mapping (`{"properties": …}`), by their dotted
-/// path, nested objects included.
+/// path, nested objects included: one vector per value (a multi-vector
+/// `rank_vectors` keeps its JSON).
 pub fn mapping_vectors(mapping: &J) -> Vec<(String, VecType)> {
     fn walk(props: Option<&J>, prefix: &str, out: &mut Vec<(String, VecType)>) {
         for (name, f) in props.and_then(J::as_obj).into_iter().flatten() {
@@ -333,7 +346,7 @@ pub fn mapping_vectors(mapping: &J) -> Vec<(String, VecType)> {
             } else {
                 format!("{prefix}.{name}")
             };
-            if let Some(t) = VecType::from_mapping(f) {
+            if let Some(t) = VecType::from_mapping(f).filter(|t| !t.multi) {
                 out.push((full.clone(), t));
             }
             walk(f.get("properties"), &full, out);
@@ -489,6 +502,9 @@ fn es_index(path: &str, f: &J, t: &VecType) -> Option<IndexDef> {
                 let ty = val.text();
                 let (quant, alg) = match ty.rsplit_once('_') {
                     Some((q, a)) => (Some(q.to_string()), a.to_string()),
+                    // An unquantized float index says so: left empty, the
+                    // engine would quantize it (`int8_hnsw` since 8.14).
+                    None if quantizable(t) => (Some(NO_QUANTIZATION.to_string()), ty.clone()),
                     None => (None, ty.clone()),
                 };
                 vi.algorithm = Some(alg);
@@ -511,6 +527,25 @@ fn es_index(path: &str, f: &J, t: &VecType) -> Option<IndexDef> {
         vector: Some(vi),
         ..Default::default()
     })
+}
+
+/// The quantization that says "none" (an index of the plain type).
+const NO_QUANTIZATION: &str = "none";
+
+/// Elasticsearch quantizes float vectors' indexes (bytes and bits aren't).
+fn quantizable(t: &VecType) -> bool {
+    matches!(t.elem, Elem::Float | Elem::Bf16)
+}
+
+/// Elasticsearch's distance when a vector index doesn't say: `cosine`, and
+/// `l2_norm` (Hamming) for bits, the only one they have. Written always,
+/// since 8.0–8.10 require it with `index: true`.
+fn es_default_similarity(t: &VecType) -> &'static str {
+    if t.elem == Elem::Bit {
+        "l2_norm"
+    } else {
+        "cosine"
+    }
 }
 
 fn sorted(mut o: Obj) -> Obj {
@@ -641,7 +676,7 @@ pub(crate) fn read_index(
     knn: bool,
     settings: Option<&J>,
 ) -> Option<IndexDef> {
-    if t.sparse {
+    if t.sparse || t.multi {
         return None;
     }
     match (flavor, t.base.as_str()) {
@@ -657,6 +692,8 @@ pub(crate) fn read_index(
 pub(crate) fn index_keys(flavor: Flavor, t: &VecType, indexed: bool) -> &'static [&'static str] {
     match (flavor, t.base.as_str(), indexed) {
         (_, "dense_vector", true) => &["index", "similarity", "index_options"],
+        // Not indexed: no vector index says so.
+        (_, "dense_vector", false) => &["index"],
         (Flavor::OpenDistro, _, _) => &[],
         (_, "knn_vector", true) => &[
             "method",
@@ -699,20 +736,25 @@ pub(crate) fn write_index(flavor: Flavor, m: &mut Obj, ix: &IndexDef, t: &VecTyp
     match flavor {
         Flavor::Elastic => {
             put(m, "index", J::Bool(true));
-            if let Some(s) = native_metric(flavor, ix, &vi, t, "similarity")? {
-                put(m, "similarity", J::Str(s));
-            }
-            if alg.is_none() && params.is_empty() {
-                return Ok(());
-            }
+            let similarity = native_metric(flavor, ix, &vi, t, "similarity")?
+                .unwrap_or_else(|| es_default_similarity(t).to_string());
+            put(m, "similarity", J::Str(similarity));
             let quant = params
                 .iter()
                 .position(|(k, _)| k == param::QUANTIZATION)
-                .map(|i| params.remove(i).1)
-                .filter(|q| !q.eq_ignore_ascii_case("none"));
+                .map(|i| params.remove(i).1.to_ascii_lowercase());
             let alg = alg.unwrap_or_else(|| "hnsw".into());
-            let ty = match quant {
-                Some(q) => format!("{}_{alg}", q.to_ascii_lowercase()),
+            // Nothing chosen: the engine's index (`int8_hnsw` for floats
+            // since 8.14, `bbq_hnsw` from 384 dimensions since 9.1).
+            if quant.is_none() && params.is_empty() && alg == "hnsw" {
+                return Ok(());
+            }
+            let ty = match quant.as_deref() {
+                Some(NO_QUANTIZATION) => alg,
+                Some(q) => format!("{q}_{alg}"),
+                // HNSW parameters without a quantization: the engine's
+                // default one for floats (int8), none for bytes and bits.
+                None if alg == "hnsw" && quantizable(t) => format!("int8_{alg}"),
                 None => alg,
             };
             let mut io: Obj = vec![("type".into(), J::Str(ty))];
@@ -726,7 +768,7 @@ pub(crate) fn write_index(flavor: Flavor, m: &mut Obj, ix: &IndexDef, t: &VecTyp
                 put(m, "model_id", J::Str(id.1.clone()));
                 return Ok(());
             }
-            let space = native_metric(flavor, ix, &vi, t, "space_type")?;
+            let mut space = native_metric(flavor, ix, &vi, t, "space_type")?;
             let mut top: Vec<(String, J)> = Vec::new();
             let mut engine = None;
             let mut parameters: Obj = Vec::new();
@@ -736,6 +778,9 @@ pub(crate) fn write_index(flavor: Flavor, m: &mut Obj, ix: &IndexDef, t: &VecTyp
                     "engine" => engine = Some(v.to_ascii_lowercase()),
                     _ => parameters.push((k, param_json(&v))),
                 }
+            }
+            if engine.is_none() {
+                engine = os_engine(ix, t, &mut space)?.map(str::to_string);
             }
             if alg.is_some() || space.is_some() || engine.is_some() || !parameters.is_empty() {
                 let mut method: Obj =
@@ -758,6 +803,49 @@ pub(crate) fn write_index(flavor: Flavor, m: &mut Obj, ix: &IndexDef, t: &VecTyp
         Flavor::OpenDistro => {}
     }
     Ok(())
+}
+
+/// The engine an OpenSearch vector index that names none gets, when the
+/// server's default may not take it: the default was NMSLIB up to 2.17
+/// (floats only) and Faiss from 2.18 (no L1 / L∞). Bits go to Faiss with
+/// Hamming (the only engine and distance for them), bytes to Lucene
+/// (unless `mode` / `compression_level` pick the engine), and L1 / L∞ to
+/// NMSLIB, the only one with them. Other floats keep the server's default
+/// (on 2.18 alone, Faiss without `cosinesimil`: there cosine needs the
+/// engine chosen). `space` is the native distance; bits get `hamming` when
+/// it's empty.
+fn os_engine(
+    ix: &IndexDef,
+    t: &VecType,
+    space: &mut Option<String>,
+) -> Result<Option<&'static str>> {
+    let vi = ix.vector.as_ref();
+    let by_mode = vi.is_some_and(|v| {
+        ["mode", "compression_level"]
+            .iter()
+            .any(|k| v.params.get(*k).is_some_and(|x| !x.trim().is_empty()))
+    });
+    Ok(match t.elem {
+        Elem::Bit => {
+            match space.as_deref() {
+                None => *space = Some("hamming".into()),
+                Some("hamming" | "hammingbit") => {}
+                Some(other) => {
+                    return Err(Error::Query(format!(
+                        "El índice vectorial «{}»: OpenSearch busca los vectores binary solo con la distancia hamming, no «{other}».",
+                        ix.name.trim()
+                    )))
+                }
+            }
+            Some("faiss")
+        }
+        Elem::Byte if !by_mode => Some("lucene"),
+        Elem::Float => match space.as_deref() {
+            Some("l1" | "linf") => Some("nmslib"),
+            _ => None,
+        },
+        _ => None,
+    })
 }
 
 /// Open Distro's index settings for its vector indexes: they all share
@@ -816,6 +904,300 @@ pub(crate) fn od_settings(ixs: &[(&IndexDef, &VecType)]) -> Result<Obj> {
     Ok(out)
 }
 
+// -- comparing them ----------------------------------------------------------------------------
+
+/// Settings whose default the engine picks by version or by the vectors
+/// (Elasticsearch's quantization and confidence interval, OpenSearch's
+/// engine, mode and compression): left empty on one side, they match the
+/// other side's.
+const ENGINE_CHOICE: &[&str] = &[
+    param::QUANTIZATION,
+    "confidence_interval",
+    "engine",
+    "mode",
+    "compression_level",
+];
+
+/// What a field's vector index searches with, with the engine's defaults
+/// filled in; `None`: the field has no ANN index. `knn` is the index's
+/// `index.knn` (OpenSearch indexes every `knn_vector` of a k-NN index).
+fn effective(
+    flavor: Flavor,
+    ix: Option<&IndexDef>,
+    t: &VecType,
+    knn: bool,
+) -> Option<BTreeMap<String, String>> {
+    let implicit;
+    let ix = match ix {
+        Some(ix) => ix,
+        None if flavor != Flavor::Elastic && knn && t.base == "knn_vector" => {
+            implicit = IndexDef {
+                vector: Some(VectorIndex::default()),
+                ..Default::default()
+            };
+            &implicit
+        }
+        None => return None,
+    };
+    let vi = ix.vector.clone().unwrap_or_default();
+    let lower = |s: &str| s.trim().to_ascii_lowercase();
+    let mut out: BTreeMap<String, String> = vi
+        .params
+        .iter()
+        .filter(|(_, v)| !v.trim().is_empty())
+        .map(|(k, v)| (k.clone(), lower(v)))
+        .collect();
+    if out.contains_key("model_id") {
+        return Some(out);
+    }
+    let alg = vi
+        .algorithm
+        .as_deref()
+        .map(lower)
+        .filter(|a| !a.is_empty())
+        .unwrap_or_else(|| "hnsw".into());
+    let key = match flavor {
+        Flavor::Elastic => "similarity",
+        Flavor::OpenSearch => "space_type",
+        Flavor::OpenDistro => "knn.space_type",
+    };
+    let mut metric =
+        native_metric(flavor, ix, &vi, t, key).unwrap_or_else(|_| vi.metric.as_deref().map(lower));
+    match flavor {
+        Flavor::Elastic => {
+            metric.get_or_insert_with(|| es_default_similarity(t).to_string());
+        }
+        Flavor::OpenSearch => {
+            if !out.contains_key("engine") {
+                if let Ok(Some(e)) = os_engine(ix, t, &mut metric) {
+                    out.insert("engine".into(), e.into());
+                }
+            }
+            metric.get_or_insert_with(|| "l2".into());
+        }
+        Flavor::OpenDistro => {
+            metric.get_or_insert_with(|| "l2".into());
+        }
+    }
+    if alg == "hnsw" {
+        let ef = if flavor == Flavor::OpenDistro {
+            "512"
+        } else {
+            "100"
+        };
+        out.entry(param::M.into()).or_insert_with(|| "16".into());
+        out.entry(param::EF_CONSTRUCTION.into())
+            .or_insert_with(|| ef.into());
+    }
+    out.insert("algorithm".into(), alg);
+    out.insert("metric".into(), metric.unwrap_or_default());
+    Some(out)
+}
+
+/// Whether two vector indexes of field type `t` (`None`: none) search the
+/// same way once the engine's defaults are filled in: what the designer
+/// leaves empty matches what the server reads back (see [`effective`]).
+pub(crate) fn same_index(
+    flavor: Flavor,
+    a: Option<&IndexDef>,
+    b: Option<&IndexDef>,
+    t: &VecType,
+    knn: bool,
+) -> bool {
+    match (effective(flavor, a, t, knn), effective(flavor, b, t, knn)) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a
+            .keys()
+            .chain(b.keys())
+            .all(|k| match (a.get(k), b.get(k)) {
+                (Some(x), Some(y)) => x == y,
+                _ => ENGINE_CHOICE.contains(&k.as_str()),
+            }),
+        _ => false,
+    }
+}
+
+// -- bit vectors written one bit per dimension --------------------------------------------------
+
+/// The value at a field's dotted path in a document (`a.b` as one key or
+/// as `b` inside `a`).
+fn field_mut<'a>(doc: &'a mut J, path: &str) -> Option<&'a mut J> {
+    let J::Obj(o) = doc else {
+        return None;
+    };
+    if let Some(i) = o.iter().position(|(k, _)| k == path) {
+        return Some(&mut o[i].1);
+    }
+    let split = path
+        .match_indices('.')
+        .map(|(i, _)| i)
+        .find(|&i| o.iter().any(|(k, _)| k == &path[..i]))?;
+    let i = o.iter().position(|(k, _)| k == &path[..split])?;
+    field_mut(&mut o[i].1, &path[split + 1..])
+}
+
+/// A document's bit (binary) vectors given one 0 or 1 per dimension, as
+/// results show them, packed into the signed bytes the field takes (a
+/// value already packed is `dims / 8` long and stays). `fields` are the
+/// index's vector fields. Whether anything changed.
+pub fn pack_bits(doc: &mut J, fields: &[(String, VecType)]) -> bool {
+    let mut changed = false;
+    for (path, t) in fields
+        .iter()
+        .filter(|(_, t)| t.elem == Elem::Bit && !t.multi)
+    {
+        let Some(dims) = t.dims else { continue };
+        let Some(val) = field_mut(doc, path) else {
+            continue;
+        };
+        let J::Arr(a) = val else { continue };
+        let bits: Option<Vec<f64>> = a
+            .iter()
+            .map(|x| match x {
+                J::Num(n) => n.as_f64().filter(|b| *b == 0.0 || *b == 1.0),
+                _ => None,
+            })
+            .collect();
+        match bits {
+            Some(bits) if bits.len() == dims as usize && dims >= 8 => {
+                *val = J::Arr(
+                    v::to_bits(&bits)
+                        .into_iter()
+                        .map(|b| J::Num(i64::from(b as i8).into()))
+                        .collect(),
+                );
+                changed = true;
+            }
+            _ => {}
+        }
+    }
+    changed
+}
+
+/// The indices a `_bulk` body writes documents to (`default`: the path's
+/// index, if any).
+pub fn bulk_indices(body: &str, default: Option<&str>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut lines = body.lines().filter(|l| !l.trim().is_empty());
+    while let Some(line) = lines.next() {
+        let Some((op, index)) = bulk_action(line, default) else {
+            continue;
+        };
+        if op != "delete" {
+            lines.next();
+        }
+        if let Some(i) = index.filter(|_| op != "delete") {
+            if !out.contains(&i) {
+                out.push(i);
+            }
+        }
+    }
+    out
+}
+
+/// A `_bulk` action line's operation and target index.
+fn bulk_action(line: &str, default: Option<&str>) -> Option<(String, Option<String>)> {
+    let a = J::parse(line).ok()?;
+    let (op, meta) = a.as_obj()?.first()?;
+    let index = meta
+        .get("_index")
+        .and_then(J::as_str)
+        .or(default)
+        .map(str::to_string);
+    Some((op.clone(), index))
+}
+
+/// Vector fields by their dotted path.
+pub type Fields = Vec<(String, VecType)>;
+
+/// A `_bulk` body with its documents' bit vectors packed (see
+/// [`pack_bits`]); `fields` gives each index's vector fields. `None`: no
+/// change.
+pub fn pack_bulk(
+    body: &str,
+    default: Option<&str>,
+    fields: &dyn Fn(&str) -> Option<Fields>,
+) -> Option<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut changed = false;
+    let mut lines = body.lines();
+    while let Some(line) = lines.next() {
+        out.push(line.to_string());
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Some((op, index)) = bulk_action(line, default) else {
+            continue;
+        };
+        if op == "delete" {
+            continue;
+        }
+        let Some(src) = lines.next() else { break };
+        let packed = index.as_deref().and_then(fields).and_then(|f| {
+            let mut doc = J::parse(src).ok()?;
+            let hit = if op == "update" {
+                pack_partial(&mut doc, &f)
+            } else {
+                pack_bits(&mut doc, &f)
+            };
+            hit.then(|| doc.compact())
+        });
+        changed |= packed.is_some();
+        out.push(packed.unwrap_or_else(|| src.to_string()));
+    }
+    changed.then(|| out.join("\n"))
+}
+
+/// An update's body (`doc`, `upsert`, a data stream update's
+/// `script.params.doc`) with its bit vectors packed.
+pub fn pack_partial(body: &mut J, fields: &[(String, VecType)]) -> bool {
+    let J::Obj(o) = body else {
+        return false;
+    };
+    let mut changed = false;
+    for (k, v) in o.iter_mut() {
+        match k.as_str() {
+            "doc" | "upsert" => changed |= pack_bits(v, fields),
+            "script" => {
+                if let Some(d) = field_mut(v, "params.doc") {
+                    changed |= pack_bits(d, fields);
+                }
+            }
+            _ => {}
+        }
+    }
+    changed
+}
+
+/// A mapping body for Elasticsearch 7, whose `dense_vector` has no `index`
+/// parameter (its vectors are never indexed): the `"index": false` DBine
+/// writes for a vector field without a vector index taken out. `None`: no
+/// change.
+pub fn strip_unindexed(body: &str) -> Option<String> {
+    fn walk(j: &mut J) -> bool {
+        match j {
+            J::Obj(o) => {
+                let mut changed = false;
+                if o.iter()
+                    .any(|(k, v)| k == "type" && v.as_str() == Some("dense_vector"))
+                {
+                    let before = o.len();
+                    o.retain(|(k, v)| !(k == "index" && *v == J::Bool(false)));
+                    changed = o.len() != before;
+                }
+                for (_, v) in o.iter_mut() {
+                    changed |= walk(v);
+                }
+                changed
+            }
+            J::Arr(a) => a.iter_mut().fold(false, |c, v| walk(v) | c),
+            _ => false,
+        }
+    }
+    let mut j = J::parse(body).ok()?;
+    walk(&mut j).then(|| j.pretty())
+}
+
 // -- what the designer offers ------------------------------------------------------------------
 
 /// The vector indexes the designer creates on `flavor`.
@@ -839,7 +1221,9 @@ pub(crate) fn designer_spec(flavor: Flavor) -> VectorIndexSpec {
             params: vec![
                 p(param::M, &["hnsw"], "16"),
                 p(param::EF_CONSTRUCTION, &["hnsw"], "100"),
-                p(param::QUANTIZATION, &[], "none"),
+                // Empty: the engine's (int8 for floats since 8.14, bbq from
+                // 384 dimensions since 9.1); `none` for a plain index.
+                p(param::QUANTIZATION, &[], ""),
                 p("confidence_interval", &[], ""),
             ],
             filter_columns: false,
@@ -1174,6 +1558,275 @@ mod tests {
         let mut m = Vec::new();
         write_index(Flavor::OpenSearch, &mut m, &ix, &t).unwrap();
         assert!(m.is_empty());
+    }
+
+    #[test]
+    fn elasticsearch_quantization_is_the_engines_unless_chosen() {
+        let t = VecType::new("dense_vector", Some(3), Elem::Float);
+        let write = |vi: VectorIndex, t: &VecType| {
+            let ix = IndexDef {
+                name: "v".into(),
+                columns: vec!["v".into()],
+                vector: Some(vi),
+                ..Default::default()
+            };
+            let mut m = Vec::new();
+            write_index(Flavor::Elastic, &mut m, &ix, t).unwrap();
+            J::Obj(m).compact()
+        };
+        let p = |kv: &[(&str, &str)]| -> BTreeMap<String, String> {
+            kv.iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        // The designer's defaults (HNSW, a distance, nothing else): the
+        // engine's index, quantized as it does.
+        assert_eq!(
+            write(
+                VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some("cosine".into()),
+                    ..Default::default()
+                },
+                &t
+            ),
+            r#"{"index":true,"similarity":"cosine"}"#
+        );
+        // Parameters without a quantization: int8, the engine's default.
+        assert_eq!(
+            write(
+                VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    params: p(&[("m", "32")]),
+                    ..Default::default()
+                },
+                &t
+            ),
+            r#"{"index":true,"similarity":"cosine","index_options":{"type":"int8_hnsw","m":32}}"#
+        );
+        // `none`: plain HNSW; bytes are never quantized; flat stays flat.
+        assert_eq!(
+            write(
+                VectorIndex {
+                    params: p(&[("quantization", "none"), ("m", "32")]),
+                    ..Default::default()
+                },
+                &t
+            ),
+            r#"{"index":true,"similarity":"cosine","index_options":{"type":"hnsw","m":32}}"#
+        );
+        let bytes = VecType::new("dense_vector", Some(3), Elem::Byte);
+        assert_eq!(
+            write(
+                VectorIndex {
+                    params: p(&[("m", "8")]),
+                    ..Default::default()
+                },
+                &bytes
+            ),
+            r#"{"index":true,"similarity":"cosine","index_options":{"type":"hnsw","m":8}}"#
+        );
+        assert_eq!(
+            write(
+                VectorIndex {
+                    algorithm: Some("flat".into()),
+                    ..Default::default()
+                },
+                &t
+            ),
+            r#"{"index":true,"similarity":"cosine","index_options":{"type":"flat"}}"#
+        );
+        // A plain float index reads back as `none`, so it's written plain.
+        let ix = es(r#"{"type":"dense_vector","dims":3,"index":true,"similarity":"cosine","index_options":{"type":"hnsw","m":16,"ef_construction":100}}"#).unwrap();
+        assert_eq!(
+            ix.vector
+                .as_ref()
+                .unwrap()
+                .params
+                .get("quantization")
+                .map(String::as_str),
+            Some("none")
+        );
+        let mut m = Vec::new();
+        write_index(Flavor::Elastic, &mut m, &ix, &t).unwrap();
+        assert_eq!(
+            J::Obj(m).compact(),
+            r#"{"index":true,"similarity":"cosine","index_options":{"type":"hnsw","ef_construction":100,"m":16}}"#
+        );
+        // Bytes have no quantization to say.
+        let ix = es(r#"{"type":"dense_vector","element_type":"byte","dims":3,"index":true,"similarity":"cosine","index_options":{"type":"hnsw"}}"#).unwrap();
+        assert!(ix.vector.as_ref().unwrap().params.is_empty());
+        let spec = designer_spec(Flavor::Elastic);
+        let q = spec
+            .params
+            .iter()
+            .find(|p| p.key == "quantization")
+            .unwrap();
+        assert_eq!(q.default, "");
+    }
+
+    #[test]
+    fn opensearch_indexes_get_the_engine_their_vectors_need() {
+        let write = |vi: VectorIndex, t: &VecType| {
+            let ix = IndexDef {
+                name: "v_idx".into(),
+                columns: vec!["v".into()],
+                vector: Some(vi),
+                ..Default::default()
+            };
+            let mut m = Vec::new();
+            write_index(Flavor::OpenSearch, &mut m, &ix, t).map(|_| J::Obj(m).compact())
+        };
+        let float = VecType::new("knn_vector", Some(3), Elem::Float);
+        let byte = VecType::new("knn_vector", Some(3), Elem::Byte);
+        let bits = VecType::new("knn_vector", Some(16), Elem::Bit);
+        let hnsw = |m: Option<&str>| VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: m.map(Into::into),
+            ..Default::default()
+        };
+        // Bytes: Lucene (NMSLIB, the default up to 2.17, refuses them).
+        assert_eq!(
+            write(hnsw(Some("cosine")), &byte).unwrap(),
+            r#"{"method":{"name":"hnsw","space_type":"cosinesimil","engine":"lucene"}}"#
+        );
+        // Bits: Faiss with Hamming, the only ones; another distance is refused.
+        assert_eq!(
+            write(hnsw(None), &bits).unwrap(),
+            r#"{"method":{"name":"hnsw","space_type":"hamming","engine":"faiss"}}"#
+        );
+        assert_eq!(
+            write(hnsw(Some("hamming")), &bits).unwrap(),
+            r#"{"method":{"name":"hnsw","space_type":"hamming","engine":"faiss"}}"#
+        );
+        let e = write(hnsw(Some("l2")), &bits).unwrap_err().to_string();
+        assert!(e.contains("hamming") && e.contains("v_idx"), "{e}");
+        // L1 / L∞: NMSLIB, the only one with them; the rest of the floats
+        // keep the server's default engine.
+        assert_eq!(
+            write(hnsw(Some("l1")), &float).unwrap(),
+            r#"{"method":{"name":"hnsw","space_type":"l1","engine":"nmslib"}}"#
+        );
+        assert_eq!(
+            write(hnsw(Some("cosine")), &float).unwrap(),
+            r#"{"method":{"name":"hnsw","space_type":"cosinesimil"}}"#
+        );
+        // An engine chosen is kept, and a mode picks it for bytes.
+        let mut faiss = hnsw(Some("l2"));
+        faiss.params.insert("engine".into(), "faiss".into());
+        assert_eq!(
+            write(faiss, &byte).unwrap(),
+            r#"{"method":{"name":"hnsw","space_type":"l2","engine":"faiss"}}"#
+        );
+        let mut disk = hnsw(Some("l2"));
+        disk.params.insert("mode".into(), "on_disk".into());
+        assert_eq!(
+            write(disk, &byte).unwrap(),
+            r#"{"method":{"name":"hnsw","space_type":"l2"},"mode":"on_disk"}"#
+        );
+    }
+
+    #[test]
+    fn rank_vectors_are_typed_but_not_vector_columns() {
+        let t = VecType::parse("rank_vectors(128, byte)").unwrap().unwrap();
+        assert!(t.multi);
+        assert_eq!(t.spelling(), "rank_vectors(128, byte)");
+        let f = j(r#"{"type":"rank_vectors","dims":128}"#);
+        let t = VecType::from_mapping(&f).unwrap();
+        assert_eq!(t.spelling(), "rank_vectors(128)");
+        assert!(read_index(Flavor::Elastic, "r", &f, &t, false, None).is_none());
+        let found = mapping_vectors(&j(
+            r#"{"properties":{"r":{"type":"rank_vectors","dims":2},"v":{"type":"dense_vector","dims":2}}}"#,
+        ));
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].0, "v");
+    }
+
+    #[test]
+    fn bit_vectors_written_one_bit_per_dimension_are_packed() {
+        let fields = vec![
+            (
+                "bits".to_string(),
+                VecType::new("dense_vector", Some(16), Elem::Bit),
+            ),
+            (
+                "doc.b".to_string(),
+                VecType::new("knn_vector", Some(8), Elem::Bit),
+            ),
+            (
+                "f".to_string(),
+                VecType::new("dense_vector", Some(16), Elem::Float),
+            ),
+        ];
+        let unpacked = "[1,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0]";
+        let mut doc = j(&format!(
+            r#"{{"bits":{unpacked},"f":{unpacked},"doc":{{"b":[0,0,0,0,0,0,1,1]}},"t":"x"}}"#
+        ));
+        assert!(pack_bits(&mut doc, &fields));
+        assert_eq!(
+            doc.compact(),
+            format!(r#"{{"bits":[-127,64],"f":{unpacked},"doc":{{"b":[3]}},"t":"x"}}"#)
+        );
+        // Already packed (dims / 8 bytes), a hex string, the wrong length:
+        // as they are.
+        for same in [
+            r#"{"bits":[-127,64]}"#,
+            r#"{"bits":"8140"}"#,
+            r#"{"bits":[1,0,1]}"#,
+            r#"{"doc.b":[3]}"#,
+        ] {
+            let mut d = j(same);
+            assert!(!pack_bits(&mut d, &fields), "{same}");
+        }
+        let mut d = j(r#"{"doc.b":[0,0,0,0,0,0,1,1]}"#);
+        assert!(pack_bits(&mut d, &fields));
+        assert_eq!(d.compact(), r#"{"doc.b":[3]}"#);
+
+        // In a _bulk body, by each action's index; updates' doc and upsert.
+        let body = format!(
+            "{{\"index\":{{\"_index\":\"a\",\"_id\":\"1\"}}}}\n{{\"bits\":{unpacked}}}\n{{\"delete\":{{\"_id\":\"2\"}}}}\n{{\"update\":{{\"_id\":\"3\"}}}}\n{{\"doc\":{{\"bits\":{unpacked}}},\"upsert\":{{\"bits\":{unpacked}}}}}\n{{\"create\":{{\"_index\":\"other\"}}}}\n{{\"bits\":{unpacked}}}"
+        );
+        assert_eq!(bulk_indices(&body, Some("b")), ["a", "b", "other"]);
+        let map = |i: &str| (i != "other").then(|| fields.clone());
+        let packed = pack_bulk(&body, Some("b"), &map).unwrap();
+        assert_eq!(
+            packed.lines().collect::<Vec<_>>(),
+            [
+                r#"{"index":{"_index":"a","_id":"1"}}"#,
+                r#"{"bits":[-127,64]}"#,
+                r#"{"delete":{"_id":"2"}}"#,
+                r#"{"update":{"_id":"3"}}"#,
+                r#"{"doc":{"bits":[-127,64]},"upsert":{"bits":[-127,64]}}"#,
+                r#"{"create":{"_index":"other"}}"#,
+                &format!(r#"{{"bits":{unpacked}}}"#),
+            ]
+        );
+        assert!(pack_bulk(r#"{"index":{"_index":"other"}}"#, None, &map).is_none());
+        // A data stream's update (DBine's script copies params.doc).
+        let mut u = j(&format!(
+            r#"{{"query":{{"ids":{{"values":["1"]}}}},"script":{{"source":"x","params":{{"doc":{{"bits":{unpacked}}}}}}}}}"#
+        ));
+        assert!(pack_partial(&mut u, &fields));
+        assert!(u.compact().contains(r#""doc":{"bits":[-127,64]}"#));
+    }
+
+    #[test]
+    fn elasticsearch_7_takes_vectors_without_index_false() {
+        let body = r#"{"mappings":{"properties":{"v":{"type":"dense_vector","dims":3,"index":false},"k":{"type":"keyword","index":false}}}}"#;
+        let out = strip_unindexed(body).unwrap();
+        let got: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(
+            got,
+            json!({"mappings": {"properties": {"v": {"type": "dense_vector", "dims": 3}, "k": {"type": "keyword", "index": false}}}})
+        );
+        assert!(
+            strip_unindexed(r#"{"properties":{"v":{"type":"dense_vector","dims":3}}}"#).is_none()
+        );
+        // A vector index asked for stays (and the server says it can't).
+        assert!(
+            strip_unindexed(r#"{"properties":{"v":{"type":"dense_vector","index":true}}}"#)
+                .is_none()
+        );
     }
 
     #[test]
