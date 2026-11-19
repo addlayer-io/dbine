@@ -324,6 +324,154 @@ async fn vector_live_assistant_sees_vector_index_settings() {
     .await;
 }
 
+/// The Spanner emulator's admin API (`url` is its REST endpoint): a raw
+/// request, its answer ignored (an instance that's already there, a
+/// database that isn't).
+fn spanner_admin(url: &str, method: &str, path: &str, body: &str) {
+    use std::io::{Read, Write};
+    let hp = url
+        .split("://")
+        .last()
+        .unwrap_or(url)
+        .trim_end_matches('/')
+        .to_string();
+    let Ok(mut c) = std::net::TcpStream::connect(&hp) else {
+        return;
+    };
+    let req = format!(
+        "{method} /v1/projects/test/instances{path} HTTP/1.1\r\nHost: {hp}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = c.write_all(req.as_bytes());
+    let mut answer = String::new();
+    let _ = c.read_to_string(&mut answer);
+}
+
+/// A table compare on Spanner (its emulator, `dbine-test-spanner`,
+/// 127.0.0.1:25303; `DBINE_TEST_SPANNER_URL` replaces it), whose
+/// embeddings are `ARRAY<FLOAT32>` columns without `vector_length`: its
+/// catalog types them as arrays and its driver marks them as vectors in
+/// results. The screen gets them as vectors, as the results grid shows
+/// them, while they compare as the arrays they are.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs dbine-test-spanner"]
+async fn vector_live_data_compare_shows_float_arrays_as_vectors() {
+    const DB: &str = "dbine_e2e_vecapp_fa";
+    let url =
+        std::env::var("DBINE_TEST_SPANNER_URL").unwrap_or_else(|_| "http://127.0.0.1:25303".into());
+    let mut cfg = ConnectionConfig {
+        driver: "spanner".into(),
+        database: DB.into(),
+        ..Default::default()
+    };
+    for (k, v) in [
+        ("project_id", "test"),
+        ("instance", "i1"),
+        ("endpoint_url", url.as_str()),
+    ] {
+        cfg.options.insert(k.into(), v.into());
+    }
+    let drop_db = || spanner_admin(&url, "DELETE", &format!("/i1/databases/{DB}"), "");
+    spanner_admin(
+        &url,
+        "POST",
+        "",
+        r#"{"instanceId":"i1","instance":{"config":"projects/test/instanceConfigs/emulator-config","displayName":"i1","nodeCount":1}}"#,
+    );
+    drop_db();
+    spanner_admin(
+        &url,
+        "POST",
+        "/i1/databases",
+        &format!(
+            r#"{{"createStatement":"CREATE DATABASE `{DB}`","extraStatements":["CREATE TABLE fa_l (id INT64 NOT NULL, emb ARRAY<FLOAT32>) PRIMARY KEY (id)","CREATE TABLE fa_r (id INT64 NOT NULL, emb ARRAY<FLOAT32>) PRIMARY KEY (id)"]}}"#
+        ),
+    );
+    let body = AssertUnwindSafe(async {
+        let mut s = open(&cfg).await?;
+        exec(
+            s.as_mut(),
+            "INSERT INTO fa_l (id, emb) VALUES (1, ARRAY<FLOAT32>[0.5, 1]), \
+             (2, ARRAY<FLOAT32>[2, 3]), (3, ARRAY<FLOAT32>[1, 1])",
+        )
+        .await?;
+        exec(
+            s.as_mut(),
+            "INSERT INTO fa_r (id, emb) VALUES (1, ARRAY<FLOAT32>[0.5, 1]), \
+             (2, ARRAY<FLOAT32>[2, 4]), (4, ARRAY<FLOAT32>[1, 1])",
+        )
+        .await?;
+        drop(s);
+        check!(
+            vectors::of_type("spanner", "ARRAY<FLOAT32>").is_none(),
+            "Spanner's dialect now reads ARRAY<FLOAT32> as a vector: this test no longer covers arrays"
+        );
+        let t = test_state("float-arrays", &cfg)?;
+        let side = |name: &str| Side {
+            connection_id: "c".into(),
+            database: DB.into(),
+            object: table(None, name),
+        };
+        let opts = whole::Options {
+            in_memory_rows: 1_000,
+            in_memory_bytes: 1 << 20,
+            max_diff_rows: 1_000,
+            max_equal_rows: 0,
+            scratch: None,
+            duckdb: None,
+        };
+        let r = data_compare::compare_sides(
+            &t.state,
+            data_compare::DataCompareArgs {
+                left: side("fa_l"),
+                right: side("fa_r"),
+                key: vec!["id".into()],
+                columns: Vec::new(),
+                run: String::new(),
+                equal: false,
+            },
+            "vecapp-fa",
+            &Arc::new(whole::Ctl::default()),
+            &opts,
+            &|_| {},
+        )
+        .await
+        .map_err(|err| format!("data compare: {err}"))?;
+        check!(
+            (
+                r.counts.same,
+                r.counts.changed,
+                r.counts.only_left,
+                r.counts.only_right
+            ) == (1, 1, 1, 1),
+            "{:?}",
+            r.counts
+        );
+        check!(
+            r.vectors == [None, Some(VectorMeta::dense(None, VectorElement::F32))],
+            "{:?} for types {:?}",
+            r.vectors,
+            r.types
+        );
+        let changed = &r.changed[0];
+        check!(
+            f32s(&changed.left[1]) == Some(vec![2.0, 3.0])
+                && f32s(&changed.right[1]) == Some(vec![2.0, 4.0]),
+            "{:?} / {:?}",
+            changed.left,
+            changed.right
+        );
+        Ok::<(), String>(())
+    })
+    .catch_unwind()
+    .await;
+    drop_db();
+    match body {
+        Ok(res) => res.unwrap(),
+        Err(p) => std::panic::resume_unwind(p),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Data compare, sync scripts, data scripts, imports and transfers
 
