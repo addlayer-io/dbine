@@ -262,7 +262,7 @@ impl MySqlSession {
     }
 
     /// `SHOW CREATE <what> <name>`, reading the column that holds the DDL.
-    async fn show_create(
+    pub(crate) async fn show_create(
         &mut self,
         what: &str,
         obj: &ObjectRef,

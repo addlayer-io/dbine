@@ -60,6 +60,13 @@
 //! pages × `innodb_page_size`, partitions summed; persistent statistics,
 //! as of the last ANALYZE), where the login can read it.
 //!
+//! Vector indexes (`IndexUsage::vector`): their algorithm, metric and
+//! parameters as the describe reads them (`IndexDef::vector`), from `SHOW
+//! CREATE TABLE` (MariaDB, TiDB, OceanBase, SingleStore, GreptimeDB, whose
+//! column vector index `SHOW INDEX` doesn't list, so it's added),
+//! `SHOW INDEX`'s properties (Doris, StarRocks) or `system.indexes`
+//! (Databend).
+//!
 //! Disabled indexes (`IndexUsage::disabled`): `SHOW INDEX`'s `Visible = NO`
 //! (MySQL 8.0+, TiDB, OceanBase: invisible) or `Ignored = YES` (MariaDB
 //! 10.6+: ignored). Servers without the column report none. Toggling them
@@ -69,7 +76,8 @@ use crate::session::{lit, named, MySqlSession};
 use crate::{err, Variant};
 use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::{
-    Error, ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result, Session, SyncScript,
+    Error, ForeignKeyDef, IndexDef, IndexUsage, IndexUsageReport, ObjectRef, Result, Session,
+    SyncScript,
 };
 use mysql_async::prelude::Queryable;
 use mysql_async::Row;
@@ -677,16 +685,42 @@ async fn oceanbase(
 
 pub(crate) async fn report(s: &mut MySqlSession, table: &ObjectRef) -> Result<IndexUsageReport> {
     let v = s.variant;
-    // The catalog.
+    // The catalog, and its vector indexes' settings.
+    let mut vectors: Vec<IndexDef> = Vec::new();
     let parts: Vec<KeyPart> = if v == Variant::Databend {
-        databend_parts(s, table).await?
+        let (parts, found) = databend_parts(s, table).await?;
+        vectors = found;
+        parts
     } else {
-        s.rows(&show_index_sql(table))
-            .await?
-            .iter()
+        let rows = s.rows(&show_index_sql(table)).await?;
+        if matches!(v, Variant::StarRocks | Variant::Doris) {
+            vectors = olap_vectors(
+                v,
+                rows.iter().filter_map(|r| {
+                    Some((
+                        named(r, &["Key_name", "INDEX_NAME"])?,
+                        named(r, &["Index_type", "INDEX_TYPE"])?,
+                        named(r, &["Properties"]),
+                    ))
+                }),
+            );
+        }
+        rows.iter()
             .filter_map(|r| key_part(&|n: &[&str]| named(r, n)))
             .collect()
     };
+    if matches!(
+        v,
+        Variant::MariaDb
+            | Variant::TiDb
+            | Variant::OceanBase
+            | Variant::SingleStore
+            | Variant::GreptimeDb
+    ) {
+        if let Ok(Some(create)) = s.show_create("TABLE", table, "Create Table").await {
+            vectors.extend(vectors_in_create(v, &create));
+        }
+    }
     let fk_rows: Vec<_> = if v.has_foreign_keys() {
         match probe(s, &foreign_keys_sql(table)).await? {
             Ok(rows) => rows
@@ -774,7 +808,7 @@ pub(crate) async fn report(s: &mut MySqlSession, table: &ObjectRef) -> Result<In
         since,
         stats_available: usage.is_some(),
         note: full_note(v, note, usage.as_ref()),
-        indexes: assemble(&parts, usage.as_ref(), sizes.as_ref()),
+        indexes: with_vectors(assemble(&parts, usage.as_ref(), sizes.as_ref()), vectors),
         foreign_keys: foreign_keys(&fk_rows),
         seek_scan_split: usage.as_ref().is_some_and(|u| u.seek_scan_split),
         writes_counted: usage.as_ref().is_some_and(|u| !u.writes_unknown),
@@ -796,13 +830,78 @@ pub(crate) fn full_note(v: Variant, note: Option<&str>, usage: Option<&Usage>) -
     (!notes.is_empty()).then(|| notes.join(" "))
 }
 
-/// Databend's inverted / ngram indexes on the table (`system.indexes`).
-async fn databend_parts(s: &mut MySqlSession, table: &ObjectRef) -> Result<Vec<KeyPart>> {
+/// The vector indexes of a table's `SHOW CREATE TABLE`: MariaDB's,
+/// TiDB's, OceanBase's and SingleStore's index lines, GreptimeDB's column
+/// `VECTOR INDEX`.
+pub(crate) fn vectors_in_create(v: Variant, create: &str) -> Vec<IndexDef> {
+    if v == Variant::GreptimeDb {
+        return crate::structure::greptime_indexes(create)
+            .into_iter()
+            .filter(|(_, kind, _)| kind == "VECTOR")
+            .map(|(col, _, opts)| crate::vectors::greptime_index(&col, opts))
+            .collect();
+    }
+    crate::vectors::from_create(v, create)
+}
+
+/// Doris' ANN and StarRocks' VECTOR indexes among `SHOW INDEX`'s rows
+/// (index name, `Index_type`, `Properties`), one per index.
+pub(crate) fn olap_vectors(
+    v: Variant,
+    rows: impl Iterator<Item = (String, String, Option<String>)>,
+) -> Vec<IndexDef> {
+    let mut out: Vec<IndexDef> = Vec::new();
+    for (name, kind, properties) in rows {
+        if out.iter().any(|i| i.name == name) {
+            continue;
+        }
+        let (kind, options) = crate::structure::olap_show_index(&kind, properties.as_deref());
+        let mut ix = IndexDef {
+            name,
+            kind,
+            options,
+            ..Default::default()
+        };
+        crate::vectors::from_olap(v, &mut ix);
+        if ix.vector.is_some() {
+            out.push(ix);
+        }
+    }
+    out
+}
+
+/// The usage rows with their vector indexes' settings (`found`, by name);
+/// a vector index `SHOW INDEX` doesn't list (GreptimeDB's) is added,
+/// without counters.
+pub(crate) fn with_vectors(mut indexes: Vec<IndexUsage>, found: Vec<IndexDef>) -> Vec<IndexUsage> {
+    for ix in found {
+        let Some(vi) = ix.vector else { continue };
+        match indexes.iter_mut().find(|u| u.name == ix.name) {
+            Some(u) => u.vector = Some(vi),
+            None => indexes.push(IndexUsage {
+                name: ix.name,
+                kind: ix.kind.unwrap_or_default(),
+                key_columns: ix.columns,
+                vector: Some(vi),
+                ..Default::default()
+            }),
+        }
+    }
+    indexes
+}
+
+/// Databend's inverted / ngram / vector indexes on the table
+/// (`system.indexes`): their key parts, and the vector ones' settings.
+async fn databend_parts(
+    s: &mut MySqlSession,
+    table: &ObjectRef,
+) -> Result<(Vec<KeyPart>, Vec<IndexDef>)> {
     let db = match table.schema() {
         Some(d) => d.to_string(),
         None => scalar(s, "SELECT DATABASE()").await?.unwrap_or_default(),
     };
     let mut parts = Vec::new();
+    let mut vectors = Vec::new();
     for r in s.optional_rows("SELECT * FROM system.indexes").await {
         let get = |n: &str| named(&r, &[n]).unwrap_or_default();
         let Some((t, ix)) = crate::structure::databend_index(
@@ -834,8 +933,11 @@ async fn databend_parts(s: &mut MySqlSession, table: &ObjectRef) -> Result<Vec<K
                 ..Default::default()
             });
         }
+        if ix.vector.is_some() {
+            vectors.push(ix);
+        }
     }
-    Ok(parts)
+    Ok((parts, vectors))
 }
 
 #[cfg(test)]
@@ -915,6 +1017,92 @@ mod tests {
             Some("SELECT DATE_FORMAT(NOW() - INTERVAL 3600 SECOND, '%Y-%m-%d %H:%i:%s')")
         );
         assert_eq!(since_sql("x; DROP"), None);
+    }
+
+    /// A vector index's usage row carries the settings the describe reads
+    /// (`IndexDef::vector`), from each engine's own source.
+    #[test]
+    fn vector_indexes_carry_their_settings() {
+        use dbine_driver::VectorIndex;
+        let vi = |alg: Option<&str>, metric: &str, params: &[(&str, &str)]| VectorIndex {
+            algorithm: alg.map(Into::into),
+            metric: Some(metric.into()),
+            params: params
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        };
+        let listed = |names: &[(&str, &str)]| -> Vec<IndexUsage> {
+            names
+                .iter()
+                .map(|(n, k)| IndexUsage {
+                    name: n.to_string(),
+                    kind: k.to_string(),
+                    ..Default::default()
+                })
+                .collect()
+        };
+        // MariaDB: SHOW CREATE TABLE's VECTOR KEY, matched by name.
+        let maria = "CREATE TABLE `t` (\n  `id` int(11) NOT NULL,\n  `v` vector(3) NOT NULL,\n  PRIMARY KEY (`id`),\n  VECTOR KEY `iv` (`v`) `M`='8' `DISTANCE`='cosine'\n) ENGINE=InnoDB";
+        let found = vectors_in_create(Variant::MariaDb, maria);
+        let got = with_vectors(
+            listed(&[("PRIMARY", "BTREE"), ("iv", "VECTOR")]),
+            found.clone(),
+        );
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].vector, None);
+        assert_eq!(got[1].vector, found[0].vector);
+        assert_eq!(got[1].vector, Some(vi(None, "cosine", &[("m", "8")])));
+
+        // GreptimeDB: SHOW INDEX doesn't list a column's vector index; it's
+        // added with its column.
+        let greptime = "CREATE TABLE IF NOT EXISTS `m` (\n  `ts` TIMESTAMP(3) NOT NULL,\n  `v` VECTOR(3) NULL VECTOR INDEX WITH(connectivity = '16', expansion_add = '128', expansion_search = '64', metric = 'cosine'),\n  TIME INDEX (`ts`)\n)";
+        let got = with_vectors(
+            listed(&[("TIME INDEX", "")]),
+            vectors_in_create(Variant::GreptimeDb, greptime),
+        );
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[1].name, "VECTOR_INDEX_v");
+        assert_eq!(got[1].key_columns, ["v"]);
+        assert_eq!(got[1].kind, "VECTOR");
+        assert_eq!(
+            got[1].vector,
+            Some(vi(
+                None,
+                "cosine",
+                &[("m", "16"), ("ef_construction", "128"), ("ef_search", "64")]
+            ))
+        );
+
+        // Doris: SHOW INDEX's properties, one row per key part.
+        let props = r#"("dim" = "3", "index_type" = "hnsw", "max_degree" = "32", "metric_type" = "l2_distance")"#;
+        let rows = vec![
+            ("iv".to_string(), "ANN".to_string(), Some(props.to_string())),
+            ("iv".to_string(), "ANN".to_string(), Some(props.to_string())),
+            ("ix_k".to_string(), "INVERTED".to_string(), None),
+        ];
+        let found = olap_vectors(Variant::Doris, rows.into_iter());
+        assert_eq!(found.len(), 1);
+        let got = with_vectors(listed(&[("iv", "ANN"), ("ix_k", "INVERTED")]), found);
+        assert_eq!(
+            got[0].vector,
+            Some(vi(Some("hnsw"), "l2", &[("dim", "3"), ("m", "32")]))
+        );
+        assert_eq!(got[1].vector, None);
+        // StarRocks writes the properties after the type.
+        let found = olap_vectors(
+            Variant::StarRocks,
+            [(
+                "iv".to_string(),
+                r#"VECTOR("dim" = "3", "index_type" = "hnsw", "M" = "16", "metric_type" = "cosine_similarity")"#.to_string(),
+                Some(String::new()),
+            )]
+            .into_iter(),
+        );
+        assert_eq!(
+            found[0].vector,
+            Some(vi(Some("hnsw"), "cosine", &[("dim", "3"), ("m", "16")]))
+        );
     }
 
     #[test]
