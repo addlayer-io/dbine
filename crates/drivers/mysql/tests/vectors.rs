@@ -496,6 +496,30 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         assert_eq!(cells, want);
     }
 
+    // 3c. A protected read (MCP, the assistant): MySQL and MariaDB run it
+    // in a read-only transaction; the vectors come the same.
+    {
+        let mut out = QueryOutcome::default();
+        match s
+            .run_read_only(
+                "SELECT `id`, `v` FROM `vec_items` ORDER BY `id`",
+                100,
+                &mut out,
+            )
+            .await
+        {
+            Ok(()) => {
+                let r = &out.results[0];
+                assert!(r.columns[1].vector.is_some(), "{:?}", r.columns[1]);
+                let cells: Vec<Value> = r.rows.iter().map(|row| row[1].clone()).collect();
+                assert_eq!(cells, expect.map(|e| json!(e)));
+                eprintln!("{id}: protected read ok");
+            }
+            Err(dbine_driver::Error::Unsupported(_)) => {}
+            Err(e) => panic!("run_read_only: {e}"),
+        }
+    }
+
     // 4. The describe keeps the type with its dimension; 5. the index, its
     // vector settings.
     let schema = s.database_schema().await.expect("database_schema");
