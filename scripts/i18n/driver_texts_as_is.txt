@@ -1,0 +1,53 @@
+# Texts the drivers show (connection form, explorer, create menu, designer)
+# that stay as written in every language: product and protocol names, and
+# examples (host names, connection strings, ids). One per line, exactly as
+# the driver writes it (a line break is written `\n`); a line starting with
+# `#` is a comment.
+#
+# extract_backend.py leaves them out of backend.msgids.json, and the test
+# every_driver_text_is_in_every_catalog (src-tauri/src/tasks/i18n.rs)
+# accepts them without a translation. A text with Spanish words in it is
+# never listed here: it's translated.
+
+# Products, drivers and protocols
+Apache Ignite
+Apache Ignite 3
+AWS IAM
+Cloud ID
+Cloudera ODBC Driver for Apache Hive
+Cloudera ODBC Driver for Impala
+CUBRID Driver
+DM8 ODBC DRIVER
+EXASolution Driver
+GBase ODBC DRIVER
+Google Cloud IAM
+IBM DB2 ODBC DRIVER
+IBM i Access ODBC Driver
+IBM INFORMIX ODBC DRIVER
+InterSystems ODBC
+InterSystems ODBC35
+Kerberos (GSSAPI)
+Microsoft Access dBASE Driver (*.dbf, *.ndx, *.mdx)
+Microsoft Access Driver (*.mdb, *.accdb)
+Microsoft Entra ID
+MonetDB ODBC Driver
+NetSuite Drivers 64bit
+NuoDB ODBC Driver
+Ocient ODBC Driver
+OpenLink Virtuoso
+Pervasive ODBC Interface
+Progress OpenEdge 12.8 Driver
+Simba Spark ODBC Driver
+SQL Anywhere 17
+Strict (TDS 8.0)
+Teradata Database ODBC Driver 17.20
+
+# Examples and values
+-----BEGIN PRIVATE KEY-----
+1 (TCP)
+6 (SSL)
+GizmoSQL: 31337; Dremio: 32010; InfluxDB 3: 8181.
+http://rs1:16030, http://rs2:16030
+node1, node2…
+tpurgent (ATP)
+{"type": "service_account", …}

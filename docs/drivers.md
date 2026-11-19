@@ -148,6 +148,27 @@ Any other key (`region`, `project_id`, `auth_mode`, `api_key`,
 `cfg.option("key")`. If it's a secret, it carries `.secret()`: the UI stores
 it in the keychain.
 
+### Texts in every language
+
+A field's label, help, placeholder and options, the object kinds, the create
+menu's templates and the designer's label are written in Spanish. The UI
+translates them from `web/src/locales/<lang>/backend.json`, like every other
+backend message. After adding or changing one:
+
+1. `DBINE_WRITE_DRIVER_TEXTS=1 cargo test -p dbine --lib every_driver_text`
+   reads the drivers' manifests into `web/src/locales/driver.msgids.json`.
+2. `python3 scripts/i18n/extract_backend.py` merges them into
+   `backend.msgids.json`.
+3. The `translator` agent translates what's new, and
+   `python3 scripts/i18n/check.py` has to pass.
+
+Product names and examples that stay the same in every language (an ODBC
+driver's name, `node1, node2…`) go in `scripts/i18n/driver_texts_as_is.txt`
+instead. A text with Spanish words in it is always translated, examples
+included: `localhost o https://mi-cluster:9200` becomes `localhost or
+https://my-cluster:9200`. The test `every_driver_text_is_in_every_catalog`
+fails while any driver text is missing from a catalog.
+
 ## Tests
 
 - **Unit tests** for the pure helpers: value conversion, query building,

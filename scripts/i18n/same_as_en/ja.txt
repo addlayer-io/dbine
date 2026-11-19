@@ -104,3 +104,5 @@ backend:{0}: pg_proc listed no functions
 snippets.json:families.dax
 lint.json:groups.dax
 optimizer.json:rules.dax_selectedvalue.title
+backend:DRIVER={ODBC Driver 18 for SQL Server};SERVER=host,1433;UID=usuario;PWD=…
+backend:database: mibase

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixes
+
+- **Connection forms partly in Spanish:** some texts that drivers show stayed in Spanish whatever the interface language. Among them were Power BI's sign-in application and query API options, SQL Server's and Azure SQL's Microsoft Entra ID sign-in modes, the ODBC driver field and its help, Neo4j's encryption help, the examples in several fields, and some items of the explorer's create menu. They now appear in every language DBine offers.
+
 ## [1.6.3] - 2026-11-18
 
 ### Improvements
