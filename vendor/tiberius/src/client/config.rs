@@ -72,6 +72,8 @@ pub struct Config {
     // PATCH(dbine): legacy TLS (1.0/1.1) through OpenSSL, per connection.
     pub(crate) legacy_tls: bool,
     pub(crate) legacy_tls_pin: Option<CertPin>,
+    // PATCH(dbine): the vector type (SQL Server 2025, Azure SQL).
+    pub(crate) vector_support: bool,
 }
 
 // PATCH(dbine): legacy TLS, per connection.
@@ -323,6 +325,7 @@ impl Default for Config {
             client_cert: None,
             legacy_tls: false,
             legacy_tls_pin: None,
+            vector_support: false,
         }
     }
 }
@@ -618,6 +621,25 @@ impl Config {
     /// - Defaults to `None`.
     pub fn authentication(&mut self, auth: AuthMethod) {
         self.auth = auth;
+    }
+
+    // PATCH(dbine): the vector type.
+    /// Ask for `vector` columns as the vector TDS type (SQL Server 2025,
+    /// Azure SQL): their values then come as
+    /// [`ColumnData::Binary`](crate::ColumnData::Binary) holding the vector's
+    /// binary form (an 8-byte header, then the elements), and
+    /// [`Column::vector_type`](crate::Column::vector_type) gives the
+    /// dimensions and element type. Without it (and from servers without
+    /// vectors) they come as JSON text, as upstream.
+    ///
+    /// - Defaults to `false`.
+    pub fn vector_support(&mut self, on: bool) {
+        self.vector_support = on;
+    }
+
+    /// Whether [`vector_support`](Self::vector_support) is on.
+    pub fn get_vector_support(&self) -> bool {
+        self.vector_support
     }
 
     /// Sets ApplicationIntent readonly.

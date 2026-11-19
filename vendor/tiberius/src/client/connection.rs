@@ -279,6 +279,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
                 config.client_name,
                 config.readonly,
                 config.packet_size,
+                config.vector_support,
                 prelogin,
             )
             .await?;
@@ -722,9 +723,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Connection<S> {
         client_name: Option<String>,
         readonly: bool,
         packet_size: Option<u32>,
+        vector_support: bool,
         prelogin: PreloginMessage,
     ) -> crate::Result<Self> {
         let mut login_message = LoginMessage::new();
+        // PATCH(dbine): the vector type.
+        login_message.vector_support(vector_support);
 
         if let Some(db) = db {
             login_message.db_name(db);

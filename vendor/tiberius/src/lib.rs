@@ -247,6 +247,8 @@ pub use tds::{
         AltMetaDataColumn, BaseMetaDataColumn, BulkLoadRequest, ColumnData, ColumnFlag,
         FixedLenType, IntoRow, IsolationLevel, MetaDataColumn, TokenAltMetaData, TokenAltRow,
         TokenRow, TypeInfo, TypeLength, VarLenContext, VarLenType,
+        // PATCH(dbine): the vector type.
+        VectorBaseType, VectorType, VECTOR_HEADER_SIZE,
     },
     collation::Collation,
     numeric,

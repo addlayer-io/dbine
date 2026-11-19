@@ -212,6 +212,18 @@ impl<'a> ColumnData<'a> {
             },
             TypeInfo::Xml { schema, size } => xml::decode(src, *size, schema.clone()).await?,
             TypeInfo::Udt(_) => udt::decode(src).await?,
+            // PATCH(dbine): a vector value, USHORTLEN bytes (0xFFFF NULL):
+            // its binary form, header included.
+            TypeInfo::Vector(_) => {
+                let len = src.read_u16_le().await?;
+                if len == 0xffff {
+                    ColumnData::Binary(None)
+                } else {
+                    let mut buf = vec![0u8; len as usize];
+                    futures_util::AsyncReadExt::read_exact(src, &mut buf).await?;
+                    ColumnData::Binary(Some(buf.into()))
+                }
+            }
         };
 
         Ok(res)
@@ -689,6 +701,25 @@ impl<'a> Encode<BytesMutWithTypeInfo<'a>> for ColumnData<'a> {
                     dst.put_u64_le(0xffffffffffffffff);
                 }
             }
+            // PATCH(dbine): into a vector column, its binary form as is
+            // (header included), USHORTLEN.
+            (ColumnData::Binary(opt), Some(TypeInfo::Vector(v))) => match opt {
+                Some(bytes) => {
+                    if bytes.len() != v.size as usize {
+                        return Err(crate::Error::BulkInput(
+                            format!(
+                                "Vector length {} is not the column's {}",
+                                bytes.len(),
+                                v.size
+                            )
+                            .into(),
+                        ));
+                    }
+                    dst.put_u16_le(bytes.len() as u16);
+                    dst.extend(bytes.into_owned());
+                }
+                None => dst.put_u16_le(0xffff),
+            },
             (ColumnData::Binary(Some(bytes)), None) if bytes.len() <= 8000 => {
                 dst.put_u8(VarLenType::BigVarBin as u8);
                 dst.put_u16_le(8000);
