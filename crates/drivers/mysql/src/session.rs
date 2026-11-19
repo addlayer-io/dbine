@@ -341,7 +341,7 @@ impl MySqlSession {
                     schema,
                     table,
                     column,
-                } => seen.known(schema, table, column),
+                } => seen.known_at(v, schema, table, column),
                 Place::Query { tables, column } => seen.known_in(v, tables, column),
             };
             match known {
@@ -776,7 +776,7 @@ impl<'a> VectorHints<'a> {
                 schema,
                 table,
                 column,
-            } => self.seen.known(schema, table, column),
+            } => self.seen.known_at(self.variant, schema, table, column),
             Place::Query { tables, column } => self.seen.known_in(self.variant, tables, column),
         }
     }

@@ -1486,6 +1486,18 @@ impl SeenColumns {
         }
     }
 
+    /// A result column the wire places (schema, table, column): by its
+    /// schema's lookup, else by its table's (an export of a query over
+    /// that table looked the table up, not the schema).
+    pub(crate) fn known_at(&self, v: Variant, schema: &str, table: &str, column: &str) -> Known {
+        match self.known(schema, table, column) {
+            Known::Unknown if self.table_fresh(schema, table) => {
+                self.known_in(v, &[(schema.to_string(), table.to_string())], column)
+            }
+            k => k,
+        }
+    }
+
     pub(crate) fn insert(&mut self, schema: &str, cols: SchemaColumns) {
         self.schemas
             .insert(schema.to_string(), (std::time::Instant::now(), cols));
@@ -2525,6 +2537,12 @@ mod tests {
         );
         assert_eq!(s.known_in(m, &both, "b.v"), Known::NotVector);
         assert_eq!(s.known_in(m, &both, "c.v"), Known::NotVector);
+        // A column the wire places, its table looked up (not its schema).
+        assert_eq!(
+            s.known_at(m, "public", "a", "v"),
+            Known::Vector("float_vector".into())
+        );
+        assert_eq!(s.known_at(m, "public", "zz", "v"), Known::Unknown);
         s.clear();
         assert_eq!(s.known_in(v, &[a], "v"), Known::Unknown);
         // MariaDB's VEC_FromText(…) column.
