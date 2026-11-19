@@ -348,6 +348,38 @@ impl Driver for CassandraDriver {
         ddl::delete_script(target, keys)
     }
 
+    /// With the columns' types a text cell stays text (`'[1,2]'` in a
+    /// `text` column isn't a list) and a vector's text becomes its array,
+    /// checked against the dimension.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        let types: Vec<ddl::CellType> = columns.iter().map(ddl::CellType::of).collect();
+        ddl::insert_script_typed(target, &names, &types, rows)
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        ddl::update_script_typed(target, changes, types)
+    }
+
+    fn delete_script_typed(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        ddl::delete_script_typed(target, keys, types)
+    }
+
     fn security(&self) -> Option<dbine_driver::SecuritySpec> {
         security::spec(self.flavor)
     }
@@ -1255,6 +1287,45 @@ pub(crate) fn json_target(target: &str) -> Option<(Vec<String>, Vec<String>)> {
     Some((columns, list("pk")))
 }
 
+/// A `system_schema.indexes` class as [`IndexDef::kind`]: `sai` for SAI
+/// (`StorageAttachedIndex`), the class as it is for other custom indexes
+/// (ScyllaDB's `vector_index`, SASI), `None` for a built-in one.
+pub(crate) fn index_kind(class: Option<&str>) -> Option<String> {
+    match class {
+        Some(c) if c.eq_ignore_ascii_case("sai") || c.ends_with("StorageAttachedIndex") => {
+            Some("sai".to_string())
+        }
+        Some(c) => Some(c.to_string()),
+        None => None,
+    }
+}
+
+/// An index's vector settings ([`IndexDef::vector`]) out of its options
+/// (without `target` and `class_name`), and the options that aren't: a
+/// ScyllaDB vector index with filter or partition columns (its JSON target;
+/// a local index's partition columns as the `pk` option), or an SAI or
+/// `vector_index` index whose column (`is_vector`) is a vector. The schema
+/// and the index usage report read them alike.
+pub(crate) fn index_vector(
+    kind: Option<&str>,
+    target: &str,
+    mut options: BTreeMap<String, String>,
+    is_vector: impl Fn(&str) -> bool,
+) -> (Option<dbine_driver::VectorIndex>, BTreeMap<String, String>) {
+    if let Some((_, pk)) = json_target(target) {
+        if !pk.is_empty() {
+            options.insert("pk".into(), pk.join(", "));
+        }
+        let (v, rest) = ddl::vector_of(options);
+        return (Some(v), rest);
+    }
+    if matches!(kind, Some("sai" | "vector_index")) && is_vector(unquote_target(target)) {
+        let (v, rest) = ddl::vector_of(options);
+        return (Some(v), rest);
+    }
+    (None, options)
+}
+
 /// The column a plain index target names (`v`, `"V"` → `V`).
 fn unquote_target(target: &str) -> &str {
     let t = target.trim();
@@ -1662,31 +1733,26 @@ impl DbSession for CassandraSession {
             let Some(t) = out.iter_mut().find(|t| t.name == text(r, 0)) else {
                 continue;
             };
-            let class = map_value(r, 3, "class_name");
-            let kind = match class {
-                Some(c) if c.eq_ignore_ascii_case("sai") || c.ends_with("StorageAttachedIndex") => {
-                    Some("sai".to_string())
-                }
-                Some(c) => Some(c),
-                None => None,
-            };
-            let mut options: BTreeMap<String, String> = map_entries(r, 3)
+            let kind = index_kind(map_value(r, 3, "class_name").as_deref());
+            let options: BTreeMap<String, String> = map_entries(r, 3)
                 .into_iter()
                 .filter(|(k, _)| k != "target" && k != "class_name")
                 .collect();
             let mut target = map_value(r, 3, "target").unwrap_or_default();
+            let is_vector = |c: &str| {
+                t.columns
+                    .iter()
+                    .any(|x| x.name == c && x.data_type.trim().starts_with("vector<"))
+            };
             // A ScyllaDB vector index with filter or partition columns.
-            if let Some((columns, pk)) = json_target(&target) {
-                if !pk.is_empty() {
-                    options.insert("pk".into(), pk.join(", "));
-                }
-                let (v, rest) = ddl::vector_of(options);
+            if let Some((columns, _)) = json_target(&target) {
+                let (vector, rest) = index_vector(kind.as_deref(), &target, options, is_vector);
                 t.indexes.push(IndexDef {
                     name: text(r, 1),
                     columns,
                     kind,
                     options: rest,
-                    vector: Some(v),
+                    vector,
                     ..Default::default()
                 });
                 continue;
@@ -1720,17 +1786,11 @@ impl DbSession for CassandraSession {
             // The rest of the map is the index's `WITH OPTIONS` (SAI's
             // case_sensitive / normalize, SASI's mode…); a vector index's
             // distance and graph settings are its `vector`.
-            let on_vector = t.columns.iter().any(|c| {
-                c.name == unquote_target(&target) && c.data_type.trim().starts_with("vector<")
+            let (vector, options) = index_vector(kind.as_deref(), &target, options, |c| {
+                t.columns
+                    .iter()
+                    .any(|x| x.name == c && x.data_type.trim().starts_with("vector<"))
             });
-            let vector_kind = matches!(kind.as_deref(), Some("sai" | "vector_index"));
-            let vector = if on_vector && vector_kind {
-                let (v, rest) = ddl::vector_of(std::mem::take(&mut options));
-                options = rest;
-                Some(v)
-            } else {
-                None
-            };
             t.indexes.push(IndexDef {
                 name: text(r, 1),
                 columns: vec![target],

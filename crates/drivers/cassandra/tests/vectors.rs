@@ -307,6 +307,18 @@ async fn body(id: &str, url: &str) {
         }])
         .unwrap();
     assert!(sync.statements.is_empty(), "{:?}", sync.statements);
+    // The index usage report carries the same vector settings.
+    let usage = s
+        .index_usage(&table("docs"))
+        .await
+        .unwrap()
+        .expect("report");
+    let listed = usage
+        .indexes
+        .iter()
+        .find(|i| i.name == "docs_emb")
+        .unwrap_or_else(|| panic!("{:?}", usage.indexes));
+    assert_eq!(listed.vector, ix.vector, "{listed:?}");
 
     // 6. Similarity: ANN on Cassandra; ScyllaDB answers ANN only with its
     // Vector Store service, so there the similarity functions.
@@ -344,6 +356,52 @@ async fn body(id: &str, url: &str) {
     run(&mut s, &upd).await;
     let out = run(&mut s, "SELECT id, emb FROM docs WHERE id = 2;").await;
     assert_eq!(vectors(&out), [(2, "[0,1,0.25]".to_string())]);
+
+    // 7b. Scripts with the result's column types: text that reads as JSON
+    // stays text, a vector's text becomes its array.
+    let typed = run(&mut s, "SELECT id, body, emb FROM docs WHERE id = 1;")
+        .await
+        .results[0]
+        .columns
+        .clone();
+    let row = vec![json!(4), json!("[1]"), json!("[0, 0, 1]")];
+    let ins = d
+        .insert_script_typed(&table("docs"), &typed, std::slice::from_ref(&row))
+        .unwrap();
+    run(&mut s, &ins).await;
+    let check = "SELECT id, body, emb FROM docs WHERE id = 4;";
+    let out = run(&mut s, check).await;
+    assert_eq!(out.results[0].rows[0][1], json!("[1]"));
+    assert_eq!(vectors(&out), [(4, "[0,0,1]".to_string())]);
+    // Untyped, that text is a JSON list, which a text column refuses.
+    let names = ["id".to_string(), "body".into(), "emb".into()];
+    let untyped = d.insert_script(&table("docs"), &names, &[row]).unwrap();
+    let mut o = QueryOutcome::default();
+    let refused = s.execute(&untyped, 10, &mut o).await.is_err() || o.error.is_some();
+    assert!(refused, "{untyped}");
+    let upd = d
+        .update_script_typed(
+            &table("docs"),
+            &[RowChange {
+                key: vec![("id".into(), json!(4))],
+                set: vec![
+                    ("body".into(), json!("{\"a\": 1}")),
+                    ("emb".into(), json!("[1,1,0]")),
+                ],
+                ..Default::default()
+            }],
+            &typed,
+        )
+        .unwrap();
+    run(&mut s, &upd).await;
+    let out = run(&mut s, check).await;
+    assert_eq!(out.results[0].rows[0][1], json!("{\"a\": 1}"));
+    assert_eq!(vectors(&out), [(4, "[1,1,0]".to_string())]);
+    let del = d
+        .delete_script_typed(&table("docs"), &[vec![("id".into(), json!(4))]], &typed)
+        .unwrap();
+    run(&mut s, &del).await;
+    assert!(run(&mut s, check).await.results[0].rows.is_empty());
 
     // 8. Transfers: the read gives the text, the load takes it back (the
     // same engine), and takes what pgvector's read gives (another one).
