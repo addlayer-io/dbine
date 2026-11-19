@@ -78,6 +78,8 @@ pub(crate) fn report(coll: &Value) -> IndexUsageReport {
             kind,
             unique: ix.unique,
             key_columns: ix.columns,
+            // A vector index's algorithm, distance and parameters.
+            vector: ix.vector,
             ..Default::default()
         });
     }
@@ -126,6 +128,48 @@ mod tests {
         assert_eq!(r.indexes[3].kind, "COMPOSITE");
         assert_eq!(r.indexes[4].kind, "SPATIAL");
         assert!(!r.stats_available);
+    }
+
+    #[test]
+    fn vector_indexes_carry_their_settings() {
+        let coll = json!({
+            "id": "docs",
+            "partitionKey": {"paths": ["/id"], "kind": "Hash"},
+            "vectorEmbeddingPolicy": {"vectorEmbeddings": [
+                {"path": "/emb", "dataType": "float32", "dimensions": 3, "distanceFunction": "dotproduct"}
+            ]},
+            "indexingPolicy": {
+                "indexingMode": "consistent",
+                "includedPaths": [{"path": "/*"}],
+                "excludedPaths": [{"path": "/emb/*"}],
+                "vectorIndexes": [{"path": "/emb", "type": "quantizedFlat", "quantizationByteSize": 2}]
+            }
+        });
+        let r = report(&coll);
+        let u = r
+            .indexes
+            .iter()
+            .find(|i| i.kind == "VECTOR")
+            .expect("vector index");
+        let ix = crate::container_schema(&coll, &[], None)
+            .indexes
+            .into_iter()
+            .find(|i| i.vector.is_some())
+            .unwrap();
+        // The same values as the schema's index.
+        assert_eq!(u.vector, ix.vector);
+        let v = u.vector.as_ref().unwrap();
+        assert_eq!(v.algorithm.as_deref(), Some("quantizedFlat"));
+        assert_eq!(v.metric.as_deref(), Some("ip"));
+        assert_eq!(
+            v.params.get("quantizationByteSize").map(String::as_str),
+            Some("2")
+        );
+        assert!(r
+            .indexes
+            .iter()
+            .filter(|i| i.kind != "VECTOR")
+            .all(|i| i.vector.is_none()));
     }
 
     #[test]

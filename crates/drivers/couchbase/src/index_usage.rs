@@ -178,6 +178,10 @@ pub(crate) fn assemble(rows: &[Value], stats: Option<&Stats>) -> Vec<IndexUsage>
                 seeks,
                 last_read: scan_time(r.get("last_scan"))
                     .or_else(|| scan_time(r.get("last_scan_time"))),
+                // A vector index's settings, as the schema reads them.
+                vector: vector
+                    .then(|| crate::ddl::index_from_row(r).vector)
+                    .flatten(),
                 name,
                 ..Default::default()
             }
@@ -210,7 +214,7 @@ impl CbSession {
         };
         let rows = self
             .results(&format!(
-                "SELECT i.name, i.is_primary, i.index_key, i.`condition`, i.`partition`, i.metadata.definition,
+                "SELECT i.name, i.is_primary, i.index_key, i.`condition`, i.`partition`, i.`with`, i.metadata.definition,
                         i.metadata.stats.last_known_scan_time AS last_scan, i.metadata.last_scan_time
                  FROM system:indexes AS i
                  WHERE i.`using` = 'gsi' AND ((i.bucket_id = {} AND i.scope_id = {} AND i.keyspace_id = {}){legacy})
@@ -383,5 +387,36 @@ mod tests {
         assert!(assemble(&rows, None)
             .iter()
             .all(|i| i.seeks == 0 && i.updates == 0 && i.size_kb.is_none()));
+        assert!(r.indexes.iter().all(|i| i.vector.is_none()));
+    }
+
+    #[test]
+    fn vector_indexes_carry_their_settings() {
+        let rows = vec![
+            json!({"name": "hv", "is_primary": false, "index_key": ["`emb` VECTOR"],
+                   "with": {"dimension": 3, "similarity": "L2_SQUARED", "description": "IVF8,SQ8"},
+                   "definition": "CREATE VECTOR INDEX `hv` ON `b`.`s`.`c`(`emb` VECTOR) WITH {...}"}),
+            json!({"name": "cv", "is_primary": false, "index_key": ["`cat`", "`emb` VECTOR"],
+                   "with": {"dimension": 3, "similarity": "COSINE", "description": "IVF,SQ8"},
+                   "definition": "CREATE INDEX `cv` ON `b`.`s`.`c`(`cat`,`emb` VECTOR) WITH {...}"}),
+        ];
+        let u = assemble(&rows, None);
+        for (usage, row) in u.iter().zip(&rows) {
+            // The same values as the schema's index.
+            assert_eq!(usage.vector, crate::ddl::index_from_row(row).vector);
+        }
+        let hv = u[0].vector.as_ref().unwrap();
+        assert_eq!(u[0].kind, "GSI VECTOR HYPERSCALE");
+        assert_eq!(hv.metric.as_deref(), Some("l2_squared"));
+        assert_eq!(hv.params.get("lists").map(String::as_str), Some("8"));
+        assert_eq!(
+            hv.params.get("quantization").map(String::as_str),
+            Some("SQ8")
+        );
+        assert_eq!(u[1].kind, "GSI VECTOR COMPOSITE");
+        assert_eq!(
+            u[1].vector.as_ref().unwrap().metric.as_deref(),
+            Some("cosine")
+        );
     }
 }

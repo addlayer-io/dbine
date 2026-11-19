@@ -555,10 +555,11 @@ pub fn fts_usages(body: &Value, bucket: &str, scope: &str, collection: &str) -> 
         {
             fts_fields(&mapping["default_mapping"]["properties"], "", &mut fields);
         }
-        if !fields.is_empty() {
+        if let Some(first) = fields.first() {
             out.push(IndexUsage {
                 name: short_name(def["name"].as_str().unwrap_or(name), bucket),
                 kind: "SEARCH VECTOR".into(),
+                vector: Some(fts_vector(first)),
                 key_columns: fields
                     .iter()
                     .map(|f| {
@@ -625,6 +626,21 @@ pub fn fts_fields(props: &Value, prefix: &str, out: &mut Vec<FtsField>) {
             }
         }
         fts_fields(&p["properties"], &path, out);
+    }
+}
+
+/// A Search index's vector settings, from its first vector field: the
+/// similarity as the metric, `vector_index_optimized_for` as the parameter
+/// `optimized_for`.
+fn fts_vector(first: &FtsField) -> VectorIndex {
+    let mut params = std::collections::BTreeMap::new();
+    if let Some(o) = &first.optimized_for {
+        params.insert("optimized_for".to_string(), o.clone());
+    }
+    VectorIndex {
+        algorithm: None,
+        metric: first.similarity.as_deref().map(fts_metric),
+        params,
     }
 }
 
@@ -729,10 +745,6 @@ pub fn fts_indexes(body: &Value, bucket: &str) -> Vec<(String, String, IndexDef)
             {
                 types.retain(|k, _| Some(k) == tname.as_ref());
             }
-            let mut params = std::collections::BTreeMap::new();
-            if let Some(o) = &first.optimized_for {
-                params.insert("optimized_for".to_string(), o.clone());
-            }
             let mut options = std::collections::BTreeMap::new();
             if let Some(n) = first.dims {
                 options.insert(DIMENSION.to_string(), n.to_string());
@@ -758,11 +770,7 @@ pub fn fts_indexes(body: &Value, bucket: &str) -> Vec<(String, String, IndexDef)
                     columns: vec![first.path.clone()],
                     kind: Some(SEARCH.into()),
                     options,
-                    vector: Some(VectorIndex {
-                        algorithm: None,
-                        metric: first.similarity.as_deref().map(fts_metric),
-                        params,
-                    }),
+                    vector: Some(fts_vector(first)),
                     ..Default::default()
                 },
             ));
@@ -1315,6 +1323,18 @@ mod tests {
             ["emb (vector 3, dot_product)", "meta.e2 (vector 8, l2_norm)"]
         );
         assert!(fts_usages(&body, "b", "inv", "other").is_empty());
+        // The explorer's index has the schema's settings.
+        let defs = fts_indexes(&body, "b");
+        let ix = defs
+            .iter()
+            .find(|(s, c, _)| s == "inv" && c == "docs")
+            .map(|(_, _, i)| i)
+            .unwrap();
+        assert_eq!(u[0].vector, ix.vector);
+        assert_eq!(
+            u[0].vector.as_ref().unwrap().metric.as_deref(),
+            Some(metric::IP)
+        );
     }
 
     #[test]
