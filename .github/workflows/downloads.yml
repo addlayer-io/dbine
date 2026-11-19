@@ -1,0 +1,61 @@
+name: downloads
+
+# The README's downloads badge: every download of the app, in any format
+# and including its updates, but not the drivers it downloads on demand,
+# latest.json (each running app's update check) or the signatures
+# (scripts/downloads-badge.py). GitHub's own downloads badge adds up every
+# release asset, so one user who opens a dozen engines counted thirteen.
+#
+# Every six hours, and by hand (Actions › downloads › Run workflow). The
+# count goes to downloads.json on the `badges` branch, which the badge reads
+# through shields.io.
+
+on:
+  schedule:
+    - cron: "41 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: downloads-badge
+  cancel-in-progress: false
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push to the badges branch only
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Tests
+        run: python3 scripts/test_downloads_badge.py
+
+      - name: Count
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" | jq -s add > "$RUNNER_TEMP/releases.json"
+          python3 scripts/downloads-badge.py "$RUNNER_TEMP/releases.json" "$RUNNER_TEMP/downloads.json"
+          cat "$RUNNER_TEMP/downloads.json"
+
+      # The branch holds only downloads.json; the first run creates it.
+      - name: Publish
+        run: |
+          if git ls-remote --exit-code --heads origin badges >/dev/null; then
+            git fetch -q --depth=1 origin badges
+            git worktree add -q --detach _badges FETCH_HEAD
+          else
+            git worktree add -q --detach _badges
+            git -C _badges checkout -q --orphan badges
+            git -C _badges rm -rqf .
+          fi
+          cp "$RUNNER_TEMP/downloads.json" _badges/downloads.json
+          cd _badges
+          git add downloads.json
+          if git diff --cached --quiet; then echo "No change."; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Downloads: $(python3 -c 'import json; print(json.load(open("downloads.json"))["message"])')"
+          git push -q origin HEAD:badges
