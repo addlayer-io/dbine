@@ -257,6 +257,13 @@ s map_cat(map1, map2)
 s map_delete(map, key, ...)
 s map_insert(map, key, value)
 s map_pick(map, key, ...)
+# Vectors.
+s cosine_distance(vector1, vector2)
+s l1_distance(vector1, vector2)
+s l2_distance(vector1, vector2)
+s inner_product(vector1, vector2)
+s vector_dims(vector)
+s vector_norm(vector)
 # Hashes and identifiers.
 s md5(str)
 s sha(str)

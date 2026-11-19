@@ -300,7 +300,7 @@ pub(crate) fn greptime_indexes(create: &str) -> Vec<(String, String, BTreeMap<St
         };
         let col = l[1..end + 1].to_string();
         let upper = l.to_ascii_uppercase();
-        for kind in ["INVERTED", "FULLTEXT", "SKIPPING"] {
+        for kind in ["INVERTED", "FULLTEXT", "SKIPPING", "VECTOR"] {
             let Some(at) = upper.find(&format!("{kind} INDEX")) else {
                 continue;
             };
@@ -322,6 +322,20 @@ pub(crate) fn olap_index_type(t: &str) -> (Option<String>, BTreeMap<String, Stri
         Some(at) => (Some(t[..at].trim().to_string()), key_values(&t[at..])),
         None => ((!t.is_empty()).then(|| t.to_string()), BTreeMap::new()),
     }
+}
+
+/// A StarRocks / Doris `SHOW INDEX` row's index kind and properties: from
+/// its `Index_type` (StarRocks: `NGRAMBF("gram_num" = "4")`, `VECTOR(…)`)
+/// and its `Properties` (Doris shows them apart: `("dim" = "3", …)`).
+pub(crate) fn olap_show_index(
+    index_type: &str,
+    properties: Option<&str>,
+) -> (Option<String>, BTreeMap<String, String>) {
+    let (kind, mut options) = olap_index_type(index_type);
+    if let Some(p) = properties.filter(|p| p.contains('=')) {
+        options.extend(key_values(p));
+    }
+    (kind, options)
 }
 
 /// `PROPERTIES (…)` of a StarRocks / Doris `SHOW CREATE TABLE`.
@@ -531,16 +545,15 @@ pub(crate) fn databend_index(
         .into_iter()
         .map(|c| unquote(&c))
         .collect();
-    Some((
-        table,
-        IndexDef {
-            name: name.to_string(),
-            columns,
-            kind: Some(kind),
-            options: manticore_settings(definition),
-            ..Default::default()
-        },
-    ))
+    let mut ix = IndexDef {
+        name: name.to_string(),
+        columns,
+        kind: Some(kind),
+        options: manticore_settings(definition),
+        ..Default::default()
+    };
+    crate::vectors::from_databend(&mut ix);
+    Some((table, ix))
 }
 
 /// OceanBase's sequence (oceanbase.DBA_OB_SEQUENCE_OBJECTS) as CREATE SEQUENCE.
@@ -807,6 +820,25 @@ mod tests {
             ("agg", "SELECT MIN(a), MAX(c) FROM agg", 0)
         );
         assert!(databend_index("db", "x", "INVERTED", "", "other.t(a)").is_none());
+        let (t, ix) = databend_index(
+            "db",
+            "iv",
+            "VECTOR",
+            "",
+            "items(embedding)distance='cosine,l2' m='16' ef_construct='100'",
+        )
+        .unwrap();
+        assert_eq!(
+            (t.as_str(), ix.columns.as_slice()),
+            ("items", &["embedding".to_string()][..])
+        );
+        let vi = ix.vector.unwrap();
+        assert_eq!(vi.metric.as_deref(), Some("cosine"));
+        assert_eq!(vi.params.get("m").map(String::as_str), Some("16"));
+        assert_eq!(
+            vi.params.get("ef_construction").map(String::as_str),
+            Some("100")
+        );
         assert_eq!(
             databend_sequence("s", Some("10"), Some("2"), Some("it's")),
             "CREATE SEQUENCE `s` START = 10 INCREMENT = 2 COMMENT = 'it''s'"

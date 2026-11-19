@@ -4,7 +4,10 @@
 //! over the binary protocol, whose typed values are written the way the
 //! text protocol would send them.
 
-use dbine_driver::{json_bytes, json_f64, json_i64, json_spatial_bytes, json_u64};
+use dbine_driver::{
+    json_bytes, json_f64, json_i64, json_spatial_bytes, json_u64, ResultColumn, VectorElement,
+    VectorMeta,
+};
 use mysql_async::consts::{ColumnFlags, ColumnType};
 use mysql_async::{Column, Value};
 use serde_json::Value as Json;
@@ -43,6 +46,11 @@ pub fn cell(col: &Column, v: Value) -> Json {
             s.parse::<f64>().map_or_else(|_| s.into(), json_f64)
         }
         MYSQL_TYPE_BIT => json_bytes(&b),
+        // MySQL 9's VECTOR: float32s, little-endian, whole.
+        MYSQL_TYPE_VECTOR => {
+            let m = VectorMeta::dense(None, VectorElement::F32);
+            crate::vectors::cell(&m, &b, true).map_or_else(|| json_bytes(&b), Json::String)
+        }
         // SRID + WKB, whole: the map view reads it.
         MYSQL_TYPE_GEOMETRY => json_spatial_bytes(&b),
         MYSQL_TYPE_TINY_BLOB
@@ -61,6 +69,57 @@ pub fn cell(col: &Column, v: Value) -> Json {
             Err(e) => json_bytes(e.as_bytes()),
         },
     }
+}
+
+/// A result column's header. MySQL 9's `VECTOR` says so on the wire, with
+/// its size (4 bytes a dimension) when the column comes from a table.
+pub fn result_column(col: &Column) -> ResultColumn {
+    let name = col.name_str().into_owned();
+    if col.column_type() == ColumnType::MYSQL_TYPE_VECTOR {
+        let len = col.column_length();
+        let dims = (!col.org_table_str().is_empty() && len > 0 && len.is_multiple_of(4))
+            .then_some(len / 4);
+        let ty = dims.map_or_else(|| "vector".to_string(), |n| format!("vector({n})"));
+        return ResultColumn::new(name, ty)
+            .with_vector(VectorMeta::dense(dims, VectorElement::F32));
+    }
+    ResultColumn::new(name, type_name(col.column_type()))
+}
+
+/// A cell of a column the catalog says holds vectors: the canonical
+/// JSON-array text from the stored bytes (binary charset) or the engine's
+/// text; as any other cell when it doesn't read as a vector.
+pub fn vector_cell(meta: &VectorMeta, col: &Column, v: Value) -> Json {
+    match v {
+        Value::Bytes(b) => {
+            match crate::vectors::cell(meta, &b, col.character_set() == BINARY_CHARSET) {
+                Some(t) => t.into(),
+                None => cell(col, Value::Bytes(b)),
+            }
+        }
+        other => cell(col, other),
+    }
+}
+
+/// Whether the wire's type of `col` could carry a vector the catalog
+/// knows (a string or a blob).
+pub fn may_be_vector(col: &Column) -> bool {
+    use ColumnType::*;
+    matches!(
+        col.column_type(),
+        MYSQL_TYPE_STRING
+            | MYSQL_TYPE_VAR_STRING
+            | MYSQL_TYPE_VARCHAR
+            | MYSQL_TYPE_BLOB
+            | MYSQL_TYPE_TINY_BLOB
+            | MYSQL_TYPE_MEDIUM_BLOB
+            | MYSQL_TYPE_LONG_BLOB
+    )
+}
+
+/// Whether `col` holds binary strings (its bytes, not text).
+pub fn is_binary(col: &Column) -> bool {
+    col.character_set() == BINARY_CHARSET
 }
 
 /// A binary-protocol value as the text protocol writes it: a FLOAT in its
@@ -242,6 +301,38 @@ mod tests {
             cell(&col(ColumnType::MYSQL_TYPE_LONGLONG, 0), Value::Int(-3)),
             serde_json::json!(-3)
         );
+    }
+
+    #[test]
+    fn mysql_vectors_read_whole() {
+        let col = Column::new(ColumnType::MYSQL_TYPE_VECTOR)
+            .with_column_length(12)
+            .with_org_table(b"t")
+            .with_character_set(BINARY_CHARSET);
+        let b = dbine_driver::vector::to_f32_le(&[1.0, 2.5, -3.0]);
+        assert_eq!(cell(&col, Value::Bytes(b)), "[1,2.5,-3]");
+        let rc = result_column(&col);
+        assert_eq!(rc.type_name, "vector(3)");
+        assert_eq!(
+            rc.vector,
+            Some(VectorMeta::dense(Some(3), VectorElement::F32))
+        );
+        // An expression's vector: no table, no known dimension.
+        let expr = Column::new(ColumnType::MYSQL_TYPE_VECTOR).with_column_length(65532);
+        assert_eq!(result_column(&expr).type_name, "vector");
+        // Not a multiple of 4: shown as bytes.
+        assert_eq!(cell(&col, Value::Bytes(vec![1, 2, 3])), "0x010203");
+        // A catalog-known vector column in text (TiDB) or bytes (MariaDB).
+        let m = VectorMeta::dense(Some(2), VectorElement::F32);
+        let text = Column::new(ColumnType::MYSQL_TYPE_LONG_BLOB).with_character_set(46);
+        assert_eq!(
+            vector_cell(&m, &text, Value::Bytes(b"[1, 2]".to_vec())),
+            "[1,2]"
+        );
+        let bin = Column::new(ColumnType::MYSQL_TYPE_VAR_STRING).with_character_set(BINARY_CHARSET);
+        let b = dbine_driver::vector::to_f32_le(&[0.5, 4.0]);
+        assert_eq!(vector_cell(&m, &bin, Value::Bytes(b)), "[0.5,4]");
+        assert_eq!(vector_cell(&m, &bin, Value::NULL), Json::Null);
     }
 
     #[test]

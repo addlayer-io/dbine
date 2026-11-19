@@ -936,7 +936,8 @@ async fn transfer_manticore() {
     else {
         return;
     };
-    assert!(!driver("manticore").supports_bulk_load());
+    // Its load writes INSERTs that know its vector columns.
+    assert!(driver("manticore").supports_bulk_load());
     run(&mut s, "DROP TABLE IF EXISTS dbine_transfer_rt").await;
     run(
         &mut s,

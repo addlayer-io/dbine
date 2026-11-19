@@ -2,14 +2,14 @@
 //! and fall back to `SHOW` statements; a variant that lacks one catalog
 //! (routines, triggers, materialized views…) still lists what it has.
 
-use crate::cells::{cell, type_name, value_text};
+use crate::cells::{cell, is_binary, may_be_vector, result_column, value_text, vector_cell};
 use crate::plan::{self, Flavor, StmtKind};
 use crate::{err, stmt_err, Variant};
 use dbine_driver::sql::{leading_keyword, quote_ident, select_top, Limit, Quote};
 use dbine_driver::{
     async_trait, kinds, BoundStatement, ColumnDef, ColumnInfo, DbObject, Error, ForeignKeyDef,
     IndexDef, KeyDef, Message, MessageLevel, MonitorSnapshot, ObjectRef, ParamValue, Plan,
-    QueryOutcome, Result, ResultColumn, Session, StatementKind, TableSchema, TxState,
+    QueryOutcome, Result, Session, StatementKind, TableSchema, TxState,
 };
 use mysql_async::consts::StatusFlags;
 use mysql_async::prelude::Queryable;
@@ -50,6 +50,12 @@ pub struct MySqlSession {
     pub(crate) relogin: Option<Arc<(dbine_driver::ConnectionConfig, crate::cloud_auth::Spec)>>,
     /// Who signed in with a cloud token, when "Probar" asked.
     pub(crate) identity: Option<String>,
+    /// The vector columns of the schemas looked up (see `vectors::SeenColumns`).
+    pub(crate) vector_columns: crate::vectors::SeenColumns,
+    /// A second connection for those lookups, opened on the first one: the
+    /// user's connection keeps its FOUND_ROWS(), ROW_COUNT(), warnings and
+    /// Manticore's SHOW META between the user's statements.
+    lookups: Option<Conn>,
 }
 
 /// `opts` with a fresh cloud token when the session signs in with one.
@@ -121,6 +127,8 @@ impl MySqlSession {
             read_only_pending: None,
             relogin: None,
             identity: None,
+            vector_columns: Default::default(),
+            lookups: None,
         }
     }
 
@@ -277,14 +285,227 @@ impl MySqlSession {
     }
 
     async fn run(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+        let from = self.query_tables(sql);
+        let hints = VectorHints::new(&self.vector_columns, self.variant, from);
         let result = self
             .conn
             .query_iter(sql)
             .await
             .map_err(|e| stmt_err(sql, e))?;
-        let warned = read_results(result, sql, max_rows, out).await?;
+        let (warned, pending) = read_results(result, sql, max_rows, out, &hints).await?;
         self.report_warnings(warned, out).await;
+        self.settle_vectors(out, pending).await;
         Ok(())
+    }
+
+    /// The result columns whose vectors the catalog says, once the run is
+    /// over (the connection was busy with its rows): their schemas (or the
+    /// query's tables) looked up, their headers marked and their cells
+    /// written whole.
+    pub(crate) async fn settle_vectors(
+        &mut self,
+        out: &mut QueryOutcome,
+        pending: Vec<PendingVector>,
+    ) {
+        if pending.is_empty() {
+            return;
+        }
+        let mut schemas = std::collections::BTreeSet::new();
+        let mut tables = std::collections::BTreeSet::new();
+        for p in &pending {
+            match &p.place {
+                Place::Column { schema, .. } => {
+                    if !self.vector_columns.fresh(schema) {
+                        schemas.insert(schema.clone());
+                    }
+                }
+                Place::Query { tables: from, .. } => {
+                    for (schema, table) in from {
+                        if !self.vector_columns.table_fresh(schema, table) {
+                            tables.insert((schema.clone(), table.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        for schema in schemas {
+            self.look_up_vectors(&schema).await;
+        }
+        let tables: Vec<(String, String)> = tables.into_iter().collect();
+        self.look_up_tables(&tables).await;
+        let v = self.variant;
+        let seen = &self.vector_columns;
+        settle_unknown(out, pending, |place| {
+            let known = match place {
+                Place::Column {
+                    schema,
+                    table,
+                    column,
+                } => seen.known(schema, table, column),
+                Place::Query { tables, column } => seen.known_in(v, tables, column),
+            };
+            match known {
+                crate::vectors::Known::Vector(ty) => crate::vectors::meta(v, &ty).map(|m| (ty, m)),
+                _ => None,
+            }
+        });
+    }
+
+    /// A catalog query of the lookups, on their own connection (see
+    /// `lookups`); on the user's only when a second one can't be opened.
+    /// Empty when the engine can't answer it.
+    async fn lookup_rows(&mut self, sql: &str) -> Vec<Row> {
+        if self.lookups.as_ref().is_none_or(Conn::is_disconnected) {
+            self.lookups = None;
+            if let Ok(opts) = fresh_opts(&self.opts, self.relogin.as_deref()).await {
+                match tokio::time::timeout(std::time::Duration::from_secs(10), Conn::new(opts))
+                    .await
+                {
+                    Ok(Ok(c)) => self.lookups = Some(c),
+                    Ok(Err(e)) => tracing::debug!("mysql: lookup connection: {e}"),
+                    Err(_) => tracing::debug!("mysql: lookup connection: timeout"),
+                }
+            }
+        }
+        match self.lookups.as_mut() {
+            Some(c) => match c.query::<Row, _>(sql).await {
+                Ok(rows) => rows,
+                Err(e) => {
+                    tracing::debug!("{:?}: {sql}: {e}", self.variant);
+                    if matches!(e, mysql_async::Error::Io(_) | mysql_async::Error::Driver(_)) {
+                        self.lookups = None;
+                    }
+                    Vec::new()
+                }
+            },
+            None => self.optional_rows(sql).await,
+        }
+    }
+
+    /// A schema's vector columns, from the catalog (none when it can't say).
+    pub(crate) async fn look_up_vectors(&mut self, schema: &str) {
+        let mut cols = crate::vectors::SchemaColumns::new();
+        let rows = self
+            .lookup_rows(&crate::vectors::columns_query(&lit(schema)))
+            .await;
+        for r in rows {
+            if let (Some(t), Some(c), Some(ty)) = (at(&r, 0), at(&r, 1), at(&r, 2)) {
+                if crate::vectors::meta(self.variant, &ty).is_some() {
+                    cols.insert((t, c.to_ascii_lowercase()), ty);
+                }
+            }
+        }
+        self.vector_columns.insert(schema, cols);
+    }
+
+    /// Every column of some tables (schema, table), for the engines whose
+    /// result columns don't name their table: GreptimeDB's catalog,
+    /// Manticore's DESCRIBE (it has no catalog).
+    pub(crate) async fn look_up_tables(&mut self, tables: &[(String, String)]) {
+        if self.variant == Variant::Manticore {
+            for (schema, table) in tables {
+                let sql = format!("DESCRIBE {}", quote_ident(Quote::Backtick, table));
+                let cols = self
+                    .lookup_rows(&sql)
+                    .await
+                    .iter()
+                    .filter_map(|r| {
+                        Some((
+                            named(r, &["Field"])?.to_ascii_lowercase(),
+                            named(r, &["Type"])?,
+                        ))
+                    })
+                    .collect();
+                self.vector_columns.insert_table(schema, table, cols);
+            }
+            return;
+        }
+        let mut by_schema: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+        for (schema, table) in tables {
+            by_schema.entry(schema).or_default().push(table);
+        }
+        for (schema, names) in by_schema {
+            let literals: Vec<String> = names.iter().map(|t| lit(&t.to_lowercase())).collect();
+            let rows = self
+                .lookup_rows(&crate::vectors::table_columns_query(
+                    &lit(schema),
+                    &literals,
+                ))
+                .await;
+            let mut found: BTreeMap<String, crate::vectors::TableColumns> = names
+                .iter()
+                .map(|t| (t.to_lowercase(), Default::default()))
+                .collect();
+            for r in rows {
+                if let (Some(t), Some(c), Some(ty)) = (at(&r, 0), at(&r, 1), at(&r, 2)) {
+                    found
+                        .entry(t.to_lowercase())
+                        .or_default()
+                        .insert(c.to_ascii_lowercase(), ty);
+                }
+            }
+            for (table, cols) in found {
+                self.vector_columns.insert_table(schema, &table, cols);
+            }
+        }
+    }
+
+    /// The (schema, table)s a SELECT reads, for the engines whose result
+    /// columns don't name their table. Manticore has one namespace (`""`);
+    /// GreptimeDB's default database is `public`.
+    fn query_tables(&self, sql: &str) -> Option<Vec<(String, String)>> {
+        if !crate::vectors::by_query_tables(self.variant) {
+            return None;
+        }
+        let tables = crate::vectors::from_tables(sql)?;
+        Some(
+            tables
+                .into_iter()
+                .map(|(schema, table)| {
+                    let schema = if self.variant == Variant::Manticore {
+                        String::new()
+                    } else {
+                        schema
+                            .or_else(|| self.database.clone())
+                            .unwrap_or_else(|| "public".into())
+                    };
+                    (schema, table)
+                })
+                .collect(),
+        )
+    }
+
+    /// Before a run whose rows go to a sink (an export), which keeps none
+    /// to settle later: the vector columns of what it reads, looked up.
+    async fn look_up_before(&mut self, sql: &str) {
+        if !crate::vectors::looked_up(self.variant) {
+            return;
+        }
+        if let Some(from) = self.query_tables(sql) {
+            let stale: Vec<(String, String)> = from
+                .into_iter()
+                .filter(|(s, t)| !self.vector_columns.table_fresh(s, t))
+                .collect();
+            self.look_up_tables(&stale).await;
+            return;
+        }
+        let current = match self.database.clone() {
+            Some(db) => Some(db),
+            None => self.current_database().await,
+        };
+        // The schemas its tables name, else the current one.
+        let schemas: std::collections::BTreeSet<String> = match crate::vectors::from_tables(sql) {
+            Some(list) => list
+                .into_iter()
+                .filter_map(|(schema, _)| schema.or_else(|| current.clone()))
+                .collect(),
+            None => current.into_iter().collect(),
+        };
+        for schema in schemas {
+            if !self.vector_columns.fresh(&schema) {
+                self.look_up_vectors(&schema).await;
+            }
+        }
     }
 
     /// The warnings of a run: SHOW WARNINGS lists the last statement's
@@ -468,35 +689,121 @@ impl MySqlSession {
             .prep(statement)
             .await
             .map_err(|e| stmt_err(statement, e))?;
+        let from = self.query_tables(statement);
+        let hints = VectorHints::new(&self.vector_columns, self.variant, from);
         let read = match self.conn.exec_iter(&stmt, ()).await {
-            Ok(result) => read_results(result, statement, max_rows, out).await,
+            Ok(result) => read_results(result, statement, max_rows, out, &hints).await,
             Err(e) => Err(stmt_err(statement, e)),
         };
         // Out of mysql_async's statement cache: AI reads aren't reused.
         if let Err(e) = self.conn.close(stmt).await {
             tracing::debug!("mysql: closing a prepared statement: {e}");
         }
-        let warned = read?;
+        let (warned, pending) = read?;
         // Before the rollback, which clears them.
         self.report_warnings(warned, out).await;
+        self.settle_vectors(out, pending).await;
         Ok(())
     }
 }
 
+/// Where a result column's vectors are looked up.
+#[derive(Debug, Clone)]
+pub(crate) enum Place {
+    /// The catalog column it comes from (the wire names it).
+    Column {
+        schema: String,
+        table: String,
+        column: String,
+    },
+    /// A column of that name in the tables the query reads (GreptimeDB,
+    /// Manticore: the wire doesn't name its table).
+    Query {
+        tables: Vec<(String, String)>,
+        column: String,
+    },
+}
+
+/// A result column the catalog may say holds vectors, whose schema the
+/// session hadn't looked up when its rows came: settled after the run
+/// ([`MySqlSession::settle_vectors`]).
+pub(crate) struct PendingVector {
+    result: usize,
+    col: usize,
+    place: Place,
+    /// Binary cells, kept as they came (`row`, bytes) and shown as `null`
+    /// until settled: hex cut at 1 KiB can't be read back as a vector.
+    raw: Vec<(usize, Vec<u8>)>,
+    binary: bool,
+}
+
+/// What `read_results` knows about vector columns before the rows come.
+pub(crate) struct VectorHints<'a> {
+    seen: &'a crate::vectors::SeenColumns,
+    /// The engine's vectors are found through the catalog.
+    lookup: bool,
+    variant: Variant,
+    /// The (schema, table)s the query reads, for the engines whose result
+    /// columns don't say their table (GreptimeDB, Manticore).
+    from: Option<Vec<(String, String)>>,
+}
+
+impl<'a> VectorHints<'a> {
+    /// What `read_results` knows of a statement's vector columns before it
+    /// runs: what the session saw, and the tables it reads (`from`).
+    fn new(
+        seen: &'a crate::vectors::SeenColumns,
+        variant: Variant,
+        from: Option<Vec<(String, String)>>,
+    ) -> Self {
+        VectorHints {
+            seen,
+            lookup: crate::vectors::looked_up(variant),
+            variant,
+            from,
+        }
+    }
+
+    fn variant(&self) -> Variant {
+        self.variant
+    }
+
+    /// What the session knows of a result column.
+    fn known(&self, place: &Place) -> crate::vectors::Known {
+        match place {
+            Place::Column {
+                schema,
+                table,
+                column,
+            } => self.seen.known(schema, table, column),
+            Place::Query { tables, column } => self.seen.known_in(self.variant, tables, column),
+        }
+    }
+}
+
 /// The result sets of a run into `out` (text or binary protocol): rows,
-/// affected counts, info. Returns each set's warning count, in order.
+/// affected counts, info. Returns each set's warning count, in order, and
+/// the columns whose vectors are settled after the run.
 async fn read_results<P: mysql_async::prelude::Protocol>(
     mut result: QueryResult<'_, 'static, P>,
     sql: &str,
     max_rows: usize,
     out: &mut QueryOutcome,
-) -> Result<Vec<u16>> {
+    hints: &VectorHints<'_>,
+) -> Result<(Vec<u16>, Vec<PendingVector>)> {
+    use crate::vectors::Known;
     {
         // Warning counts of the result sets, in order.
         let mut warned: Vec<u16> = Vec::new();
+        let mut pending: Vec<PendingVector> = Vec::new();
+        // Rows go to a sink (an export) instead of `out`: nothing to settle later.
+        let kept = out.sink.is_none();
         // One pass per result set; `next` returns None at each set's end
         // and moves on to the following one.
         while let Some(cols) = result.columns() {
+            // Per column: the vector it holds, when known.
+            let mut vectors: Vec<Option<dbine_driver::VectorMeta>> = vec![None; cols.len()];
+            let first_pending = pending.len();
             if cols.is_empty() {
                 out.push_affected(result.affected_rows());
                 // "Records: 3  Duplicates: 0  Warnings: 0", "Rows matched: …".
@@ -508,31 +815,142 @@ async fn read_results<P: mysql_async::prelude::Protocol>(
                     out.info(format!("Último id generado: {id}"));
                 }
             } else {
-                out.begin_result(
-                    cols.iter()
-                        .map(|c| ResultColumn {
-                            name: c.name_str().into_owned(),
-                            type_name: type_name(c.column_type()),
-                            vector: None,
+                let index = out.results.len();
+                let mut header = Vec::with_capacity(cols.len());
+                for (i, c) in cols.iter().enumerate() {
+                    let mut rc = result_column(c);
+                    let place = if !c.org_table_str().is_empty() && !c.schema_str().is_empty() {
+                        Some(Place::Column {
+                            schema: c.schema_str().into_owned(),
+                            table: c.org_table_str().into_owned(),
+                            column: c.org_name_str().into_owned(),
                         })
-                        .collect(),
-                );
+                    } else {
+                        hints.from.as_ref().map(|tables| {
+                            let name = if c.org_name_str().is_empty() {
+                                c.name_str()
+                            } else {
+                                c.org_name_str()
+                            };
+                            Place::Query {
+                                tables: tables.clone(),
+                                column: name.into_owned(),
+                            }
+                        })
+                    };
+                    // MariaDB's VEC_FromText(…) column: an expression, no table.
+                    if let (None, true, None) = (&rc.vector, is_binary(c), &place) {
+                        if let Some(m) =
+                            crate::vectors::expression_vector(hints.variant(), &c.name_str())
+                        {
+                            rc = rc.with_vector(m);
+                            rc.type_name = "vector".into();
+                        }
+                    }
+                    if let (None, true, true, Some(place)) =
+                        (&rc.vector, hints.lookup, may_be_vector(c), place)
+                    {
+                        match hints.known(&place) {
+                            Known::Vector(ty) => {
+                                if let Some(m) = crate::vectors::meta(hints.variant(), &ty) {
+                                    rc = rc.with_vector(m);
+                                    rc.type_name = crate::vectors::type_name(&ty);
+                                }
+                            }
+                            Known::NotVector => {}
+                            Known::Unknown if kept => pending.push(PendingVector {
+                                result: index,
+                                col: i,
+                                place,
+                                raw: Vec::new(),
+                                binary: is_binary(c),
+                            }),
+                            Known::Unknown => {}
+                        }
+                    }
+                    vectors[i] = rc.vector.clone();
+                    header.push(rc);
+                }
+                out.begin_result(header);
             }
-            while let Some(row) = result.next().await.map_err(|e| stmt_err(sql, e))? {
+            loop {
+                let row = match result.next().await {
+                    Ok(Some(row)) => row,
+                    Ok(None) => break,
+                    Err(e) => {
+                        // What came is still shown: binary cells as bytes.
+                        settle_unknown(out, pending, |_| None);
+                        return Err(stmt_err(sql, e));
+                    }
+                };
                 let cols = row.columns();
-                let cells = cols
-                    .iter()
-                    .zip(row.unwrap())
-                    .map(|(c, v)| cell(c, v))
-                    .collect();
+                let at = out.results.last().map_or(0, |r| r.rows.len());
+                let stored = kept && at < max_rows;
+                let mut cells: Vec<serde_json::Value> = Vec::with_capacity(cols.len());
+                for (i, (c, v)) in cols.iter().zip(row.unwrap()).enumerate() {
+                    if let Some(m) = &vectors[i] {
+                        cells.push(vector_cell(m, c, v));
+                        continue;
+                    }
+                    let p = pending[first_pending..].iter_mut().find(|p| p.col == i);
+                    match (p, v) {
+                        (Some(p), mysql_async::Value::Bytes(b)) if p.binary && stored => {
+                            p.raw.push((at, b));
+                            cells.push(serde_json::Value::Null);
+                        }
+                        (_, v) => cells.push(cell(c, v)),
+                    }
+                }
                 out.push_row(cells, max_rows);
             }
             warned.push(result.warnings());
         }
         // `columns()` reads an error in a later statement as "no more
         // results"; this surfaces it (and clears it from the connection).
-        result.drop_result().await.map_err(|e| stmt_err(sql, e))?;
-        Ok(warned)
+        let done = result.drop_result().await.map_err(|e| stmt_err(sql, e));
+        if let Err(e) = done {
+            // What came is still shown: binary cells as bytes.
+            settle_unknown(out, pending, |_| None);
+            return Err(e);
+        }
+        Ok((warned, pending))
+    }
+}
+
+/// The pending vector columns of a run settled with `kind_of` (where the
+/// column comes from → catalog type when it's a vector): headers marked and
+/// cells written whole; the rest's binary cells shown as bytes.
+fn settle_unknown(
+    out: &mut QueryOutcome,
+    pending: Vec<PendingVector>,
+    kind_of: impl Fn(&Place) -> Option<(String, dbine_driver::VectorMeta)>,
+) {
+    for p in pending {
+        let Some(r) = out.results.get_mut(p.result) else {
+            continue;
+        };
+        let found = kind_of(&p.place);
+        if let (Some((ty, meta)), Some(col)) = (&found, r.columns.get_mut(p.col)) {
+            col.type_name = crate::vectors::type_name(ty);
+            col.vector = Some(meta.clone());
+        }
+        for (row, b) in p.raw {
+            let text = found
+                .as_ref()
+                .and_then(|(_, m)| crate::vectors::cell(m, &b, true));
+            if let Some(c) = r.rows.get_mut(row).and_then(|r| r.get_mut(p.col)) {
+                *c = text.map_or_else(|| dbine_driver::json_bytes(&b), serde_json::Value::String);
+            }
+        }
+        if let (Some((_, meta)), false) = (&found, p.binary) {
+            for row in &mut r.rows {
+                if let Some(serde_json::Value::String(s)) = row.get_mut(p.col) {
+                    if let Some(t) = crate::vectors::cell(meta, s.as_bytes(), false) {
+                        *s = t;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -739,7 +1157,14 @@ const OLAP_WAIT: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// One schema-change statement (safe to send again: it failed as a whole).
 fn olap_schema_change(sql: &str) -> bool {
-    let s = sql.trim().trim_end_matches(';').trim();
+    // The notes the DDL says before a statement (`-- …` lines) aside.
+    let body: Vec<&str> = sql
+        .trim()
+        .lines()
+        .skip_while(|l| l.trim_start().starts_with("--"))
+        .collect();
+    let body = body.join("\n");
+    let s = body.trim().trim_end_matches(';').trim();
     let u = s.to_ascii_uppercase();
     !s.contains(';')
         && (u.starts_with("ALTER TABLE")
@@ -1107,15 +1532,11 @@ impl MySqlSession {
             let key = (table.clone(), name.clone());
             let entry = idx.entry(key.clone()).or_insert_with(|| {
                 let (kind, mut options) = match ty.clone() {
-                    Some(t) if olap => crate::structure::olap_index_type(&t),
+                    Some(t) if olap => {
+                        crate::structure::olap_show_index(&t, named(r, &["Properties"]).as_deref())
+                    }
                     t => (t, BTreeMap::new()),
                 };
-                if olap {
-                    // Doris shows the properties apart.
-                    if let Some(p) = named(r, &["Properties"]).filter(|p| p.contains('=')) {
-                        options.extend(crate::structure::key_values(&p));
-                    }
-                }
                 let comment = if olap {
                     named(r, &["Index_comment", "Comment"])
                 } else {
@@ -1130,13 +1551,18 @@ impl MySqlSession {
                 if yes(r, &["IGNORED"], "YES") {
                     options.insert("IGNORED".into(), "YES".into());
                 }
-                Some(IndexDef {
+                let mut ix = IndexDef {
                     name,
                     unique: !olap && named(r, &["NON_UNIQUE"]).as_deref() == Some("0"),
                     kind,
                     options,
                     ..Default::default()
-                })
+                };
+                if olap {
+                    // Doris' ANN and StarRocks' VECTOR indexes.
+                    crate::vectors::from_olap(v, &mut ix);
+                }
+                Some(ix)
             });
             let spatial = ty
                 .as_deref()
@@ -1354,10 +1780,19 @@ impl MySqlSession {
                     .is_some_and(|k| k.eq_ignore_ascii_case("FULLTEXT"))
             })
         };
+        // Vector indexes' settings (MariaDB's M and DISTANCE, TiDB's distance
+        // function, OceanBase's WITH, SingleStore's INDEX_OPTIONS).
+        let vectors_here = |t: &TableSchema| {
+            t.columns
+                .iter()
+                .any(|c| crate::vectors::meta(v, &c.data_type).is_some())
+        };
         let names: Vec<String> = tables
             .iter()
             .filter(|(_, t)| match v {
-                Variant::MySql | Variant::MariaDb | Variant::OceanBase => fulltext(t),
+                Variant::MySql => fulltext(t),
+                Variant::MariaDb | Variant::OceanBase => fulltext(t) || vectors_here(t),
+                Variant::TiDb => vectors_here(t),
                 Variant::GreptimeDb
                 | Variant::StarRocks
                 | Variant::Doris
@@ -1396,6 +1831,11 @@ impl MySqlSession {
             match v {
                 Variant::GreptimeDb => {
                     for (col, kind, opts) in crate::structure::greptime_indexes(&create) {
+                        if kind == "VECTOR" {
+                            // Not in SHOW INDEX: only the column's line says it.
+                            t.indexes.push(crate::vectors::greptime_index(&col, opts));
+                            continue;
+                        }
                         if let Some(ix) = t.indexes.iter_mut().find(|i| {
                             i.kind
                                 .as_deref()
@@ -1474,6 +1914,19 @@ impl MySqlSession {
                     }
                 }
             }
+            if matches!(
+                v,
+                Variant::MariaDb | Variant::TiDb | Variant::OceanBase | Variant::SingleStore
+            ) {
+                let found = crate::vectors::from_create(v, &create);
+                if !found.is_empty() {
+                    for vix in found {
+                        t.indexes.retain(|i| i.name != vix.name);
+                        t.indexes.push(vix);
+                    }
+                    t.indexes.sort_by(|a, b| a.name.cmp(&b.name));
+                }
+            }
         }
     }
 
@@ -1495,13 +1948,18 @@ impl MySqlSession {
                 name: name.clone(),
             };
             let cols = self.columns_from_describe(&obj).await?;
-            // Table settings (morphology, min_infix_len…) change how it's indexed.
-            let options = match self.show_create_table(&name).await {
-                Some(create) => crate::structure::manticore_settings(&create),
-                None => BTreeMap::new(),
+            // Table settings (morphology, min_infix_len…) change how it's
+            // indexed; a float_vector's KNN settings are its vector index.
+            let (options, indexes) = match self.show_create_table(&name).await {
+                Some(create) => (
+                    crate::structure::manticore_settings(&create),
+                    crate::vectors::manticore_indexes(&create),
+                ),
+                None => (BTreeMap::new(), Vec::new()),
             };
             out.push(TableSchema {
                 options,
+                indexes,
                 kind: kinds::TABLE.into(),
                 name,
                 columns: cols
@@ -1823,6 +2281,14 @@ impl Session for MySqlSession {
         // A protected read dropped half-way left the session read-only.
         self.settle_dropped_read().await?;
         self.cancelled.store(false, Ordering::SeqCst);
+        if crate::vectors::may_change_columns(sql) {
+            self.vector_columns.clear();
+        }
+        if out.sink.is_some() {
+            // An export's rows aren't kept to settle later: the vector
+            // columns of what it reads are known before they come.
+            self.look_up_before(sql).await;
+        }
         let res = if self.variant == Variant::Manticore || has_delimiter_command(sql) {
             // One statement per request: Manticore takes no more, and a
             // `DELIMITER` is the client's to apply (the server reads it as
@@ -1910,6 +2376,13 @@ impl Session for MySqlSession {
         }
         self.settle_dropped_read().await?;
         self.cancelled.store(false, Ordering::SeqCst);
+        if crate::vectors::may_change_columns(&sql) {
+            self.vector_columns.clear();
+        }
+        if out.sink.is_some() {
+            // An export: its vector columns known before its rows come.
+            self.look_up_before(&sql).await;
+        }
         let params = mysql_async::Params::Positional(values.into_iter().map(bind_value).collect());
         let res = async {
             let stmt = self
@@ -1917,15 +2390,18 @@ impl Session for MySqlSession {
                 .prep(sql.as_str())
                 .await
                 .map_err(|e| stmt_err(&sql, e))?;
+            let from = self.query_tables(&sql);
+            let hints = VectorHints::new(&self.vector_columns, self.variant, from);
             let read = match self.conn.exec_iter(&stmt, params).await {
-                Ok(result) => read_results(result, &sql, max_rows, out).await,
+                Ok(result) => read_results(result, &sql, max_rows, out, &hints).await,
                 Err(e) => Err(stmt_err(&sql, e)),
             };
             if let Err(e) = self.conn.close(stmt).await {
                 tracing::debug!("mysql: closing a prepared statement: {e}");
             }
-            let warned = read?;
+            let (warned, pending) = read?;
             self.report_warnings(warned, out).await;
+            self.settle_vectors(out, pending).await;
             Ok(())
         }
         .await;
@@ -2530,6 +3006,9 @@ mod tests {
     fn olap_schema_changes_wait_only_when_alone() {
         assert!(olap_schema_change("ALTER TABLE `t` ADD ROLLUP `r` (`a`);"));
         assert!(olap_schema_change("create index i on t (a) using bitmap"));
+        assert!(olap_schema_change(
+            "-- StarRocks crea índices vectoriales con enable_experimental_vector activado\nCREATE INDEX `iv` ON `t` (`v`) USING VECTOR (\"dim\" = \"3\");"
+        ));
         assert!(!olap_schema_change(
             "ALTER TABLE t ADD INDEX i (a); ALTER TABLE t SET (\"x\" = \"1\")"
         ));
