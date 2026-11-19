@@ -581,11 +581,11 @@ fn keep(
             .collect()
     };
     let (left_vectors, right_vectors) = (vectors_of(0), vectors_of(1));
-    let shown_vectors = left_vectors
-        .iter()
-        .zip(&right_vectors)
-        .map(|(l, r)| l.clone().or_else(|| r.clone()))
-        .collect();
+    let shown_vectors = data_compare::shown_vectors(
+        p.columns.len(),
+        [&left_vectors, &right_vectors],
+        [&left_types, &right_types],
+    );
     // What each result has that isn't compared.
     let unpaired = |side: usize| -> Vec<String> {
         c.query_columns[side]

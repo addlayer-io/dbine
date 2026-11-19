@@ -134,7 +134,9 @@ pub struct DataCompareResult {
     pub listed: Listed,
     /// Each compared column's vectors (dims, element, sparse), `None` where
     /// it holds none: the left side's, else the right's (by each table's
-    /// catalog, or a query's result marks). The screen shows them by it.
+    /// catalog, or a query's result marks), else an array of floats that
+    /// holds vectors on its engine ([`shown_vectors`]). The screen shows
+    /// them by it.
     pub vectors: Vec<Option<VectorMeta>>,
 }
 
@@ -206,19 +208,43 @@ pub(crate) fn dense_at(vectors: &[Option<VectorMeta>], i: usize) -> bool {
         .is_some_and(|m| !m.sparse)
 }
 
+/// Each of `n` compared columns' vectors as the screen shows them: the
+/// left side's (its catalog's, or a query's result marks), else the
+/// right's; else an array of floats that holds vectors on its engine
+/// ([`vectors::float_array_of_type`]: BigQuery's `ARRAY<FLOAT64>`, which
+/// its driver marks in results but its catalog types as an array), as the
+/// results grid shows it. Only to show them: what compares by value and
+/// what a script writes as an array go by each side's own marks.
+pub(crate) fn shown_vectors(
+    n: usize,
+    vectors: [&[Option<VectorMeta>]; 2],
+    types: [&[String]; 2],
+) -> Vec<Option<VectorMeta>> {
+    let marked = |side: usize, i: usize| vectors[side].get(i).cloned().flatten();
+    let array = |side: usize, i: usize| {
+        types[side]
+            .get(i)
+            .and_then(|t| vectors::float_array_of_type(t))
+    };
+    (0..n)
+        .map(|i| {
+            marked(0, i)
+                .or_else(|| marked(1, i))
+                .or_else(|| array(0, i))
+                .or_else(|| array(1, i))
+        })
+        .collect()
+}
+
 impl Diff {
-    /// Each compared column's vectors as the screen shows them: the left
-    /// side's, else the right's.
+    /// Each compared column's vectors as the screen shows them
+    /// ([`shown_vectors`]).
     pub(crate) fn shown_vectors(&self) -> Vec<Option<VectorMeta>> {
-        (0..self.columns.len())
-            .map(|i| {
-                self.left_vectors
-                    .get(i)
-                    .cloned()
-                    .flatten()
-                    .or_else(|| self.right_vectors.get(i).cloned().flatten())
-            })
-            .collect()
+        shown_vectors(
+            self.columns.len(),
+            [&self.left_vectors, &self.right_vectors],
+            [&self.left_types, &self.right_types],
+        )
     }
 
     /// The side `to_right` says, as a script's types: each compared
@@ -787,11 +813,11 @@ pub(crate) async fn compare_sides(
         .iter()
         .map(|x| rmeta.get(&x.1.to_lowercase()).cloned())
         .collect();
-    let shown_vectors: Vec<Option<VectorMeta>> = left_vectors
-        .iter()
-        .zip(&right_vectors)
-        .map(|(l, r)| l.clone().or_else(|| r.clone()))
-        .collect();
+    let shown = shown_vectors(
+        p.columns.len(),
+        [&left_vectors, &right_vectors],
+        [&left_types, &right_types],
+    );
     let id = uuid::Uuid::new_v4().to_string();
     let result = DataCompareResult {
         id: id.clone(),
@@ -818,7 +844,7 @@ pub(crate) async fn compare_sides(
             only_right: c.only_right.len() as u64,
             equal: c.equal.len() as u64,
         },
-        vectors: shown_vectors,
+        vectors: shown,
     };
     let mut all = diffs().lock().unwrap();
     // Keep the last few comparisons only.
@@ -2058,6 +2084,40 @@ mod tests {
         assert_eq!(kinds, ["insert_typed", "insert_typed", "insert"]);
         assert_eq!(calls[0].1[0].type_name, "halfvec(2)");
         assert_eq!(calls[1].1[0].type_name, "int");
+    }
+
+    /// BigQuery's `ARRAY<FLOAT64>`, which its catalog types as an array but
+    /// its driver marks as a vector in results, shows as a vector on the
+    /// screen, as in the results grid; it isn't a vector to the script.
+    #[test]
+    fn an_array_of_floats_shows_as_a_vector() {
+        let mut d = diff(false);
+        d.columns.push(("emb".into(), "emb".into()));
+        d.left_types.push("ARRAY<FLOAT64>".into());
+        d.right_types.push("ARRAY<FLOAT64>".into());
+        let f64_any = VectorMeta::dense(None, VectorElement::F64);
+        assert_eq!(d.shown_vectors(), vec![None, None, Some(f64_any.clone())]);
+        assert!(d.script_types(true).iter().all(|c| c.vector.is_none()));
+        // A side's own mark goes first; the other side's array after it.
+        let f32_3 = VectorMeta::dense(Some(3), VectorElement::F32);
+        d.right_vectors = vec![None, None, Some(f32_3.clone())];
+        assert_eq!(d.shown_vectors()[2], Some(f32_3));
+        d.right_vectors = vec![];
+        d.left_types[2] = "text".into();
+        d.right_types[2] = "LIST<FLOAT>".into();
+        assert_eq!(
+            d.shown_vectors()[2],
+            Some(VectorMeta::dense(None, VectorElement::F32))
+        );
+        // The rows the screen filters carry the same.
+        let args = DataRowsArgs {
+            id: String::new(),
+            kind: RowKind::Changed,
+            sort: vec![],
+            filters: vec![],
+            changed_in: vec![],
+        };
+        assert_eq!(rows_of(&d, &args).vectors, d.shown_vectors());
     }
 
     fn pick(dir: Dir) -> Pick {

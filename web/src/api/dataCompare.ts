@@ -63,7 +63,8 @@ export interface DataCompareResult {
   listed: { changed: number; only_left: number; only_right: number; equal?: number };
   /** Each compared column's vectors (dims, element, sparse), null where it
    *  holds none: the left side's, else the right's (each table's catalog, or
-   *  a query's result marks). Older backends leave it out. */
+   *  a query's result marks), else an array of floats that holds vectors on
+   *  its engine (`ARRAY<FLOAT64>`, `LIST<FLOAT>`…). Older backends leave it out. */
   vectors?: (VectorMeta | null)[];
 }
 

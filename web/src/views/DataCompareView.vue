@@ -372,8 +372,9 @@ onBeforeUnmount(() => {
 
 const fmtN = (n: number) => n.toLocaleString(locale());
 /** Each compared column's vectors, as the backend says them (`vectors`: a
- *  table's catalog types on its engine, a query's result marks; the left's,
- *  else the right's). */
+ *  table's catalog types on its engine, a query's result marks, the left's
+ *  else the right's; else an array of floats that holds vectors on its
+ *  engine, such as BigQuery's `ARRAY<FLOAT64>`, as the results grid shows). */
 const vecMetas = computed<(VectorMeta | null)[]>(() => {
   const r = result.value;
   return (r?.columns ?? []).map((_, j) => r?.vectors?.[j] ?? null);
