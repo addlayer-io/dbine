@@ -405,23 +405,14 @@ pub fn literal(v: &Value) -> String {
 }
 
 /// A property value: maps (and lists holding maps) aren't valid property
-/// values, so they go as JSON text.
+/// values, so they go as JSON text. A Neo4j 2025 VECTOR as read
+/// (`{"~vector": […], "~coordinateType"}`) is written back as one
+/// ([`vector_literal`]), not as a list or text.
 pub fn property(v: &Value) -> String {
-    // A Neo4j 2025 VECTOR as read (`{"~vector": […], "~coordinateType"}`):
-    // written back as one, not as a list or text.
-    if let Some((coordinate, numbers)) = crate::value::native_vector_json(v) {
-        let ok = numbers.iter().all(Value::is_number)
-            && coordinate.chars().all(|c| c.is_ascii_alphanumeric())
-            && !numbers.is_empty();
-        if ok {
-            let items: Vec<String> = numbers.iter().map(literal).collect();
-            return format!(
-                "vector([{}], {}, {coordinate})",
-                items.join(", "),
-                numbers.len()
-            );
-        }
-    }
+    native_literal(v).unwrap_or_else(|| plain(v))
+}
+
+fn plain(v: &Value) -> String {
     match v {
         Value::Object(_) => string(&v.to_string()),
         Value::Array(a) if a.iter().any(|x| x.is_object() || x.is_array()) => {
@@ -431,39 +422,82 @@ pub fn property(v: &Value) -> String {
     }
 }
 
+/// `vector([…], n, FLOAT32)`, Neo4j 2025's VECTOR constructor. Only
+/// Cypher 25 has it (a database's default language is Cypher 5): a
+/// statement that writes one starts with [`CYPHER_25`].
+fn vector_literal(numbers: &[Value], coordinate: &str) -> String {
+    let items: Vec<String> = numbers.iter().map(literal).collect();
+    format!(
+        "vector([{}], {}, {coordinate})",
+        items.join(", "),
+        numbers.len()
+    )
+}
+
+/// The prefix of a statement that writes a VECTOR value.
+pub const CYPHER_25: &str = "CYPHER 25 ";
+
+/// A VECTOR's JSON form as its `vector(…)`.
+fn native_literal(v: &Value) -> Option<String> {
+    let (coordinate, numbers) = crate::value::native_vector_json(v)?;
+    let coordinate = vector_coordinate(&format!("VECTOR<{coordinate}>"))?;
+    (!numbers.is_empty() && numbers.iter().all(Value::is_number))
+        .then(|| vector_literal(numbers, coordinate))
+}
+
+/// A JSON array of numbers into a `VECTOR<…>` column as its `vector(…)`.
+fn typed_literal(v: &Value, column: Option<&dbine_driver::ResultColumn>) -> Option<String> {
+    let coordinate = vector_coordinate(&column?.type_name)?;
+    match v {
+        Value::Array(a) if !a.is_empty() && a.iter().all(Value::is_number) => {
+            Some(vector_literal(a, coordinate))
+        }
+        _ => None,
+    }
+}
+
 /// A property value for a column whose type is known: a JSON array of
 /// numbers into a Neo4j 2025 `VECTOR<FLOAT32>(n)` column is written as a
 /// `vector(…)` (a list would turn the property into a LIST<FLOAT>);
 /// anything else as [`property`] writes it.
 pub fn property_typed(v: &Value, column: Option<&dbine_driver::ResultColumn>) -> String {
-    let coordinate = column.and_then(|c| vector_coordinate(&c.type_name));
-    if let (Value::Array(a), Some(coordinate)) = (v, coordinate) {
-        if !a.is_empty() && a.iter().all(Value::is_number) {
-            let items: Vec<String> = a.iter().map(literal).collect();
-            return format!("vector([{}], {}, {coordinate})", items.join(", "), a.len());
-        }
+    typed_literal(v, column).unwrap_or_else(|| property(v))
+}
+
+/// Whether [`property_typed`] writes `v` as a `vector(…)`, so its
+/// statement needs [`CYPHER_25`].
+pub fn writes_vector(v: &Value, column: Option<&dbine_driver::ResultColumn>) -> bool {
+    typed_literal(v, column).is_some() || native_literal(v).is_some()
+}
+
+/// `stmt` in Cypher 25 when it writes a VECTOR value.
+pub fn versioned(stmt: String, vectors: bool) -> String {
+    if vectors {
+        format!("{CYPHER_25}{stmt}")
+    } else {
+        stmt
     }
-    property(v)
 }
 
 /// The coordinate type of a `VECTOR<FLOAT32>(3)` column (a result's type,
-/// or a describe's in any case, Cypher's aliases too) as `vector()` takes
-/// it; `None` for any other type.
+/// or a describe's in any case, Cypher's aliases too, with or without
+/// `NOT NULL`: `VECTOR<FLOAT32 NOT NULL>(3)`) as `vector()` takes it;
+/// `None` for any other type.
 pub fn vector_coordinate(type_name: &str) -> Option<&'static str> {
     let t = type_name.trim().to_ascii_uppercase();
     let inner = t.strip_prefix("VECTOR")?.trim_start().strip_prefix('<')?;
     let (c, _) = inner.split_once('>')?;
-    Some(
-        match c.split_whitespace().collect::<Vec<_>>().join(" ").as_str() {
-            "FLOAT32" => "FLOAT32",
-            "FLOAT64" | "FLOAT" => "FLOAT64",
-            "INTEGER8" | "INT8" => "INTEGER8",
-            "INTEGER16" | "INT16" => "INTEGER16",
-            "INTEGER32" | "INT32" => "INTEGER32",
-            "INTEGER64" | "INT64" | "INTEGER" | "INT" | "SIGNED INTEGER" => "INTEGER64",
-            _ => return None,
-        },
-    )
+    let c = c.split_whitespace().collect::<Vec<_>>().join(" ");
+    let c = c.strip_suffix(" NOT NULL").unwrap_or(&c);
+    Some(match c {
+        "FLOAT32" => "FLOAT32",
+        "FLOAT64" | "FLOAT" => "FLOAT64",
+        "INTEGER8" | "INT8" => "INTEGER8",
+        "INTEGER16" | "INT16" => "INTEGER16",
+        "INTEGER32" | "INT32" => "INTEGER32",
+        "INTEGER64" | "INT64" | "INTEGER" | "INT" | "SIGNED INTEGER" => "INTEGER64",
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
@@ -506,6 +540,20 @@ mod tests {
             property_typed(&serde_json::Value::Null, Some(&col("VECTOR<FLOAT32>(1)"))),
             "null"
         );
+        // valueType()'s spelling.
+        assert_eq!(
+            vector_coordinate("VECTOR<FLOAT32 NOT NULL>(3) NOT NULL"),
+            Some("FLOAT32")
+        );
+        // Only Cypher 25 has vector(): such statements say so.
+        assert!(writes_vector(&v, Some(&col("VECTOR<FLOAT32>(3)"))));
+        assert!(!writes_vector(&v, Some(&col("LIST<FLOAT>"))));
+        assert!(writes_vector(
+            &serde_json::json!({"~vector": [1], "~coordinateType": "FLOAT32"}),
+            None
+        ));
+        assert_eq!(versioned("RETURN 1".into(), true), "CYPHER 25 RETURN 1");
+        assert_eq!(versioned("RETURN 1".into(), false), "RETURN 1");
     }
 
     #[test]

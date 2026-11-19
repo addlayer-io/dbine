@@ -79,7 +79,8 @@ fn cypher_vector(t: &str) -> Option<L> {
         Some(r) => {
             let (e, r) = r.split_once('>')?;
             (
-                match e.trim() {
+                // valueType() adds ` not null` to the coordinate type.
+                match e.trim().trim_end_matches(" not null").trim() {
                     "float32" => E::F32,
                     "float" | "float64" => E::F64,
                     "int8" | "integer8" => E::I8,
@@ -607,6 +608,14 @@ mod tests {
         let p = |s: &str| d.parse_type(&parse(s));
         assert_eq!(
             p("VECTOR<FLOAT32>(3)"),
+            L::Vector {
+                dims: Some(3),
+                element: E::F32,
+                sparse: false
+            }
+        );
+        assert_eq!(
+            p("VECTOR<FLOAT32 NOT NULL>(3)"),
             L::Vector {
                 dims: Some(3),
                 element: E::F32,

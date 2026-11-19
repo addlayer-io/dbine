@@ -1662,7 +1662,7 @@ pub fn infer_columns(samples: &[Value]) -> Vec<ColumnInfo> {
     names
         .into_iter()
         .map(|name| {
-            let mut types: Vec<(&'static str, usize)> = Vec::new();
+            let mut types: Vec<(String, usize)> = Vec::new();
             let mut present = 0;
             for v in samples
                 .iter()
@@ -1670,7 +1670,8 @@ pub fn infer_columns(samples: &[Value]) -> Vec<ColumnInfo> {
                 .filter(|v| !v.is_null())
             {
                 present += 1;
-                let t = value::type_name(v);
+                // A Neo4j 2025 VECTOR is `VECTOR<FLOAT32>(3)`, not a map.
+                let t = value::type_text(v);
                 match types.iter_mut().find(|(n, _)| *n == t) {
                     Some(e) => e.1 += 1,
                     None => types.push((t, 1)),
@@ -1681,7 +1682,11 @@ pub fn infer_columns(samples: &[Value]) -> Vec<ColumnInfo> {
                 data_type: if types.is_empty() {
                     "NULL".into()
                 } else {
-                    types.iter().map(|t| t.0).collect::<Vec<_>>().join("|")
+                    types
+                        .iter()
+                        .map(|t| t.0.as_str())
+                        .collect::<Vec<_>>()
+                        .join("|")
                 },
                 nullable: present < samples.len(),
                 primary_key: false,
@@ -2788,6 +2793,10 @@ mod tests {
         assert_eq!(c[0].data_type, "INTEGER|FLOAT");
         assert!(!c[0].nullable && c[1].nullable && c[2].nullable);
         assert_eq!(c[2].data_type, "NULL");
+        // Neo4j 2025 VECTOR values (as read) are their VECTOR type.
+        let v = |n: serde_json::Value| json!({ "e": {"~vector": n, "~coordinateType": "FLOAT32"} });
+        let c = infer_columns(&[v(json!([1.5, 2, 3])), v(json!([0.5, 0, 1]))]);
+        assert_eq!(c[0].data_type, "VECTOR<FLOAT32>(3)");
     }
 
     #[test]
