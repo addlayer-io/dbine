@@ -1037,7 +1037,7 @@ fn take_name(s: &str) -> Option<(String, &str)> {
 }
 
 /// `kw` (case-insensitive words) at the start of `s`: the rest.
-fn take_words<'a>(s: &'a str, kw: &str) -> Option<&'a str> {
+pub fn take_words<'a>(s: &'a str, kw: &str) -> Option<&'a str> {
     let mut rest = s.trim_start();
     for w in kw.split_whitespace() {
         let head = rest.get(..w.len())?;

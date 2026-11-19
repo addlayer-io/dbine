@@ -789,6 +789,19 @@ fn created_collection(stmt: &str) -> Option<String> {
         .filter(|k| !k.is_empty() && !k.eq_ignore_ascii_case("IF"))
 }
 
+/// The `(bucket, scope)` a `CREATE SCOPE [IF NOT EXISTS] b.s` makes (the
+/// session's bucket for a bare scope name).
+fn created_scope(stmt: &str, bucket: Option<&str>) -> Option<(String, String)> {
+    let rest = vector::take_words(stmt, "CREATE SCOPE")?;
+    let rest = vector::take_words(rest, "IF NOT EXISTS").unwrap_or(rest);
+    let parts = vector::keyspace_parts(rest.trim().trim_end_matches(';'));
+    match parts.as_slice() {
+        [.., b, s] if !b.is_empty() && !s.is_empty() => Some((b.clone(), s.clone())),
+        [s] if !s.is_empty() => Some((bucket?.to_string(), s.clone())),
+        _ => None,
+    }
+}
+
 fn json_type(v: &Value) -> &'static str {
     match v {
         Value::Null => "null",
@@ -1159,6 +1172,22 @@ impl CbSession {
                 .await
                 .is_ok()
             {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
+
+    /// Waits (up to 10 s) until the query service sees the scope.
+    async fn wait_scope(&self, bucket: &str, scope: &str) {
+        let lit = |x: &str| serde_json::to_string(x).unwrap_or_default();
+        let stmt = format!(
+            "SELECT RAW 1 FROM system:scopes AS s WHERE s.`bucket` = {} AND s.name = {}",
+            lit(bucket),
+            lit(scope)
+        );
+        for _ in 0..40 {
+            if self.results(&stmt).await.is_ok_and(|r| !r.is_empty()) {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
@@ -1604,6 +1633,11 @@ impl Session for CbSession {
             step.end(out, r)?;
             if let Some(ks) = created_collection(&u.text) {
                 self.wait_for(&ks).await;
+            } else if let Some((b, sc)) = created_scope(&u.text, self.bucket.as_deref()) {
+                // Enterprise Edition publishes a new scope to the query
+                // service a moment later: a collection made in it right
+                // after would fail with "Scope not found".
+                self.wait_scope(&b, &sc).await;
             }
         }
         Ok(())
@@ -2412,6 +2446,24 @@ fn text_of(v: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scopes_made_by_a_script_are_waited_for() {
+        assert_eq!(
+            created_scope("CREATE SCOPE dbine_cmp.dst;", None),
+            Some(("dbine_cmp".into(), "dst".into()))
+        );
+        assert_eq!(
+            created_scope("create scope if not exists `b`.`s x`", None),
+            Some(("b".into(), "s x".into()))
+        );
+        assert_eq!(
+            created_scope("CREATE SCOPE s", Some("app")),
+            Some(("app".into(), "s".into()))
+        );
+        assert_eq!(created_scope("CREATE SCOPE s", None), None);
+        assert_eq!(created_scope("CREATE COLLECTION b.s.c", None), None);
+    }
 
     /// Every monitor metric says what it measures and where it comes from,
     /// whichever source answered; the query service's CPU is a share of its

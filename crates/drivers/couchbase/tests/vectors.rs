@@ -262,7 +262,8 @@ async fn couchbase_vector_indexes() {
     );
     let hyper = tb.indexes.iter().find(|i| i.name == "emb_hyper").unwrap();
     assert_eq!(hyper.kind.as_deref(), Some("HYPERSCALE"));
-    assert_eq!(hyper.columns, ["emb", "`cat`"]);
+    // Every key by its name, as the vector field.
+    assert_eq!(hyper.columns, ["emb", "cat"]);
     assert_eq!(
         hyper.vector.as_ref().unwrap().metric.as_deref(),
         Some("l2_squared")
@@ -419,6 +420,84 @@ async fn couchbase_vector_indexes() {
     )
     .await;
     wait_online(&mut s, &["pg_vix"]).await;
+    // From MongoDB (a BinData vector field, marked `bson:`) and from
+    // Elasticsearch (`dense_vector`): arrays too, not strings.
+    for (id, ty) in [
+        ("m1", "bson:vector(3, float32)|bson:null"),
+        ("e1", "dense_vector(3)"),
+    ] {
+        let cols = vec![
+            TransferColumn {
+                name: "id".into(),
+                type_name: "bson:string".into(),
+                nullable: false,
+            },
+            TransferColumn {
+                name: "emb".into(),
+                type_name: ty.into(),
+                nullable: true,
+            },
+        ];
+        let batch = RowBatch {
+            rows: vec![vec![
+                Cell::Text(id.into()),
+                Cell::Text("[0.4,0.5,0.6]".into()),
+            ]],
+            bytes: 0,
+        };
+        s.bulk_load(&load, &cols, &mut Batches(vec![batch].into()), &|_| {})
+            .await
+            .unwrap();
+        let out = run_settled(
+            &mut s,
+            &format!("SELECT RAW ISARRAY(d.emb) FROM `{BUCKET}`.`_default`.`from_pg` AS d USE KEYS \"{id}\""),
+        )
+        .await;
+        assert_eq!(out.results[0].rows, [[json!(true)]], "{ty}");
+    }
+
+    // A vector index on a collection without documents (a clone without
+    // its data): never a failure; built at once if the server can, else
+    // deferred with a warning.
+    let empty = designed(
+        "empty",
+        vec![vix("empty_vix", &["emb", "cat"], None, "cosine")],
+    );
+    for st in d.split_script(
+        &d.table_ddl(
+            &empty,
+            DdlParts {
+                create: true,
+                if_exists: true,
+                ..Default::default()
+            },
+        )
+        .unwrap(),
+    ) {
+        run_settled(&mut s, &st.text).await;
+    }
+    let only_indexes = d
+        .table_ddl(
+            &empty,
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(!only_indexes.contains("defer_build"), "{only_indexes}");
+    let out = run_settled(&mut s, &only_indexes).await;
+    let state = run(
+        &mut s,
+        &format!("SELECT RAW i.state FROM system:indexes AS i WHERE i.bucket_id = \"{BUCKET}\" AND i.name = \"empty_vix\""),
+    )
+    .await;
+    eprintln!(
+        "vector index on an empty collection: state {:?}, messages {:?}",
+        state.results[0].rows,
+        out.log.iter().map(|m| m.text.clone()).collect::<Vec<_>>()
+    );
+    assert_eq!(state.results[0].rows.len(), 1, "the index exists");
 
     drop(s);
     admin.drop_database(BUCKET).await.expect("drop bucket");
