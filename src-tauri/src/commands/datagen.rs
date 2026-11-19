@@ -1438,6 +1438,74 @@ mod tests {
         assert!(offered(&[plain, m]).contains(&"vector"));
     }
 
+    /// A Redis (Valkey, Dragonfly) search index's vector field, read as
+    /// the app reads it on those engines: "auto" fills it with vectors of
+    /// its dimension and numbers (INT8 and UINT8 ones as integers in their
+    /// range, never floats rounded to -1, 0 or 1), and the dialog is
+    /// offered the vector generator.
+    #[test]
+    fn redis_vector_fields_get_vectors_of_their_type() {
+        for driver in ["redis", "valkey", "dragonfly"] {
+            let mut rng = Rng::new(Some(11));
+            let metas: Vec<Meta> = [
+                ("id", "key", true),
+                ("title", "TEXT", false),
+                ("e8", "VECTOR(16, INT8)", false),
+                ("u8", "VECTOR(16, UINT8)", false),
+                ("h", "VECTOR(4, FLOAT16)", false),
+            ]
+            .into_iter()
+            .map(|(name, ty, pk)| {
+                let mut m = meta(name, ty, pk);
+                m.vector = vectors::of_type(driver, ty);
+                m
+            })
+            .collect();
+            for (at, dims, element) in [
+                (2, 16, VectorElement::I8),
+                (3, 16, VectorElement::U8),
+                (4, 4, VectorElement::F16),
+            ] {
+                assert_eq!(
+                    metas[at].vector,
+                    Some(VectorMeta::dense(Some(dims), element))
+                );
+            }
+            assert_eq!((&metas[0].vector, &metas[1].vector), (&None, &None));
+            assert!(offered(&metas).contains(&"vector"), "{driver}");
+            let mut p = plan(&metas, &[], &mut rng).unwrap();
+            for name in ["e8", "u8", "h"] {
+                assert_eq!(p.auto[name], "vector", "{driver} {name}");
+            }
+            assert_eq!(p.auto["title"], "text");
+            let at = |n: &str| p.columns.iter().position(|c| c == n).unwrap();
+            let (ie8, iu8, ih) = (at("e8"), at("u8"), at("h"));
+            let mut seen = vec![HashSet::new(); p.columns.len()];
+            let sample = rows(&mut p, &mut rng, 1, 20, &mut seen);
+            let nums = |r: &Vec<Value>, i: usize| dbine_driver::vector::parse_value(&r[i]).unwrap();
+            for r in &sample {
+                let (e8, u8, h) = (nums(r, ie8), nums(r, iu8), nums(r, ih));
+                assert_eq!((e8.len(), u8.len(), h.len()), (16, 16, 4));
+                assert!(
+                    e8.iter()
+                        .all(|x| x.fract() == 0.0 && (-128.0..=127.0).contains(x)),
+                    "{e8:?}"
+                );
+                assert!(
+                    u8.iter()
+                        .all(|x| x.fract() == 0.0 && (0.0..=255.0).contains(x)),
+                    "{u8:?}"
+                );
+                assert!(h.iter().all(|x| x.abs() <= 1.0), "{h:?}");
+            }
+            // Bytes, not unit floats rounded: some of each go past ±1.
+            assert!(sample
+                .iter()
+                .any(|r| nums(r, ie8).iter().any(|x| x.abs() > 1.0)));
+            assert!(sample.iter().any(|r| nums(r, iu8).iter().any(|x| *x > 1.0)));
+        }
+    }
+
     /// The insert script knows each column's type from the describe: a
     /// vector column's carries its vector (a `halfvec` is written as one).
     #[test]

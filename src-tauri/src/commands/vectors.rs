@@ -15,9 +15,40 @@ use dbine_schema::LogicalType;
 use serde_json::Value;
 
 /// The vector a native type is on `driver_id`'s engine; `None` for any
-/// other type, or an engine `dbine-schema` doesn't know.
+/// other type, or an engine `dbine-schema` doesn't know. Redis, Valkey and
+/// Dragonfly have no dialect there: their search indexes' vector fields
+/// are read here ([`redis_vector_of_type`]).
 pub(crate) fn of_type(driver_id: &str, native: &str) -> Option<VectorMeta> {
+    if matches!(driver_id, "redis" | "valkey" | "dragonfly") {
+        return redis_vector_of_type(native);
+    }
     of_type_in(dbine_schema::dialect::for_driver(driver_id)?, native)
+}
+
+/// A search index's vector field as the Redis driver spells its type:
+/// `VECTOR(3, FLOAT32)`, with `FLOAT32`, `FLOAT64`, `FLOAT16`, `BFLOAT16`,
+/// `INT8` or `UINT8` numbers (case and blanks don't matter). `None` for any
+/// other type, a bare `VECTOR` (a field whose settings the server doesn't
+/// report: neither its dimension nor its numbers are known) among them.
+fn redis_vector_of_type(native: &str) -> Option<VectorMeta> {
+    let t = native.trim();
+    let head = t.get(..6).filter(|h| h.eq_ignore_ascii_case("vector"))?;
+    let inner = t[head.len()..]
+        .trim_start()
+        .strip_prefix('(')?
+        .strip_suffix(')')?;
+    let (dims, element) = inner.split_once(',')?;
+    let dims: u32 = dims.trim().parse().ok().filter(|d| *d > 0)?;
+    let element = match element.trim().to_ascii_uppercase().as_str() {
+        "FLOAT32" => VectorElement::F32,
+        "FLOAT64" => VectorElement::F64,
+        "FLOAT16" => VectorElement::F16,
+        "BFLOAT16" => VectorElement::Bf16,
+        "INT8" => VectorElement::I8,
+        "UINT8" => VectorElement::U8,
+        _ => return None,
+    };
+    Some(VectorMeta::dense(Some(dims), element))
 }
 
 /// [`of_type`] with the dialect given.
@@ -451,6 +482,52 @@ pub(crate) mod tests {
         assert_eq!(of_column("postgres", &c).unwrap().dims, Some(2));
         assert_eq!(of_column("postgres", &ResultColumn::new("t", "text")), None);
         assert_eq!(of_type("no-such-driver", "vector(3)"), None);
+    }
+
+    /// Redis, Valkey and Dragonfly have no `dbine-schema` dialect: their
+    /// search indexes' vector fields (`VECTOR(3, INT8)`, as the driver
+    /// spells them) are read here, with their dimension and numbers.
+    #[test]
+    fn redis_vector_fields_are_classified() {
+        use VectorElement::*;
+        for driver in ["redis", "valkey", "dragonfly"] {
+            for (ty, dims, element) in [
+                ("VECTOR(3, FLOAT32)", 3, F32),
+                ("VECTOR(768, FLOAT64)", 768, F64),
+                ("VECTOR(4, FLOAT16)", 4, F16),
+                ("VECTOR(4, BFLOAT16)", 4, Bf16),
+                ("VECTOR(8, INT8)", 8, I8),
+                ("VECTOR(8, UINT8)", 8, U8),
+                (" vector (2,float32) ", 2, F32),
+            ] {
+                assert_eq!(
+                    of_type(driver, ty),
+                    Some(VectorMeta::dense(Some(dims), element)),
+                    "{driver} {ty}"
+                );
+            }
+            // Not a vector field it knows: the document's key, other fields,
+            // a vector whose settings the server doesn't report, another
+            // engine's spellings.
+            for ty in [
+                "key",
+                "TAG",
+                "TEXT",
+                "NUMERIC",
+                "VECTOR",
+                "VECTOR(3)",
+                "VECTOR(0, FLOAT32)",
+                "VECTOR(3, FLOAT8)",
+                "VECTOR(x, FLOAT32)",
+                "vector(3)",
+                "VECTOR<FLOAT>(3)",
+                "",
+            ] {
+                assert_eq!(of_type(driver, ty), None, "{driver} {ty}");
+            }
+        }
+        // Other engines still go by their dialect.
+        assert_eq!(of_type("etcd", "VECTOR(3, FLOAT32)"), None);
     }
 
     #[test]
