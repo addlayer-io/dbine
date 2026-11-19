@@ -2489,6 +2489,8 @@ async fn copy_rows(
         post: Vec::new(),
         preexisting: false,
         expected_columns: Vec::new(),
+        // A clone stays on its engine, whose drivers bulk load.
+        vector_columns: Vec::new(),
         mode: TransferMode::Copy,
     };
     let dir = std::env::temp_dir();

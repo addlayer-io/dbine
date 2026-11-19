@@ -743,6 +743,7 @@ pub fn job(name: &str, estimate: Option<u64>) -> TransferJob {
         post: vec![],
         preexisting: false,
         expected_columns: vec![],
+        vector_columns: vec![],
         mode: TransferMode::Copy,
     }
 }

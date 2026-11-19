@@ -856,3 +856,55 @@ async fn rows_in_a_created_table_are_emptied_even_if_the_state_lost_them() {
     assert_eq!(fake.count("TRUNCATE t"), 1);
     assert_eq!(ids(&fake.target_rows("t")), (0..10).collect::<Vec<_>>());
 }
+
+/// Vectors move as the JSON-array text (or JSON) the source reads: a bulk
+/// load gets the cells as they came; the insert-script path gives the
+/// driver the job's vector columns as arrays of numbers, which it writes as
+/// its engine's vector literal. Other text that looks like an array, and a
+/// sparse vector's own text, stay as they are.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn vectors_pass_through_bulk_loads_and_reach_insert_scripts_as_arrays() {
+    let vectors = || -> Vec<Vec<Cell>> {
+        vec![
+            vec![Cell::Int(1), Cell::Text("[0.5,-1,2e-7]".into())],
+            vec![Cell::Int(2), Cell::Json("[1,2,3]".into())],
+            vec![Cell::Int(3), Cell::Null],
+            vec![Cell::Int(4), Cell::Text("{1:0.5,3:2}/4".into())],
+        ]
+    };
+    for bulk in [true, false] {
+        let fake = Arc::new(Fake {
+            bulk,
+            ..Default::default()
+        });
+        fake.table("emb", 0);
+        fake.source.lock().unwrap().insert("emb".into(), vectors());
+        let (st, _) = store(if bulk { "vec-bulk" } else { "vec-insert" });
+        let mut j = job("emb", Some(4));
+        j.vector_columns = vec!["NAME".into()];
+        let report = Engine::new(st, "r")
+            .run(vec![j], opts(1), FakeEndpoints::new(fake.clone()), |_| {})
+            .await
+            .unwrap();
+        assert_eq!(report.summary.status, RunStatus::Finished);
+        let mut got = fake.target_rows("emb");
+        got.sort_by_key(|r| if let Cell::Int(i) = r[0] { i } else { -1 });
+        if bulk {
+            assert_eq!(fake.bulk_calls.load(Ordering::SeqCst), 1);
+            assert_eq!(got, vectors(), "a bulk load gets the cells unchanged");
+        } else {
+            // The fake's script is the rows as JSON: arrays come back as
+            // JSON cells, the rest as they went.
+            let arr = |v: serde_json::Value| Cell::Json(v.to_string());
+            assert_eq!(
+                got,
+                vec![
+                    vec![Cell::Int(1), arr(serde_json::json!([0.5, -1.0, 2e-7]))],
+                    vec![Cell::Int(2), arr(serde_json::json!([1, 2, 3]))],
+                    vec![Cell::Int(3), Cell::Null],
+                    vec![Cell::Int(4), Cell::Text("{1:0.5,3:2}/4".into())],
+                ]
+            );
+        }
+    }
+}
