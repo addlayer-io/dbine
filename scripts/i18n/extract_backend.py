@@ -36,6 +36,10 @@ CODE_START = re.compile(
     re.I,
 )
 PLACEHOLDER = re.compile(r"\{\{|\}\}|\{[^{}]*\}")
+# A `format!` placeholder as written in a message (`{}`, `{name}`, `{0:?}`,
+# `{:.1}`, `{n:>4}`): no spaces and no code inside. Any other brace left is
+# code (a JavaScript or JSON body, a q lambda).
+FORMAT_ARG = re.compile(r"\{\{|\}\}|\{[\w.:?#<>^+-]*\}")
 
 
 def _skip_item(src: str, i: int) -> int:
@@ -127,9 +131,9 @@ def literals(src: str):
             while j < n and src[j] != '"':
                 if src[j] == "\\" and j + 1 < n:
                     nxt = src[j + 1]
-                    if nxt == "\n":  # line continuation: skip the newline and leading spaces
-                        j += 2
-                        while j < n and src[j] in " \t":
+                    if nxt in "\r\n":  # line continuation: Rust skips the line break and the whitespace after it
+                        j += 1
+                        while j < n and src[j] in " \t\r\n":
                             j += 1
                         continue
                     buf.append({"n": "\n", "t": "\t", '"': '"', "\\": "\\", "'": "'"}.get(nxt, nxt))
@@ -160,11 +164,25 @@ def normalize(s: str) -> str:
     return PLACEHOLDER.sub(repl, s)
 
 
+def code_statements(s: str) -> bool:
+    """Several `;` that end statements: one at the end of a line, one with
+    no space after it (`;background`, `(ns;0;0)`, `«;»`), braces that aren't
+    `format!` placeholders, or markup. A sentence's `;` is followed by a
+    space ("rechaza los INSERT; una atrasada…") and is prose."""
+    if s.count(";") < 2:
+        return False
+    if re.search(r";[ \t]*(\n|$)", s) or re.search(r";\S", s):
+        return True
+    if re.search(r"[{}]", FORMAT_ARG.sub("", s)):
+        return True
+    return s.lstrip().startswith("<")
+
+
 def user_facing(s: str) -> bool:
     text = PLACEHOLDER.sub("", s).strip()
     if len(text) < 3 or not re.search(r"[A-Za-zÁÉÍÓÚáéíóúñÑ]", text):
         return False
-    if CODE_START.match(text) or text.count(";") > 1:
+    if CODE_START.match(text) or code_statements(s):
         return False
     # Code templates for the editor (a comment line followed by code): the
     # code must reach the editor as is; not translated here.
@@ -211,7 +229,8 @@ PROMPT_FILES = {"src-tauri/src/optimizer/ai.rs", "src-tauri/src/notebook/python.
 # columns, info labels, notes) are short and often lack a Spanish-looking
 # word ("WAL generado", "Pedidos HTTP", "estado"), so the filter above drops
 # them. They're taken by where they're used instead.
-_LIT = r'"((?:[^"\\]|\\.)*)"'
+# A plain literal, a line continuation (`\` at the end of a line) included.
+_LIT = r'"((?:[^"\\]|\\[\s\S])*)"'
 _MONITOR = [
     # Metric::new(key, label, group, …) and the drivers' helpers with that shape.
     (re.compile(r"\b(?:Metric::new|metric|m)\(\s*" + _LIT + r"\s*,\s*" + _LIT + r"\s*,\s*" + _LIT), (2, 3)),
@@ -225,6 +244,7 @@ _PAIR = re.compile(r"\(\s*(?:&\[[^\]]*\]|" + _LIT + r")\s*,\s*" + _LIT + r"\s*\)
 
 
 def _unescape(s: str) -> str:
+    s = re.sub(r"\\\r?\n\s*", "", s)  # line continuation, as Rust reads it
     return re.sub(r"\\(.)", lambda m: {"n": "\n", "t": "\t"}.get(m.group(1), m.group(1)), s)
 
 
