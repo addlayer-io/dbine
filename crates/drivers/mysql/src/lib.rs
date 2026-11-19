@@ -612,6 +612,13 @@ impl Driver for MySqlDriver {
         columns: &[String],
         rows: &[Vec<serde_json::Value>],
     ) -> Result<String> {
+        if !vectors::supported(self.product) {
+            let rows: Vec<Vec<serde_json::Value>> = rows
+                .iter()
+                .map(|r| r.iter().map(vectors::array_as_text).collect())
+                .collect();
+            return Ok(design::insert_script(self.variant, target, columns, &rows));
+        }
         Ok(design::insert_script(self.variant, target, columns, rows))
     }
 
@@ -620,6 +627,22 @@ impl Driver for MySqlDriver {
         target: &ObjectRef,
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
+        if !vectors::supported(self.product) {
+            let text = |l: &[(String, serde_json::Value)]| -> Vec<(String, serde_json::Value)> {
+                l.iter()
+                    .map(|(k, v)| (k.clone(), vectors::array_as_text(v)))
+                    .collect()
+            };
+            let changes: Vec<dbine_driver::RowChange> = changes
+                .iter()
+                .map(|c| dbine_driver::RowChange {
+                    key: text(&c.key),
+                    set: text(&c.set),
+                    row: text(&c.row),
+                })
+                .collect();
+            return design::update_script(self.variant, target, &changes);
+        }
         design::update_script(self.variant, target, changes)
     }
 
@@ -628,6 +651,17 @@ impl Driver for MySqlDriver {
         target: &ObjectRef,
         keys: &[Vec<(String, serde_json::Value)>],
     ) -> Result<String> {
+        if !vectors::supported(self.product) {
+            let keys: Vec<Vec<(String, serde_json::Value)>> = keys
+                .iter()
+                .map(|k| {
+                    k.iter()
+                        .map(|(c, v)| (c.clone(), vectors::array_as_text(v)))
+                        .collect()
+                })
+                .collect();
+            return design::delete_script(self.variant, target, &keys);
+        }
         design::delete_script(self.variant, target, keys)
     }
 
@@ -1295,7 +1329,47 @@ mod tests {
             assert!(!d.capabilities().vectors, "{managed}");
             let spec = d.designer().unwrap();
             assert!(spec.vector_indexes.is_none() && !spec.data_types.contains(&"vector(1536)"));
+            // A JSON array is a JSON value there, as before MySQL 9's vectors.
+            let t = ObjectRef {
+                kind: "table".into(),
+                schema: None,
+                name: "t".into(),
+            };
+            let ins = d
+                .insert_script(&t, &["j".into()], &[vec![serde_json::json!([1, 2, 3])]])
+                .unwrap();
+            assert!(ins.contains("('[1,2,3]')"), "{managed}: {ins}");
+            let up = d
+                .update_script(
+                    &t,
+                    &[dbine_driver::RowChange {
+                        key: vec![("id".into(), serde_json::json!(1))],
+                        set: vec![("j".into(), serde_json::json!([1, 2]))],
+                        row: Vec::new(),
+                    }],
+                )
+                .unwrap();
+            assert!(
+                up.contains("= '[1,2]'") && !up.contains("STRING_TO_VECTOR"),
+                "{managed}: {up}"
+            );
+            let del = d
+                .delete_script(&t, &[vec![("j".into(), serde_json::json!([1]))]])
+                .unwrap();
+            assert!(!del.contains("STRING_TO_VECTOR"), "{managed}: {del}");
         }
+        assert!(get("mysql")
+            .insert_script(
+                &ObjectRef {
+                    kind: "table".into(),
+                    schema: None,
+                    name: "t".into(),
+                },
+                &["v".into()],
+                &[vec![serde_json::json!([1, 2, 3])]]
+            )
+            .unwrap()
+            .contains("STRING_TO_VECTOR('[1,2,3]')"));
         assert!(get("velodb").capabilities().vectors);
         assert!(get("velodb").designer().unwrap().vector_indexes.is_some());
     }

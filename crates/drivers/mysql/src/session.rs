@@ -974,7 +974,14 @@ const OLAP_WAIT: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// One schema-change statement (safe to send again: it failed as a whole).
 fn olap_schema_change(sql: &str) -> bool {
-    let s = sql.trim().trim_end_matches(';').trim();
+    // The notes the DDL says before a statement (`-- …` lines) aside.
+    let body: Vec<&str> = sql
+        .trim()
+        .lines()
+        .skip_while(|l| l.trim_start().starts_with("--"))
+        .collect();
+    let body = body.join("\n");
+    let s = body.trim().trim_end_matches(';').trim();
     let u = s.to_ascii_uppercase();
     !s.contains(';')
         && (u.starts_with("ALTER TABLE")
@@ -2825,6 +2832,9 @@ mod tests {
     fn olap_schema_changes_wait_only_when_alone() {
         assert!(olap_schema_change("ALTER TABLE `t` ADD ROLLUP `r` (`a`);"));
         assert!(olap_schema_change("create index i on t (a) using bitmap"));
+        assert!(olap_schema_change(
+            "-- StarRocks crea índices vectoriales con enable_experimental_vector activado\nCREATE INDEX `iv` ON `t` (`v`) USING VECTOR (\"dim\" = \"3\");"
+        ));
         assert!(!olap_schema_change(
             "ALTER TABLE t ADD INDEX i (a); ALTER TABLE t SET (\"x\" = \"1\")"
         ));

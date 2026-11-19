@@ -179,6 +179,15 @@ pub(crate) fn literal(v: Variant, values: &[f64]) -> String {
     }
 }
 
+/// On the products without vectors (Aurora MySQL, Cloud SQL), a JSON array
+/// is a JSON value: its text, written as a string literal as always.
+pub(crate) fn array_as_text(v: &serde_json::Value) -> serde_json::Value {
+    match v {
+        serde_json::Value::Array(_) => serde_json::Value::String(v.to_string()),
+        other => other.clone(),
+    }
+}
+
 /// The value of an edit as a vector, when it's one (a JSON array of
 /// numbers; see [`dbine_driver::vector`]).
 pub(crate) fn edit_value(v: &serde_json::Value) -> Option<Vec<f64>> {
@@ -276,82 +285,212 @@ fn engine(v: Variant) -> &'static str {
 
 // ------------------------------------------------------------ parameters
 
-/// (standard or own key, native) build-parameter names per engine.
-fn params(v: Variant) -> &'static [(&'static str, &'static str)] {
+/// (standard or own key, native, the algorithms it applies to)
+/// build-parameter names per engine: `""` any, `"hnsw"` / `"ivf"` the
+/// algorithms starting so, `"pq"` those with product quantization.
+fn params(v: Variant) -> &'static [(&'static str, &'static str, &'static str)] {
     match v.base() {
-        Variant::MariaDb => &[(param::M, "M")],
+        Variant::MariaDb => &[(param::M, "M", "")],
         Variant::OceanBase => &[
-            (param::M, "m"),
-            (param::EF_CONSTRUCTION, "ef_construction"),
-            ("ef_search", "ef_search"),
-            (param::LISTS, "nlist"),
-            ("sample_per_nlist", "sample_per_nlist"),
-            ("nbits", "nbits"),
-            ("lib", "lib"),
+            (param::M, "m", "hnsw"),
+            (param::EF_CONSTRUCTION, "ef_construction", "hnsw"),
+            ("ef_search", "ef_search", "hnsw"),
+            (param::LISTS, "nlist", "ivf"),
+            ("sample_per_nlist", "sample_per_nlist", "ivf"),
+            ("nbits", "nbits", "pq"),
         ],
         Variant::SingleStore => &[
-            (param::M, "M"),
-            (param::EF_CONSTRUCTION, "efConstruction"),
-            ("ef", "ef"),
-            (param::LISTS, "nlist"),
-            ("nprobe", "nprobe"),
-            ("nbits", "nbits"),
-            ("m_pq", "m"),
+            (param::M, "M", "hnsw"),
+            (param::EF_CONSTRUCTION, "efConstruction", "hnsw"),
+            ("ef", "ef", "hnsw"),
+            (param::LISTS, "nlist", "ivf"),
+            ("nprobe", "nprobe", "ivf"),
+            ("nbits", "nbits", "pq"),
+            ("m_pq", "m", "pq"),
         ],
         Variant::Doris => &[
-            ("dim", "dim"),
-            (param::M, "max_degree"),
-            (param::EF_CONSTRUCTION, "ef_construction"),
-            (param::LISTS, "nlist"),
-            (param::QUANTIZATION, "quantizer"),
-            ("pq_m", "pq_m"),
-            ("pq_nbits", "pq_nbits"),
+            ("dim", "dim", ""),
+            (param::M, "max_degree", "hnsw"),
+            (param::EF_CONSTRUCTION, "ef_construction", "hnsw"),
+            (param::LISTS, "nlist", "ivf"),
+            (param::QUANTIZATION, "quantizer", ""),
+            ("pq_m", "pq_m", ""),
+            ("pq_nbits", "pq_nbits", ""),
         ],
         Variant::StarRocks => &[
-            ("dim", "dim"),
-            (param::M, "M"),
-            (param::EF_CONSTRUCTION, "efconstruction"),
-            (param::LISTS, "nlist"),
-            ("nbits", "nbits"),
-            ("m_ivfpq", "M_IVFPQ"),
-            ("is_vector_normed", "is_vector_normed"),
+            ("dim", "dim", ""),
+            (param::M, "M", "hnsw"),
+            (param::EF_CONSTRUCTION, "efconstruction", "hnsw"),
+            (param::LISTS, "nlist", "ivf"),
+            ("nbits", "nbits", "ivf"),
+            ("m_ivfpq", "M_IVFPQ", "ivf"),
+            ("is_vector_normed", "is_vector_normed", ""),
         ],
         Variant::Manticore => &[
-            ("knn_dims", "knn_dims"),
-            (param::M, "hnsw_m"),
-            (param::EF_CONSTRUCTION, "hnsw_ef_construction"),
-            (param::QUANTIZATION, "quantization"),
+            ("knn_dims", "knn_dims", ""),
+            (param::M, "hnsw_m", ""),
+            (param::EF_CONSTRUCTION, "hnsw_ef_construction", ""),
+            (param::QUANTIZATION, "quantization", ""),
         ],
-        Variant::Databend => &[(param::M, "m"), (param::EF_CONSTRUCTION, "ef_construct")],
+        Variant::Databend => &[
+            (param::M, "m", ""),
+            (param::EF_CONSTRUCTION, "ef_construct", ""),
+        ],
         Variant::GreptimeDb => &[
-            (param::M, "connectivity"),
-            (param::EF_CONSTRUCTION, "expansion_add"),
-            ("ef_search", "expansion_search"),
-            ("engine", "engine"),
+            (param::M, "connectivity", ""),
+            (param::EF_CONSTRUCTION, "expansion_add", ""),
+            ("ef_search", "expansion_search", ""),
+            ("engine", "engine", ""),
         ],
         _ => &[],
+    }
+}
+
+/// Whether a parameter for `applies` (see [`params`]) goes with the index
+/// algorithm `algorithm` (the engine's name, any case).
+fn applies_to(applies: &str, algorithm: &str) -> bool {
+    let a = algorithm.to_ascii_lowercase();
+    match applies {
+        "" => true,
+        "pq" => a.contains("pq"),
+        prefix => a.starts_with(prefix),
     }
 }
 
 fn standard_param(v: Variant, native: &str) -> String {
     params(v)
         .iter()
-        .find(|(_, n)| *n == native)
+        .find(|(_, n, _)| *n == native)
         .or_else(|| {
             params(v)
                 .iter()
-                .find(|(_, n)| n.eq_ignore_ascii_case(native))
+                .find(|(_, n, _)| n.eq_ignore_ascii_case(native))
         })
-        .map(|(s, _)| s.to_string())
+        .map(|(s, _, _)| s.to_string())
         .unwrap_or_else(|| native.to_string())
 }
 
 fn native_param(v: Variant, key: &str) -> String {
     params(v)
         .iter()
-        .find(|(s, _)| *s == key)
-        .map(|(_, n)| n.to_string())
+        .find(|(s, _, _)| *s == key)
+        .map(|(_, n, _)| n.to_string())
         .unwrap_or_else(|| key.to_string())
+}
+
+// ------------------------------------------------------------ algorithms
+
+/// (other names it goes by, the engine's name) per engine, the first one
+/// its default: the names of the same algorithm in other engines (pgvector's
+/// `ivfflat` is OceanBase's `ivf_flat` and SingleStore's `IVF_FLAT`).
+fn algorithms(v: Variant) -> &'static [(&'static [&'static str], &'static str)] {
+    match v.base() {
+        Variant::OceanBase => &[
+            (&["hnsw", "hnsw_flat"], "hnsw"),
+            (&["hnsw_sq"], "hnsw_sq"),
+            (&["hnsw_bq"], "hnsw_bq"),
+            (&["ivf_flat", "ivfflat", "ivf"], "ivf_flat"),
+            (&["ivf_sq8"], "ivf_sq8"),
+            (&["ivf_pq", "ivfpq"], "ivf_pq"),
+        ],
+        Variant::SingleStore => &[
+            (&["auto"], "AUTO"),
+            (&["hnsw_flat", "hnsw"], "HNSW_FLAT"),
+            (&["hnsw_pq"], "HNSW_PQ"),
+            (&["ivf_flat", "ivfflat", "ivf"], "IVF_FLAT"),
+            (&["ivf_pq", "ivfpq"], "IVF_PQ"),
+            (&["ivf_pqfs"], "IVF_PQFS"),
+            (&["flat"], "FLAT"),
+        ],
+        Variant::Doris => &[
+            (&["hnsw"], "hnsw"),
+            (&["ivf", "ivfflat", "ivf_flat"], "ivf"),
+        ],
+        Variant::StarRocks => &[(&["hnsw"], "hnsw"), (&["ivfpq", "ivf_pq"], "ivfpq")],
+        Variant::TiDb => &[(&["hnsw"], "HNSW")],
+        // One kind of vector index each (MariaDB's MHNSW, GreptimeDB's
+        // usearch HNSW…).
+        Variant::MariaDb | Variant::Manticore | Variant::Databend | Variant::GreptimeDb => {
+            &[(&["hnsw", "mhnsw"], "hnsw")]
+        }
+        _ => &[],
+    }
+}
+
+/// The engine's algorithm for an index's `algorithm` (the engine's own
+/// name or another engine's), and a note when the engine doesn't have it
+/// and the closest one is used: an index from a conversion or a clone is
+/// written with what the engine has instead of failing.
+/// `None` (no algorithm given): the engine's default, or, on SingleStore,
+/// the kind its build parameters belong to.
+pub(crate) fn native_algorithm(
+    v: Variant,
+    vi: &VectorIndex,
+) -> (Option<&'static str>, Option<String>) {
+    let all = algorithms(v);
+    let Some(given) = vi
+        .algorithm
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+    else {
+        if v.base() == Variant::SingleStore {
+            // AUTO takes no build parameters: those of HNSW or IVF say which.
+            let has = |applies: &str| {
+                vi.params.keys().any(|k| {
+                    params(v)
+                        .iter()
+                        .any(|(s, n, a)| (s == k || n == k) && *a == applies)
+                })
+            };
+            if has("hnsw") {
+                return (Some("HNSW_FLAT"), None);
+            }
+            if has("ivf") {
+                return (Some("IVF_FLAT"), None);
+            }
+            return (None, None);
+        }
+        return (all.first().map(|(_, n)| *n), None);
+    };
+    let g = given.to_ascii_lowercase();
+    if let Some((_, n)) = all
+        .iter()
+        .find(|(names, n)| n.eq_ignore_ascii_case(&g) || names.contains(&g.as_str()))
+    {
+        return (Some(n), None);
+    }
+    // The closest: the same family (HNSW, IVF with or without product
+    // quantization), else the engine's default.
+    let pick = |pred: &dyn Fn(&str) -> bool| {
+        all.iter()
+            .map(|(_, n)| *n)
+            .find(|n| pred(&n.to_ascii_lowercase()))
+    };
+    let close = if g.starts_with("ivf") && g.contains("pq") {
+        pick(&|n| n.starts_with("ivf") && n.contains("pq"))
+            .or_else(|| pick(&|n| n.starts_with("ivf")))
+    } else if g.starts_with("ivf") {
+        pick(&|n| n.starts_with("ivf"))
+    } else if g.starts_with("hnsw") {
+        pick(&|n| n.starts_with("hnsw"))
+    } else {
+        None
+    };
+    let fallback = if v.base() == Variant::SingleStore {
+        Some("AUTO")
+    } else {
+        all.first().map(|(_, n)| *n)
+    };
+    let used = close.or(fallback);
+    let note = used.map(|u| {
+        format!(
+            "{} no tiene índices vectoriales «{given}»: queda {}.",
+            engine(v),
+            u.to_ascii_uppercase()
+        )
+    });
+    (used, note)
 }
 
 fn spec_param(
@@ -500,20 +639,42 @@ fn vector_of(v: Variant, ix: &IndexDef) -> Result<(&VectorIndex, &str)> {
     }
 }
 
-/// The index's build parameters the engine has, in its names (another
-/// engine's tuning, from a conversion, is left out).
-fn params_text(v: Variant, vi: &VectorIndex, skip: &[&str]) -> Vec<(String, String)> {
+/// The index's build parameters the engine has for its algorithm, in its
+/// names (another engine's tuning, from a conversion, and the parameters
+/// of another algorithm are left out).
+fn params_text(
+    v: Variant,
+    vi: &VectorIndex,
+    algorithm: Option<&str>,
+    skip: &[&str],
+) -> Vec<(String, String)> {
     vi.params
         .iter()
         .filter(|(k, _)| !skip.contains(&k.as_str()))
-        .filter(|(k, _)| params(v).iter().any(|(s, n)| s == k || n == k))
+        .filter(|(k, _)| {
+            params(v).iter().any(|(s, n, applies)| {
+                (s == k || n == k) && algorithm.is_none_or(|a| applies_to(applies, a))
+            })
+        })
         .map(|(k, val)| (native_param(v, k), val.clone()))
         .collect()
 }
 
+/// A statement with the notes said before it, as `--` lines.
+fn with_notes(notes: Vec<String>, statement: String) -> String {
+    let mut out: Vec<String> = notes
+        .into_iter()
+        .map(|n| format!("-- {}", n.replace(['\n', '\r'], " ")))
+        .collect();
+    out.push(statement);
+    out.join("\n")
+}
+
 /// A vector index as the statement that creates it on the MySQL servers
 /// and the engines with their own CREATE (MariaDB, TiDB, OceanBase,
-/// SingleStore, Databend). `table` is quoted.
+/// SingleStore, Databend). `table` is quoted. An algorithm the engine
+/// lacks (another engine's index) becomes its closest one, said in a `--`
+/// line before the statement.
 pub(crate) fn create_index(
     v: Variant,
     table: &str,
@@ -524,39 +685,27 @@ pub(crate) fn create_index(
     let name = q(&ix.name);
     let col_q = q(col);
     let metric = vi.metric.as_deref().filter(|m| !m.is_empty());
-    match v.base() {
+    let (algorithm, note) = native_algorithm(v, vi);
+    let mut notes: Vec<String> = note.into_iter().collect();
+    let statement = match v.base() {
         Variant::MariaDb => {
             let guard = if if_exists { "IF NOT EXISTS " } else { "" };
             let mut s = format!("CREATE VECTOR INDEX {guard}{name} ON {table} ({col_q})");
-            for (_, val) in params_text(v, vi, &[]) {
+            for (_, val) in params_text(v, vi, algorithm, &[]) {
                 s.push_str(&format!(" M={}", number(&val)?));
             }
             if let Some(m) = metric {
                 s.push_str(&format!(" DISTANCE={}", native_metric(v, m)?));
             }
-            Ok(format!("{s};"))
+            format!("{s};")
         }
         Variant::TiDb => {
-            if let Some(a) = vi
-                .algorithm
-                .as_deref()
-                .filter(|a| !a.eq_ignore_ascii_case("hnsw"))
-            {
-                return Err(Error::Unsupported(format!(
-                    "TiDB solo tiene índices vectoriales HNSW (no «{a}»)"
-                )));
-            }
             let f = native_metric(v, metric.unwrap_or(metric::COSINE))?;
-            Ok(format!(
-                "CREATE VECTOR INDEX {name} ON {table} (({f}({col_q}))) USING HNSW;"
-            ))
+            notes.push(TIFLASH_NOTE.into());
+            format!("CREATE VECTOR INDEX {name} ON {table} (({f}({col_q}))) USING HNSW;")
         }
         Variant::OceanBase => {
-            let algorithm = vi
-                .algorithm
-                .as_deref()
-                .unwrap_or("hnsw")
-                .to_ascii_lowercase();
+            let algorithm = algorithm.unwrap_or("hnsw");
             let lib = if algorithm.starts_with("ivf") {
                 "ob"
             } else {
@@ -568,28 +717,31 @@ pub(crate) fn create_index(
                     native_metric(v, metric.unwrap_or(metric::L2))?
                 ),
                 format!("type={algorithm}"),
+                format!("lib={lib}"),
             ];
-            if !vi.params.contains_key("lib") {
-                with.push(format!("lib={lib}"));
-            }
-            for (k, val) in params_text(v, vi, &[]) {
+            for (k, val) in params_text(v, vi, Some(algorithm), &[]) {
                 with.push(format!("{k}={}", word(&val)?));
             }
-            Ok(format!(
+            format!(
                 "CREATE VECTOR INDEX {name} ON {table} ({col_q}) WITH ({});",
                 with.join(", ")
-            ))
+            )
         }
         Variant::SingleStore => {
             // The JSON written in this order: type, metric, parameters.
             let mut o: Vec<(String, serde_json::Value)> = Vec::new();
-            if let Some(a) = vi.algorithm.as_deref() {
-                o.push(("index_type".into(), a.to_ascii_uppercase().into()));
+            if let Some(a) = algorithm {
+                o.push(("index_type".into(), a.into()));
             }
             if let Some(m) = metric {
                 o.push(("metric_type".into(), native_metric(v, m)?.into()));
             }
-            for (k, val) in params_text(v, vi, &[]) {
+            // AUTO and FLAT take no build parameters.
+            let tuned = algorithm.is_some_and(|a| a != "AUTO" && a != "FLAT");
+            for (k, val) in params_text(v, vi, algorithm, &[])
+                .into_iter()
+                .filter(|_| tuned)
+            {
                 let j = val
                     .parse::<i64>()
                     .map(serde_json::Value::from)
@@ -609,31 +761,154 @@ pub(crate) fn create_index(
                     json.replace('\\', "\\\\").replace('\'', "''")
                 )
             };
-            Ok(format!(
-                "ALTER TABLE {table} ADD VECTOR INDEX {name} ({col_q}){opts};"
-            ))
+            format!("ALTER TABLE {table} ADD VECTOR INDEX {name} ({col_q}){opts};")
         }
         Variant::Databend => {
             let guard = if if_exists { "IF NOT EXISTS " } else { "" };
             let mut s = format!("CREATE VECTOR INDEX {guard}{name} ON {table}({col_q})");
-            for (k, val) in params_text(v, vi, &[]) {
+            for (k, val) in params_text(v, vi, algorithm, &[]) {
                 s.push_str(&format!(" {k}={}", number(&val)?));
             }
-            let m = native_metric(v, metric.unwrap_or(metric::COSINE))?;
-            s.push_str(&format!(" distance='{m}'"));
-            Ok(format!("{s};"))
+            s.push_str(&format!(
+                " distance='{}'",
+                databend_distances(vi)?.join(",")
+            ));
+            format!("{s};")
         }
-        Variant::MySql => Err(Error::Unsupported(format!(
+        Variant::MySql => {
+            return Err(Error::Unsupported(format!(
             "MySQL no tiene índices vectoriales (solo HeatWave): el índice «{}» no se puede crear",
             ix.name
-        ))),
-        _ => Err(Error::Unsupported(format!(
-            "{} no tiene índices vectoriales (índice «{}»)",
-            engine(v),
-            ix.name
-        ))),
+        )))
+        }
+        _ => {
+            return Err(Error::Unsupported(format!(
+                "{} no tiene índices vectoriales (índice «{}»)",
+                engine(v),
+                ix.name
+            )))
+        }
+    };
+    Ok(with_notes(notes, statement))
+}
+
+/// The metric an engine's vector index takes when none is given.
+fn default_metric(v: Variant) -> &'static str {
+    match v.base() {
+        Variant::TiDb | Variant::Databend => metric::COSINE,
+        Variant::SingleStore => metric::IP,
+        _ => metric::L2,
     }
 }
+
+/// What a vector index builds, as one comparable text: the engine's
+/// algorithm, metric and build parameters (defaults filled in, another
+/// engine's names mapped, what the engine ignores left out).
+pub(crate) fn settings_key(v: Variant, vi: &VectorIndex) -> String {
+    let (algorithm, _) = native_algorithm(v, vi);
+    let m = vi
+        .metric
+        .as_deref()
+        .filter(|m| !m.is_empty())
+        .unwrap_or(default_metric(v));
+    let m = native_metric(v, m).map_or_else(|_| m.to_ascii_lowercase(), str::to_string);
+    let mut p = params_text(v, vi, algorithm, &[]);
+    if v.base() == Variant::Databend {
+        if let Ok(all) = databend_distances(vi) {
+            p.push((DATABEND_DISTANCES.into(), all.join(",")));
+        }
+    }
+    p.sort();
+    let p: Vec<String> = p
+        .iter()
+        .map(|(k, val)| format!("{k}={}", val.trim()))
+        .collect();
+    format!(
+        "{}|{m}|{}",
+        algorithm.unwrap_or("").to_ascii_lowercase(),
+        p.join(",")
+    )
+}
+
+/// A vector index as the schema sync compares it: by what it builds (see
+/// [`settings_key`]), not by the native options it was read with, which
+/// the designer doesn't change when it changes the index's vector settings.
+/// The comment stays.
+pub(crate) fn for_sync(v: Variant, ix: &mut IndexDef) {
+    let Some(vi) = &ix.vector else { return };
+    let key = settings_key(v, vi);
+    ix.options.retain(|k, _| k.eq_ignore_ascii_case("COMMENT"));
+    ix.options.insert(SYNC_KEY.into(), key);
+}
+
+/// The option [`for_sync`] compares vector indexes by.
+const SYNC_KEY: &str = "vector";
+
+/// TiDB builds its vector indexes in TiFlash: without a replica there the
+/// CREATE fails.
+const TIFLASH_NOTE: &str = "TiDB guarda los índices vectoriales en TiFlash: la tabla necesita una réplica de TiFlash (ALTER TABLE … SET TIFLASH REPLICA 1).";
+
+/// A vector column's type as an engine of the MySQL family writes it,
+/// and a note when it changed: only SingleStore has element types
+/// (`vector(3, F16)`) and only TiDB the long form (`vector<float>(3)`); the
+/// others store float32 `vector(n)`. `None`: the type stays.
+pub(crate) fn family_type(v: Variant, ty: &str) -> Option<(String, Option<String>)> {
+    if !matches!(
+        v.base(),
+        Variant::MySql | Variant::MariaDb | Variant::TiDb | Variant::OceanBase
+    ) {
+        return None;
+    }
+    let t = ty.trim();
+    let lower = t.to_ascii_lowercase();
+    let rest = lower.strip_prefix("vector")?;
+    let long = rest.starts_with('<');
+    let args: Vec<&str> = rest
+        .split_once('(')
+        .and_then(|(_, r)| r.split_once(')'))
+        .map(|(a, _)| a.split(',').map(str::trim).collect())
+        .unwrap_or_default();
+    if !(long && v.base() != Variant::TiDb) && args.len() < 2 {
+        return None;
+    }
+    let m = meta(Variant::SingleStore, t).or_else(|| meta(Variant::TiDb, t))?;
+    let plain = match m.dims {
+        Some(n) => format!("vector({n})"),
+        None => "vector".into(),
+    };
+    let note = (m.element != VectorElement::F32)
+        .then(|| format!("{}: «{t}» se guarda como float32, {plain}.", engine(v)));
+    Some((plain, note))
+}
+
+/// Databend's distances: the index's metric first, then the others it was
+/// read with (`distance='cosine,l2'` keeps both).
+fn databend_distances(vi: &VectorIndex) -> Result<Vec<&'static str>> {
+    let v = Variant::Databend;
+    let mut out = vec![native_metric(
+        v,
+        vi.metric.as_deref().unwrap_or(metric::COSINE),
+    )?];
+    for m in vi
+        .params
+        .get(DATABEND_DISTANCES)
+        .map(String::as_str)
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+    {
+        let n = native_metric(v, m)?;
+        if !out.contains(&n) {
+            out.push(n);
+        }
+    }
+    Ok(out)
+}
+
+/// Where a Databend vector index read with several distances keeps them
+/// all (its native option's name): its metric is the first.
+const DATABEND_DISTANCES: &str = "distance";
 
 /// A number for an unquoted option, refused when it isn't one (it's
 /// written into the statement as is).
@@ -663,21 +938,23 @@ fn word(s: &str) -> Result<String> {
     }
 }
 
+/// A Doris / StarRocks vector index: its type (`ANN`, `VECTOR`), its
+/// properties and a note on its algorithm.
+pub(crate) type OlapIndex = (String, Vec<(String, String)>, Option<String>);
+
 /// Doris / StarRocks: the index type and its properties (`USING ANN
 /// PROPERTIES(…)`, `USING VECTOR (…)`), native names, in the order the
-/// engine prints them.
-pub(crate) fn olap_index(v: Variant, ix: &IndexDef) -> Result<(String, Vec<(String, String)>)> {
+/// engine prints them, and a note when the algorithm became the engine's
+/// closest one.
+pub(crate) fn olap_index(v: Variant, ix: &IndexDef) -> Result<OlapIndex> {
     let (vi, _) = vector_of(v, ix)?;
     let mut props = Vec::new();
-    let algorithm = vi
-        .algorithm
-        .as_deref()
-        .unwrap_or("hnsw")
-        .to_ascii_lowercase();
-    props.push(("index_type".to_string(), algorithm));
+    let (algorithm, note) = native_algorithm(v, vi);
+    let algorithm = algorithm.unwrap_or("hnsw");
+    props.push(("index_type".to_string(), algorithm.to_string()));
     let m = vi.metric.as_deref().unwrap_or(metric::L2);
     props.push(("metric_type".to_string(), native_metric(v, m)?.to_string()));
-    props.extend(params_text(v, vi, &[]));
+    props.extend(params_text(v, vi, Some(algorithm), &[]));
     if !props.iter().any(|(k, _)| k == "dim") {
         return Err(Error::Unsupported(format!(
             "{}: el índice vectorial «{}» necesita la dimensión de los vectores (parámetro dim)",
@@ -688,15 +965,15 @@ pub(crate) fn olap_index(v: Variant, ix: &IndexDef) -> Result<(String, Vec<(Stri
     if v.base() == Variant::StarRocks && !props.iter().any(|(k, _)| k == "is_vector_normed") {
         props.push(("is_vector_normed".into(), "false".into()));
     }
-    Ok((kind(v).to_string(), props))
+    Ok((kind(v).to_string(), props, note))
 }
 
 /// Manticore: the column's KNN settings (`knn_type='hnsw' knn_dims='3'
-/// hnsw_similarity='L2' …`), from its vector index.
+/// hnsw_similarity='L2' …`), from its vector index; HNSW whatever
+/// algorithm another engine's index had.
 pub(crate) fn manticore_knn(ix: &IndexDef) -> Result<String> {
     let v = Variant::Manticore;
     let (vi, _) = vector_of(v, ix)?;
-    let algorithm = vi.algorithm.as_deref().unwrap_or("hnsw");
     let dims = vi.params.get("knn_dims").ok_or_else(|| {
         Error::Unsupported(format!(
             "Manticore: el índice KNN «{}» necesita la dimensión de los vectores (knn_dims)",
@@ -704,12 +981,11 @@ pub(crate) fn manticore_knn(ix: &IndexDef) -> Result<String> {
         ))
     })?;
     let mut s = format!(
-        "knn_type='{}' knn_dims='{}' hnsw_similarity='{}'",
-        word(algorithm)?,
+        "knn_type='hnsw' knn_dims='{}' hnsw_similarity='{}'",
         number(dims)?,
         native_metric(v, vi.metric.as_deref().unwrap_or(metric::L2))?
     );
-    for (k, val) in params_text(v, vi, &["knn_dims"]) {
+    for (k, val) in params_text(v, vi, Some("hnsw"), &["knn_dims"]) {
         s.push_str(&format!(" {k}='{}'", word(&val)?));
     }
     Ok(s)
@@ -919,7 +1195,8 @@ pub(crate) fn from_olap(v: Variant, ix: &mut IndexDef) {
 
 /// A Databend index from `system.indexes` as a vector index, when its type
 /// is `VECTOR` (`distance='cosine,l2' m='16' ef_construct='100'`): the first
-/// distance is its metric, the options stay as read.
+/// distance is its metric, and all of them stay in its `distance` parameter
+/// when there are several (written back the same); the options stay as read.
 pub(crate) fn from_databend(ix: &mut IndexDef) {
     let v = Variant::Databend;
     if !ix
@@ -936,11 +1213,16 @@ pub(crate) fn from_databend(ix: &mut IndexDef) {
     for (k, val) in &ix.options {
         match k.to_ascii_lowercase().as_str() {
             "distance" => {
-                vi.metric = val
+                let all: Vec<String> = val
                     .split(',')
                     .map(str::trim)
-                    .find(|m| !m.is_empty())
-                    .map(|m| standard_metric(v, m));
+                    .filter(|m| !m.is_empty())
+                    .map(|m| standard_metric(v, m))
+                    .collect();
+                vi.metric = all.first().cloned();
+                if all.len() > 1 {
+                    vi.params.insert(DATABEND_DISTANCES.into(), all.join(","));
+                }
             }
             _ => {
                 vi.params.insert(standard_param(v, k), val.clone());
@@ -960,7 +1242,7 @@ pub(crate) fn greptime_column_index(ix: &IndexDef) -> Result<String> {
     if let Some(m) = vi.metric.as_deref() {
         with.push(format!("metric = '{}'", native_metric(v, m)?));
     }
-    for (k, val) in params_text(v, vi, &[]) {
+    for (k, val) in params_text(v, vi, None, &[]) {
         with.push(format!("{k} = '{}'", word(&val)?));
     }
     Ok(if with.is_empty() {
@@ -1048,10 +1330,9 @@ pub(crate) fn manticore_indexes(create: &str) -> Vec<IndexDef> {
 /// column's vector index).
 pub(crate) fn manticore_base_type(ty: &str) -> &str {
     let t = ty.trim();
-    if t.len() >= 12 && t[..12].eq_ignore_ascii_case("float_vector") {
-        &t[..12]
-    } else {
-        t
+    match t.get(..12) {
+        Some(head) if head.eq_ignore_ascii_case("float_vector") => head,
+        _ => t,
     }
 }
 
@@ -1378,14 +1659,20 @@ mod tests {
                 false
             )
             .unwrap(),
-            "CREATE VECTOR INDEX `iv` ON `t` ((VEC_L2_DISTANCE(`v`))) USING HNSW;"
-        );
-        assert_eq!(
-            create_index(v, "`t`", &vix("iv", "v", None, None, &[]), false).unwrap(),
-            "CREATE VECTOR INDEX `iv` ON `t` ((VEC_COSINE_DISTANCE(`v`))) USING HNSW;"
+            format!("-- {TIFLASH_NOTE}\nCREATE VECTOR INDEX `iv` ON `t` ((VEC_L2_DISTANCE(`v`))) USING HNSW;")
         );
         assert!(
-            create_index(v, "`t`", &vix("iv", "v", Some("ivfflat"), None, &[]), false).is_err()
+            create_index(v, "`t`", &vix("iv", "v", None, None, &[]), false)
+                .unwrap()
+                .ends_with(
+                    "\nCREATE VECTOR INDEX `iv` ON `t` ((VEC_COSINE_DISTANCE(`v`))) USING HNSW;"
+                )
+        );
+        // Another algorithm: HNSW, said (other_engines_algorithms_become_the_engines_own).
+        assert!(
+            create_index(v, "`t`", &vix("iv", "v", Some("ivfflat"), None, &[]), false)
+                .unwrap()
+                .starts_with("-- TiDB no tiene")
         );
         let create = "CREATE TABLE `t` (\n  `id` int NOT NULL,\n  `v` vector(3) DEFAULT NULL,\n  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,\n  VECTOR INDEX `iv`((VEC_COSINE_DISTANCE(`v`)))\n) ENGINE=InnoDB";
         let r = &from_create(v, create)[0];
@@ -1452,6 +1739,168 @@ mod tests {
     }
 
     #[test]
+    fn other_engines_algorithms_become_the_engines_own() {
+        // pgvector's and TiDB's hnsw, pgvector's ivfflat: SingleStore's
+        // HNSW_FLAT and IVF_FLAT, with their own parameters only.
+        let ss = |a: &str, p: &[(&str, &str)]| {
+            create_index(
+                Variant::SingleStore,
+                "`t`",
+                &vix("iv", "v", Some(a), Some("ip"), p),
+                false,
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            ss(
+                "hnsw",
+                &[("m", "16"), ("ef_construction", "64"), ("lists", "100")]
+            ),
+            r#"ALTER TABLE `t` ADD VECTOR INDEX `iv` (`v`) INDEX_OPTIONS '{"index_type":"HNSW_FLAT","metric_type":"DOT_PRODUCT","efConstruction":64,"M":16}';"#
+        );
+        assert_eq!(
+            ss("ivfflat", &[("m", "16"), ("lists", "100")]),
+            r#"ALTER TABLE `t` ADD VECTOR INDEX `iv` (`v`) INDEX_OPTIONS '{"index_type":"IVF_FLAT","metric_type":"DOT_PRODUCT","nlist":100}';"#
+        );
+        // One it has no counterpart for: AUTO (no parameters), said.
+        let d = ss("diskann", &[("m", "16")]);
+        assert!(
+            d.starts_with(
+                "-- SingleStore no tiene índices vectoriales «diskann»: queda AUTO.\nALTER TABLE"
+            ),
+            "{d}"
+        );
+        assert!(
+            d.ends_with(r#"INDEX_OPTIONS '{"index_type":"AUTO","metric_type":"DOT_PRODUCT"}';"#),
+            "{d}"
+        );
+        // OceanBase's quantized HNSW: SingleStore's HNSW, said.
+        assert!(ss("hnsw_sq", &[]).contains(r#""index_type":"HNSW_FLAT""#));
+        // No algorithm (MariaDB's index): its M says HNSW.
+        assert!(create_index(
+            Variant::SingleStore,
+            "`t`",
+            &vix("iv", "v", None, Some("l2"), &[("m", "8")]),
+            false
+        )
+        .unwrap()
+        .contains(r#""index_type":"HNSW_FLAT""#));
+
+        // OceanBase: pgvector's ivfflat is its ivf_flat (lib ob, nlist).
+        let ob = |a: &str, p: &[(&str, &str)]| {
+            create_index(
+                Variant::OceanBase,
+                "`t`",
+                &vix("iv", "v", Some(a), Some("l2"), p),
+                false,
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            ob("ivfflat", &[("lists", "100"), ("m", "16")]),
+            "CREATE VECTOR INDEX `iv` ON `t` (`v`) WITH (distance=L2, type=ivf_flat, lib=ob, nlist=100);"
+        );
+        assert_eq!(
+            ob("HNSW_FLAT", &[("m", "16"), ("lists", "100")]),
+            "CREATE VECTOR INDEX `iv` ON `t` (`v`) WITH (distance=L2, type=hnsw, lib=vsag, m=16);"
+        );
+        assert_eq!(
+            ob("IVF_PQFS", &[]),
+            "-- OceanBase no tiene índices vectoriales «IVF_PQFS»: queda IVF_PQ.\nCREATE VECTOR INDEX `iv` ON `t` (`v`) WITH (distance=L2, type=ivf_pq, lib=ob);"
+        );
+        assert!(ob("diskann", &[])
+            .starts_with("-- OceanBase no tiene índices vectoriales «diskann»: queda HNSW."));
+
+        // TiDB, MariaDB: HNSW only; another algorithm is said, not refused.
+        let t = create_index(
+            Variant::TiDb,
+            "`t`",
+            &vix("iv", "v", Some("ivfflat"), Some("l2"), &[]),
+            false,
+        )
+        .unwrap();
+        assert_eq!(t, format!("-- TiDB no tiene índices vectoriales «ivfflat»: queda HNSW.\n-- {TIFLASH_NOTE}\nCREATE VECTOR INDEX `iv` ON `t` ((VEC_L2_DISTANCE(`v`))) USING HNSW;"));
+        let m = create_index(
+            Variant::MariaDb,
+            "`t`",
+            &vix("iv", "v", Some("ivfflat"), Some("l2"), &[]),
+            false,
+        )
+        .unwrap();
+        assert!(
+            m.starts_with("-- MariaDB no tiene índices vectoriales «ivfflat»: queda HNSW.\n"),
+            "{m}"
+        );
+        assert!(!create_index(
+            Variant::MariaDb,
+            "`t`",
+            &vix("iv", "v", Some("hnsw"), None, &[]),
+            false
+        )
+        .unwrap()
+        .contains("--"));
+
+        // Doris and StarRocks.
+        let (_, p, note) = olap_index(
+            Variant::Doris,
+            &vix(
+                "iv",
+                "v",
+                Some("ivfflat"),
+                Some("l2"),
+                &[("dim", "3"), ("lists", "64"), ("m", "16")],
+            ),
+        )
+        .unwrap();
+        assert_eq!(note, None);
+        assert!(
+            p.contains(&("index_type".into(), "ivf".into()))
+                && p.contains(&("nlist".into(), "64".into()))
+        );
+        assert!(!p.iter().any(|(k, _)| k == "max_degree"), "{p:?}");
+        let (_, p, note) = olap_index(
+            Variant::StarRocks,
+            &vix("iv", "v", Some("ivfflat"), Some("l2"), &[("dim", "3")]),
+        )
+        .unwrap();
+        assert!(p.contains(&("index_type".into(), "ivfpq".into())));
+        assert_eq!(
+            note.as_deref(),
+            Some("StarRocks no tiene índices vectoriales «ivfflat»: queda IVFPQ.")
+        );
+    }
+
+    #[test]
+    fn databend_keeps_every_distance_of_an_index() {
+        let mut read = IndexDef {
+            name: "iv".into(),
+            columns: vec!["v".into()],
+            kind: Some("VECTOR".into()),
+            options: [
+                ("distance", "cosine,l2"),
+                ("m", "16"),
+                ("ef_construct", "100"),
+            ]
+            .iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect(),
+            ..Default::default()
+        };
+        from_databend(&mut read);
+        let vi = read.vector.clone().unwrap();
+        assert_eq!(vi.metric.as_deref(), Some("cosine"));
+        assert_eq!(
+            create_index(Variant::Databend, "`t`", &read, false).unwrap(),
+            "CREATE VECTOR INDEX `iv` ON `t`(`v`) ef_construct=100 m=16 distance='cosine,l2';"
+        );
+        // The designer's metric goes first, the others it had stay.
+        read.vector.as_mut().unwrap().metric = Some("l1".into());
+        assert!(create_index(Variant::Databend, "`t`", &read, false)
+            .unwrap()
+            .ends_with("distance='l1,cosine,l2';"));
+    }
+
+    #[test]
     fn olap_indexes_need_the_dimension() {
         let ix = vix(
             "iv",
@@ -1460,7 +1909,8 @@ mod tests {
             Some("l2"),
             &[("dim", "3"), ("m", "32")],
         );
-        let (k, p) = olap_index(Variant::Doris, &ix).unwrap();
+        let (k, p, note) = olap_index(Variant::Doris, &ix).unwrap();
+        assert_eq!(note, None);
         assert_eq!(k, "ANN");
         assert_eq!(
             p,
@@ -1472,7 +1922,7 @@ mod tests {
             ]
             .map(|(a, b)| (a.to_string(), b.to_string()))
         );
-        let (k, p) = olap_index(
+        let (k, p, _) = olap_index(
             Variant::StarRocks,
             &vix(
                 "iv",
@@ -1535,6 +1985,9 @@ mod tests {
             manticore_base_type("float_vector knn_type='hnsw'"),
             "float_vector"
         );
+        // Free text whose 12th byte is inside a character: no panic.
+        assert_eq!(manticore_base_type("vectorñoñoñoñ"), "vectorñoñoñoñ");
+        assert_eq!(manticore_base_type("ñ"), "ñ");
     }
 
     #[test]

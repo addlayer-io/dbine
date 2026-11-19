@@ -551,8 +551,9 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
     if let Some(m) = &c.sync_metric {
         let mut new = t.clone();
         let ix = new.indexes.iter_mut().find(|i| i.vector.is_some()).unwrap();
+        // As the designer does: the vector settings change, the native
+        // options the index was read with stay.
         ix.vector.as_mut().unwrap().metric = Some(m.clone());
-        ix.options.clear();
         let script = d
             .sync_script(&[dbine_driver::TableChange::Alter {
                 old: t.clone(),
