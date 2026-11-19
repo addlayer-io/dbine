@@ -198,6 +198,23 @@ function vecChars(c: number) {
   const badge = 6 + 5 * charW;
   return Math.max(8, Math.min(400, Math.floor(((widths.value[c] ?? 0) - 16 - badge) / charW)));
 }
+/** Previews already worked out, by row (its array) and column, so a scroll
+ *  doesn't read the same cells again; an edit, another width or other
+ *  columns work it out anew. */
+let vecCache = new WeakMap<Cell[], Map<number, { v: Cell; meta: VectorMeta; chars: number; p: VectorPreview | null }>>();
+watch(() => props.rows, () => { vecCache = new WeakMap(); });
+function previewAt(r: number, c: number, meta: VectorMeta, chars: number): VectorPreview | null {
+  const v = valueAt(r, c);
+  const row = props.rows[r];
+  if (!row) return vectorPreview(v, meta, chars);
+  let byCol = vecCache.get(row);
+  if (!byCol) vecCache.set(row, (byCol = new Map()));
+  const hit = byCol.get(c);
+  if (hit && hit.v === v && hit.meta === meta && hit.chars === chars) return hit.p;
+  const p = vectorPreview(v, meta, chars);
+  byCol.set(c, { v, meta, chars, p });
+  return p;
+}
 /** The vector cells in view as the grid shows them: their first numbers and
  *  dimensions (row → column → preview), never the 500-character cut. A cell
  *  that doesn't read as a vector shows its text. */
@@ -208,7 +225,7 @@ const vecShown = computed(() => {
   const chars = cols.map(vecChars);
   for (const { i } of visible.value) {
     for (const [k, c] of cols.entries()) {
-      const p = isUnset(i, c) ? null : vectorPreview(valueAt(i, c), vecMetas.value[c], chars[k]);
+      const p = isUnset(i, c) ? null : previewAt(i, c, vecMetas.value[c]!, chars[k]);
       if (!p) continue;
       let row = out.get(i);
       if (!row) out.set(i, (row = new Map()));
