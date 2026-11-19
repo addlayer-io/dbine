@@ -79,6 +79,7 @@
     "unique": "一意",
     "included": "含む列",
     "filter": "フィルター",
+    "vector": "ベクトルインデックス",
     "checks": "CHECK 制約",
     "condition": "条件",
     "name": "名前",

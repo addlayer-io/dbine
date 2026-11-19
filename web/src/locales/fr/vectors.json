@@ -1,0 +1,78 @@
+{
+  "cell": {
+    "dims_one": "{{count}} dimension",
+    "dims_many": "{{count}} dimensions",
+    "dims_other": "{{count}} dimensions",
+    "sparse": "creux"
+  },
+  "viewer": {
+    "element": "Type",
+    "dims": "Dimensions",
+    "declared": "(la colonne déclare {{dims}})",
+    "norm": "Norme (L2)",
+    "min": "Minimum",
+    "max": "Maximum",
+    "empty": "Vecteur vide",
+    "sparse": "Vecteur creux : affiché tel que le moteur l’écrit.",
+    "copyJson": "Copier en JSON"
+  },
+  "edit": {
+    "format": "« {{column}} » est une colonne vectorielle : la valeur s’écrit sous forme de tableau JSON de nombres, par exemple [0.12, -0.03, 0.88]. Pour la laisser à NULL, utilisez « $t(results:grid.setNull) ».",
+    "dims": "« {{column}} » contient des vecteurs de {{expected}} dimensions et la valeur en a {{got}}.",
+    "range": "« {{column}} » accepte des entiers de {{min}} à {{max}} : le nombre {{position}} du vecteur vaut {{value}}.",
+    "overflow": "« {{column}} » stocke des nombres {{element}}, jusqu’à ±{{max}} : le nombre {{position}} du vecteur vaut {{value}}.",
+    "empty": "« {{column}} » n’accepte pas de vecteur vide : saisissez ses nombres, par exemple [0.12, -0.03, 0.88].",
+    "skippedColumns": "Les colonnes vectorielles ({{columns}}) sont exclues du WHERE."
+  },
+  "filter": {
+    "onlyNull": "« {{column}} » est une colonne vectorielle : filtrez par NULL ou NOT NULL, ou avec une condition SQL depuis le menu du filtre."
+  },
+  "sort": {
+    "local": "les colonnes vectorielles ne sont pas triées sur le serveur"
+  },
+  "compare": {
+    "from": "à partir du n° {{position}}",
+    "firstDiff": "{{side}} : différences à partir du nombre {{position}} sur {{dims}}. Double-cliquez pour voir le vecteur entier."
+  },
+  "metric": {
+    "cosine": "Cosinus",
+    "l2": "Euclidienne (L2)",
+    "ip": "Produit scalaire",
+    "l1": "Manhattan (L1)",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "metricShort": {
+    "cosine": "Cosinus",
+    "l2": "L2",
+    "ip": "IP",
+    "l1": "L1",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "param": {
+    "m": "Connexions par nœud (m)",
+    "ef_construction": "Candidats à la construction (ef_construction)",
+    "lists": "Listes (lists)",
+    "quantization": "Quantification"
+  },
+  "designer": {
+    "toggle": "Vectoriel",
+    "toggleHint": "Un index de recherche par similarité sur une colonne vectorielle",
+    "algorithm": "Algorithme",
+    "metric": "Distance",
+    "vectorColumn": "Colonne vectorielle",
+    "vectorColumnPlaceholder": "Choisissez la colonne vectorielle",
+    "filterColumns": "Colonnes de filtre",
+    "filterColumnsPlaceholder": "Aucune",
+    "paramPlaceholder": "Valeur par défaut du moteur",
+    "vectorType": "vectoriel",
+    "notVectorColumn": "L’index « {{label}} » est vectoriel et « {{column}} » n’est pas une colonne vectorielle.",
+    "noFilterColumns": "L’index « {{label}} » est vectoriel : sur ce moteur, il ne porte que la colonne vectorielle.",
+    "rebuilt": "L’index vectoriel « {{label}} » change : il est supprimé puis recréé, et la reconstruction peut prendre du temps sur les grandes tables."
+  },
+  "index": {
+    "summary": "Vectoriel : {{text}}",
+    "column": "Index vectoriel"
+  }
+}

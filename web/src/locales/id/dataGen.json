@@ -39,7 +39,8 @@
     "company": "Perusahaan",
     "address": "Alamat",
     "list": "Dari daftar",
-    "foreign_key": "Dari tabel yang dirujuk"
+    "foreign_key": "Dari tabel yang dirujuk",
+    "vector": "Vektor (angka acak)"
   },
   "param": {
     "value": "nilai",
@@ -50,6 +51,7 @@
     "scale": "desimal",
     "from": "dari TTTT-BB-HH",
     "to": "sampai TTTT-BB-HH",
-    "values": "nilai, dipisah koma"
+    "values": "nilai, dipisah koma",
+    "dims": "dimensi"
   }
 }

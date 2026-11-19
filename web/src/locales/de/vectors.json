@@ -1,0 +1,77 @@
+{
+  "cell": {
+    "dims_one": "{{count}} Dimension",
+    "dims_other": "{{count}} Dimensionen",
+    "sparse": "dünnbesetzt"
+  },
+  "viewer": {
+    "element": "Typ",
+    "dims": "Dimensionen",
+    "declared": "(die Spalte deklariert {{dims}})",
+    "norm": "Norm (L2)",
+    "min": "Minimum",
+    "max": "Maximum",
+    "empty": "Leerer Vektor",
+    "sparse": "Dünnbesetzter Vektor: wird so angezeigt, wie die Engine ihn schreibt.",
+    "copyJson": "Als JSON kopieren"
+  },
+  "edit": {
+    "format": "„{{column}}“ ist eine Vektorspalte: Der Wert wird als JSON-Array von Zahlen geschrieben, zum Beispiel [0.12, -0.03, 0.88]. Um sie auf NULL zu lassen, verwenden Sie „$t(results:grid.setNull)“.",
+    "dims": "„{{column}}“ enthält Vektoren mit {{expected}} Dimensionen, der Wert hat {{got}}.",
+    "range": "„{{column}}“ akzeptiert ganze Zahlen von {{min}} bis {{max}}: Die Zahl {{position}} des Vektors ist {{value}}.",
+    "overflow": "„{{column}}“ speichert {{element}}-Zahlen bis ±{{max}}: Die Zahl {{position}} des Vektors ist {{value}}.",
+    "empty": "„{{column}}“ akzeptiert keinen leeren Vektor: Geben Sie die Zahlen ein, zum Beispiel [0.12, -0.03, 0.88].",
+    "skippedColumns": "Die Vektorspalten ({{columns}}) bleiben außerhalb des WHERE."
+  },
+  "filter": {
+    "onlyNull": "„{{column}}“ ist eine Vektorspalte: Filtern Sie nach NULL oder NOT NULL oder mit einer SQL-Bedingung über das Filtermenü."
+  },
+  "sort": {
+    "local": "Vektorspalten werden nicht auf dem Server sortiert"
+  },
+  "compare": {
+    "from": "ab Nr. {{position}}",
+    "firstDiff": "{{side}}: Unterschiede ab Zahl {{position}} von {{dims}}. Doppelklicken Sie, um den ganzen Vektor zu sehen."
+  },
+  "metric": {
+    "cosine": "Kosinus",
+    "l2": "Euklidisch (L2)",
+    "ip": "Skalarprodukt",
+    "l1": "Manhattan (L1)",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "metricShort": {
+    "cosine": "Kosinus",
+    "l2": "L2",
+    "ip": "IP",
+    "l1": "L1",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "param": {
+    "m": "Verbindungen pro Knoten (m)",
+    "ef_construction": "Kandidaten beim Aufbau (ef_construction)",
+    "lists": "Listen (lists)",
+    "quantization": "Quantisierung"
+  },
+  "designer": {
+    "toggle": "Vektor",
+    "toggleHint": "Ein Ähnlichkeitssuchindex auf einer Vektorspalte",
+    "algorithm": "Algorithmus",
+    "metric": "Distanz",
+    "vectorColumn": "Vektorspalte",
+    "vectorColumnPlaceholder": "Vektorspalte wählen",
+    "filterColumns": "Filterspalten",
+    "filterColumnsPlaceholder": "Keine",
+    "paramPlaceholder": "Standard der Engine",
+    "vectorType": "Vektor",
+    "notVectorColumn": "Der Index „{{label}}“ ist ein Vektorindex und „{{column}}“ ist keine Vektorspalte.",
+    "noFilterColumns": "Der Index „{{label}}“ ist ein Vektorindex: Bei dieser Engine enthält er nur die Vektorspalte.",
+    "rebuilt": "Der Vektorindex „{{label}}“ ändert sich: Er wird gelöscht und neu erstellt, und der Neuaufbau kann bei großen Tabellen dauern."
+  },
+  "index": {
+    "summary": "Vektor: {{text}}",
+    "column": "Vektorindex"
+  }
+}

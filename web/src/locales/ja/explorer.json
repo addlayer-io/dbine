@@ -24,6 +24,7 @@
     "migrations": "マイグレーション",
     "noMigrations": "マイグレーションなし: 右クリック › 新しいマイグレーション…",
     "noSchemaObjects": "オブジェクトなし",
+    "noObjectsCreate": "オブジェクトがありません: 右クリックで作成",
     "keys": "キー",
     "ofTotal": "/ {{total}}",
     "others": "その他",

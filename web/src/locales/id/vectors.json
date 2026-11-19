@@ -1,0 +1,76 @@
+{
+  "cell": {
+    "dims_other": "{{count}} dimensi",
+    "sparse": "jarang"
+  },
+  "viewer": {
+    "element": "Tipe",
+    "dims": "Dimensi",
+    "declared": "(kolom mendeklarasikan {{dims}})",
+    "norm": "Norma (L2)",
+    "min": "Minimum",
+    "max": "Maksimum",
+    "empty": "Vektor kosong",
+    "sparse": "Vektor jarang: ditampilkan seperti yang ditulis mesin basis data.",
+    "copyJson": "Salin sebagai JSON"
+  },
+  "edit": {
+    "format": "“{{column}}” adalah kolom vektor: tulis nilainya sebagai larik JSON berisi angka, misalnya [0.12, -0.03, 0.88]. Untuk membiarkannya NULL, gunakan “$t(results:grid.setNull)”.",
+    "dims": "“{{column}}” berisi vektor dengan {{expected}} dimensi, sedangkan nilainya memiliki {{got}}.",
+    "range": "“{{column}}” menerima bilangan bulat dari {{min}} hingga {{max}}: angka ke-{{position}} pada vektor adalah {{value}}.",
+    "overflow": "“{{column}}” menyimpan angka {{element}} hingga ±{{max}}: angka ke-{{position}} pada vektor adalah {{value}}.",
+    "empty": "“{{column}}” tidak menerima vektor kosong: tulis angkanya, misalnya [0.12, -0.03, 0.88].",
+    "skippedColumns": "Kolom vektor ({{columns}}) tidak disertakan dalam WHERE."
+  },
+  "filter": {
+    "onlyNull": "“{{column}}” adalah kolom vektor: filter berdasarkan NULL atau NOT NULL, atau dengan kondisi SQL dari menu filter."
+  },
+  "sort": {
+    "local": "kolom vektor tidak diurutkan di server"
+  },
+  "compare": {
+    "from": "dari no. {{position}}",
+    "firstDiff": "{{side}}: berbeda mulai dari angka ke-{{position}} dari {{dims}}. Klik dua kali untuk melihat seluruh vektor."
+  },
+  "metric": {
+    "cosine": "Kosinus",
+    "l2": "Euklides (L2)",
+    "ip": "Hasil kali dalam",
+    "l1": "Manhattan (L1)",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "metricShort": {
+    "cosine": "Kosinus",
+    "l2": "L2",
+    "ip": "IP",
+    "l1": "L1",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "param": {
+    "m": "Tautan per simpul (m)",
+    "ef_construction": "Kandidat saat membangun (ef_construction)",
+    "lists": "Daftar (lists)",
+    "quantization": "Kuantisasi"
+  },
+  "designer": {
+    "toggle": "Vektor",
+    "toggleHint": "Indeks pencarian kemiripan pada kolom vektor",
+    "algorithm": "Algoritma",
+    "metric": "Jarak",
+    "vectorColumn": "Kolom vektor",
+    "vectorColumnPlaceholder": "Pilih kolom vektor",
+    "filterColumns": "Kolom filter",
+    "filterColumnsPlaceholder": "Tidak ada",
+    "paramPlaceholder": "Bawaan mesin",
+    "vectorType": "vektor",
+    "notVectorColumn": "Indeks “{{label}}” adalah indeks vektor dan “{{column}}” bukan kolom vektor.",
+    "noFilterColumns": "Indeks “{{label}}” adalah indeks vektor: pada mesin ini hanya memuat kolom vektor.",
+    "rebuilt": "Indeks vektor “{{label}}” berubah: indeks dihapus lalu dibuat ulang, dan pembangunan ulang bisa memakan waktu pada tabel besar."
+  },
+  "index": {
+    "summary": "Vektor: {{text}}",
+    "column": "Indeks vektor"
+  }
+}

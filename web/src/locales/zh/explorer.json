@@ -24,6 +24,7 @@
     "migrations": "迁移",
     "noMigrations": "没有迁移：右键 › 新建迁移…",
     "noSchemaObjects": "没有对象",
+    "noObjectsCreate": "无对象：右键单击以创建",
     "keys": "键",
     "ofTotal": "共 {{total}} 个",
     "others": "其他",

@@ -39,7 +39,8 @@
     "company": "회사",
     "address": "주소",
     "list": "목록에서 선택",
-    "foreign_key": "참조된 테이블에서"
+    "foreign_key": "참조된 테이블에서",
+    "vector": "벡터(임의의 숫자)"
   },
   "param": {
     "value": "값",
@@ -50,6 +51,7 @@
     "scale": "소수 자릿수",
     "from": "시작일 YYYY-MM-DD",
     "to": "종료일 YYYY-MM-DD",
-    "values": "값, 쉼표로 구분"
+    "values": "값, 쉼표로 구분",
+    "dims": "차원"
   }
 }

@@ -79,6 +79,7 @@
     "unique": "Eindeutig",
     "included": "Enthält",
     "filter": "Filter",
+    "vector": "Vektorindex",
     "checks": "CHECK-Einschränkungen",
     "condition": "Bedingung",
     "name": "Name",

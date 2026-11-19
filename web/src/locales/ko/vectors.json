@@ -1,0 +1,76 @@
+{
+  "cell": {
+    "dims_other": "{{count}}차원",
+    "sparse": "희소"
+  },
+  "viewer": {
+    "element": "유형",
+    "dims": "차원",
+    "declared": "(열 선언: {{dims}})",
+    "norm": "노름 (L2)",
+    "min": "최솟값",
+    "max": "최댓값",
+    "empty": "빈 벡터",
+    "sparse": "희소 벡터: 엔진이 기록하는 형식 그대로 표시됩니다.",
+    "copyJson": "JSON으로 복사"
+  },
+  "edit": {
+    "format": "“{{column}}”은(는) 벡터 열입니다. 값은 숫자의 JSON 배열로 입력하세요(예: [0.12, -0.03, 0.88]). NULL로 두려면 “$t(results:grid.setNull)”을(를) 사용하세요.",
+    "dims": "“{{column}}”은(는) {{expected}}차원 벡터를 저장하는데 입력한 값은 {{got}}차원입니다.",
+    "range": "“{{column}}”은(는) {{min}}부터 {{max}}까지의 정수를 허용합니다. 벡터의 {{position}}번째 숫자는 {{value}}입니다.",
+    "overflow": "“{{column}}”은(는) {{element}} 숫자(최대 ±{{max}})를 저장합니다. 벡터의 {{position}}번째 숫자는 {{value}}입니다.",
+    "empty": "“{{column}}”은(는) 빈 벡터를 허용하지 않습니다. 숫자를 입력하세요(예: [0.12, -0.03, 0.88]).",
+    "skippedColumns": "벡터 열({{columns}})은 WHERE에서 제외됩니다."
+  },
+  "filter": {
+    "onlyNull": "“{{column}}”은(는) 벡터 열입니다. NULL 또는 NOT NULL로 필터링하거나 필터 메뉴의 SQL 조건을 사용하세요."
+  },
+  "sort": {
+    "local": "벡터 열은 서버에서 정렬되지 않습니다"
+  },
+  "compare": {
+    "from": "#{{position}}부터",
+    "firstDiff": "{{side}}: {{dims}}개 중 {{position}}번째 숫자부터 다릅니다. 더블 클릭하면 전체 벡터를 볼 수 있습니다."
+  },
+  "metric": {
+    "cosine": "코사인",
+    "l2": "유클리드 (L2)",
+    "ip": "내적",
+    "l1": "맨해튼 (L1)",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "metricShort": {
+    "cosine": "코사인",
+    "l2": "L2",
+    "ip": "IP",
+    "l1": "L1",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "param": {
+    "m": "노드당 링크 수 (m)",
+    "ef_construction": "구축 후보 수 (ef_construction)",
+    "lists": "리스트 수 (lists)",
+    "quantization": "양자화"
+  },
+  "designer": {
+    "toggle": "벡터",
+    "toggleHint": "벡터 열에 대한 유사도 검색 인덱스",
+    "algorithm": "알고리즘",
+    "metric": "거리",
+    "vectorColumn": "벡터 열",
+    "vectorColumnPlaceholder": "벡터 열 선택",
+    "filterColumns": "필터 열",
+    "filterColumnsPlaceholder": "없음",
+    "paramPlaceholder": "엔진 기본값",
+    "vectorType": "벡터",
+    "notVectorColumn": "인덱스 “{{label}}”은(는) 벡터 인덱스인데 “{{column}}”은(는) 벡터 열이 아닙니다.",
+    "noFilterColumns": "인덱스 “{{label}}”은(는) 벡터 인덱스입니다. 이 엔진에서는 벡터 열만 사용할 수 있습니다.",
+    "rebuilt": "벡터 인덱스 “{{label}}”이(가) 변경됩니다. 삭제 후 다시 만들며, 큰 테이블에서는 다시 만드는 데 시간이 걸릴 수 있습니다."
+  },
+  "index": {
+    "summary": "벡터: {{text}}",
+    "column": "벡터 인덱스"
+  }
+}
