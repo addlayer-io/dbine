@@ -360,11 +360,22 @@ pub fn table_ddl(table: &TableSchema, parts: DdlParts) -> String {
     if parts.indexes {
         for ix in &t.indexes {
             let cols: Vec<String> = ix.columns.iter().map(|c| index_column(c)).collect();
-            let s = if let Some(v) = vector_of(ix) {
+            let s = if let Some(mut v) = vector_of(ix) {
+                // Without a distance, a BINARY column's index is HAMMING:
+                // Oracle's default, COSINE, is refused there.
+                let binary = ix.columns.first().is_some_and(|c| {
+                    t.columns
+                        .iter()
+                        .any(|x| &x.name == c && crate::vector::binary_dims(&x.data_type).is_some())
+                });
+                let unknown = v.metric.is_none();
+                if unknown && binary {
+                    v.metric = Some(dbine_driver::vector::metric::HAMMING.into());
+                }
                 match crate::vector::index_sql(&name, &quote(&ix.name), &cols, &v) {
                     Ok(s) => {
-                        if v.metric.is_none() {
-                            out.push(crate::vector::unknown_settings_note(&ix.name));
+                        if unknown {
+                            out.push(crate::vector::unknown_settings_note(&ix.name, binary));
                         }
                         s
                     }
@@ -771,6 +782,15 @@ mod tests {
         let s = table_ddl(&t, parts);
         assert!(!s.contains("--"), "{s}");
         assert!(s.contains("DISTANCE DOT"), "{s}");
+        // On a BINARY column, without a distance: HAMMING (Oracle refuses
+        // its default, COSINE, there), said.
+        t.columns[0].data_type = "VECTOR(16, BINARY)".into();
+        t.indexes[0].vector.as_mut().unwrap().metric = None;
+        let s = table_ddl(&t, parts);
+        assert!(s.contains("solo admite HAMMING y JACCARD"), "{s}");
+        assert!(s.ends_with(
+            "CREATE VECTOR INDEX \"IX_V\" ON \"DOCS\" (\"V\") ORGANIZATION INMEMORY NEIGHBOR GRAPH DISTANCE HAMMING;"
+        ), "{s}");
     }
 
     #[test]

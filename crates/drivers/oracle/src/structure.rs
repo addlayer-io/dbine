@@ -267,11 +267,27 @@ const VECTOR_STATS: &str =
    FROM v$vector_index WHERE owner = :1";
 
 fn vector_indexes(c: &Connection, owner: &str, tables: &mut [TableSchema]) {
-    use crate::vector::{algorithm_of, index, Details, KIND};
+    use crate::vector::KIND;
     let is_vector = |ix: &IndexDef| ix.kind.as_deref() == Some(KIND);
     if !tables.iter().any(|t| t.indexes.iter().any(is_vector)) {
         return;
     }
+    let settings = vector_settings(c, owner);
+    for t in tables.iter_mut() {
+        for ix in t.indexes.iter_mut().filter(|ix| is_vector(ix)) {
+            ix.vector = Some(settings.get(&ix.name).cloned().unwrap_or_default());
+        }
+    }
+}
+
+/// The settings of the vector indexes on `owner`'s tables, by index name
+/// (see [`vector_indexes`]). An index none of the views shows has none
+/// here: its algorithm alone comes from `ALL_INDEXES` when it's listed.
+pub(crate) fn vector_settings(
+    c: &Connection,
+    owner: &str,
+) -> HashMap<String, dbine_driver::VectorIndex> {
+    use crate::vector::{algorithm_of, index, Details};
     // A query this login can't run (no privilege, an older release) gives
     // nothing.
     let rows = |sql: &str, width: usize| -> Vec<Vec<Option<String>>> {
@@ -339,12 +355,14 @@ fn vector_indexes(c: &Connection, owner: &str, tables: &mut [TableSchema]) {
             );
         }
     }
-    for t in tables.iter_mut() {
-        for ix in t.indexes.iter_mut().filter(|ix| is_vector(ix)) {
-            let d = details.get(&ix.name).cloned().unwrap_or_default();
-            ix.vector = Some(index(algorithm.get(&ix.name).copied(), &d));
-        }
-    }
+    algorithm
+        .keys()
+        .chain(details.keys())
+        .map(|n| {
+            let d = details.get(n).cloned().unwrap_or_default();
+            (n.clone(), index(algorithm.get(n).copied(), &d))
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------- DDL

@@ -447,6 +447,25 @@ enum Kind {
     /// A `VECTOR(n, BINARY)` (`None`: `*` dimensions): one 0 / 1 per
     /// dimension packed into Oracle's bytes ([`crate::vector::binary_text`]).
     Bits(Option<u32>),
+    /// A `VECTOR(n, …, SPARSE)`: a dense vector or pgvector's sparse text
+    /// in Oracle's sparse text ([`crate::vector::sparse_text`]).
+    Sparse(Option<u32>),
+    /// Any other `VECTOR`: a sparse vector's text spread out
+    /// ([`crate::vector::dense_text`]); Oracle converts neither way.
+    Dense,
+}
+
+/// The load kind of a vector column from its `VECTOR_INFO`; `None` when it
+/// isn't one (or the dictionary doesn't say).
+fn vector_kind(info: &str) -> Option<Kind> {
+    let s = crate::vector::Shape::parse(info)?;
+    Some(if s.sparse {
+        Kind::Sparse(s.dims)
+    } else if s.format.as_deref() == Some("BINARY") {
+        Kind::Bits(s.dims)
+    } else {
+        Kind::Dense
+    })
 }
 
 fn kind_of(data_type: &str) -> Kind {
@@ -488,7 +507,9 @@ impl Kind {
             | Kind::IntervalDs
             | Kind::IntervalYm
             | Kind::Json
-            | Kind::Bits(_) => oracledb::DB_TYPE_VARCHAR,
+            | Kind::Bits(_)
+            | Kind::Sparse(_)
+            | Kind::Dense => oracledb::DB_TYPE_VARCHAR,
         }
     }
 
@@ -586,6 +607,16 @@ struct Col {
     raw_text: RawText,
 }
 
+impl Col {
+    /// The same column bound as plain text.
+    fn as_text(&self) -> Col {
+        Col {
+            kind: Kind::Text,
+            ..self.clone()
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Plan {
     table: String,
@@ -647,7 +678,7 @@ fn plan(
 ) -> Result<Plan> {
     let (o, t) = (owner.to_string(), table.to_string());
     let mut types = std::collections::HashMap::new();
-    let mut binary = std::collections::HashMap::new();
+    let mut vectors = std::collections::HashMap::new();
     let sql = format!(
         "SELECT c.column_name, c.data_type, {} FROM all_tab_columns c WHERE c.owner = :1 AND c.table_name = :2",
         crate::vector::info_expr(vector_info)
@@ -657,8 +688,8 @@ fn plan(
         let (name, ty): (String, Option<String>) =
             (row.get(0).map_err(err)?, row.get(1).map_err(err)?);
         let info: Option<String> = row.get(2).map_err(err)?;
-        if let Some(dims) = info.as_deref().and_then(crate::vector::binary_dims) {
-            binary.insert(name.clone(), dims);
+        if let Some(kind) = info.as_deref().and_then(vector_kind) {
+            vectors.insert(name.clone(), kind);
         }
         types.insert(name, ty.unwrap_or_default());
     }
@@ -703,9 +734,7 @@ fn plan(
         );
         cols.push(Col {
             name: name.clone(),
-            kind: binary
-                .get(name)
-                .map_or_else(|| kind_of(ty), |&dims| Kind::Bits(dims)),
+            kind: vectors.get(name).copied().unwrap_or_else(|| kind_of(ty)),
             index,
             lob: matches!(upper.as_str(), "CLOB" | "NCLOB" | "BLOB"),
             raw_text: source_types
@@ -1185,6 +1214,17 @@ fn bind(cell: Cell, col: &Col, native: bool) -> Result<B> {
             };
             B::S(crate::vector::binary_text(&text, dims).unwrap_or(text))
         }
+        // Other cells as any text column takes them.
+        Kind::Sparse(dims) => match cell {
+            Cell::Text(s) | Cell::Json(s) => {
+                B::S(crate::vector::sparse_text(&s, dims).unwrap_or(s))
+            }
+            other => return bind(other, &col.as_text(), native),
+        },
+        Kind::Dense => match cell {
+            Cell::Text(s) | Cell::Json(s) => B::S(crate::vector::dense_text(&s).unwrap_or(s)),
+            other => return bind(other, &col.as_text(), native),
+        },
         Kind::Text | Kind::Json => B::S(match cell {
             Cell::Text(s)
             | Cell::Json(s)
@@ -1524,6 +1564,44 @@ mod tests {
         assert!(bind(Cell::Int(1), &col(Kind::Bits(None)), false).is_err());
         assert!(matches!(
             bind(Cell::Null, &col(Kind::Bits(None)), false).unwrap(),
+            B::Null(_)
+        ));
+    }
+
+    #[test]
+    fn sparse_and_dense_vectors_load_in_their_columns_form() {
+        let s = |c: Cell, k: Kind| match bind(c, &col(k), false).unwrap() {
+            B::S(s) => s,
+            _ => panic!("not text"),
+        };
+        assert_eq!(
+            vector_kind("VECTOR(5,FLOAT32,SPARSE)"),
+            Some(Kind::Sparse(Some(5)))
+        );
+        assert_eq!(
+            vector_kind("VECTOR(16,BINARY,DENSE)"),
+            Some(Kind::Bits(Some(16)))
+        );
+        assert_eq!(vector_kind("VECTOR(3,FLOAT32,DENSE)"), Some(Kind::Dense));
+        assert_eq!(vector_kind("NUMBER"), None);
+        // pgvector's sparsevec and a dense array into a SPARSE column.
+        for t in ["{2:1.5,5:3}/5", "[0,1.5,0,0,3]", "[5,[1,4],[1.5,3]]"] {
+            assert_eq!(
+                s(Cell::Text(t.into()), Kind::Sparse(Some(5))),
+                "[5,[1,4],[1.5,3]]",
+                "{t}"
+            );
+        }
+        // A sparse vector into a dense column; a dense one as it is.
+        assert_eq!(
+            s(Cell::Text("{2:1.5,5:3}/5".into()), Kind::Dense),
+            "[0,1.5,0,0,3]"
+        );
+        assert_eq!(s(Cell::Text("[1,2]".into()), Kind::Dense), "[1,2]");
+        // Other cells as a text column takes them.
+        assert_eq!(s(Cell::Int(7), Kind::Dense), "7");
+        assert!(matches!(
+            bind(Cell::Null, &col(Kind::Sparse(None)), false).unwrap(),
             B::Null(_)
         ));
     }
