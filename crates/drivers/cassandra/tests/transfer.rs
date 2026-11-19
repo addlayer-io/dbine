@@ -519,25 +519,48 @@ async fn wide_rows(driver: &str, url: &str) {
     assert!(got.iter().all(|r| r[1] == Cell::Bytes(blob.clone())));
 }
 
+/// The keyspaces the tests make, dropped when they end.
+const KEYSPACES: [&str; 5] = [
+    "dbine_xfer",
+    "dbine_xfer_fail",
+    "dbine_xfer_drop",
+    "dbine_xfer_edge",
+    "dbine_xfer_wide",
+];
+
+/// Every transfer test on one server, then its keyspaces dropped, also
+/// when one fails.
+async fn all(driver: &str, url: &str) {
+    use futures::FutureExt;
+    let r = std::panic::AssertUnwindSafe(async {
+        transfer(driver, url).await;
+        failed_load_settles(driver, url).await;
+        nothing_dropped(driver, url).await;
+        edge_values(driver, url).await;
+        wide_rows(driver, url).await;
+    })
+    .catch_unwind()
+    .await;
+    let mut s = open(driver, url, None).await;
+    for ks in KEYSPACES {
+        run(&mut s, &format!("DROP KEYSPACE IF EXISTS {ks};")).await;
+    }
+    if let Err(p) = r {
+        std::panic::resume_unwind(p);
+    }
+}
+
 #[tokio::test]
 #[ignore]
 async fn transfer_cassandra() {
     let url =
         std::env::var("DBINE_TEST_CASSANDRA_URL").unwrap_or_else(|_| "localhost:25402".into());
-    transfer("cassandra", &url).await;
-    failed_load_settles("cassandra", &url).await;
-    nothing_dropped("cassandra", &url).await;
-    edge_values("cassandra", &url).await;
-    wide_rows("cassandra", &url).await;
+    all("cassandra", &url).await;
 }
 
 #[tokio::test]
 #[ignore]
 async fn transfer_scylladb() {
     let url = std::env::var("DBINE_TEST_SCYLLADB_URL").unwrap_or_else(|_| "localhost:25413".into());
-    transfer("scylladb", &url).await;
-    failed_load_settles("scylladb", &url).await;
-    nothing_dropped("scylladb", &url).await;
-    edge_values("scylladb", &url).await;
-    wide_rows("scylladb", &url).await;
+    all("scylladb", &url).await;
 }
