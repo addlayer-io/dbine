@@ -17,6 +17,10 @@ use dbine_driver::TableSchema;
 
 pub struct Sqlite;
 
+/// What a vector without a dimension becomes ([`Dialect::finalize`] takes
+/// it back when its index gives the column one).
+const NO_DIMS: &str = "El vector no tiene dimensión fija: libSQL no crea índices vectoriales sobre una columna sin dimensión.";
+
 impl Dialect for Sqlite {
     fn id(&self) -> &'static str {
         "sqlite"
@@ -109,11 +113,7 @@ impl Dialect for Sqlite {
                 };
                 match dims {
                     Some(n) => Rendered::exact(format!("{name}({n})")),
-                    None => Rendered::exact(name).with(
-                        Warning,
-                        TypeApproximated,
-                        "El vector no tiene dimensión fija: libSQL no crea índices vectoriales sobre una columna sin dimensión.",
-                    ),
+                    None => Rendered::exact(name).with(Warning, TypeApproximated, NO_DIMS),
                 }
             }
             L::Bool => Rendered::exact("BOOLEAN"),
@@ -375,6 +375,7 @@ fn libsql_vector_columns(t: &mut TableSchema, report: &mut crate::issue::Report)
                 (Some(_), Some(n)) => {
                     let name = c.data_type.trim().to_string();
                     c.data_type = format!("{name}({n})");
+                    super::clickhouse::withdraw_note(report, c, NO_DIMS);
                     report.push(
                         Severity::Info,
                         IssueCode::TypeChanged,
@@ -527,11 +528,12 @@ mod tests {
             (r.tables[0].clone(), r.issues)
         };
         let ch = |ty, params: &[(&str, &str)]| vector_table(ty, Some("vector_similarity"), params);
-        let (t, _) = one(
+        let (t, issues) = one(
             ch("Array(Float32)", &[("dimensions", "3"), ("m", "8")]),
             "clickhouse",
         );
         assert_eq!(t.columns[1].data_type, "F32_BLOB(3)");
+        assert!(!issues.iter().any(|i| i.message == NO_DIMS), "{issues:?}");
         let v = t.indexes[0].vector.as_ref().unwrap();
         assert_eq!(
             v.params.iter().collect::<Vec<_>>(),

@@ -44,6 +44,21 @@ pub(super) fn is_dimension_key(k: &str) -> bool {
     matches!(k, "dimensions" | "dims" | "dimension")
 }
 
+/// The option convert.rs marks each target column with (its source name)
+/// until `finalize` is done: how `finalize` finds what a column's render
+/// said about it.
+pub(super) const ORIGIN_OPTION: &str = "__dbine_source_column";
+
+/// Takes back what a column's render said (`message`) once `finalize` has
+/// made it untrue (the column got its dimension after all).
+pub(super) fn withdraw_note(report: &mut Report, column: &dbine_driver::ColumnDef, message: &str) {
+    if let Some(origin) = column.options.get(ORIGIN_OPTION) {
+        report
+            .issues
+            .retain(|i| !(i.object.as_deref() == Some(origin.as_str()) && i.message == message));
+    }
+}
+
 /// The dimension a vector index's parameters carry, if any.
 pub(super) fn index_dimensions(params: &std::collections::BTreeMap<String, String>) -> Option<u32> {
     params
@@ -121,9 +136,7 @@ impl ClickHouse {
                         .get("type")
                         .is_some_and(|x| x.trim_start().starts_with("vector_similarity"));
                     let from_column = || {
-                        // convert.rs marks each column with its source
-                        // name under this key until `finalize` is done.
-                        let origin = c.options.get("__dbine_source_column")?;
+                        let origin = c.options.get(ORIGIN_OPTION)?;
                         report.issues.iter().find_map(|i| {
                             (i.object.as_deref() == Some(origin.as_str())
                                 && i.code == IssueCode::TypeChanged)

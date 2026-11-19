@@ -16,6 +16,10 @@ use dbine_driver::TableSchema;
 
 pub struct DuckDb;
 
+/// What a vector without a dimension becomes ([`Dialect::finalize`] takes
+/// it back when its index gives the column one).
+const NO_DIMS: &str = "El vector no tiene dimensión fija: queda como lista; las distancias array_* y los índices HNSW de DuckDB piden un FLOAT[n].";
+
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
     static D: DuckDb = DuckDb;
     matches!(driver_id, "duckdb" | "duckdb_files").then_some(&D as &dyn Dialect)
@@ -182,11 +186,9 @@ impl Dialect for DuckDb {
                 };
                 let r = match dims {
                     Some(n) => Rendered::exact(format!("{of}[{n}]")),
-                    None => Rendered::exact(format!("{of}[]")).with(
-                        Warning,
-                        TypeApproximated,
-                        "El vector no tiene dimensión fija: queda como lista; las distancias array_* y los índices HNSW de DuckDB piden un FLOAT[n].",
-                    ),
+                    None => {
+                        Rendered::exact(format!("{of}[]")).with(Warning, TypeApproximated, NO_DIMS)
+                    }
                 };
                 if *element == E::Bit {
                     r.with(
@@ -430,6 +432,7 @@ impl Dialect for DuckDb {
                                 format!("La columna toma la dimensión de su índice vectorial: {of}[{n}]."),
                             );
                             c.data_type = format!("{of}[{n}]");
+                            super::clickhouse::withdraw_note(report, c, NO_DIMS);
                             (of == "DOUBLE").then(|| format!(
                                 "vss solo indexa columnas FLOAT[n], y «{}» queda {} para no perder precisión",
                                 c.name, c.data_type
@@ -586,6 +589,8 @@ mod tests {
         assert!(issues
             .iter()
             .any(|i| i.code == IssueCode::TypeChanged && i.message.contains("FLOAT[3]")));
+        // The render's "no dimension" warning is taken back.
+        assert!(!issues.iter().any(|i| i.message == NO_DIMS), "{issues:?}");
         let (t, _) = one(ch("Array(BFloat16)", &[("dimensions", "4")]), "clickhouse");
         assert_eq!(t.columns[1].data_type, "FLOAT[4]");
         assert_eq!(t.indexes.len(), 1);
