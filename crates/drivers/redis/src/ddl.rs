@@ -422,7 +422,8 @@ fn key_index(t: &TableSchema, ix: &IndexDef, json: bool, server: Server) -> Resu
 /// A search index as an object of its own: its fields as columns (with
 /// their `FT.CREATE` arguments in the column options), each vector field
 /// with its search settings as an index, and where it searches (`on`,
-/// `prefix`, `filter`) in the options.
+/// `prefix`, `filter`) in the options. An index over every key has an
+/// empty `prefix` (without one, [`schema_index`] covers `<name>:`).
 pub fn index_schema(ix: &FtIndex) -> TableSchema {
     let mut options = BTreeMap::new();
     options.insert(
@@ -435,9 +436,7 @@ pub fn index_schema(ix: &FtIndex) -> TableSchema {
         .map(String::as_str)
         .filter(|p| !p.is_empty())
         .collect();
-    if !prefixes.is_empty() {
-        options.insert("prefix".into(), prefixes.join("\n"));
-    }
+    options.insert("prefix".into(), prefixes.join("\n"));
     if let Some(f) = &ix.filter {
         options.insert("filter".into(), f.clone());
     }
@@ -493,20 +492,32 @@ pub fn index_schema(ix: &FtIndex) -> TableSchema {
     }
 }
 
-/// [`index_schema`] back into the index (what its `FT.CREATE` makes).
+/// Whether a column of a search index's definition is the document's key:
+/// the first column a describe of the index reports (`id`, of type `key`),
+/// which isn't one of its fields.
+fn is_document_key(c: &ColumnDef) -> bool {
+    c.data_type.trim().eq_ignore_ascii_case("key")
+}
+
+/// [`index_schema`] back into the index (what its `FT.CREATE` makes). The
+/// keys it covers: its `prefix` lines; an empty `prefix`, every key;
+/// without a `prefix` (a definition made from the index's columns, from
+/// another database), those under `<name>:`, as the templates make it,
+/// never every hash or document of the database. The document's key
+/// column of a describe (`id`) isn't a field: it's left out.
 pub fn schema_index(t: &TableSchema, server: Server) -> Result<FtIndex> {
     let json = opt(t, "on").is_some_and(|o| o.trim().eq_ignore_ascii_case("json"));
-    let prefixes = opt(t, "prefix")
-        .map(|p| {
-            p.lines()
-                .map(str::trim)
-                .filter(|l| !l.is_empty())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let prefixes = match t.options.get("prefix") {
+        Some(p) => p
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect(),
+        None => vec![format!("{}:", t.name.trim())],
+    };
     let mut fields = Vec::new();
-    for c in &t.columns {
+    for c in t.columns.iter().filter(|c| !is_document_key(c)) {
         let settings = t
             .indexes
             .iter()
@@ -2080,6 +2091,60 @@ mod tests {
             "{}",
             ix.create_command()
         );
+    }
+
+    /// A search index's definition made from its describe's columns (a
+    /// subset into a database without it): the keys it covers default to
+    /// `<name>:`, as the templates make them, never every hash of the
+    /// database; the document's key (`id`, of type `key`) isn't indexed.
+    /// An index over every key says it with an empty `prefix`, and keeps
+    /// covering every key.
+    #[test]
+    fn an_index_from_its_columns_covers_its_own_keys() {
+        let mut t = index_schema(&redis_index());
+        t.options.remove("prefix");
+        t.columns.insert(
+            0,
+            ColumnDef {
+                name: "id".into(),
+                data_type: "key".into(),
+                ..Default::default()
+            },
+        );
+        let ix = schema_index(&t, Server::Redis).unwrap();
+        assert_eq!(ix.prefixes, ["docs:"]);
+        assert_eq!(
+            ix.fields
+                .iter()
+                .map(|f| f.attribute.as_str())
+                .collect::<Vec<_>>(),
+            ["title", "embedding"]
+        );
+        let create = super::table_ddl(&t, create(), Server::Redis).unwrap();
+        assert!(
+            create.starts_with("FT.CREATE docs ON HASH PREFIX 1 docs: "),
+            "{create}"
+        );
+        assert!(!create.contains(" id "), "{create}");
+        assert!(
+            create
+                .contains("emb AS embedding VECTOR HNSW 10 TYPE FLOAT16 DIM 4 DISTANCE_METRIC L2"),
+            "{create}"
+        );
+        // Over every key: an empty prefix, written without PREFIX.
+        let mut all = redis_index();
+        all.prefixes = vec![String::new()];
+        let t = index_schema(&all);
+        assert_eq!(t.options["prefix"], "");
+        let create = schema_index(&t, Server::Redis).unwrap().create_command();
+        assert!(
+            create.starts_with("FT.CREATE docs ON HASH FILTER "),
+            "{create}"
+        );
+        all.prefixes.clear();
+        assert_eq!(index_schema(&all).options["prefix"], "");
+        // The prefixes it has, one per line, as before.
+        assert_eq!(index_schema(&redis_index()).options["prefix"], "doc:\nart:");
     }
 
     /// The index-wide options go with the index, before SCHEMA, and a

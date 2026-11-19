@@ -19,6 +19,17 @@ pub enum KeySyntax {
 }
 
 /// What an engine's key search offers ([`crate::Driver::key_search`]).
+///
+/// The explorer lists a key database's keys with
+/// [`Session::scan_keys`](crate::Session::scan_keys), and never with
+/// [`Session::list_objects`](crate::Session::list_objects), which walks the
+/// whole keyspace. A driver with a key search that declares other kinds of
+/// objects besides its keys ([`crate::DriverInfo::object_kinds`]: Redis'
+/// search indexes, `index`) must return those objects from
+/// [`Session::database_schema`](crate::Session::database_schema): the
+/// explorer lists them from there. The default `database_schema` keeps only
+/// the `table` and `collection` kinds of `list_objects`, so such a driver
+/// needs its own override that returns them without walking the keys.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeySearch {
     pub syntax: KeySyntax,

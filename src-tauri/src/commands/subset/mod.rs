@@ -300,6 +300,46 @@ fn schema_from_columns(obj: &ObjectRef, cols: Vec<dbine_driver::ColumnInfo>) -> 
     }
 }
 
+/// `obj` as [`Session::database_schema`] lists it (an object of its kind),
+/// when it does; `None` also when the engine's structure can't be read.
+async fn listed_object(src: &mut Box<dyn Session>, obj: &ObjectRef) -> Option<TableSchema> {
+    let all: Vec<TableSchema> = src
+        .database_schema()
+        .await
+        .ok()?
+        .into_iter()
+        .filter(|t| t.kind == obj.kind)
+        .collect();
+    let i = graph::find(&all, &obj.schema, &obj.name)?;
+    all.into_iter().nth(i)
+}
+
+/// `listed` (the object as `database_schema` has it) with the describe's
+/// columns, in the describe's order: each one the listed column of its
+/// name when there is one (with its options), else the describe's (a
+/// search index's document key, `id`, which isn't one of its fields but
+/// is what its rows are copied by); the listed ones the describe lacks go
+/// last. The describe's primary key where the listed object has none.
+fn with_described(mut listed: TableSchema, described: TableSchema) -> TableSchema {
+    let mut rest = std::mem::take(&mut listed.columns);
+    let mut columns = Vec::with_capacity(described.columns.len() + rest.len());
+    for d in described.columns {
+        match rest
+            .iter()
+            .position(|c| c.name.eq_ignore_ascii_case(&d.name))
+        {
+            Some(i) => columns.push(rest.remove(i)),
+            None => columns.push(d),
+        }
+    }
+    columns.extend(rest);
+    listed.columns = columns;
+    if listed.primary_key.is_none() {
+        listed.primary_key = described.primary_key;
+    }
+    listed
+}
+
 fn pk_of(t: &TableSchema) -> Vec<String> {
     t.primary_key
         .as_ref()
@@ -380,7 +420,8 @@ async fn prepare(
 
     // The source's tables with their keys.
     let mut tables: Vec<TableSchema> = Vec::new();
-    if src_driver.capabilities().foreign_keys {
+    let read_tables = src_driver.capabilities().foreign_keys;
+    if read_tables {
         match src.database_schema().await {
             Ok(t) => tables = t,
             Err(e) => notes.push(format!("No se pudo leer la estructura de la base ({e}): se copia solo «{}», sin seguir claves foráneas.", args.table.name)),
@@ -396,7 +437,20 @@ async fn prepare(
                     args.table.name
                 )));
             }
-            tables.push(schema_from_columns(&args.table, cols));
+            let described = schema_from_columns(&args.table, cols);
+            // Without foreign keys the tables weren't read: the starting
+            // object as the engine lists it keeps what its columns don't
+            // say (a Redis search index's keys, `on` and `prefix`, and its
+            // vector index), so the target gets the same definition.
+            let listed = if read_tables {
+                None
+            } else {
+                listed_object(src, &args.table).await
+            };
+            tables.push(match listed {
+                Some(t) => with_described(t, described),
+                None => described,
+            });
             tables.len() - 1
         }
     };

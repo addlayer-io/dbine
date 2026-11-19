@@ -981,6 +981,27 @@ pub struct PreviewColumn {
     pub auto_increment: bool,
     pub foreign_key: Option<String>,
     pub auto: String,
+    /// The vectors the column holds (dense or sparse), as its type reads on
+    /// the table's engine; the dialog goes by it before the type's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector: Option<VectorMeta>,
+}
+
+impl PreviewColumn {
+    /// A column as the dialog gets it: what the catalog says, its foreign
+    /// key's label, what "auto" picks and its vectors.
+    fn of(m: &Meta, p: &Plan, fk_labels: &BTreeMap<String, String>) -> Self {
+        PreviewColumn {
+            name: m.info.name.clone(),
+            data_type: m.info.data_type.clone(),
+            nullable: m.info.nullable,
+            primary_key: m.info.primary_key,
+            auto_increment: m.info.auto_increment,
+            foreign_key: fk_labels.get(&m.info.name).cloned(),
+            auto: p.auto.get(&m.info.name).cloned().unwrap_or_default(),
+            vector: m.vector.clone(),
+        }
+    }
 }
 
 /// The table's columns, its single-column unique keys, and each foreign
@@ -1082,15 +1103,7 @@ pub async fn datagen_preview(
         let sample = rows(&mut p, &mut rng, 1, args.rows.clamp(1, 20), &mut seen);
         let table_columns = metas
             .iter()
-            .map(|m| PreviewColumn {
-                name: m.info.name.clone(),
-                data_type: m.info.data_type.clone(),
-                nullable: m.info.nullable,
-                primary_key: m.info.primary_key,
-                auto_increment: m.info.auto_increment,
-                foreign_key: fk_labels.get(&m.info.name).cloned(),
-                auto: p.auto.get(&m.info.name).cloned().unwrap_or_default(),
-            })
+            .map(|m| PreviewColumn::of(m, &p, &fk_labels))
             .collect();
         Ok(Preview {
             table_columns,
@@ -1436,6 +1449,99 @@ mod tests {
         let plain = meta("name", "varchar(10)", false);
         assert!(!offered(std::slice::from_ref(&plain)).contains(&"vector"));
         assert!(offered(&[plain, m]).contains(&"vector"));
+    }
+
+    /// Each column goes to the dialog with its vector, as its type reads on
+    /// the engine (dims and numbers); the others go without one.
+    #[test]
+    fn the_dialog_gets_each_columns_vector() {
+        let mut rng = Rng::new(Some(13));
+        let mut e8 = meta("e8", "VECTOR(16, INT8)", false);
+        e8.vector = Some(VectorMeta::dense(Some(16), VectorElement::I8));
+        let mut s = meta("terms", "sparsevec(5)", false);
+        s.vector = Some(VectorMeta::sparse(Some(5), VectorElement::F32));
+        let metas = [meta("id", "int", true), meta("title", "text", false), e8, s];
+        let p = plan(&metas, &[], &mut rng).unwrap();
+        let cols: Vec<Value> = metas
+            .iter()
+            .map(|m| serde_json::to_value(PreviewColumn::of(m, &p, &BTreeMap::new())).unwrap())
+            .collect();
+        assert_eq!(cols[2]["vector"], json!({"dims": 16, "element": "i8"}));
+        assert_eq!(cols[2]["auto"], json!("vector"));
+        assert_eq!(
+            cols[3]["vector"],
+            json!({"dims": 5, "element": "f32", "sparse": true})
+        );
+        assert!(cols[0].get("vector").is_none() && cols[1].get("vector").is_none());
+        assert_eq!(cols[1]["auto"], json!("text"));
+    }
+
+    /// A Redis (Valkey, Dragonfly) search index's vector field, read as
+    /// the app reads it on those engines: "auto" fills it with vectors of
+    /// its dimension and numbers (INT8 and UINT8 ones as integers in their
+    /// range, never floats rounded to -1, 0 or 1), and the dialog is
+    /// offered the vector generator.
+    #[test]
+    fn redis_vector_fields_get_vectors_of_their_type() {
+        for driver in ["redis", "valkey", "dragonfly"] {
+            let mut rng = Rng::new(Some(11));
+            let metas: Vec<Meta> = [
+                ("id", "key", true),
+                ("title", "TEXT", false),
+                ("e8", "VECTOR(16, INT8)", false),
+                ("u8", "VECTOR(16, UINT8)", false),
+                ("h", "VECTOR(4, FLOAT16)", false),
+            ]
+            .into_iter()
+            .map(|(name, ty, pk)| {
+                let mut m = meta(name, ty, pk);
+                m.vector = vectors::of_type(driver, ty);
+                m
+            })
+            .collect();
+            for (at, dims, element) in [
+                (2, 16, VectorElement::I8),
+                (3, 16, VectorElement::U8),
+                (4, 4, VectorElement::F16),
+            ] {
+                assert_eq!(
+                    metas[at].vector,
+                    Some(VectorMeta::dense(Some(dims), element))
+                );
+            }
+            assert_eq!((&metas[0].vector, &metas[1].vector), (&None, &None));
+            assert!(offered(&metas).contains(&"vector"), "{driver}");
+            let mut p = plan(&metas, &[], &mut rng).unwrap();
+            for name in ["e8", "u8", "h"] {
+                assert_eq!(p.auto[name], "vector", "{driver} {name}");
+            }
+            assert_eq!(p.auto["title"], "text");
+            let at = |n: &str| p.columns.iter().position(|c| c == n).unwrap();
+            let (ie8, iu8, ih) = (at("e8"), at("u8"), at("h"));
+            let mut seen = vec![HashSet::new(); p.columns.len()];
+            let sample = rows(&mut p, &mut rng, 1, 20, &mut seen);
+            let nums = |r: &Vec<Value>, i: usize| dbine_driver::vector::parse_value(&r[i]).unwrap();
+            for r in &sample {
+                let (e8, u8, h) = (nums(r, ie8), nums(r, iu8), nums(r, ih));
+                assert_eq!((e8.len(), u8.len(), h.len()), (16, 16, 4));
+                assert!(
+                    e8.iter()
+                        .all(|x| x.fract() == 0.0 && (-128.0..=127.0).contains(x)),
+                    "{e8:?}"
+                );
+                assert!(
+                    u8.iter()
+                        .all(|x| x.fract() == 0.0 && (0.0..=255.0).contains(x)),
+                    "{u8:?}"
+                );
+                assert!(h.iter().all(|x| x.abs() <= 1.0), "{h:?}");
+            }
+            // Bytes, not unit floats rounded: some of each go past ±1.
+            assert!(sample
+                .iter()
+                .any(|r| nums(r, ie8).iter().any(|x| x.abs() > 1.0)));
+            assert!(sample.iter().any(|r| nums(r, iu8).iter().any(|x| *x > 1.0)));
+        }
     }
 
     /// The insert script knows each column's type from the describe: a

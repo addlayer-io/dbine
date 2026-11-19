@@ -783,6 +783,13 @@ pub struct DriverMeta {
     #[serde(deserialize_with = "owned")]
     pub create_templates: Vec<CreateTemplate>,
     pub supports_schema_sync: bool,
+    /// `Driver::supports_schema_sync_for` per kind of `info.object_kinds`,
+    /// when the kinds answer differently (`dbine_driver::schema_sync_kinds`:
+    /// the kinds that take schema changes). Absent (older manifests, and
+    /// drivers whose kinds all answer alike): `supports_schema_sync` for
+    /// every kind. Left out when absent, so the manifest stays as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_sync_kinds: Option<Vec<String>>,
     pub script_separator: String,
     /// Users and permissions (absent in manifests of drivers published
     /// before it existed).
@@ -889,6 +896,7 @@ impl DriverMeta {
             designer: d.designer(),
             create_templates: d.create_templates(),
             supports_schema_sync: d.supports_schema_sync(),
+            schema_sync_kinds: dbine_driver::schema_sync_kinds(d),
             script_separator: d.script_separator().to_string(),
             security: d.security(),
             backup: d.backup(),

@@ -269,6 +269,21 @@ pub trait Driver: Send + Sync {
         false
     }
 
+    /// Whether [`Driver::sync_script`] applies changes to objects of `kind`
+    /// (a [`TableSchema::kind`]): "Comparar esquemas" asks it for the kinds
+    /// of the objects it changes. By default, [`Driver::supports_schema_sync`]
+    /// for every kind. A driver whose kinds differ answers per kind: Redis
+    /// applies its search indexes' changes (`index`) but has no schema for
+    /// its keys (`key`), so its `supports_schema_sync` stays off (the
+    /// explorer's "Modificar…" and the designer, which work on the
+    /// designer's kind, keep asking that one). Through a plugin host only
+    /// the kinds of [`DriverInfo::object_kinds`] carry their own answer
+    /// (see [`schema_sync_kinds`]).
+    fn supports_schema_sync_for(&self, kind: &str) -> bool {
+        let _ = kind;
+        self.supports_schema_sync()
+    }
+
     /// The statements that apply schema changes (create, drop and alter
     /// tables), in an order that respects dependencies. SQL engines build it
     /// with [`alter::sync_script`] and their [`alter::AlterStyle`].
@@ -872,6 +887,25 @@ pub trait Driver: Send + Sync {
             "este motor no tiene backups propios".into(),
         ))
     }
+}
+
+/// [`Driver::supports_schema_sync_for`] as the app and the plugin manifest
+/// carry it: `None` when every kind of [`DriverInfo::object_kinds`] answers
+/// as [`Driver::supports_schema_sync`] (the usual case: that flag says it
+/// all), else the kinds that do take schema changes (none, maybe).
+pub fn schema_sync_kinds(d: &dyn Driver) -> Option<Vec<String>> {
+    let all = d.supports_schema_sync();
+    let kinds = &d.info().object_kinds;
+    kinds
+        .iter()
+        .any(|k| d.supports_schema_sync_for(k.id) != all)
+        .then(|| {
+            kinds
+                .iter()
+                .filter(|k| d.supports_schema_sync_for(k.id))
+                .map(|k| k.id.to_string())
+                .collect()
+        })
 }
 
 #[async_trait]
@@ -1895,5 +1929,58 @@ mod tests {
         // The read-only wrapper passes the driver's list through.
         let mut ro = read_only::ReadOnlySession::new(Box::new(BareSession));
         assert_eq!(ready(ro.list_schemas()).unwrap(), None);
+    }
+
+    /// Schema sync per kind: by default every kind answers as
+    /// `supports_schema_sync` and nothing more is carried; a driver whose
+    /// kinds differ (Redis: search indexes, not keys) carries the kinds
+    /// that take changes.
+    #[test]
+    fn schema_sync_is_asked_per_kind() {
+        let mut d = bare();
+        d.0.object_kinds = vec![ObjectKindInfo::tables(), ObjectKindInfo::views()];
+        assert!(!d.supports_schema_sync_for(kinds::TABLE));
+        assert_eq!(schema_sync_kinds(&d), None);
+
+        struct Syncs(DriverInfo, &'static [&'static str], bool);
+        #[async_trait]
+        impl Driver for Syncs {
+            fn info(&self) -> &DriverInfo {
+                &self.0
+            }
+            async fn connect(
+                &self,
+                _: &ConnectionConfig,
+                _: Option<&str>,
+            ) -> Result<Box<dyn Session>> {
+                Err(Error::Unsupported("test".into()))
+            }
+            fn supports_schema_sync(&self) -> bool {
+                self.2
+            }
+            fn supports_schema_sync_for(&self, kind: &str) -> bool {
+                self.1.contains(&kind)
+            }
+        }
+        let kinds_of = |only: &'static [&'static str], all: bool| {
+            let mut info = bare().0;
+            info.object_kinds = vec![
+                ObjectKindInfo::new(kinds::KEY, "Claves", true, true, true),
+                ObjectKindInfo::new(kinds::INDEX, "Índices", true, true, true),
+            ];
+            schema_sync_kinds(&Syncs(info, only, all))
+        };
+        // Only search indexes, not keys.
+        assert_eq!(
+            kinds_of(&[kinds::INDEX], false),
+            Some(vec!["index".to_string()])
+        );
+        // Every kind but one, with the flag on.
+        assert_eq!(kinds_of(&[kinds::KEY], true), Some(vec!["key".to_string()]));
+        // None at all, with the flag on: an empty list, not "every kind".
+        assert_eq!(kinds_of(&[], true), Some(vec![]));
+        // Every kind as the flag says: nothing to carry.
+        assert_eq!(kinds_of(&[kinds::KEY, kinds::INDEX], true), None);
+        assert_eq!(kinds_of(&[], false), None);
     }
 }

@@ -1596,10 +1596,14 @@ pub fn hybrid_table(
     t
 }
 
+/// The most neighbours valkey-search's KNN returns (more is an error).
+pub const VALKEY_KNN_MAX: u32 = 10_000;
+
 /// The command that shows a search index's first `limit` documents: all
 /// of them (`*`), a JSON index's attributes returned (so its vectors come
 /// as columns of their own). valkey-search has no `*`: a range over a
-/// numeric field, or else the documents nearest a unit vector.
+/// numeric field, or else the documents nearest a unit vector, at most
+/// [`VALKEY_KNN_MAX`] of them.
 pub fn browse(name: &str, ix: Option<&FtIndex>, server: Server, limit: u32) -> String {
     use crate::command::quote_arg;
     let q = quote_arg(name);
@@ -1630,6 +1634,7 @@ pub fn browse(name: &str, ix: Option<&FtIndex>, server: Server, limit: u32) -> S
             if let Some(first) = unit.first_mut() {
                 *first = 1.0;
             }
+            let limit = limit.clamp(1, VALKEY_KNN_MAX);
             return format!(
                 "FT.SEARCH {q} {} PARAMS 2 q {}{ret} LIMIT 0 {limit} DIALECT 2",
                 quote_arg(&format!("*=>[KNN {limit} @{} $q]", f.attribute)),
@@ -2476,6 +2481,55 @@ mod tests {
         assert_eq!(
             matched(b"FT.HYBRID", "12"),
             "FT.HYBRID: 12 documentos coinciden"
+        );
+    }
+
+    /// valkey-search browses an index without numeric fields as the
+    /// documents nearest a unit vector: never more than its KNN maximum
+    /// (a subset asks for a million rows); a numeric range and the other
+    /// servers take the limit as asked.
+    #[test]
+    fn valkey_browses_at_most_its_knn_maximum() {
+        let vector = FtField {
+            identifier: "emb".into(),
+            attribute: "emb".into(),
+            kind: "VECTOR".into(),
+            vector: Some(FtVector {
+                algorithm: "HNSW".into(),
+                ty: VType::F32,
+                dims: 2,
+                metric: "COSINE".into(),
+                params: Vec::new(),
+            }),
+            args: Vec::new(),
+        };
+        let ix = FtIndex {
+            name: "docs".into(),
+            prefixes: vec!["doc:".into()],
+            fields: vec![vector.clone()],
+            ..Default::default()
+        };
+        let q = browse("docs", Some(&ix), Server::Valkey, 1_000_000);
+        assert!(
+            q.contains("\"*=>[KNN 10000 @emb $q]\"") && q.contains("LIMIT 0 10000 "),
+            "{q}"
+        );
+        let q = browse("docs", Some(&ix), Server::Valkey, 200);
+        assert!(q.contains("KNN 200 ") && q.contains("LIMIT 0 200 "), "{q}");
+        assert_eq!(
+            browse("docs", Some(&ix), Server::Redis, 1_000_000),
+            "FT.SEARCH docs * LIMIT 0 1000000"
+        );
+        let mut numeric = ix.clone();
+        numeric.fields.push(FtField {
+            identifier: "n".into(),
+            attribute: "n".into(),
+            kind: "NUMERIC".into(),
+            ..Default::default()
+        });
+        assert_eq!(
+            browse("docs", Some(&numeric), Server::Valkey, 1_000_000),
+            "FT.SEARCH docs \"@n:[-inf +inf]\" LIMIT 0 1000000"
         );
     }
 }

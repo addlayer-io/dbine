@@ -137,6 +137,10 @@ export interface DriverInfo {
   supports_explain: boolean;
   /** "Comparar esquemas" can apply changes to it. */
   supports_schema_sync: boolean;
+  /** The kinds of objects "Comparar esquemas" applies changes to, when
+   *  they differ by kind (Redis: its search indexes, not its keys); absent
+   *  or null: `supports_schema_sync` for every kind. */
+  schema_sync_kinds?: string[] | null;
   /** Users and permissions (docs/users-and-permissions.md); null: not offered. */
   security?: SecuritySpec | null;
   /** The engine's own backups (docs/backups.md); null: only DBine's copies. */

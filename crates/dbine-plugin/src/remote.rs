@@ -990,6 +990,12 @@ impl Driver for RemoteDriver {
     fn supports_schema_sync(&self) -> bool {
         self.meta.supports_schema_sync
     }
+    fn supports_schema_sync_for(&self, kind: &str) -> bool {
+        match &self.meta.schema_sync_kinds {
+            Some(kinds) => kinds.iter().any(|k| k == kind),
+            None => self.meta.supports_schema_sync,
+        }
+    }
     fn script_dialect(&self) -> dbine_driver::ScriptDialect {
         self.meta
             .script_dialect
