@@ -195,6 +195,307 @@ async fn bolt_protocol_versions() {
     }
 }
 
+/// Neo4j 2025.10+ Enterprise: Bolt 6 and the native VECTOR type. Nodes
+/// with VECTOR properties written by the typed insert script, read back as
+/// vectors typed `VECTOR<FLOAT32>(3)`, edited through the typed script (the
+/// property stays a VECTOR; the untyped one would make it a list), a
+/// vector index over them, the 2025 vector functions, and a transfer
+/// read. Runs when `DBINE_TEST_NEO4J_2025_URL` is set. No such container
+/// is kept: run a temporary one and remove it with its volumes (`-v`)
+/// afterwards.
+///
+/// ```sh
+/// docker run -d --name dbine-test-neo4j2025 --memory=2g -p 127.0.0.1:37687:7687 \
+///   -e NEO4J_ACCEPT_LICENSE_AGREEMENT=eval -e NEO4J_AUTH=neo4j/dbine-test-pass \
+///   neo4j:2025.10-enterprise
+/// DBINE_TEST_NEO4J_2025_URL=neo4j:dbine-test-pass@127.0.0.1:37687 \
+///   cargo test -p dbine-driver-neo4j --test vectors vectors_neo4j_2025 -- --ignored
+/// docker rm -fv dbine-test-neo4j2025
+/// ```
+#[tokio::test]
+#[ignore]
+async fn vectors_neo4j_2025() {
+    let Ok(url) = std::env::var("DBINE_TEST_NEO4J_2025_URL") else {
+        eprintln!("DBINE_TEST_NEO4J_2025_URL not set; skipping");
+        return;
+    };
+    let (d, mut s) = open("neo4j", &url).await;
+    cleanup("neo4j", &mut s).await;
+    let outcome = tokio::spawn(async move {
+        native_vectors(d.as_ref(), &mut s).await;
+    })
+    .await;
+    let (_, mut s) = open("neo4j", &url).await;
+    cleanup("neo4j", &mut s).await;
+    if let Err(e) = outcome {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}
+
+async fn native_vectors(d: &dyn Driver, s: &mut Box<dyn Session>) {
+    use dbine_driver::{ResultColumn, VectorMeta};
+    // 1. Bolt 6, which carries VECTOR values.
+    let snap = s.monitor().await.unwrap();
+    let protocol = snap
+        .info
+        .iter()
+        .find(|(k, _)| k == "Protocolo")
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default();
+    eprintln!("neo4j 2025: {protocol}");
+    assert!(protocol.contains("Bolt 6."), "{protocol}");
+
+    // 2. Nodes from the typed insert script: VECTOR columns as vector(…).
+    let cols = [
+        ResultColumn::new("id", "INTEGER"),
+        ResultColumn::new("emb", "VECTOR<FLOAT32>(3)"),
+        ResultColumn::new("small", "VECTOR<INTEGER8>(2)"),
+    ];
+    let ins = d
+        .insert_script_typed(
+            &label(LABEL),
+            &cols,
+            &[
+                vec![json!(1), json!([0.5, -1, 2]), json!([1, -2])],
+                vec![json!(2), json!([1, 0, 0]), json!([3, 4])],
+            ],
+        )
+        .unwrap();
+    assert!(
+        ins.starts_with("CYPHER 25 CREATE") && ins.contains("vector([0.5, -1, 2], 3, FLOAT32)"),
+        "{ins}"
+    );
+    run(s, &ins).await;
+
+    // 3. Read back: VECTOR columns are vectors with their type and text.
+    let q = format!(
+        "MATCH (n:{LABEL}) RETURN n.id AS id, n.emb AS emb, n.small AS small, valueType(n.emb) AS t ORDER BY id"
+    );
+    let out = run(s, &q).await;
+    let r = out.results[0].clone();
+    assert_eq!(r.columns[1].type_name, "VECTOR<FLOAT32>(3)");
+    assert_eq!(
+        r.columns[1].vector,
+        Some(VectorMeta::dense(Some(3), VectorElement::F32))
+    );
+    assert_eq!(r.columns[2].type_name, "VECTOR<INTEGER8>(2)");
+    assert_eq!(r.rows[0][1], json!("[0.5,-1,2]"));
+    assert_eq!(r.rows[0][2], json!("[1,-2]"));
+    // valueType() says `VECTOR<FLOAT32 NOT NULL>(3) NOT NULL`.
+    let t = r.rows[0][3].as_str().unwrap_or_default().to_string();
+    assert!(t.starts_with("VECTOR<FLOAT32") && t.contains("(3)"), "{t}");
+
+    // Described: the property's VECTOR type with its dimension, which
+    // describe-typed scripts take as well.
+    let described = s.columns(&label(LABEL)).await.unwrap();
+    let emb_type = described
+        .iter()
+        .find(|c| c.name == "emb")
+        .map(|c| c.data_type.clone())
+        .unwrap_or_default();
+    eprintln!("neo4j 2025: emb described as {emb_type}");
+    assert_eq!(emb_type, "VECTOR<FLOAT32>(3)");
+    let typed: Vec<ResultColumn> = described
+        .iter()
+        .map(|c| ResultColumn::new(&c.name, &c.data_type))
+        .collect();
+    let row: Vec<serde_json::Value> = typed
+        .iter()
+        .map(|c| match c.name.as_str() {
+            "id" => json!(3),
+            "emb" => json!([0.25, 0.5, 1]),
+            _ => json!(null),
+        })
+        .collect();
+    let ins = d
+        .insert_script_typed(&label(LABEL), &typed, &[row])
+        .unwrap();
+    run(s, &ins).await;
+    let out = run(
+        s,
+        &format!("MATCH (n:{LABEL} {{id: 3}}) RETURN n.emb AS emb, valueType(n.emb) AS t"),
+    )
+    .await;
+    assert_eq!(out.results[0].rows[0][0], json!("[0.25,0.5,1]"));
+    assert!(out.results[0].rows[0][1]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("VECTOR<FLOAT32"));
+    let del = d
+        .delete_script(&label(LABEL), &[vec![("id".into(), json!(3))]])
+        .unwrap();
+    run(s, &del).await;
+
+    // 4. A grid edit through the typed script keeps the VECTOR.
+    let edit = dbine_driver::vector::rows_for_scripts(
+        &r.columns,
+        &[vec![json!(1), json!("[4,5,6]"), json!("[7,8]")]],
+    );
+    let up = d
+        .update_script_typed(
+            &label(LABEL),
+            &[RowChange {
+                key: vec![("id".into(), json!(1))],
+                set: vec![
+                    ("emb".into(), edit[0][1].clone()),
+                    ("small".into(), edit[0][2].clone()),
+                ],
+                row: Vec::new(),
+            }],
+            &r.columns,
+        )
+        .unwrap();
+    run(s, &up).await;
+    let out = run(
+        s,
+        &format!("MATCH (n:{LABEL} {{id: 1}}) RETURN n.emb AS emb, valueType(n.emb) AS t, valueType(n.small) AS t8"),
+    )
+    .await;
+    let row = &out.results[0].rows[0];
+    assert_eq!(row[0], json!("[4,5,6]"));
+    assert!(
+        row[1]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("VECTOR<FLOAT32"),
+        "{row:?}"
+    );
+    assert!(
+        row[2]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("VECTOR<INTEGER8"),
+        "{row:?}"
+    );
+    // The untyped script writes a list: the property is no longer a VECTOR.
+    let plain = d
+        .update_script(
+            &label(LABEL),
+            &[RowChange {
+                key: vec![("id".into(), json!(2))],
+                set: vec![("emb".into(), json!([1.5, 0, 0]))],
+                row: Vec::new(),
+            }],
+        )
+        .unwrap();
+    run(s, &plain).await;
+    let out = run(
+        s,
+        &format!("MATCH (n:{LABEL} {{id: 2}}) RETURN valueType(n.emb) AS t"),
+    )
+    .await;
+    assert!(out.results[0].rows[0][0]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("LIST"));
+    run(
+        s,
+        &format!("CYPHER 25 MATCH (n:{LABEL} {{id: 2}}) SET n.emb = vector([1, 0, 0], 3, FLOAT32)"),
+    )
+    .await;
+
+    // A whole node edited as JSON (table browsing): its VECTOR stays one.
+    let out = run(s, &format!("MATCH (n:{LABEL} {{id: 2}}) RETURN n")).await;
+    let cell = out.results[0].rows[0][0].clone();
+    let text = cell
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| cell.to_string());
+    assert!(text.contains("~vector"), "{text}");
+    let edited = text.replace("\"id\":2", "\"id\":2,\"tag\":\"x\"");
+    let up = d
+        .update_script(
+            &label(LABEL),
+            &[RowChange {
+                key: vec![("n".into(), json!(text))],
+                set: vec![("n".into(), json!(edited))],
+                row: Vec::new(),
+            }],
+        )
+        .unwrap();
+    assert!(up.starts_with("CYPHER 25 MATCH"), "{up}");
+    run(s, &up).await;
+    let out = run(
+        s,
+        &format!("MATCH (n:{LABEL} {{id: 2}}) RETURN n.tag AS tag, valueType(n.emb) AS t"),
+    )
+    .await;
+    assert_eq!(out.results[0].rows[0][0], json!("x"), "{up}");
+    assert!(out.results[0].rows[0][1]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("VECTOR<FLOAT32"));
+
+    // 5. A vector index over VECTOR properties, listed with its settings,
+    // and the 2025 functions.
+    run(
+        s,
+        &format!("CREATE VECTOR INDEX dbine_vec_doc IF NOT EXISTS FOR (n:{LABEL}) ON n.emb OPTIONS {{indexConfig: {{`vector.dimensions`: 3, `vector.similarity_function`: 'cosine'}}}}"),
+    )
+    .await;
+    run(s, "CALL db.awaitIndexes(60)").await;
+    let out = run(
+        s,
+        "CYPHER 25 CALL db.index.vector.queryNodes('dbine_vec_doc', 1, vector([4, 5, 6], 3, FLOAT32)) YIELD node, score RETURN node.id AS id",
+    )
+    .await;
+    assert_eq!(out.results[0].rows[0][0], json!(1));
+    let usage = s.index_usage(&label(LABEL)).await.unwrap().unwrap();
+    let u = usage
+        .indexes
+        .iter()
+        .find(|i| i.name == "dbine_vec_doc")
+        .unwrap_or_else(|| panic!("{:?}", usage.indexes));
+    let v = u.vector.as_ref().expect("vector index");
+    assert_eq!(v.metric.as_deref(), Some("cosine"));
+    assert_eq!(v.params.get("dimensions").map(String::as_str), Some("3"));
+    let out = run(
+        s,
+        &format!("CYPHER 25 MATCH (n:{LABEL} {{id: 2}}) RETURN vector_dimension_count(n.emb) AS d, vector_distance(n.emb, vector([1, 0, 0], 3, FLOAT32), EUCLIDEAN) AS e"),
+    )
+    .await;
+    assert_eq!(out.results[0].rows[0][0], json!(3));
+    assert_eq!(out.results[0].rows[0][1], json!(0.0));
+
+    // 6. A transfer read: the VECTOR column as its text, typed.
+    let sink = Arc::new(Mutex::new(Collect::default()));
+    s.read_batches(
+        &ReadSpec {
+            table: label(LABEL),
+            columns: Some(vec!["id".into(), "emb".into()]),
+            filter: None,
+        },
+        sink.clone(),
+    )
+    .await
+    .unwrap();
+    let got = std::mem::take(&mut *sink.lock().unwrap());
+    let emb = got.columns.iter().position(|c| c.name == "emb").unwrap();
+    eprintln!(
+        "neo4j 2025: read {:?} as {:?}",
+        got.columns.iter().map(|c| &c.type_name).collect::<Vec<_>>(),
+        got.rows
+    );
+    assert!(
+        got.columns[emb].type_name.starts_with("VECTOR<FLOAT32>"),
+        "{:?}",
+        got.columns
+    );
+    let mut texts: Vec<String> = got
+        .rows
+        .iter()
+        .map(|r| match &r[emb] {
+            Cell::Json(t) | Cell::Text(t) => t.clone(),
+            other => format!("{other:?}"),
+        })
+        .collect();
+    texts.sort();
+    assert_eq!(texts, ["[1,0,0]", "[4,5,6]"]);
+    eprintln!(
+        "neo4j 2025 vectors: Bolt 6, VECTOR values, typed scripts, index and transfer checked"
+    );
+}
+
 async fn both_ways(id: &'static str, url: String) {
     let (d, mut s) = open(id, &url).await;
     cleanup(id, &mut s).await;
@@ -436,6 +737,14 @@ async fn scenario(id: &str, d: &dyn Driver, s: &mut Box<dyn Session>) {
         }])
         .unwrap();
     assert_eq!(sync.statements.len(), 2, "{:?}", sync.statements);
+    // The index usage report lists it with the same settings.
+    let usage = s.index_usage(&label(LABEL)).await.unwrap().unwrap();
+    let u = usage
+        .indexes
+        .iter()
+        .find(|i| i.name == "dbine_vec_doc")
+        .unwrap_or_else(|| panic!("{:?}", usage.indexes));
+    assert_eq!(u.vector.as_ref(), Some(got), "{u:?}");
 
     // 6. A similarity query: the index's and the function's.
     let q = if neo {
@@ -476,6 +785,27 @@ async fn scenario(id: &str, d: &dyn Driver, s: &mut Box<dyn Session>) {
     .await;
     assert_eq!(out.results[0].rows[0][0], json!("[0.5,0.25,-1]"));
     assert!(out.results[0].columns[0].vector.is_some());
+    // The same edit knowing the result's types: a float list stays one.
+    let typed = d
+        .update_script_typed(
+            &label(LABEL),
+            &[RowChange {
+                key: vec![("id".into(), json!(2))],
+                set: vec![("emb".into(), json!([0.5, 0.25, -1.5]))],
+                row: Vec::new(),
+            }],
+            &out.results[0].columns,
+        )
+        .unwrap();
+    assert!(typed.contains("n.emb = [0.5, 0.25, -1.5]"), "{typed}");
+    run(s, &typed).await;
+    let out = run(
+        s,
+        &format!("MATCH (n:{LABEL} {{id: 2}}) RETURN n.emb AS emb"),
+    )
+    .await;
+    assert_eq!(out.results[0].rows[0][0], json!("[0.5,0.25,-1.5]"));
+    run(s, &typed.replace("-1.5", "-1")).await;
 
     // 8. Transfer: read as vector text, load into a copy (same engine);
     // then a pgvector-shaped source (text cells with a JSON array).

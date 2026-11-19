@@ -412,6 +412,17 @@ pub fn cell(v: &Json) -> Json {
     }
 }
 
+/// [`type_name`], with a Neo4j 2025 VECTOR (its JSON form) as its own
+/// type: `VECTOR<FLOAT32>(3)`.
+pub fn type_text(v: &Json) -> String {
+    match native_vector_json(v) {
+        Some((c, numbers)) if !c.is_empty() && c.chars().all(|x| x.is_ascii_alphanumeric()) => {
+            format!("VECTOR<{c}>({})", numbers.len())
+        }
+        _ => type_name(v).to_string(),
+    }
+}
+
 /// Type name of a property value as Cypher calls it.
 pub fn type_name(v: &Json) -> &'static str {
     match v {

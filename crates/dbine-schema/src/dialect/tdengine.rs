@@ -279,7 +279,8 @@ impl Dialect for TDengine {
             comments: true,
             max_identifier: 64,
             case: IdentCase::Lower,
-            vector_indexes: true,
+            // No vector indexes: `convert` leaves them out, said.
+            vector_indexes: false,
         }
     }
 

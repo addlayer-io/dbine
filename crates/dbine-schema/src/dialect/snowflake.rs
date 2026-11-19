@@ -374,49 +374,17 @@ impl Dialect for Snowflake {
             comments: true,
             max_identifier: 255,
             case: IdentCase::Upper,
-            vector_indexes: true,
+            // Searches (VECTOR_COSINE_SIMILARITY and the rest) scan the
+            // table: `convert` leaves vector indexes out, said. A float
+            // list searched by an index that states its dimension still
+            // becomes VECTOR(FLOAT, n).
+            vector_indexes: false,
         }
-    }
-
-    /// Snowflake has no vector indexes: the index is kept only until
-    /// `finalize`, which takes a graph index's dimension for its column
-    /// and then drops it, said.
-    fn vector_index(
-        &self,
-        v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
-        let mut params = std::collections::BTreeMap::new();
-        if let Some(d) = v.params.get(DIMENSIONS) {
-            params.insert(DIMENSIONS.to_string(), d.clone());
-        }
-        Ok((
-            Some("VECTOR".into()),
-            dbine_driver::VectorIndex {
-                params,
-                ..Default::default()
-            },
-        ))
     }
 
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         let name = t.name.clone();
-        let mut columns = std::mem::take(&mut t.columns);
         t.indexes.retain(|ix| {
-            if let Some(v) = &ix.vector {
-                vector_dimension(&name, ix, v, &mut columns, report);
-                report.push(
-                    Severity::Dropped,
-                    IssueCode::IndexDropped,
-                    &name,
-                    Some(&ix.name),
-                    format!(
-                        "El índice vectorial «{}» no se crea: Snowflake no tiene índices vectoriales (las búsquedas con VECTOR_COSINE_SIMILARITY y las demás recorren la tabla).",
-                        ix.name
-                    ),
-                );
-                return false;
-            }
             if ix.unique {
                 report.push(
                     Severity::Info,
@@ -436,53 +404,8 @@ impl Dialect for Snowflake {
             }
             ix.unique
         });
-        t.columns = columns;
         not_enforced(t, report, "Snowflake");
     }
-}
-
-/// The dimension a graph engine keeps in its vector index (Neo4j
-/// `vector.dimensions`, Memgraph `dimension`).
-const DIMENSIONS: &str = "dimensions";
-
-/// A float list that arrived as `ARRAY` (a graph property) with a vector
-/// index stating its dimension becomes `VECTOR(FLOAT, n)`.
-fn vector_dimension(
-    table: &str,
-    ix: &dbine_driver::IndexDef,
-    v: &dbine_driver::VectorIndex,
-    columns: &mut [dbine_driver::ColumnDef],
-    report: &mut Report,
-) {
-    let Some(n) = v
-        .params
-        .get(DIMENSIONS)
-        .and_then(|d| d.trim().parse::<u32>().ok())
-        .filter(|n| (1..=MAX_VECTOR_DIMS).contains(n))
-    else {
-        return;
-    };
-    let Some(c) = ix
-        .columns
-        .first()
-        .and_then(|c| columns.iter_mut().find(|x| &x.name == c))
-    else {
-        return;
-    };
-    if !c.data_type.trim().to_ascii_uppercase().starts_with("ARRAY") {
-        return;
-    }
-    c.data_type = format!("VECTOR(FLOAT, {n})");
-    report.push(
-        Severity::Info,
-        IssueCode::TypeChanged,
-        table,
-        Some(&c.name),
-        format!(
-            "La lista de números queda como VECTOR(FLOAT, {n}), con la dimensión del índice vectorial «{}»; VECTOR guarda floats de 32 bits.",
-            ix.name
-        ),
-    );
 }
 
 #[cfg(test)]

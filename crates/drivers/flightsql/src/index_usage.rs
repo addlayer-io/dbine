@@ -7,7 +7,9 @@
 //! - DuckDB behind the server (GizmoSQL): its own catalog functions over
 //!   SQL, like the DuckDB driver: `duckdb_constraints()` (primary key,
 //!   UNIQUE constraints, foreign keys) and `duckdb_indexes()` (the ART
-//!   indexes). DuckDB counts nothing per index.
+//!   indexes, and vss's HNSW vector indexes with their distance and build
+//!   settings as [`IndexUsage::vector`], named as the DuckDB driver names
+//!   them). DuckDB counts nothing per index.
 //! - Any other engine (or DuckDB's functions refused): the key and the
 //!   foreign keys from the Flight SQL commands, where the server answers
 //!   them. Dremio and DataFusion (InfluxDB 3) have no indexes.
@@ -18,7 +20,7 @@
 
 use crate::{cells, text, Engine, FlightSession};
 use arrow_flight::sql::{CommandGetImportedKeys, CommandGetPrimaryKeys};
-use dbine_driver::{ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result};
+use dbine_driver::{ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result, VectorIndex};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -74,7 +76,8 @@ pub(crate) fn index_keys(sql: &str) -> Vec<String> {
     let Some(open) = sql[on..].find('(').map(|i| on + i) else {
         return Vec::new();
     };
-    let Some(close) = sql.rfind(')').filter(|c| *c > open) else {
+    // The key list's own closing parenthesis (a `WITH (…)` may follow).
+    let Some(close) = matching(sql, open) else {
         return Vec::new();
     };
     let (mut out, mut depth, mut cur, mut quoted) = (Vec::new(), 0, String::new(), false);
@@ -102,6 +105,112 @@ pub(crate) fn index_keys(sql: &str) -> Vec<String> {
         })
         .filter(|k| !k.is_empty())
         .collect()
+}
+
+/// The byte where the parenthesis that opens at `open` closes, outside
+/// double and single quotes.
+fn matching(sql: &str, open: usize) -> Option<usize> {
+    let (mut depth, mut quote) = (0i32, None::<char>);
+    for (i, ch) in sql[open..].char_indices() {
+        match (quote, ch) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(ch),
+            (None, '(') => depth += 1,
+            (None, ')') => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(open + i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// A DuckDB vss index (`CREATE INDEX … USING HNSW (v) WITH (metric =
+/// 'cosine', M = 8)`) as its vector settings, in the DuckDB driver's
+/// names: vss's `l2sq` (its default, left unsaid) is `l2`, `M` is `m`,
+/// `ef_construction` keeps its name, the rest (`ef_search`, `m0`) theirs.
+/// `None` for any other index.
+pub(crate) fn hnsw_vector(sql: &str) -> Option<VectorIndex> {
+    use dbine_driver::vector::{metric, param};
+    let upper = sql.to_ascii_uppercase();
+    let using = upper.find("USING HNSW")?;
+    let mut v = VectorIndex {
+        algorithm: Some("hnsw".into()),
+        ..Default::default()
+    };
+    let with = upper[using..].find(" WITH").map(|w| using + w);
+    let open = with.and_then(|w| sql[w..].find('(').map(|o| w + o));
+    let Some((open, close)) = open.and_then(|o| Some((o, matching(sql, o)?))) else {
+        return Some(v);
+    };
+    for item in sql[open + 1..close].split(',') {
+        let Some((k, val)) = item.split_once('=') else {
+            continue;
+        };
+        let k = k.trim().to_ascii_lowercase();
+        let val = val.trim();
+        let val = val
+            .strip_prefix('\'')
+            .and_then(|x| x.strip_suffix('\''))
+            .map_or_else(|| val.to_string(), |x| x.replace("''", "'"));
+        if k == "metric" {
+            let m = val.to_ascii_lowercase();
+            v.metric = Some(match m.as_str() {
+                "l2sq" => metric::L2.to_string(),
+                "cosine" => metric::COSINE.to_string(),
+                "ip" => metric::IP.to_string(),
+                _ => m,
+            });
+        } else {
+            let k = match k.as_str() {
+                "m" => param::M.to_string(),
+                "ef_construction" => param::EF_CONSTRUCTION.to_string(),
+                _ => k,
+            };
+            v.params.insert(k, val);
+        }
+    }
+    Some(v)
+}
+
+/// vss's HNSW indexes of the table with their distance (vss's names).
+pub(crate) fn hnsw_sql(catalog: Option<&str>, schema: &str, table: &str) -> String {
+    let mut filter = format!(
+        "schema_name = {} AND table_name = {}",
+        lit(schema),
+        lit(table)
+    );
+    if let Some(c) = catalog.filter(|c| !c.is_empty()) {
+        filter.push_str(&format!(" AND catalog_name = {}", lit(c)));
+    }
+    format!("SELECT index_name, metric FROM pragma_hnsw_index_info() WHERE {filter}")
+}
+
+/// The distance of each HNSW index from `hnsw_sql`'s rows, where its sql
+/// didn't say it (vss's `l2sq` is `l2`).
+pub(crate) fn hnsw_metrics(indexes: &mut [IndexUsage], rows: &[Row]) {
+    for r in rows {
+        let name = get(r, "index_name");
+        let m = get(r, "metric").to_ascii_lowercase();
+        let Some(v) = indexes
+            .iter_mut()
+            .filter(|i| i.name == name)
+            .find_map(|i| i.vector.as_mut())
+        else {
+            continue;
+        };
+        if v.metric.is_none() && !m.is_empty() {
+            v.metric = Some(if m == "l2sq" {
+                dbine_driver::vector::metric::L2.to_string()
+            } else {
+                m
+            });
+        }
+    }
 }
 
 /// The report from DuckDB's constraint and index rows.
@@ -141,11 +250,14 @@ pub(crate) fn from_duckdb(schema: &str, constraints: &[Row], indexes: &[Row]) ->
     for r in indexes {
         let unique =
             matches!(r.get("is_unique"), Some(Value::Bool(true))) || get(r, "is_unique") == "true";
+        let sql = get(r, "sql");
+        let vector = hnsw_vector(&sql);
         out.push(IndexUsage {
             name: get(r, "index_name"),
-            kind: "ART".into(),
+            kind: if vector.is_some() { "HNSW" } else { "ART" }.into(),
             unique,
-            key_columns: index_keys(&get(r, "sql")),
+            key_columns: index_keys(&sql),
+            vector,
             ..Default::default()
         });
     }
@@ -268,7 +380,19 @@ impl FlightSession {
             let schema = table.schema().unwrap_or("main");
             let (constraints, indexes) = duckdb_sql(self.catalog.as_deref(), schema, &table.name);
             if let (Ok(c), Ok(i)) = (self.maps(&constraints).await, self.maps(&indexes).await) {
-                return Ok(from_duckdb(schema, &c, &i));
+                let mut r = from_duckdb(schema, &c, &i);
+                if r.indexes.iter().any(|i| i.vector.is_some()) {
+                    // DuckDB 1.5 keeps no WITH (…) in an HNSW index's sql:
+                    // the distance comes from vss's own catalog.
+                    match self
+                        .maps(&hnsw_sql(self.catalog.as_deref(), schema, &table.name))
+                        .await
+                    {
+                        Ok(rows) => hnsw_metrics(&mut r.indexes, &rows),
+                        Err(e) => tracing::debug!("flightsql: hnsw_index_info not read: {e}"),
+                    }
+                }
+                return Ok(r);
             }
         }
         let (catalog, db_schema, name) = (
@@ -380,6 +504,77 @@ mod tests {
             ),
             (vec!["p_id".to_string()], "p")
         );
+    }
+
+    #[test]
+    fn hnsw_indexes_are_vector_indexes() {
+        let sql = "CREATE INDEX t_hnsw ON t USING HNSW (v) WITH (M0 = 16, metric = 'cosine', M = 8, ef_construction = 64, ef_search = 32 );";
+        assert_eq!(index_keys(sql), ["v"]);
+        let v = hnsw_vector(sql).unwrap();
+        assert_eq!(
+            (v.algorithm.as_deref(), v.metric.as_deref()),
+            (Some("hnsw"), Some("cosine"))
+        );
+        let p = |k: &str| v.params.get(k).map(String::as_str);
+        assert_eq!(
+            (p("m"), p("ef_construction"), p("ef_search"), p("m0")),
+            (Some("8"), Some("64"), Some("32"), Some("16"))
+        );
+        // vss's default distance is left unsaid; l2sq is l2.
+        let bare = hnsw_vector("CREATE INDEX t_l2 ON t USING HNSW (v);").unwrap();
+        assert!(bare.metric.is_none() && bare.params.is_empty());
+        assert_eq!(
+            hnsw_vector("CREATE INDEX i ON \"t\" USING HNSW (\"v\") WITH (metric = 'l2sq')")
+                .unwrap()
+                .metric
+                .as_deref(),
+            Some("l2")
+        );
+        assert!(hnsw_vector("CREATE INDEX ix_a ON t(a);").is_none());
+        let r = from_duckdb(
+            "main",
+            &[],
+            &[row(&[
+                ("index_name", json!("t_hnsw")),
+                ("is_unique", json!(false)),
+                ("sql", json!(sql)),
+            ])],
+        );
+        assert_eq!(r.indexes[0].kind, "HNSW");
+        assert_eq!(r.indexes[0].key_columns, ["v"]);
+        assert_eq!(r.indexes[0].vector, Some(v));
+        // DuckDB 1.5 keeps `CREATE INDEX … USING HNSW (v);` without its
+        // WITH: the distance comes from pragma_hnsw_index_info().
+        assert!(hnsw_sql(Some("db"), "main", "t").contains(
+            "FROM pragma_hnsw_index_info() WHERE schema_name = 'main' AND table_name = 't' AND catalog_name = 'db'"
+        ));
+        let mut r = from_duckdb(
+            "main",
+            &[],
+            &[
+                row(&[
+                    ("index_name", json!("a")),
+                    ("sql", json!("CREATE INDEX a ON t USING HNSW (v);")),
+                ]),
+                row(&[
+                    ("index_name", json!("b")),
+                    ("sql", json!("CREATE INDEX b ON t USING HNSW (v);")),
+                ]),
+            ],
+        );
+        hnsw_metrics(
+            &mut r.indexes,
+            &[
+                row(&[("index_name", json!("a")), ("metric", json!("cosine"))]),
+                row(&[("index_name", json!("b")), ("metric", json!("l2sq"))]),
+            ],
+        );
+        let m: Vec<_> = r
+            .indexes
+            .iter()
+            .map(|i| i.vector.as_ref().unwrap().metric.clone())
+            .collect();
+        assert_eq!(m, [Some("cosine".to_string()), Some("l2".to_string())]);
     }
 
     #[test]

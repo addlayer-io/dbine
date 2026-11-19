@@ -18,10 +18,15 @@
 //!   listed without counters and the note names the privilege.
 //! - Memgraph: `SHOW INDEX INFO` and `SHOW CONSTRAINT INFO` (the unique
 //!   constraints) give the indexes, with no usage counters.
+//! - A vector index carries its settings ([`IndexUsage::vector`]) as the
+//!   schema reads them: Neo4j's from its `indexConfig`, Memgraph's from
+//!   `SHOW VECTOR INDEX INFO`.
 //! - Neptune: no user-defined indexes (`supports_index_usage` is false).
 //! - Graphs have no foreign keys: relationships are the links.
 
-use crate::{as_text, strs, CatalogEntry, Flavor, GraphSession, CONSTRAINT, LABEL, RELATIONSHIP};
+use crate::{
+    as_text, ddl, strs, CatalogEntry, Flavor, GraphSession, CONSTRAINT, LABEL, RELATIONSHIP,
+};
 use dbine_driver::{kinds, IndexUsage, IndexUsageReport, ObjectRef, Result};
 use serde_json::{Map, Value};
 
@@ -96,6 +101,8 @@ pub(crate) fn neo4j_report(
                 }
             }
         }
+        let vector = (kind == "VECTOR")
+            .then(|| ddl::vector_of(Flavor::Neo4j, &crate::neo4j_options("VECTOR", r)));
         out.push(IndexUsage {
             name: owner.unwrap_or_else(|| r.get("name").map(as_text).unwrap_or_default()),
             kind,
@@ -104,6 +111,7 @@ pub(crate) fn neo4j_report(
             key_columns: strs(r.get("properties")),
             seeks: reads.unwrap_or(0),
             last_read: stamp(r.get("lastRead")),
+            vector,
             ..Default::default()
         });
     }
@@ -181,6 +189,7 @@ pub(crate) fn memgraph_report(
             kind: e.spec_kind.clone(),
             unique: e.spec_kind == "UNIQUE",
             key_columns: e.properties.clone(),
+            vector: e.index_def().and_then(|d| d.vector),
             ..Default::default()
         })
         .collect();
@@ -323,6 +332,40 @@ mod tests {
                 .len(),
             5
         );
+    }
+
+    #[test]
+    fn vector_indexes_carry_their_settings() {
+        let ix = vec![
+            row(
+                json!({"name": "doc_emb", "type": "VECTOR", "entityType": "NODE", "labelsOrTypes": ["Doc"], "properties": ["emb"], "owningConstraint": null, "readCount": 2, "trackedSince": "2024-01-01T00:00:00Z",
+                    "options": {"indexProvider": "vector-2.0", "indexConfig": {"vector.dimensions": 3, "vector.similarity_function": "COSINE", "vector.hnsw.m": 32}}}),
+            ),
+            row(
+                json!({"name": "ix_t", "type": "RANGE", "entityType": "NODE", "labelsOrTypes": ["Doc"], "properties": ["t"], "readCount": 0, "trackedSince": "2024-01-01T00:00:00Z"}),
+            ),
+        ];
+        let r = neo4j_report("Doc", Some(false), &ix, &[]);
+        let v = r.indexes[0].vector.as_ref().expect("vector index");
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        assert_eq!(v.params.get("dimensions").map(String::as_str), Some("3"));
+        assert_eq!(v.params.get("m").map(String::as_str), Some("32"));
+        assert!(r.indexes[1].vector.is_none());
+        // The same settings the schema's IndexDef gets.
+        let entry = CatalogEntry::neo4j(dbine_driver::kinds::INDEX, &ix[0]);
+        assert_eq!(entry.index_def().unwrap().vector.as_ref(), Some(v));
+
+        let mg = CatalogEntry::memgraph_vector(
+            json!({"index_name": "doc_emb", "label": ":Doc", "property": "emb", "dimension": 3, "capacity": 100, "metric": "cos", "scalar_kind": "f32", "index_type": "label+property_vector"})
+                .as_object()
+                .unwrap(),
+        );
+        let def = mg.index_def().unwrap();
+        let r = memgraph_report("Doc", Some(false), &[mg]);
+        let v = r.indexes[0].vector.as_ref().expect("vector index");
+        assert_eq!(Some(v), def.vector.as_ref());
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        assert_eq!(v.params.get("dimensions").map(String::as_str), Some("3"));
     }
 
     #[test]

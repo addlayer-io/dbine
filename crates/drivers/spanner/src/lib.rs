@@ -348,12 +348,32 @@ impl Driver for SpannerDriver {
         Ok(insert_script(target, columns, rows))
     }
 
+    /// A FLOAT64 vector column's values as `ARRAY<FLOAT64>[…]`: neither
+    /// array type coerces to the other.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<Json>],
+    ) -> Result<String> {
+        Ok(insert_script_typed(target, columns, rows))
+    }
+
     fn update_script(
         &self,
         target: &ObjectRef,
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
         update_script(target, changes)
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        update_script_typed(target, changes, types)
     }
 
     fn delete_script(
@@ -849,15 +869,15 @@ pub(crate) fn vector_text(v: &Json, element: VectorElement) -> Option<String> {
     })
 }
 
-/// A vector of an edit or insert as a GoogleSQL literal. The element type
-/// has to be written: an untyped `[1, 2]` is ARRAY<INT64>, and even
-/// `[1.0, 2.0]` (ARRAY<FLOAT64>) is refused by a FLOAT32 column, as
-/// `ARRAY<FLOAT32>[…]` is by a FLOAT64 one (no array coercion either way;
-/// checked on the emulator). Scripts don't receive the column's type, so
-/// this writes FLOAT32, the type of Spanner's vector index examples; a
-/// FLOAT64 vector column needs `ARRAY<FLOAT64>` written by hand (a
-/// contract request).
-fn vector_literal(v: &[f64]) -> String {
+/// A vector of an edit or insert as a GoogleSQL literal of `float`
+/// elements (`FLOAT32` / `FLOAT64`). The element type has to be written:
+/// an untyped `[1, 2]` is ARRAY<INT64>, and even `[1.0, 2.0]`
+/// (ARRAY<FLOAT64>) is refused by a FLOAT32 column, as `ARRAY<FLOAT32>[…]`
+/// is by a FLOAT64 one (no array coercion either way; checked on the
+/// emulator). The typed scripts take it from the column
+/// ([`vector_float`]); without types it's FLOAT32, the type of Spanner's
+/// vector index examples.
+fn vector_literal(v: &[f64], float: &str) -> String {
     let items: Vec<String> = v
         .iter()
         .map(|x| {
@@ -870,7 +890,31 @@ fn vector_literal(v: &[f64]) -> String {
             }
         })
         .collect();
-    format!("ARRAY<FLOAT32>[{}]", items.join(", "))
+    format!("ARRAY<{float}>[{}]", items.join(", "))
+}
+
+/// The float type a column's vectors are written with: FLOAT64 when its
+/// type (`ARRAY<FLOAT64>(vector_length=>3)` from a describe,
+/// `ARRAY<FLOAT64>` from a result) or its vector meta says so, FLOAT32
+/// otherwise (also for a column the caller didn't type).
+fn vector_float(c: Option<&ResultColumn>) -> &'static str {
+    let Some(c) = c else { return "FLOAT32" };
+    let t: String = c
+        .type_name
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_ascii_uppercase();
+    if t.starts_with("ARRAY<FLOAT64>") {
+        return "FLOAT64";
+    }
+    if t.starts_with("ARRAY<FLOAT32>") {
+        return "FLOAT32";
+    }
+    match c.vector.as_ref().map(|v| v.element) {
+        Some(VectorElement::F64) => "FLOAT64",
+        _ => "FLOAT32",
+    }
 }
 /// Table options: `INTERLEAVE IN PARENT <parent> [ON DELETE CASCADE]`.
 const OPT_PARENT: &str = "interleave_in_parent";
@@ -1025,6 +1069,11 @@ fn lit(s: &str) -> String {
 }
 
 fn literal(v: &Json) -> String {
+    literal_as(v, "FLOAT32")
+}
+
+/// [`literal`] writing a vector with `float` elements ([`vector_float`]).
+fn literal_as(v: &Json, float: &str) -> String {
     match v {
         Json::Null => "NULL".into(),
         Json::Bool(b) => if *b { "TRUE" } else { "FALSE" }.into(),
@@ -1032,7 +1081,7 @@ fn literal(v: &Json) -> String {
         Json::String(s) => lit(s),
         // A vector (`vector::rows_for_scripts`).
         Json::Array(_) => match dbine_driver::vector::parse_value(v) {
-            Some(nums) => vector_literal(&nums),
+            Some(nums) => vector_literal(&nums, float),
             None => lit(&v.to_string()),
         },
         other => lit(&other.to_string()),
@@ -1041,16 +1090,35 @@ fn literal(v: &Json) -> String {
 
 /// Multi-row `INSERT … VALUES`, 100 rows per statement.
 fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Json>]) -> String {
+    let columns: Vec<ResultColumn> = columns.iter().map(|c| ResultColumn::new(c, "")).collect();
+    insert_script_typed(target, &columns, rows)
+}
+
+/// [`insert_script`] with each cell's vector written in its column's
+/// float type.
+fn insert_script_typed(target: &ObjectRef, columns: &[ResultColumn], rows: &[Vec<Json>]) -> String {
     let head = format!(
         "INSERT INTO {} ({}) VALUES",
         bq_qualified(target.schema(), &target.name),
-        columns.iter().map(|c| bq(c)).collect::<Vec<_>>().join(", ")
+        columns
+            .iter()
+            .map(|c| bq(&c.name))
+            .collect::<Vec<_>>()
+            .join(", ")
     );
+    let floats: Vec<&str> = columns.iter().map(|c| vector_float(Some(c))).collect();
     rows.chunks(100)
         .map(|chunk| {
             let tuples: Vec<String> = chunk
                 .iter()
-                .map(|r| format!("({})", r.iter().map(literal).collect::<Vec<_>>().join(", ")))
+                .map(|r| {
+                    let cells: Vec<String> = r
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| literal_as(v, floats.get(i).copied().unwrap_or("FLOAT32")))
+                        .collect();
+                    format!("({})", cells.join(", "))
+                })
                 .collect();
             format!("{head}\n  {};", tuples.join(",\n  "))
         })
@@ -1061,6 +1129,16 @@ fn insert_script(target: &ObjectRef, columns: &[String], rows: &[Vec<Json>]) -> 
 /// `UPDATE … WHERE <key>` per changed row, with GoogleSQL literals.
 /// Spanner rejects an UPDATE without WHERE, so every change needs a key.
 fn update_script(target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Result<String> {
+    update_script_typed(target, changes, &[])
+}
+
+/// [`update_script`] writing each vector in its column's float type
+/// (`types` by name; an untyped column gets FLOAT32).
+fn update_script_typed(
+    target: &ObjectRef,
+    changes: &[dbine_driver::RowChange],
+    types: &[ResultColumn],
+) -> Result<String> {
     if changes
         .iter()
         .any(|c| !c.set.is_empty() && c.key.is_empty())
@@ -1069,13 +1147,37 @@ fn update_script(target: &ObjectRef, changes: &[dbine_driver::RowChange]) -> Res
             "Cloud Spanner exige un WHERE: la fila necesita su clave primaria".into(),
         ));
     }
-    Ok(dbine_driver::ddl::update_script_with(
-        Quote::Backtick,
-        target.schema(),
-        &target.name,
-        changes,
-        &literal,
-    ))
+    let name = bq_qualified(target.schema(), &target.name);
+    let lit =
+        |col: &str, v: &Json| literal_as(v, vector_float(types.iter().find(|c| c.name == col)));
+    Ok(changes
+        .iter()
+        .filter(|c| !c.set.is_empty())
+        .map(|c| {
+            let set: Vec<String> = c
+                .set
+                .iter()
+                .map(|(k, v)| format!("{} = {}", bq(k), lit(k, v)))
+                .collect();
+            let wh: Vec<String> = c
+                .key
+                .iter()
+                .map(|(k, v)| {
+                    if v.is_null() {
+                        format!("{} IS NULL", bq(k))
+                    } else {
+                        format!("{} = {}", bq(k), lit(k, v))
+                    }
+                })
+                .collect();
+            format!(
+                "UPDATE {name} SET {} WHERE {};",
+                set.join(", "),
+                wh.join(" AND ")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n"))
 }
 
 /// `DELETE … WHERE <key>` per row key, with GoogleSQL literals. A key
@@ -2147,6 +2249,75 @@ mod tests {
         let v = spec.vector_indexes.unwrap();
         assert_eq!(v.metrics, ["cosine", "l2", "ip"]);
         assert!(v.filter_columns);
+    }
+
+    #[test]
+    fn typed_scripts_write_each_column_s_float_type() {
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "v".into(),
+        };
+        let d = SpannerDriver { info: info() };
+        // A describe's type, a result's type and a vector meta alone.
+        let cols = [
+            ResultColumn::new("id", "INT64"),
+            ResultColumn::new("e64", "ARRAY<FLOAT64>(vector_length=>2)"),
+            ResultColumn::new("e32", "ARRAY<FLOAT32>(vector_length=>2)"),
+            ResultColumn::new("r64", "ARRAY<FLOAT64>")
+                .with_vector(VectorMeta::dense(None, VectorElement::F64)),
+            ResultColumn::new("m64", "").with_vector(VectorMeta::dense(None, VectorElement::F64)),
+            ResultColumn::new("x", ""),
+        ];
+        let v = json!([1.5, -2]);
+        let s = d
+            .insert_script_typed(
+                &t,
+                &cols,
+                &[vec![
+                    json!(1),
+                    v.clone(),
+                    v.clone(),
+                    v.clone(),
+                    v.clone(),
+                    v.clone(),
+                ]],
+            )
+            .unwrap();
+        assert_eq!(
+            s,
+            "INSERT INTO `v` (`id`, `e64`, `e32`, `r64`, `m64`, `x`) VALUES\n  (1, ARRAY<FLOAT64>[1.5, -2], ARRAY<FLOAT32>[1.5, -2], ARRAY<FLOAT64>[1.5, -2], ARRAY<FLOAT64>[1.5, -2], ARRAY<FLOAT32>[1.5, -2]);"
+        );
+        let change = dbine_driver::RowChange {
+            key: vec![("id".into(), json!(1))],
+            set: vec![("e64".into(), v.clone()), ("e32".into(), v.clone())],
+            row: Vec::new(),
+        };
+        let up = d
+            .update_script_typed(&t, std::slice::from_ref(&change), &cols)
+            .unwrap();
+        assert_eq!(
+            up,
+            "UPDATE `v` SET `e64` = ARRAY<FLOAT64>[1.5, -2], `e32` = ARRAY<FLOAT32>[1.5, -2] WHERE `id` = 1;"
+        );
+        // Without types: FLOAT32, as before, and the same text as the
+        // shared writer gave.
+        assert_eq!(
+            d.update_script(&t, std::slice::from_ref(&change)).unwrap(),
+            "UPDATE `v` SET `e64` = ARRAY<FLOAT32>[1.5, -2], `e32` = ARRAY<FLOAT32>[1.5, -2] WHERE `id` = 1;"
+        );
+        let names: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
+        assert!(d
+            .insert_script(&t, &names, &[vec![json!(1), v.clone()]])
+            .unwrap()
+            .contains("(1, ARRAY<FLOAT32>[1.5, -2])"));
+        // A row without a key is still refused.
+        let keyless = dbine_driver::RowChange {
+            key: Vec::new(),
+            set: vec![("e64".into(), v)],
+            row: Vec::new(),
+        };
+        assert!(d.update_script_typed(&t, &[keyless], &cols).is_err());
     }
 
     #[test]

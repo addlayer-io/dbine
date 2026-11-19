@@ -347,14 +347,26 @@ impl Dialect for Spanner {
 
     /// COSINE, EUCLIDEAN or DOT_PRODUCT (the distance is required). An
     /// IVF index's lists are the tree's leaves (`num_leaves`); HNSW's
-    /// settings have no counterpart. A graph index's `dimensions` stays
-    /// for `finalize`, which sets the column's `vector_length` from it.
+    /// settings have no counterpart. Spanner indexes only a dense vector
+    /// column with `vector_length`, so a searched vector without a known
+    /// dimension (`convert` gives a graph list the one its index states)
+    /// keeps its column but not the index.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
+        match column {
+            Some(L::Vector { sparse: true, .. }) => {
+                return Err("Spanner no tiene vectores dispersos".into())
+            }
+            Some(L::Vector { dims: None, .. }) => return Err(
+                "Spanner lo hace solo sobre un ARRAY<FLOAT32> o ARRAY<FLOAT64> con vector_length, y el vector de origen no declara su dimensión; fijala y crealo a mano"
+                    .into(),
+            ),
+            _ => {}
+        }
         let metric = match v.metric.as_deref() {
             Some(m @ (metric::COSINE | metric::L2 | metric::IP)) => m.to_string(),
             Some(m) => {
@@ -370,7 +382,7 @@ impl Dialect for Spanner {
         let params = v
             .params
             .iter()
-            .filter(|(k, _)| k.as_str() == param::LISTS || k.as_str() == DIMENSIONS)
+            .filter(|(k, _)| k.as_str() == param::LISTS)
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         Ok((
@@ -386,7 +398,6 @@ impl Dialect for Spanner {
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         use IssueCode::*;
         use Severity::*;
-        vector_columns(t, report);
         for c in t.columns.iter_mut().filter(|c| c.auto_increment) {
             if c.data_type != "INT64" {
                 report.push(
@@ -440,84 +451,6 @@ impl Dialect for Spanner {
             );
         }
     }
-}
-
-/// The dimension a graph engine keeps in its vector index (Neo4j
-/// `vector.dimensions`, Memgraph `dimension`), not in the property.
-const DIMENSIONS: &str = "dimensions";
-
-/// Spanner makes a vector index only on an `ARRAY<FLOAT32|FLOAT64>` column
-/// with `vector_length`. A column that arrives without it takes the
-/// dimension the source index states (graph engines keep it there); when
-/// nothing states it, the index is left out and said, rather than written
-/// as a `CREATE VECTOR INDEX` that fails.
-fn vector_columns(t: &mut TableSchema, report: &mut Report) {
-    let name = t.name.clone();
-    let mut keep = Vec::with_capacity(t.indexes.len());
-    for mut ix in std::mem::take(&mut t.indexes) {
-        let vector = ix.vector.is_some()
-            || ix
-                .kind
-                .as_deref()
-                .is_some_and(|k| k.eq_ignore_ascii_case("vector"));
-        if !vector {
-            keep.push(ix);
-            continue;
-        }
-        let dims = ix
-            .vector
-            .as_mut()
-            .and_then(|v| v.params.remove(DIMENSIONS))
-            .and_then(|d| d.trim().parse::<u32>().ok())
-            .filter(|d| *d > 0);
-        let Some(col) = ix
-            .columns
-            .first()
-            .and_then(|c| t.columns.iter_mut().find(|x| &x.name == c))
-        else {
-            keep.push(ix);
-            continue;
-        };
-        if vector_length(&col.data_type).is_some() {
-            keep.push(ix);
-            continue;
-        }
-        let floats = generic(&col.data_type).is_some_and(|(h, a)| {
-            h == "array"
-                && a.len() == 1
-                && matches!(
-                    a[0].trim().to_ascii_uppercase().as_str(),
-                    "FLOAT32" | "FLOAT64"
-                )
-        });
-        match dims {
-            Some(n) if floats => {
-                col.data_type = format!("{}(vector_length=>{n})", col.data_type.trim());
-                report.push(
-                    Severity::Info,
-                    IssueCode::TypeChanged,
-                    &name,
-                    Some(&col.name),
-                    format!(
-                        "La columna toma la dimensión del índice vectorial «{}» (vector_length=>{n}): Spanner la necesita para crearlo.",
-                        ix.name
-                    ),
-                );
-                keep.push(ix);
-            }
-            _ => report.push(
-                Severity::Dropped,
-                IssueCode::IndexDropped,
-                &name,
-                Some(&ix.name),
-                format!(
-                    "El índice vectorial «{}» no se crea: Spanner lo hace solo sobre un ARRAY<FLOAT32> o ARRAY<FLOAT64> con vector_length, y «{}» queda {} sin dimensión conocida. Fijá la dimensión y crealo a mano.",
-                    ix.name, col.name, col.data_type
-                ),
-            ),
-        }
-    }
-    t.indexes = keep;
 }
 
 #[cfg(test)]
@@ -794,6 +727,26 @@ mod tests {
             .vector_index(&v(None, Some("l1"), &[]), None)
             .is_err());
         assert!(Spanner.vector_index(&v(None, None, &[]), None).is_err());
+        // The searched column: a vector of known dimension takes the index;
+        // one without a dimension, or a sparse one, doesn't.
+        let col = |dims, sparse| L::Vector {
+            dims,
+            element: dbine_driver::VectorElement::F32,
+            sparse,
+        };
+        let ok = v(None, Some("cosine"), &[("dimensions", "3")]);
+        let (_, got) = Spanner
+            .vector_index(&ok, Some(&col(Some(3), false)))
+            .unwrap();
+        assert_eq!(got, v(None, Some("cosine"), &[]));
+        assert!(Spanner
+            .vector_index(&ok, Some(&col(None, false)))
+            .unwrap_err()
+            .contains("vector_length"));
+        assert!(Spanner
+            .vector_index(&ok, Some(&col(Some(3), true)))
+            .unwrap_err()
+            .contains("dispersos"));
     }
 
     #[test]

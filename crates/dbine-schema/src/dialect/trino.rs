@@ -291,7 +291,8 @@ impl Dialect for Trino {
             comments: true,
             max_identifier: 128,
             case: IdentCase::Lower,
-            vector_indexes: true,
+            // No vector indexes: `convert` leaves them out, said.
+            vector_indexes: false,
         }
     }
 

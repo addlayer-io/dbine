@@ -11,12 +11,14 @@
 //! own in Cypher (they exist while a node has them): their part of the
 //! script is their indexes and constraints.
 
-use crate::cypher::{comment_text, ident, property, string};
+use crate::cypher::{
+    comment_text, ident, property, property_typed, string, versioned, writes_vector,
+};
 use crate::{Flavor, LABEL, RELATIONSHIP};
 use dbine_driver::vector::{metric, param};
 use dbine_driver::{
     kinds, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, IndexDef, ObjectRef,
-    Result, RowChange, TableSchema, VectorIndex, VectorIndexSpec, VectorParamSpec,
+    Result, ResultColumn, RowChange, TableSchema, VectorIndex, VectorIndexSpec, VectorParamSpec,
 };
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -909,9 +911,17 @@ fn entity(cell: &Value) -> Option<serde_json::Map<String, Value>> {
 }
 
 fn prop_map(props: impl Iterator<Item = (String, Value)>) -> String {
+    typed_prop_map(props.map(|(k, v)| (k, v, None)))
+}
+
+/// [`prop_map`] with each property written for its column's type
+/// ([`property_typed`]).
+fn typed_prop_map<'a>(
+    props: impl Iterator<Item = (String, Value, Option<&'a ResultColumn>)>,
+) -> String {
     let body: Vec<String> = props
-        .filter(|(_, v)| !v.is_null())
-        .map(|(k, v)| format!("{}: {}", ident(&k), property(&v)))
+        .filter(|(_, v, _)| !v.is_null())
+        .map(|(k, v, c)| format!("{}: {}", ident(&k), property_typed(&v, c)))
         .collect();
     if body.is_empty() {
         String::new()
@@ -945,6 +955,18 @@ pub fn insert_script(
     columns: &[String],
     rows: &[Vec<Value>],
 ) -> Result<String> {
+    let columns: Vec<ResultColumn> = columns.iter().map(|c| ResultColumn::new(c, "")).collect();
+    insert_script_typed(f, target, &columns, rows)
+}
+
+/// [`insert_script`] knowing the columns' types: a vector into a Neo4j
+/// 2025 `VECTOR<…>(n)` column is written as a `vector(…)`.
+pub fn insert_script_typed(
+    f: Flavor,
+    target: &ObjectRef,
+    columns: &[ResultColumn],
+    rows: &[Vec<Value>],
+) -> Result<String> {
     let mut out = String::new();
     for row in rows {
         let ent = if row.len() == 1 {
@@ -966,6 +988,17 @@ pub fn insert_script(
                     )
                 })
                 .unwrap_or_default()
+        };
+        // A VECTOR value (`vector(…)`) needs Cypher 25.
+        let vectors = match &ent {
+            Some(e) => e
+                .get("~properties")
+                .and_then(Value::as_object)
+                .is_some_and(|p| p.values().any(|v| writes_vector(v, None))),
+            None => columns
+                .iter()
+                .zip(row)
+                .any(|(c, v)| writes_vector(v, Some(c))),
         };
         let stmt = match ent {
             Some(e) if e.get("~entityType").and_then(Value::as_str) == Some("node") => {
@@ -1005,11 +1038,16 @@ pub fn insert_script(
                         "para copiar relaciones hace falta la relación completa (MATCH ()-[r]->() RETURN r), con sus nodos".into(),
                     ));
                 }
-                let props = prop_map(columns.iter().cloned().zip(row.iter().cloned()));
+                let props = typed_prop_map(
+                    columns
+                        .iter()
+                        .zip(row.iter().cloned())
+                        .map(|(c, v)| (c.name.clone(), v, Some(c))),
+                );
                 format!("CREATE (:{}{props});", ident(&target.name))
             }
         };
-        out.push_str(&stmt);
+        out.push_str(&versioned(stmt, vectors));
         out.push('\n');
     }
     Ok(out)
@@ -1021,6 +1059,17 @@ pub fn insert_script(
 /// match on the key properties (`IS NULL` for a null one) and set each
 /// edited property (`= null` removes it).
 pub fn update_script(f: Flavor, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
+    update_script_typed(f, target, changes, &[])
+}
+
+/// [`update_script`] knowing the columns' types (by name): a vector set
+/// into a Neo4j 2025 `VECTOR<…>(n)` property is written as a `vector(…)`.
+pub fn update_script_typed(
+    f: Flavor,
+    target: &ObjectRef,
+    changes: &[RowChange],
+    types: &[ResultColumn],
+) -> Result<String> {
     let rel = target.kind == RELATIONSHIP;
     let var = if rel { "r" } else { "n" };
     let pattern = match target.kind.as_str() {
@@ -1034,6 +1083,7 @@ pub fn update_script(f: Flavor, target: &ObjectRef, changes: &[RowChange]) -> Re
             [(_, v)] => entity(v),
             _ => None,
         };
+        let vectors;
         let stmt = if let Some(e) = whole {
             let id = e
                 .get("~id")
@@ -1048,6 +1098,7 @@ pub fn update_script(f: Flavor, target: &ObjectRef, changes: &[RowChange]) -> Re
                 .ok_or_else(|| {
                     Error::Unsupported("el valor editado no es un nodo o relación en JSON".into())
                 })?;
+            vectors = props.values().any(|v| writes_vector(v, None));
             let body: Vec<String> = props
                 .into_iter()
                 .collect::<std::collections::BTreeMap<_, _>>()
@@ -1082,10 +1133,13 @@ pub fn update_script(f: Flavor, target: &ObjectRef, changes: &[RowChange]) -> Re
                     }
                 })
                 .collect();
+            let typed = |k: &str| types.iter().find(|c| c.name == k);
+            vectors = ch.key.iter().any(|(_, v)| writes_vector(v, None))
+                || ch.set.iter().any(|(k, v)| writes_vector(v, typed(k)));
             let sets: Vec<String> = ch
                 .set
                 .iter()
-                .map(|(k, v)| format!("{var}.{} = {}", ident(k), property(v)))
+                .map(|(k, v)| format!("{var}.{} = {}", ident(k), property_typed(v, typed(k))))
                 .collect();
             format!(
                 "MATCH {pattern} WHERE {}\nSET {};",
@@ -1093,7 +1147,7 @@ pub fn update_script(f: Flavor, target: &ObjectRef, changes: &[RowChange]) -> Re
                 sets.join(", ")
             )
         };
-        out.push_str(&stmt);
+        out.push_str(&versioned(stmt, vectors));
         out.push('\n');
     }
     Ok(out)
@@ -1302,7 +1356,10 @@ pub fn delete_script(
                 })
                 .collect();
             let del = if rel { "DELETE r" } else { "DETACH DELETE n" };
-            format!("MATCH {pattern} WHERE {}\n{del};", conds.join(" AND "))
+            versioned(
+                format!("MATCH {pattern} WHERE {}\n{del};", conds.join(" AND ")),
+                key.iter().any(|(_, v)| writes_vector(v, None)),
+            )
         };
         out.push_str(&stmt);
         out.push('\n');
@@ -1315,6 +1372,68 @@ mod tests {
     use super::*;
     use dbine_driver::ColumnDef;
     use serde_json::json;
+
+    #[test]
+    fn typed_scripts_keep_native_vectors() {
+        let t = ObjectRef {
+            kind: LABEL.into(),
+            schema: None,
+            name: "Doc".into(),
+        };
+        let cols = [
+            ResultColumn::new("id", "INTEGER"),
+            ResultColumn::new("e", "VECTOR<FLOAT32>(2)"),
+            ResultColumn::new("l", "LIST<FLOAT>"),
+        ];
+        let row = vec![json!(1), json!([0.5, 1]), json!([0.5, 1])];
+        assert_eq!(
+            insert_script_typed(Flavor::Neo4j, &t, &cols, std::slice::from_ref(&row)).unwrap(),
+            "CYPHER 25 CREATE (:Doc {id: 1, e: vector([0.5, 1], 2, FLOAT32), l: [0.5, 1]});\n"
+        );
+        let names: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
+        assert_eq!(
+            insert_script(Flavor::Neo4j, &t, &names, &[row]).unwrap(),
+            "CREATE (:Doc {id: 1, e: [0.5, 1], l: [0.5, 1]});\n"
+        );
+        let change = RowChange {
+            key: vec![("id".into(), json!(1))],
+            set: vec![("e".into(), json!([2, -1])), ("l".into(), json!([2, -1]))],
+            row: Vec::new(),
+        };
+        assert_eq!(
+            update_script_typed(Flavor::Neo4j, &t, std::slice::from_ref(&change), &cols).unwrap(),
+            "CYPHER 25 MATCH (n:Doc) WHERE n.id = 1\nSET n.e = vector([2, -1], 2, FLOAT32), n.l = [2, -1];\n"
+        );
+        assert_eq!(
+            update_script(Flavor::Neo4j, &t, &[change]).unwrap(),
+            "MATCH (n:Doc) WHERE n.id = 1\nSET n.e = [2, -1], n.l = [2, -1];\n"
+        );
+        // A whole node edited as JSON with a VECTOR property, too.
+        let node = |e: Value| {
+            json!({"~entityType": "node", "~id": "4:a:1", "~labels": ["Doc"], "~properties": {"e": e}})
+                .to_string()
+        };
+        let v = json!({"~vector": [1, 2], "~coordinateType": "FLOAT32"});
+        let whole = update_script(
+            Flavor::Neo4j,
+            &t,
+            &[RowChange {
+                key: vec![("n".into(), json!(node(v.clone())))],
+                set: vec![("n".into(), json!(node(v.clone())))],
+                row: Vec::new(),
+            }],
+        )
+        .unwrap();
+        assert_eq!(
+            whole,
+            "CYPHER 25 MATCH (n) WHERE elementId(n) = '4:a:1'\nSET n = {e: vector([1, 2], 2, FLOAT32)};\n"
+        );
+        let ins = insert_script(Flavor::Neo4j, &t, &["n".into()], &[vec![json!(node(v))]]).unwrap();
+        assert!(
+            ins.starts_with("CYPHER 25 CREATE (:Doc {e: vector("),
+            "{ins}"
+        );
+    }
 
     #[test]
     fn filtered_browse_adds_where_to_match() {

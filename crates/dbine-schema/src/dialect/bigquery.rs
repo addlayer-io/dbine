@@ -305,7 +305,6 @@ impl Dialect for BigQuery {
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         not_enforced(t, report, "BigQuery");
         let name = t.name.clone();
-        let columns = t.columns.clone();
         t.indexes.retain(|ix| {
             let kind = ix.kind.as_deref().unwrap_or("").trim();
             let vector = ix.vector.is_some() || kind.eq_ignore_ascii_case("vector");
@@ -319,40 +318,28 @@ impl Dialect for BigQuery {
                 );
                 return false;
             }
-            // A vector index takes an ARRAY<FLOAT64> column, nothing else
-            // (a sparse vector arrives as JSON).
-            let column = ix
-                .columns
-                .first()
-                .and_then(|c| columns.iter().find(|x| &x.name == c));
-            if let Some(c) = column.filter(|c| {
-                vector && !c.data_type.replace(' ', "").eq_ignore_ascii_case("ARRAY<FLOAT64>")
-            }) {
-                report.push(
-                    Severity::Dropped,
-                    IssueCode::IndexDropped,
-                    &name,
-                    Some(&ix.name),
-                    format!(
-                        "El índice vectorial «{}» no se crea: BigQuery lo hace solo sobre ARRAY<FLOAT64> y «{}» queda {}.",
-                        ix.name, c.name, c.data_type
-                    ),
-                );
-                return false;
-            }
             true
         });
     }
 
     /// IVF or TREE_AH with COSINE, EUCLIDEAN or DOT_PRODUCT. IVF takes the
     /// number of lists (`ivf_options.num_lists`); HNSW, DiskANN and the
-    /// like become IVF, ScaNN becomes TREE_AH (BigQuery's ScaNN).
+    /// like become IVF, ScaNN becomes TREE_AH (BigQuery's ScaNN). The
+    /// column is a dense vector, which renders ARRAY<FLOAT64> (`convert`
+    /// leaves out an index on anything else); a sparse one arrives as JSON,
+    /// which BigQuery doesn't index.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
+        if let Some(L::Vector { sparse: true, .. }) = column {
+            return Err(
+                "BigQuery lo hace solo sobre ARRAY<FLOAT64> y un vector disperso queda como JSON"
+                    .into(),
+            );
+        }
         let metric = match v.metric.as_deref() {
             None => None,
             Some(m @ (metric::COSINE | metric::L2 | metric::IP)) => Some(m.to_string()),
@@ -823,33 +810,42 @@ mod tests {
             .iter()
             .any(|i| i.code == IssueCode::IndexDropped && i.object.as_deref() == Some("plain")));
 
-        // A vector index only on ARRAY<FLOAT64>.
+        // A vector index only on a dense vector (ARRAY<FLOAT64>): pgvector's
+        // sparsevec arrives as JSON, without its index.
         let vx = |name: &str, col: &str| dbine_driver::IndexDef {
             name: name.into(),
             columns: vec![col.into()],
-            kind: Some("VECTOR".into()),
-            vector: Some(Default::default()),
+            kind: Some("hnsw".into()),
+            vector: Some(dbine_driver::VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                ..Default::default()
+            }),
             ..Default::default()
         };
         let col = |name: &str, ty: &str| dbine_driver::ColumnDef {
             name: name.into(),
             data_type: ty.into(),
+            nullable: true,
             ..Default::default()
         };
-        let mut t = TableSchema {
+        let t = TableSchema {
             name: "t".into(),
-            columns: vec![col("emb", "ARRAY<FLOAT64>"), col("sparse", "JSON")],
-            indexes: vec![vx("ok", "emb"), vx("bad", "sparse")],
+            columns: vec![col("emb", "vector(3)"), col("sp", "sparsevec(5)")],
+            indexes: vec![vx("ok", "emb"), vx("bad", "sp")],
             ..Default::default()
         };
-        let mut report = Report::default();
-        BigQuery.finalize(&mut t, &mut report);
-        let names: Vec<_> = t.indexes.iter().map(|i| i.name.as_str()).collect();
-        assert_eq!(names, ["ok"]);
-        assert!(report
-            .issues
+        let c = crate::convert(&[t], "postgres", "bigquery", &Default::default()).unwrap();
+        let names: Vec<_> = c.tables[0]
+            .indexes
             .iter()
-            .any(|i| i.code == IssueCode::IndexDropped && i.object.as_deref() == Some("bad")));
+            .map(|i| i.name.as_str())
+            .collect();
+        assert_eq!(names, ["ok"]);
+        assert_eq!(c.tables[0].columns[1].data_type, "JSON");
+        assert!(c.issues.iter().any(|i| i.code == IssueCode::IndexDropped
+            && i.object.as_deref() == Some("bad")
+            && i.message.contains("disperso")));
     }
 
     #[test]

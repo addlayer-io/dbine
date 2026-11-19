@@ -1047,21 +1047,26 @@ fn result_column(f: &arrow_schema::Field) -> ResultColumn {
         .get("ARROW:FLIGHT:SQL:TYPE_NAME")
         .filter(|t| !t.trim().is_empty())
         .cloned()
-        .or_else(|| {
-            let v = vector.as_ref()?;
-            let of = match v.element {
-                dbine_driver::VectorElement::F64 => "DOUBLE",
-                dbine_driver::VectorElement::F16 => "FLOAT16",
-                _ => "FLOAT",
-            };
-            Some(format!("{of}[{}]", v.dims?))
-        })
+        .or_else(|| vector_type_name(f.data_type()))
         .unwrap_or_else(|| f.data_type().to_string());
     let c = ResultColumn::new(f.name().clone(), type_name);
     match vector {
         Some(v) => c.with_vector(v),
         None => c,
     }
+}
+
+/// A vector column's type as an array of its floats with its dimension
+/// (`FLOAT[3]`, `DOUBLE[768]`), for a field the server sent without its
+/// SQL type name; `None` for anything else.
+pub(crate) fn vector_type_name(t: &arrow_schema::DataType) -> Option<String> {
+    let v = cells::vector_meta(t)?;
+    let of = match v.element {
+        dbine_driver::VectorElement::F64 => "DOUBLE",
+        dbine_driver::VectorElement::F16 => "FLOAT16",
+        _ => "FLOAT",
+    };
+    Some(format!("{of}[{}]", v.dims?))
 }
 
 /// A literal name as a `LIKE` pattern (Flight SQL filters are patterns).

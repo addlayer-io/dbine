@@ -279,4 +279,48 @@ async fn scenario(d: &dyn Driver, s: &mut Box<dyn Session>) {
             json!("[0.25,-0.5,4]")
         ]
     );
+
+    // 9. An INT vector column: the typed scripts cast to VECTOR(INT, n),
+    // from the describe's types and from a result's.
+    run(
+        s,
+        "CREATE TABLE PUBLIC.INTS (ID NUMBER(38,0), EMB VECTOR(INT, 3))",
+    )
+    .await;
+    let described: Vec<dbine_driver::ResultColumn> = s
+        .columns(&table("INTS"))
+        .await
+        .unwrap()
+        .iter()
+        .map(|c| dbine_driver::ResultColumn::new(&c.name, &c.data_type))
+        .collect();
+    let ins = d
+        .insert_script_typed(
+            &table("INTS"),
+            &described,
+            &[vec![json!(1), json!([1, -2, 3])]],
+        )
+        .unwrap();
+    assert!(ins.contains("::VECTOR(INT, 3)"), "{ins}");
+    run(s, &ins).await;
+    let out = run(s, "SELECT ID, EMB FROM PUBLIC.INTS").await;
+    let r = out.results[0].clone();
+    assert_eq!(r.rows[0][1], json!("[1,-2,3]"));
+    let rows =
+        dbine_driver::vector::rows_for_scripts(&r.columns, &[vec![json!(1), json!("[4,5,-6]")]]);
+    let up = d
+        .update_script_typed(
+            &table("INTS"),
+            &[RowChange {
+                key: vec![("ID".into(), json!(1))],
+                set: vec![("EMB".into(), rows[0][1].clone())],
+                row: Vec::new(),
+            }],
+            &r.columns,
+        )
+        .unwrap();
+    assert!(up.contains("::VECTOR(INT, 3)"), "{up}");
+    run(s, &up).await;
+    let out = run(s, "SELECT EMB FROM PUBLIC.INTS").await;
+    assert_eq!(out.results[0].rows[0][0], json!("[4,5,-6]"));
 }

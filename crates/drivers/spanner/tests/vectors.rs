@@ -478,5 +478,90 @@ async fn scenario(url: &str) {
         )
         .unwrap_err();
     assert!(e.to_string().contains("tree_depth"), "{e}");
+
+    // 11. The index usage report lists the vector index with the same
+    // settings as the describe.
+    let usage = s.index_usage(&table("docs")).await.unwrap().unwrap();
+    let u = usage.indexes.iter().find(|i| i.name == "docs_emb").unwrap();
+    assert_eq!(u.vector.as_ref(), ix.vector.as_ref());
+    assert!(usage
+        .indexes
+        .iter()
+        .filter(|i| i.name != "docs_emb")
+        .all(|i| i.vector.is_none()));
+
+    // 12. A FLOAT64 vector column: the typed scripts write ARRAY<FLOAT64>,
+    // from a describe's types and from a result's.
+    run(
+        &mut s,
+        "CREATE TABLE wide (id INT64 NOT NULL, e ARRAY<FLOAT64>(vector_length=>3), f ARRAY<FLOAT32>(vector_length=>3)) PRIMARY KEY (id)",
+    )
+    .await;
+    let described: Vec<dbine_driver::ResultColumn> = s
+        .columns(&table("wide"))
+        .await
+        .unwrap()
+        .iter()
+        .map(|c| dbine_driver::ResultColumn::new(&c.name, &c.data_type))
+        .collect();
+    let ins = d
+        .insert_script_typed(
+            &table("wide"),
+            &described,
+            &[vec![
+                json!(1),
+                json!([0.1, 0.2, 0.3]),
+                json!([0.1, 0.2, 0.3]),
+            ]],
+        )
+        .unwrap();
+    assert!(
+        ins.contains("ARRAY<FLOAT64>[0.1, 0.2, 0.3], ARRAY<FLOAT32>[0.1, 0.2, 0.3]"),
+        "{ins}"
+    );
+    run(&mut s, &ins).await;
+    let out = run(&mut s, "SELECT id, e, f FROM wide").await;
+    let r = &out.results[0];
+    assert_eq!(r.rows[0][1], json!("[0.1,0.2,0.3]"));
+    assert_eq!(r.rows[0][2], json!("[0.1,0.2,0.3]"));
+    // The untyped script can't write it: FLOAT32 into FLOAT64 is refused.
+    let untyped = d
+        .update_script(
+            &table("wide"),
+            &[RowChange {
+                key: vec![("id".into(), json!(1))],
+                set: vec![("e".into(), json!([1, 2, 3]))],
+                row: Vec::new(),
+            }],
+        )
+        .unwrap();
+    let mut o = QueryOutcome::default();
+    let refused = s.execute(&untyped, 10, &mut o).await.is_err() || o.error.is_some();
+    assert!(refused, "{untyped}");
+    // An edit of that result through the typed script.
+    let rows = dbine_driver::vector::rows_for_scripts(
+        &r.columns,
+        &[vec![json!(1), json!("[1e-7,-2,3.5]"), json!("[4,5,6]")]],
+    );
+    let up = d
+        .update_script_typed(
+            &table("wide"),
+            &[RowChange {
+                key: vec![("id".into(), json!(1))],
+                set: vec![
+                    ("e".into(), rows[0][1].clone()),
+                    ("f".into(), rows[0][2].clone()),
+                ],
+                row: Vec::new(),
+            }],
+            &r.columns,
+        )
+        .unwrap();
+    run(&mut s, &up).await;
+    let out = run(&mut s, "SELECT e, f FROM wide WHERE id = 1").await;
+    assert_eq!(
+        out.results[0].rows[0],
+        vec![json!("[0.0000001,-2,3.5]"), json!("[4,5,6]")]
+    );
     eprintln!("spanner vectors: table, index, scripts, query and transfer checked");
 }
