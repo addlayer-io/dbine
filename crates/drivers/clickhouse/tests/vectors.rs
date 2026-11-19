@@ -293,7 +293,7 @@ async fn vectors_end_to_end() {
             );
             assert!(
                 r.columns[3].vector.is_none(),
-                "Float64 arrays aren't vectors in results"
+                "Float64 arrays aren't vectors in any query's results"
             );
             assert_eq!(
                 r.rows,
@@ -317,6 +317,31 @@ async fn vectors_end_to_end() {
                         json!("[3,3]")
                     ],
                 ]
+            );
+
+            // ...but in the table's browse, the one its vector index
+            // searches is (F64, the index's dimension), as vector text.
+            let browse = d
+                .sorted_browse(
+                    &s.browse_query(&table(&db, "t"), 100),
+                    &[dbine_driver::SortKey {
+                        column: "id".into(),
+                        descending: false,
+                    }],
+                )
+                .unwrap();
+            let out = run(&mut s, &browse).await;
+            let r = &out.results[0];
+            let w = r.columns.iter().position(|c| c.name == "wide").unwrap();
+            assert_eq!(
+                r.columns[w].vector,
+                Some(dbine_driver::VectorMeta::dense(Some(2), VectorElement::F64)),
+                "{browse}"
+            );
+            assert_eq!(r.columns[w].type_name, "Array(Float64)");
+            assert_eq!(
+                r.rows.iter().map(|row| row[w].clone()).collect::<Vec<_>>(),
+                [json!("[0.1,-2]"), json!("[0.0000001,4]"), json!("[3,3]")]
             );
 
             // 4. Describe keeps the types.
