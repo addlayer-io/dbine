@@ -974,3 +974,229 @@ async fn couchbase_search_vector_indexes() {
     .await;
     admin.drop_database(B).await.expect("drop bucket");
 }
+
+/// A Search `vector_base64` field (`vector(N, base64)`): made by the
+/// driver's DDL, written as base64 by typed scripts and loads, searched by
+/// the Search service (which reads it as little-endian float32s), read as
+/// numbers, described and copied with its form.
+#[tokio::test]
+#[ignore]
+async fn couchbase_search_base64_vectors() {
+    const B: &str = "dbine_vec_fts64";
+    let Some(c) = cfg_of("DBINE_TEST_COUCHBASE_FTS", "") else {
+        return;
+    };
+    let d = dbine_driver_couchbase::drivers().remove(0);
+    let mut admin = d.connect(&c, None).await.expect("connect");
+    let _ = admin.drop_database(B).await;
+    admin.create_database(B).await.expect("bucket");
+    let mut s = d
+        .connect(&cfg_of("DBINE_TEST_COUCHBASE_FTS", B).unwrap(), Some(B))
+        .await
+        .unwrap();
+    let coll = |name: &str| ObjectRef {
+        kind: "collection".into(),
+        schema: Some(format!("{B}._default")),
+        name: name.into(),
+    };
+    let ks = |name: &str| format!("`{B}`.`_default`.`{name}`");
+
+    // 1. The collection and its Search index on a base64 field.
+    let t = TableSchema {
+        kind: "collection".into(),
+        schema: Some(format!("{B}._default")),
+        name: "docs".into(),
+        columns: vec![col("cat", "string"), col("e", "vector(3, base64)")],
+        indexes: vec![IndexDef {
+            name: "vs64".into(),
+            columns: vec!["e".into()],
+            kind: Some("SEARCH".into()),
+            vector: Some(VectorIndex {
+                metric: Some("l2".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }],
+        options: [("primary_index".to_string(), "true".to_string())].into(),
+        ..Default::default()
+    };
+    let ddl = d.table_ddl(&t, ALL).unwrap();
+    assert!(ddl.contains("\"type\":\"vector_base64\""), "{ddl}");
+    for st in d.split_script(&ddl) {
+        run_settled(&mut s, &st.text).await;
+    }
+
+    // 2. Typed inserts: base64 documents.
+    let types = vec![
+        ResultColumn::new("_id", ""),
+        ResultColumn::new("cat", "string"),
+        ResultColumn::new("e", "vector(3, base64)"),
+    ];
+    let ins = d
+        .insert_script_typed(
+            &coll("docs"),
+            &types,
+            &[
+                vec![json!("1"), json!("a"), json!([1.0, 2.0, 3.0])],
+                vec![json!("2"), json!("b"), json!([3.0, 2.0, 1.0])],
+                vec![json!("3"), json!("a"), json!([1.0, 2.0, 2.5])],
+            ],
+        )
+        .unwrap();
+    run_settled(&mut s, &ins).await;
+    let out = run(
+        &mut s,
+        &format!("SELECT RAW d.e FROM {} AS d USE KEYS \"1\"", ks("docs")),
+    )
+    .await;
+    assert_eq!(out.results[0].rows, [[json!("AACAPwAAAEAAAEBA")]]);
+
+    // 3. Searched by the Search service, nearest first: it reads the
+    // base64 as little-endian float32s, as the driver writes them.
+    let knn = format!("SELECT RAW META(d).id FROM {} AS d WHERE SEARCH(d, {{\"query\": {{\"match_none\": {{}}}}, \"knn\": [{{\"field\": \"e\", \"vector\": [1, 2, 3], \"k\": 2}}]}}, {{\"index\": \"{B}._default.vs64\"}}) ORDER BY SEARCH_SCORE(d) DESC", ks("docs"));
+    let mut ids = Vec::new();
+    for _ in 0..120 {
+        let mut out = QueryOutcome::default();
+        match s.execute(&knn, 10, &mut out).await {
+            Ok(()) => {
+                ids = out.results[0].rows.iter().map(|r| r[0].clone()).collect();
+                if ids.len() == 2 {
+                    break;
+                }
+            }
+            Err(e) => eprintln!("retrying: {e}"),
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    assert_eq!(ids, [json!("1"), json!("3")]);
+    // The other end: nearest to [3, 2, 1] is "2".
+    let out = run(
+        &mut s,
+        &knn.replace("[1, 2, 3], \"k\": 2", "[3, 2, 1], \"k\": 1"),
+    )
+    .await;
+    assert_eq!(out.results[0].rows, [[json!("2")]]);
+
+    // 4. Read back: the numbers, marked with the field's form.
+    let out = run(
+        &mut s,
+        &format!(
+            "SELECT META(d).id AS _id, d.e FROM {} AS d ORDER BY META(d).id",
+            ks("docs")
+        ),
+    )
+    .await;
+    let r = &out.results[0];
+    let at = r.columns.iter().position(|c| c.name == "e").unwrap();
+    assert_eq!(r.columns[at].type_name, "vector(3, base64)");
+    assert_eq!(
+        r.columns[at].vector,
+        Some(VectorMeta::dense(Some(3), VectorElement::F32))
+    );
+    assert_eq!(r.rows[2][at], json!("[1,2,2.5]"));
+
+    // 5. Describe: `vector(3, base64)`, the index by its field; nothing to
+    // sync against itself or the designer's index.
+    let schema = s.database_schema().await.unwrap();
+    let tb = schema.iter().find(|x| x.name == "docs").unwrap().clone();
+    assert_eq!(
+        tb.columns.iter().find(|c| c.name == "e").unwrap().data_type,
+        "vector(3, base64)"
+    );
+    let ix = tb.indexes.iter().find(|i| i.name == "vs64").unwrap();
+    assert_eq!(ix.columns, ["e"]);
+    assert_eq!(ix.vector.as_ref().unwrap().metric.as_deref(), Some("l2"));
+    let usage = s.index_usage(&coll("docs")).await.unwrap().unwrap();
+    let u = usage
+        .indexes
+        .iter()
+        .find(|u| u.name == "vs64" && u.kind == "SEARCH VECTOR")
+        .expect("listed");
+    assert_eq!(u.vector, ix.vector);
+    assert!(
+        u.key_columns[0].contains("vector_base64"),
+        "{:?}",
+        u.key_columns
+    );
+    let same = d
+        .sync_script(&[TableChange::Alter {
+            old: tb.clone(),
+            new: tb.clone(),
+        }])
+        .unwrap();
+    assert!(same.statements.is_empty(), "{:?}", same.statements);
+
+    // 6. Copied (as a clone does: the collection and its index, then the
+    // documents through a transfer): base64 again, searchable.
+    let mut copy = tb.clone();
+    copy.name = "copy".into();
+    copy.indexes.retain(|i| i.name == "vs64");
+    copy.indexes[0].name = "vs64_copy".into();
+    for st in d.split_script(&d.table_ddl(&copy, ALL).unwrap()) {
+        run_settled(&mut s, &st.text).await;
+    }
+    let sink = Arc::new(Mutex::new(Collect::default()));
+    s.read_batches(
+        &ReadSpec {
+            table: coll("docs"),
+            columns: None,
+            filter: None,
+        },
+        sink.clone(),
+    )
+    .await
+    .unwrap();
+    let got = std::mem::take(&mut *sink.lock().unwrap());
+    let at = got.columns.iter().position(|c| c.name == "e").unwrap();
+    assert_eq!(got.columns[at].type_name, "vector(3, base64)");
+    assert!(got
+        .rows
+        .iter()
+        .any(|r| r[at] == Cell::Json("[1,2,2.5]".into())));
+    let load = LoadSpec {
+        table: coll("copy"),
+        columns: got.columns.iter().map(|c| c.name.clone()).collect(),
+        table_lock: false,
+        keep_identity: true,
+        commit_rows: 1000,
+        commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
+    };
+    let n = s
+        .bulk_load(
+            &load,
+            &got.columns,
+            &mut Batches(
+                vec![RowBatch {
+                    rows: got.rows.clone(),
+                    bytes: 0,
+                }]
+                .into(),
+            ),
+            &|_| {},
+        )
+        .await
+        .unwrap();
+    assert_eq!(n, 3);
+    let out = run_settled(
+        &mut s,
+        &format!("SELECT RAW d.e FROM {} AS d USE KEYS \"1\"", ks("copy")),
+    )
+    .await;
+    assert_eq!(out.results[0].rows, [[json!("AACAPwAAAEAAAEBA")]]);
+    let schema = s.database_schema().await.unwrap();
+    let cp = schema.iter().find(|x| x.name == "copy").unwrap();
+    assert_eq!(
+        cp.columns.iter().find(|c| c.name == "e").unwrap().data_type,
+        "vector(3, base64)"
+    );
+
+    drop(s);
+    for (name, coll) in [("vs64", "docs"), ("vs64_copy", "copy")] {
+        run(
+            &mut admin,
+            &format!("DROP SEARCH INDEX IF EXISTS `{name}` ON `{B}`.`_default`.`{coll}`"),
+        )
+        .await;
+    }
+    admin.drop_database(B).await.expect("drop bucket");
+}
