@@ -831,6 +831,44 @@ impl Dialect for Olap {
             .map(|k| k.columns.clone())
             .unwrap_or_default();
 
+        // Vector indexes: on an ARRAY<FLOAT> column, with its dimension
+        // (`dim`) in the index; the column can't be NULL. Settled before the
+        // key model, which a vector index makes DUPLICATE KEY: only the ones
+        // that are created count.
+        settle_vectors(
+            t,
+            report,
+            &VectorTarget {
+                engine,
+                ty: &|_| "ARRAY<FLOAT>".to_string(),
+                is_vector: &|ty| {
+                    matches!(
+                        self.parse_type(&parse::parse(ty)),
+                        L::Array { of } if *of == L::Float { bytes: 4 }
+                    )
+                    .then_some(None)
+                },
+                dim_param: Some("dim"),
+                needs_dim: true,
+                fallback: None,
+            },
+        );
+        for ix in &t.indexes {
+            let Some(col) = ix.columns.first().filter(|_| ix.vector.is_some()) else {
+                continue;
+            };
+            if let Some(c) = t.columns.iter_mut().find(|c| c.name == *col && c.nullable) {
+                c.nullable = false;
+                report.push(
+                    Info,
+                    NullabilityChanged,
+                    &table,
+                    Some(col),
+                    format!("{engine} indexa vectores de una columna NOT NULL: la columna queda NOT NULL."),
+                );
+            }
+        }
+
         if !t.options.contains_key("key_model") {
             // StarRocks' PRIMARY KEY takes integers, strings, dates and booleans;
             // UNIQUE / DUPLICATE sort keys also take decimals.
@@ -934,42 +972,6 @@ impl Dialect for Olap {
                 Some("replication_num"),
                 "Una réplica (lo que propone el diseñador): subila en un clúster de varios nodos.",
             );
-        }
-
-        // Vector indexes: on an ARRAY<FLOAT> column, with its dimension
-        // (`dim`) in the index; the column can't be NULL.
-        settle_vectors(
-            t,
-            report,
-            &VectorTarget {
-                engine,
-                ty: &|_| "ARRAY<FLOAT>".to_string(),
-                is_vector: &|ty| {
-                    matches!(
-                        self.parse_type(&parse::parse(ty)),
-                        L::Array { of } if *of == L::Float { bytes: 4 }
-                    )
-                    .then_some(None)
-                },
-                dim_param: Some("dim"),
-                needs_dim: true,
-                fallback: None,
-            },
-        );
-        for ix in &t.indexes {
-            let Some(col) = ix.columns.first().filter(|_| ix.vector.is_some()) else {
-                continue;
-            };
-            if let Some(c) = t.columns.iter_mut().find(|c| c.name == *col && c.nullable) {
-                c.nullable = false;
-                report.push(
-                    Info,
-                    NullabilityChanged,
-                    &table,
-                    Some(col),
-                    format!("{engine} indexa vectores de una columna NOT NULL: la columna queda NOT NULL."),
-                );
-            }
         }
 
         // One-column, non-unique indexes on scalar columns only (and the

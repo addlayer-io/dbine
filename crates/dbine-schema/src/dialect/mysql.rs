@@ -1070,6 +1070,60 @@ mod tests {
         assert_eq!(v.data_type, "vector");
     }
 
+    /// Doris (and StarRocks, with a key PRIMARY KEY can't hold) take a
+    /// vector index only on DUPLICATE KEY tables, but only an index that is
+    /// created costs the table its key: one with filter columns, or on a
+    /// vector of unknown dimension, is left out and the key stays.
+    #[test]
+    fn a_vector_index_left_out_keeps_the_olap_key() {
+        use crate::convert::{convert, Options};
+        // A filter column (pgvector-like source) and a vector of unknown
+        // dimension (TiDB's `vector`, same family).
+        let mut filtered = vector_table();
+        filtered.columns.push(ColumnDef {
+            name: "cat".into(),
+            data_type: "int".into(),
+            nullable: true,
+            ..Default::default()
+        });
+        filtered.indexes[0].columns.push("cat".into());
+        let mut no_dim = vector_table();
+        no_dim.columns[1].data_type = "vector".into();
+        let mut decimal_key = no_dim.clone();
+        decimal_key.columns[0].data_type = "decimal(10,2)".into();
+        for (t, from, to, model) in [
+            (&filtered, "mariadb", "doris", "unique"),
+            (&no_dim, "tidb", "doris", "unique"),
+            (&decimal_key, "tidb", "starrocks", "unique"),
+        ] {
+            let c = convert(std::slice::from_ref(t), from, to, &Options::default()).unwrap();
+            let t = &c.tables[0];
+            assert!(
+                t.indexes.iter().all(|i| i.vector.is_none()),
+                "{from} -> {to}"
+            );
+            assert!(
+                c.issues.iter().any(|i| i.code == IssueCode::IndexDropped),
+                "{from} -> {to}: {:?}",
+                c.issues
+            );
+            assert_eq!(
+                t.options.get("key_model").map(String::as_str),
+                Some(model),
+                "{from} -> {to}: {:?}",
+                c.issues
+            );
+            assert!(t.primary_key.is_some(), "{from} -> {to}");
+            assert!(
+                !c.issues
+                    .iter()
+                    .any(|i| i.code == IssueCode::PrimaryKeyDropped),
+                "{from} -> {to}: {:?}",
+                c.issues
+            );
+        }
+    }
+
     #[test]
     fn vectors_cross_into_the_family_engines() {
         use crate::convert::{convert, Options};
