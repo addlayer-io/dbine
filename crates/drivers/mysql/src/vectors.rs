@@ -1552,13 +1552,17 @@ pub(crate) fn looked_up(v: Variant) -> bool {
 }
 
 /// Engines whose result columns may not say which table they come from
-/// (GreptimeDB, Manticore, StarRocks; Doris depending on the version): the
-/// tables a query reads are looked up whole ([`from_tables`]) for the
-/// columns the wire doesn't place.
+/// (GreptimeDB, Manticore, StarRocks, Databend; Doris depending on the
+/// version): the tables a query reads are looked up whole
+/// ([`from_tables`]) for the columns the wire doesn't place.
 pub(crate) fn by_query_tables(v: Variant) -> bool {
     matches!(
         v.base(),
-        Variant::GreptimeDb | Variant::Manticore | Variant::StarRocks | Variant::Doris
+        Variant::GreptimeDb
+            | Variant::Manticore
+            | Variant::StarRocks
+            | Variant::Doris
+            | Variant::Databend
     )
 }
 
@@ -2530,6 +2534,7 @@ mod tests {
         assert!(expression_vector(Variant::MySql, "VEC_FromText('[1]')").is_none());
         assert!(by_query_tables(Variant::Manticore) && by_query_tables(Variant::GreptimeDb));
         assert!(by_query_tables(Variant::StarRocks) && by_query_tables(Variant::VeloDb));
+        assert!(by_query_tables(Variant::Databend));
         assert!(!by_query_tables(Variant::MariaDb));
     }
 

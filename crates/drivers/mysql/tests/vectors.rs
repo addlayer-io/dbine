@@ -25,11 +25,15 @@
 //!
 //! The heavy servers, one at a time (`docker start dbine-test-oceanbase`,
 //! then `dbine-test-doris`, then `dbine-test-starrocks`; their ports with
-//! `docker port`): `DBINE_TEST_OCEANBASE_URL=mysql://root@127.0.0.1:25035`,
-//! `DBINE_TEST_DORIS_URL=mysql://root@127.0.0.1:<9030's port>`,
+//! `docker port`): `DBINE_TEST_OCEANBASE_URL=mysql://root@test:pw@127.0.0.1:25035`
+//! (the `test` tenant; OceanBase wants 6 GB free in the VM),
+//! `DBINE_TEST_DORIS_URL=mysql://root@127.0.0.1:25031`,
 //! `DBINE_TEST_STARROCKS_URL=mysql://root@127.0.0.1:25030` (its FE needs
 //! `ADMIN SET FRONTEND CONFIG ("enable_experimental_vector" = "true")`,
-//! which the test sets), `DBINE_TEST_DATABEND_URL=mysql://root@127.0.0.1:<3307's port>`.
+//! which the test sets). Databend has no container of its own: `docker run
+//! -d --name dbine-test-databend -e QUERY_DEFAULT_USER=dbine -e
+//! QUERY_DEFAULT_PASSWORD=pw -p 127.0.0.1:25307:3307 datafuselabs/databend`,
+//! `DBINE_TEST_DATABEND_URL=mysql://dbine:pw@127.0.0.1:25307`, removed after.
 //! TiDB's vector index needs TiFlash: `DBINE_TEST_TIDB_TIFLASH_URL` points at
 //! a cluster with one (`tiup playground`), the test adds the replica.
 
