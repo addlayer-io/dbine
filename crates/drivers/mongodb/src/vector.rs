@@ -1313,6 +1313,13 @@ pub(crate) fn kind_of(flavor: Flavor) -> &'static str {
 /// `cosmosSearch` index; any other algorithm, an Atlas `vectorSearch` one.
 const VCORE: [&str; 3] = ["vector-hnsw", "vector-ivf", "vector-diskann"];
 
+/// The HNSW parameters Atlas Vector Search takes, with its bounds:
+/// (parameter, its name in `hnswOptions`, least, most).
+const ATLAS_HNSW: [(&str, &str, i64, i64); 2] = [
+    (param::M, "maxEdges", 16, 64),
+    (param::EF_CONSTRUCTION, "numEdgeCandidates", 100, 3200),
+];
+
 /// `t`'s vector indexes in `flavor`'s terms: a missing kind gets the
 /// server's (on MongoDB, `cosmosSearch` for a vCore algorithm, see
 /// [`VCORE`]), another server's kind is translated, and what the kind
@@ -1464,6 +1471,23 @@ pub(crate) fn for_flavor(t: &TableSchema, flavor: Flavor) -> (TableSchema, Vec<S
                 vi.metric = Some(metric::COSINE.into());
             }
             _ => {}
+        }
+        // Atlas's HNSW bounds (seen on Atlas Local 9.0): another engine's
+        // values (pgvector's default ef_construction 64, an m of 8) go to
+        // the nearest it takes.
+        if to == SEARCH {
+            for (k, name, lo, hi) in ATLAS_HNSW {
+                let Some(n) = vi.params.get(k).and_then(|x| x.trim().parse::<i64>().ok()) else {
+                    continue;
+                };
+                let c = n.clamp(lo, hi);
+                if c != n {
+                    changed.push(format!(
+                        "{k} = {n} queda {c} (Atlas Vector Search toma {name} de {lo} a {hi})"
+                    ));
+                    vi.params.insert(k.into(), c.to_string());
+                }
+            }
         }
         if to == DOCDB && ix.columns.len() > 1 {
             lost.push(format!("los filtros ({})", ix.columns[1..].join(", ")));
@@ -2823,6 +2847,62 @@ mod tests {
         let (out, w) = for_flavor(&table("vector(8, int8)", Some("cosine")), Flavor::Mongo);
         assert_eq!(metric_of(&out), metric::COSINE);
         assert!(w.is_empty(), "{w:?}");
+        // Another engine's HNSW parameters out of Atlas's bounds: the
+        // nearest it takes, said; within them, as they are.
+        let mut hnsw = table("vector(8)", Some("l2"));
+        hnsw.indexes[0].vector.as_mut().unwrap().params = [
+            ("m".to_string(), "8".to_string()),
+            ("ef_construction".to_string(), "64".to_string()),
+        ]
+        .into();
+        let (out, w) = for_flavor(&hnsw, Flavor::Mongo);
+        let params = &out.indexes[0].vector.as_ref().unwrap().params;
+        assert_eq!(params.get("m").map(String::as_str), Some("16"));
+        assert_eq!(
+            params.get("ef_construction").map(String::as_str),
+            Some("100")
+        );
+        assert!(
+            w.iter()
+                .any(|x| x.contains("ef_construction = 64 queda 100")),
+            "{w:?}"
+        );
+        let def = search_definition(&out.indexes[0], Some(8)).unwrap();
+        assert_eq!(
+            def["fields"][0]["hnswOptions"],
+            json!({ "maxEdges": 16, "numEdgeCandidates": 100 })
+        );
+        hnsw.indexes[0].vector.as_mut().unwrap().params = [
+            ("m".to_string(), "32".to_string()),
+            ("ef_construction".to_string(), "400".to_string()),
+        ]
+        .into();
+        let (out, w) = for_flavor(&hnsw, Flavor::Mongo);
+        assert_eq!(
+            out.indexes[0]
+                .vector
+                .as_ref()
+                .unwrap()
+                .params
+                .get("m")
+                .map(String::as_str),
+            Some("32")
+        );
+        assert!(w.is_empty(), "{w:?}");
+        // DocumentDB and cosmosSearch take pgvector's ranges.
+        hnsw.indexes[0].vector.as_mut().unwrap().params =
+            [("ef_construction".to_string(), "64".to_string())].into();
+        let (out, _) = for_flavor(&hnsw, Flavor::DocumentDb);
+        assert_eq!(
+            out.indexes[0]
+                .vector
+                .as_ref()
+                .unwrap()
+                .params
+                .get("ef_construction")
+                .map(String::as_str),
+            Some("64")
+        );
         // DocumentDB's `vector` and FerretDB's `cosmosSearch` have no
         // hamming either: euclidean too (not the cosine an unknown metric
         // gets), said.
