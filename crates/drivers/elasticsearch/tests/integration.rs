@@ -377,7 +377,8 @@ async fn designer_on(id: &str, url: &str) {
     ] {
         assert!(cols.contains(&c.to_string()), "{c} in {cols:?}");
     }
-    assert!(cols.contains(&format!("vec:{vec_type}")), "{cols:?}");
+    // The vector's type comes back with its dimension.
+    assert!(cols.contains(&format!("vec:{vec_type}(3)")), "{cols:?}");
     let o = |k: &str| got.options.get(k).cloned().unwrap_or_default();
     assert_eq!(
         (
