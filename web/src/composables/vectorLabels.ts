@@ -9,6 +9,10 @@ import { ELEMENT_NAMES, isStandardMetric, isStandardParam, shortNumber, vectorIn
 /** A distance's label: `cosine` → «Coseno»; an engine's own name as is. */
 export const metricLabel = (m: string) => (isStandardMetric(m) ? t(`vectors:metric.${m}`) : m);
 
+/** A distance's short label, for the explorer's index tag: `l2` → «L2»,
+ *  `cosine` → «Coseno»; the whole one (`metricLabel`) is on hover. */
+export const metricShortLabel = (m: string) => (isStandardMetric(m) ? t(`vectors:metricShort.${m}`) : m);
+
 /** A build parameter's label: `m` → «Conexiones por nodo (m)»; others as is. */
 export const paramLabel = (p: string) => (isStandardParam(p) ? t(`vectors:param.${p}`) : p);
 

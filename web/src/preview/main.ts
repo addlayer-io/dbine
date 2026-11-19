@@ -269,24 +269,58 @@ function addDocView() {
 }
 
 // view=datagen&set=vectors: "Generar datos de prueba…" of a table with a
-// vector column, over a fake sample.
+// vector column, over a fake sample. &table=redis: a Redis search index,
+// whose `VECTOR(3, FLOAT32)` field the backend's catalog doesn't read as a
+// vector ("auto" picks decimals), answered as datagen_preview does for what
+// it's sent. `window.__dgCalls`: the columns each preview was sent;
+// `window.__dgRuns`: what "Generar" sent (datagen_run, answered at once).
 function dataGenView() {
   let cb = 0;
+  const sent: unknown[] = [];
+  const runs: unknown[] = [];
+  (window as unknown as Record<string, unknown>).__dgCalls = sent;
+  (window as unknown as Record<string, unknown>).__dgRuns = runs;
+  (window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
+  const redis = new URLSearchParams(location.search).get('table') === 'redis';
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
     transformCallback: () => ++cb, unregisterCallback: () => {}, convertFileSrc: (p: string) => p,
-    invoke: async (cmd: string) => {
+    invoke: async (cmd: string, a?: { args?: { rows?: number; columns?: { name: string; generator: string; params: Record<string, string> }[] } }) => {
+      if (cmd === 'plugin:event|listen' || cmd === 'plugin:event|unlisten') return 0;
+      if (cmd === 'datagen_run') {
+        runs.push(a?.args ?? null);
+        return { rows: a?.args?.rows ?? 0 };
+      }
       if (cmd !== 'datagen_preview') throw { kind: 'preview', message: `"${cmd}" no está disponible en la vista previa` };
-      const col = (name: string, data_type: string) => ({ name, data_type, nullable: true, primary_key: name === 'id', auto_increment: name === 'id', foreign_key: null, auto: 'auto' });
+      sent.push(a?.args?.columns ?? null);
+      if (redis) {
+        const c = (name: string, data_type: string, auto: string) => ({ name, data_type, nullable: name !== 'id', primary_key: name === 'id', auto_increment: false, foreign_key: null, auto });
+        const asked = a?.args?.columns?.find((x) => x.name === 'embedding');
+        const dims = Number(asked?.params.dims ?? 8);
+        const value = (i: number) => (asked?.generator === 'vector'
+          ? Array.from({ length: dims }, (_, k) => Math.round(Math.cos(i * 5 + k) * 1000) / 1000)
+          : Math.round(Math.abs(Math.sin(i)) * 1e6) / 100);
+        return {
+          table_columns: [c('id', 'key', 'text'), c('title', 'TEXT', 'text'), c('embedding', 'VECTOR(3, FLOAT32)', 'decimal')],
+          generators: ['skip', 'null', 'fixed', 'text', 'decimal', 'list'],
+          columns: ['id', 'title', 'embedding'],
+          rows: Array.from({ length: 8 }, (_, i) => [`k${i + 1}`, `palabra ${i + 1}`, value(i)]),
+        };
+      }
+      const col = (name: string, data_type: string, auto: string) => ({ name, data_type, nullable: true, primary_key: name === 'id', auto_increment: name === 'id', foreign_key: null, auto });
       const { rows } = sampleVectorResult;
+      // `resumen`: a vector field whose type doesn't say so (a document's
+      // `array`); the backend's "auto" says it's filled with vectors.
+      const small = (i: number) => JSON.stringify(Array.from({ length: 8 }, (_, k) => Math.round(Math.sin(i * 7 + k) * 1000) / 1000));
       return {
-        table_columns: [col('id', 'int8'), col('titulo', 'text'), col('embedding', 'vector(1536)')],
-        generators: ['fixed', 'sequence', 'text'],
-        columns: ['id', 'titulo', 'embedding'],
-        rows: rows.slice(0, 8).map((r) => [r[0], r[1], r[2]]),
+        table_columns: [col('id', 'int8', 'sequence'), col('titulo', 'text', 'text'), col('embedding', 'vector(1536)', 'vector'), col('resumen', 'array', 'vector')],
+        generators: ['fixed', 'sequence', 'text', 'vector'],
+        columns: ['id', 'titulo', 'embedding', 'resumen'],
+        rows: rows.slice(0, 8).map((r, i) => [r[0], r[1], r[2], small(i)]),
       };
     },
   };
-  return h(GenerateDataDialog, { connectionId: 'x', database: 'docs', table: { kind: 'table', schema: 'public', name: 'documentos' }, onClose: () => console.log('close') });
+  const table = redis ? { kind: 'index', schema: null, name: 'idx:docs' } : { kind: 'table', schema: 'public', name: 'documentos' };
+  return h(GenerateDataDialog, { connectionId: 'x', database: redis ? 'db0' : 'docs', table, onClose: () => console.log('close') });
 }
 
 // view=fkjump: a table's data with foreign keys from and to it ("Ir a la

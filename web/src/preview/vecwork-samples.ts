@@ -42,6 +42,7 @@ const COLUMNS: ColumnInfo[] = [
   { name: 'embedding', data_type: 'vector(1536)', nullable: true, primary_key: false, auto_increment: false, default_value: null },
 ];
 const HNSW = { algorithm: 'hnsw', metric: 'cosine', params: { m: '24', ef_construction: '128' } };
+const IVF = { algorithm: 'ivfflat', metric: 'l2', params: { lists: '100' } };
 const SCHEMA: TableSchema[] = [{
   kind: 'table', schema: 'public', name: 'documentos',
   columns: COLUMNS.map((c) => ({ name: c.name, data_type: c.data_type, nullable: c.nullable, default_value: null, auto_increment: c.auto_increment, comment: null, options: {} })),
@@ -49,6 +50,7 @@ const SCHEMA: TableSchema[] = [{
   indexes: [
     { name: 'documentos_pkey', columns: ['id'], unique: true, kind: 'btree', filter: null },
     { name: 'documentos_embedding_idx', columns: ['embedding'], unique: false, kind: 'hnsw', filter: null, vector: HNSW },
+    { name: 'documentos_embedding_l2', columns: ['embedding'], unique: false, kind: 'ivfflat', filter: null, vector: IVF },
   ],
   comment: null, options: {},
 }];
@@ -64,7 +66,8 @@ function report(withVector: boolean): IndexUsageReport {
     since: null, stats_available: true, note: null, foreign_keys: [], seek_scan_split: true, writes_counted: true,
     indexes: [
       usage('documentos_pkey', 'btree', ['id'], { unique: true, primary_key: true }),
-      { ...usage('documentos_embedding_idx', 'hnsw', ['embedding']), ...(withVector ? { vector: HNSW } : {}) } as IndexUsage,
+      { ...usage('documentos_embedding_idx', 'hnsw', ['embedding']), ...(withVector ? { vector: HNSW } : {}) },
+      { ...usage('documentos_embedding_l2', 'ivfflat', ['embedding'], { seeks: 0, scans: 0, reads: 0, read_share: 0, unused: true }), ...(withVector ? { vector: IVF } : {}) },
     ],
   };
 }
