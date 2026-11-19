@@ -414,7 +414,7 @@ pub fn notes(t: &TableSchema) -> Vec<String> {
             && index_type(i, dims) != index_type(i, None)
         {
             out.push(format!(
-                "El índice vectorial {} de {} queda quantizedFlat: flat indexa vectores de hasta {FLAT_MAX_DIMS} dimensiones, y este tiene {}.",
+                "El índice vectorial {} de {} queda quantizedFlat: flat indexa vectores de hasta 505 dimensiones, y este tiene {}.",
                 i.name,
                 t.name,
                 dims.unwrap_or_default()
