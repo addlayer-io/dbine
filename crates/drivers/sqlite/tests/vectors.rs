@@ -310,3 +310,73 @@ async fn libsql_vector_indexes_left_out_on_sqlite() {
         std::panic::resume_unwind(e.into_panic());
     }
 }
+
+/// A file with a sqlite-vec `vec0` table (another program wrote it; DBine
+/// loads no extensions): the table is listed as a virtual table, and its
+/// shadow tables are neither in the explorer nor in the schema that
+/// compare, clone and migrations read.
+#[tokio::test]
+async fn sqlite_vec_shadow_tables_are_hidden() {
+    let path = std::env::temp_dir().join(format!("dbine-sqlite-vec0-{}.db", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    {
+        // What sqlite-vec leaves in a file for `docs` (vec0 itself isn't
+        // here: the schema row is written as sqlite-vec would).
+        let c = rusqlite::Connection::open(&path).unwrap();
+        c.execute_batch(
+            "CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT);
+             CREATE TABLE docs_info (key TEXT PRIMARY KEY, value ANY);
+             CREATE TABLE docs_chunks (chunk_id INTEGER PRIMARY KEY AUTOINCREMENT, size INTEGER NOT NULL, validity BLOB NOT NULL, rowids BLOB NOT NULL);
+             CREATE TABLE docs_rowids (rowid INTEGER PRIMARY KEY AUTOINCREMENT, id, chunk_id INTEGER, chunk_offset INTEGER);
+             CREATE TABLE docs_vector_chunks00 (rowid PRIMARY KEY, vectors BLOB NOT NULL);
+             CREATE TABLE docs_metadatachunks00 (rowid PRIMARY KEY, data BLOB NOT NULL);
+             CREATE TABLE docs_auxiliary (rowid INTEGER PRIMARY KEY, value00);
+             CREATE TABLE docs_extra (id INTEGER PRIMARY KEY);
+             PRAGMA writable_schema = ON;
+             INSERT INTO sqlite_master (type, name, tbl_name, rootpage, sql)
+               VALUES ('table', 'docs', 'docs', 0, 'CREATE VIRTUAL TABLE docs USING vec0(embedding float[3])');
+             PRAGMA writable_schema = OFF;",
+        )
+        .unwrap();
+    }
+    let d: Arc<dyn Driver> = dbine_driver_sqlite::drivers().pop().unwrap();
+    let cfg = ConnectionConfig {
+        driver: "sqlite".into(),
+        host: path.to_string_lossy().into(),
+        ..Default::default()
+    };
+    let r = tokio::spawn(async move {
+        let mut s = d.connect(&cfg, None).await.unwrap();
+        let mut tables: Vec<String> = s
+            .database_schema()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|t| t.name)
+            .collect();
+        tables.sort();
+        // `docs_extra` isn't one of sqlite-vec's names: a table like any other.
+        assert_eq!(tables, ["docs_extra", "notes"]);
+        let mut objects: Vec<(String, String)> = s
+            .list_objects()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|o| (o.kind, o.name))
+            .collect();
+        objects.sort();
+        assert_eq!(
+            objects,
+            [
+                ("table".to_string(), "docs_extra".to_string()),
+                ("table".into(), "notes".into()),
+                ("virtual_table".into(), "docs".into()),
+            ]
+        );
+    })
+    .await;
+    let _ = std::fs::remove_file(&path);
+    if let Err(e) = r {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}

@@ -492,24 +492,46 @@ pub fn sync_script_for(
 
 // --- Catalog --------------------------------------------------------------
 
+/// The condition behind [`NOT_VECTOR_SHADOW`], as a literal for `concat!`.
+macro_rules! not_vector_shadow {
+    () => {
+        "m.name <> 'libsql_vector_meta_shadow'
+  AND NOT EXISTS (SELECT 1 FROM sqlite_master x
+                   WHERE x.type = 'index' AND x.sql LIKE '%libsql_vector_idx%' AND m.name = x.name || '_shadow')
+  AND NOT EXISTS (SELECT 1 FROM sqlite_master w
+                   WHERE w.type = 'table' AND w.sql LIKE 'CREATE VIRTUAL TABLE%USING vec0%' AND substr(m.name, 1, length(w.name) + 1) = w.name || '_'
+                     AND (substr(m.name, length(w.name) + 2) IN ('info', 'chunks', 'rowids', 'auxiliary')
+                       OR (substr(m.name, length(w.name) + 2) GLOB '*[0-9][0-9]'
+                           AND rtrim(substr(m.name, length(w.name) + 2), '0123456789') IN ('vector_chunks', 'metadatachunks', 'metadatatext', 'vectors', 'diskann_nodes', 'diskann_buffer', 'ivf_cells', 'ivf_centroids', 'ivf_rowid_map', 'ivf_vectors', 'rescore_chunks', 'rescore_vectors'))))"
+    };
+}
+
 /// Ordinary tables: not SQLite's own, not virtual tables nor their shadow
-/// tables (FTS3/4/5 and R*Tree name them `<table>_<suffix>`).
-const USER_TABLES: &str = "m.type = 'table' AND m.name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+/// tables (FTS3/4/5 and R*Tree name them `<table>_<suffix>`), nor the
+/// vector ones ([`NOT_VECTOR_SHADOW`]).
+const USER_TABLES: &str = concat!(
+    "m.type = 'table' AND m.name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
   AND COALESCE(m.sql, '') NOT LIKE 'CREATE VIRTUAL %'
   AND NOT EXISTS (SELECT 1 FROM sqlite_master v
                    WHERE v.type = 'table' AND v.sql LIKE 'CREATE VIRTUAL %' AND substr(m.name, 1, length(v.name) + 1) = v.name || '_'
                      AND substr(m.name, length(v.name) + 2) IN ('data', 'idx', 'content', 'docsize', 'config', 'segments', 'segdir', 'stat', 'node', 'rowid', 'parent'))
-  AND m.name <> 'libsql_vector_meta_shadow'
-  AND NOT EXISTS (SELECT 1 FROM sqlite_master x
-                   WHERE x.type = 'index' AND x.sql LIKE '%libsql_vector_idx%' AND m.name = x.name || '_shadow')";
+  AND ",
+    not_vector_shadow!()
+);
 
-/// libSQL's own tables for its vector indexes: the indexes' metadata
-/// (`libsql_vector_meta_shadow`) and each index's graph (`<index>_shadow`),
-/// as a condition on `sqlite_master` rows named `m` (the explorer leaves
-/// them out, like FTS's shadow tables).
-pub const NOT_VECTOR_SHADOW: &str = "m.name <> 'libsql_vector_meta_shadow'
-  AND NOT EXISTS (SELECT 1 FROM sqlite_master x
-                   WHERE x.type = 'index' AND x.sql LIKE '%libsql_vector_idx%' AND m.name = x.name || '_shadow')";
+/// The tables of vector features, which belong to them, as a condition on
+/// `sqlite_master` rows named `m` (the explorer, the schema, compare and
+/// clone leave them out, like FTS's shadow tables):
+///
+/// - libSQL's vector indexes: their metadata (`libsql_vector_meta_shadow`)
+///   and each index's graph (`<index>_shadow`);
+/// - a sqlite-vec `vec0` virtual table `v` (a file another program wrote;
+///   DBine loads no extensions, so it can't read `v` itself): `v_info`,
+///   `v_chunks`, `v_rowids`, `v_auxiliary` and the numbered ones
+///   (`v_vector_chunks00`, `v_metadatachunks00`, `v_metadatatext00`,
+///   `v_vectors00`, `v_diskann_nodes00`, `v_ivf_cells00`…), the names
+///   sqlite-vec gives them.
+pub const NOT_VECTOR_SHADOW: &str = not_vector_shadow!();
 
 /// `NO ACTION` is the default.
 fn action(a: String) -> Option<String> {
