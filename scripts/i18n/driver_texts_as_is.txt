@@ -49,4 +49,3 @@ GizmoSQL: 31337; Dremio: 32010; InfluxDB 3: 8181.
 http://rs1:16030, http://rs2:16030
 node1, node2…
 tpurgent (ATP)
-{"type": "service_account", …}

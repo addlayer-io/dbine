@@ -393,10 +393,11 @@ mod tests {
             let label = chars.next().is_some_and(char::is_uppercase)
                 && s.chars().count() >= 3
                 && chars.all(char::is_lowercase);
-            // A PEM header (`-----BEGIN PRIVATE KEY-----`) is code too; it
-            // isn't listed as is, where secret scanners take it for a key.
-            let pem = s.starts_with("-----") && s.ends_with("-----");
-            pem || (!s.contains(char::is_whitespace) && !spanish && !label)
+            // A PEM header or a JSON example (BigQuery's key file) is code
+            // too: not listed as is, where secret scanners take them for a
+            // real key.
+            let snippet = (s.starts_with("-----") && s.ends_with("-----")) || s.starts_with('{');
+            snippet || (!s.contains(char::is_whitespace) && !spanish && !label)
         };
         let mut texts: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for d in dbine_drivers::all() {
