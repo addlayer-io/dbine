@@ -193,7 +193,24 @@ impl Dialect for CosmosDb {
         }
         let mut kept = Vec::new();
         for mut ix in std::mem::take(&mut t.indexes) {
-            if ix.unique {
+            if ix.vector.is_some() {
+                // A vector index: the container's vector policy, one path
+                // each (no filter fields).
+                if ix.columns.len() > 1 {
+                    report.push(
+                        Severity::Info,
+                        IssueCode::IndexChanged,
+                        &name,
+                        Some(&ix.name),
+                        format!(
+                            "Los índices vectoriales de Cosmos DB no tienen campos de filtro: quedan fuera {}.",
+                            ix.columns[1..].join(", ")
+                        ),
+                    );
+                    ix.columns.truncate(1);
+                }
+                kept.push(ix);
+            } else if ix.unique {
                 report.push(
                     Severity::Warning,
                     IssueCode::IndexChanged,
@@ -344,5 +361,59 @@ mod tests {
         assert!(d.vector_index(&disk, Some(&col(Some(4096)))).is_ok());
         let why = d.vector_index(&disk, Some(&col(Some(8192)))).unwrap_err();
         assert!(why.contains("hasta 4096 dimensiones"), "{why}");
+    }
+
+    #[test]
+    fn vector_indexes_survive_the_conversion() {
+        use dbine_driver::{ColumnDef, IndexDef, KeyDef, VectorIndex};
+        // A pgvector table: a vector searched by an HNSW index, and one
+        // with a filter column (as MongoDB's take).
+        let col = |n: &str, t: &str| ColumnDef {
+            name: n.into(),
+            data_type: t.into(),
+            nullable: n != "id",
+            ..Default::default()
+        };
+        let vix = |n: &str, cols: &[&str]| IndexDef {
+            name: n.into(),
+            columns: cols.iter().map(|c| c.to_string()).collect(),
+            kind: Some("hnsw".into()),
+            vector: Some(VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("l2".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let t = TableSchema {
+            schema: Some("public".into()),
+            name: "docs".into(),
+            columns: vec![
+                col("id", "integer"),
+                col("cat", "text"),
+                col("emb", "vector(3)"),
+                col("e2", "vector(3)"),
+            ],
+            primary_key: Some(KeyDef {
+                columns: vec!["id".into()],
+                ..Default::default()
+            }),
+            indexes: vec![vix("emb_l2", &["emb"]), vix("e2_l2", &["e2", "cat"])],
+            ..Default::default()
+        };
+        let c = crate::convert::convert(&[t], "postgres", "cosmosdb", &Default::default()).unwrap();
+        let out = &c.tables[0];
+        // Kept as vector indexes (not dropped as single-field ones, not
+        // made composite), one path each.
+        assert_eq!(out.indexes.len(), 2, "{:?}", c.issues);
+        for ix in &out.indexes {
+            assert_eq!(ix.columns.len(), 1, "{ix:?}");
+            assert_ne!(ix.kind.as_deref(), Some("composite"), "{ix:?}");
+            assert_eq!(ix.vector.as_ref().unwrap().metric.as_deref(), Some("l2"));
+        }
+        assert!(c
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::IndexChanged && i.message.contains("quedan fuera cat")));
     }
 }
