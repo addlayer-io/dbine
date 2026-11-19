@@ -1892,7 +1892,7 @@ fn regex_escape(s: &str) -> String {
 }
 
 /// A Manticore literal: `\'` escapes, `1`/`0` booleans, `(1,2)` multi-values.
-fn manticore_value(v: &Value) -> String {
+pub(crate) fn manticore_value(v: &Value) -> String {
     let text = |s: &str| format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"));
     match v {
         Value::Bool(b) => (if *b { "1" } else { "0" }).to_string(),

@@ -472,7 +472,7 @@ impl Driver for MySqlDriver {
     }
 
     /// `LOAD DATA LOCAL INFILE` or big multi-row INSERTs (see `transfer`);
-    /// Manticore uses the INSERT script.
+    /// Manticore, INSERTs that write its vectors.
     fn supports_bulk_load(&self) -> bool {
         transfer::supported(self.variant)
     }

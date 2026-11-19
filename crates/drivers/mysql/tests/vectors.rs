@@ -672,7 +672,7 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         let (_, back) = read_cells(&mut s, "vec_copy").await;
         assert_eq!(back, rows);
         // Another family's source: pgvector's text, with its spacing.
-        must(&mut s, "DELETE FROM `vec_copy` WHERE `id` > 0").await;
+        must(&mut s, "DELETE FROM vec_copy WHERE id > 0").await;
         if matches!(id, "doris" | "starrocks") {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
@@ -816,7 +816,8 @@ async fn manticore_vectors() {
         header: "float_vector",
         options: vec![],
         update: true,
-        transfer: false,
+        // Its load writes INSERTs with its vectors as (…).
+        transfer: true,
         sync_metric: None,
     })
     .await;
