@@ -1607,7 +1607,7 @@ impl crate::MongoSession {
                 if code == Some(26) {
                     return Ok(Vec::new());
                 }
-                let text = e.to_string();
+                let text = crate::err(e).to_string();
                 if no_search(code, &text) {
                     self.no_search.store(true, Ordering::Relaxed);
                     return Ok(Vec::new());
@@ -1620,7 +1620,7 @@ impl crate::MongoSession {
             match cur.try_next().await {
                 Ok(Some(d)) => out.push(d),
                 Ok(None) => break,
-                Err(e) => return Err(e.to_string()),
+                Err(e) => return Err(crate::err(e).to_string()),
             }
         }
         Ok(out)
@@ -1733,13 +1733,15 @@ impl crate::MongoSession {
 }
 
 /// A `$listSearchIndexes` refusal that means the server has no search
-/// at all: MongoDB without mongot (`SearchNotEnabled`, 31082), a server
-/// that doesn't know the stage (40324) or the command (59, 115, 238), or
-/// says so in words. Not a missing permission, mongot still starting or
-/// the network: those are asked again.
+/// at all: MongoDB without mongot (7.0: "only allowed on MongoDB Atlas",
+/// 6047401; later, `SearchNotEnabled`, 31082), a server that doesn't know
+/// the stage (40324) or the command (59, 115, 238), or says so in words.
+/// Not a missing permission, mongot still starting or the network: those
+/// are asked again.
 pub(crate) fn no_search(code: Option<i32>, text: &str) -> bool {
     let t = text.to_ascii_lowercase();
-    matches!(code, Some(31082 | 40324 | 59 | 115 | 238))
+    matches!(code, Some(6047401 | 31082 | 40324 | 59 | 115 | 238))
+        || t.contains("only allowed on mongodb atlas")
         || t.contains("requires additional configuration")
         || t.contains("unrecognized pipeline stage")
         || t.contains("search index commands are only supported")
@@ -2395,6 +2397,11 @@ mod tests {
             "Unrecognized pipeline stage name: '$listSearchIndexes'"
         ));
         assert!(no_search(None, "Unrecognized pipeline stage name"));
+        // MongoDB 7 without mongot (seen live).
+        assert!(no_search(
+            Some(6047401),
+            "$listSearchIndexes stage is only allowed on MongoDB Atlas (Location6047401)"
+        ));
         // Asked again later: no permission, mongot still starting, network.
         assert!(!no_search(
             Some(13),
