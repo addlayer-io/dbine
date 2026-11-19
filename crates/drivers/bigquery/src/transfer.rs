@@ -1502,6 +1502,22 @@ mod tests {
             read_cell(Read::Float, &json!("NaN"), &f[1]).to_json(),
             json!("NaN")
         );
+        // A FLOAT64 array reads as the vector text, unless an element is
+        // NaN or ±∞: then as before (`null` would be refused on load).
+        let floats = json!({"name": "emb", "type": "FLOAT", "mode": "REPEATED"});
+        assert_eq!(
+            read_cell(Read::Nested, &json!([{"v": "0.5"}, {"v": "2.0"}]), &floats),
+            Cell::Json("[0.5,2]".into())
+        );
+        let odd = read_cell(
+            Read::Nested,
+            &json!([{"v": "0.5"}, {"v": "NaN"}, {"v": "Infinity"}]),
+            &floats,
+        );
+        let Cell::Json(t) = &odd else {
+            panic!("{odd:?}")
+        };
+        assert!(t.contains("NaN") && !t.contains("null"), "{t}");
     }
 
     #[test]

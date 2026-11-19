@@ -1549,12 +1549,16 @@ fn is_record(f: &Json) -> bool {
     matches!(str_of(f, "type"), "RECORD" | "STRUCT")
 }
 
-/// `INT64`, `ARRAY<STRING>`, `STRUCT`…
+/// `INT64`, `ARRAY<FLOAT64>`, `STRUCT`…: GoogleSQL's names (what DDL and
+/// `INFORMATION_SCHEMA` say), not the REST API's legacy ones (`INTEGER`,
+/// `FLOAT`, `BOOLEAN`, `RECORD`).
 fn type_label(f: &Json) -> String {
-    let t = if is_record(f) {
-        "STRUCT"
-    } else {
-        str_of(f, "type")
+    let t = match str_of(f, "type") {
+        _ if is_record(f) => "STRUCT",
+        "INTEGER" => "INT64",
+        "FLOAT" => "FLOAT64",
+        "BOOLEAN" => "BOOL",
+        t => t,
     };
     if is_repeated(f) {
         format!("ARRAY<{t}>")
@@ -1591,7 +1595,9 @@ pub(crate) fn is_vector(f: &Json) -> bool {
 }
 
 /// An `ARRAY<FLOAT64>` value (`[{"v": "0.1"}, …]`) as the vector text
-/// (`[0.1,2]`); NaN and ±∞ are `null`. `None` if it isn't one.
+/// (`[0.1,2]`). `None` if it isn't one, or if an element is NaN or ±∞:
+/// the vector text has no form for them (it writes `null`, which a
+/// BigQuery array can't hold), so such a list keeps the plain array text.
 pub(crate) fn vector_text(v: &Json) -> Option<String> {
     let vals = v
         .as_array()?
@@ -1602,7 +1608,9 @@ pub(crate) fn vector_text(v: &Json) -> Option<String> {
             _ => None,
         })
         .collect::<Option<Vec<f64>>>()?;
-    Some(dbine_driver::vector::text(vals))
+    vals.iter()
+        .all(|x| x.is_finite())
+        .then(|| dbine_driver::vector::text(vals))
 }
 
 /// A result cell: scalars typed, arrays and records as compact JSON text.
@@ -1703,8 +1711,6 @@ fn timestamp(s: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    /// The Google API is https (verified by reqwest's roots); only a typed
-    /// emulator endpoint changes the scheme.
     #[test]
     fn float64_arrays_are_vectors() {
         let f = json!({"name": "emb", "type": "FLOAT", "mode": "REPEATED"});
@@ -1739,11 +1745,18 @@ mod tests {
                 dbine_driver::VectorElement::F64
             ))
         );
-        assert_eq!(res.columns[1].type_name, "ARRAY<FLOAT>");
+        assert_eq!(res.columns[1].type_name, "ARRAY<FLOAT64>");
         assert_eq!(res.rows[0][1], json!("[1.5,2]"));
+        // NaN and ±∞ have no vector text: the list keeps its plain text.
+        let odd = json!([{"v": "1.5"}, {"v": "NaN"}, {"v": "-Infinity"}]);
+        assert_eq!(vector_text(&odd), None);
+        let c = cell(&odd, &f);
+        assert!(c.as_str().unwrap().contains("NaN"), "{c}");
         assert!(BigQueryDriver { info: info() }.capabilities().vectors);
     }
 
+    /// The Google API is https (verified by reqwest's roots); only a typed
+    /// emulator endpoint changes the scheme.
     #[test]
     fn tls_is_in_the_url() {
         assert_eq!(info().tls, dbine_driver::TlsSupport::InUrl);
@@ -1809,7 +1822,7 @@ mod tests {
                 Json::Null
             ]
         );
-        assert_eq!(type_label(&fields[3]), "ARRAY<INTEGER>");
+        assert_eq!(type_label(&fields[3]), "ARRAY<INT64>");
         assert_eq!(type_label(&fields[4]), "STRUCT");
     }
 

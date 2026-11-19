@@ -212,10 +212,11 @@ async fn scenario(d: &dyn Driver, s: &mut Box<dyn Session>) {
         .unwrap()
         .data_type;
     assert!(ty == "ARRAY<FLOAT64>" || ty == "ARRAY<DOUBLE>", "{ty}");
+    // The explorer says GoogleSQL's name, not the REST API's ARRAY<FLOAT>.
     let cols = s.columns(&table("vec_docs")).await.unwrap();
     assert_eq!(
         cols.iter().find(|c| c.name == "emb").unwrap().data_type,
-        "ARRAY<FLOAT>"
+        "ARRAY<FLOAT64>"
     );
 
     // 5. Vector indexes: the emulator has none (see the module's doc).

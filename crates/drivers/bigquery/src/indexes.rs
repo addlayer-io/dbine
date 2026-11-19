@@ -467,6 +467,20 @@ pub fn plan(changes: &[TableChange], script: &mut SyncScript) {
             let (d, c) = sync(old, new);
             drops.extend(d);
             creates.extend(c);
+            // A designer row of a kind BigQuery doesn't have: said, as
+            // `table_ddl` says it, not silently left out.
+            for n in new.indexes.iter().filter(|i| !supported(i)) {
+                if !old
+                    .indexes
+                    .iter()
+                    .any(|o| o.name.eq_ignore_ascii_case(&n.name))
+                {
+                    script.warnings.push(format!(
+                        "BigQuery solo tiene índices vectoriales y de búsqueda: el índice {} no se crea.",
+                        n.name
+                    ));
+                }
+            }
         }
     }
     drops.append(&mut script.statements);
