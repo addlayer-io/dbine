@@ -1577,6 +1577,7 @@ mod vector_live {
             before: String::new(),
             after: String::new(),
             post: Vec::new(),
+            vector_columns: vec!["v".into()],
             preexisting: false,
             expected_columns: Vec::new(),
             mode: Default::default(),
