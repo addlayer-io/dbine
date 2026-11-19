@@ -105,7 +105,8 @@ impl Dialect for PowerBi {
             comments: false,
             max_identifier: 512,
             case: IdentCase::Preserve,
-            vector_indexes: true,
+            // A semantic model has no vectors (and takes no tables).
+            vector_indexes: false,
         }
     }
 
