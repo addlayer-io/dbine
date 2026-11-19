@@ -90,6 +90,16 @@ pub(crate) fn literal(v: &serde_json::Value) -> Option<String> {
     vector::value_text(v).map(|t| format!("TO_REAL_VECTOR('{t}')"))
 }
 
+/// Whether a result's or a describe's column holds vectors: its vector
+/// meta, or a `REAL_VECTOR` type.
+pub(crate) fn is_column(c: &dbine_driver::ResultColumn) -> bool {
+    c.vector.is_some()
+        || c.type_name
+            .trim()
+            .get(..TYPE.len())
+            .is_some_and(|t| t.eq_ignore_ascii_case(TYPE))
+}
+
 /// What to do when the client can't decode a `REAL_VECTOR` result (a
 /// server that sends the type itself to this client).
 pub(crate) fn explain(message: &str) -> Option<&'static str> {
