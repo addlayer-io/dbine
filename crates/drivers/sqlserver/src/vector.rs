@@ -16,6 +16,9 @@
 use dbine_driver::vector::{self, VectorElement, VectorMeta};
 use tiberius::{VectorBaseType, VectorType, VECTOR_HEADER_SIZE};
 
+/// `IndexDef::kind` of a vector index (`sys.indexes.type` 8).
+pub(crate) const INDEX_KIND: &str = "VECTOR";
+
 const LAYOUT_FORMAT: u8 = 0xA9;
 const LAYOUT_VERSION: u8 = 0x01;
 
@@ -125,6 +128,57 @@ pub(crate) const PRECISION_SCALE: &str = "CAST(c.precision AS int), CAST(c.scale
 pub(crate) const CATALOG_SQL: &str =
     "SELECT CAST(CASE WHEN COL_LENGTH('sys.columns', 'vector_dimensions') IS NULL THEN 0 ELSE 1 END AS bit)";
 
+/// The table a browse query (`SELECT TOP (n) *\nFROM [s].[t]`, then maybe
+/// its grid filter and sort) reads, as the bracketed name `OBJECT_ID`
+/// takes; `None` for any other query.
+pub(crate) fn browsed_table(sql: &str) -> Option<String> {
+    let rest = sql.strip_prefix("SELECT TOP (")?;
+    let close = rest.find(')')?;
+    if close == 0 || !rest[..close].bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let mut rest = rest[close..].strip_prefix(") *\nFROM ")?;
+    let start = rest;
+    let mut parts = 0;
+    loop {
+        // One `[name]`, `]]` inside it a `]`.
+        let mut chars = rest.char_indices();
+        if chars.next()?.1 != '[' {
+            return None;
+        }
+        let mut end = None;
+        let mut prev_close = false;
+        for (i, c) in chars {
+            if c == ']' {
+                prev_close = !prev_close;
+            } else if prev_close {
+                end = Some(i);
+                break;
+            }
+        }
+        let end = match end {
+            Some(e) => e,
+            None if prev_close => rest.len(),
+            None => return None,
+        };
+        parts += 1;
+        rest = &rest[end..];
+        match rest.strip_prefix('.') {
+            Some(r) if parts < 2 => rest = r,
+            Some(_) => return None,
+            None => break,
+        }
+    }
+    let name = &start[..start.len() - rest.len()];
+    (rest.is_empty() || rest.starts_with(char::is_whitespace)).then(|| name.to_string())
+}
+
+/// A table's float16 vector columns and their dimensions (`@P1`: the
+/// table's name for `OBJECT_ID`).
+pub(crate) const FLOAT16_COLUMNS_SQL: &str =
+    "SELECT c.name, CAST(c.vector_dimensions AS int) FROM sys.columns c
+  WHERE c.object_id = OBJECT_ID(@P1) AND c.vector_base_type = 1";
+
 /// SQL Server's distance names (`sys.vector_indexes.distance_metric`,
 /// `METRIC = '…'`) and the standard ones.
 pub(crate) fn metric_of(native: &str) -> String {
@@ -184,6 +238,33 @@ mod tests {
         let mut bad = a;
         bad[2] = 4;
         assert_eq!(decode(&bad), None);
+    }
+
+    #[test]
+    fn browse_queries_name_their_table() {
+        use dbine_driver::sql::{select_top, Limit, Quote};
+        let browse = select_top(Quote::Bracket, Limit::Top, Some("dbo"), "docs", 200);
+        assert_eq!(browsed_table(&browse).as_deref(), Some("[dbo].[docs]"));
+        // Filtered and sorted by the grid.
+        assert_eq!(
+            browsed_table(&format!("{browse}\nWHERE [id] > 1\nORDER BY [id] DESC")).as_deref(),
+            Some("[dbo].[docs]")
+        );
+        let odd = select_top(Quote::Bracket, Limit::Top, Some("s]x"), "a b.c", 5);
+        assert_eq!(browsed_table(&odd).as_deref(), Some("[s]]x].[a b.c]"));
+        let bare = select_top(Quote::Bracket, Limit::Top, None, "t", 5);
+        assert_eq!(browsed_table(&bare).as_deref(), Some("[t]"));
+        for other in [
+            "SELECT * FROM [dbo].[docs]",
+            "SELECT TOP (5) id FROM [dbo].[docs]",
+            "SELECT TOP (x) *\nFROM [dbo].[docs]",
+            "SELECT TOP (5) *\nFROM dbo.docs",
+            "SELECT TOP (5) *\nFROM [a].[b].[c]",
+            "SELECT TOP (5) *\nFROM [dbo].[docs]JOIN",
+            "SELECT TOP (5) *\nFROM [dbo",
+        ] {
+            assert_eq!(browsed_table(other), None, "{other}");
+        }
     }
 
     #[test]

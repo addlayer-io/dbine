@@ -754,7 +754,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send> Client<S> {
 
         // now start bulk upload
         self.connection.flush_stream().await?;
-        let col_data = columns.iter().map(|c| format!("{}", c)).join(", ");
+        let col_data = insert_bulk_columns(&columns)?;
         let query = build_insert_bulk_sql(table, &col_data, options, order_hints);
 
         let req = BatchRequest::new(query, self.connection.context().transaction_descriptor());
@@ -1403,11 +1403,37 @@ pub(crate) fn validate_sql_identifier(what: &str, ident: &str) -> crate::Result<
     Ok(())
 }
 
+/// PATCH(dbine): the `INSERT BULK` column list (`[name] type, …`). A column
+/// whose type has no T-SQL name (its `Display` fails: a vector of an
+/// unknown element type or a size that isn't whole elements, a var-len type
+/// without its precision) is an error; `format!` would panic on it.
+pub(crate) fn insert_bulk_columns(columns: &[MetaDataColumn<'_>]) -> crate::Result<String> {
+    use std::fmt::Write;
+    let mut out = String::new();
+    for c in columns {
+        if !out.is_empty() {
+            out.push_str(", ");
+        }
+        let at = out.len();
+        if write!(out, "{c}").is_err() {
+            out.truncate(at);
+            return Err(crate::Error::BulkInput(
+                format!(
+                    "column {} has a type INSERT BULK can't declare: {:?}",
+                    c.col_name, c.base.ty
+                )
+                .into(),
+            ));
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        build_insert_bulk_sql, bulk_column_is_target, validate_bulk_column_identifier,
-        validate_bulk_table_identifier,
+        build_insert_bulk_sql, bulk_column_is_target, insert_bulk_columns,
+        validate_bulk_column_identifier, validate_bulk_table_identifier,
     };
     use crate::tds::codec::{BaseMetaDataColumn, ColumnFlag, TypeInfo, VarLenContext, VarLenType};
     use crate::{SortOrder, SqlBulkCopyOption, SqlBulkCopyOptions};
@@ -1421,6 +1447,52 @@ mod tests {
             flags,
             ty: TypeInfo::VarLenSized(VarLenContext::new(VarLenType::Intn, 4, None)),
             table_name: None,
+        }
+    }
+
+    // PATCH(dbine): a column type without a T-SQL name is an error, not a
+    // panic, when the INSERT BULK column list is built.
+    #[test]
+    fn insert_bulk_columns_refuse_types_without_a_name() {
+        use crate::tds::codec::{VectorBaseType, VectorType};
+        use crate::MetaDataColumn;
+        let col = |name: &str, ty: TypeInfo| MetaDataColumn {
+            col_name: name.to_string().into(),
+            base: BaseMetaDataColumn {
+                flags: BitFlags::empty(),
+                ty,
+                table_name: None,
+            },
+        };
+        let ok = [
+            col("id", TypeInfo::VarLenSized(VarLenContext::new(VarLenType::Intn, 4, None))),
+            col(
+                "v",
+                TypeInfo::Vector(VectorType {
+                    size: 20,
+                    base_type: VectorBaseType::Float32,
+                }),
+            ),
+        ];
+        assert_eq!(insert_bulk_columns(&ok).unwrap(), "[id] int, [v] vector(3)");
+        for ty in [
+            // An element type the client doesn't know.
+            TypeInfo::Vector(VectorType {
+                size: 20,
+                base_type: VectorBaseType::Other(9),
+            }),
+            // A size that isn't whole float32 elements.
+            TypeInfo::Vector(VectorType {
+                size: 21,
+                base_type: VectorBaseType::Float32,
+            }),
+        ] {
+            let bad = [ok[0].clone(), col("v", ty)];
+            let e = insert_bulk_columns(&bad).unwrap_err();
+            assert!(
+                matches!(&e, crate::Error::BulkInput(m) if m.contains("column v")),
+                "{e}"
+            );
         }
     }
 

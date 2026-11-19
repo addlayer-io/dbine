@@ -238,6 +238,13 @@ files kept). Every changed site is marked `PATCH(dbine)` in the source.
       `vector_dimensions` and the TYPE_INFO round trip (type_info.rs). Live
       ones in DBine's `crates/drivers/sqlserver/tests/vectors.rs` (results,
       `INSERT BULK` into a vector column, raw and decoded native copies).
+    * `src/client.rs` — `insert_bulk_columns` builds the `INSERT BULK`
+      column list with a fallible `write!`: a column whose type has no
+      T-SQL name (`MetaDataColumn`'s `Display` fails for a vector of an
+      unknown element type or a size that isn't whole elements, and for a
+      var-len type without its precision) is a `BulkInput` error instead
+      of the panic `format!` gave. Test:
+      `insert_bulk_columns_refuse_types_without_a_name`.
 
 ## Not vendored: TLS test fixtures
 

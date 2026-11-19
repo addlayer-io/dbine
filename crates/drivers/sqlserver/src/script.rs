@@ -15,9 +15,14 @@ enum CellKind {
     Spatial,
     /// `vector`: its JSON-array text.
     Vector,
+    /// A float16 `vector` of a browsed table, which arrives as the
+    /// server's JSON text: in the canonical form.
+    JsonVector,
 }
 use dbine_driver::sql::{split_script, ScriptDialect, ScriptStatement, StatementKind};
-use dbine_driver::{Error, Message, MessageLevel, QueryOutcome, Result, ScriptError};
+use dbine_driver::{
+    Error, Message, MessageLevel, QueryOutcome, Result, ScriptError, VectorElement, VectorMeta,
+};
 use futures::TryStreamExt;
 use std::sync::atomic::Ordering;
 use tiberius::{DoneKind, MessageItem, ServerMessage};
@@ -205,6 +210,16 @@ impl SqlServerSession {
         params: Option<&[&dyn tiberius::ToSql]>,
     ) -> Result<()> {
         let variant = self.variant;
+        // A browsed table's float16 vector columns (see `browsed_float16`).
+        let f16 = self.browse_f16.clone();
+        let float16 = |c: &tiberius::Column| {
+            if c.vector_type().is_some() {
+                return None;
+            }
+            f16.iter()
+                .find(|(n, _)| n == c.name())
+                .map(|&(_, dims)| dims)
+        };
         let mut first: Option<ScriptError> = None;
         let mut fatal: Option<ScriptError> = None;
         let mut broken: Option<tiberius::error::Error> = None;
@@ -266,6 +281,8 @@ impl SqlServerSession {
                                     CellKind::Spatial
                                 } else if c.vector_type().is_some() {
                                     CellKind::Vector
+                                } else if float16(c).is_some() {
+                                    CellKind::JsonVector
                                 } else {
                                     CellKind::Plain
                                 }
@@ -280,6 +297,17 @@ impl SqlServerSession {
                                         crate::vector::wire_type_name(&v),
                                     )
                                     .with_vector(crate::vector::meta(&v)),
+                                    None if float16(c).is_some() => {
+                                        let dims = float16(c);
+                                        ResultColumn::new(
+                                            c.name(),
+                                            crate::vector::type_name(
+                                                dims,
+                                                tiberius::VectorBaseType::Float16,
+                                            ),
+                                        )
+                                        .with_vector(VectorMeta::dense(dims, VectorElement::F16))
+                                    }
                                     None => ResultColumn::new(
                                         c.name(),
                                         // A UDT by its name: `geometry`, `geography`, `hierarchyid`.
@@ -315,6 +343,12 @@ impl SqlServerSession {
                                 .map(|(i, d)| match spatial.get(i) {
                                     Some(CellKind::Spatial) => spatial_cell(d, true),
                                     Some(CellKind::Vector) => vector_cell(d),
+                                    Some(CellKind::JsonVector) => match cell(d) {
+                                        serde_json::Value::String(t) => {
+                                            crate::vector::canonical(&t).unwrap_or(t).into()
+                                        }
+                                        other => other,
+                                    },
                                     _ => cell(d),
                                 })
                                 .collect(),

@@ -102,6 +102,9 @@ pub struct SqlServerSession {
     /// Whether `sys.columns` describes vector columns (SQL Server 2025,
     /// Azure SQL): asked once ([`SqlServerSession::vector_shape`]).
     vector_catalog: Option<bool>,
+    /// The float16 vector columns (name, dimensions) of the table the
+    /// running query browses ([`SqlServerSession::browsed_float16`]).
+    browse_f16: Vec<(String, u32)>,
 }
 
 /// How to stop what runs on the session's current connection.
@@ -578,6 +581,7 @@ impl SqlServerDriver {
             database: None,
             autocommit: true,
             vector_catalog: None,
+            browse_f16: Vec::new(),
         };
         let rows = s.rows("SELECT CAST(@@SPID AS int)", &[]).await?;
         s.spid = rows.first().and_then(|r| r.get::<i32, _>(0)).unwrap_or(0);
@@ -1189,6 +1193,15 @@ impl SqlServerSession {
     /// where the server describes them (SQL Server 2025, Azure SQL); as is
     /// elsewhere.
     pub(crate) async fn vector_shape(&mut self, sql: &str) -> String {
+        if self.has_vector_catalog().await {
+            sql.replace(vector::PRECISION_SCALE, vector::SHAPE)
+        } else {
+            sql.to_string()
+        }
+    }
+
+    /// Whether `sys.columns` describes vector columns, asked once.
+    async fn has_vector_catalog(&mut self) -> bool {
         if self.vector_catalog.is_none() {
             let has = vectors(self.variant)
                 && self
@@ -1199,11 +1212,34 @@ impl SqlServerSession {
                     .unwrap_or(false);
             self.vector_catalog = Some(has);
         }
-        if self.vector_catalog == Some(true) {
-            sql.replace(vector::PRECISION_SCALE, vector::SHAPE)
-        } else {
-            sql.to_string()
+        self.vector_catalog == Some(true)
+    }
+
+    /// The float16 vector columns of the table `sql` browses (the browse
+    /// query, filtered or sorted or not), as (name, dimensions). Version 1
+    /// of the vector feature carries float32 only: a float16 vector (a
+    /// preview type) arrives as `varchar(max)` JSON text, so the table's
+    /// catalog says which of those columns are vectors. Empty for any other
+    /// query, and where the server has no vectors.
+    async fn browsed_float16(&mut self, sql: &str) -> Vec<(String, u32)> {
+        let Some(table) = vector::browsed_table(sql) else {
+            return Vec::new();
+        };
+        if !self.has_vector_catalog().await {
+            return Vec::new();
         }
+        self.rows(vector::FLOAT16_COLUMNS_SQL, &[&table])
+            .await
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|r| {
+                        let name = r.get::<&str, _>(0)?.to_string();
+                        let dims = u32::try_from(r.get::<i32, _>(1)?).ok()?;
+                        Some((name, dims))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     async fn try_rows(&mut self, sql: &str, params: &[&str]) -> tiberius::Result<Vec<Row>> {
@@ -1509,7 +1545,9 @@ impl Session for SqlServerSession {
 
     async fn execute(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         self.cancelled.store(false, Ordering::SeqCst);
+        self.browse_f16 = self.browsed_float16(sql).await;
         let res = self.run_batches(sql, max_rows, out, None).await;
+        self.browse_f16.clear();
         match res {
             Err(_) if self.cancelled.swap(false, Ordering::SeqCst) => Err(Error::Cancelled),
             other => other,

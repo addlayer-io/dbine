@@ -3,8 +3,10 @@
 //! scripts, read back marked as vectors, the declared type kept, the index
 //! listed, a similarity search, a sync that changes the index, transfers
 //! (another engine's batches in, a typed read out, native copies raw and
-//! decoded) and the clone script. It works in its own databases, dropped
-//! first and at the end. Reads `DBINE_TEST_SQLSERVER2025_URL`
+//! decoded), sync by rows over vector columns, float16 vectors (a preview
+//! type) marked in table browsing, a vector index known by its kind only,
+//! and the clone script. It works in its own databases, dropped first and
+//! at the end. Reads `DBINE_TEST_SQLSERVER2025_URL`
 //! (`mssql://user:pass@host:port`) and is skipped without it:
 //!
 //! ```sh
@@ -13,12 +15,13 @@
 //! ```
 
 use dbine_driver::transfer::{
-    BatchSink, BatchSource, Cell, CopySpec, LoadSpec, ReadSpec, RowBatch, TransferColumn,
+    changed_buckets, BatchSink, BatchSource, Cell, CopySpec, LoadSpec, ReadSpec, RowBatch,
+    TransferColumn,
 };
 use dbine_driver::{
-    async_trait, ColumnDef, ConnectionConfig, DdlParts, Driver, IndexDef, KeyDef, ObjectRef,
-    QueryOutcome, RowChange, Session, TableChange, TableSchema, VectorElement, VectorIndex,
-    VectorMeta,
+    async_trait, Buckets, ColumnDef, ColumnFilter, ConnectionConfig, DdlParts, DeltaDepth,
+    DeltaSpec, Driver, IndexDef, KeyDef, ObjectRef, QueryOutcome, RowChange, Session, TableChange,
+    TableSchema, VectorElement, VectorIndex, VectorMeta,
 };
 use futures::FutureExt;
 use serde_json::{json, Value};
@@ -132,6 +135,100 @@ fn docs(name: &str, index: Option<VectorIndex>) -> TableSchema {
             .collect(),
         ..Default::default()
     }
+}
+
+/// Sync by rows between `delta` in both databases: summaries, changed
+/// buckets, the filtered read and the staged apply.
+async fn sync_by_rows(cfg: &ConnectionConfig, d: &Arc<dyn Driver>) {
+    let mut src = d.connect(cfg, Some(DB)).await.unwrap();
+    let mut dst = d.connect(cfg, Some(DB2)).await.unwrap();
+    let cols: Vec<String> = ["id", "emb", "note"]
+        .iter()
+        .map(|c| c.to_string())
+        .collect();
+    let create = d
+        .table_ddl(
+            &docs("delta", None),
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    run(&mut src, &create).await;
+    run(&mut dst, &create).await;
+    let rows: Vec<Vec<Value>> = (1..=40)
+        .map(|i| {
+            vec![
+                json!(i),
+                json!([i as f64 * 0.5, -(i as f64), 1e-3]),
+                json!(format!("n{i}")),
+            ]
+        })
+        .collect();
+    run(
+        &mut src,
+        &d.insert_script(&table("delta"), &cols, &rows).unwrap(),
+    )
+    .await;
+    // The target: row 5's vector differs, row 7 is missing, row 99 is extra.
+    let mut theirs: Vec<Vec<Value>> = rows.iter().filter(|r| r[0] != json!(7)).cloned().collect();
+    theirs[4][1] = json!([9.0, 9.0, 9.0]);
+    theirs.push(vec![json!(99), json!([1.0, 1.0, 1.0]), json!("extra")]);
+    run(
+        &mut dst,
+        &d.insert_script(&table("delta"), &cols, &theirs).unwrap(),
+    )
+    .await;
+    let spec = DeltaSpec {
+        table: table("delta"),
+        key: vec!["id".into()],
+        columns: cols.clone(),
+        buckets: Buckets::Hash { n: 7 },
+        depth: DeltaDepth::Full,
+        max_cores: 0,
+    };
+    let (a, b) = (
+        src.delta_summary(&spec).await.unwrap(),
+        dst.delta_summary(&spec).await.unwrap(),
+    );
+    let changed = changed_buckets(&a, &b);
+    assert!(!changed.is_empty() && changed.len() <= 3, "{changed:?}");
+    let sink = Arc::new(Mutex::new(Collect::default()));
+    src.read_batches(
+        &ReadSpec {
+            table: table("delta"),
+            columns: Some(cols.clone()),
+            filter: Some(d.delta_filter(&spec, &changed).unwrap()),
+        },
+        sink.clone(),
+    )
+    .await
+    .unwrap();
+    let read = std::mem::take(&mut *sink.lock().unwrap());
+    let r = dst
+        .delta_apply(
+            &spec,
+            &changed,
+            &read.columns,
+            &mut Replay(read.batches.into_iter()),
+            &|_| {},
+        )
+        .await
+        .unwrap();
+    assert_eq!((r.inserted, r.updated, r.deleted), (1, 1, 1));
+    let both =
+        |s: &'static str| format!("SELECT id, emb, note FROM dbo.delta ORDER BY id /* {s} */");
+    assert_eq!(
+        run(&mut dst, &both("dst")).await.results[0].rows,
+        run(&mut src, &both("src")).await.results[0].rows
+    );
+    // Equal now: no bucket changes.
+    let (a, b) = (
+        src.delta_summary(&spec).await.unwrap(),
+        dst.delta_summary(&spec).await.unwrap(),
+    );
+    assert!(changed_buckets(&a, &b).is_empty());
 }
 
 fn diskann(metric: &str) -> VectorIndex {
@@ -508,7 +605,107 @@ async fn body(cfg: &ConnectionConfig) {
         );
     }
 
-    // 10. The clone keeps the type and makes the index after the rows.
+    // 10. Sync by rows over a vector column: the target's changed,
+    //     missing and extra rows become the source's.
+    sync_by_rows(cfg, &d).await;
+
+    // 11. float16 vectors arrive as JSON text (version 1 of the vector
+    //     feature carries float32 only): table browsing marks them from
+    //     the table's catalog, filtered or sorted too.
+    let mut s = d.connect(cfg, Some(DB)).await.unwrap();
+    run(
+        &mut s,
+        "CREATE TABLE dbo.halves (id int PRIMARY KEY, h vector(3, float16), f vector(2))",
+    )
+    .await;
+    run(
+        &mut s,
+        &d.insert_script(
+            &table("halves"),
+            &["id".into(), "h".into(), "f".into()],
+            &[
+                vec![json!(1), json!([1.0, 0.5, -2.0]), json!([1.0, 2.0])],
+                vec![json!(2), json!([0.1, 0.0, 3.0]), Value::Null],
+            ],
+        )
+        .unwrap(),
+    )
+    .await;
+    let browse = s.browse_query(&table("halves"), 10);
+    let sorted = d
+        .sorted_browse(
+            &d.filtered_browse(
+                &browse,
+                &[ColumnFilter {
+                    column: "id".into(),
+                    op: dbine_driver::FilterOp::Ge,
+                    values: vec![json!(1)],
+                    sql: None,
+                }],
+            )
+            .unwrap(),
+            &[dbine_driver::SortKey {
+                column: "id".into(),
+                descending: false,
+            }],
+        )
+        .unwrap();
+    for sql in [browse, sorted] {
+        let out = run(&mut s, &sql).await;
+        let r = &out.results[0];
+        assert_eq!(r.columns[1].type_name, "vector(3, float16)", "{sql}");
+        assert_eq!(
+            r.columns[1].vector,
+            Some(VectorMeta::dense(Some(3), VectorElement::F16)),
+            "{sql}"
+        );
+        assert_eq!(r.rows[0][1], json!("[1,0.5,-2]"), "{sql}");
+        // 0.1 as the nearest float16, the shortest float32 that reads it.
+        assert_eq!(r.rows[1][1], json!("[0.099975586,0,3]"), "{sql}");
+        assert_eq!(
+            r.columns[2].vector,
+            Some(VectorMeta::dense(Some(2), VectorElement::F32))
+        );
+    }
+    // Describe keeps the element type.
+    let cols = s.columns(&table("halves")).await.unwrap();
+    assert_eq!(cols[1].data_type, "vector(3, float16)");
+
+    // 12. A vector index known by its kind only (settings not read):
+    //     scripted as DiskANN with the cosine distance, never left out.
+    let bare = TableSchema {
+        indexes: vec![IndexDef {
+            name: "ix_halves_f".into(),
+            kind: Some("VECTOR".into()),
+            columns: vec!["f".into()],
+            ..Default::default()
+        }],
+        ..docs("halves", None)
+    };
+    let ddl = d
+        .table_ddl(
+            &bare,
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(ddl.contains("no indica la distancia"), "{ddl}");
+    run_script(&mut s, &ddl).await;
+    let tables = s.database_schema().await.unwrap();
+    let ix = tables
+        .iter()
+        .find(|t| t.name == "halves")
+        .unwrap()
+        .indexes
+        .iter()
+        .find(|i| i.name == "ix_halves_f")
+        .expect("made")
+        .clone();
+    assert_eq!(ix.vector, Some(diskann("cosine")));
+
+    // 13. The clone keeps the type and makes the index after the rows.
     let mut src = d.connect(cfg, Some(DB)).await.unwrap();
     let mut dst = d.connect(cfg, Some(DB2)).await.unwrap();
     let clone = d

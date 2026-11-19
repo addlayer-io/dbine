@@ -216,7 +216,7 @@ impl RawIndex {
         let rowstore = matches!(self.ty, 1 | 2);
         let columnstore = matches!(self.ty, 5 | 6);
         let kind = match (self.ty, &self.xml_secondary) {
-            (8, _) => "VECTOR".to_string(),
+            (8, _) => crate::vector::INDEX_KIND.to_string(),
             (3, Some(t)) => format!("XML {}", t.to_ascii_uppercase()),
             (3, None) => "XML".to_string(),
             _ => self.type_desc.to_ascii_uppercase(),
@@ -968,6 +968,12 @@ fn index_sql(owner: &str, ix: &IndexDef) -> Option<String> {
     if let Some(v) = &ix.vector {
         return vector_index_sql(owner, ix, v);
     }
+    // A vector index whose settings didn't come along (a schema from
+    // elsewhere, or read without them): DiskANN with the cosine distance,
+    // and the script says so (see [`index_statements`]).
+    if kind == crate::vector::INDEX_KIND {
+        return vector_index_sql(owner, ix, &dbine_driver::VectorIndex::default());
+    }
     let s = match kind.as_str() {
         "FULLTEXT" => return Some(fulltext_sql(owner, ix)),
         "XML" => format!(
@@ -1093,7 +1099,26 @@ fn vector_index_sql(owner: &str, ix: &IndexDef, v: &dbine_driver::VectorIndex) -
 /// What a script says before a vector index: SQL Server 2025 creates them
 /// with the database's preview features on, and the table can't change
 /// rows while it has one.
-pub(crate) const VECTOR_INDEX_NOTE: &str = "-- Índice vectorial: SQL Server 2025 lo crea con ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, y mientras exista la tabla no admite INSERT, UPDATE ni DELETE.";
+pub(crate) const VECTOR_INDEX_NOTE: &str = "-- Índice vectorial: SQL Server 2025 lo crea con ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, y mientras exista el índice, la tabla no admite INSERT, UPDATE ni DELETE.";
+
+/// What a script also says before a vector index that doesn't name its
+/// distance.
+pub(crate) const VECTOR_INDEX_DEFAULTS_NOTE: &str =
+    "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.";
+
+/// A vector index, with its settings or without them.
+fn is_vector_index(ix: &IndexDef) -> bool {
+    ix.vector.is_some() || kind_of(ix) == crate::vector::INDEX_KIND
+}
+
+/// The notes before a vector index's statement.
+fn vector_notes(ix: &IndexDef) -> String {
+    if ix.vector.as_ref().and_then(|v| v.metric.as_ref()).is_some() {
+        VECTOR_INDEX_NOTE.to_string()
+    } else {
+        format!("{VECTOR_INDEX_NOTE}\n{VECTOR_INDEX_DEFAULTS_NOTE}")
+    }
+}
 
 /// `CREATE … INDEX` for each index, in an order the server accepts.
 pub(crate) fn index_statements(owner: &str, t: &TableSchema, if_exists: bool) -> Vec<String> {
@@ -1102,9 +1127,10 @@ pub(crate) fn index_statements(owner: &str, t: &TableSchema, if_exists: bool) ->
     ixs.into_iter()
         .map(|ix| match index_sql(owner, ix) {
             None => format!("-- Índice {} ({}) omitido: se crea a mano.", comment_text(&ix.name), comment_text(ix.kind.as_deref().unwrap_or(""))),
-            Some(s) if ix.vector.is_some() && !if_exists => format!("{VECTOR_INDEX_NOTE}\n{s}"),
-            Some(s) if ix.vector.is_some() => format!(
-                "{VECTOR_INDEX_NOTE}\nIF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID({}) AND name = {})\n    {s}",
+            Some(s) if is_vector_index(ix) && !if_exists => format!("{}\n{s}", vector_notes(ix)),
+            Some(s) if is_vector_index(ix) => format!(
+                "{}\nIF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID({}) AND name = {})\n    {s}",
+                vector_notes(ix),
                 nlit(owner),
                 nlit(&ix.name)
             ),
@@ -2495,6 +2521,46 @@ mod tests {
             ..t.indexes[0].clone()
         };
         assert_eq!(fulltext_sql("[t]", &sys), "CREATE FULLTEXT INDEX ON [t] ([titulo], [cuerpo]) KEY INDEX [PK] WITH (STOPLIST = OFF);");
+    }
+
+    #[test]
+    fn vector_indexes_with_and_without_settings() {
+        let vector = IndexDef {
+            name: "ix_v".into(),
+            kind: Some("VECTOR".into()),
+            columns: vec!["v".into()],
+            vector: Some(dbine_driver::VectorIndex {
+                algorithm: Some("diskann".into()),
+                metric: Some("ip".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let bare = IndexDef {
+            name: "ix_w".into(),
+            vector: None,
+            columns: vec!["w".into()],
+            ..vector.clone()
+        };
+        let t = TableSchema {
+            schema: Some("dbo".into()),
+            name: "docs".into(),
+            indexes: vec![vector, bare],
+            ..Default::default()
+        };
+        let s = index_statements("[dbo].[docs]", &t, false);
+        assert_eq!(
+            s[0],
+            format!("{VECTOR_INDEX_NOTE}\nCREATE VECTOR INDEX [ix_v] ON [dbo].[docs] ([v]) WITH (METRIC = 'dot', TYPE = 'DiskANN');")
+        );
+        // Kind only: DiskANN, cosine, and the script says so; never left out.
+        assert_eq!(
+            s[1],
+            format!("{VECTOR_INDEX_NOTE}\n{VECTOR_INDEX_DEFAULTS_NOTE}\nCREATE VECTOR INDEX [ix_w] ON [dbo].[docs] ([w]) WITH (METRIC = 'cosine', TYPE = 'DiskANN');")
+        );
+        assert!(VECTOR_INDEX_NOTE.contains("mientras exista el índice, la tabla no admite"));
+        let g = index_statements("[dbo].[docs]", &t, true);
+        assert!(g[1].contains("IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'[dbo].[docs]') AND name = N'ix_w')\n    CREATE VECTOR INDEX [ix_w]"), "{g:?}");
     }
 
     #[test]
