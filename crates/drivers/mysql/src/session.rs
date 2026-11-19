@@ -286,7 +286,7 @@ impl MySqlSession {
 
     async fn run(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let from = self.query_tables(sql);
-        let names = self.select_names(sql);
+        let names = self.statement_names(sql);
         let hints = VectorHints::new(&self.vector_columns, self.variant, from, names);
         let result = self
             .conn
@@ -478,10 +478,14 @@ impl MySqlSession {
     }
 
     /// MariaDB: what a statement says of the result columns its wire
-    /// doesn't place ([`crate::vectors::SelectNames`]).
-    fn select_names(&self, sql: &str) -> Option<(crate::vectors::SelectNames, Option<String>)> {
-        (self.variant.base() == Variant::MariaDb)
-            .then(|| (crate::vectors::SelectNames::of(sql), self.database.clone()))
+    /// doesn't place ([`crate::vectors::SelectNames`]), read only when a
+    /// result column needs it.
+    fn statement_names<'s>(&self, sql: &'s str) -> Option<StatementNames<'s>> {
+        (self.variant.base() == Variant::MariaDb).then(|| StatementNames {
+            sql,
+            current: self.database.clone(),
+            parsed: std::sync::OnceLock::new(),
+        })
     }
 
     /// Before a run whose rows go to a sink (an export), which keeps none
@@ -517,8 +521,9 @@ impl MySqlSession {
         }
         // MariaDB's derived tables: their columns are looked up in the
         // tables the statement names.
-        if let Some((names, _)) = self.select_names(sql).filter(|(n, _)| n.has_derived()) {
+        if let Some(names) = self.statement_names(sql).filter(|n| n.get().has_derived()) {
             let stale: Vec<(String, String)> = names
+                .get()
                 .tables_in(current.as_deref())
                 .into_iter()
                 .filter(|(s, t)| !self.vector_columns.table_fresh(s, t))
@@ -709,7 +714,7 @@ impl MySqlSession {
             .await
             .map_err(|e| stmt_err(statement, e))?;
         let from = self.query_tables(statement);
-        let names = self.select_names(statement);
+        let names = self.statement_names(statement);
         let hints = VectorHints::new(&self.vector_columns, self.variant, from, names);
         let read = match self.conn.exec_iter(&stmt, ()).await {
             Ok(result) => read_results(result, statement, max_rows, out, &hints).await,
@@ -767,9 +772,25 @@ pub(crate) struct VectorHints<'a> {
     /// columns don't say their table (GreptimeDB, Manticore).
     from: Option<Vec<(String, String)>>,
     /// MariaDB: what the statement says of the columns its wire doesn't
-    /// place (aliased expressions, derived tables), and the session's
-    /// database for its unqualified tables.
-    names: Option<(crate::vectors::SelectNames, Option<String>)>,
+    /// place (aliased expressions, derived tables).
+    names: Option<StatementNames<'a>>,
+}
+
+/// A MariaDB statement's [`crate::vectors::SelectNames`], read the first
+/// time a result column needs them (a statement without a binary string
+/// column, such as an INSERT script, is never read), and the session's
+/// database for its unqualified tables.
+pub(crate) struct StatementNames<'a> {
+    sql: &'a str,
+    current: Option<String>,
+    parsed: std::sync::OnceLock<crate::vectors::SelectNames>,
+}
+
+impl StatementNames<'_> {
+    fn get(&self) -> &crate::vectors::SelectNames {
+        self.parsed
+            .get_or_init(|| crate::vectors::SelectNames::of(self.sql))
+    }
 }
 
 impl<'a> VectorHints<'a> {
@@ -779,7 +800,7 @@ impl<'a> VectorHints<'a> {
         seen: &'a crate::vectors::SeenColumns,
         variant: Variant,
         from: Option<Vec<(String, String)>>,
-        names: Option<(crate::vectors::SelectNames, Option<String>)>,
+        names: Option<StatementNames<'a>>,
     ) -> Self {
         VectorHints {
             seen,
@@ -791,21 +812,25 @@ impl<'a> VectorHints<'a> {
     }
 
     /// A column the wire names by a derived table: where it's looked up.
+    /// Only a binary string can be a MariaDB vector.
     fn derived(&self, c: &mysql_async::Column) -> Option<Place> {
-        let (names, current) = self.names.as_ref()?;
-        let (tables, column) = names.derived_place(
+        let names = self.names.as_ref()?;
+        if c.org_table_str().is_empty() || !is_binary(c) || !may_be_vector(c) {
+            return None;
+        }
+        let (tables, column) = names.get().derived_place(
             &c.schema_str(),
             &c.org_table_str(),
             &c.org_name_str(),
-            current.as_deref(),
+            names.current.as_deref(),
         )?;
         Some(Place::Query { tables, column })
     }
 
     /// A column with no table made by `VEC_FromText(…) AS x`.
     fn named_vector(&self, c: &mysql_async::Column) -> Option<dbine_driver::VectorMeta> {
-        let (names, _) = self.names.as_ref()?;
-        names.names_vector(&c.name_str(), &c.org_name_str())
+        let names = self.names.as_ref()?;
+        names.get().names_vector(&c.name_str(), &c.org_name_str())
     }
 
     fn variant(&self) -> Variant {
@@ -2448,7 +2473,7 @@ impl Session for MySqlSession {
                 .await
                 .map_err(|e| stmt_err(&sql, e))?;
             let from = self.query_tables(&sql);
-            let names = self.select_names(&sql);
+            let names = self.statement_names(&sql);
             let hints = VectorHints::new(&self.vector_columns, self.variant, from, names);
             let read = match self.conn.exec_iter(&stmt, params).await {
                 Ok(result) => read_results(result, &sql, max_rows, out, &hints).await,
