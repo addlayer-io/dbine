@@ -565,6 +565,23 @@ fn keep(
         .iter()
         .map(|x| type_of(&c.query_columns[1], &x.1))
         .collect();
+    // Each compared column that holds dense vectors, by its result's mark:
+    // exported lists write them as arrays.
+    let vectors_of = |side: usize| -> Vec<bool> {
+        p.columns
+            .iter()
+            .map(|x| {
+                let name = if side == 0 { &x.0 } else { &x.1 };
+                let cols = &c.query_columns[side];
+                cols.iter()
+                    .find(|col| &col.name == name)
+                    .or_else(|| cols.iter().find(|col| col.name.eq_ignore_ascii_case(name)))
+                    .and_then(|col| col.vector.as_ref())
+                    .is_some_and(|m| !m.sparse)
+            })
+            .collect()
+    };
+    let (left_vectors, right_vectors) = (vectors_of(0), vectors_of(1));
     // What each result has that isn't compared.
     let unpaired = |side: usize| -> Vec<String> {
         c.query_columns[side]
@@ -640,8 +657,8 @@ fn keep(
             equal: c.equal,
             left_types,
             right_types,
-            left_vectors: Vec::new(),
-            right_vectors: Vec::new(),
+            left_vectors,
+            right_vectors,
             partial: false,
             diff_truncated: c.diff_truncated,
             counts: c.counts,

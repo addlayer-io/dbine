@@ -579,9 +579,6 @@ pub async fn data_compare_cancel(args: DataCompareCancelArgs) -> CommandResult<(
     Ok(())
 }
 
-/// Both sides on read-only sessions of their own (`dcmp:<run>:left|right`,
-/// stopped by `cancel_session`), compared whole; the result, and the
-/// difference kept for the script.
 /// A table's dense vector columns (lower-case names) and their numbers'
 /// type, by its catalog's types on `driver`'s engine.
 fn vector_columns(
@@ -600,6 +597,9 @@ fn vector_columns(
         .collect()
 }
 
+/// Both sides on read-only sessions of their own (`dcmp:<run>:left|right`,
+/// stopped by `cancel_session`), compared whole; the result, and the
+/// difference kept for the script.
 async fn compare_sides(
     state: &AppState,
     args: DataCompareArgs,
@@ -1467,8 +1467,10 @@ fn side_script(
 
 /// Compared column `i`'s value `v` as the script writes it into the side
 /// `to_right` says: as its column's type takes it ([`write_as`]), and a
-/// vector as an array where that column holds vectors (or, when it doesn't
-/// say its type, where the source's does).
+/// vector as an array where that column holds vectors, or where the
+/// source's does and the target's column takes arrays as they are (it
+/// doesn't say its type, or it's an array or JSON one: a schemaless
+/// engine's field), so the target keeps an array, not its text.
 pub(crate) fn script_value(d: &Diff, to_right: bool, i: usize, v: &Value) -> Value {
     let (target_types, source_types, target_vectors, source_vectors) = if to_right {
         (
@@ -1489,9 +1491,14 @@ pub(crate) fn script_value(d: &Diff, to_right: bool, i: usize, v: &Value) -> Val
         t.get(i).map_or("", String::as_str)
     }
     let at = |v: &Vec<bool>| v.get(i).copied().unwrap_or(false);
-    let known = !matches!(ty(target_types, i).trim(), "" | "null");
+    let target = ty(target_types, i).trim().to_ascii_lowercase();
+    let takes_arrays = matches!(target.as_str(), "" | "null")
+        || target.contains("json")
+        || ["array", "list", "variant", "object", "document", "any"]
+            .iter()
+            .any(|w| target.starts_with(w));
     let v = write_as(ty(target_types, i), ty(source_types, i), v.clone());
-    if at(target_vectors) || (!known && at(source_vectors)) {
+    if at(target_vectors) || (takes_arrays && at(source_vectors)) {
         vectors::script_value(v)
     } else {
         v
@@ -1877,6 +1884,11 @@ mod tests {
         // A right column that says it's text keeps the text.
         d.right_types[2] = "text".into();
         assert_eq!(script_value(&d, true, 2, &v), v);
+        // A schemaless engine's array field, or a JSON column: an array.
+        for t in ["array", "jsonb", "JSON", "variant"] {
+            d.right_types[2] = t.into();
+            assert_eq!(script_value(&d, true, 2, &v), json!([1.0, 2.5]), "{t}");
+        }
         // Other columns as before; NULL stays NULL.
         assert_eq!(script_value(&d, false, 1, &json!("x")), json!("x"));
         assert_eq!(script_value(&d, false, 2, &json!(null)), json!(null));

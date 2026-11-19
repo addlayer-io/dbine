@@ -988,6 +988,7 @@ async fn the_scratch_compares_tables_far_bigger_than_its_memory() {
         nk: 1,
         bools: [vec![false; 2], vec![false; 2]],
         vectors: Default::default(),
+        precision: Vec::new(),
         only_left_columns: Vec::new(),
         only_right_columns: Vec::new(),
     });
@@ -1160,6 +1161,7 @@ async fn order_key_ties_are_cut_by_key() {
         nk: 1,
         bools: [vec![false; 2], vec![false; 2]],
         vectors: Default::default(),
+        precision: Vec::new(),
         only_left_columns: Vec::new(),
         only_right_columns: Vec::new(),
     });
@@ -1221,6 +1223,7 @@ async fn long_keys_fit_the_scratch_memory() {
             nk: 1,
             bools: [vec![false; 2], vec![false; 2]],
             vectors: Default::default(),
+            precision: Vec::new(),
             only_left_columns: Vec::new(),
             only_right_columns: Vec::new(),
         });
@@ -1297,6 +1300,7 @@ async fn millions_of_differences_fit_the_scratch_memory() {
         nk: 2,
         bools: [vec![false; 4], vec![false; 4]],
         vectors: Default::default(),
+        precision: Vec::new(),
         only_left_columns: Vec::new(),
         only_right_columns: Vec::new(),
     });
@@ -1325,46 +1329,9 @@ INSERT INTO t VALUES (1, '[1e-07, 2]'), (2, '[0.1,0.2]'), (3, '[1,2,3]'), (4, NU
     const R: &str = "CREATE TABLE \"T\" (id INTEGER, v VARCHAR);
 INSERT INTO \"T\" VALUES (1, '[0.0000001,2.0]'), (2, '[0.100000001, 0.2]'), (3, '[1,2,4]'), (4, NULL), (5, '[1,2,0]');";
     let root = temp_dir("vectors");
-    let compare_with_marks = |marked: bool, in_memory_rows: usize| {
-        let root = root.0.clone();
-        async move {
-            let mut l = duck(L).await;
-            let mut r = duck(R).await;
-            let (lo, ro) = (table("t"), table("T"));
-            let cols = [l.columns(&lo).await.unwrap(), r.columns(&ro).await.unwrap()];
-            let mark = || {
-                if marked {
-                    HashMap::from([("v".to_string(), VectorElement::F32)])
-                } else {
-                    HashMap::new()
-                }
-            };
-            let input = Input {
-                key: vec!["id".into()],
-                wanted: Vec::new(),
-                cols,
-                vectors: [mark(), mark()],
-            };
-            compare(
-                Side {
-                    session: l.as_mut(),
-                    object: &lo,
-                },
-                Side {
-                    session: r.as_mut(),
-                    object: &ro,
-                },
-                input,
-                &opts(in_memory_rows, 1_000_000, &root),
-                &Arc::new(Ctl::default()),
-                &quiet,
-            )
-            .await
-            .unwrap()
-        }
-    };
-    let memory = compare_with_marks(true, 1_000_000).await;
-    let disk = compare_with_marks(true, 1).await;
+    let f32 = Some(VectorElement::F32);
+    let memory = marked_compare(L, R, [f32, f32], 1_000_000, &root.0).await;
+    let disk = marked_compare(L, R, [f32, f32], 1, &root.0).await;
     assert!(!memory.spilled && disk.spilled);
     assert_eq!(summary(&memory), summary(&disk));
     assert_eq!((memory.counts.same, memory.counts.changed), (3, 2));
@@ -1375,14 +1342,106 @@ INSERT INTO \"T\" VALUES (1, '[0.0000001,2.0]'), (2, '[0.100000001, 0.2]'), (3, 
     assert_eq!(memory.changed[0].left[1], json!("[1,2,3]"));
     assert_eq!(memory.changed[1].right[1], json!("[1,2,0]"));
     // Unmarked, the text differs on 1, 2, 3 and 5.
-    let text = compare_with_marks(false, 1_000_000).await;
+    let text = marked_compare(L, R, [None, None], 1_000_000, &root.0).await;
     assert_eq!((text.counts.same, text.counts.changed), (1, 4));
     assert_eq!(leftovers(&root.0), Vec::<String>::new());
 }
 
-/// A query's result marks its own vector columns as it begins: their cells
-/// come out of the read as compared (`[1e-07, 2]` as `[0.0000001,2]`),
-/// other columns as they came.
+/// Compare `t` (from `left`) with `T` (from `right`) by `id`, the column
+/// `v` marked on each side as `marks` says.
+async fn marked_compare(
+    left: &str,
+    right: &str,
+    marks: [Option<VectorElement>; 2],
+    in_memory_rows: usize,
+    root: &Path,
+) -> Compared {
+    let mut l = duck(left).await;
+    let mut r = duck(right).await;
+    let (lo, ro) = (table("t"), table("T"));
+    let cols = [l.columns(&lo).await.unwrap(), r.columns(&ro).await.unwrap()];
+    let mark = |e: Option<VectorElement>| {
+        e.map(|e| HashMap::from([("v".to_string(), e)]))
+            .unwrap_or_default()
+    };
+    let input = Input {
+        key: vec!["id".into()],
+        wanted: Vec::new(),
+        cols,
+        vectors: [mark(marks[0]), mark(marks[1])],
+    };
+    compare(
+        Side {
+            session: l.as_mut(),
+            object: &lo,
+        },
+        Side {
+            session: r.as_mut(),
+            object: &ro,
+        },
+        input,
+        &opts(in_memory_rows, 1_000_000, root),
+        &Arc::new(Ctl::default()),
+        &quiet,
+    )
+    .await
+    .unwrap()
+}
+
+/// A float64 vector column (DuckDB `DOUBLE[n]`, ClickHouse
+/// `Array(Float64)`, Oracle `FLOAT64`) against a float32 one compares as
+/// float32: more digits than a float32 holds, or a float32 widened, are
+/// the same vector, so a sync into the float32 side converges. Two float64
+/// sides keep their precision.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_float64_vector_against_a_float32_one_compares_as_float32() {
+    const L: &str = "CREATE TABLE t (id INTEGER, v VARCHAR);
+INSERT INTO t VALUES (1, '[0.123456789, 1]'), (2, '[0.10000000149011612, 2]'), (3, '[0.5, 3]');";
+    const R: &str = "CREATE TABLE \"T\" (id INTEGER, v VARCHAR);
+INSERT INTO \"T\" VALUES (1, '[0.12345679, 1]'), (2, '[0.1, 2]'), (3, '[0.25, 3]');";
+    let root = temp_dir("vectors-precision");
+    let (f32, f64) = (Some(VectorElement::F32), Some(VectorElement::F64));
+    for rows in [1_000_000, 1] {
+        let c = marked_compare(L, R, [f64, f32], rows, &root.0).await;
+        assert_eq!((c.counts.same, c.counts.changed), (2, 1), "{rows}");
+        let c = marked_compare(L, R, [f32, f64], rows, &root.0).await;
+        assert_eq!((c.counts.same, c.counts.changed), (2, 1), "{rows}");
+        // Both float64: every digit counts.
+        let c = marked_compare(L, R, [f64, f64], rows, &root.0).await;
+        assert_eq!((c.counts.same, c.counts.changed), (0, 3), "{rows}");
+    }
+    assert_eq!(leftovers(&root.0), Vec::<String>::new());
+}
+
+/// A vector column against one that isn't (text or JSON with the arrays,
+/// a schemaless engine's field): both sides' vectors compare by value, so
+/// `[1, 2]` with spaces equals the vector `[1,2]`, and after a sync the
+/// difference goes. Values that aren't vectors stay as they are.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_vector_column_against_text_compares_both_by_value() {
+    const L: &str = "CREATE TABLE t (id INTEGER, v VARCHAR);
+INSERT INTO t VALUES (1, '[1,2]'), (2, '[0.1,0.2]'), (3, '[1,2]'), (4, 'x');";
+    const R: &str = "CREATE TABLE \"T\" (id INTEGER, v VARCHAR);
+INSERT INTO \"T\" VALUES (1, '[1.0, 2.0]'), (2, '[0.100000001, 0.2]'), (3, '[1, 3]'), (4, 'x');";
+    let root = temp_dir("vectors-text");
+    let f32 = Some(VectorElement::F32);
+    for rows in [1_000_000, 1] {
+        for marks in [[f32, None], [None, f32]] {
+            let c = marked_compare(L, R, marks, rows, &root.0).await;
+            assert_eq!(
+                (c.counts.same, c.counts.changed),
+                (3, 1),
+                "{rows} {marks:?}"
+            );
+            assert_eq!(c.changed[0].left[0], json!(3));
+        }
+    }
+    assert_eq!(leftovers(&root.0), Vec::<String>::new());
+}
+
+/// A query's rows wait until both results said their columns, then their
+/// vector cells (on either side's mark) come out as compared, at the
+/// lower precision of the two sides; other columns as they came.
 #[test]
 fn a_query_results_vector_columns_compare_by_value() {
     use dbine_driver::VectorMeta;
@@ -1392,10 +1451,12 @@ fn a_query_results_vector_columns_compare_by_value() {
             ("id".into(), "id".into()),
             ("v".into(), "v".into()),
             ("t".into(), "t".into()),
+            ("w".into(), "w".into()),
         ],
         nk: 1,
-        bools: [vec![false; 3], vec![false; 3]],
+        bools: [vec![false; 4], vec![false; 4]],
         vectors: Default::default(),
+        precision: Vec::new(),
         only_left_columns: Vec::new(),
         only_right_columns: Vec::new(),
     });
@@ -1404,35 +1465,164 @@ fn a_query_results_vector_columns_compare_by_value() {
         projection,
         &opts(1_000, 1_000, &root.0),
     ));
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    let mut relay = Relay {
+    let relay = |side: usize, job: &Arc<Job>| {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let r = Relay {
+            side,
+            job: job.clone(),
+            tx,
+            queued: Arc::new(AtomicUsize::new(0)),
+            cap: usize::MAX,
+            hold: true,
+            index: None,
+            pick: Vec::new(),
+            bools: Vec::new(),
+            batch: Vec::new(),
+            batch_bytes: 0,
+        };
+        (r, rx)
+    };
+    let (mut left, mut lrx) = relay(0, &job);
+    let (mut right, mut rrx) = relay(1, &job);
+    // The left: `v` float64, `w` text. The right: `v` float32, `w` a
+    // float32 vector.
+    let meta = |e| VectorMeta::dense(Some(2), e);
+    let lcols = [
+        ResultColumn::new("id", "int"),
+        ResultColumn::new("v", "DOUBLE[2]").with_vector(meta(VectorElement::F64)),
+        ResultColumn::new("t", "text"),
+        ResultColumn::new("w", "text"),
+    ];
+    let rcols = [
+        ResultColumn::new("id", "int"),
+        ResultColumn::new("v", "vector(2)").with_vector(meta(VectorElement::F32)),
+        ResultColumn::new("t", "text"),
+        ResultColumn::new("w", "vector(2)").with_vector(meta(VectorElement::F32)),
+    ];
+    left.begin(0, &lcols).unwrap();
+    let row = [
+        json!(1),
+        json!("[0.123456789, 2]"),
+        json!("[1e-07, 2]"),
+        json!("[1.0, 2.0]"),
+    ];
+    left.row(0, &row).unwrap();
+    left.send().unwrap();
+    // The right hasn't said its columns: nothing went yet.
+    assert!(lrx.try_recv().is_err());
+    right.begin(0, &rcols).unwrap();
+    left.send().unwrap();
+    right
+        .row(
+            0,
+            &[
+                json!(1),
+                json!("[0.12345679, 2]"),
+                json!("[1e-07, 2]"),
+                json!("[1, 2]"),
+            ],
+        )
+        .unwrap();
+    right.send().unwrap();
+    let want = vec![
+        json!(1),
+        json!("[0.12345679,2]"),
+        json!("[1e-07, 2]"),
+        json!("[1,2]"),
+    ];
+    assert_eq!(lrx.try_recv().unwrap()[0].0, want);
+    assert_eq!(rrx.try_recv().unwrap()[0].0, want);
+}
+
+/// A side whose rows ran ahead of the other's columns past its cap
+/// decides by its own marks, and the other side follows the same choice.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_query_side_past_its_cap_decides_for_both() {
+    use dbine_driver::VectorMeta;
+    let root = temp_dir("relay-cap");
+    let projection = Arc::new(Projection {
+        columns: vec![("id".into(), "id".into()), ("v".into(), "v".into())],
+        nk: 1,
+        bools: [vec![false; 2], vec![false; 2]],
+        vectors: Default::default(),
+        precision: Vec::new(),
+        only_left_columns: Vec::new(),
+        only_right_columns: Vec::new(),
+    });
+    let job = Arc::new(Job::new(
+        Arc::new(Ctl::default()),
+        projection,
+        &opts(1_000, 1_000, &root.0),
+    ));
+    // On the runtime: the batch goes to the compare right there.
+    let (tx, _rx) = mpsc::unbounded_channel();
+    let mut left = Relay {
         side: 0,
-        job,
+        job: job.clone(),
         tx,
         queued: Arc::new(AtomicUsize::new(0)),
-        cap: usize::MAX,
+        cap: 1,
         hold: true,
         index: None,
         pick: Vec::new(),
         bools: Vec::new(),
-        vectors: Vec::new(),
         batch: Vec::new(),
         batch_bytes: 0,
     };
     let cols = [
         ResultColumn::new("id", "int"),
-        ResultColumn::new("v", "vector")
+        ResultColumn::new("v", "vector(2)")
             .with_vector(VectorMeta::dense(Some(2), VectorElement::F32)),
-        ResultColumn::new("t", "text"),
     ];
-    relay.begin(0, &cols).unwrap();
-    relay
-        .row(0, &[json!(1), json!("[1e-07, 2]"), json!("[1e-07, 2]")])
-        .unwrap();
-    relay.send().unwrap();
-    let got = rx.try_recv().unwrap();
+    left.begin(0, &cols).unwrap();
+    left.row(0, &[json!(1), json!("[1.0, 2]")]).unwrap();
+    left.send().unwrap();
     assert_eq!(
-        got[0].0,
-        vec![json!(1), json!("[0.0000001,2]"), json!("[1e-07, 2]")]
+        lock(&job.bufs[0]).rows,
+        vec![vec![json!(1), json!("[1,2]")]]
     );
+    assert_eq!(
+        job.query_precision(),
+        &[None, Some(vectors::Precision::F32)]
+    );
+    // The right says float64 later: the choice made stays.
+    job.said_columns(1, vec![None, Some(VectorElement::F64)]);
+    assert_eq!(
+        job.query_precision(),
+        &[None, Some(vectors::Precision::F32)]
+    );
+}
+
+/// A side whose read ended waits for the other's columns before its last
+/// rows go: a side that never says them (no result) lets it go.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_query_side_waits_for_the_others_columns_or_its_end() {
+    let root = temp_dir("relay-wait");
+    let projection = Arc::new(Projection {
+        columns: vec![("id".into(), "id".into())],
+        nk: 1,
+        bools: [vec![false], vec![false]],
+        vectors: Default::default(),
+        precision: Vec::new(),
+        only_left_columns: Vec::new(),
+        only_right_columns: Vec::new(),
+    });
+    let job = Arc::new(Job::new(
+        Arc::new(Ctl::default()),
+        projection,
+        &opts(1_000, 1_000, &root.0),
+    ));
+    assert!(!job.other_said(0));
+    let waiter = {
+        let job = job.clone();
+        tokio::spawn(async move { job.wait_for_other_columns(0).await })
+    };
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    assert!(!waiter.is_finished());
+    job.query_ended(1);
+    tokio::time::timeout(Duration::from_secs(5), waiter)
+        .await
+        .expect("the wait ends")
+        .unwrap();
+    assert!(job.other_said(0));
 }
