@@ -439,7 +439,7 @@ const CRATE_TYPES: &[&str] = &[
     "ARRAY(TEXT)",
     "GEO_POINT",
     "GEO_SHAPE",
-    "FLOAT_VECTOR(3)",
+    "FLOAT_VECTOR(1536)",
 ];
 
 const REDSHIFT_TYPES: &[&str] = &[

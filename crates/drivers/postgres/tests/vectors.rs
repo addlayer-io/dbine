@@ -888,7 +888,7 @@ async fn cratedb_vectors() {
     // FLOAT_VECTOR is indexed (HNSW) by being declared: no index to make.
     let spec = d.designer().unwrap();
     assert!(spec.vector_indexes.is_none());
-    assert!(spec.data_types.contains(&"FLOAT_VECTOR(3)"));
+    assert!(spec.data_types.contains(&"FLOAT_VECTOR(1536)"));
     let mut s = d.connect(&cfg, None).await.expect("connect");
     drop_crate_tables(&mut s).await;
     let mut s2 = d.connect(&cfg, None).await.expect("connect");
