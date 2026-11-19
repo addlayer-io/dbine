@@ -1104,3 +1104,144 @@ async fn transfers_between_engines() {
     };
     guarded(body, cleanup).await;
 }
+
+// ------------------------------------------------------------ RisingWave
+
+/// RisingWave: `vector(n)`, HNSW and FLAT indexes on append-only tables.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn risingwave_vectors() {
+    let Ok(url) = std::env::var("DBINE_TEST_RISINGWAVE_URL") else {
+        eprintln!("DBINE_TEST_RISINGWAVE_URL not set; skipping");
+        return;
+    };
+    let cfg = parse_url("risingwave", &url);
+    let d = driver("risingwave");
+    assert!(d.capabilities().vectors);
+    let spec = d.designer().unwrap();
+    assert_eq!(
+        spec.vector_indexes.as_ref().unwrap().algorithms,
+        ["hnsw", "flat"]
+    );
+    let mut s = d.connect(&cfg, None).await.expect("connect");
+    let drop = format!("DROP SCHEMA IF EXISTS {DB} CASCADE");
+    run(&mut s, &drop).await;
+    run(&mut s, &format!("CREATE SCHEMA {DB}")).await;
+    let body = async {
+        // 1. An append-only table (vector indexes need one) with two indexes.
+        let mut t = table(
+            DB,
+            "items",
+            vec![col("id", "integer", false), col("v", "vector(3)", true)],
+            vec![
+                vindex("ix_v", &["v"], Some("hnsw"), metric::COSINE, &[("m", "16")]),
+                vindex("ix_f", &["v"], Some("flat"), metric::IP, &[]),
+            ],
+        );
+        t.primary_key = None;
+        t.options.insert("append_only".into(), "true".into());
+        let ddl = d.table_ddl(&t, ALL).unwrap();
+        eprintln!("{ddl}");
+        for st in ddl.split(";\n") {
+            run(&mut s, st).await;
+        }
+        // 2. Rows.
+        let target = obj(DB, "items");
+        let cols: Vec<String> = ["id", "v"].map(String::from).to_vec();
+        let rows = vec![
+            vec![json!(1), json!([1, 2.5, -3])],
+            vec![json!(2), json!([0.5, 0, 1])],
+            vec![json!(3), json!([-1, -1, -1])],
+        ];
+        run(&mut s, &d.insert_script(&target, &cols, &rows).unwrap()).await;
+        run(&mut s, "FLUSH").await;
+        // 3. Read back (by the table's types: RisingWave can't describe it).
+        let out = run(&mut s, &format!("SELECT id, v FROM {DB}.items ORDER BY id")).await;
+        let r = &out.results[0];
+        assert_eq!(r.columns[1].type_name, "vector(3)");
+        assert_eq!(
+            r.columns[1].vector,
+            Some(VectorMeta::dense(Some(3), VectorElement::F32))
+        );
+        assert_eq!(r.rows[0][1], json!("[1,2.5,-3]"));
+        let browse = s.browse_query(&target, 10);
+        let out = run(&mut s, &browse).await;
+        assert!(out.results[0]
+            .columns
+            .iter()
+            .any(|c| c.name == "v" && c.vector.is_some()));
+        // 4. Describe.
+        let read = read_table(&mut s, DB, "items").await;
+        assert_eq!(column(&read, "v").data_type, "vector(3)");
+        // 5. The indexes.
+        assert_vector_index(index(&read, "ix_v"), "hnsw", metric::COSINE, &[("m", "16")]);
+        assert_vector_index(index(&read, "ix_f"), "flat", metric::IP, &[]);
+        sync_round_trip(
+            &*d,
+            &mut s,
+            &read,
+            "ix_v",
+            metric::L2,
+            "distance_type = 'l2'",
+        )
+        .await;
+        let read = read_table(&mut s, DB, "items").await;
+        assert_vector_index(index(&read, "ix_v"), "hnsw", metric::L2, &[("m", "16")]);
+        // 6. Similarity.
+        let near = cells(
+            &mut s,
+            &format!("SELECT id FROM {DB}.items ORDER BY v <-> '[1,2.5,-3]' LIMIT 1"),
+        )
+        .await;
+        assert_eq!(near, [[Some("1".to_string())]]);
+        // 8. A transfer into a table with a key (INSERTs: no bulk load),
+        // where 7. an edit can run (an append-only table takes none).
+        let mut copy = table(DB, "items_copy", t.columns.clone(), vec![]);
+        copy.options.clear();
+        run(&mut s, &d.table_ddl(&copy, ALL).unwrap()).await;
+        let mut s2 = d.connect(&cfg, None).await.unwrap();
+        let announced = transfer(
+            &mut s,
+            &target,
+            &*d,
+            &mut s2,
+            &obj(DB, "items_copy"),
+            &["id", "v"],
+        )
+        .await;
+        assert_eq!(announced[1].type_name, "vector(3)");
+        run(&mut s, "FLUSH").await;
+        let a = run(&mut s, &format!("SELECT id, v FROM {DB}.items ORDER BY id")).await;
+        let b = run(
+            &mut s,
+            &format!("SELECT id, v FROM {DB}.items_copy ORDER BY id"),
+        )
+        .await;
+        assert_eq!(a.results[0].rows, b.results[0].rows);
+        let change = RowChange {
+            key: vec![("id".into(), json!(2))],
+            set: vec![("v".into(), json!([9, 8, 7.5]))],
+            row: Vec::new(),
+        };
+        run(
+            &mut s,
+            &d.update_script(&obj(DB, "items_copy"), &[change]).unwrap(),
+        )
+        .await;
+        run(&mut s, "FLUSH").await;
+        let got = cells(
+            &mut s,
+            &format!("SELECT v FROM {DB}.items_copy WHERE id = 2"),
+        )
+        .await;
+        assert_eq!(got, [[Some("[9,8,7.5]".into())]]);
+    };
+    let cleanup = async {
+        if let Ok(mut c) = d.connect(&cfg, None).await {
+            if let Err(e) = try_run(&mut c, &drop).await {
+                eprintln!("cleanup: {e}");
+            }
+        }
+    };
+    guarded(body, cleanup).await;
+}

@@ -603,6 +603,9 @@ impl PgSession {
                     t.indexes.push(ix);
                 }
             }
+            for t in map.values_mut() {
+                crate::vectors::finish_read(v, t);
+            }
         }
         if v == Variant::H2 {
             for (k, ix) in self.h2_indexes().await {

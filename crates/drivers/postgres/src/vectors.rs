@@ -242,6 +242,83 @@ pub(crate) fn bit_text(text: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
+/// The one table a plain `SELECT … FROM t [WHERE …] [ORDER BY …] [LIMIT
+/// …]` reads (its schema, if named, and name), as written; `None` for a
+/// join, a subquery or anything else. RisingWave's results carry no column
+/// types DBine can read, so its vector columns are found by their table.
+pub(crate) fn single_table(sql: &str) -> Option<(Option<String>, String)> {
+    let sql = sql.trim().trim_end_matches(';').trim();
+    if !sql.get(..6)?.eq_ignore_ascii_case("select") {
+        return None;
+    }
+    // ` FROM ` at depth 0, outside quotes.
+    let bytes = sql.as_bytes();
+    let (mut depth, mut quote, mut at) = (0i32, None::<u8>, None);
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match (quote, b) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, b'\'' | b'"') => quote = Some(b),
+            (None, b'(') => depth += 1,
+            (None, b')') => depth -= 1,
+            (None, _)
+                if depth == 0
+                    && bytes[i].is_ascii_whitespace()
+                    && sql
+                        .get(i + 1..i + 6)
+                        .is_some_and(|w| w.eq_ignore_ascii_case("from "))
+                    && at.is_none() =>
+            {
+                at = Some(i + 6);
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    let rest = sql[at?..].trim_start();
+    // An identifier, maybe quoted, maybe qualified.
+    let mut parts: Vec<String> = Vec::new();
+    let mut r = rest;
+    loop {
+        let (part, after) = if let Some(q) = r.strip_prefix('"') {
+            let end = q.find('"')?;
+            (q[..end].to_string(), &q[end + 1..])
+        } else {
+            let end = r
+                .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+                .unwrap_or(r.len());
+            if end == 0 {
+                return None;
+            }
+            (r[..end].to_ascii_lowercase(), &r[end..])
+        };
+        parts.push(part);
+        match after.strip_prefix('.') {
+            Some(more) => r = more,
+            None => {
+                r = after;
+                break;
+            }
+        }
+    }
+    let tail = r.trim_start().to_ascii_lowercase();
+    let ends = tail.is_empty()
+        || ["where ", "order ", "limit ", "offset ", "fetch "]
+            .iter()
+            .any(|w| tail.starts_with(w));
+    if !ends {
+        return None;
+    }
+    let name = parts.pop()?;
+    match parts.len() {
+        0 => Some((None, name)),
+        1 => Some((parts.pop(), name)),
+        _ => None,
+    }
+}
+
 // ------------------------------------------------------------------ indexes
 
 /// Access methods of vector indexes: pgvector's, pgvectorscale's (and
@@ -262,6 +339,7 @@ fn algorithms(v: Variant) -> &'static [&'static str] {
         Variant::Timescale => &["hnsw", "diskann", "ivfflat"],
         Variant::AlloyDb => &["hnsw", "scann", "ivfflat"],
         Variant::OpenGauss => &["hnsw", "ivfflat"],
+        Variant::RisingWave => &["hnsw", "flat"],
         _ if pgvector(v) => &["hnsw", "ivfflat"],
         _ => &[],
     }
@@ -540,6 +618,9 @@ pub(crate) fn body(v: Variant, t: &TableSchema, ix: &IndexDef, vi: &VectorIndex)
     let Some(first) = ix.columns.first() else {
         return String::new();
     };
+    if v == Variant::RisingWave {
+        return rw_body(&alg, translated, first, ix, vi);
+    }
     let prefix = key_type(first, &t.columns);
     let m = vi
         .metric
@@ -592,6 +673,81 @@ pub(crate) fn body(v: Variant, t: &TableSchema, ix: &IndexDef, vi: &VectorIndex)
         s.push_str(&format!(" WITH ({})", with.join(", ")));
     }
     s
+}
+
+/// RisingWave's: `USING HNSW ("v") INCLUDE ("id") WITH (distance_type =
+/// 'cosine', m = 16)`, the distance being one more parameter.
+fn rw_body(alg: &str, translated: bool, first: &str, ix: &IndexDef, vi: &VectorIndex) -> String {
+    let m = vi
+        .metric
+        .as_deref()
+        .map(|m| m.trim().to_ascii_lowercase())
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| metric::L2.to_string());
+    let distance = match m.as_str() {
+        metric::IP => "inner_product".to_string(),
+        other => other.to_string(),
+    };
+    let known = params_of(alg);
+    let mut with = vec![format!(
+        "distance_type = '{}'",
+        distance.replace('\'', "''")
+    )];
+    with.extend(
+        vi.params
+            .iter()
+            .filter(|(k, _)| k.as_str() != RW_DISTANCE)
+            .filter(|(k, _)| !translated || known.contains(&k.as_str()))
+            .filter(|(_, val)| !val.trim().is_empty())
+            .map(|(k, val)| {
+                let val = val.trim();
+                if val.parse::<f64>().is_ok() {
+                    format!("{k} = {val}")
+                } else {
+                    format!("{k} = '{}'", val.replace('\'', "''"))
+                }
+            }),
+    );
+    let include = if ix.include.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " INCLUDE ({})",
+            ix.include
+                .iter()
+                .map(|c| crate::compare::index_column(c))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    };
+    format!(
+        "USING {} ({}){include} WITH ({})",
+        alg.to_ascii_uppercase(),
+        crate::compare::index_column(first),
+        with.join(", ")
+    )
+}
+
+/// RisingWave's storage parameter that holds the distance.
+const RW_DISTANCE: &str = "distance_type";
+
+/// A RisingWave index read from its `CREATE INDEX` (`pg_indexes.indexdef`):
+/// `USING HNSW | FLAT (v) … WITH (distance_type = 'l2', m = 16)`. `None`
+/// for any other index.
+pub(crate) fn from_rw_def(def: &str) -> Option<VectorIndex> {
+    let alg = using_of(def).filter(|a| matches!(a.as_str(), "hnsw" | "flat"))?;
+    let mut params = with_options(def);
+    let metric = params
+        .remove(RW_DISTANCE)
+        .map(|d| match d.trim().to_ascii_lowercase().as_str() {
+            "inner_product" => metric::IP.to_string(),
+            other => other.to_string(),
+        });
+    Some(VectorIndex {
+        algorithm: Some(alg),
+        metric,
+        params,
+    })
 }
 
 /// `CREATE [VECTOR] INDEX` for a vector index of `t` (`table`: qualified
@@ -702,6 +858,12 @@ pub(crate) fn designer_spec(v: Variant) -> Option<VectorIndexSpec> {
             params.push(p(param::M, vec![], "16"));
             params.push(p(param::EF_CONSTRUCTION, vec![], "64"));
             vec![metric::L2, metric::COSINE, metric::IP]
+        }
+        // On append-only tables only.
+        Variant::RisingWave => {
+            params.push(p(param::M, vec!["hnsw"], "16"));
+            params.push(p(param::EF_CONSTRUCTION, vec!["hnsw"], ""));
+            vec![metric::COSINE, metric::L2, metric::IP, metric::L1]
         }
         _ => {
             params.push(p(param::M, vec!["hnsw"], "16"));
@@ -1204,6 +1366,72 @@ mod tests {
             ),
             "CREATE INDEX \"i\" ON \"public\".\"items\" USING hnsw (\"v\" vector_l2_ops);"
         );
+    }
+
+    #[test]
+    fn the_table_a_select_reads() {
+        let t = |s: &str| single_table(s);
+        assert_eq!(
+            t("SELECT * FROM \"public\".\"items\" LIMIT 100"),
+            Some((Some("public".into()), "items".into()))
+        );
+        assert_eq!(
+            t("select id, v from items where id = 1 order by id;"),
+            Some((None, "items".into()))
+        );
+        assert_eq!(
+            t("SELECT v FROM s.Items"),
+            Some((Some("s".into()), "items".into()))
+        );
+        assert_eq!(t("SELECT * FROM a JOIN b ON a.id = b.id"), None);
+        assert_eq!(t("SELECT * FROM a, b"), None);
+        assert_eq!(
+            t("SELECT (SELECT 1 FROM x) FROM y"),
+            Some((None, "y".into()))
+        );
+        assert_eq!(t("SELECT * FROM (SELECT 1) x"), None);
+        assert_eq!(t("SELECT 1"), None);
+        assert_eq!(t("INSERT INTO t SELECT * FROM u"), None);
+    }
+
+    #[test]
+    fn risingwave_indexes() {
+        let def = "CREATE INDEX ix ON t USING HNSW (v) INCLUDE(id) WITH (distance_type = 'inner_product', m = 32, ef_construction = 100)";
+        let vi = from_rw_def(def).unwrap();
+        assert_eq!(
+            vi,
+            vix(
+                Some("hnsw"),
+                Some("ip"),
+                &[("m", "32"), ("ef_construction", "100")]
+            )
+        );
+        let flat =
+            from_rw_def("CREATE INDEX f ON t USING FLAT (v) WITH (distance_type = 'cosine')");
+        assert_eq!(flat, Some(vix(Some("flat"), Some("cosine"), &[])));
+        assert_eq!(from_rw_def("CREATE INDEX i ON t(name)"), None);
+        let t = table();
+        let mut i = ix("ix", &["v"], vi);
+        i.include = vec!["id".into()];
+        assert_eq!(
+            index_ddl(Variant::RisingWave, "\"t\"", &t, &i, i.vector.as_ref().unwrap(), false),
+            "CREATE INDEX \"ix\" ON \"t\" USING HNSW (\"v\") INCLUDE (\"id\") WITH (distance_type = 'inner_product', ef_construction = 100, m = 32);"
+        );
+        // pgvector's IVFFlat: RisingWave's HNSW, without `lists`.
+        let i = ix("ix", &["v"], vix(Some("ivfflat"), None, &[("lists", "10")]));
+        assert_eq!(
+            index_ddl(
+                Variant::RisingWave,
+                "\"t\"",
+                &t,
+                &i,
+                i.vector.as_ref().unwrap(),
+                false
+            ),
+            "CREATE INDEX \"ix\" ON \"t\" USING HNSW (\"v\") WITH (distance_type = 'l2');"
+        );
+        let spec = designer_spec(Variant::RisingWave).unwrap();
+        assert_eq!(spec.algorithms, ["hnsw", "flat"]);
     }
 
     #[test]

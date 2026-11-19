@@ -865,6 +865,13 @@ impl PgSession {
                 }
             }
         }
+        // RisingWave can't describe a statement with a vector column: the
+        // table's own types say which columns are vectors.
+        if let (Ok(()), Variant::RisingWave, [r]) = (&res, v, &mut out.results[first..]) {
+            if !r.columns.is_empty() && r.columns.iter().all(|c| c.type_name.is_empty()) {
+                rw_vectors(&self.client, sql, r).await;
+            }
+        }
         res
     }
 
@@ -2083,6 +2090,50 @@ async fn read_only_statement(
         }
     }
     res
+}
+
+/// RisingWave's vector columns of a plain `SELECT … FROM t`
+/// ([`crate::vectors::single_table`]): the result's columns named as a
+/// `vector(n)` column of `t`, whose cells read as vectors, get their
+/// metadata.
+async fn rw_vectors(client: &Client, sql: &str, r: &mut StatementResult) {
+    let Some((schema, table)) = crate::vectors::single_table(sql) else {
+        return;
+    };
+    let v = Variant::RisingWave;
+    let schema = schema.map_or_else(|| "current_schema()".to_string(), |s| lit(v, &s));
+    let q = format!(
+        "SELECT column_name, data_type FROM information_schema.columns
+         WHERE table_schema = {schema} AND table_name = {} AND data_type LIKE 'vector%'",
+        lit(v, &table)
+    );
+    let rows = match client.simple_query(&q).await {
+        Ok(m) => rows(m),
+        Err(e) => {
+            tracing::debug!("risingwave: vector columns unknown: {e}");
+            return;
+        }
+    };
+    for row in rows {
+        let (Some(name), Some(ty)) = (row.get(0), row.get(1)) else {
+            continue;
+        };
+        let Some(meta) = crate::vectors::meta_of_type(v, ty) else {
+            continue;
+        };
+        let Some(i) = r.columns.iter().position(|c| c.name == name) else {
+            continue;
+        };
+        let cells_are_vectors = r.rows.iter().all(|row| match row.get(i) {
+            Some(serde_json::Value::String(s)) => dbine_driver::vector::parse(s).is_some(),
+            Some(serde_json::Value::Null) | None => true,
+            _ => false,
+        });
+        if cells_are_vectors {
+            r.columns[i].type_name = ty.to_string();
+            r.columns[i].vector = Some(meta);
+        }
+    }
 }
 
 /// CrateDB sends a `FLOAT_VECTOR` as `real[]` (`{"1.0","2.5"}`): columns of

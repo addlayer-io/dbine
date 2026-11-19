@@ -1460,6 +1460,11 @@ pub(crate) fn parse_rw_index(name: &str, def: &str) -> Option<IndexDef> {
             ix.options.insert(DISTRIBUTED_BY.into(), d.to_string());
         }
     }
+    // A vector index (HNSW / FLAT): its distance and parameters.
+    if let Some(vi) = crate::vectors::from_rw_def(def) {
+        ix.kind = vi.algorithm.clone();
+        ix.vector = Some(vi);
+    }
     Some(ix)
 }
 
