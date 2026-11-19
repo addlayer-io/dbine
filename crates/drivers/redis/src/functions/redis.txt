@@ -1,7 +1,10 @@
 # Redis commands, for the editor's completion when the server refuses
 # COMMAND DOCS and COMMAND (renamed or disabled on a managed service).
 # Taken from Redis' own command reference (the COMMAND DOCS of Redis 7.4,
-# which is what redis.io publishes), plus the hash commands of Redis 8.0.
+# which is what redis.io publishes), plus the hash commands of Redis 8.0,
+# its vector sets (V*, with the Redis version each came in) and its query
+# engine (FT.*, in Redis' core since 8.0; Redis Stack, valkey-search and
+# Dragonfly have them as a module).
 # `since=` is the Redis version that added each one; Valkey and Dragonfly
 # are filtered by the Redis version they report (`redis_version`).
 # Container commands list each subcommand as CONTAINER|SUBCOMMAND (the
@@ -370,3 +373,46 @@ c ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [A
 c HGETDEL key FIELDS numfields field [field ...] since=8.0.0
 c HGETEX key [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | PERSIST] FIELDS numfields field [field ...] since=8.0.0
 c HSETEX key [FNX | FXX] [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | KEEPTTL] FIELDS numfields field value [field value ...] since=8.0.0
+# Vector sets (Redis 8).
+c VADD key [REDUCE dim] <FP32 vector | VALUES num value [value ...]> element [CAS] [NOQUANT | Q8 | BIN] [EF build-exploration-factor] [SETATTR attributes] [M numlinks] since=8.0.0
+c VCARD key since=8.0.0
+c VDIM key since=8.0.0
+c VEMB key element [RAW] since=8.0.0
+c VGETATTR key element since=8.0.0
+c VINFO key since=8.0.0
+c VISMEMBER key element since=8.2.0
+c VLINKS key element [WITHSCORES] since=8.0.0
+c VRANDMEMBER key [count] since=8.0.0
+c VRANGE key start end [count] since=8.4.0
+c VREM key element since=8.0.0
+c VSETATTR key element attributes since=8.0.0
+c VSIM key <ELE element | FP32 vector | VALUES num value [value ...]> [WITHSCORES] [WITHATTRIBS] [COUNT num] [EPSILON delta] [EF search-exploration-factor] [FILTER expression] [FILTER-EF max-filtering-effort] [TRUTH] [NOTHREAD] since=8.0.0
+# Query engine: search indexes, vector search (KNN), aggregations.
+c FT._LIST since=8.0.0
+c FT.AGGREGATE index query [VERBATIM] [LOAD count field [field ...]] [TIMEOUT timeout] [GROUPBY nargs property [property ...] [REDUCE function nargs arg [arg ...] [AS name] ...]] [SORTBY nargs [property ASC | DESC ...] [MAX num]] [APPLY expression AS name] [LIMIT offset num] [FILTER filter] [WITHCURSOR [COUNT read_size] [MAXIDLE idle_time]] [PARAMS nargs name value [name value ...]] [DIALECT dialect] since=8.0.0
+c FT.ALIASADD alias index since=8.0.0
+c FT.ALIASDEL alias since=8.0.0
+c FT.ALIASUPDATE alias index since=8.0.0
+c FT.ALTER index [SKIPINITIALSCAN] SCHEMA ADD field options since=8.0.0
+c FT.CONFIG|GET option since=8.0.0
+c FT.CONFIG|SET option value since=8.0.0
+c FT.CREATE index [ON HASH | JSON] [PREFIX count prefix [prefix ...]] [FILTER filter] [LANGUAGE default_lang] [SCORE default_score] [STOPWORDS count [stopword ...]] SCHEMA field_name [AS alias] <TEXT | TAG | NUMERIC | GEO | GEOSHAPE | VECTOR algorithm count attribute value [attribute value ...]> [SORTABLE [UNF]] [NOINDEX] [field_name ...] since=8.0.0
+c FT.CURSOR|DEL index cursor_id since=8.0.0
+c FT.CURSOR|READ index cursor_id [COUNT read_size] since=8.0.0
+c FT.DICTADD dict term [term ...] since=8.0.0
+c FT.DICTDEL dict term [term ...] since=8.0.0
+c FT.DICTDUMP dict since=8.0.0
+c FT.DROPINDEX index [DD] since=8.0.0
+c FT.EXPLAIN index query [DIALECT dialect] since=8.0.0
+c FT.EXPLAINCLI index query [DIALECT dialect] since=8.0.0
+c FT.INFO index since=8.0.0
+c FT.PROFILE index <SEARCH | AGGREGATE> [LIMITED] QUERY query since=8.0.0
+c FT.SEARCH index query [NOCONTENT] [VERBATIM] [INKEYS count key [key ...]] [INFIELDS count field [field ...]] [RETURN count identifier [AS property] [identifier [AS property] ...]] [SORTBY sortby [ASC | DESC] [WITHCOUNT]] [LIMIT offset num] [TIMEOUT timeout] [PARAMS nargs name value [name value ...]] [DIALECT dialect] [WITHSCORES] since=8.0.0
+c FT.SPELLCHECK index query [DISTANCE distance] [TERMS <INCLUDE | EXCLUDE> dictionary [terms ...]] [DIALECT dialect] since=8.0.0
+c FT.SUGADD key string score [INCR] [PAYLOAD payload] since=8.0.0
+c FT.SUGDEL key string since=8.0.0
+c FT.SUGGET key prefix [FUZZY] [WITHSCORES] [WITHPAYLOADS] [MAX max] since=8.0.0
+c FT.SUGLEN key since=8.0.0
+c FT.SYNDUMP index since=8.0.0
+c FT.SYNUPDATE index synonym_group_id [SKIPINITIALSCAN] term [term ...] since=8.0.0
+c FT.TAGVALS index field_name since=8.0.0

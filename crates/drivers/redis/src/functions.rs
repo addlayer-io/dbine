@@ -381,6 +381,11 @@ mod tests {
         assert!(!has(Some("6.0.0"), "GETEX"));
         assert!(has(Some("8.0.2"), "HGETEX"));
         assert!(!has(Some("7.4.2"), "HGETEX"));
+        // Vector sets and the query engine, by the version each came in.
+        assert!(has(Some("8.0.2"), "VSIM") && has(Some("8.0.2"), "FT.SEARCH"));
+        assert!(!has(Some("7.4.2"), "VADD"));
+        assert!(!has(Some("8.2.1"), "VRANGE") && has(Some("8.4.0"), "VRANGE"));
+        assert!(has(Some("8.2.0"), "VISMEMBER") && has(Some("8.2.0"), "FT.CURSOR READ"));
         assert_eq!(
             redis_version("# Server\r\nredis_version:7.2.4\r\nvalkey_version:8.0.1\r\n"),
             Some("7.2.4".into())

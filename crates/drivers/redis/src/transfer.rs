@@ -13,6 +13,14 @@
 //! are every field of every row (and of every stream entry), found in a
 //! first pass; asked-for columns that no row has are an error.
 //!
+//! Vectors: a hash field that a search index's `VECTOR` field covers is
+//! read as the canonical vector text (its blob decoded by the index's
+//! `TYPE`), and a vector set as its elements with their vector and
+//! attributes. A load writes a vector (text holding a JSON array of
+//! numbers) as the blob of the type of the index that covers the target,
+//! or, into a column the source says is a vector (`vector(3)`,
+//! `vector<float, 3>`…), of that type (`FLOAT32` mostly).
+//!
 //! Loading: each row is `HSET <target>:<first cell> col value …` with null
 //! cells left out, as in the insert script. Binaries and JSON go as they
 //! are, byte for byte (the insert script, being text, writes binaries as
@@ -26,6 +34,7 @@
 //! rest of the window stays written, is counted and reported, and the load
 //! fails naming the rows that failed.
 
+use crate::vectors::{self, FtVector, VType};
 use crate::{err, shape, RedisSession};
 use dbine_driver::keys::glob_escape;
 use dbine_driver::transfer::{
@@ -85,6 +94,91 @@ fn score(v: Value) -> Cell {
             s.parse().map_or(Cell::Text(s), Cell::Float)
         }
     }
+}
+
+/// A hash field's value as a cell: a vector field of a search index that
+/// covers the hash (`vf`, by field name) as its text, the rest as [`cell`].
+fn vector_cell(vf: &[(String, FtVector)], field: &str, v: Value) -> Cell {
+    if let (Some((_, f)), Value::BulkString(b)) = (vf.iter().find(|(n, _)| n == field), &v) {
+        if let Some(t) = f.ty.decode(b, Some(f.dims)) {
+            return Cell::Text(t);
+        }
+    }
+    cell(v)
+}
+
+/// A vector set's elements (`VRANGE` pages, where the server has it; else
+/// all of them with `VRANDMEMBER`), each with its vector and attributes.
+async fn read_vectorset(
+    s: &mut RedisSession,
+    key: &[u8],
+    wanted: Option<&[String]>,
+    sink: BatchSinkRef,
+) -> Result<u64> {
+    let (dims, _) = s.vset_shape(key).await;
+    let vector = dims
+        .map(|d| vectors::spell(d as u32, VType::F32))
+        .unwrap_or_else(|| "VECTOR".into());
+    let mut out = Out::begin(
+        sink,
+        &[
+            ("element", "string"),
+            ("vector", vector.as_str()),
+            ("attributes", "json"),
+        ],
+        wanted,
+    )?;
+    let to_rows = |rows: Vec<(Vec<u8>, Option<String>, Option<String>)>| {
+        rows.into_iter()
+            .map(|(e, v, a)| {
+                vec![
+                    text_or_bytes(e),
+                    v.map_or(Cell::Null, Cell::Text),
+                    a.map_or(Cell::Null, Cell::Json),
+                ]
+            })
+            .collect::<Vec<_>>()
+    };
+    let elements = |v: Value| -> Vec<Vec<u8>> {
+        items(v)
+            .into_iter()
+            .filter_map(|e| match e {
+                Value::BulkString(b) => Some(b),
+                _ => None,
+            })
+            .collect()
+    };
+    if s.has_vrange().await {
+        let count = PAGE.to_string();
+        let mut start = b"-".to_vec();
+        loop {
+            let page = elements(
+                s.run(&[b"VRANGE", key, &start, b"+", count.as_bytes()])
+                    .await?,
+            );
+            let n = page.len();
+            let Some(last) = page.last() else { break };
+            start = [b"(".as_slice(), last].concat();
+            let rows = s.vset_rows(key, &page).await;
+            out.rows(to_rows(rows))?;
+            if n < PAGE {
+                break;
+            }
+        }
+    } else {
+        let card = s
+            .int(&[b"VCARD", key])
+            .await
+            .unwrap_or(0)
+            .max(0)
+            .to_string();
+        let all = elements(s.run(&[b"VRANDMEMBER", key, card.as_bytes()]).await?);
+        for page in all.chunks(PAGE) {
+            let rows = s.vset_rows(key, page).await;
+            out.rows(to_rows(rows))?;
+        }
+    }
+    out.finish()
 }
 
 fn items(v: Value) -> Vec<Value> {
@@ -207,6 +301,11 @@ pub async fn read(s: &mut RedisSession, spec: &ReadSpec, sink: BatchSinkRef) -> 
             out.finish()
         }
         "hash" | "set" | "zset" => {
+            let vf = if t == "hash" {
+                s.hash_vectors(key).await
+            } else {
+                Vec::new()
+            };
             let (cmd, natural): (&[u8], &[(&str, &str)]) = match t.as_str() {
                 "hash" => (b"HSCAN", &[("field", "string"), ("value", "string")]),
                 "set" => (b"SSCAN", &[("value", "string")]),
@@ -226,7 +325,12 @@ pub async fn read(s: &mut RedisSession, spec: &ReadSpec, sink: BatchSinkRef) -> 
                     let mut it = page.into_iter();
                     let mut rows = Vec::new();
                     while let (Some(k), Some(v)) = (it.next(), it.next()) {
-                        rows.push(vec![cell(k), if t == "zset" { score(v) } else { cell(v) }]);
+                        let value = if t == "zset" {
+                            score(v)
+                        } else {
+                            vector_cell(&vf, &shape::text_of(&k), v)
+                        };
+                        rows.push(vec![cell(k), value]);
                     }
                     out.rows(rows)?;
                 }
@@ -256,6 +360,7 @@ pub async fn read(s: &mut RedisSession, spec: &ReadSpec, sink: BatchSinkRef) -> 
             out.finish()
         }
         "stream" => read_stream(s, key, wanted, sink).await,
+        "vectorset" => read_vectorset(s, key, wanted, sink).await,
         "ReJSON-RL" => {
             let mut out = Out::begin(sink, &[("value", "json")], wanted)?;
             let v = s.run(&[b"JSON.GET", key, b"$"]).await?;
@@ -296,14 +401,29 @@ fn project(
     seen: &mut [bool],
     strict: bool,
 ) -> Result<Vec<Cell>> {
+    project_vectors(cols, dup, id, fields, seen, strict, &[])
+}
+
+/// [`project`], with the hashes' vector fields (`vf`) as their text.
+fn project_vectors(
+    cols: &[String],
+    dup: bool,
+    id: Option<&str>,
+    fields: Vec<(String, Value)>,
+    seen: &mut [bool],
+    strict: bool,
+    vf: &[(String, FtVector)],
+) -> Result<Vec<Cell>> {
     let mut h: HashMap<String, Value> = fields.into_iter().collect();
     let mut row = Vec::with_capacity(cols.len());
     for (i, c) in cols.iter().enumerate() {
         let v = match id {
             Some(id) if c == "id" => Some(Cell::Text(id.to_string())),
             // A column asked for twice gets the value twice.
-            _ if dup && cols[i + 1..].contains(c) => h.get(c).cloned().map(cell),
-            _ => h.remove(c).map(cell),
+            _ if dup && cols[i + 1..].contains(c) => {
+                h.get(c).cloned().map(|v| vector_cell(vf, c, v))
+            }
+            _ => h.remove(c).map(|v| vector_cell(vf, c, v)),
         };
         seen[i] |= v.is_some();
         row.push(v.unwrap_or(Cell::Null));
@@ -631,7 +751,21 @@ async fn read_hashes(
             (names.list, true)
         }
     };
-    let natural: Vec<(&str, &str)> = cols.iter().map(|c| (c.as_str(), "string")).collect();
+    // The vector fields of a search index over the table's hashes.
+    let vf = s.hash_vectors(format!("{name}:").as_bytes()).await;
+    let types: Vec<String> = cols
+        .iter()
+        .map(|c| {
+            vf.iter()
+                .find(|(n, _)| n == c)
+                .map_or_else(|| "string".into(), |(_, v)| vectors::spell(v.dims, v.ty))
+        })
+        .collect();
+    let natural: Vec<(&str, &str)> = cols
+        .iter()
+        .zip(&types)
+        .map(|(c, t)| (c.as_str(), t.as_str()))
+        .collect();
     let mut out = Out::begin(sink, &natural, None)?;
     let mut seen = vec![false; cols.len()];
     let dup = cols.iter().collect::<HashSet<_>>().len() != cols.len();
@@ -639,7 +773,9 @@ async fn read_hashes(
     hash_pages(s, name, true, |page| {
         let mut batch = Vec::with_capacity(page.len());
         for h in page {
-            batch.push(project(&cols, dup, None, h, &mut seen, strict)?);
+            batch.push(project_vectors(
+                &cols, dup, None, h, &mut seen, strict, &vf,
+            )?);
         }
         rows += batch.len() as u64;
         out.rows(batch)
@@ -664,10 +800,31 @@ fn arg(c: &Cell) -> Vec<u8> {
 
 /// A row's `HSET` arguments (after the command name): the key
 /// `<target>:<first cell>` and each non-null cell as `column value`.
+#[cfg(test)]
 pub fn hset_args(
     target: &str,
     columns: &[String],
     row: &[Cell],
+) -> std::result::Result<Vec<Vec<u8>>, String> {
+    hset_args_packed(target, columns, row, &[])
+}
+
+/// A vector cell (text or JSON holding a JSON array of numbers) as the blob
+/// of `t`; `None` when it isn't one.
+fn packed(c: &Cell, t: VType) -> Option<Vec<u8>> {
+    match c {
+        Cell::Text(s) | Cell::Json(s) => dbine_driver::vector::parse(s).map(|v| t.encode(&v)),
+        _ => None,
+    }
+}
+
+/// [`hset_args`], with each column's vector type (`pack`, by position;
+/// `None` or past its end: not a vector): a vector cell goes as its blob.
+pub fn hset_args_packed(
+    target: &str,
+    columns: &[String],
+    row: &[Cell],
+    pack: &[Option<VType>],
 ) -> std::result::Result<Vec<Vec<u8>>, String> {
     let id = match row.first() {
         Some(Cell::Null) | None => {
@@ -683,10 +840,11 @@ pub fn hset_args(
     key.push(b':');
     key.extend_from_slice(&id);
     let mut out = vec![key];
-    for (c, v) in columns.iter().zip(row) {
+    for (i, (c, v)) in columns.iter().zip(row).enumerate() {
         if !matches!(v, Cell::Null) {
             out.push(c.as_bytes().to_vec());
-            out.push(arg(v));
+            let blob = pack.get(i).copied().flatten().and_then(|t| packed(v, t));
+            out.push(blob.unwrap_or_else(|| arg(v)));
         }
     }
     Ok(out)
@@ -727,6 +885,7 @@ async fn fill(
     rows: &mut Rows<'_>,
     target: &str,
     columns: &[String],
+    pack: &[Option<VType>],
     max_rows: u64,
     max_bytes: u64,
 ) -> Result<Window> {
@@ -740,7 +899,7 @@ async fn fill(
     while w.rows < max_rows && w.bytes < max_bytes {
         let Some(row) = rows.next().await else { break };
         let n = rows.read;
-        let args = hset_args(target, columns, &row)
+        let args = hset_args_packed(target, columns, &row, pack)
             .map_err(|e| Error::Query(format!("La fila {n} {e}.")))?;
         drop(row);
         if let Some(v) = shadowed(&args) {
@@ -856,9 +1015,36 @@ async fn load_connection(s: &RedisSession) -> Result<MultiplexedConnection> {
     Ok(conn)
 }
 
+/// Each target column's vector type: that of the vector field of a search
+/// index over the target's hashes, else the source column's when it is a
+/// vector (`vector(3)`, `vector<float, 3>`, `VECTOR(3, FLOAT64)`…).
+pub(crate) fn pack_types(
+    columns: &[String],
+    source: &[TransferColumn],
+    covered: &[(String, FtVector)],
+) -> Vec<Option<VType>> {
+    columns
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            covered
+                .iter()
+                .find(|(f, _)| f == c)
+                .map(|(_, v)| v.ty)
+                .or_else(|| {
+                    source
+                        .get(i)
+                        .and_then(|t| vectors::parse_spelling(&t.type_name))
+                        .map(|(_, t)| t)
+                })
+        })
+        .collect()
+}
+
 pub async fn load(
     s: &mut RedisSession,
     spec: &LoadSpec,
+    columns: &[TransferColumn],
     source: &mut dyn BatchSource,
     progress: Progress<'_>,
 ) -> Result<u64> {
@@ -871,6 +1057,8 @@ pub async fn load(
         return Err(Error::Query("No hay columnas para armar las keys.".into()));
     }
     let target = spec.table.name.as_str();
+    let covered = s.hash_vectors(format!("{target}:").as_bytes()).await;
+    let pack = pack_types(&spec.columns, columns, &covered);
     let (max_rows, max_bytes) = (
         spec.commit_rows.clamp(1, WINDOW_ROWS),
         spec.commit_bytes.clamp(1, WINDOW_BYTES),
@@ -892,7 +1080,7 @@ pub async fn load(
         // end before anything else happens, so nothing sent is left
         // unaccounted when the load returns.
         let (window, settled) = tokio::join!(
-            fill(&mut rows, target, &spec.columns, max_rows, max_bytes),
+            fill(&mut rows, target, &spec.columns, &pack, max_rows, max_bytes),
             flight.settle()
         );
         settled?;
@@ -1027,7 +1215,7 @@ mod tests {
             .iter()
             .map(|r| r.iter().map(Cell::to_json).collect())
             .collect();
-        let script = crate::ddl::insert_script(&target, &cols, &json).unwrap();
+        let script = crate::ddl::insert_script(&target, &cols, &json, &Default::default()).unwrap();
         let expected = crate::command::parse_script(&script).unwrap();
         let got: Vec<_> = rows
             .iter()
@@ -1272,7 +1460,7 @@ mod tests {
         };
         let mut total = 0;
         loop {
-            let w = fill(&mut rows, "t", &cols, WINDOW_ROWS, WINDOW_BYTES)
+            let w = fill(&mut rows, "t", &cols, &[], WINDOW_ROWS, WINDOW_BYTES)
                 .await
                 .unwrap();
             if w.rows == 0 {
@@ -1291,7 +1479,7 @@ mod tests {
             read: 0,
         };
         assert_eq!(
-            fill(&mut rows, "t", &cols, 5, WINDOW_BYTES)
+            fill(&mut rows, "t", &cols, &[], 5, WINDOW_BYTES)
                 .await
                 .unwrap()
                 .rows,
@@ -1321,6 +1509,70 @@ mod tests {
         assert!(
             task.is_finished(),
             "the EXEC task still runs after the drop gave up on it"
+        );
+    }
+
+    /// A vector cell goes as the blob of the index's type, or of the
+    /// source's vector type; other cells as before.
+    #[test]
+    fn vectors_load_as_blobs() {
+        let cols: Vec<String> = ["id", "emb", "v64", "note"].map(String::from).to_vec();
+        let source = |t: &str| TransferColumn {
+            name: "x".into(),
+            type_name: t.into(),
+            nullable: true,
+        };
+        let covered = vec![(
+            "emb".to_string(),
+            FtVector {
+                algorithm: "HNSW".into(),
+                ty: VType::Bf16,
+                dims: 2,
+                metric: "COSINE".into(),
+                params: Vec::new(),
+            },
+        )];
+        let pack = pack_types(
+            &cols,
+            &[
+                source("int4"),
+                source("vector(2)"),
+                source("VECTOR(2, FLOAT64)"),
+                source("text"),
+            ],
+            &covered,
+        );
+        assert_eq!(pack, [None, Some(VType::Bf16), Some(VType::F64), None]);
+        let args = hset_args_packed(
+            "docs",
+            &cols,
+            &[
+                Cell::Int(1),
+                Cell::Text("[1, 0.5]".into()),
+                Cell::Json("[0.1,2]".into()),
+                Cell::Text("[1,2]".into()),
+            ],
+            &pack,
+        )
+        .unwrap();
+        assert_eq!(args[0], b"docs:1");
+        assert_eq!(args[4], VType::Bf16.encode(&[1.0, 0.5]));
+        assert_eq!(args[6], VType::F64.encode(&[0.1, 2.0]));
+        // Not a vector column: the text as it is.
+        assert_eq!(args[8], b"[1,2]");
+        // A vector column whose cell isn't one: as it is.
+        let args =
+            hset_args_packed("d", &cols, &[Cell::Int(2), Cell::Text("x".into())], &pack).unwrap();
+        assert_eq!(args[4], b"x");
+        // Read back: the blob of a covered field is its text.
+        let blob = VType::Bf16.encode(&[1.0, 0.5]);
+        assert_eq!(
+            vector_cell(&covered, "emb", Value::BulkString(blob)),
+            Cell::Text("[1,0.5]".into())
+        );
+        assert_eq!(
+            vector_cell(&covered, "other", Value::BulkString(b"x".to_vec())),
+            Cell::Text("x".into())
         );
     }
 }
