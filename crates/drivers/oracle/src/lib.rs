@@ -3361,16 +3361,34 @@ fn update_rows(
 
 /// A value for a column whose type the caller knows (a result's or a
 /// describe's): a vector column's in its format
-/// ([`vector::typed_literal`]); any other column's as the plain literal,
-/// an array or object as its own JSON text (not rewritten as a vector's).
-/// A column without a type is looked up as the untyped scripts do
-/// ([`column_literal`]).
+/// ([`vector::typed_literal`]), or as the plain literal when it isn't a
+/// vector; any other column's as the plain literal, an array or object as
+/// its own JSON text (not rewritten as a vector's), and that text or a
+/// long-text column's string chained through `TO_CLOB` past the 4000
+/// bytes of a literal ([`vector::text_literal`]). A column without a type
+/// is looked up as the untyped scripts do ([`column_literal`]).
 fn typed_literal(target: &ObjectRef, c: &ResultColumn, v: &Value) -> String {
     match vector::shape_of(c) {
         Some(shape) => vector::typed_literal(&shape, v).unwrap_or_else(|| literal(v)),
-        None if !c.type_name.trim().is_empty() => dbine_driver::ddl::sql_literal(&ddl::FLAVOR, v),
+        None if !c.type_name.trim().is_empty() => match v {
+            Value::Array(_) | Value::Object(_) => vector::text_literal(&v.to_string()),
+            Value::String(s) if is_long_text(&c.type_name) => vector::text_literal(s),
+            _ => dbine_driver::ddl::sql_literal(&ddl::FLAVOR, v),
+        },
         None => column_literal(target, &c.name, v),
     }
+}
+
+/// Whether a column of this type takes text longer than a literal, so a
+/// long string goes as a `TO_CLOB` chain (verified on 23.26 for every
+/// one): a describe's `CLOB`, `NCLOB`, `JSON` or `LONG`, and a result's,
+/// where the client fetches a CLOB as `LONG` and an NCLOB as `LONG
+/// NVARCHAR`.
+fn is_long_text(type_name: &str) -> bool {
+    let base = type_name.split('(').next().unwrap_or("").trim();
+    ["CLOB", "NCLOB", "JSON", "LONG", "LONG NVARCHAR"]
+        .iter()
+        .any(|t| base.eq_ignore_ascii_case(t))
 }
 
 /// A value of `column` of `target` as an Oracle literal: [`literal`],
@@ -3580,6 +3598,97 @@ mod tests {
             up,
             "UPDATE \"DOCS\" SET \"v\" = '[0,3]', \"S\" = '[4,[1,3],[1.5,-2]]', \"B\" = NULL WHERE \"ID\" = 1;"
         );
+    }
+
+    #[test]
+    fn typed_scripts_never_pass_text_through_unescaped() {
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "DOCS".into(),
+        };
+        let cols = [
+            ResultColumn::new("ID", "NUMBER"),
+            ResultColumn::new("V", "VECTOR(3, FLOAT32)"),
+        ];
+        let attack = "x'); DROP TABLE DOCS; --";
+        // Short and long text that isn't a vector, from a grid, a file or
+        // another database: one statement, the text a plain literal.
+        for text in [attack.to_string(), format!("{attack}{}", "a".repeat(4100))] {
+            let ins = drivers()[0]
+                .insert_script_typed(
+                    &t,
+                    &cols,
+                    &[vec![serde_json::json!(1), serde_json::json!(text)]],
+                )
+                .unwrap();
+            assert_eq!(script::split(&ins).len(), 1, "{ins}");
+            assert!(
+                ins.starts_with("INSERT INTO \"DOCS\" (\"ID\", \"V\") VALUES (1, 'x''); DROP"),
+                "{}",
+                &ins[..80]
+            );
+            let up = drivers()[0]
+                .update_script_typed(
+                    &t,
+                    &[dbine_driver::RowChange {
+                        key: vec![("ID".into(), serde_json::json!(1))],
+                        set: vec![("V".into(), serde_json::json!(text))],
+                        ..Default::default()
+                    }],
+                    &cols,
+                )
+                .unwrap();
+            assert_eq!(script::split(&up).len(), 1, "{up}");
+            assert!(up.contains("\"V\" = 'x''); DROP"), "{}", &up[..60]);
+        }
+        // A vector's text with blanks goes in its canonical form.
+        let ins = drivers()[0]
+            .insert_script_typed(
+                &t,
+                &cols,
+                &[vec![
+                    serde_json::json!(1),
+                    serde_json::json!(" [1, 2.50, -3] "),
+                ]],
+            )
+            .unwrap();
+        assert!(ins.ends_with("VALUES (1, '[1,2.5,-3]');"), "{ins}");
+    }
+
+    #[test]
+    fn typed_scripts_chain_long_text_into_clob_and_json_columns() {
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "DOCS".into(),
+        };
+        let cols = [
+            ResultColumn::new("C", "CLOB"),
+            ResultColumn::new("J", "JSON"),
+            ResultColumn::new("N", "VARCHAR2(4000)"),
+            // A result's CLOB.
+            ResultColumn::new("L", "LONG"),
+        ];
+        let array: Vec<f64> = (0..1200).map(|i| i as f64 * 0.001234567).collect();
+        let long = format!("it's {}", "é".repeat(2500));
+        let ins = drivers()[0]
+            .insert_script_typed(
+                &t,
+                &cols,
+                &[vec![
+                    serde_json::json!(long),
+                    serde_json::json!(array),
+                    serde_json::json!("o'k"),
+                    serde_json::json!(long),
+                ]],
+            )
+            .unwrap();
+        assert_eq!(script::split(&ins).len(), 1, "{ins}");
+        // The long values as CLOB chains, the short one a plain literal.
+        assert!(ins.contains("VALUES (TO_CLOB('it''s éé"), "{ins}");
+        assert!(ins.contains(", TO_CLOB('[0.0,0.001234567,"), "{ins}");
+        assert!(ins.contains(", 'o''k', TO_CLOB('it''s éé"), "{ins}");
     }
 
     #[test]

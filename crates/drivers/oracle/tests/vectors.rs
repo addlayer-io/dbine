@@ -1012,3 +1012,128 @@ async fn body(s: &mut Box<dyn Session>) {
         "{ddl}"
     );
 }
+
+/// Typed scripts with text that isn't a vector's, and long text into CLOB
+/// and JSON columns: the value stays inside its literal (the script is one
+/// statement, the server refuses it, the table is still there) and long
+/// values come back whole. Its table is dropped first and at the end.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn typed_scripts_keep_text_in_its_literal() {
+    async fn drop_it(s: &mut Box<dyn Session>) {
+        let _ = try_run(s, "DROP TABLE VEC_TEXT PURGE").await;
+    }
+    let mut s = driver().connect(&config(), None).await.expect("connect");
+    drop_it(&mut s).await;
+    let res = tokio::spawn(async move {
+        let d = driver();
+        run(
+            &mut s,
+            &d.table_ddl(
+                &schema(
+                    "VEC_TEXT",
+                    vec![
+                        col("ID", "NUMBER(10)", false),
+                        col("V", "VECTOR(3, FLOAT32)", true),
+                        col("C", "CLOB", true),
+                        col("J", "JSON", true),
+                    ],
+                    vec![],
+                ),
+                ALL,
+            )
+            .unwrap(),
+        )
+        .await;
+        let types: Vec<dbine_driver::ResultColumn> = s
+            .columns(&table("VEC_TEXT"))
+            .await
+            .unwrap()
+            .iter()
+            .map(|c| dbine_driver::ResultColumn::new(c.name.clone(), c.data_type.clone()))
+            .collect();
+        assert_eq!(
+            types.iter().map(|c| c.type_name.as_str()).collect::<Vec<_>>(),
+            ["NUMBER(10)", "VECTOR(3, FLOAT32)", "CLOB", "JSON"]
+        );
+        let attack = "x'); DROP TABLE VEC_TEXT; --";
+        for text in [attack.to_string(), format!("{attack}{}", "a".repeat(4100))] {
+            let ins = d
+                .insert_script_typed(
+                    &table("VEC_TEXT"),
+                    &types[..2],
+                    &[vec![json!(1), json!(text)]],
+                )
+                .unwrap();
+            assert_eq!(d.split_script(&ins).len(), 1, "{ins}");
+            let e = try_run(&mut s, &ins).await.expect_err("not a vector");
+            assert!(e.contains("ORA-"), "{e}");
+            let rows = rows_of(&mut s, "SELECT COUNT(*) FROM VEC_TEXT").await;
+            assert_eq!(rows[0][0].to_string().trim_matches('"'), "0");
+        }
+        // Past 4000 bytes: a quote and a two-byte character across the
+        // first cut into the CLOB, a 1200-number array into the JSON
+        // column, and a vector given as text.
+        let long = format!("it's {}{}", "a".repeat(3993), "é".repeat(2000));
+        let array: Vec<f64> = (0..1200).map(|i| f64::from(i) * 0.25).collect();
+        let ins = d
+            .insert_script_typed(
+                &table("VEC_TEXT"),
+                &types,
+                &[vec![json!(2), json!(" [1, 2.5, -3] "), json!(long), json!(array)]],
+            )
+            .unwrap();
+        assert!(ins.contains("TO_CLOB('it''s aaa"), "{}", &ins[..120]);
+        assert_eq!(d.split_script(&ins).len(), 1);
+        run(&mut s, &ins).await;
+        let rows = rows_of(
+            &mut s,
+            "SELECT V, DBMS_LOB.GETLENGTH(C), C, JSON_SERIALIZE(J RETURNING CLOB) FROM VEC_TEXT WHERE ID = 2",
+        )
+        .await;
+        assert_eq!(rows[0][0], json!("[1,2.5,-3]"));
+        assert_eq!(rows[0][1].to_string().trim_matches('"'), "5998");
+        assert_eq!(rows[0][2], json!(long));
+        let back: Vec<f64> = serde_json::from_str(rows[0][3].as_str().unwrap()).unwrap();
+        assert_eq!(back, array);
+        // An update of the same columns, by the result's types.
+        let out = run(&mut s, "SELECT ID, V, C, J FROM VEC_TEXT WHERE ID = 2").await;
+        let result_types = out.results[0].columns.clone();
+        // The client fetches a CLOB as a LONG.
+        assert_eq!(result_types[2].type_name, "LONG");
+        let longer = format!("{long}'{}", "ü".repeat(3000));
+        let up = d
+            .update_script_typed(
+                &table("VEC_TEXT"),
+                &[RowChange {
+                    key: vec![("ID".into(), json!(2))],
+                    set: vec![("C".into(), json!(longer)), ("V".into(), json!(attack))],
+                    ..Default::default()
+                }],
+                &result_types,
+            )
+            .unwrap();
+        assert_eq!(d.split_script(&up).len(), 1, "{up}");
+        assert!(try_run(&mut s, &up).await.is_err(), "the vector isn't one");
+        let up = d
+            .update_script_typed(
+                &table("VEC_TEXT"),
+                &[RowChange {
+                    key: vec![("ID".into(), json!(2))],
+                    set: vec![("C".into(), json!(longer))],
+                    ..Default::default()
+                }],
+                &result_types,
+            )
+            .unwrap();
+        run(&mut s, &up).await;
+        let rows = rows_of(&mut s, "SELECT C FROM VEC_TEXT WHERE ID = 2").await;
+        assert_eq!(rows[0][0], json!(longer));
+    })
+    .await;
+    let mut s = driver().connect(&config(), None).await.expect("connect");
+    drop_it(&mut s).await;
+    if let Err(e) = res {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}

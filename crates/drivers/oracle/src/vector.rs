@@ -297,8 +297,12 @@ pub(crate) fn shape_of(c: &dbine_driver::ResultColumn) -> Option<Shape> {
 /// its numbers or its text: a BINARY column's 0 / 1 per dimension packed
 /// into Oracle's bytes, a SPARSE column's dense or pgvector-style value
 /// (`{1:1.5,3:3}/5`) in Oracle's sparse text and a dense column's sparse
-/// one spread out (Oracle converts neither: ORA-51833), any length.
-/// `None` for a value that isn't a vector's (a number, a boolean).
+/// one spread out (Oracle converts neither: ORA-51833), any length. A
+/// vector that needs no change goes in its canonical text. `None` for a
+/// value that isn't a vector's (a number, a boolean, text that doesn't
+/// read as a vector), which the caller writes as a plain literal: the
+/// text of a grid, a file or another database never reaches the
+/// statement as it came.
 pub(crate) fn typed_literal(shape: &Shape, v: &serde_json::Value) -> Option<String> {
     use serde_json::Value;
     let text = match v {
@@ -316,8 +320,23 @@ pub(crate) fn typed_literal(shape: &Shape, v: &serde_json::Value) -> Option<Stri
     } else {
         dense_text(&text)
     }
-    .unwrap_or(text);
+    .or_else(|| canonical(&text))?;
     Some(text_literal(&text))
+}
+
+/// A vector's text as it is, in the canonical form: a dense one's numbers
+/// written the shortest way, a sparse one in Oracle's text. `None` when
+/// the text isn't a vector's.
+fn canonical(t: &str) -> Option<String> {
+    if let Some(dense) = vector::parse(t) {
+        return Some(vector::text(dense));
+    }
+    let (n, idx, val) = sparse_parts(t)?;
+    Some(format!(
+        "[{n},{},{}]",
+        vector::text(idx.iter().map(|&i| f64::from(i))),
+        vector::text(val)
+    ))
 }
 
 /// A sparse vector's parts: dimensions, indices from 0 and values, from
@@ -394,20 +413,30 @@ pub(crate) fn dense_text(t: &str) -> Option<String> {
     Some(vector::text(dense))
 }
 
-/// `'text'`, or `TO_CLOB('…') || '…'` in chunks for a long one. The text is
-/// ASCII (numbers, brackets, commas).
+/// Any text as a string literal: `'text'`, or past the 4000 bytes a
+/// literal takes, `TO_CLOB('…') || '…'` in chunks. Every chunk has its
+/// quotes doubled, fits the limit with them, and ends on a whole
+/// character.
 pub(crate) fn text_literal(t: &str) -> String {
-    if t.len() <= MAX_LITERAL {
-        return format!("'{}'", t.replace('\'', "''"));
+    let quoted = |c: &str| format!("'{}'", c.replace('\'', "''"));
+    // Bytes in the literal: a quote is written twice.
+    let size = |c: char| if c == '\'' { 2 } else { c.len_utf8() };
+    if t.chars().map(size).sum::<usize>() <= MAX_LITERAL {
+        return quoted(t);
     }
-    let chunks: Vec<&str> = t
-        .as_bytes()
-        .chunks(MAX_LITERAL)
-        .map(|c| std::str::from_utf8(c).unwrap_or(""))
-        .collect();
-    let mut s = format!("TO_CLOB('{}')", chunks[0]);
+    let mut chunks = Vec::new();
+    let (mut start, mut len) = (0, 0);
+    for (i, c) in t.char_indices() {
+        if len + size(c) > MAX_LITERAL {
+            chunks.push(&t[start..i]);
+            (start, len) = (i, 0);
+        }
+        len += size(c);
+    }
+    chunks.push(&t[start..]);
+    let mut s = format!("TO_CLOB({})", quoted(chunks[0]));
     for c in &chunks[1..] {
-        s.push_str(&format!("\n  || '{c}'"));
+        s.push_str(&format!("\n  || {}", quoted(c)));
     }
     s
 }
@@ -971,6 +1000,77 @@ mod tests {
             back.push_str(inner);
         }
         assert_eq!(back, text);
+    }
+
+    #[test]
+    fn long_text_literals_escape_every_chunk() {
+        // Undo `text_literal`: the chunks' text, quotes single again.
+        let unquote = |lit: &str| -> String {
+            lit.split("\n  || ")
+                .enumerate()
+                .map(|(i, c)| {
+                    let c = match c.strip_prefix("TO_CLOB(") {
+                        Some(r) if i == 0 => r.strip_suffix(')').unwrap(),
+                        _ => c,
+                    };
+                    let inner = c.strip_prefix('\'').unwrap().strip_suffix('\'').unwrap();
+                    assert!(inner.len() <= MAX_LITERAL, "{}", inner.len());
+                    assert!(!inner.replace("''", "").contains('\''), "{inner}");
+                    inner.replace("''", "'")
+                })
+                .collect()
+        };
+        // A quote, in short and long text.
+        let short = "x'); DROP TABLE DOCS; --";
+        assert_eq!(text_literal(short), "'x''); DROP TABLE DOCS; --'");
+        let long = format!("{short}{}", "a".repeat(4100));
+        let lit = text_literal(&long);
+        assert!(lit.starts_with("TO_CLOB('x''); DROP"), "{}", &lit[..40]);
+        assert_eq!(unquote(&lit), long);
+        // Quotes that push a chunk past the limit once doubled.
+        let quotes = "'".repeat(4500);
+        assert_eq!(unquote(&text_literal(&quotes)), quotes);
+        // 3999 bytes and a two-byte character: the cut is before it, and
+        // nothing is lost.
+        let accent = format!("{}é{}", "a".repeat(3999), "b".repeat(10));
+        assert_eq!(accent.len(), 4011);
+        let lit = text_literal(&accent);
+        assert!(lit.contains("\n  || 'éb"), "{}", &lit[lit.len() - 30..]);
+        assert_eq!(unquote(&lit), accent);
+        // Exactly the limit: one literal.
+        assert_eq!(
+            text_literal(&"a".repeat(MAX_LITERAL)).len(),
+            MAX_LITERAL + 2
+        );
+    }
+
+    #[test]
+    fn typed_literals_refuse_text_that_isnt_a_vector() {
+        let shape = |t: &str| Shape::parse(t).unwrap();
+        let attack = json!(format!("x'); DROP TABLE DOCS; --{}", "a".repeat(4100)));
+        for t in [
+            "VECTOR(3, FLOAT32)",
+            "VECTOR(16, BINARY)",
+            "VECTOR(5, FLOAT32, SPARSE)",
+            "VECTOR",
+        ] {
+            assert_eq!(typed_literal(&shape(t), &attack), None, "{t}");
+            assert_eq!(typed_literal(&shape(t), &json!("abc")), None, "{t}");
+            assert_eq!(typed_literal(&shape(t), &json!(["a'", "b"])), None, "{t}");
+        }
+        // Vectors that need no change, in their canonical text.
+        assert_eq!(
+            typed_literal(&shape("VECTOR(16, BINARY)"), &json!(" [255, 1] ")).as_deref(),
+            Some("'[255,1]'")
+        );
+        assert_eq!(
+            typed_literal(
+                &shape("VECTOR(5, FLOAT32, SPARSE)"),
+                &json!("[5, [1,4], [1.5, 3]]")
+            )
+            .as_deref(),
+            Some("'[5,[1,4],[1.5,3]]'")
+        );
     }
 
     #[test]
