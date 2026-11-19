@@ -15,11 +15,13 @@
 //! Embeddings are lists of FLOAT (Neo4j 2025's `VECTOR<FLOAT32>(n)` reads
 //! as a vector too); the dimension and distance belong to the vector index
 //! (Neo4j `vector.dimensions` / `vector.similarity_function`, Memgraph
-//! `dimension` / `metric`), which another family's vector index becomes.
-//! As a source, a `LIST<FLOAT>` property stays a list (the type alone
-//! doesn't say it's an embedding); its index carries `dimensions`, which
-//! targets that need it in the column (Spanner's `vector_length`,
-//! Snowflake's `VECTOR(FLOAT, n)`) take from there.
+//! `dimension` / `metric`), which another family's vector index becomes,
+//! with the dimension of the column it searches. As a source, a
+//! `LIST<FLOAT>` property is a list (the type alone doesn't say it's an
+//! embedding); one a vector index searches moves as a vector of the
+//! dimension the index states (`convert`), so targets that keep the
+//! dimension in the column (Spanner's `vector_length`, Snowflake's
+//! `VECTOR(FLOAT, n)`, pgvector's `vector(n)`) get it.
 //!
 //! OrientDB: a table is a (document) class with a `CREATE PROPERTY` per
 //! column, NOT NULL, defaults and indexes, the primary key as a unique
@@ -252,13 +254,21 @@ impl Dialect for Cypher {
     /// `ef_construction`, `quantization` and `dimensions`. Memgraph: cosine,
     /// l2 (as l2sq), ip, hamming and its own metrics, with `dimensions`
     /// (required), `capacity` and `quantization` (its `scalar_kind`).
-    /// Neptune has no indexes of its own.
+    /// The dimension is the searched column's when the source index
+    /// doesn't state it (other families keep it in the column's type:
+    /// `vector(3)`, `vector_length=>3`). Neptune has no indexes of its own.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
+        let mut v = v.clone();
+        if let Some(L::Vector { dims: Some(n), .. }) = column {
+            v.params
+                .entry("dimensions".into())
+                .or_insert_with(|| n.to_string());
+        }
         let keep = |keys: &[&str]| {
             v.params
                 .iter()
@@ -302,12 +312,9 @@ impl Dialect for Cypher {
                     ) => Some(m.to_string()),
                     Some(m) => return Err(format!("Memgraph no tiene la distancia «{m}»")),
                 };
-                // Other families keep the dimension in the column's type,
-                // which this call doesn't receive (see the contract
-                // request in the vectors plan).
                 if !v.params.contains_key("dimensions") {
                     return Err(
-                        "Memgraph necesita la dimensión en el índice y el índice de origen no la trae (está en el tipo de la columna); crealo a mano con su dimension"
+                        "Memgraph necesita la dimensión en el índice y ni el índice ni la columna de origen la dicen; crealo a mano con su dimension"
                             .into(),
                     );
                 }
@@ -658,6 +665,32 @@ mod tests {
             .vector_index(&v(None, Some("cosine"), &[]), None)
             .unwrap_err()
             .contains("dimensión"));
+        // The dimension from the searched column (pgvector's vector(3)),
+        // when the index doesn't state it; the index's own wins.
+        let col = L::Vector {
+            dims: Some(3),
+            element: E::F32,
+            sparse: false,
+        };
+        let (_, got) = mg
+            .vector_index(&v(Some("hnsw"), Some("cosine"), &[]), Some(&col))
+            .unwrap();
+        assert_eq!(got, v(None, Some("cosine"), &[("dimensions", "3")]));
+        let (_, got) = d
+            .vector_index(&v(Some("hnsw"), Some("cosine"), &[]), Some(&col))
+            .unwrap();
+        assert_eq!(got, v(Some("hnsw"), Some("cosine"), &[("dimensions", "3")]));
+        let (_, got) = d
+            .vector_index(&v(None, Some("cosine"), &[("dimensions", "4")]), Some(&col))
+            .unwrap();
+        assert_eq!(got.params["dimensions"], "4");
+        // A column without a dimension (a list) gives none.
+        let list = L::Array {
+            of: Box::new(L::Float { bytes: 4 }),
+        };
+        assert!(mg
+            .vector_index(&v(None, Some("cosine"), &[]), Some(&list))
+            .is_err());
         let (_, got) = mg
             .vector_index(
                 &v(None, Some("ip"), &[("dimensions", "3"), ("m", "16")]),
@@ -673,8 +706,9 @@ mod tests {
 
     /// A label with an embedding and its vector index, as `database_schema`
     /// reads it, converted to the families that keep the dimension in the
-    /// column (Spanner, Snowflake), to BigQuery (none) and to a family
-    /// without vectors: the plain list stays a list everywhere else.
+    /// column (Spanner, Snowflake, pgvector), to BigQuery (none): the
+    /// searched list moves as a vector of the index's dimension, the plain
+    /// list stays a list everywhere.
     #[test]
     fn graph_embeddings_as_a_source() {
         use dbine_driver::{ColumnDef, IndexDef, VectorIndex};
@@ -743,10 +777,72 @@ mod tests {
             );
             let pg = conv("postgres");
             assert_eq!(ty(&pg, "prices"), "double precision[]");
-            assert!(pg
-                .issues
+            assert_eq!(ty(&pg, "emb"), "vector(3)");
+            let ix = pg.tables[0]
+                .indexes
                 .iter()
-                .all(|i| !i.message.contains("tipo vectorial")));
+                .find(|i| i.vector.is_some())
+                .unwrap();
+            assert_eq!(ix.columns, ["emb"]);
+            // Without a dimension in the index the list stays a list, and
+            // its vector index is left out (said).
+            let mut bare = t.clone();
+            bare.indexes[0].vector.as_mut().unwrap().params.clear();
+            let pg = crate::convert(&[bare], from, "postgres", &Default::default()).unwrap();
+            assert_eq!(pg.tables[0].columns[0].data_type, "double precision[]");
+            assert!(pg.tables[0].indexes.is_empty());
+            assert!(pg.issues.iter().any(|i| i.code == IssueCode::IndexDropped));
+        }
+    }
+
+    /// pgvector's `vector(3)` with an HNSW index into Neo4j and Memgraph:
+    /// the index takes the column's dimension (Memgraph requires it).
+    #[test]
+    fn vector_indexes_take_the_column_s_dimension() {
+        use dbine_driver::{ColumnDef, IndexDef, VectorIndex};
+        let t = TableSchema {
+            name: "docs".into(),
+            columns: vec![ColumnDef {
+                name: "emb".into(),
+                data_type: "vector(3)".into(),
+                nullable: true,
+                ..Default::default()
+            }],
+            indexes: vec![IndexDef {
+                name: "docs_emb".into(),
+                columns: vec!["emb".into()],
+                kind: Some("hnsw".into()),
+                vector: Some(VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some("cosine".into()),
+                    params: [("m".to_string(), "16".to_string())].into(),
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        for to in ["neo4j", "memgraph"] {
+            let c = crate::convert(
+                std::slice::from_ref(&t),
+                "postgres",
+                to,
+                &Default::default(),
+            )
+            .unwrap();
+            let ix = c.tables[0]
+                .indexes
+                .iter()
+                .find(|i| i.vector.is_some())
+                .unwrap_or_else(|| panic!("{to}: {:?}", c.issues));
+            let v = ix.vector.as_ref().unwrap();
+            assert_eq!(
+                v.params.get("dimensions").map(String::as_str),
+                Some("3"),
+                "{to}"
+            );
+            assert_eq!(v.metric.as_deref(), Some("cosine"));
+            assert_eq!(ix.kind.as_deref(), Some("VECTOR"));
+            assert_eq!(c.tables[0].columns[0].data_type, "LIST<FLOAT>");
         }
     }
 
