@@ -205,6 +205,12 @@ const VECTOR_OPTIONS: &[&str] = &[
 ];
 
 /// Options a flavor's vector index takes, as named in `WITH OPTIONS`.
+/// Cassandra's graph settings (`maximum_node_connections`,
+/// `construction_beam_width`) are written when the index has them: an
+/// index read from a server with `cassandra.sai.vector.allow_custom_parameters`
+/// scripts back as it is. Schema conversion leaves them out of what comes
+/// from another engine or from ScyllaDB (see dbine-schema's CQL dialect),
+/// and the designer doesn't offer them.
 fn takes_option(flavor: Flavor, option: &str) -> bool {
     match flavor {
         Flavor::Scylla => !matches!(option, "source_model" | "optimize_for"),
@@ -333,6 +339,25 @@ pub fn templates(driver_id: &str) -> Vec<CreateTemplate> {
             kind: kinds::INDEX,
             label: "Nuevo índice SAI",
             template: "CREATE INDEX {name} ON tabla (columna) USING 'sai';\n".into(),
+        });
+        v.push(CreateTemplate {
+            kind: kinds::INDEX,
+            label: "Nuevo índice vectorial (SAI)",
+            template: "-- embedding es una columna vector<float, n>. Buscá los más parecidos con\n\
+                       -- SELECT id, similarity_cosine(embedding, [0.1, 0.2, 0.3]) FROM tabla ORDER BY embedding ANN OF [0.1, 0.2, 0.3] LIMIT 10\n\
+                       CREATE INDEX {name} ON tabla (embedding) USING 'sai'\n    \
+                       WITH OPTIONS = {'similarity_function': 'COSINE'};\n"
+                .into(),
+        });
+    } else {
+        v.push(CreateTemplate {
+            kind: kinds::INDEX,
+            label: "Nuevo índice vectorial",
+            template: "-- embedding es una columna vector<float, n>. La búsqueda ANN (ORDER BY embedding ANN OF [0.1, 0.2, 0.3] LIMIT 10)\n\
+                       -- usa el servicio Vector Store de ScyllaDB.\n\
+                       CREATE CUSTOM INDEX {name} ON tabla (embedding) USING 'vector_index'\n    \
+                       WITH OPTIONS = {'similarity_function': 'COSINE', 'maximum_node_connections': '16', 'construction_beam_width': '128'};\n"
+                .into(),
         });
     }
     v
@@ -537,7 +562,15 @@ pub(crate) fn index_ddl(
     if_exists: bool,
     flavor: Flavor,
 ) -> Result<String> {
-    if let Some(v) = &ix.vector {
+    // ScyllaDB's vector_index is a vector index even without its settings
+    // (the designer's "Vectorial" switched off on it): a custom index, with
+    // the server's defaults.
+    let vector_kind = ix
+        .kind
+        .as_deref()
+        .is_some_and(|k| k.trim().eq_ignore_ascii_case("vector_index"));
+    let defaults = VectorIndex::default();
+    if let Some(v) = ix.vector.as_ref().or(vector_kind.then_some(&defaults)) {
         if ix.unique {
             return Err(Error::Query("CQL no tiene índices únicos.".into()));
         }
@@ -1200,6 +1233,26 @@ mod tests {
         let mut u = ix.clone();
         u.unique = true;
         assert!(index_ddl("t", &u, false, Flavor::Cassandra).is_err());
+    }
+
+    /// A ScyllaDB vector_index without its settings (the designer's
+    /// "Vectorial" switched off on it) is still a custom vector index.
+    #[test]
+    fn a_vector_index_without_settings() {
+        let ix = IndexDef {
+            name: "i".into(),
+            columns: vec!["v".into()],
+            kind: Some("vector_index".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            index_ddl("t", &ix, false, Flavor::Scylla).unwrap(),
+            "CREATE CUSTOM INDEX i ON t (v) USING 'vector_index';"
+        );
+        assert_eq!(
+            index_ddl("t", &ix, false, Flavor::Cassandra).unwrap(),
+            "CREATE INDEX i ON t (v) USING 'sai';"
+        );
     }
 
     #[test]

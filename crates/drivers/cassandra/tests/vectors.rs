@@ -409,6 +409,36 @@ async fn body(id: &str, url: &str) {
             .is_err_and(|e| e.to_string().contains("dimensiones")),
         "{bad:?}"
     );
+
+    // 9. A vector index without its settings (the designer's "Vectorial"
+    // switched off on it) is still one: SAI on Cassandra, a custom
+    // vector_index on ScyllaDB, with the server's defaults.
+    let mut bare = docs(id, "docs_copy");
+    bare.indexes[0].name = "docs_copy_emb".into();
+    bare.indexes[0].columns.truncate(1);
+    bare.indexes[0].vector = None;
+    let ddl = d.table_ddl(&bare, only).unwrap();
+    println!("{ddl}");
+    run(&mut s, &ddl).await;
+    let schema = s.database_schema().await.unwrap();
+    let t = schema.iter().find(|t| t.name == "docs_copy").unwrap();
+    let ix = t
+        .indexes
+        .iter()
+        .find(|i| i.name == "docs_copy_emb")
+        .unwrap();
+    assert_eq!(
+        ix.kind.as_deref(),
+        Some(if id == "scylladb" {
+            "vector_index"
+        } else {
+            "sai"
+        })
+    );
+    assert_eq!(
+        ix.vector.as_ref().unwrap().metric.as_deref(),
+        Some("cosine")
+    );
 }
 
 async fn vectors_on(id: &str, url: &str) {
