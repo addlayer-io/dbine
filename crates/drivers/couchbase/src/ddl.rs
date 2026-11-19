@@ -92,8 +92,9 @@ pub fn designer() -> DesignerSpec {
         kind: kinds::COLLECTION,
         label: "Nueva colección",
         // The fields aren't stored; a vector index takes its dimension
-        // from its field's type.
-        data_types: vec!["vector(1536)"],
+        // (and the form of its vectors: base64 text of float32s) from its
+        // field's type.
+        data_types: vec!["vector(1536)", "vector(1536, base64)"],
         schemas: true,
         primary_key: false,
         auto_increment: false,

@@ -36,9 +36,13 @@ impl Dialect for Couchbase {
         "couchbase"
     }
 
-    /// A vector index's field is `vector(N)` (float32 arrays).
+    /// A vector index's field is `vector(N)` (float32 arrays), or
+    /// `vector(N, base64)` (float32s as base64 text: the driver reads and
+    /// writes them as numbers, so it moves as any float32 vector; another
+    /// engine gets an array).
     fn parse_type(&self, t: &TypeSpec) -> L {
-        parse_vector_field(&t.raw, &[]).unwrap_or_else(|| parse_json_type(t))
+        parse_vector_field(&t.raw, &[("base64", dbine_driver::VectorElement::F32)])
+            .unwrap_or_else(|| parse_json_type(t))
     }
 
     fn render_type(&self, t: &L) -> Rendered {
@@ -72,9 +76,11 @@ impl Dialect for Couchbase {
                     "su columna vectorial no tiene dimensión, y Couchbase la necesita".into(),
                 )
             }
-            Some(L::Vector { dims: Some(n), .. }) if *n > MAX_DIMS => return Err(format!(
+            Some(L::Vector { dims: Some(n), .. }) if *n > MAX_DIMS => {
+                return Err(format!(
                 "Couchbase indexa vectores de hasta {MAX_DIMS} dimensiones, y su columna tiene {n}"
-            )),
+            ))
+            }
             _ => {}
         }
         let bits = matches!(
@@ -164,6 +170,12 @@ mod tests {
             v(Some(3), E::F32)
         );
         assert_eq!(d.parse_type(&parse("array")), L::Json { binary: true });
+        // Base64 text of float32s: a float32 vector (an array elsewhere).
+        assert_eq!(
+            d.parse_type(&parse("vector(3, base64)")),
+            v(Some(3), E::F32)
+        );
+        assert_eq!(d.parse_type(&parse("vector(base64)")), v(None, E::F32));
         // pgvector's `vector(3)` (the logical vector) and back.
         let r = d.render_type(&v(Some(3), E::F32));
         assert_eq!((r.native.as_str(), r.notes.len()), ("vector(3)", 0));
@@ -222,5 +234,57 @@ mod tests {
         );
         assert!(d.vector_index(&hamming, Some(&col(Some(8)))).is_err());
         assert!(d.vector_index(&hamming, None).is_err());
+    }
+
+    #[test]
+    fn base64_fields_move_as_vectors() {
+        use dbine_driver::{ColumnDef, IndexDef, VectorIndex};
+        // A Search `vector_base64` field as the driver describes it.
+        let t = TableSchema {
+            kind: dbine_driver::kinds::COLLECTION.into(),
+            schema: Some("b.s".into()),
+            name: "docs".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "_id".into(),
+                    data_type: "string".into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "e".into(),
+                    data_type: "vector(3, base64)".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            primary_key: Some(dbine_driver::KeyDef {
+                columns: vec!["_id".into()],
+                ..Default::default()
+            }),
+            indexes: vec![IndexDef {
+                name: "evs".into(),
+                columns: vec!["e".into()],
+                kind: Some("SEARCH".into()),
+                vector: Some(VectorIndex {
+                    metric: Some("l2".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let opts = crate::convert::Options::default();
+        let c = crate::convert::convert(std::slice::from_ref(&t), "couchbase", "postgres", &opts)
+            .unwrap();
+        let pg = &c.tables[0];
+        assert_eq!(pg.columns[1].data_type, "vector(3)");
+        assert_eq!(pg.indexes.len(), 1, "{:?}", c.issues);
+        assert_eq!(
+            pg.indexes[0].vector.as_ref().unwrap().metric.as_deref(),
+            Some("l2")
+        );
+        // Couchbase to Couchbase keeps the form.
+        let c = crate::convert::convert(&[t], "couchbase", "couchbase", &opts).unwrap();
+        assert_eq!(c.tables[0].columns[1].data_type, "vector(3, base64)");
     }
 }

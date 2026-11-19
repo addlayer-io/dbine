@@ -299,6 +299,63 @@ impl Driver for CouchbaseDriver {
         ddl::delete_script(target, keys)
     }
 
+    /// A field whose type says base64 (`vector(N, base64)`) gets its
+    /// vectors as base64 text; every other vector is an array.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        let base64 = vector::base64_columns(columns);
+        let rows: Vec<Vec<Value>> = rows
+            .iter()
+            .map(|r| {
+                r.iter()
+                    .zip(&names)
+                    .map(|(v, n)| {
+                        if base64.contains(n) {
+                            vector::base64_value(v)
+                        } else {
+                            v.clone()
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        ddl::insert_script(target, &names, &rows)
+    }
+
+    /// As [`Self::insert_script_typed`], for the fields an update sets.
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        let base64 = vector::base64_columns(types);
+        let changes: Vec<dbine_driver::RowChange> = changes
+            .iter()
+            .map(|ch| dbine_driver::RowChange {
+                set: ch
+                    .set
+                    .iter()
+                    .map(|(c, v)| {
+                        let v = if base64.contains(c) {
+                            vector::base64_value(v)
+                        } else {
+                            v.clone()
+                        };
+                        (c.clone(), v)
+                    })
+                    .collect(),
+                ..ch.clone()
+            })
+            .collect();
+        ddl::update_script(target, &changes)
+    }
+
     fn security(&self) -> Option<dbine_driver::SecuritySpec> {
         Some(security::spec())
     }
@@ -686,10 +743,7 @@ pub struct CbSession {
     /// Manual transactions: the first read or DML opens one.
     manual: bool,
     /// The bucket's vector index fields, for a while (results mark them).
-    vectors: Option<(
-        std::time::Instant,
-        HashMap<String, dbine_driver::VectorMeta>,
-    )>,
+    vectors: Option<(std::time::Instant, HashMap<String, vector::ResultField>)>,
 }
 
 static SEQ: AtomicU64 = AtomicU64::new(0);
@@ -765,6 +819,79 @@ fn tabulate(results: &[Value], signature: Option<&Value>) -> (Vec<String>, Vec<V
         })
         .collect();
     (cols, rows)
+}
+
+/// How a result column's values (nulls left out) can hold vectors: all
+/// arrays of numbers, or all base64 text of float32s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Candidate {
+    Arrays,
+    Base64,
+}
+
+/// The result columns that could be a vector index's field, by position.
+fn vector_candidates(rows: &[Vec<Value>], n: usize) -> Vec<(usize, Candidate)> {
+    (0..n)
+        .filter_map(|i| {
+            let vals: Vec<&str> = rows
+                .iter()
+                .map(|r| &r[i])
+                .filter(|v| !v.is_null())
+                .map(|v| v.as_str())
+                .collect::<Option<_>>()?;
+            if vals.is_empty() {
+                None
+            } else if vals
+                .iter()
+                .all(|v| dbine_driver::vector::parse(v).is_some())
+            {
+                Some((i, Candidate::Arrays))
+            } else if vals.iter().all(|v| vector::decode_base64(v).is_some()) {
+                Some((i, Candidate::Base64))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// The columns of a result, the vector ones marked (a vector index's field
+/// whose values are of its form), with their cells as the canonical text
+/// of the numbers (a base64 field's too).
+fn mark_vectors(
+    cols: &[String],
+    rows: &mut [Vec<Value>],
+    candidates: &[(usize, Candidate)],
+    fields: &HashMap<String, vector::ResultField>,
+) -> Vec<ResultColumn> {
+    let mut columns: Vec<ResultColumn> = cols
+        .iter()
+        .map(|n| ResultColumn::new(n.clone(), ""))
+        .collect();
+    for &(i, form) in candidates {
+        let Some((m, base64)) = fields.get(&cols[i]) else {
+            continue;
+        };
+        if *base64 != (form == Candidate::Base64) {
+            continue;
+        }
+        for r in rows.iter_mut() {
+            let t = r[i].as_str().and_then(|v| match form {
+                Candidate::Arrays => dbine_driver::vector::parse(v).map(dbine_driver::vector::text),
+                Candidate::Base64 => vector::base64_text(v),
+            });
+            if let Some(t) = t {
+                r[i] = Value::String(t);
+            }
+        }
+        let ty = if *base64 {
+            vector::base64_type_name(m.dims)
+        } else {
+            vector::type_name(m.dims)
+        };
+        columns[i] = ResultColumn::new(cols[i].clone(), ty).with_vector(m.clone());
+    }
+    columns
 }
 
 fn first_word(stmt: &str) -> String {
@@ -930,7 +1057,7 @@ impl CbSession {
 
     /// The fields of the bucket's vector indexes (cached for 30 s,
     /// forgotten when a statement other than a read runs).
-    async fn vector_fields(&mut self) -> HashMap<String, dbine_driver::VectorMeta> {
+    async fn vector_fields(&mut self) -> HashMap<String, vector::ResultField> {
         if let Some((at, f)) = &self.vectors {
             if at.elapsed() < std::time::Duration::from_secs(30) {
                 return f.clone();
@@ -1006,45 +1133,13 @@ impl CbSession {
             out.push_affected(mutations.unwrap_or(0));
         } else {
             let (cols, mut rows) = tabulate(&results, signature);
-            // Columns of a vector index's field whose values are all
-            // arrays of numbers: vectors, their text canonical.
-            let arrays: Vec<usize> = (0..cols.len())
-                .filter(|&i| {
-                    rows.iter().any(|r| !r[i].is_null())
-                        && rows.iter().all(|r| {
-                            r[i].is_null()
-                                || r[i]
-                                    .as_str()
-                                    .and_then(dbine_driver::vector::parse)
-                                    .is_some()
-                        })
-                })
-                .collect();
-            let fields = if arrays.is_empty() {
+            let candidates = vector_candidates(&rows, cols.len());
+            let fields = if candidates.is_empty() {
                 HashMap::new()
             } else {
                 self.vector_fields().await
             };
-            let mut columns: Vec<ResultColumn> = cols
-                .iter()
-                .map(|n| ResultColumn::new(n.clone(), ""))
-                .collect();
-            for i in arrays {
-                let Some(m) = fields.get(&cols[i]) else {
-                    continue;
-                };
-                for r in rows.iter_mut() {
-                    if let Some(t) = r[i]
-                        .as_str()
-                        .and_then(dbine_driver::vector::parse)
-                        .map(dbine_driver::vector::text)
-                    {
-                        r[i] = Value::String(t);
-                    }
-                }
-                columns[i] = ResultColumn::new(cols[i].clone(), vector::type_name(m.dims))
-                    .with_vector(m.clone());
-            }
+            let columns = mark_vectors(&cols, &mut rows, &candidates, &fields);
             out.begin_result(columns);
             for r in rows {
                 out.push_row(r, max_rows);
@@ -2549,6 +2644,99 @@ fn text_of(v: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn base64_vector_results_are_marked_and_typed_scripts_write_base64() {
+        use dbine_driver::{VectorElement, VectorMeta};
+        let cols = vec!["_id".to_string(), "e".into(), "a".into(), "s".into()];
+        let mut rows = vec![
+            vec![
+                json!("d1"),
+                json!("AACAPwAAAEAAAEBA"),
+                json!("[1,2,3]"),
+                json!("AACAPwAAAEAAAEBA"),
+            ],
+            vec![json!("d2"), Value::Null, json!("[3,2,1]"), json!("plain")],
+        ];
+        let candidates = vector_candidates(&rows, cols.len());
+        assert_eq!(candidates, [(1, Candidate::Base64), (2, Candidate::Arrays)]);
+        let meta = VectorMeta::dense(Some(3), VectorElement::F32);
+        let fields: HashMap<String, vector::ResultField> = [
+            ("e".to_string(), (meta.clone(), true)),
+            ("a".to_string(), (meta.clone(), false)),
+            ("s".to_string(), (meta.clone(), true)),
+        ]
+        .into();
+        let columns = mark_vectors(&cols, &mut rows, &candidates, &fields);
+        assert_eq!(columns[1].type_name, "vector(3, base64)");
+        assert_eq!(columns[1].vector, Some(meta.clone()));
+        assert_eq!(rows[0][1], json!("[1,2,3]"));
+        assert_eq!(columns[2].type_name, "vector(3)");
+        // A text field (not all base64) isn't marked, whatever the index.
+        assert_eq!(columns[3].vector, None);
+        assert_eq!(rows[0][3], json!("AACAPwAAAEAAAEBA"));
+        // A base64 field whose values are arrays isn't marked as base64.
+        let mut arr = vec![vec![json!("[1,2,3]")]];
+        let c = vector_candidates(&arr, 1);
+        let only = [("x".to_string(), (meta.clone(), true))].into();
+        assert_eq!(
+            mark_vectors(&["x".into()], &mut arr, &c, &only)[0].vector,
+            None
+        );
+
+        // Typed scripts write the base64 field's vectors as base64, and
+        // the others as arrays.
+        let d = drivers().remove(0);
+        let target = ObjectRef {
+            kind: kinds::COLLECTION.into(),
+            schema: Some("b.s".into()),
+            name: "c".into(),
+        };
+        let s = d
+            .insert_script_typed(
+                &target,
+                &columns[..3],
+                &[vec![json!("d1"), json!([1, 2, 3]), json!([3, 2, 1])]],
+            )
+            .unwrap();
+        assert!(
+            s.contains("\"e\":\"AACAPwAAAEAAAEBA\"") && s.contains("\"a\":[3,2,1]"),
+            "{s}"
+        );
+        // Untyped: arrays.
+        let s = d
+            .insert_script(
+                &target,
+                &cols[..3],
+                &[vec![json!("d1"), json!([1, 2, 3]), json!([3, 2, 1])]],
+            )
+            .unwrap();
+        assert!(s.contains("\"e\":[1,2,3]"), "{s}");
+        let ch = dbine_driver::RowChange {
+            key: vec![("_id".into(), json!("d1"))],
+            set: vec![
+                ("e".into(), json!([1, 2, 3])),
+                ("a".into(), json!([1, 1, 1])),
+            ],
+            row: Vec::new(),
+        };
+        let s = d
+            .update_script_typed(&target, std::slice::from_ref(&ch), &columns[..3])
+            .unwrap();
+        assert!(
+            s.contains("`e` = \"AACAPwAAAEAAAEBA\"") && s.contains("`a` = [1,1,1]"),
+            "{s}"
+        );
+        // A describe's types (`vector(3, base64)`) do the same.
+        let s = d
+            .update_script_typed(
+                &target,
+                &[ch],
+                &[ResultColumn::new("e", "vector(3, base64)")],
+            )
+            .unwrap();
+        assert!(s.contains("`e` = \"AACAPwAAAEAAAEBA\""), "{s}");
+    }
 
     #[test]
     fn search_queries_go_without_request_plus() {

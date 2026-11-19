@@ -519,6 +519,271 @@ async fn couchbase_vector_indexes() {
     admin.drop_database(BUCKET).await.expect("drop bucket");
 }
 
+/// Base64 vectors (`vector(N, base64)`: little-endian float32s as base64
+/// text) with a hyperscale index on `DECODE_VECTOR(field, false)`: made by
+/// the driver's DDL, written by typed scripts and loads as base64, read
+/// as numbers, described, searched and copied.
+#[tokio::test]
+#[ignore]
+async fn couchbase_base64_vectors() {
+    const B: &str = "dbine_vec_b64";
+    let Some(c) = cfg("") else {
+        return;
+    };
+    let d = dbine_driver_couchbase::drivers().remove(0);
+    assert!(d
+        .designer()
+        .unwrap()
+        .data_types
+        .contains(&"vector(1536, base64)"));
+    let mut admin = d.connect(&c, None).await.expect("connect");
+    let _ = admin.drop_database(B).await;
+    admin.create_database(B).await.expect("bucket");
+    let mut s = d
+        .connect(&cfg_of("DBINE_TEST_COUCHBASE_EE", B).unwrap(), Some(B))
+        .await
+        .unwrap();
+    let coll = |name: &str| ObjectRef {
+        kind: "collection".into(),
+        schema: Some(format!("{B}._default")),
+        name: name.into(),
+    };
+    let ks = |name: &str| format!("`{B}`.`_default`.`{name}`");
+    let raw =
+        |name: &str, key: &str| format!("SELECT RAW d.e FROM {} AS d USE KEYS \"{key}\"", ks(name));
+
+    // 1. The collection (a base64 field) and its hyperscale index, by the
+    // driver's DDL: the key decodes the field.
+    let t = TableSchema {
+        kind: "collection".into(),
+        schema: Some(format!("{B}._default")),
+        name: "docs".into(),
+        columns: vec![col("cat", "string"), col("e", "vector(3, base64)")],
+        indexes: vec![vix("e_vix", &["e"], None, "l2")],
+        options: [("primary_index".to_string(), "true".to_string())].into(),
+        ..Default::default()
+    };
+    let ddl = d.table_ddl(&t, ALL).unwrap();
+    assert!(
+        ddl.contains("ON `dbine_vec_b64`.`_default`.`docs`(DECODE_VECTOR(`e`, false) VECTOR)"),
+        "{ddl}"
+    );
+    for st in d.split_script(&ddl) {
+        run_settled(&mut s, &st.text).await;
+    }
+
+    // 2. Typed inserts (the describe's type): base64 in the documents.
+    let types = vec![
+        ResultColumn::new("_id", ""),
+        ResultColumn::new("cat", "string"),
+        ResultColumn::new("e", "vector(3, base64)"),
+    ];
+    let ins = d
+        .insert_script_typed(
+            &coll("docs"),
+            &types,
+            &[
+                vec![json!("1"), json!("a"), json!([1.0, 2.0, 3.0])],
+                vec![json!("2"), json!("b"), json!([3.0, 2.0, 1.0])],
+                vec![json!("3"), json!("a"), json!([1.0, 2.0, 2.5])],
+            ],
+        )
+        .unwrap();
+    run_settled(&mut s, &ins).await;
+    let out = run(&mut s, &raw("docs", "1")).await;
+    assert_eq!(out.results[0].rows, [[json!("AACAPwAAAEAAAEBA")]]);
+    // What the server's own encoder writes.
+    let out = run(&mut s, "SELECT RAW ENCODE_VECTOR([1, 2, 3], false)").await;
+    assert_eq!(out.results[0].rows, [[json!("AACAPwAAAEAAAEBA")]]);
+    run_settled(&mut s, &format!("BUILD INDEX ON {}(`e_vix`)", ks("docs"))).await;
+    for _ in 0..120 {
+        let out = run(
+            &mut s,
+            &format!("SELECT RAW i.state FROM system:indexes AS i WHERE i.bucket_id = \"{B}\" AND i.name = \"e_vix\""),
+        )
+        .await;
+        if out.results[0].rows == [[json!("online")]] {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+
+    // 3. Read back: the numbers, marked with the field's form.
+    let out = run(
+        &mut s,
+        &format!(
+            "SELECT META(d).id AS _id, d.e FROM {} AS d ORDER BY META(d).id",
+            ks("docs")
+        ),
+    )
+    .await;
+    let r = &out.results[0];
+    let at = r.columns.iter().position(|c| c.name == "e").unwrap();
+    assert_eq!(r.columns[at].type_name, "vector(3, base64)");
+    assert_eq!(
+        r.columns[at].vector,
+        Some(VectorMeta::dense(Some(3), VectorElement::F32))
+    );
+    assert_eq!(r.rows[0][at], json!("[1,2,3]"));
+    assert_eq!(r.rows[2][at], json!("[1,2,2.5]"));
+    let result_types = r.columns.clone();
+
+    // 4. Describe: `vector(3, base64)`; 5. the index by its field, with
+    // its vector; unchanged against itself and the designer's.
+    let schema = s.database_schema().await.unwrap();
+    let tb = schema.iter().find(|x| x.name == "docs").unwrap().clone();
+    assert_eq!(
+        tb.columns.iter().find(|c| c.name == "e").unwrap().data_type,
+        "vector(3, base64)"
+    );
+    assert!(tb.columns.iter().all(|c| !c.name.contains('(')));
+    let ix = tb.indexes.iter().find(|i| i.name == "e_vix").unwrap();
+    assert_eq!(ix.columns, ["e"]);
+    assert_eq!(ix.vector.as_ref().unwrap().metric.as_deref(), Some("l2"));
+    let mut designer = tb.clone();
+    designer.indexes.retain(|i| i.vector.is_none());
+    designer.indexes.extend(t.indexes.iter().cloned());
+    for new in [designer, tb.clone()] {
+        let same = d
+            .sync_script(&[TableChange::Alter {
+                old: tb.clone(),
+                new,
+            }])
+            .unwrap();
+        assert!(same.statements.is_empty(), "{:?}", same.statements);
+    }
+    let usage = s.index_usage(&coll("docs")).await.unwrap().unwrap();
+    let u = usage.indexes.iter().find(|i| i.name == "e_vix").unwrap();
+    assert_eq!(u.vector, ix.vector);
+
+    // 6. A similarity query through the index.
+    let out = run(
+        &mut s,
+        &format!("SELECT RAW META(d).id FROM {} AS d ORDER BY APPROX_VECTOR_DISTANCE(DECODE_VECTOR(d.e, false), [1, 2, 3], \"L2\") LIMIT 2", ks("docs")),
+    )
+    .await;
+    assert_eq!(out.results[0].rows, [[json!("1")], [json!("3")]]);
+
+    // 7. A typed update with the result's types: base64 again.
+    let upd = d
+        .update_script_typed(
+            &coll("docs"),
+            &[RowChange {
+                key: vec![("_id".into(), json!("2"))],
+                set: vec![("e".into(), json!([0.5, 0.25, 1.0]))],
+                ..Default::default()
+            }],
+            &result_types,
+        )
+        .unwrap();
+    run(&mut s, &upd).await;
+    let out = run(
+        &mut s,
+        &format!(
+            "SELECT RAW DECODE_VECTOR(d.e, false) FROM {} AS d USE KEYS \"2\"",
+            ks("docs")
+        ),
+    )
+    .await;
+    assert_eq!(out.results[0].rows, [[json!("[0.5,0.25,1]")]]);
+
+    // 8. Transfers: the read gives the numbers and says the form; a load
+    // into another collection writes base64 (by the source's type, its
+    // index not made yet), and one into a collection whose index decodes
+    // base64 writes it from a pgvector-like source.
+    let sink = Arc::new(Mutex::new(Collect::default()));
+    let read = ReadSpec {
+        table: coll("docs"),
+        columns: None,
+        filter: None,
+    };
+    s.read_batches(&read, sink.clone()).await.unwrap();
+    let got = std::mem::take(&mut *sink.lock().unwrap());
+    let at = got.columns.iter().position(|c| c.name == "e").unwrap();
+    assert_eq!(got.columns[at].type_name, "vector(3, base64)");
+    let mut cells: Vec<String> = got
+        .rows
+        .iter()
+        .map(|r| match &r[at] {
+            Cell::Json(j) => j.clone(),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    cells.sort();
+    assert_eq!(cells, ["[0.5,0.25,1]", "[1,2,2.5]", "[1,2,3]"]);
+    let copy = TableSchema {
+        name: "copy".into(),
+        indexes: Vec::new(),
+        ..t.clone()
+    };
+    for st in d.split_script(&d.table_ddl(&copy, ALL).unwrap()) {
+        run_settled(&mut s, &st.text).await;
+    }
+    let load = LoadSpec {
+        table: coll("copy"),
+        columns: got.columns.iter().map(|c| c.name.clone()).collect(),
+        table_lock: false,
+        keep_identity: true,
+        commit_rows: 1000,
+        commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
+    };
+    let n = s
+        .bulk_load(
+            &load,
+            &got.columns,
+            &mut Batches(
+                vec![RowBatch {
+                    rows: got.rows.clone(),
+                    bytes: 0,
+                }]
+                .into(),
+            ),
+            &|_| {},
+        )
+        .await
+        .unwrap();
+    assert_eq!(n, 3);
+    let out = run_settled(&mut s, &raw("copy", "1")).await;
+    assert_eq!(out.results[0].rows, [[json!("AACAPwAAAEAAAEBA")]]);
+    // From pgvector (`vector(3)`, text cells) into the indexed collection.
+    let pg_cols = vec![
+        TransferColumn {
+            name: "id".into(),
+            type_name: "text".into(),
+            nullable: false,
+        },
+        TransferColumn {
+            name: "e".into(),
+            type_name: "vector(3)".into(),
+            nullable: true,
+        },
+    ];
+    let load = LoadSpec {
+        table: coll("docs"),
+        columns: vec!["id".into(), "e".into()],
+        ..load
+    };
+    s.bulk_load(
+        &load,
+        &pg_cols,
+        &mut Batches(
+            vec![RowBatch {
+                rows: vec![vec![Cell::Text("p1".into()), Cell::Text("[1,2,3]".into())]],
+                bytes: 0,
+            }]
+            .into(),
+        ),
+        &|_| {},
+    )
+    .await
+    .unwrap();
+    let out = run_settled(&mut s, &raw("docs", "p1")).await;
+    assert_eq!(out.results[0].rows, [[json!("AACAPwAAAEAAAEBA")]]);
+
+    drop(s);
+    admin.drop_database(B).await.expect("drop bucket");
+}
+
 /// Search (FTS) vector indexes: made by the driver's DDL through the Search
 /// service, read into the schema with their vector, compared, changed,
 /// copied to another collection, and their fields marked in results.
