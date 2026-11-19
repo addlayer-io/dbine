@@ -209,6 +209,9 @@ function databaseChildren(c: SavedConnection, d: DriverInfo, db: string, parentI
       count: b?.items.length, hint: b?.total != null && b.total !== b.items.length ? t('explorer:tree.ofTotal', { total: num(b.total) }) : undefined,
       children: keyChildren(c, db, d.key_search, b, fid, kind?.has_columns ?? false),
     });
+    // Its other kinds (Redis' search indexes): listed, not searched.
+    const others = conns.otherKinds[k];
+    if (others?.length) out.push(...kindFolders(c, d, db, others, undefined, 'hint', new Map()));
     return out;
   }
   // Flat mode ignores the listed schemas: only those with objects count.
@@ -1318,7 +1321,8 @@ watch(() => ui.reveal?.seq, async () => {
     } else {
       keys.push(`f:${c.id}:${r.database}:${kind}`);
     }
-    const sep = d?.key_search?.separator;
+    // Keys only: another kind (a search index) isn't nested by the separator.
+    const sep = r.object.kind === d?.object_kinds[0]?.id ? d?.key_search?.separator : undefined;
     if (sep) {
       // The namespace folders down to the key (those that exist are opened).
       const parts = r.object.name.split(sep);
