@@ -838,3 +838,145 @@ async fn typed_scripts_in_every_format() {
         std::panic::resume_unwind(e.into_panic());
     }
 }
+
+/// An L2 index on 1-bit vectors made by hand, which sqld takes (and then
+/// ranks wrong): the table it's on still has a script. Its DDL, as a
+/// clone, a script export or a same-engine migration asks for it, and a
+/// compare's copy of the table, run on the server and give the same index,
+/// with a warning. The designer still can't make one. The other refusals
+/// (no dimension, 1-bit compression with L2) are sqld's own: no table can
+/// hold those.
+#[tokio::test]
+#[ignore]
+async fn an_index_the_server_holds_is_scripted() {
+    let _one = LOCK.lock().await;
+    let pid = std::process::id();
+    let name = format!("vec_h_{pid}");
+    let copy = format!("vec_hc_{pid}");
+    let synced = format!("vec_hs_{pid}");
+    let refused = format!("vec_hr_{pid}");
+    let names = vec![name.clone(), copy.clone(), synced.clone(), refused.clone()];
+    let meta_was_there = {
+        let mut s = open().await;
+        let r = run(
+            &mut s,
+            "SELECT count(*) FROM sqlite_master WHERE name = 'libsql_vector_meta_shadow'",
+        )
+        .await;
+        r.results[0].rows[0][0] == json!(1)
+    };
+    drop_all(&names, true).await;
+    let body = {
+        let (name, copy, synced, refused) =
+            (name.clone(), copy.clone(), synced.clone(), refused.clone());
+        tokio::spawn(async move {
+            let d = driver();
+            let mut s = open().await;
+            run(
+                &mut s,
+                &format!(
+                    "CREATE TABLE \"{name}\" (id INTEGER PRIMARY KEY, bits F1BIT_BLOB(8));\n\
+                     CREATE INDEX \"{name}_bits\" ON \"{name}\" (libsql_vector_idx(bits, 'metric=l2'));\n\
+                     INSERT INTO \"{name}\" VALUES (1, vector1bit('[1,0,1,0,1,0,1,0]')), (2, vector1bit('[0,1,0,1,0,1,0,1]'));"
+                ),
+            )
+            .await;
+            // sqld's own refusals: no table holds such an index.
+            run(
+                &mut s,
+                &format!("CREATE TABLE \"{refused}\" (a F32_BLOB(8), b F32_BLOB)"),
+            )
+            .await;
+            for key in ["a, 'metric=l2', 'compress_neighbors=float1bit'", "b"] {
+                let mut out = QueryOutcome::default();
+                let r = s
+                    .execute(
+                        &format!(
+                            "CREATE INDEX \"{refused}_x\" ON \"{refused}\" (libsql_vector_idx({key}))"
+                        ),
+                        10,
+                        &mut out,
+                    )
+                    .await;
+                assert!(
+                    r.is_err() || out.error.is_some(),
+                    "sqld took libsql_vector_idx({key})"
+                );
+            }
+
+            // The table as the catalog read gives it.
+            let read = |all: Vec<TableSchema>, n: &str| {
+                all.into_iter()
+                    .find(|t| t.name == n)
+                    .unwrap_or_else(|| panic!("{n} not read"))
+            };
+            let t = read(s.database_schema().await.unwrap(), &name);
+            let ix = &t.indexes[0];
+            assert_eq!(
+                ix.vector.as_ref().and_then(|v| v.metric.as_deref()),
+                Some("l2")
+            );
+            assert!(dbine_driver_sqlite::schema::held_vector_index(ix));
+            let all = DdlParts {
+                create: true,
+                indexes: true,
+                ..Default::default()
+            };
+            // Its DDL, as a clone or an export asks for it, runs.
+            let mut c = t.clone();
+            c.name = copy.clone();
+            c.indexes[0].name = format!("{copy}_bits");
+            let ddl = d.table_ddl(&c, all).unwrap();
+            assert!(
+                ddl.contains(&format!(
+                    "-- El índice vectorial «{copy}_bits» mide con distancia L2"
+                )),
+                "{ddl}"
+            );
+            run(&mut s, &ddl).await;
+            // A compare's copy: the warning apart, the same index.
+            let mut c = t.clone();
+            c.name = synced.clone();
+            c.indexes[0].name = format!("{synced}_bits");
+            let script = d.sync_script(&[TableChange::Create { table: c }]).unwrap();
+            assert_eq!(script.warnings.len(), 1, "{:?}", script.warnings);
+            for st in &script.statements {
+                run(&mut s, st).await;
+            }
+            let after = s.database_schema().await.unwrap();
+            for n in [&copy, &synced] {
+                let x = read(after.clone(), n);
+                assert_eq!(x.indexes.len(), 1, "{n}");
+                assert!(dbine_driver::vector::same_index(
+                    &x.indexes[0].vector,
+                    &t.indexes[0].vector
+                ));
+                assert_eq!(x.columns[1].data_type, "F1BIT_BLOB(8)");
+            }
+            run(
+                &mut s,
+                &format!("INSERT INTO \"{copy}\" SELECT * FROM \"{name}\""),
+            )
+            .await;
+            let out = run(
+                &mut s,
+                &format!(
+                    "SELECT count(*) FROM vector_top_k('{copy}_bits', vector1bit('[1,0,1,0,1,0,1,0]'), 2)"
+                ),
+            )
+            .await;
+            assert_eq!(out.results[0].rows[0][0], json!(2));
+            // The designer's own L2 index on 1-bit vectors stays refused.
+            let mut made = t.clone();
+            made.name = refused.clone();
+            made.indexes[0].options.clear();
+            let e = d.table_ddl(&made, all).unwrap_err().to_string();
+            assert!(e.contains("1 bit"), "{e}");
+        })
+    };
+    let r = body.await;
+    drop_all(&names, meta_was_there).await;
+    if let Err(e) = r {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}
