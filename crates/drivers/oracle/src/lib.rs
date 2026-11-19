@@ -2227,8 +2227,10 @@ fn run_unit(
         )),
         None => {
             let before = out.results.len();
-            run_statement(c, &s.text, max_rows, cx.autocommit, out, cx.binds)
-                .map_err(|e| statement_error(&e, cx.text, s))?;
+            run_statement(c, &s.text, max_rows, cx.autocommit, out, cx.binds).map_err(|e| {
+                let server = c.version().map_or(0, |v| v.0 as u32);
+                vector::with_release_hint(statement_error(&e, cx.text, s), server, &s.text)
+            })?;
             let tag = script::tag(&s.text);
             for r in &mut out.results[before..] {
                 r.tag.get_or_insert_with(|| tag.clone());

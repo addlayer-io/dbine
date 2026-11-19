@@ -99,6 +99,29 @@ pub(crate) fn explain(message: &str) -> Option<&'static str> {
     )
 }
 
+/// Whether a statement declares a vector column or makes a vector index.
+pub(crate) fn mentions_vectors(statement: &str) -> bool {
+    let up = statement.to_ascii_uppercase();
+    up.contains(TYPE) || up.contains("VECTOR INDEX")
+}
+
+/// A statement with a vector type or index that a server other than HANA
+/// Cloud refused (`version`: `SYS.M_DATABASE.VERSION`, HANA Cloud's start
+/// with 4; empty unknown, no hint): the error says where they are, since
+/// the designer offers them on every server.
+pub(crate) fn with_release_hint(e: dbine_driver::Error, version: &str) -> dbine_driver::Error {
+    let v = version.trim();
+    match e {
+        dbine_driver::Error::Statement(mut se) if !v.is_empty() && !v.starts_with('4') => {
+            se.message.push_str(&format!(
+                " — SAP HANA {v} no tiene el tipo REAL_VECTOR ni índices vectoriales: son de SAP HANA Cloud."
+            ));
+            dbine_driver::Error::Statement(se)
+        }
+        other => other,
+    }
+}
+
 /// HANA's similarity functions and the standard distances.
 pub(crate) fn metric_of(native: &str) -> String {
     match native.trim().to_ascii_uppercase().as_str() {
@@ -242,6 +265,30 @@ mod tests {
         );
         assert!(explain("impl error: Illegal type code 96").is_some());
         assert!(explain("something else").is_none());
+    }
+
+    #[test]
+    fn other_servers_say_where_vectors_are() {
+        let e = || {
+            dbine_driver::Error::Statement(Box::new(dbine_driver::ScriptError::new(
+                "[257] sql syntax error",
+            )))
+        };
+        let msg = |e: dbine_driver::Error| match e {
+            dbine_driver::Error::Statement(se) => se.message,
+            other => other.to_string(),
+        };
+        assert!(mentions_vectors("CREATE TABLE T (V REAL_VECTOR(3))"));
+        assert!(mentions_vectors("create hnsw vector index ix on t (v)"));
+        assert!(!mentions_vectors("CREATE TABLE T (V INT)"));
+        assert!(
+            msg(with_release_hint(e(), "2.00.076.00.1705400033")).contains("son de SAP HANA Cloud")
+        );
+        assert_eq!(
+            msg(with_release_hint(e(), "4.00.000.00.1729232516")),
+            "[257] sql syntax error"
+        );
+        assert_eq!(msg(with_release_hint(e(), "")), "[257] sql syntax error");
     }
 
     #[test]

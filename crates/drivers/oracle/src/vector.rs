@@ -313,6 +313,34 @@ pub(crate) fn unknown_settings_note(index: &str) -> String {
     )
 }
 
+/// A statement with a vector type or index that a server before 23ai
+/// refused (`server`: its major release; 0 unknown, no hint): the error
+/// says the release that has them, since the designer offers them on every
+/// server.
+pub(crate) fn with_release_hint(
+    e: dbine_driver::Error,
+    server: u32,
+    statement: &str,
+) -> dbine_driver::Error {
+    match e {
+        dbine_driver::Error::Statement(mut se)
+            if (1..23).contains(&server) && mentions_vectors(statement) =>
+        {
+            se.message.push_str(&format!(
+                " — Oracle {server} no tiene el tipo VECTOR ni índices vectoriales: llegaron en Oracle Database 23ai."
+            ));
+            dbine_driver::Error::Statement(se)
+        }
+        other => other,
+    }
+}
+
+/// Whether a statement declares a vector column or makes a vector index.
+fn mentions_vectors(statement: &str) -> bool {
+    let up = statement.to_ascii_uppercase();
+    up.contains("VECTOR(") || up.contains("VECTOR (") || up.contains("VECTOR INDEX")
+}
+
 /// Oracle's distance names and the standard ones.
 pub(crate) fn metric_of(native: &str) -> String {
     match native.trim().to_ascii_uppercase().as_str() {
@@ -679,6 +707,40 @@ mod tests {
         let l = column_literal(None, "T", "B", &long).unwrap();
         assert!(l.contains("THEN TO_CLOB('[255,"), "{}", &l[..80]);
         assert!(l.contains("ELSE TO_CLOB('[1,1,"));
+    }
+
+    #[test]
+    fn older_servers_say_which_release_has_vectors() {
+        let e = || {
+            dbine_driver::Error::Statement(Box::new(dbine_driver::ScriptError::new(
+                "ORA-00902: invalid datatype",
+            )))
+        };
+        let msg = |e: dbine_driver::Error| match e {
+            dbine_driver::Error::Statement(se) => se.message,
+            other => other.to_string(),
+        };
+        let ddl = "CREATE TABLE T (V VECTOR(3, FLOAT32))";
+        assert!(msg(with_release_hint(e(), 19, ddl)).contains("llegaron en Oracle Database 23ai"));
+        assert!(msg(with_release_hint(
+            e(),
+            19,
+            "CREATE VECTOR INDEX IX ON T (V)"
+        ))
+        .contains("23ai"));
+        // 23ai itself, an unknown release, or no vector in the statement: as it was.
+        assert_eq!(
+            msg(with_release_hint(e(), 23, ddl)),
+            "ORA-00902: invalid datatype"
+        );
+        assert_eq!(
+            msg(with_release_hint(e(), 0, ddl)),
+            "ORA-00902: invalid datatype"
+        );
+        assert_eq!(
+            msg(with_release_hint(e(), 19, "CREATE TABLE T (V NUMBER)")),
+            "ORA-00902: invalid datatype"
+        );
     }
 
     #[test]

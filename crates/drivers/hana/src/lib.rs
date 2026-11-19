@@ -737,7 +737,22 @@ impl HanaSession {
     async fn run_one(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let response = self.conn.statement(stmt).await;
         self.warnings(out).await;
-        let response = response.map_err(|e| stmt_err(e, stmt, 0))?;
+        let response = match response {
+            Ok(r) => r,
+            Err(e) => {
+                let e = stmt_err(e, stmt, 0);
+                // REAL_VECTOR is HANA Cloud's: on another server, say so.
+                if !vector::mentions_vectors(stmt) {
+                    return Err(e);
+                }
+                let version = single_text(&self.conn, "SELECT VERSION FROM SYS.M_DATABASE")
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default();
+                return Err(vector::with_release_hint(e, &version));
+            }
+        };
         let before = out.results.len();
         push_response(&self.conn, response, max_rows, out).await?;
         let reads = out.results[before..].iter().all(|r| !r.columns.is_empty());
