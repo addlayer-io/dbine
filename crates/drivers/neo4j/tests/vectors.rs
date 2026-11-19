@@ -436,6 +436,14 @@ async fn scenario(id: &str, d: &dyn Driver, s: &mut Box<dyn Session>) {
         }])
         .unwrap();
     assert_eq!(sync.statements.len(), 2, "{:?}", sync.statements);
+    // The index usage report lists it with the same settings.
+    let usage = s.index_usage(&label(LABEL)).await.unwrap().unwrap();
+    let u = usage
+        .indexes
+        .iter()
+        .find(|i| i.name == "dbine_vec_doc")
+        .unwrap_or_else(|| panic!("{:?}", usage.indexes));
+    assert_eq!(u.vector.as_ref(), Some(got), "{u:?}");
 
     // 6. A similarity query: the index's and the function's.
     let q = if neo {
@@ -476,6 +484,27 @@ async fn scenario(id: &str, d: &dyn Driver, s: &mut Box<dyn Session>) {
     .await;
     assert_eq!(out.results[0].rows[0][0], json!("[0.5,0.25,-1]"));
     assert!(out.results[0].columns[0].vector.is_some());
+    // The same edit knowing the result's types: a float list stays one.
+    let typed = d
+        .update_script_typed(
+            &label(LABEL),
+            &[RowChange {
+                key: vec![("id".into(), json!(2))],
+                set: vec![("emb".into(), json!([0.5, 0.25, -1.5]))],
+                row: Vec::new(),
+            }],
+            &out.results[0].columns,
+        )
+        .unwrap();
+    assert!(typed.contains("n.emb = [0.5, 0.25, -1.5]"), "{typed}");
+    run(s, &typed).await;
+    let out = run(
+        s,
+        &format!("MATCH (n:{LABEL} {{id: 2}}) RETURN n.emb AS emb"),
+    )
+    .await;
+    assert_eq!(out.results[0].rows[0][0], json!("[0.5,0.25,-1.5]"));
+    run(s, &typed.replace("-1.5", "-1")).await;
 
     // 8. Transfer: read as vector text, load into a copy (same engine);
     // then a pgvector-shaped source (text cells with a JSON array).

@@ -431,9 +431,82 @@ pub fn property(v: &Value) -> String {
     }
 }
 
+/// A property value for a column whose type is known: a JSON array of
+/// numbers into a Neo4j 2025 `VECTOR<FLOAT32>(n)` column is written as a
+/// `vector(…)` (a list would turn the property into a LIST<FLOAT>);
+/// anything else as [`property`] writes it.
+pub fn property_typed(v: &Value, column: Option<&dbine_driver::ResultColumn>) -> String {
+    let coordinate = column.and_then(|c| vector_coordinate(&c.type_name));
+    if let (Value::Array(a), Some(coordinate)) = (v, coordinate) {
+        if !a.is_empty() && a.iter().all(Value::is_number) {
+            let items: Vec<String> = a.iter().map(literal).collect();
+            return format!("vector([{}], {}, {coordinate})", items.join(", "), a.len());
+        }
+    }
+    property(v)
+}
+
+/// The coordinate type of a `VECTOR<FLOAT32>(3)` column (a result's type,
+/// or a describe's in any case, Cypher's aliases too) as `vector()` takes
+/// it; `None` for any other type.
+pub fn vector_coordinate(type_name: &str) -> Option<&'static str> {
+    let t = type_name.trim().to_ascii_uppercase();
+    let inner = t.strip_prefix("VECTOR")?.trim_start().strip_prefix('<')?;
+    let (c, _) = inner.split_once('>')?;
+    Some(
+        match c.split_whitespace().collect::<Vec<_>>().join(" ").as_str() {
+            "FLOAT32" => "FLOAT32",
+            "FLOAT64" | "FLOAT" => "FLOAT64",
+            "INTEGER8" | "INT8" => "INTEGER8",
+            "INTEGER16" | "INT16" => "INTEGER16",
+            "INTEGER32" | "INT32" => "INTEGER32",
+            "INTEGER64" | "INT64" | "INTEGER" | "INT" | "SIGNED INTEGER" => "INTEGER64",
+            _ => return None,
+        },
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_vector_columns_take_vectors() {
+        use dbine_driver::ResultColumn;
+        let v = serde_json::json!([0.5, -2, 3]);
+        let col = |t: &str| ResultColumn::new("e", t);
+        assert_eq!(
+            property_typed(&v, Some(&col("VECTOR<FLOAT32>(3)"))),
+            "vector([0.5, -2, 3], 3, FLOAT32)"
+        );
+        assert_eq!(
+            property_typed(&v, Some(&col("vector<float>(3)"))),
+            "vector([0.5, -2, 3], 3, FLOAT64)"
+        );
+        assert_eq!(
+            property_typed(&serde_json::json!([1, 2]), Some(&col("VECTOR<INT8>(2)"))),
+            "vector([1, 2], 2, INTEGER8)"
+        );
+        // A float list column, an untyped one, a type that isn't one and a
+        // value that isn't numbers stay as before.
+        assert_eq!(
+            property_typed(&v, Some(&col("LIST<FLOAT>"))),
+            "[0.5, -2, 3]"
+        );
+        assert_eq!(property_typed(&v, None), "[0.5, -2, 3]");
+        assert_eq!(
+            property_typed(&v, Some(&col("VECTOR<STRING>(3)"))),
+            "[0.5, -2, 3]"
+        );
+        assert_eq!(
+            property_typed(&serde_json::json!(["a"]), Some(&col("VECTOR<FLOAT32>(1)"))),
+            "['a']"
+        );
+        assert_eq!(
+            property_typed(&serde_json::Value::Null, Some(&col("VECTOR<FLOAT32>(1)"))),
+            "null"
+        );
+    }
 
     #[test]
     fn a_name_cannot_end_a_line_comment() {

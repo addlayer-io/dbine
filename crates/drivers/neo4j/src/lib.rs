@@ -374,12 +374,32 @@ impl Driver for GraphDriver {
         ddl::insert_script(self.flavor, target, columns, rows)
     }
 
+    /// A vector into a Neo4j 2025 `VECTOR<…>(n)` column is written as a
+    /// `vector(…)`, so the property stays a VECTOR.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
+        ddl::insert_script_typed(self.flavor, target, columns, rows)
+    }
+
     fn update_script(
         &self,
         target: &ObjectRef,
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
         ddl::update_script(self.flavor, target, changes)
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        ddl::update_script_typed(self.flavor, target, changes, types)
     }
 
     fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
