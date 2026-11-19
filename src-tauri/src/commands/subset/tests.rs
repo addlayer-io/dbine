@@ -9,14 +9,31 @@ use mask::FakeKind;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-fn dir(tag: &str) -> PathBuf {
+/// A test's own folder (its state file), removed when the test ends,
+/// passed or not.
+struct TempDir(PathBuf);
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+impl std::ops::Deref for TempDir {
+    type Target = std::path::Path;
+    fn deref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+fn dir(tag: &str) -> TempDir {
     let d = std::env::temp_dir().join(format!(
         "dbine-subset-{tag}-{}-{}",
         std::process::id(),
         chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
     ));
     std::fs::create_dir_all(&d).unwrap();
-    d
+    TempDir(d)
 }
 
 fn save(state: &AppState, id: &str, cfg: ConnectionConfig, tags: Vec<String>) {
@@ -152,7 +169,21 @@ fn mask(table: &str, cols: &[(&str, MaskRule)]) -> TableMask {
     }
 }
 
-async fn setup(tag: &str) -> AppState {
+/// A state with SQLite `src`, `tgt` and `prod` connections; its folder (the
+/// state and the databases) goes when it's dropped.
+struct Setup {
+    state: AppState,
+    _dir: TempDir,
+}
+
+impl std::ops::Deref for Setup {
+    type Target = AppState;
+    fn deref(&self) -> &AppState {
+        &self.state
+    }
+}
+
+async fn setup(tag: &str) -> Setup {
     let d = dir(tag);
     let state = AppState::new(StateStore::open(&d.join("state.sqlite")).unwrap());
     save(&state, "src", sqlite(&d.join("src.db")), vec![]);
@@ -167,7 +198,7 @@ async fn setup(tag: &str) -> AppState {
     // The targets exist (the plan opens them read-only).
     sql(&state, "tgt", None, "SELECT 1").await;
     sql(&state, "prod", None, "SELECT 1").await;
-    state
+    Setup { state, _dir: d }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -656,52 +687,109 @@ async fn postgres_to_postgres() {
     }
 }
 
-/// A subset of a pgvector table into another database of the same server
-/// (`dbine-test-pgvector`): the vectors arrive whole, through the target's
-/// insert script.
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs dbine-test-pgvector"]
-async fn vector_live_subset_pgvector_to_pgvector() {
-    use crate::commands::vector_live_tests::{exec, first, open, pgvector};
-    let (src_db, tgt_db) = ("dbine_e2e_vecapp_subset_src", "dbine_e2e_vecapp_subset_tgt");
-    let cfg = pgvector("postgres");
+/// One engine of [`vector_subset`]: its server, its vector type and
+/// literal, and a vector as text in a query.
+struct VecEngine {
+    driver: &'static str,
+    cfg: fn(&str) -> ConnectionConfig,
+    schema: Option<&'static str>,
+    vector_type: &'static str,
+    literal: fn(&str) -> String,
+    as_text: fn(&str) -> String,
+    /// Run in each new database (pgvector's extension).
+    setup: &'static str,
+    drop: fn(&str) -> String,
+}
+
+/// A subset of a vector table into another database of the same server:
+/// the vectors arrive whole through the target's insert script, a hashed
+/// vector column gets random unit vectors of its dimension and a noised
+/// one each number moved, as the engine's vector literal (MySQL and
+/// MariaDB reject a vector written as text).
+async fn vector_subset(e: VecEngine) {
+    use crate::commands::vector_live_tests::{exec, f32s, first, open};
+    use futures_util::FutureExt;
+    let (src_db, tgt_db) = (
+        format!("dbine_e2e_vecapp_subset_src_{}", e.driver),
+        format!("dbine_e2e_vecapp_subset_tgt_{}", e.driver),
+    );
+    let admin = (e.cfg)(if e.driver == "postgres" {
+        "postgres"
+    } else {
+        ""
+    });
     let drop_dbs = || async {
-        let mut admin = open(&cfg).await.unwrap();
-        for db in [src_db, tgt_db] {
-            exec(
-                admin.as_mut(),
-                &format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)"),
-            )
-            .await
-            .unwrap();
+        let mut a = open(&admin).await?;
+        for db in [&src_db, &tgt_db] {
+            exec(a.as_mut(), &(e.drop)(db)).await?;
         }
+        Ok::<(), String>(())
     };
-    drop_dbs().await;
-    let body = async {
-        let mut admin = open(&cfg).await?;
-        for db in [src_db, tgt_db] {
-            exec(admin.as_mut(), &format!("CREATE DATABASE {db}")).await?;
-            let mut s = open(&pgvector(db)).await?;
-            exec(s.as_mut(), "CREATE EXTENSION vector").await?;
+    drop_dbs().await.expect("clean up first");
+    // The state folder goes when the test ends, the databases below, also
+    // when a check failed or panicked.
+    let d = dir(&format!("vec-{}", e.driver));
+    let body = std::panic::AssertUnwindSafe(async {
+        if crate::commands::vectors::of_type(e.driver, e.vector_type).is_none() {
+            return Err(format!(
+                "{}'s dialect doesn't take {} as a vector in this build",
+                e.driver, e.vector_type
+            ));
         }
-        drop(admin);
-        let mut s = open(&pgvector(src_db)).await?;
+        let mut a = open(&admin).await?;
+        for db in [&src_db, &tgt_db] {
+            exec(a.as_mut(), &format!("CREATE DATABASE {db}")).await?;
+            if !e.setup.is_empty() {
+                let mut s = open(&(e.cfg)(db)).await?;
+                exec(s.as_mut(), e.setup).await?;
+            }
+        }
+        drop(a);
+        let mut s = open(&(e.cfg)(&src_db)).await?;
         exec(
             s.as_mut(),
-            "CREATE TABLE emb (id int PRIMARY KEY, v vector(3)); \
-             INSERT INTO emb SELECT i, ('[' || i || ',-0.5,1e-07]')::vector FROM generate_series(1, 30) i",
+            &format!(
+                "CREATE TABLE emb (id int PRIMARY KEY, v {t}, h {t}, n {t})",
+                t = e.vector_type
+            ),
         )
         .await?;
-        let want = first(exec(s.as_mut(), "SELECT id, v::text FROM emb WHERE id <= 10 ORDER BY id").await?).rows;
+        let values: Vec<String> = (1..=30)
+            .map(|i| {
+                format!(
+                    "({i}, {}, {}, {})",
+                    (e.literal)(&format!("[{i},-0.5,1e-07]")),
+                    (e.literal)("[1,0,0]"),
+                    (e.literal)("[0.5,0.5,0.5]")
+                )
+            })
+            .collect();
+        exec(
+            s.as_mut(),
+            &format!("INSERT INTO emb VALUES {}", values.join(", ")),
+        )
+        .await?;
+        let read_sql = format!(
+            "SELECT id, {}, {}, {} FROM emb ORDER BY id",
+            (e.as_text)("v"),
+            (e.as_text)("h"),
+            (e.as_text)("n")
+        );
+        let want = first(exec(s.as_mut(), &read_sql).await?).rows;
         drop(s);
-        let d = dir("pgvector");
-        let state = AppState::new(StateStore::open(&d.join("state.sqlite")).unwrap());
-        save(&state, "pg", cfg.clone(), vec![]);
+        let tgt_cfg = (e.cfg)(&tgt_db);
+        let state = AppState::new(
+            StateStore::open(&d.join("state.sqlite")).map_err(|err| err.to_string())?,
+        );
+        save(&state, "db", tgt_cfg.clone(), vec![]);
         state.typed_secrets.insert(
-            "pg".into(),
-            [("password".to_string(), cfg.password.clone().unwrap_or_default())]
-                .into_iter()
-                .collect(),
+            "db".into(),
+            [(
+                "password".to_string(),
+                tgt_cfg.password.clone().unwrap_or_default(),
+            )]
+            .into_iter()
+            .collect(),
         );
         let mut a = args(
             "emb",
@@ -711,34 +799,105 @@ async fn vector_live_subset_pgvector_to_pgvector() {
             },
             None,
         );
-        a.connection_id = "pg".into();
-        a.database = src_db.into();
-        a.target_connection_id = "pg".into();
-        a.target_database = tgt_db.into();
-        a.table.schema = Some("public".into());
+        a.connection_id = "db".into();
+        a.database = src_db.clone();
+        a.target_connection_id = "db".into();
+        a.target_database = tgt_db.clone();
+        a.table.schema = e.schema.map(str::to_string);
+        let mut m = mask(
+            "emb",
+            &[
+                ("h", MaskRule::Hash),
+                ("n", MaskRule::Noise { percent: 10.0 }),
+            ],
+        );
+        m.schema = e.schema.map(str::to_string);
         let r = run(
             &state,
             &RunArgs {
                 subset: a,
-                masks: Vec::new(),
+                masks: vec![m],
                 confirm: String::new(),
                 seed: Some(1),
             },
             events().0,
         )
         .await
-        .map_err(|e| e.to_string())?;
-        if !r.tables.iter().all(|t| t.status == "done" && t.written == 10) {
+        .map_err(|err| err.to_string())?;
+        if !r
+            .tables
+            .iter()
+            .all(|t| t.status == "done" && t.written == 10)
+        {
             return Err(format!("{r:#?}"));
         }
-        let mut t = open(&pgvector(tgt_db)).await?;
-        let got = first(exec(t.as_mut(), "SELECT id, v::text FROM emb ORDER BY id").await?).rows;
-        if got != want {
-            return Err(format!("{got:?} != {want:?}"));
+        let mut t = open(&tgt_cfg).await?;
+        let got = first(exec(t.as_mut(), &read_sql).await?).rows;
+        if got.len() != 10 {
+            return Err(format!("{got:?}"));
+        }
+        for (g, w) in got.iter().zip(&want) {
+            // Kept whole.
+            if f32s(&g[1]) != f32s(&w[1]) {
+                return Err(format!("v: {g:?} != {w:?}"));
+            }
+            // Hashed: a random unit vector of its dimension.
+            let h = f32s(&g[2]).ok_or(format!("h: {g:?}"))?;
+            let norm: f32 = h.iter().map(|x| x * x).sum::<f32>().sqrt();
+            if h.len() != 3 || (norm - 1.0).abs() > 1e-4 || h == [1.0, 0.0, 0.0] {
+                return Err(format!("h: {h:?}"));
+            }
+            // Noised: each number within 10 % of 0.5.
+            let n = f32s(&g[3]).ok_or(format!("n: {g:?}"))?;
+            if n.len() != 3 || n.iter().any(|x| (x - 0.5).abs() > 0.05 + 1e-6) {
+                return Err(format!("n: {n:?}"));
+            }
         }
         Ok::<(), String>(())
-    }
-    .await;
-    drop_dbs().await;
+    })
+    .catch_unwind()
+    .await
+    .unwrap_or_else(|p| {
+        Err(p
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
+            .unwrap_or_else(|| "panicked".into()))
+    });
+    let cleaned = drop_dbs().await;
+    drop(d);
     body.unwrap();
+    cleaned.expect("clean up at the end");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs dbine-test-pgvector"]
+async fn vector_live_subset_pgvector_to_pgvector() {
+    vector_subset(VecEngine {
+        driver: "postgres",
+        cfg: crate::commands::vector_live_tests::pgvector,
+        schema: Some("public"),
+        vector_type: "vector(3)",
+        literal: |t| format!("'{t}'"),
+        as_text: |c| format!("{c}::text"),
+        setup: "CREATE EXTENSION vector",
+        drop: |db| format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)"),
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs dbine-test-mysql9"]
+async fn vector_live_subset_mysql9_to_mysql9() {
+    vector_subset(VecEngine {
+        driver: "mysql",
+        cfg: crate::commands::vector_live_tests::mysql9,
+        schema: None,
+        vector_type: "VECTOR(3)",
+        literal: |t| format!("STRING_TO_VECTOR('{t}')"),
+        as_text: |c| format!("VECTOR_TO_STRING({c})"),
+        setup: "",
+        drop: |db| format!("DROP DATABASE IF EXISTS {db}"),
+    })
+    .await;
 }

@@ -93,7 +93,7 @@ impl Endpoints for AppEndpoints {
 /// `table`'s columns that hold dense vectors by `of` (their type on the
 /// clone's engine): a clone on an engine without a bulk load sends their
 /// cells to `insert_script` as arrays.
-fn vector_columns(
+pub(crate) fn vector_columns(
     table: &dbine_driver::TableSchema,
     of: impl Fn(&str) -> Option<dbine_driver::VectorMeta>,
 ) -> Vec<String> {

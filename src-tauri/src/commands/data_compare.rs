@@ -600,7 +600,7 @@ fn vector_columns(
 /// Both sides on read-only sessions of their own (`dcmp:<run>:left|right`,
 /// stopped by `cancel_session`), compared whole; the result, and the
 /// difference kept for the script.
-async fn compare_sides(
+pub(crate) async fn compare_sides(
     state: &AppState,
     args: DataCompareArgs,
     run: &str,
@@ -1364,6 +1364,14 @@ pub async fn data_compare_script(
     state: State<'_, AppState>,
     args: DataScriptArgs,
 ) -> CommandResult<Vec<DataScript>> {
+    scripts_for(&state, &args)
+}
+
+/// [`data_compare_script`]'s work.
+pub(crate) fn scripts_for(
+    state: &AppState,
+    args: &DataScriptArgs,
+) -> CommandResult<Vec<DataScript>> {
     let all = diffs().lock().unwrap();
     let d = all.get(&args.id).ok_or_else(|| {
         CommandError::NotFound("la comparación ya no está: volvé a comparar".into())
@@ -1379,7 +1387,7 @@ pub async fn data_compare_script(
         if plan.delete.is_empty() && plan.update.is_empty() && plan.insert.is_empty() {
             continue;
         }
-        out.push(side_script(&state, d, to_right, plan)?);
+        out.push(side_script(state, d, to_right, plan)?);
     }
     Ok(out)
 }

@@ -1100,6 +1100,26 @@ pub async fn datagen_run(
     state: State<'_, AppState>,
     args: DataGenArgs,
 ) -> CommandResult<GenResult> {
+    let (id, total) = (args.gen_id.clone(), args.rows);
+    run_generation(&state, args, |rows| {
+        let _ = app.emit(
+            "datagen-progress",
+            GenProgress {
+                id: &id,
+                rows,
+                total,
+            },
+        );
+    })
+    .await
+}
+
+/// [`datagen_run`]'s work, the rows inserted so far through `emit`.
+pub(crate) async fn run_generation(
+    state: &AppState,
+    args: DataGenArgs,
+    emit: impl Fn(u64),
+) -> CommandResult<GenResult> {
     let started = Instant::now();
     if args.rows == 0 || args.rows > MAX_ROWS {
         return Err(CommandError::BadRequest(format!(
@@ -1116,21 +1136,11 @@ pub async fn datagen_run(
             conn.name
         )));
     }
-    let driver = driver_of(&state, &args.connection_id)?;
+    let driver = driver_of(state, &args.connection_id)?;
     let key = format!("datagen:{}", args.gen_id);
     let entry = state
         .dedicated_session(&key, &args.connection_id, &args.database, false)
         .await?;
-    let emit = |rows: u64| {
-        let _ = app.emit(
-            "datagen-progress",
-            GenProgress {
-                id: &args.gen_id,
-                rows,
-                total: args.rows,
-            },
-        );
-    };
     let run = async {
         let mut s = entry.session.lock().await;
         let (metas, _) = metas(&mut s, driver.as_ref(), &args.table).await?;

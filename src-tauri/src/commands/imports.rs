@@ -73,7 +73,7 @@ pub struct ImportResult {
 /// background pass has counted the records). `phase` is a key the UI
 /// translates: `reading` while the file is parsed, `inserting` after.
 #[derive(Clone, Serialize)]
-struct ImportProgress {
+pub(crate) struct ImportProgress {
     id: String,
     rows: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -182,8 +182,23 @@ pub async fn import_file(
     state: State<'_, AppState>,
     args: ImportArgs,
 ) -> CommandResult<ImportResult> {
+    let progress: Progress = Arc::new(move |p: ImportProgress| {
+        let _ = app.emit("import-progress", p);
+    });
+    import_with(&state, args, progress).await
+}
+
+/// Where an import's progress goes (the `import-progress` event).
+pub(crate) type Progress = Arc<dyn Fn(ImportProgress) + Send + Sync>;
+
+/// [`import_file`]'s work, its progress through `progress`.
+pub(crate) async fn import_with(
+    state: &AppState,
+    args: ImportArgs,
+    progress: Progress,
+) -> CommandResult<ImportResult> {
     let started = std::time::Instant::now();
-    let driver = driver_of(&state, &args.connection_id)?;
+    let driver = driver_of(state, &args.connection_id)?;
     let key = format!("import:{}", args.import_id);
     let entry = state
         .dedicated_session(&key, &args.connection_id, &args.database, false)
@@ -191,15 +206,12 @@ pub async fn import_file(
 
     let path = PathBuf::from(&args.path);
     let emit = |rows: u64, total: Option<u64>, phase: &'static str| {
-        let _ = app.emit(
-            "import-progress",
-            ImportProgress {
-                id: args.import_id.clone(),
-                rows,
-                total,
-                phase,
-            },
-        );
+        progress(ImportProgress {
+            id: args.import_id.clone(),
+            rows,
+            total,
+            phase,
+        });
     };
     // CSV/TSV are read as a stream: a background pass counts their records
     // for the total and stops when the import ends.
@@ -235,49 +247,47 @@ pub async fn import_file(
 
         // Formats parsed whole into memory already hold every row: take them
         // out of the reader to know how many there are.
-        let mut source: Box<dyn Iterator<Item = std::io::Result<Vec<Value>>> + Send> =
-            match reader.format {
-                ImportFormat::Json
-                | ImportFormat::JsonLines
-                | ImportFormat::Xlsx
-                | ImportFormat::Xml => {
-                    let all = reader.collect::<std::io::Result<Vec<_>>>().map_err(|e| {
-                        CommandError::BadRequest(format!("error leyendo el archivo: {e}"))
-                    })?;
-                    total.store(all.len() as u64, Ordering::Relaxed);
-                    Box::new(all.into_iter().map(Ok))
-                }
-                format => {
-                    let (total, stop) = (total.clone(), stop_count.clone());
-                    let delim = csv_delimiter(&path, format, &args.options);
-                    let (path, header) = (path.clone(), args.options.header);
-                    let (app, id, done) = (app.clone(), args.import_id.clone(), done.clone());
-                    tokio::task::spawn_blocking(move || {
-                        let Ok(Some(records)) =
-                            std::fs::File::open(&path).and_then(|f| count_records(f, delim, &stop))
-                        else {
-                            return;
-                        };
-                        // The import's own events carry it from here; this one
-                        // only matters when batches are slow.
-                        let n = records.saturating_sub(header as u64);
-                        total.store(n, Ordering::Relaxed);
-                        if !stop.load(Ordering::Relaxed) {
-                            let rows = done.load(Ordering::Relaxed);
-                            let _ = app.emit(
-                                "import-progress",
-                                ImportProgress {
-                                    id,
-                                    rows,
-                                    total: Some(n),
-                                    phase: "inserting",
-                                },
-                            );
-                        }
-                    });
-                    Box::new(reader)
-                }
-            };
+        let mut source: Box<dyn Iterator<Item = std::io::Result<Vec<Value>>> + Send> = match reader
+            .format
+        {
+            ImportFormat::Json
+            | ImportFormat::JsonLines
+            | ImportFormat::Xlsx
+            | ImportFormat::Xml => {
+                let all = reader.collect::<std::io::Result<Vec<_>>>().map_err(|e| {
+                    CommandError::BadRequest(format!("error leyendo el archivo: {e}"))
+                })?;
+                total.store(all.len() as u64, Ordering::Relaxed);
+                Box::new(all.into_iter().map(Ok))
+            }
+            format => {
+                let (total, stop) = (total.clone(), stop_count.clone());
+                let delim = csv_delimiter(&path, format, &args.options);
+                let (path, header) = (path.clone(), args.options.header);
+                let (progress, id, done) = (progress.clone(), args.import_id.clone(), done.clone());
+                tokio::task::spawn_blocking(move || {
+                    let Ok(Some(records)) =
+                        std::fs::File::open(&path).and_then(|f| count_records(f, delim, &stop))
+                    else {
+                        return;
+                    };
+                    // The import's own events carry it from here; this one
+                    // only matters when batches are slow.
+                    let n = records.saturating_sub(header as u64);
+                    total.store(n, Ordering::Relaxed);
+                    if !stop.load(Ordering::Relaxed) {
+                        let rows = done.load(Ordering::Relaxed);
+                        progress(ImportProgress {
+                            id,
+                            rows,
+                            total: Some(n),
+                            phase: "inserting",
+                        });
+                    }
+                });
+                Box::new(reader)
+            }
+        };
         let known = || Some(total.load(Ordering::Relaxed)).filter(|t| *t != u64::MAX);
         emit(0, known(), "inserting");
 

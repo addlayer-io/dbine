@@ -283,7 +283,7 @@ fn marks(driver: &str, cols: &[dbine_driver::ColumnInfo]) -> HashMap<String, Vec
 }
 
 /// The numbers of a vector cell as float32s.
-fn f32s(v: &Value) -> Option<Vec<f32>> {
+pub(crate) fn f32s(v: &Value) -> Option<Vec<f32>> {
     dbine_driver::vector::parse_value(v).map(|n| n.into_iter().map(|x| x as f32).collect())
 }
 
@@ -846,4 +846,530 @@ async fn vector_live_mariadb_vector_functions_read_without_approval() {
     )
     .await
     .unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// The app's own commands through a saved connection, on pgvector, MySQL 9
+// and MariaDB: test data, an import, the data script, a data compare with
+// its sync script. Every path learns which columns are vectors from the
+// saved connection's driver (its dialect), and MySQL and MariaDB reject a
+// vector written as plain text: these pass only where each path sends the
+// vectors as the engine's literal.
+
+/// One engine of [`app_paths`].
+#[derive(Clone, Copy)]
+struct Engine {
+    driver: &'static str,
+    cfg: fn(&str) -> ConnectionConfig,
+    schema: Option<&'static str>,
+    /// The vector column's type, and its value as text in a query.
+    vector_type: &'static str,
+    as_text: &'static str,
+    text_type: &'static str,
+}
+
+pub(crate) fn mysql9(db: &str) -> ConnectionConfig {
+    mysql_cfg(
+        "mysql",
+        "DBINE_TEST_MYSQL9_URL",
+        "mysql://root:pw@127.0.0.1:27201",
+        db,
+    )
+}
+
+pub(crate) fn mariadb(db: &str) -> ConnectionConfig {
+    mysql_cfg(
+        "mariadb",
+        "DBINE_TEST_MARIADB_URL",
+        "mysql://root:pw@127.0.0.1:25012",
+        db,
+    )
+}
+
+/// A state of its own (its folder goes when it's dropped) with the
+/// connection `c` saved for `cfg`.
+struct TestState {
+    state: crate::state::AppState,
+    dir: std::path::PathBuf,
+}
+
+impl Drop for TestState {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+fn test_state(tag: &str, cfg: &ConnectionConfig) -> Res<TestState> {
+    let dir = std::env::temp_dir().join(format!(
+        "dbine-vecapp-{tag}-{}-{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let t = TestState {
+        state: crate::state::AppState::new(
+            dbine_core::StateStore::open(&dir.join("state.sqlite")).map_err(|e| e.to_string())?,
+        ),
+        dir,
+    };
+    let conn = dbine_core::SavedConnection {
+        id: "c".into(),
+        name: "c".into(),
+        color: None,
+        config: cfg.clone(),
+        save_password: false,
+        folder_id: None,
+        tags: Vec::new(),
+        mcp_level: None,
+        updated_at: String::new(),
+    };
+    t.state
+        .store
+        .save_connection(&conn)
+        .map_err(|e| e.to_string())?;
+    t.state.typed_secrets.insert(
+        "c".into(),
+        [(
+            "password".to_string(),
+            cfg.password.clone().unwrap_or_default(),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    Ok(t)
+}
+
+/// The vectors in `table`'s `v`, by `id`, as float32s.
+async fn vectors_by_id(
+    e: &Engine,
+    s: &mut dyn Session,
+    table: &str,
+) -> Res<Vec<(i64, Option<Vec<f32>>)>> {
+    let r = first(
+        exec(
+            s,
+            &format!("SELECT id, {} FROM {table} ORDER BY id", e.as_text),
+        )
+        .await?,
+    );
+    Ok(r.rows
+        .iter()
+        .map(|row| {
+            let id = text(&row[0]).parse().unwrap_or(-1);
+            (id, f32s(&row[1]))
+        })
+        .collect())
+}
+
+/// Run `body` on a fresh database `name` of engine `e` (pgvector's with
+/// the extension), dropped before and after, also when `body` fails or
+/// panics.
+async fn with_engine_db<F, Fut>(e: &Engine, name: &str, body: F)
+where
+    F: FnOnce(ConnectionConfig) -> Fut,
+    Fut: std::future::Future<Output = Res<()>>,
+{
+    if e.driver == "postgres" {
+        return with_pgvector_db(name, body).await;
+    }
+    let admin = (e.cfg)("");
+    let run = |sql: String| {
+        let admin = admin.clone();
+        async move {
+            let mut s = open(&admin).await?;
+            exec(s.as_mut(), &sql).await.map(|_| ())
+        }
+    };
+    run(format!("DROP DATABASE IF EXISTS {name}"))
+        .await
+        .expect("clean up first");
+    let res = match run(format!("CREATE DATABASE {name}")).await {
+        Ok(()) => AssertUnwindSafe(body((e.cfg)(name)))
+            .catch_unwind()
+            .await
+            .unwrap_or_else(|p| {
+                Err(p
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
+                    .unwrap_or_else(|| "panicked".into()))
+            }),
+        Err(err) => Err(err),
+    };
+    let cleaned = run(format!("DROP DATABASE IF EXISTS {name}")).await;
+    res.unwrap();
+    cleaned.expect("clean up at the end");
+}
+
+/// C2, C3, C4 through the app's commands on engine `e`.
+async fn app_paths(e: Engine) {
+    let db = format!("dbine_e2e_vecapp_paths_{}", e.driver);
+    with_engine_db(&e, &db.clone(), |cfg| async move {
+        // The saved connection's dialect says `v` is a vector: without it
+        // (a build whose driver family doesn't classify vectors) every path
+        // below would write text.
+        check!(
+            vectors::of_type(e.driver, e.vector_type).is_some_and(|m| !m.sparse),
+            "{}'s dialect doesn't take {} as a vector in this build",
+            e.driver,
+            e.vector_type
+        );
+        let t = test_state(e.driver, &cfg)?;
+        let state = &t.state;
+        let tbl = |name: &str| table(e.schema, name);
+        let mut s = open(&cfg).await?;
+        exec(
+            s.as_mut(),
+            &format!("CREATE TABLE emb (id int PRIMARY KEY, v {})", e.vector_type),
+        )
+        .await?;
+        exec(
+            s.as_mut(),
+            &format!("CREATE TABLE emb_t (id int PRIMARY KEY, v {})", e.text_type),
+        )
+        .await?;
+
+        // Test data: `auto` gives `v` random vectors of its dimension.
+        let generated = crate::commands::datagen::run_generation(
+            state,
+            crate::commands::datagen::DataGenArgs {
+                connection_id: "c".into(),
+                database: cfg.database.clone(),
+                table: tbl("emb"),
+                columns: Vec::new(),
+                rows: 20,
+                seed: Some(7),
+                gen_id: "vec".into(),
+                batch: 8,
+            },
+            |_| {},
+        )
+        .await
+        .map_err(|err| format!("test data: {err}"))?;
+        check!(generated.rows == 20, "{} rows", generated.rows);
+        let got = vectors_by_id(&e, s.as_mut(), "emb").await?;
+        check!(got.len() == 20, "{got:?}");
+        for (id, v) in &got {
+            let v = v.as_ref().ok_or(format!("row {id}: no vector"))?;
+            let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+            check!(v.len() == 3 && (norm - 1.0).abs() < 1e-4, "row {id}: {v:?}");
+        }
+        exec(s.as_mut(), "DELETE FROM emb").await?;
+
+        // An import from CSV: the file's vector text reaches the table.
+        let dir = std::env::temp_dir().join(format!(
+            "dbine-vecapp-import-{}-{}",
+            e.driver,
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
+        let csv = dir.join("v.csv");
+        let imported = async {
+            std::fs::write(&csv, "id;v\n1;[0.5, -0.25, 1]\n2;[1,2,3]\n4;[1e-07,0,0]\n")
+                .map_err(|err| err.to_string())?;
+            let map = |n: &str| crate::commands::imports::Mapping {
+                source: n.into(),
+                target: n.into(),
+            };
+            crate::commands::imports::import_with(
+                state,
+                crate::commands::imports::ImportArgs {
+                    import_id: "vec".into(),
+                    connection_id: "c".into(),
+                    database: cfg.database.clone(),
+                    path: csv.display().to_string(),
+                    format: dbine_core::import::ImportFormat::CsvSemicolon,
+                    options: dbine_core::import::ImportOptions::default(),
+                    target: tbl("emb"),
+                    create_table: None,
+                    mapping: vec![map("id"), map("v")],
+                    batch: 2,
+                },
+                Arc::new(|_| {}),
+            )
+            .await
+            .map_err(|err| format!("import: {err}"))
+        }
+        .await;
+        let _ = std::fs::remove_dir_all(&dir);
+        check!(imported?.rows == 3, "imported");
+        let want = vec![
+            (1, Some(vec![0.5, -0.25, 1.0])),
+            (2, Some(vec![1.0, 2.0, 3.0])),
+            (4, Some(vec![1e-7, 0.0, 0.0])),
+        ];
+        let got = vectors_by_id(&e, s.as_mut(), "emb").await?;
+        check!(got == want, "{got:?}");
+
+        // The database data script recreates the rows exactly.
+        let driver = dbine_drivers::find(e.driver).ok_or("driver")?;
+        let entry = state
+            .dedicated_session("vecapp-script", "c", &cfg.database, false)
+            .await
+            .map_err(|err| err.to_string())?;
+        let script = crate::commands::scripts::generate(
+            None,
+            driver,
+            &entry,
+            &crate::commands::scripts::GenerateArgs {
+                script_id: "vec".into(),
+                connection_id: "c".into(),
+                database: cfg.database.clone(),
+                objects: vec![tbl("emb")],
+                options: crate::commands::scripts::ScriptOptions {
+                    drop: true,
+                    if_exists: true,
+                    create: true,
+                    data: true,
+                    ..Default::default()
+                },
+                path: None,
+                target_driver: None,
+                data_tables: None,
+            },
+        )
+        .await
+        .map_err(|err| format!("data script: {err}"))?
+        .script
+        .ok_or("no script")?;
+        state.sessions.remove("vecapp-script");
+        drop(entry);
+        exec(s.as_mut(), &script).await?;
+        let again = vectors_by_id(&e, s.as_mut(), "emb").await?;
+        check!(again == want, "{again:?}\n{script}");
+
+        // A data compare against the vectors as text: equal by value,
+        // whatever their spelling, and its sync script writes the
+        // vector side.
+        exec(
+            s.as_mut(),
+            "INSERT INTO emb_t VALUES (1, '[0.5, -0.25, 1.0]'), (2, '[1,2,4]'), \
+             (3, '[3,2,1]'), (4, '[0.0000001, 0, 0]')",
+        )
+        .await?;
+        let side = |name: &str| crate::commands::data_compare::Side {
+            connection_id: "c".into(),
+            database: cfg.database.clone(),
+            object: tbl(name),
+        };
+        let compare = || async {
+            let opts = whole::Options {
+                in_memory_rows: 1_000,
+                in_memory_bytes: 1 << 20,
+                max_diff_rows: 1_000,
+                max_equal_rows: 0,
+                scratch: None,
+                duckdb: None,
+            };
+            data_compare::compare_sides(
+                state,
+                data_compare::DataCompareArgs {
+                    left: side("emb"),
+                    right: side("emb_t"),
+                    key: Vec::new(),
+                    columns: Vec::new(),
+                    run: String::new(),
+                    equal: false,
+                },
+                "vecapp",
+                &Arc::new(whole::Ctl::default()),
+                &opts,
+                &|_| {},
+            )
+            .await
+            .map_err(|err| format!("data compare: {err}"))
+        };
+        let r = compare().await?;
+        check!(
+            (r.counts.same, r.counts.changed, r.counts.only_right) == (2, 1, 1),
+            "{:?}",
+            r.counts
+        );
+        let scripts = data_compare::scripts_for(
+            state,
+            &data_compare::DataScriptArgs {
+                id: r.id.clone(),
+                choices: data_compare::Choices {
+                    changed: data_compare::Pick {
+                        all: data_compare::Dir::Left,
+                        rows: Vec::new(),
+                    },
+                    only_right: data_compare::Pick {
+                        all: data_compare::Dir::Left,
+                        rows: Vec::new(),
+                    },
+                    only_left: Default::default(),
+                },
+            },
+        )
+        .map_err(|err| format!("sync script: {err}"))?;
+        check!(scripts.len() == 1, "{} scripts", scripts.len());
+        exec(s.as_mut(), &scripts[0].script).await?;
+        let r = compare().await?;
+        check!(
+            (r.counts.same, r.counts.changed, r.counts.only_right) == (4, 0, 0),
+            "after the sync: {:?}\n{}",
+            r.counts,
+            scripts[0].script
+        );
+        let got = vectors_by_id(&e, s.as_mut(), "emb").await?;
+        check!(got[1] == (2, Some(vec![1.0, 2.0, 4.0])), "{got:?}");
+        check!(got[2] == (3, Some(vec![3.0, 2.0, 1.0])), "{got:?}");
+        drop(s);
+        Ok(())
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs dbine-test-pgvector"]
+async fn vector_live_app_paths_pgvector() {
+    app_paths(Engine {
+        driver: "postgres",
+        cfg: pgvector,
+        schema: Some("public"),
+        vector_type: "vector(3)",
+        as_text: "v::text",
+        text_type: "text",
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs dbine-test-mysql9"]
+async fn vector_live_app_paths_mysql9() {
+    app_paths(Engine {
+        driver: "mysql",
+        cfg: mysql9,
+        schema: None,
+        vector_type: "VECTOR(3)",
+        as_text: "VECTOR_TO_STRING(v)",
+        text_type: "TEXT",
+    })
+    .await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs dbine-test-mariadb (11.7 or later)"]
+async fn vector_live_app_paths_mariadb() {
+    app_paths(Engine {
+        driver: "mariadb",
+        cfg: mariadb,
+        schema: None,
+        vector_type: "VECTOR(3)",
+        as_text: "VEC_ToText(v)",
+        text_type: "TEXT",
+    })
+    .await;
+}
+
+// ---------------------------------------------------------------------------
+// A clone on an engine without a bulk load
+
+/// The clone's database, its vector columns told as the app tells them.
+struct CloneEnds(ConnectionConfig);
+
+#[dbine_driver::async_trait]
+impl dbine_transfer::Endpoints for CloneEnds {
+    fn source_driver(&self) -> Arc<dyn dbine_driver::Driver> {
+        dbine_drivers::find(&self.0.driver).unwrap().clone()
+    }
+    fn target_driver(&self) -> Arc<dyn dbine_driver::Driver> {
+        dbine_drivers::find(&self.0.driver).unwrap().clone()
+    }
+    async fn open_source(&self) -> dbine_driver::Result<Box<dyn Session>> {
+        dbine_drivers::open_session(&self.0, None).await
+    }
+    async fn open_target(&self) -> dbine_driver::Result<Box<dyn Session>> {
+        dbine_drivers::open_session(&self.0, None).await
+    }
+    fn vector_columns(&self, table: &dbine_driver::TableSchema) -> Vec<String> {
+        crate::commands::clone_table::vector_columns(table, |t| vectors::of_type(&self.0.driver, t))
+    }
+}
+
+/// C5: "Clonar tabla" of a CrateDB table with a `FLOAT_VECTOR` (CrateDB has
+/// no bulk load and rejects a vector written as text): the clone's rows go
+/// through the insert script with the vectors as arrays, and arrive whole.
+/// `dbine-test-cratedb` (`DBINE_TEST_CRATEDB_URL`, default
+/// `postgres://crate@127.0.0.1:25021/doc`).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs dbine-test-cratedb"]
+async fn vector_live_clone_cratedb_sends_vectors_as_arrays() {
+    let url = std::env::var("DBINE_TEST_CRATEDB_URL")
+        .unwrap_or_else(|_| "postgres://crate@127.0.0.1:25021/doc".into());
+    let mut cfg = pgvector("doc");
+    let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
+    let (auth, hostport) = rest.rsplit_once('@').unwrap_or(("crate", rest));
+    let hostport = hostport.split('/').next().unwrap_or(hostport);
+    let (host, port) = hostport.rsplit_once(':').unwrap_or((hostport, "5432"));
+    cfg.driver = "cratedb".into();
+    cfg.host = host.into();
+    cfg.port = port.parse().unwrap_or(5432);
+    cfg.username = Some(auth.split(':').next().unwrap_or("crate").into());
+    cfg.password = None;
+    let clean = || async {
+        let mut s = open(&cfg).await?;
+        for t in ["vecapp_items", "vecapp_items_c"] {
+            exec(s.as_mut(), &format!("DROP TABLE IF EXISTS doc.{t}")).await?;
+        }
+        Ok::<(), String>(())
+    };
+    clean().await.expect("clean up first");
+    let body = AssertUnwindSafe(async {
+        check!(
+            vectors::of_type("cratedb", "float_vector(3)").is_some(),
+            "CrateDB's dialect doesn't take float_vector(3) as a vector in this build"
+        );
+        let mut s = open(&cfg).await?;
+        exec(
+            s.as_mut(),
+            "CREATE TABLE doc.vecapp_items (id int PRIMARY KEY, v FLOAT_VECTOR(3))",
+        )
+        .await?;
+        exec(
+            s.as_mut(),
+            "INSERT INTO doc.vecapp_items (id, v) VALUES (1, [0.5, -0.25, 1]), (2, [1, 2, 3]), (3, NULL)",
+        )
+        .await?;
+        exec(s.as_mut(), "REFRESH TABLE doc.vecapp_items").await?;
+        let read = |t: &str| format!("SELECT id, v FROM doc.{t} ORDER BY id");
+        let want = first(exec(s.as_mut(), &read("vecapp_items")).await?).rows;
+        let report = dbine_transfer::clone_table::clone_table(
+            Arc::new(CloneEnds(cfg.clone())),
+            dbine_transfer::clone_table::CloneRequest {
+                source: table(Some("doc"), "vecapp_items"),
+                new_name: "vecapp_items_c".into(),
+                options: Default::default(),
+            },
+            &dbine_transfer::clone_table::CloneControl::default(),
+            |_| {},
+        )
+        .await
+        .map_err(|e| format!("clone: {e}"))?;
+        check!(report.rows == 3, "{} rows", report.rows);
+        exec(s.as_mut(), "REFRESH TABLE doc.vecapp_items_c").await?;
+        let got = first(exec(s.as_mut(), &read("vecapp_items_c")).await?).rows;
+        let as_f32 = |rows: &[Vec<Value>]| -> Vec<Option<Vec<f32>>> {
+            rows.iter().map(|r| f32s(&r[1])).collect()
+        };
+        check!(as_f32(&got) == as_f32(&want), "{got:?} != {want:?}");
+        check!(
+            as_f32(&got)[1] == Some(vec![1.0, 2.0, 3.0]),
+            "{got:?}"
+        );
+        Ok::<(), String>(())
+    })
+    .catch_unwind()
+    .await
+    .unwrap_or_else(|p| {
+        Err(p
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
+            .unwrap_or_else(|| "panicked".into()))
+    });
+    let cleaned = clean().await;
+    body.unwrap();
+    cleaned.expect("clean up at the end");
 }
