@@ -411,7 +411,8 @@ impl Driver for SnowflakeDriver {
             cancel_query: true,
             jobs: true,
             scheduler: true,
-            vectors: false,
+            // VECTOR(FLOAT | INT, n); Snowflake has no vector indexes.
+            vectors: true,
         }
     }
 
@@ -632,6 +633,93 @@ struct ResultSet {
 }
 
 impl SnowflakeSession {
+    /// The columns as INFORMATION_SCHEMA has them (VECTOR and MAP bare).
+    async fn catalog_columns(&mut self, o: &ObjectRef) -> Result<Vec<ColumnInfo>> {
+        let db = self.database()?;
+        let schema = o.schema().unwrap_or("PUBLIC");
+        let is = format!(
+            "{}.INFORMATION_SCHEMA",
+            qualified_name(Quote::Double, None, &db)
+        );
+        let rows = self
+            .text_rows(
+                &format!(
+                    "SELECT column_name, data_type, is_nullable, column_default, is_identity,
+                            character_maximum_length, numeric_precision, numeric_scale
+                     FROM {is}.COLUMNS WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position"
+                ),
+                &[schema, &o.name],
+            )
+            .await?;
+        // Primary keys aren't in INFORMATION_SCHEMA.
+        let fq = format!(
+            "{}.{}",
+            qualified_name(Quote::Double, None, &db),
+            qualified_name(Quote::Double, Some(schema), &o.name)
+        );
+        let pk: Vec<String> = match self
+            .statement(&format!("SHOW PRIMARY KEYS IN TABLE {fq}"), None, 10_000)
+            .await
+        {
+            Ok(rs) => {
+                let i = column_index(&rs.row_type, "column_name").unwrap_or(4);
+                rs.rows
+                    .iter()
+                    .filter_map(|r| r.get(i).and_then(Json::as_str).map(str::to_string))
+                    .collect()
+            }
+            Err(_) => Vec::new(),
+        };
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let s = |i: usize| r.get(i).cloned().flatten();
+                let name = s(0).unwrap_or_default();
+                ColumnInfo {
+                    primary_key: pk.contains(&name),
+                    name,
+                    data_type: column_type(s(1).unwrap_or_default(), s(5), s(6), s(7)),
+                    nullable: s(2).as_deref() != Some("NO"),
+                    default_value: s(3),
+                    auto_increment: s(4).as_deref() == Some("YES"),
+                }
+            })
+            .collect())
+    }
+
+    /// VECTOR and MAP columns' whole type (`VECTOR(FLOAT, 256)`), from
+    /// `DESCRIBE TABLE`: INFORMATION_SCHEMA gives only the bare name, which
+    /// isn't a type (a table made from it fails). Left as they are when
+    /// DESCRIBE can't be read.
+    async fn full_types<'a>(
+        &self,
+        db: &str,
+        schema: Option<&str>,
+        table: &str,
+        cols: impl Iterator<Item = (&'a String, &'a mut String)>,
+    ) {
+        let bare = |t: &str| matches!(t.trim().to_ascii_uppercase().as_str(), "VECTOR" | "MAP");
+        let mut cols: Vec<_> = cols.filter(|(_, t)| bare(t)).collect();
+        if cols.is_empty() {
+            return;
+        }
+        let sql = format!("{db}.{}", qualified_name(Quote::Double, schema, table));
+        let described = match transfer::describe(self, &sql).await {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::debug!("snowflake describe {sql}: {e}");
+                return;
+            }
+        };
+        for (name, ty) in cols.iter_mut() {
+            if let Ok(full) =
+                transfer::declared_type(name, ty, described.get(*name).map(String::as_str))
+            {
+                **ty = full;
+            }
+        }
+    }
+
     /// A request for `sql`, which holds `count` statements. Read-write
     /// sessions let the server count them (`MULTI_STATEMENT_COUNT=0` when
     /// there are several); read-only ones give the exact number, also for
@@ -912,24 +1000,7 @@ impl SnowflakeSession {
                     .to_string(),
             );
             let rs = self.collect(part, max_rows).await?;
-            out.begin_result(
-                rs.row_type
-                    .iter()
-                    .map(|c| ResultColumn {
-                        name: c
-                            .get("name")
-                            .and_then(Json::as_str)
-                            .unwrap_or("")
-                            .to_string(),
-                        type_name: c
-                            .get("type")
-                            .and_then(Json::as_str)
-                            .unwrap_or("")
-                            .to_string(),
-                        vector: None,
-                    })
-                    .collect(),
-            );
+            out.begin_result(rs.row_type.iter().map(result_column).collect());
             for row in &rs.rows {
                 let vals = row.as_array().map_or(&[][..], Vec::as_slice);
                 out.push_row(
@@ -1257,56 +1328,16 @@ impl Session for SnowflakeSession {
     }
 
     async fn columns(&mut self, o: &ObjectRef) -> Result<Vec<ColumnInfo>> {
-        let db = self.database()?;
-        let schema = o.schema().unwrap_or("PUBLIC");
-        let is = format!(
-            "{}.INFORMATION_SCHEMA",
-            qualified_name(Quote::Double, None, &db)
-        );
-        let rows = self
-            .text_rows(
-                &format!(
-                    "SELECT column_name, data_type, is_nullable, column_default, is_identity,
-                            character_maximum_length, numeric_precision, numeric_scale
-                     FROM {is}.COLUMNS WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position"
-                ),
-                &[schema, &o.name],
-            )
-            .await?;
-        // Primary keys aren't in INFORMATION_SCHEMA.
-        let fq = format!(
-            "{}.{}",
-            qualified_name(Quote::Double, None, &db),
-            qualified_name(Quote::Double, Some(schema), &o.name)
-        );
-        let pk: Vec<String> = match self
-            .statement(&format!("SHOW PRIMARY KEYS IN TABLE {fq}"), None, 10_000)
-            .await
-        {
-            Ok(rs) => {
-                let i = column_index(&rs.row_type, "column_name").unwrap_or(4);
-                rs.rows
-                    .iter()
-                    .filter_map(|r| r.get(i).and_then(Json::as_str).map(str::to_string))
-                    .collect()
-            }
-            Err(_) => Vec::new(),
-        };
-        Ok(rows
-            .into_iter()
-            .map(|r| {
-                let s = |i: usize| r.get(i).cloned().flatten();
-                let name = s(0).unwrap_or_default();
-                ColumnInfo {
-                    primary_key: pk.contains(&name),
-                    name,
-                    data_type: column_type(s(1).unwrap_or_default(), s(5), s(6), s(7)),
-                    nullable: s(2).as_deref() != Some("NO"),
-                    default_value: s(3),
-                    auto_increment: s(4).as_deref() == Some("YES"),
-                }
-            })
-            .collect())
+        let mut cols = self.catalog_columns(o).await?;
+        let db = qualified_name(Quote::Double, None, &self.database()?);
+        self.full_types(
+            &db,
+            Some(o.schema().unwrap_or("PUBLIC")),
+            &o.name,
+            cols.iter_mut().map(|c| (&c.name, &mut c.data_type)),
+        )
+        .await;
+        Ok(cols)
     }
 
     async fn definition(&mut self, o: &ObjectRef) -> Result<Option<String>> {
@@ -1400,7 +1431,17 @@ impl Session for SnowflakeSession {
         let fks = self
             .named_rows(&format!("SHOW IMPORTED KEYS IN DATABASE {dbq}"))
             .await?;
-        Ok(ddl::assemble(&tables, &columns, &pks, &uniques, &fks))
+        let mut out = ddl::assemble(&tables, &columns, &pks, &uniques, &fks);
+        for t in out.iter_mut() {
+            self.full_types(
+                &dbq,
+                t.schema.as_deref(),
+                &t.name,
+                t.columns.iter_mut().map(|c| (&c.name, &mut c.data_type)),
+            )
+            .await;
+        }
+        Ok(out)
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
@@ -1837,6 +1878,62 @@ fn column_index(row_type: &[Json], name: &str) -> Option<usize> {
     })
 }
 
+/// A result column from its `rowType` entry; a VECTOR one says so, with
+/// its dimension and element type when the entry has them.
+fn result_column(c: &Json) -> ResultColumn {
+    let name = c.get("name").and_then(Json::as_str).unwrap_or("");
+    let ty = c.get("type").and_then(Json::as_str).unwrap_or("");
+    if !ty.eq_ignore_ascii_case("vector") {
+        return ResultColumn::new(name, ty);
+    }
+    let (dims, element) = vector_shape(c);
+    let type_name = match (dims, element) {
+        (Some(n), Some(e)) => format!("VECTOR({e}, {n})"),
+        _ => ty.to_string(),
+    };
+    let el = match element {
+        Some("INT") => dbine_driver::VectorElement::Other,
+        _ => dbine_driver::VectorElement::F32,
+    };
+    ResultColumn::new(name, type_name).with_vector(dbine_driver::VectorMeta::dense(dims, el))
+}
+
+/// A VECTOR `rowType` entry's dimension and element type (`FLOAT` /
+/// `INT`), where the entry carries them (`vectorDimension`, its `fields`).
+fn vector_shape(c: &Json) -> (Option<u32>, Option<&'static str>) {
+    let dims = ["vectorDimension", "dimension"]
+        .iter()
+        .find_map(|k| c.get(*k).and_then(Json::as_u64))
+        .and_then(|n| u32::try_from(n).ok());
+    let field = c
+        .get("fields")
+        .and_then(Json::as_array)
+        .and_then(|f| f.first())
+        .map(|f| f.get("fieldType").unwrap_or(f));
+    let element = field
+        .and_then(|f| f.get("type"))
+        .or_else(|| c.get("vectorType"))
+        .and_then(Json::as_str)
+        .and_then(|t| match t.to_ascii_lowercase().as_str() {
+            "real" | "float" | "float4" => Some("FLOAT"),
+            "fixed" | "int" | "integer" => Some("INT"),
+            _ => None,
+        });
+    (dims, element)
+}
+
+/// A VECTOR value as the vector text (`[1.5,2]`): FLOAT elements at their
+/// own (32-bit) precision, INT ones whole. `None` when it isn't a list of
+/// numbers.
+pub(crate) fn vector_text(s: &str) -> Option<String> {
+    let v = dbine_driver::vector::parse(s)?;
+    Some(if v.iter().all(|x| x.fract() == 0.0) {
+        dbine_driver::vector::text(v)
+    } else {
+        dbine_driver::vector::text(v.iter().map(|&x| x as f32))
+    })
+}
+
 /// A `jsonv2` cell (always text) as JSON, by its column's `rowType`.
 fn cell(col: &Json, v: &Json) -> Json {
     let Some(s) = v.as_str() else {
@@ -1887,6 +1984,7 @@ fn cell(col: &Json, v: &Json) -> Json {
             .map_or_else(|| s.into(), |b| json_bytes(&b)),
         "variant" | "object" | "array" => serde_json::from_str::<Json>(s)
             .map_or_else(|_| s.into(), |j| Json::String(j.to_string())),
+        "vector" => vector_text(s).map_or_else(|| s.into(), Json::String),
         _ => s.into(),
     }
 }
@@ -2045,6 +2143,47 @@ mod tests {
         );
         assert_eq!(jwt_account("xy12345.us-east-1"), "XY12345");
         assert_eq!(jwt_account("myorg-acct"), "MYORG-ACCT");
+    }
+
+    #[test]
+    fn vector_columns_and_cells() {
+        use dbine_driver::{VectorElement, VectorMeta};
+        // A rowType entry with the vector's shape.
+        let full = json!({"name": "V", "type": "vector", "vectorDimension": 3, "fields": [{"fieldType": {"type": "real"}}]});
+        let c = result_column(&full);
+        assert_eq!(c.type_name, "VECTOR(FLOAT, 3)");
+        assert_eq!(
+            c.vector,
+            Some(VectorMeta::dense(Some(3), VectorElement::F32))
+        );
+        let ints = json!({"name": "I", "type": "vector", "vectorDimension": 2, "fields": [{"type": "fixed"}]});
+        assert_eq!(result_column(&ints).type_name, "VECTOR(INT, 2)");
+        // Without it: still a vector, of unknown length.
+        let bare = json!({"name": "V", "type": "vector"});
+        let c = result_column(&bare);
+        assert_eq!(c.type_name, "vector");
+        assert_eq!(c.vector, Some(VectorMeta::dense(None, VectorElement::F32)));
+        assert_eq!(
+            result_column(&json!({"name": "N", "type": "fixed"})).vector,
+            None
+        );
+        // The server's text, as the vector text: FLOAT at 32 bits.
+        assert_eq!(
+            cell(&bare, &json!("[\n  1.500000e+00,\n  2,\n  0.1\n]")),
+            json!("[1.5,2,0.1]")
+        );
+        assert_eq!(
+            cell(&bare, &json!("[0.10000000149011612,3]")),
+            json!("[0.1,3]")
+        );
+        assert_eq!(cell(&ints, &json!("[16777217,-2]")), json!("[16777217,-2]"));
+        assert_eq!(cell(&bare, &json!("no")), json!("no"));
+        let d = SnowflakeDriver { info: info() };
+        assert!(d.capabilities().vectors);
+        let spec = d.designer().unwrap();
+        assert!(spec.data_types.contains(&"VECTOR(FLOAT, 256)"));
+        assert!(spec.data_types.contains(&"VECTOR(INT, 256)"));
+        assert!(spec.vector_indexes.is_none());
     }
 
     #[test]
