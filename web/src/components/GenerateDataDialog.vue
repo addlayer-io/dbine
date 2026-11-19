@@ -7,6 +7,8 @@ import { errorMessage } from '../api/client';
 import type { ObjectRef } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { runTask } from '../stores/tasks';
+import { shownVectorMeta, vectorPreview } from '../composables/vector';
+import VectorValue from './VectorValue.vue';
 
 // "Generar datos de prueba…" (docs/test-data.md): one row per column
 // with its generator ("auto" picks by name and type), its settings and the
@@ -72,6 +74,14 @@ function reshuffle() {
 function cell(v: unknown): string {
   if (v === null || v === undefined) return 'NULL';
   return typeof v === 'object' ? JSON.stringify(v) : String(v);
+}
+/** Each sample column's vectors, by the table column's type. */
+const sampleVectors = computed(() => (preview.value?.columns ?? []).map((name) =>
+  shownVectorMeta({ type_name: preview.value?.table_columns.find((c) => c.name === name)?.data_type })));
+/** A sample vector as its first numbers and dims; null: shown as text. */
+function sampleVector(v: unknown, j: number) {
+  const meta = sampleVectors.value[j];
+  return meta && v !== null && v !== undefined ? vectorPreview(typeof v === 'string' ? v : JSON.stringify(v), meta) : null;
 }
 
 const genLabel = (g: string) => t(`dataGen:gen.${g}`);
@@ -171,7 +181,12 @@ function close() {
         <table>
           <thead><tr><th v-for="c in preview.columns" :key="c">{{ c }}</th></tr></thead>
           <tbody>
-            <tr v-for="(r, i) in preview.rows" :key="i"><td v-for="(v, j) in r" :key="j" :class="{ null: v === null }">{{ cell(v) }}</td></tr>
+            <tr v-for="(r, i) in preview.rows" :key="i">
+              <td v-for="(v, j) in r" :key="j" :class="{ null: v === null }">
+                <VectorValue v-if="sampleVector(v, j)" :preview="sampleVector(v, j)!" :meta="sampleVectors[j]" />
+                <template v-else>{{ cell(v) }}</template>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
