@@ -792,7 +792,14 @@ pub(crate) fn refusal(
         .filter(|m| !m.is_empty())
         .unwrap_or_else(|| default_metric(&alg, prefix).to_string());
     let label = algorithm_label(&alg);
-    match takes(&alg, prefix) {
+    // CockroachDB's and RisingWave's indexes take only their own VECTOR (a
+    // sibling's `halfvec` becomes one): never a bit string, which a binary
+    // vector converted into the family is, nor a sparse vector.
+    let kind = match (v, prefix) {
+        (Variant::Cockroach | Variant::RisingWave, "bit" | "sparsevec") => Takes::NotType,
+        _ => takes(&alg, prefix),
+    };
+    match kind {
         Takes::NotType => {
             return Some(format!(
                 "El índice «{}»: {label} no indexa columnas {prefix}.",
@@ -811,8 +818,9 @@ pub(crate) fn refusal(
         _ => {}
     }
     // pgvector's HNSW and IVFFlat index up to 2000 dimensions of `vector`,
-    // 4000 of `halfvec` and 64000 of `bit` (openGauss' DataVec and
-    // KingbaseES have their own builds).
+    // 4000 of `halfvec` and 64000 of `bit`; openGauss' DataVec has the same
+    // limits (7.0). YugabyteDB's ybhnsw (also for `USING hnsw`) builds
+    // more, and KingbaseES' own build is left to its server.
     let limit = match prefix {
         "vector" => Some(2_000),
         "halfvec" => Some(4_000),
@@ -822,10 +830,7 @@ pub(crate) fn refusal(
     if let (true, Some(max), Some(n)) = (
         matches!(alg.as_str(), "hnsw" | "ivfflat")
             && pgvector(v)
-            && !matches!(
-                v,
-                Variant::OpenGauss | Variant::Kingbase | Variant::Yugabyte
-            ),
+            && !matches!(v, Variant::Kingbase | Variant::Yugabyte),
         limit,
         key_dims(first, &t.columns),
     ) {
@@ -2086,6 +2091,18 @@ mod tests {
         assert!(refused(Variant::Yugabyte, &["h"], Some("hnsw"), Some("l2"), &[]).is_some());
         assert!(refused(Variant::Yugabyte, &["v"], None, Some("l1"), &[]).is_some());
         assert!(refused(Variant::Cockroach, &["v"], None, Some("l1"), &[]).is_some());
+        // C-SPANN and RisingWave's indexes take no bit string (a binary
+        // vector converted into the family, with Hamming) nor sparse vector.
+        for (v, cols, alg, m) in [
+            (Variant::Cockroach, &["b"][..], None, Some("hamming")),
+            (Variant::Cockroach, &["b"], Some("hnsw"), Some("l2")),
+            (Variant::Cockroach, &["s"], None, Some("l2")),
+            (Variant::RisingWave, &["b"], Some("hnsw"), Some("hamming")),
+            (Variant::RisingWave, &["s"], Some("flat"), Some("ip")),
+        ] {
+            let why = refused(v, cols, alg, m, &[]).unwrap_or_else(|| panic!("{v:?} {cols:?}"));
+            assert!(why.contains("no indexa columnas"), "{why}");
+        }
         assert!(refused(Variant::OpenGauss, &["s"], Some("diskann"), Some("l2"), &[]).is_some());
 
         for (v, cols, alg, m, params) in [
@@ -2125,6 +2142,8 @@ mod tests {
             ),
             (Variant::Yugabyte, &["v"], None, Some("ip"), &[("m", "16")]),
             (Variant::Cockroach, &["v", "uid"], None, Some("cosine"), &[]),
+            // A sibling's halfvec is a VECTOR there.
+            (Variant::Cockroach, &["h"], Some("hnsw"), Some("ip"), &[]),
             (Variant::RisingWave, &["v"], Some("flat"), Some("l1"), &[]),
             (Variant::OpenGauss, &["v"], Some("diskann"), Some("l2"), &[]),
             // An engine's own operator class, as it was read.
@@ -2140,8 +2159,9 @@ mod tests {
     }
 
     /// pgvector's HNSW and IVFFlat index up to 2000 dimensions of `vector`
-    /// (4000 of `halfvec`, also as an expression's cast); DiskANN and the
-    /// engines with their own builds go to the server.
+    /// (4000 of `halfvec`, also as an expression's cast), and so does
+    /// openGauss' DataVec (live, 7.0); DiskANN, YugabyteDB's ybhnsw (also
+    /// asked as `hnsw`) and CockroachDB's C-SPANN build more (live).
     #[test]
     fn dimensions_past_the_index_limit_are_refused() {
         let mut t = table();
@@ -2164,8 +2184,15 @@ mod tests {
         assert!(refused(Variant::Postgres, "(big::halfvec(3072))", Some("hnsw")).is_none());
         assert!(refused(Variant::Postgres, "(big::halfvec(4001))", Some("hnsw")).is_some());
         assert!(refused(Variant::Timescale, "big", Some("diskann")).is_none());
-        assert!(refused(Variant::OpenGauss, "big", Some("hnsw")).is_none());
+        let why = refused(Variant::OpenGauss, "big", Some("hnsw")).unwrap();
+        assert!(why.contains("2000") && why.contains("3072"), "{why}");
+        assert!(refused(Variant::OpenGauss, "big", Some("ivfflat")).is_some());
+        assert!(refused(Variant::OpenGauss, "huge", Some("hnsw")).is_some());
+        assert!(refused(Variant::OpenGauss, "big", Some("diskann")).is_none());
+        assert!(refused(Variant::Yugabyte, "big", Some("hnsw")).is_none());
+        assert!(refused(Variant::Yugabyte, "big", None).is_none());
         assert!(refused(Variant::Cockroach, "big", None).is_none());
+        assert!(refused(Variant::Cockroach, "big", Some("hnsw")).is_none());
         assert!(refused(Variant::Postgres, "v", Some("hnsw")).is_none());
     }
 
