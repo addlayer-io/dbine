@@ -906,20 +906,32 @@ async fn databend_parts(
         Some(d) => d.to_string(),
         None => scalar(s, "SELECT DATABASE()").await?.unwrap_or_default(),
     };
+    let rows: Vec<[String; 4]> = s
+        .optional_rows("SELECT * FROM system.indexes")
+        .await
+        .iter()
+        .map(|r| {
+            ["name", "type", "original", "definition"].map(|n| named(r, &[n]).unwrap_or_default())
+        })
+        .collect();
+    Ok(databend_rows(&db, &table.name, &rows))
+}
+
+/// [`databend_parts`] from `system.indexes` rows (name, type, original,
+/// definition): those on `table` of `db`.
+pub(crate) fn databend_rows(
+    db: &str,
+    table: &str,
+    rows: &[[String; 4]],
+) -> (Vec<KeyPart>, Vec<IndexDef>) {
     let mut parts = Vec::new();
     let mut vectors = Vec::new();
-    for r in s.optional_rows("SELECT * FROM system.indexes").await {
-        let get = |n: &str| named(&r, &[n]).unwrap_or_default();
-        let Some((t, ix)) = crate::structure::databend_index(
-            &db,
-            &get("name"),
-            &get("type"),
-            &get("original"),
-            &get("definition"),
-        ) else {
+    for [name, kind, original, definition] in rows {
+        let Some((t, ix)) = crate::structure::databend_index(db, name, kind, original, definition)
+        else {
             continue;
         };
-        if t != table.name {
+        if t != table {
             continue;
         }
         for (n, c) in ix.columns.iter().enumerate() {
@@ -943,7 +955,7 @@ async fn databend_parts(
             vectors.push(ix);
         }
     }
-    Ok((parts, vectors))
+    (parts, vectors)
 }
 
 #[cfg(test)]
@@ -1113,6 +1125,86 @@ mod tests {
         let raw = r#"VECTOR("dim" = "3", "m" = "16")"#;
         let got = with_vectors(listed(&[("iv", raw)]), found);
         assert_eq!(got[0].kind, "VECTOR");
+
+        // TiDB, OceanBase, SingleStore: SHOW CREATE TABLE's index lines, on
+        // the rows SHOW INDEX lists; each the same as the describe reads.
+        for (v, create, kind, want) in [
+            (
+                Variant::TiDb,
+                "CREATE TABLE `t` (\n  `id` int NOT NULL,\n  `v` vector(3) DEFAULT NULL,\n  PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,\n  VECTOR INDEX `iv`((VEC_COSINE_DISTANCE(`v`)))\n) ENGINE=InnoDB",
+                "HNSW",
+                vi(Some("hnsw"), "cosine", &[]),
+            ),
+            (
+                Variant::OceanBase,
+                "CREATE TABLE `t` (\n  `id` int(11) NOT NULL,\n  `v` VECTOR(3) DEFAULT NULL,\n  PRIMARY KEY (`id`),\n  VECTOR KEY `iv` (`v`) WITH (DISTANCE=L2, TYPE=HNSW, LIB=VSAG, M=16, EF_CONSTRUCTION=200, EF_SEARCH=64) BLOCK_SIZE 16384 LOCAL\n)",
+                "VECTOR",
+                vi(
+                    Some("hnsw"),
+                    "l2",
+                    &[("m", "16"), ("ef_construction", "200"), ("ef_search", "64")],
+                ),
+            ),
+            (
+                Variant::SingleStore,
+                "CREATE TABLE `t` (\n  `id` int(11) NOT NULL,\n  `v` vector(4, F32) DEFAULT NULL,\n  PRIMARY KEY (`id`),\n  VECTOR INDEX `iv` (`v`) INDEX_OPTIONS='{\"index_type\":\"HNSW_FLAT\",\"metric_type\":\"EUCLIDEAN_DISTANCE\",\"M\":30}'\n)",
+                "VECTOR",
+                vi(Some("hnsw_flat"), "l2", &[("m", "30")]),
+            ),
+        ] {
+            let found = vectors_in_create(v, create);
+            let described = crate::vectors::from_create(v, create);
+            assert_eq!(found.len(), 1, "{v:?}");
+            let got = with_vectors(listed(&[("PRIMARY", "BTREE"), ("iv", kind)]), found);
+            assert_eq!(got.len(), 2, "{v:?}");
+            assert_eq!(got[0].vector, None, "{v:?}");
+            assert_eq!(got[1].vector, Some(want), "{v:?}");
+            assert_eq!(got[1].vector, described[0].vector, "{v:?}");
+        }
+
+        // Databend: system.indexes rows, the table's only, one key part per
+        // column; its vector index's settings, as the describe reads them.
+        let row = |name: &str, kind: &str, definition: &str| {
+            [name, kind, "", definition].map(String::from)
+        };
+        let rows = [
+            row(
+                "iv",
+                "VECTOR",
+                "items(embedding)distance='cosine,l2' m='16' ef_construct='100'",
+            ),
+            row("ix", "INVERTED", "items(title, body)tokenizer='english'"),
+            row("other", "VECTOR", "docs(e)distance='l2'"),
+            row("far", "VECTOR", "otherdb.items(e)distance='l2'"),
+        ];
+        let (parts, found) = databend_rows("db", "items", &rows);
+        let names: Vec<(&str, Option<&str>)> = parts
+            .iter()
+            .map(|p| (p.index.as_str(), p.part.as_deref()))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("iv", Some("embedding")),
+                ("ix", Some("title")),
+                ("ix", Some("body"))
+            ]
+        );
+        assert_eq!(found.len(), 1);
+        let got = with_vectors(listed(&[("iv", "VECTOR"), ("ix", "INVERTED")]), found);
+        assert_eq!(
+            got[0].vector,
+            Some(vi(
+                Some("hnsw"),
+                "cosine",
+                &[
+                    ("distance", "cosine,l2"),
+                    ("m", "16"),
+                    ("ef_construction", "100")
+                ]
+            ))
+        );
+        assert_eq!(got[1].vector, None);
     }
 
     #[test]
