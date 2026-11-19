@@ -159,6 +159,10 @@ pub(crate) struct RawIndex {
     pub grids: Option<[String; 4]>,
     pub cells_per_object: Option<i32>,
     pub bucket_count: Option<i64>,
+    /// A vector index (type 8): `sys.vector_indexes`' type (`DiskANN`) and
+    /// distance (`COSINE`, `EUCLIDEAN`, `DOT`).
+    pub vector_type: Option<String>,
+    pub vector_metric: Option<String>,
     /// Key columns in key order (name, descending).
     pub keys: Vec<(String, bool)>,
     pub include: Vec<String>,
@@ -212,6 +216,7 @@ impl RawIndex {
         let rowstore = matches!(self.ty, 1 | 2);
         let columnstore = matches!(self.ty, 5 | 6);
         let kind = match (self.ty, &self.xml_secondary) {
+            (8, _) => "VECTOR".to_string(),
             (3, Some(t)) => format!("XML {}", t.to_ascii_uppercase()),
             (3, None) => "XML".to_string(),
             _ => self.type_desc.to_ascii_uppercase(),
@@ -259,7 +264,7 @@ impl RawIndex {
         if rowstore && self.ignore_dup_key {
             on(&mut o, "IGNORE_DUP_KEY", "ON");
         }
-        if self.no_recompute && self.ty != 7 {
+        if self.no_recompute && !matches!(self.ty, 7 | 8) {
             on(&mut o, "STATISTICS_NORECOMPUTE", "ON");
         }
         // Columnstore indexes report locks off and take no lock options.
@@ -345,7 +350,18 @@ impl RawIndex {
                 Vec::new()
             },
             options: o,
-            vector: None,
+            vector: (self.ty == 8).then(|| dbine_driver::VectorIndex {
+                algorithm: Some(
+                    self.vector_type
+                        .as_deref()
+                        .unwrap_or("DiskANN")
+                        .to_ascii_lowercase(),
+                ),
+                metric: self.vector_metric.as_deref().map(crate::vector::metric_of),
+                // DiskANN's build parameters (R, L, M, StartId) are the
+                // server's own: CREATE VECTOR INDEX doesn't take them.
+                params: BTreeMap::new(),
+            }),
         }
     }
 }
@@ -455,9 +471,10 @@ const CAPS_SQL: &str = "SELECT
         CAST(CASE WHEN COL_LENGTH('sys.indexes', 'optimize_for_sequential_key') IS NULL THEN 0 ELSE 1 END AS bit),
         CAST(CASE WHEN COL_LENGTH('sys.indexes', 'compression_delay') IS NULL THEN 0 ELSE 1 END AS bit),
         CAST(CASE WHEN COL_LENGTH('sys.index_columns', 'column_store_order_ordinal') IS NULL THEN 0 ELSE 1 END AS bit),
-        CAST(ISNULL((SELECT CAST(value_in_use AS int) FROM sys.configurations WHERE name = 'default full-text language'), 1033) AS int)";
+        CAST(ISNULL((SELECT CAST(value_in_use AS int) FROM sys.configurations WHERE name = 'default full-text language'), 1033) AS int),
+        CAST(CASE WHEN OBJECT_ID('sys.vector_indexes') IS NULL THEN 0 ELSE 1 END AS bit)";
 
-fn indexes_sql(seqkey: bool, delay: bool) -> String {
+fn indexes_sql(seqkey: bool, delay: bool, vectors: bool) -> String {
     format!(
         "SELECT i.object_id, i.index_id, s.name, t.name, i.name, CAST(i.type AS int), i.type_desc,
                 i.is_primary_key, i.is_unique, i.is_unique_constraint, i.filter_definition,
@@ -467,7 +484,7 @@ fn indexes_sql(seqkey: bool, delay: bool) -> String {
                 tes.tessellation_scheme, CAST(tes.bounding_box_xmin AS float), CAST(tes.bounding_box_ymin AS float),
                 CAST(tes.bounding_box_xmax AS float), CAST(tes.bounding_box_ymax AS float),
                 tes.level_1_grid_desc, tes.level_2_grid_desc, tes.level_3_grid_desc, tes.level_4_grid_desc,
-                CAST(tes.cells_per_object AS int), CAST(hx.bucket_count AS bigint)
+                CAST(tes.cells_per_object AS int), CAST(hx.bucket_count AS bigint), {}
            FROM sys.indexes i
            JOIN sys.tables t ON t.object_id = i.object_id
            JOIN sys.schemas s ON s.schema_id = t.schema_id
@@ -476,10 +493,21 @@ fn indexes_sql(seqkey: bool, delay: bool) -> String {
            LEFT JOIN sys.indexes pxi ON pxi.object_id = xi.object_id AND pxi.index_id = xi.using_xml_index_id
            LEFT JOIN sys.spatial_index_tessellations tes ON tes.object_id = i.object_id AND tes.index_id = i.index_id
            LEFT JOIN sys.hash_indexes hx ON hx.object_id = i.object_id AND hx.index_id = i.index_id
+           {}
           WHERE t.is_ms_shipped = 0 AND i.type > 0 AND i.is_hypothetical = 0
           ORDER BY s.name, t.name, i.index_id",
         if seqkey { "i.optimize_for_sequential_key" } else { "CAST(0 AS bit)" },
         if delay { "CAST(ISNULL(i.compression_delay, 0) AS int)" } else { "0" },
+        if vectors {
+            "CAST(vi.vector_index_type AS nvarchar(60)), CAST(vi.distance_metric AS nvarchar(60))"
+        } else {
+            "CAST(NULL AS nvarchar(60)), CAST(NULL AS nvarchar(60))"
+        },
+        if vectors {
+            "LEFT JOIN sys.vector_indexes vi ON vi.object_id = i.object_id AND vi.index_id = i.index_id"
+        } else {
+            ""
+        },
     )
 }
 
@@ -539,13 +567,16 @@ type TableIndexes = (Option<KeyDef>, bool, Vec<IndexDef>);
 async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableIndexes>> {
     let caps = s.catalog_rows(CAPS_SQL, &[]).await?;
     let caps = caps.first();
-    let (seqkey, delay, order) = caps
-        .map(|r| (b(r, 0), b(r, 1), b(r, 2)))
+    let (seqkey, delay, order, vectors) = caps
+        .map(|r| (b(r, 0), b(r, 1), b(r, 2), b(r, 4)))
         .unwrap_or_default();
     let default_language = caps.and_then(|r| ni(r, 3)).unwrap_or(1033);
 
     let mut raw: BTreeMap<(i32, i32), (Key, RawIndex)> = BTreeMap::new();
-    for r in s.catalog_rows(&indexes_sql(seqkey, delay), &[]).await? {
+    for r in s
+        .catalog_rows(&indexes_sql(seqkey, delay, vectors), &[])
+        .await?
+    {
         let grids = match (text(&r, 26), text(&r, 27), text(&r, 28), text(&r, 29)) {
             (Some(a), Some(b), Some(c), Some(d)) => Some([a, b, c, d]),
             _ => None,
@@ -577,6 +608,8 @@ async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableInde
             grids,
             cells_per_object: ni(&r, 30),
             bucket_count: r.try_get::<i64, _>(31).ok().flatten(),
+            vector_type: text(&r, 32),
+            vector_metric: text(&r, 33),
             ..Default::default()
         };
         raw.insert((n(&r, 0), n(&r, 1)), ((st(&r, 2), st(&r, 3)), ix));
@@ -602,6 +635,8 @@ async fn read_indexes(s: &mut SqlServerSession) -> Result<HashMap<Key, TableInde
                     i.keys.push((col, false));
                 }
             }
+            // A vector index's column has no key ordinal.
+            8 => i.keys.push((col, false)),
             _ => {
                 if key_ordinal > 0 {
                     i.keys.push((col, desc));
@@ -930,6 +965,9 @@ fn index_sql(owner: &str, ix: &IndexDef) -> Option<String> {
     } else {
         format!(" ORDER ({})", col_list(&order))
     };
+    if let Some(v) = &ix.vector {
+        return vector_index_sql(owner, ix, v);
+    }
     let s = match kind.as_str() {
         "FULLTEXT" => return Some(fulltext_sql(owner, ix)),
         "XML" => format!(
@@ -1026,6 +1064,37 @@ fn index_sql(owner: &str, ix: &IndexDef) -> Option<String> {
     Some(format!("{s};"))
 }
 
+/// `CREATE VECTOR INDEX … WITH (METRIC = …, TYPE = 'DiskANN')` (SQL
+/// Server 2025, Azure SQL), or `None` for a distance or algorithm SQL
+/// Server doesn't have.
+fn vector_index_sql(owner: &str, ix: &IndexDef, v: &dbine_driver::VectorIndex) -> Option<String> {
+    let metric = crate::vector::native_metric(v.metric.as_deref().unwrap_or("cosine"))?;
+    if v.algorithm
+        .as_deref()
+        .is_some_and(|a| !a.eq_ignore_ascii_case("diskann"))
+    {
+        return None;
+    }
+    let mut w = vec![
+        format!("METRIC = '{metric}'"),
+        "TYPE = 'DiskANN'".to_string(),
+    ];
+    if let Some(m) = ix.options.get("MAXDOP") {
+        w.push(format!("MAXDOP = {m}"));
+    }
+    Some(format!(
+        "CREATE VECTOR INDEX {} ON {owner} ({}) WITH ({});",
+        q(&ix.name),
+        ix.columns.first().map(|c| q(c)).unwrap_or_default(),
+        w.join(", ")
+    ))
+}
+
+/// What a script says before a vector index: SQL Server 2025 creates them
+/// with the database's preview features on, and the table can't change
+/// rows while it has one.
+pub(crate) const VECTOR_INDEX_NOTE: &str = "-- Índice vectorial: SQL Server 2025 lo crea con ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, y mientras exista la tabla no admite INSERT, UPDATE ni DELETE.";
+
 /// `CREATE … INDEX` for each index, in an order the server accepts.
 pub(crate) fn index_statements(owner: &str, t: &TableSchema, if_exists: bool) -> Vec<String> {
     let mut ixs: Vec<&IndexDef> = t.indexes.iter().collect();
@@ -1033,6 +1102,12 @@ pub(crate) fn index_statements(owner: &str, t: &TableSchema, if_exists: bool) ->
     ixs.into_iter()
         .map(|ix| match index_sql(owner, ix) {
             None => format!("-- Índice {} ({}) omitido: se crea a mano.", comment_text(&ix.name), comment_text(ix.kind.as_deref().unwrap_or(""))),
+            Some(s) if ix.vector.is_some() && !if_exists => format!("{VECTOR_INDEX_NOTE}\n{s}"),
+            Some(s) if ix.vector.is_some() => format!(
+                "{VECTOR_INDEX_NOTE}\nIF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID({}) AND name = {})\n    {s}",
+                nlit(owner),
+                nlit(&ix.name)
+            ),
             Some(s) if !if_exists => s,
             Some(s) if is_fulltext(ix) => {
                 format!("IF NOT EXISTS (SELECT 1 FROM sys.fulltext_indexes WHERE object_id = OBJECT_ID({}))\n    {s}", nlit(owner))
@@ -1069,6 +1144,7 @@ fn same_index(a: &IndexDef, b: &IndexDef) -> bool {
         && w(&a.filter) == w(&b.filter)
         && inc(&a.include) == inc(&b.include)
         && a.options == b.options
+        && a.vector == b.vector
 }
 
 /// A full-text index carried from another database names that database's key
@@ -1325,6 +1401,11 @@ pub(crate) fn prepare_changes(changes: &[TableChange], variant: Variant) -> Vec<
                         _ => false,
                     };
                     if force && find(&new, &ix.name).is_some() {
+                        forced.push(ix.name.clone());
+                    }
+                    // A vector index whose metric or algorithm changes is
+                    // made again (the generic planner compares the rest).
+                    if find(&new, &ix.name).is_some_and(|n| n.vector != ix.vector) {
                         forced.push(ix.name.clone());
                     }
                 }
@@ -1996,8 +2077,9 @@ async fn type_definition(
     }
     let tt = n(r, 6).to_string();
     let memory_optimized = b(r, 7);
+    let columns_sql = s.vector_shape(TYPE_COLUMNS_SQL).await;
     let cols = s
-        .rows(TYPE_COLUMNS_SQL, &[&tt])
+        .rows(&columns_sql, &[&tt])
         .await?
         .iter()
         .map(|r| {

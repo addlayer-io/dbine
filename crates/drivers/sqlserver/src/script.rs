@@ -3,7 +3,19 @@
 //! `STATISTICS IO/TIME` messages, "(N filas afectadas)" per statement
 //! (unless `SET NOCOUNT ON`), every error with its line, and `USE`.
 
-use super::{cell, err, is_desync, is_plan_column, spatial_cell, ResultColumn, SqlServerSession};
+use super::{
+    cell, err, is_desync, is_plan_column, spatial_cell, vector_cell, ResultColumn, SqlServerSession,
+};
+
+/// How a result column's cells are written.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum CellKind {
+    Plain,
+    /// `geometry` / `geography`: SQL Server's serialization, whole.
+    Spatial,
+    /// `vector`: its JSON-array text.
+    Vector,
+}
 use dbine_driver::sql::{split_script, ScriptDialect, ScriptStatement, StatementKind};
 use dbine_driver::{Error, Message, MessageLevel, QueryOutcome, Result, ScriptError};
 use futures::TryStreamExt;
@@ -213,7 +225,7 @@ impl SqlServerSession {
             let mut in_result = false;
             let mut merged: Option<String> = None;
             // The result's geometry / geography columns (their values go whole).
-            let mut spatial: Vec<bool> = Vec::new();
+            let mut spatial: Vec<CellKind> = Vec::new();
             loop {
                 let item = match stream.try_next().await {
                     Ok(Some(item)) => item,
@@ -249,18 +261,33 @@ impl SqlServerSession {
                         }
                         spatial = cols
                             .iter()
-                            .map(|c| matches!(c.udt_name(), Some("geometry" | "geography")))
+                            .map(|c| {
+                                if matches!(c.udt_name(), Some("geometry" | "geography")) {
+                                    CellKind::Spatial
+                                } else if c.vector_type().is_some() {
+                                    CellKind::Vector
+                                } else {
+                                    CellKind::Plain
+                                }
+                            })
                             .collect();
                         out.begin_result(
                             cols.iter()
-                                .map(|c| ResultColumn {
-                                    name: c.name().to_string(),
-                                    // A UDT by its name: `geometry`, `geography`, `hierarchyid`.
-                                    type_name: c.udt_name().map_or_else(
-                                        || format!("{:?}", c.column_type()),
-                                        str::to_string,
+                                .map(|c| match c.vector_type() {
+                                    // `vector(3)`, its cells JSON arrays.
+                                    Some(v) => ResultColumn::new(
+                                        c.name(),
+                                        crate::vector::wire_type_name(&v),
+                                    )
+                                    .with_vector(crate::vector::meta(&v)),
+                                    None => ResultColumn::new(
+                                        c.name(),
+                                        // A UDT by its name: `geometry`, `geography`, `hierarchyid`.
+                                        c.udt_name().map_or_else(
+                                            || format!("{:?}", c.column_type()),
+                                            str::to_string,
+                                        ),
                                     ),
-                                    vector: None,
                                 })
                                 .collect(),
                         );
@@ -285,8 +312,10 @@ impl SqlServerSession {
                         None => out.push_row(
                             row.into_iter()
                                 .enumerate()
-                                .map(|(i, d)| {
-                                    spatial_cell(d, spatial.get(i).copied().unwrap_or(false))
+                                .map(|(i, d)| match spatial.get(i) {
+                                    Some(CellKind::Spatial) => spatial_cell(d, true),
+                                    Some(CellKind::Vector) => vector_cell(d),
+                                    _ => cell(d),
                                 })
                                 .collect(),
                             max_rows,
