@@ -28,6 +28,7 @@ mod stats;
 mod sync;
 mod tls;
 mod transfer;
+mod vector;
 
 use async_trait::async_trait;
 use dbine_driver::sql::{
@@ -268,6 +269,8 @@ impl Driver for ClickHouseDriver {
             jobs: true,
             // The same, managed whole; see `scheduler`.
             scheduler: true,
+            // Array(Float32) / Array(BFloat16) and vector_similarity indexes.
+            vectors: self.flavor == Flavor::ClickHouse,
             ..Default::default()
         }
     }
@@ -306,6 +309,9 @@ impl Driver for ClickHouseDriver {
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
+        if parts.indexes {
+            schema::check_vector_indexes(table)?;
+        }
         Ok(schema::table_ddl(self.flavor, table, parts))
     }
 
@@ -323,6 +329,13 @@ impl Driver for ClickHouseDriver {
         &self,
         changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
+        for ch in changes {
+            if let dbine_driver::TableChange::Create { table: t }
+            | dbine_driver::TableChange::Alter { new: t, .. } = ch
+            {
+                schema::check_vector_indexes(t)?;
+            }
+        }
         sync::sync_script(self.flavor, changes)
     }
 
@@ -989,6 +1002,7 @@ async fn read_rows(
     let mut lines = Lines::new(resp);
     let mut header: Vec<Vec<String>> = Vec::new();
     let mut types: Vec<String> = Vec::new();
+    let mut vectors: Vec<bool> = Vec::new();
     while let Some(line) = lines.next().await? {
         if line.trim().is_empty() {
             continue;
@@ -1016,14 +1030,17 @@ async fn read_rows(
             );
             if header.len() == 2 {
                 types = header[1].clone();
+                vectors = types.iter().map(|t| vector::meta(t).is_some()).collect();
                 out.begin_result(
                     header[0]
                         .iter()
                         .zip(&types)
-                        .map(|(n, t)| ResultColumn {
-                            name: n.clone(),
-                            type_name: t.clone(),
-                            vector: None,
+                        .map(|(n, t)| {
+                            let col = ResultColumn::new(n.clone(), t.clone());
+                            match vector::meta(t) {
+                                Some(m) => col.with_vector(m),
+                                None => col,
+                            }
                         })
                         .collect(),
                 );
@@ -1033,7 +1050,19 @@ async fn read_rows(
         let row = cells
             .into_iter()
             .enumerate()
-            .map(|(i, raw)| raw_cell(raw, types.get(i).map_or("", String::as_str)))
+            .map(|(i, raw)| {
+                // A vector column's cell as DBine's vector text.
+                match vectors
+                    .get(i)
+                    .copied()
+                    .unwrap_or(false)
+                    .then(|| vector::cell_text(raw))
+                    .flatten()
+                {
+                    Some(t) => Value::String(t),
+                    None => raw_cell(raw, types.get(i).map_or("", String::as_str)),
+                }
+            })
             .collect();
         out.push_row(row, max_rows);
         if stop_at_limit && out.results.last().is_some_and(|r| r.truncated) {

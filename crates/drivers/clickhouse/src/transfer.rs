@@ -1111,6 +1111,13 @@ fn read_json(r: &mut Rd, ty: &Ty) -> D<J> {
             }
             J::Obj(m)
         }
+        // A Float32 (and a BFloat16, which one holds) the shortest way it
+        // reads back, not widened to f64: `0.1`, not `0.10000000149011612`
+        // (vectors travel as this text, see `crate::vector`).
+        Ty::F32 | Ty::BF16 => match read_cell(r, ty)? {
+            Cell::Float(f) if f.is_finite() => J::Num((f as f32).to_string()),
+            c => cell_json(c)?,
+        },
         t => cell_json(read_cell(r, t)?)?,
     })
 }

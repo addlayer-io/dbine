@@ -84,6 +84,7 @@ pub fn designer(flavor: Flavor) -> DesignerSpec {
             auto_increment: false,
             comments: true,
             foreign_keys: false,
+            vector_indexes: Some(vector_index_spec()),
             column_options: vec![default_kind(), codec()],
             table_options: vec![
                 Field::new("engine", "Motor", FieldKind::Select(ENGINES.to_vec())).default_value("MergeTree").required(),
@@ -99,6 +100,7 @@ pub fn designer(flavor: Flavor) -> DesignerSpec {
                 "Decimal(18, 2)", "Bool", "String", "FixedString(16)", "LowCardinality(String)", "UUID", "Date",
                 "Date32", "DateTime", "DateTime64(3)", "Enum8('a' = 1, 'b' = 2)", "IPv4", "IPv6", "JSON",
                 "Array(String)", "Map(String, String)", "Tuple(String, UInt32)",
+                "Array(Float32)", "Array(BFloat16)",
             ])
         },
         Flavor::Timeplus => DesignerSpec {
@@ -129,6 +131,28 @@ pub fn designer(flavor: Flavor) -> DesignerSpec {
                 "datetime64(3)", "ipv4", "json", "array(string)", "map(string, string)", "tuple(string, uint32)",
             ])
         },
+    }
+}
+
+/// ClickHouse's `vector_similarity` index (HNSW) in the designer: the
+/// dimension is required, the rest takes ClickHouse's defaults.
+fn vector_index_spec() -> dbine_driver::VectorIndexSpec {
+    use dbine_driver::vector::{metric, param};
+    let p = |key, default| dbine_driver::VectorParamSpec {
+        key,
+        algorithms: Vec::new(),
+        default,
+    };
+    dbine_driver::VectorIndexSpec {
+        algorithms: vec!["hnsw"],
+        metrics: vec![metric::L2, metric::COSINE, metric::IP],
+        params: vec![
+            p(crate::vector::DIMENSIONS, ""),
+            p(param::QUANTIZATION, "bf16"),
+            p(param::M, "32"),
+            p(param::EF_CONSTRUCTION, "128"),
+        ],
+        filter_columns: false,
     }
 }
 
@@ -220,6 +244,10 @@ pub fn string_literal(s: &str) -> String {
 }
 
 pub fn literal(v: &Value) -> String {
+    // A vector (a JSON array of numbers): ClickHouse's array literal.
+    if let Some(a) = crate::vector::literal(v) {
+        return a;
+    }
     match v {
         Value::Null => "NULL".into(),
         Value::Bool(b) => b.to_string(),
@@ -542,9 +570,41 @@ pub(crate) fn constraint_clauses(t: &TableSchema) -> Vec<String> {
     out
 }
 
+/// A vector index's `GRANULARITY`, when its kind says one
+/// (`vector_similarity GRANULARITY 2`); `None`: ClickHouse's default for
+/// vector indexes.
+pub(crate) fn vector_granularity(ix: &IndexDef) -> Option<String> {
+    let k = ix.kind.as_deref()?.to_ascii_uppercase();
+    let g = k.rsplit_once("GRANULARITY")?.1.trim().to_string();
+    (!g.is_empty() && g != crate::vector::DEFAULT_GRANULARITY).then_some(g)
+}
+
+/// A vector index without the dimension ClickHouse requires, as the error
+/// the DDL gives instead of a statement the server refuses.
+pub fn check_vector_indexes(t: &TableSchema) -> dbine_driver::Result<()> {
+    for ix in &t.indexes {
+        if let Some(v) = &ix.vector {
+            crate::vector::index_type(v).map_err(|why| {
+                dbine_driver::Error::Query(format!("El índice vectorial «{}»: {why}.", ix.name))
+            })?;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn index_clause(ix: &IndexDef) -> String {
     if is_projection(ix) {
         return format!("PROJECTION {} {}", q(&ix.name), ix.columns.join(", "));
+    }
+    if let Some(v) = &ix.vector {
+        // Without a dimension there's no valid type ([`check_vector_indexes`]
+        // says so first); the server's error names what's missing.
+        let ty = crate::vector::index_type(v).unwrap_or_else(|_| crate::vector::KIND.into());
+        let mut s = format!("INDEX {} {} TYPE {ty}", q(&ix.name), key_expr(&ix.columns));
+        if let Some(g) = vector_granularity(ix) {
+            s.push_str(&format!(" GRANULARITY {g}"));
+        }
+        return s;
     }
     let kind = ix
         .kind
@@ -1080,7 +1140,15 @@ pub fn assemble(flavor: Flavor, database: &str, cat: Catalog) -> Vec<TableSchema
         }
         let gran = s(r, 4);
         let mut kind = s(r, 2);
-        if !gran.is_empty() && gran != "1" {
+        // A vector index: its settings apart, its kind the index type's name.
+        let vector = crate::vector::parse_index(&kind);
+        let default_gran = if vector.is_some() {
+            kind = crate::vector::KIND.into();
+            crate::vector::DEFAULT_GRANULARITY
+        } else {
+            "1"
+        };
+        if !gran.is_empty() && gran != default_gran {
             kind.push_str(&format!(" GRANULARITY {gran}"));
         }
         let at = t.indexes.iter().take_while(|i| !is_projection(i)).count();
@@ -1090,6 +1158,7 @@ pub fn assemble(flavor: Flavor, database: &str, cat: Catalog) -> Vec<TableSchema
                 name: s(r, 1),
                 columns: key_parts(&s(r, 3)),
                 kind: Some(kind),
+                vector,
                 ..Default::default()
             },
         );
@@ -1216,6 +1285,134 @@ mod tests {
             filtered_browse("SELECT *\nFROM table(`s`)\nLIMIT 50", &filters[2..3]).unwrap(),
             "SELECT *\nFROM table(`s`)\nWHERE `n` > 7\nLIMIT 50"
         );
+    }
+
+    #[test]
+    fn vector_indexes() {
+        let row = |name: &str, ty: &str, gran: &str| {
+            vec![
+                Value::String("emb".into()),
+                Value::String(name.into()),
+                Value::String(ty.into()),
+                Value::String("v".into()),
+                Value::String(gran.into()),
+            ]
+        };
+        let tables = vec![vec![
+            Value::String("emb".into()),
+            Value::String("MergeTree".into()),
+            Value::String("MergeTree ORDER BY id SETTINGS index_granularity = 8192".into()),
+            Value::String(String::new()),
+            Value::String("id".into()),
+            Value::String("id".into()),
+            Value::String(String::new()),
+            Value::String(String::new()),
+            Value::String("CREATE TABLE db.emb (`id` UInt64, `v` Array(Float32)) ENGINE = MergeTree ORDER BY id".into()),
+        ]];
+        let col = |n: &str, ty: &str| {
+            vec![
+                Value::String("emb".into()),
+                Value::String(n.into()),
+                Value::String(ty.into()),
+                Value::String(String::new()),
+                Value::String(String::new()),
+                Value::String(String::new()),
+                Value::String(String::new()),
+            ]
+        };
+        let cat = Catalog {
+            tables,
+            columns: vec![col("id", "UInt64"), col("v", "Array(Float32)")],
+            indexes: vec![
+                row(
+                    "vi",
+                    "vector_similarity('hnsw', 'cosineDistance', 3)",
+                    "100000000",
+                ),
+                row(
+                    "vq",
+                    "vector_similarity('hnsw', 'L2Distance', 3, 'i8', 16, 0)",
+                    "2",
+                ),
+            ],
+        };
+        let t = assemble(Flavor::ClickHouse, "db", cat).remove(0);
+        assert_eq!(t.columns[1].data_type, "Array(Float32)");
+        let (vi, vq) = (&t.indexes[0], &t.indexes[1]);
+        assert_eq!(vi.kind.as_deref(), Some("vector_similarity"));
+        let v = vi.vector.as_ref().unwrap();
+        assert_eq!(
+            (v.algorithm.as_deref(), v.metric.as_deref()),
+            (Some("hnsw"), Some("cosine"))
+        );
+        assert_eq!(v.params["dimensions"], "3");
+        assert_eq!(vq.kind.as_deref(), Some("vector_similarity GRANULARITY 2"));
+        assert_eq!(vq.vector.as_ref().unwrap().params["m"], "16");
+        let ddl = table_ddl(
+            Flavor::ClickHouse,
+            &t,
+            DdlParts {
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            ddl.contains("    INDEX `vi` v TYPE vector_similarity('hnsw', 'cosineDistance', 3),\n"),
+            "{ddl}"
+        );
+        assert!(
+            ddl.contains("    INDEX `vq` v TYPE vector_similarity('hnsw', 'L2Distance', 3, 'i8', 16, 0) GRANULARITY 2\n"),
+            "{ddl}"
+        );
+        // The designer's index: no kind, a vector, ClickHouse's granularity.
+        let mut d = t.clone();
+        d.indexes = vec![IndexDef {
+            name: "nuevo".into(),
+            columns: vec!["v".into()],
+            vector: Some(dbine_driver::VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("ip".into()),
+                params: [("dimensions".to_string(), "3".to_string())].into(),
+            }),
+            ..Default::default()
+        }];
+        let ddl = table_ddl(
+            Flavor::ClickHouse,
+            &d,
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            ddl,
+            "ALTER TABLE `db`.`emb` ADD INDEX `nuevo` v TYPE vector_similarity('hnsw', 'dotProduct', 3);"
+        );
+        d.indexes[0].vector.as_mut().unwrap().params.clear();
+        let e = check_vector_indexes(&d).unwrap_err().to_string();
+        assert!(e.contains("nuevo") && e.contains("dimensions"), "{e}");
+        // Literals: a vector is an array literal.
+        assert_eq!(literal(&serde_json::json!([0.5, -1])), "[0.5,-1]");
+        assert_eq!(literal(&serde_json::json!(["a"])), "'[\"a\"]'");
+        let up = update_script(
+            Flavor::ClickHouse,
+            Some("db"),
+            "emb",
+            &[RowChange {
+                key: vec![("id".into(), serde_json::json!(1))],
+                set: vec![("v".into(), serde_json::json!([1, 2, 3]))],
+                row: Vec::new(),
+            }],
+        );
+        assert_eq!(
+            up,
+            "ALTER TABLE `db`.`emb` UPDATE `v` = [1,2,3] WHERE `id` = 1;"
+        );
+        let d = designer(Flavor::ClickHouse);
+        assert!(d.data_types.contains(&"Array(Float32)"));
+        assert_eq!(d.vector_indexes.unwrap().params[0].key, "dimensions");
+        assert!(designer(Flavor::Timeplus).vector_indexes.is_none());
     }
 
     fn t() -> TableSchema {

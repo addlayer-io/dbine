@@ -25,6 +25,15 @@ pub struct ClickHouse {
     timeplus: bool,
 }
 
+/// The element of an embedding array (`Float32`, `BFloat16`).
+fn vector_element(arg: &str) -> Option<dbine_driver::VectorElement> {
+    match arg.trim().to_ascii_lowercase().as_str() {
+        "float32" => Some(dbine_driver::VectorElement::F32),
+        "bfloat16" => Some(dbine_driver::VectorElement::Bf16),
+        _ => None,
+    }
+}
+
 /// Largest `Decimal(P, S)` precision.
 const MAX_DECIMAL: u32 = 76;
 
@@ -199,6 +208,14 @@ impl Dialect for ClickHouse {
             "enum8" | "enum16" | "enum" => L::Enum {
                 values: t.args.clone(),
             },
+            // Array(Float32) and Array(BFloat16) are ClickHouse's embedding
+            // types (its vector search documents them): vectors of no fixed
+            // length. Array(Float64) is its general array of numbers.
+            "array" if t.args.len() == 1 && vector_element(&t.args[0]).is_some() => L::Vector {
+                dims: None,
+                element: vector_element(&t.args[0]).unwrap_or_default(),
+                sparse: false,
+            },
             "array" => match t.args.first() {
                 Some(a) => L::Array {
                     of: Box::new(self.inner(a)),
@@ -253,7 +270,34 @@ impl Dialect for ClickHouse {
         use Severity::*;
         let s = || self.string();
         match t {
-            L::Vector { .. } => super::vector_fallback(self, t),
+            L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
+            L::Vector { dims, element, .. } => {
+                use dbine_driver::VectorElement as E;
+                // Narrower numbers fit a Float32 exactly (no Float16 here).
+                let of = match element {
+                    E::F64 => "Float64",
+                    E::Bf16 => "BFloat16",
+                    _ => "Float32",
+                };
+                let r = Rendered::exact(format!("{}({})", self.n("Array"), self.n(of)));
+                let r = match dims {
+                    Some(n) => r.with(
+                        Info,
+                        TypeChanged,
+                        format!("ClickHouse no fija la dimensión en el tipo: la exige el índice vector_similarity ({n})."),
+                    ),
+                    None => r,
+                };
+                if *element == E::Bit {
+                    r.with(
+                        Info,
+                        TypeChanged,
+                        "Vector binario: cada bit queda como un número 0 o 1.",
+                    )
+                } else {
+                    r
+                }
+            }
             L::Bool => Rendered::exact(self.n("Bool")),
             L::Int { bytes, unsigned } => self.int(*bytes, *unsigned),
             L::Decimal {
@@ -476,6 +520,77 @@ impl Dialect for ClickHouse {
             DefaultValue::NewUuid => if tp { "uuid()" } else { "generateUUIDv4()" }.into(),
             DefaultValue::NextVal(_) | DefaultValue::Expr(_) => return None,
         })
+    }
+
+    /// ClickHouse's `vector_similarity` (HNSW): cosine, L2 or inner product
+    /// (`dotProduct`); `m`, `ef_construction` and the quantization carry
+    /// over. It needs the dimension, which the type doesn't have: a source
+    /// index without a `dimensions` (or `dims`, `dimension`) parameter
+    /// can't come. Timeplus has no vector indexes.
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        use dbine_driver::vector::{metric, param};
+        if self.timeplus {
+            return Err("Timeplus no tiene índices vectoriales".into());
+        }
+        let metric = match v.metric.as_deref() {
+            None => None,
+            Some(m) if [metric::L2, metric::COSINE, metric::IP].contains(&m) => {
+                Some(m.to_string())
+            }
+            Some(m) => {
+                return Err(format!(
+                    "los índices vector_similarity de ClickHouse miden distancia L2, coseno o producto interno, y el índice usa «{m}»"
+                ))
+            }
+        };
+        let dims = ["dimensions", "dims", "dimension"]
+            .iter()
+            .find_map(|k| v.params.get(*k))
+            .map(|d| d.trim().to_string())
+            .filter(|d| d.parse::<u32>().is_ok())
+            .ok_or(
+                "ClickHouse necesita la dimensión del vector para el índice, y el origen no la da",
+            )?;
+        let mut params = std::collections::BTreeMap::from([("dimensions".to_string(), dims)]);
+        for (k, val) in &v.params {
+            let val = val.trim();
+            match k.as_str() {
+                param::M | param::EF_CONSTRUCTION if val.parse::<u32>().is_ok() => {
+                    params.insert(k.clone(), val.to_string());
+                }
+                param::QUANTIZATION => {
+                    let q = match val.to_ascii_lowercase().as_str() {
+                        "f64" | "float64" => Some("f64"),
+                        "f32" | "float32" | "none" => Some("f32"),
+                        "f16" | "float16" | "half" | "halfvec" => Some("f16"),
+                        "bf16" | "floatb16" => Some("bf16"),
+                        "i8" | "int8" | "float8" => Some("i8"),
+                        // Binary quantization only goes with the cosine distance.
+                        "b1" | "binary" | "bit" | "float1bit"
+                            if metric.as_deref() == Some(metric::COSINE) =>
+                        {
+                            Some("b1")
+                        }
+                        _ => None,
+                    };
+                    if let Some(q) = q {
+                        params.insert(k.clone(), q.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok((
+            Some("vector_similarity".into()),
+            dbine_driver::VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric,
+                params,
+            },
+        ))
     }
 
     fn caps(&self) -> Caps {
@@ -713,6 +828,78 @@ mod tests {
             lt(d, "AggregateFunction(uniq, UInt64)"),
             L::Other { .. }
         ));
+    }
+
+    #[test]
+    fn vectors_round_trip() {
+        use dbine_driver::VectorElement as E;
+        let d = ch();
+        let vec = |dims, element| L::Vector {
+            dims,
+            element,
+            sparse: false,
+        };
+        assert_eq!(lt(d, "Array(Float32)"), vec(None, E::F32));
+        assert_eq!(lt(d, "Array(BFloat16)"), vec(None, E::Bf16));
+        assert_eq!(lt(tp(), "array(float32)"), vec(None, E::F32));
+        // Float64 arrays are ClickHouse's general arrays of numbers.
+        assert_eq!(
+            lt(d, "Array(Float64)"),
+            L::Array {
+                of: Box::new(L::Float { bytes: 8 })
+            }
+        );
+        let r = |t: L| d.render_type(&t);
+        assert_eq!(r(vec(None, E::F32)).native, "Array(Float32)");
+        assert!(r(vec(None, E::F32)).notes.is_empty());
+        // pgvector's vector(3), halfvec(3) and a double vector.
+        let three = r(vec(Some(3), E::F32));
+        assert_eq!(three.native, "Array(Float32)");
+        assert!(three.notes[0].message.contains("(3)"));
+        assert_eq!(r(vec(Some(3), E::F16)).native, "Array(Float32)");
+        assert_eq!(r(vec(Some(3), E::Bf16)).native, "Array(BFloat16)");
+        assert_eq!(r(vec(Some(3), E::F64)).native, "Array(Float64)");
+        assert_eq!(
+            tp().render_type(&vec(None, E::F32)).native,
+            "array(float32)"
+        );
+    }
+
+    #[test]
+    fn vector_indexes_need_their_dimension() {
+        use dbine_driver::VectorIndex;
+        let ix = |metric: &str, params: &[(&str, &str)]| VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some(metric.into()),
+            params: params
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        };
+        let (kind, v) = ch()
+            .vector_index(&ix(
+                "cosine",
+                &[
+                    ("dims", "768"),
+                    ("m", "16"),
+                    ("quantization", "binary"),
+                    ("lists", "4"),
+                ],
+            ))
+            .unwrap();
+        assert_eq!(kind.as_deref(), Some("vector_similarity"));
+        assert_eq!(
+            v.params.into_iter().collect::<Vec<_>>(),
+            [
+                ("dimensions".to_string(), "768".to_string()),
+                ("m".into(), "16".into()),
+                ("quantization".into(), "b1".into())
+            ]
+        );
+        let e = ch().vector_index(&ix("l2", &[("m", "16")])).unwrap_err();
+        assert!(e.contains("dimensión"), "{e}");
+        assert!(ch().vector_index(&ix("hamming", &[("dims", "3")])).is_err());
+        assert!(tp().vector_index(&ix("l2", &[("dims", "3")])).is_err());
     }
 
     #[test]
