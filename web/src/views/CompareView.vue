@@ -28,6 +28,8 @@ import { useTabsStore, type CompareTab } from '../stores/tabs';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 import { trackFeature } from '../composables/telemetry';
 import { vKeyActivate } from '../composables/keyActivate';
+import { vectorIndexLine } from '../composables/vectorLabels';
+import { sameVectorIndex } from '../composables/vector';
 
 // "Comparar esquemas": two databases side by side, WinMerge style. Each
 // difference can be carried to the other side (→ / ←); that only edits an
@@ -1241,8 +1243,20 @@ function ixParts(ix: IndexDef) {
     { f: 'columns', t: `(${ix.columns.join(', ')})` },
     { f: 'include', t: ix.include?.length ? `INCLUDE (${ix.include.join(', ')})` : '' },
     { f: 'filter', t: ix.filter ? `WHERE ${ix.filter}` : '' },
+    // A vector index: its algorithm, distance and build parameters.
+    { f: 'vector', t: ix.vector ? t('vectors:index.summary', { text: vectorIndexLine(ix.vector) || '—' }) : '' },
     { f: 'options', t: Object.entries(ix.options ?? {}).map(([k, v]) => `${k} = ${v}`).join(', ') },
   ].filter((p) => p.t);
+}
+/** A part that differs between the sides: the fields the compare lists,
+ *  and an index's vector side (algorithm, distance, parameters) whenever
+ *  the two differ, also where the engine doesn't mirror it into options. */
+function partDiffers(section: Section, d: ItemDiff, f: string): boolean {
+  if (d.fields.includes(f)) return true;
+  if (section !== 'indexes' || f !== 'vector') return false;
+  const l = itemOf('left', section, d) as IndexDef | null;
+  const r = itemOf('right', section, d) as IndexDef | null;
+  return !!l && !!r && !sameVectorIndex(l.vector, r.vector);
 }
 function checkParts(c: CheckDef) {
   return [{ f: 'expression', t: `CHECK ${c.expression}` }];
@@ -2061,7 +2075,7 @@ async function askAssistant(kind: 'review' | 'summary', tab: SyncTab | null) {
                   <div class="cv-cell" :class="{ none: d.left === null }">
                     <template v-if="itemOf('left', sec.id, d)">
                       <b>{{ titleOf(sec.id, itemOf('left', sec.id, d)!) }}</b>
-                      <span v-for="p in partsOf(sec.id, itemOf('left', sec.id, d)!)" :key="p.f" :class="{ hl: d.fields.includes(p.f) }">{{ p.t }}</span>
+                      <span v-for="p in partsOf(sec.id, itemOf('left', sec.id, d)!)" :key="p.f" :class="{ hl: partDiffers(sec.id, d, p.f) }">{{ p.t }}</span>
                       <span
                         v-if="sec.id === 'indexes' && ixBadge('left', d.name)" class="cv-ixbadge" :class="badgeClass(ixBadge('left', d.name)!)"
                         :title="ixBadgeTip('left', d.name)"
@@ -2083,7 +2097,7 @@ async function askAssistant(kind: 'review' | 'summary', tab: SyncTab | null) {
                   <div class="cv-cell" :class="{ none: d.right === null }">
                     <template v-if="itemOf('right', sec.id, d)">
                       <b>{{ titleOf(sec.id, itemOf('right', sec.id, d)!) }}</b>
-                      <span v-for="p in partsOf(sec.id, itemOf('right', sec.id, d)!)" :key="p.f" :class="{ hl: d.fields.includes(p.f) }">{{ p.t }}</span>
+                      <span v-for="p in partsOf(sec.id, itemOf('right', sec.id, d)!)" :key="p.f" :class="{ hl: partDiffers(sec.id, d, p.f) }">{{ p.t }}</span>
                       <span
                         v-if="sec.id === 'indexes' && ixBadge('right', d.name)" class="cv-ixbadge" :class="badgeClass(ixBadge('right', d.name)!)"
                         :title="ixBadgeTip('right', d.name)"

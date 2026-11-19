@@ -5,6 +5,8 @@ import type { ColumnPair, NotebookCell, WriteCell, WriteMode, WritePlan, WriteTa
 import { locale } from '../../i18n';
 import { tb } from '../../i18n/backend';
 import { needsKey } from '../../composables/notebookModel';
+import { shownVectorMeta, vectorPreview } from '../../composables/vector';
+import VectorValue from '../VectorValue.vue';
 
 // A write cell (docs/notebooks.md › Writing a DataFrame to a table): a
 // small form, not code. Which DataFrame (a cell above), where (a
@@ -131,6 +133,25 @@ const headline = computed(() => {
 });
 const previewRows = computed(() => props.plan?.preview.rows.slice(0, 8) ?? []);
 const cellText = (v: unknown) => (v === null || v === undefined ? 'NULL' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+/** Each preview column's vectors: its target's type (or the DataFrame's)
+ *  says it holds them (`vector(1536)`, `FLOAT[3]`…). */
+const previewVectors = computed(() => (props.plan?.preview.columns ?? []).map((name) => {
+  const planned = props.plan?.columns.find((c) => c.target === name) ?? props.plan?.columns.find((c) => c.source === name);
+  const frame = props.frameColumns?.find((c) => c.name === (planned?.source ?? name));
+  return [planned?.target_type, planned?.source_type, frame?.type].map((type_name) => shownVectorMeta({ type_name })).find(Boolean) ?? null;
+}));
+/** A preview cell of a vector column as its first numbers and dims (never
+ *  its whole ~13,000-character text on one line); null: shown as text. */
+function previewVector(v: unknown, j: number) {
+  const meta = previewVectors.value[j];
+  if (!meta || v === null || v === undefined) return null;
+  return vectorPreview(typeof v === 'string' ? v : JSON.stringify(v), meta);
+}
+/** A long value's whole text on hover (the cell shows its start). */
+const cellTitle = (v: unknown) => {
+  const s = cellText(v);
+  return s.length > 40 ? (s.length > 4000 ? `${s.slice(0, 4000)}…` : s) : undefined;
+};
 </script>
 
 <template>
@@ -259,7 +280,14 @@ const cellText = (v: unknown) => (v === null || v === undefined ? 'NULL' : typeo
         <div v-if="previewRows.length" class="nw-scroll">
           <table class="nw-rows">
             <thead><tr><th v-for="c in plan.preview.columns" :key="c">{{ c }}</th></tr></thead>
-            <tbody><tr v-for="(r, i) in previewRows" :key="i"><td v-for="(v, j) in r" :key="j" :class="{ null: v === null }">{{ cellText(v) }}</td></tr></tbody>
+            <tbody>
+              <tr v-for="(r, i) in previewRows" :key="i">
+                <td v-for="(v, j) in r" :key="j" :class="{ null: v === null }" :title="cellTitle(v)">
+                  <VectorValue v-if="previewVector(v, j)" :preview="previewVector(v, j)!" :meta="previewVectors[j]" />
+                  <template v-else>{{ cellText(v) }}</template>
+                </td>
+              </tr>
+            </tbody>
           </table>
         </div>
         <div v-if="plan.rows > previewRows.length" class="nw-dim">{{ $t('notebook:write.previewMore', { shown: n(previewRows.length), total: n(plan.rows) }) }}</div>
@@ -350,6 +378,8 @@ const cellText = (v: unknown) => (v === null || v === undefined ? 'NULL' : typeo
 .nw-scroll { overflow: auto; max-height: 220px; border: 1px solid var(--nm-border-soft); border-radius: 3px; }
 .nw-rows { border-collapse: collapse; font-size: 12px; font-family: var(--nm-mono); }
 .nw-rows th, .nw-rows td { padding: 2px 10px; border-bottom: 1px solid var(--nm-border-soft); text-align: left; white-space: nowrap; }
+/* A long value shows its start (the whole of it on hover). */
+.nw-rows td { max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
 .nw-rows th { position: sticky; top: 0; background: var(--nm-bg-elev, var(--nm-bg)); font-weight: 600; color: var(--nm-text-strong); }
 .nw-rows td.null { color: var(--nm-text-muted); font-style: italic; }
 .nw-result { display: flex; flex-direction: column; gap: 4px; padding: 6px 10px; border-radius: 4px; font-size: 12px; border: 1px solid var(--nm-border-soft); }

@@ -2,6 +2,9 @@
 import { ref, watch } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import CodeEditor from './CodeEditor.vue';
+import type { ResultColumn } from '../api/types';
+import { vectorMeta, vectorValueProblem } from '../composables/vector';
+import { vectorProblemText } from '../composables/vectorLabels';
 
 // "Agregar documento": a new document (or row, when the grid has no columns
 // to fill, like an empty collection) typed as JSON. An object is one
@@ -14,6 +17,8 @@ const props = defineProps<{
   documents: boolean;
   /** Field names the result shows, for the starting template. */
   fields: string[];
+  /** The result's columns: a vector field must be a vector its column holds (or null). */
+  columns?: ResultColumn[];
 }>();
 const emit = defineEmits<{
   close: [];
@@ -50,6 +55,12 @@ function add() {
   const docs = Array.isArray(parsed) ? parsed : [parsed];
   if (!docs.length || !docs.every(isObject)) { error.value = t('results:addDocument.notObject'); return; }
   if (docs.some((d) => !Object.keys(d).length)) { error.value = t('results:addDocument.empty'); return; }
+  for (const col of props.columns ?? []) {
+    for (const d of docs) {
+      const problem = col.name in d ? vectorValueProblem(d[col.name], vectorMeta(col)) : null;
+      if (problem) { error.value = vectorProblemText(problem, col.name); return; }
+    }
+  }
   emit('add', docs);
 }
 </script>

@@ -7,6 +7,7 @@ import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { badgeClass, indexTag, indexUsageEntry, loadIndexUsage, seekTip, sharePct, usageBadge } from '../composables/indexUsage';
 import { dropIndexItem, toggleIndexItem, type DropIndexTarget } from '../composables/dropIndex';
+import { indexVector, vectorLine } from '../composables/indexVectors';
 import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
 import DropIndexDialog from '../components/DropIndexDialog.vue';
 import { useConnectionsStore } from '../stores/connections';
@@ -47,9 +48,13 @@ const counter = (f: (i: IndexUsage) => number) => (i: IndexUsage) => (stats.valu
 // last write are unknown, not 0, so they show a dash.
 const noWrites = computed(() => stats.value && report.value?.writes_counted === false);
 const writeCol = (c: Col): Col => (noWrites.value ? { ...c, value: () => null, text: () => '—', tip: t('explorer:indexes.noWritesTip') } : c);
+/** A vector index's algorithm, distance and build parameters (composables/indexVectors.ts). */
+const vectorOf = (i: IndexUsage) => vectorLine(indexVector(props.tab.connectionId, props.tab.database, props.tab.object, i));
+const hasVectors = computed(() => (report.value?.indexes ?? []).some((i) => vectorOf(i)));
 const cols = computed<Col[]>(() => [
   { id: 'name', label: t('explorer:indexes.col.name'), value: (i) => i.name, text: (i) => i.name },
   { id: 'type', label: t('explorer:indexes.col.type'), value: (i) => indexTag(i), text: (i) => indexTag(i) },
+  ...(hasVectors.value ? [{ id: 'vector', label: t('vectors:index.column'), value: vectorOf, text: vectorOf }] : []),
   { id: 'keys', label: t('explorer:indexes.col.keys'), value: (i) => i.key_columns.join(', '), text: (i) => i.key_columns.join(', ') },
   { id: 'include', label: 'INCLUDE', value: (i) => i.included_columns.join(', '), text: (i) => i.included_columns.join(', ') },
   { id: 'filter', label: t('explorer:indexes.col.filter'), value: (i) => i.filter ?? '', text: (i) => i.filter ?? '' },

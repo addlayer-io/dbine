@@ -9,7 +9,7 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { api, errorMessage } from '../api/client';
 import type { Cell, Message, MessageLevel, ObjectRef, QueryOutcome, ResultColumn, SortKey, StatementResult } from '../api/types';
 import { sortRows } from '../composables/gridSort';
-import { buildChanges, buildInserts, inferColumnSources, inferTarget, resolveEditing, rowKey, skippedKeyColumns, type EditSetup, type Edits } from '../composables/gridEdit';
+import { buildChanges, buildInserts, inferColumnSources, inferTarget, resolveEditing, rowKey, skippedKeyColumns, type EditSetup, type Edits, type ScriptValue } from '../composables/gridEdit';
 import ResultGrid from './ResultGrid.vue';
 import AddDocumentDialog from './AddDocumentDialog.vue';
 import JsonTreeView from './JsonTreeView.vue';
@@ -30,6 +30,7 @@ import { inFocusedEditor } from '../stores/editorGroups';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 import { useConnectionsStore } from '../stores/connections';
 import { jumpFilters, linksFor, openFiltered, relationsSchema, type FkLink, type GridLinks } from '../composables/fkJump';
+import { rowsForScripts, scriptValue, vectorMeta } from '../composables/vector';
 
 // What a run produced: one sub-tab per result set, "Plan de ejecución" when
 // the run asked for plans, and "Mensajes" (server messages, affected rows,
@@ -371,6 +372,35 @@ watch(
 );
 const canDelete = computed(() => canEdit.value && !deleteReason.value);
 
+/**
+ * "Copiar como SQL INSERTs / UPDATEs" of rows with vectors: the table's
+ * driver writes them, so each vector is its engine's literal (the generic
+ * SQL would quote the JSON text). INSERTs where new rows can go; UPDATEs
+ * where the rows can be edited and the copy has their key columns (vector
+ * columns are never part of it). Null otherwise: the generic SQL goes.
+ */
+async function copyScript(format: 'sql_insert' | 'sql_update', columns: ResultColumn[], rows: Cell[][]): Promise<string | null> {
+  const src = props.editSource;
+  if (!src || !rows.length) return null;
+  const names = columns.map((c) => c.name);
+  if (format === 'sql_insert') {
+    const target = insertTarget.value;
+    if (!target || insertReason.value) return null;
+    return invoke<string>('insert_script', { args: { connection_id: src.connectionId, target, columns: names, rows: rowsForScripts(columns, rows) } });
+  }
+  const s = setup.value;
+  if (!s || typeof s === 'string' || s.keyColumns.some((k) => !names.includes(k))) return null;
+  const metas = columns.map(vectorMeta);
+  // SET every column the WHERE leaves out (as the generic copy does).
+  const changes = rows.map((row) => {
+    const key = rowKey(columns, row, s, props.dialect ?? '');
+    const inKey = new Set(key.map(([n]) => n));
+    return { key, set: names.flatMap((n, i) => (inKey.has(n) ? [] : [[n, scriptValue(metas[i], row[i] ?? null)] as [string, ScriptValue]])), row: [] };
+  }).filter((ch) => ch.set.length);
+  if (!changes.length) return null;
+  return invoke<string>('update_script', { args: { connection_id: src.connectionId, target: s.target, changes } });
+}
+
 // -- new rows / documents (INSERT code: the driver's `insert_script`) --------------------
 /** Where new rows go: the edit setup's table, or the tab's own object (an
  *  empty collection has no result columns, so no setup). */
@@ -440,7 +470,15 @@ const editNote = computed(() => {
   const r = current.value;
   if (!s || typeof s === 'string' || !r) return null;
   const skipped = skippedKeyColumns(r.columns, s, props.dialect ?? '');
-  const parts = [s.note, skipped.length ? t('core:gridEdit.skippedColumns', { columns: skipped.join(', ') }) : null].filter(Boolean);
+  // Vector columns are said apart: they aren't binary or large values.
+  const isVec = (n: string) => !!vectorMeta(r.columns.find((c) => c.name === n));
+  const others = skipped.filter((n) => !isVec(n));
+  const vectors = skipped.filter(isVec);
+  const parts = [
+    s.note,
+    others.length ? t('core:gridEdit.skippedColumns', { columns: others.join(', ') }) : null,
+    vectors.length ? t('vectors:edit.skippedColumns', { columns: vectors.join(', ') }) : null,
+  ].filter(Boolean);
   return parts.length ? parts.join(' ') : null;
 });
 
@@ -1069,7 +1107,7 @@ const liveText = computed(() => {
         ref="grid"
         :columns="current.columns"
         :rows="gridRows"
-        :copy-context="{ table: table ?? null, dialect: dialect ?? '', keyColumns }"
+        :copy-context="{ table: table ?? null, dialect: dialect ?? '', keyColumns, script: copyScript }"
         :editable="canEdit && !applying"
         :no-edit-reason="noEditReason"
         :read-only-columns="readOnlyColumns"
@@ -1112,6 +1150,7 @@ const liveText = computed(() => {
       :open="docOpen"
       :documents="editSource?.language === 'json'"
       :fields="current?.columns.map((c) => c.name) ?? []"
+      :columns="current?.columns ?? []"
       @close="docOpen = false"
       @add="addDocuments"
     />

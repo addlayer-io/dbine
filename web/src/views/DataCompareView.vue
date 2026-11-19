@@ -23,6 +23,10 @@ import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type DataCompareTab, type QueryComparePick } from '../stores/tabs';
 import { formatElapsed, startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 import { trackFeature } from '../composables/telemetry';
+import { shownVectorMeta, vectorDiffPreview, vectorPreview, type VectorDiff, type VectorPreview } from '../composables/vector';
+import type { VectorMeta } from '../api/types';
+import VectorValue from '../components/VectorValue.vue';
+import CellViewer from '../components/CellViewer.vue';
 
 // Data compare (docs/data-compare.md): a table's rows (left) against
 // another table's (right), by key; then a script, in the target engine's
@@ -367,9 +371,53 @@ onBeforeUnmount(() => {
 });
 
 const fmtN = (n: number) => n.toLocaleString(locale());
+/** Each compared column's vectors (composables/vector.ts): a query's
+ *  result column says it (the driver's mark); a table's, its type on the
+ *  left (`vector(3)`, `FLOAT[3]`, `ARRAY<FLOAT64>`…). */
+const vecMetas = computed<(VectorMeta | null)[]>(() => (result.value?.columns ?? []).map((c, j) => {
+  const col = mode.value === 'queries' ? qColumns.left.find((x) => x.name === c) : undefined;
+  return shownVectorMeta(col ?? { type_name: result.value?.types?.[j] ?? '' });
+}));
+/** Vector cells as shown, worked out once per row and column (a changed
+ *  row's two vectors are read whole to find where they part). */
+let vecCache = new WeakMap<Cell[], Map<number, VectorPreview | null>>();
+let diffCache = new WeakMap<Cell[], Map<number, VectorDiff | null>>();
+watch(vecMetas, () => { vecCache = new WeakMap(); diffCache = new WeakMap(); });
+/** Column `j`'s vector in `row` as its first numbers and dims; null: not one. */
+function vecOf(row: Cell[], j: number): VectorPreview | null {
+  const meta = vecMetas.value[j];
+  if (!meta) return null;
+  let byCol = vecCache.get(row);
+  if (!byCol) vecCache.set(row, (byCol = new Map()));
+  if (!byCol.has(j)) byCol.set(j, vectorPreview(row[j] ?? null, meta));
+  return byCol.get(j)!;
+}
+/** A changed row's two vectors in column `j`, from where they part (the
+ *  usual preview could read the same on both sides). */
+function diffOf(r: DataRow, j: number): VectorDiff | null {
+  const meta = vecMetas.value[j];
+  if (!meta || meta.sparse || !r.right) return null;
+  let byCol = diffCache.get(r.left);
+  if (!byCol) diffCache.set(r.left, (byCol = new Map()));
+  if (!byCol.has(j)) byCol.set(j, vectorDiffPreview(r.left[j], r.right[j]));
+  return byCol.get(j)!;
+}
+/** A side of a changed cell: its side, and for vectors where they part. */
+function sideTitle(r: DataRow, j: number, side: 'left' | 'right'): string {
+  const d = diffOf(r, j);
+  const label = t(`dataCompare:${side}`);
+  return d ? t('vectors:compare.firstDiff', { side: label, position: d.at + 1, dims: d[side].dims }) : label;
+}
+/** A cell as text (vectors show through VectorValue). */
 function show(v: Cell): string {
   if (v === null) return 'NULL';
   return typeof v === 'string' ? v : String(v);
+}
+/** Double-click on a cell: its whole value in the viewer (a vector with its dims, norm…). */
+const viewer = ref<{ title: string; value: Cell; vector: VectorMeta | null } | null>(null);
+function openCell(j: number, v: Cell, side?: 'left' | 'right') {
+  const column = result.value?.columns[j] ?? '';
+  viewer.value = { title: side ? `${column} · ${t(`dataCompare:${side}`)}` : column, value: v, vector: vecMetas.value[j] ?? null };
 }
 // -- order and filters: over all the rows of a kind, not only those shown -------
 const sort = ref<SortKey[]>([]);
@@ -423,7 +471,11 @@ function sortClick(e: MouseEvent, c: string) {
 }
 /** The filter panel of a column (the three dots on its header). */
 const menu = ref<{ column: string; index: number; x: number; y: number; op: FilterOp; value: string; changed: boolean } | null>(null);
-const kindOf = (j: number) => columnKind(result.value?.types?.[j] ?? '', shown.value[0]?.left[j] ?? null);
+/** A vector column filters as text here: the compare's own store holds its text. */
+const kindOf = (j: number) => {
+  const k = columnKind(result.value?.types?.[j] ?? '', shown.value[0]?.left[j] ?? null);
+  return k === 'vector' ? 'text' : k;
+};
 /** What a filter offers for a column: the data grid's, except what only a query can do. */
 const opsOf = (j: number) => menuFor(kindOf(j))
   .filter((e) => e.op && !['in', 'not_in', 'sql', 'sql_right'].includes(e.op))
@@ -1234,11 +1286,20 @@ async function suggestKey() {
                 <button :class="{ on: dirOf(diffView, r.index) === 'left' }" :title="arrowTip(diffView, 'left')" @click="toggle(diffView, r.index, 'left')">←</button>
                 <button :class="{ on: dirOf(diffView, r.index) === 'right' }" :title="arrowTip(diffView, 'right')" @click="toggle(diffView, r.index, 'right')">→</button>
               </td>
-              <td v-for="(c, j) in result.columns" :key="c" :class="{ diff: r.diff.includes(j), key: j < result.key.length }">
+              <td v-for="(c, j) in result.columns" :key="c" :class="{ diff: r.diff.includes(j), key: j < result.key.length }" @dblclick="openCell(j, r.left[j])">
                 <template v-if="r.right && r.diff.includes(j)">
-                  <div class="dc-l" :title="$t('dataCompare:left')">{{ show(r.left[j]) }}</div>
-                  <div class="dc-r" :title="$t('dataCompare:right')">{{ show(r.right[j]) }}</div>
+                  <div class="dc-l" :title="sideTitle(r, j, 'left')" @dblclick.stop="openCell(j, r.left[j], 'left')">
+                    <VectorValue v-if="diffOf(r, j)" :preview="diffOf(r, j)!.left" :meta="vecMetas[j]" :from="diffOf(r, j)!.start || null" />
+                    <VectorValue v-else-if="vecOf(r.left, j)" :preview="vecOf(r.left, j)!" :meta="vecMetas[j]" />
+                    <template v-else>{{ show(r.left[j]) }}</template>
+                  </div>
+                  <div class="dc-r" :title="sideTitle(r, j, 'right')" @dblclick.stop="openCell(j, r.right[j], 'right')">
+                    <VectorValue v-if="diffOf(r, j)" :preview="diffOf(r, j)!.right" :meta="vecMetas[j]" :from="diffOf(r, j)!.start || null" />
+                    <VectorValue v-else-if="vecOf(r.right, j)" :preview="vecOf(r.right, j)!" :meta="vecMetas[j]" />
+                    <template v-else>{{ show(r.right[j]) }}</template>
+                  </div>
                 </template>
+                <VectorValue v-else-if="vecOf(r.left, j)" :preview="vecOf(r.left, j)!" :meta="vecMetas[j]" />
                 <template v-else>{{ show(r.left[j]) }}</template>
               </td>
             </tr>
@@ -1266,6 +1327,7 @@ async function suggestKey() {
     </template>
     <div v-else-if="!running && !error" class="dc-hint">{{ $t(readOnly ? 'dataCompare:query.hint' : 'dataCompare:hint') }}</div>
 
+    <CellViewer v-if="viewer" :title="viewer.title" :value="viewer.value" :vector="viewer.vector" @close="viewer = null" />
     <ExportDialog
       v-if="exporting" :columns="[]" :rows="[]" :total-rows="0" :truncated="false" :source="null"
       :title="exportTitle" :dialect="exportDialect" :compare="exporting" @close="exporting = null"
