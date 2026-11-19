@@ -4,8 +4,9 @@
 //! scripts, read back as vectors, described, a similarity query, and a
 //! transfer (to the same engine, and from a pgvector-shaped source: text
 //! cells with a JSON array). Flight SQL has no index metadata or DDL of
-//! its own, so there is no vector index here. The tables are dropped first
-//! and at the end.
+//! its own; where DuckDB's vss is installed on the server, an HNSW index
+//! made in its SQL is checked in the index usage report. The tables are
+//! dropped first and at the end.
 //!
 //! ```sh
 //! docker start dbine-test-flightsql
@@ -179,7 +180,39 @@ async fn scenario(d: &dyn Driver, s: &mut Box<dyn Session>) {
     let emb = &cols.iter().find(|c| c.name == "emb").unwrap().data_type;
     assert!(emb.contains('3'), "{emb}");
 
-    // 5. No vector index over Flight SQL.
+    // 5. Flight SQL has no index DDL of its own, but DuckDB behind it has
+    // vss's HNSW: where the extension is installed on the server, an index
+    // made in its SQL is listed by the index usage report with its
+    // settings. (The test doesn't install it: an extension outlives the
+    // test on the server.)
+    let mut out = QueryOutcome::default();
+    let vss = s.execute("LOAD vss", 10, &mut out).await.is_ok() && out.error.is_none();
+    if vss {
+        run(s, "SET hnsw_enable_experimental_persistence = true").await;
+        run(
+            s,
+            "CREATE INDEX dbine_vec_hnsw ON dbine_vec_docs USING HNSW (emb) WITH (metric = 'cosine', M = 8)",
+        )
+        .await;
+        let usage = s
+            .index_usage(&table("dbine_vec_docs"))
+            .await
+            .unwrap()
+            .unwrap();
+        let ix = usage
+            .indexes
+            .iter()
+            .find(|i| i.name == "dbine_vec_hnsw")
+            .unwrap_or_else(|| panic!("{:?}", usage.indexes));
+        assert_eq!(ix.kind, "HNSW");
+        assert_eq!(ix.key_columns, ["emb"]);
+        let v = ix.vector.as_ref().expect("vector index");
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        run(s, "DROP INDEX dbine_vec_hnsw").await;
+        run(s, "RESET hnsw_enable_experimental_persistence").await;
+    } else {
+        eprintln!("flightsql: vss isn't installed on the server; the HNSW index step is skipped");
+    }
 
     // 6. A similarity query.
     let out = run(
@@ -276,5 +309,5 @@ async fn scenario(d: &dyn Driver, s: &mut Box<dyn Session>) {
             json!("[0.25,-0.5,4]")
         ]
     );
-    eprintln!("flightsql vectors: table, scripts, query and transfer checked (no vector index)");
+    eprintln!("flightsql vectors: table, scripts, query and transfer checked");
 }
