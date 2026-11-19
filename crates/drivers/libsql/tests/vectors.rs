@@ -287,8 +287,28 @@ async fn vectors_end_to_end() {
                     ],
                 )
                 .unwrap();
-            assert!(ins.contains("vector32('[1,0,0]')"), "{ins}");
+            assert!(ins.contains("FROM (SELECT '[1,0,0]' AS v)"), "{ins}");
+            // An F64 column with a vector index of its own takes only F64
+            // vectors: the script writes each column's format.
+            run(
+                &mut s,
+                &format!("CREATE INDEX \"{name}_emb64\" ON \"{name}\" (libsql_vector_idx(emb64))"),
+            )
+            .await;
             run(&mut s, &ins).await;
+            let out = run(
+                &mut s,
+                &format!(
+                    "SELECT typeof(emb64), length(emb64), length(half), length(emb) FROM \"{name}\" WHERE id = 1"
+                ),
+            )
+            .await;
+            // 2 · 8 bytes and the F64 type byte, 2 · 2 and the F16 one, 3 · 4.
+            assert_eq!(
+                out.results[0].rows[0],
+                vec![json!("blob"), json!(17), json!(5), json!(12)]
+            );
+            run(&mut s, &format!("DROP INDEX \"{name}_emb64\"")).await;
 
             // 3. Read back: marked, whole, exact.
             let out = run(
@@ -438,6 +458,33 @@ async fn vectors_end_to_end() {
             run(&mut s, &up).await;
             let out = run(&mut s, &format!("SELECT emb FROM \"{name}\" WHERE id = 2")).await;
             assert_eq!(out.results[0].rows[0][0], json!("[0.5,0.5,0]"));
+            // And one into an indexed F64 column (an F32 vector is refused
+            // there: "vector type differs from column type").
+            run(
+                &mut s,
+                &format!("CREATE INDEX \"{name}_emb64\" ON \"{name}\" (libsql_vector_idx(emb64))"),
+            )
+            .await;
+            let up = d
+                .update_script(
+                    &table(&name),
+                    &[RowChange {
+                        key: vec![("id".into(), json!(2))],
+                        set: vec![("emb64".into(), json!([0.25, 8]))],
+                        row: Vec::new(),
+                    }],
+                )
+                .unwrap();
+            run(&mut s, &up).await;
+            let out = run(
+                &mut s,
+                &format!(
+                    "SELECT emb64, (SELECT count(*) FROM vector_top_k('{name}_emb64', vector64('[0.25,8]'), 1)) FROM \"{name}\" WHERE id = 2"
+                ),
+            )
+            .await;
+            assert_eq!(out.results[0].rows[0], vec![json!("[0.25,8]"), json!(1)]);
+            run(&mut s, &format!("DROP INDEX \"{name}_emb64\"")).await;
 
             // A rebuild (a column becomes NOT NULL) keeps the vector index.
             let mut new = t.clone();

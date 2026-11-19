@@ -174,8 +174,9 @@ impl Driver for SqliteDriver {
         Some(schema::designer())
     }
 
-    /// The contract's scripts, with a vector (a libSQL file's `F32_BLOB`
-    /// column) as its `F32` blob: SQLite has no `vector32()`.
+    /// The contract's scripts, with a vector (a libSQL file's `F32_BLOB`,
+    /// `F64_BLOB`… column) as the blob of the column's format, which the
+    /// statement reads from the catalog: SQLite has no `vector32()`.
     fn insert_script(
         &self,
         target: &ObjectRef,
@@ -183,10 +184,10 @@ impl Driver for SqliteDriver {
         rows: &[Vec<serde_json::Value>],
     ) -> Result<String> {
         Ok(vector::scripts::insert(
+            vector::Engine::Sqlite,
             target,
             columns,
             rows,
-            vector::sqlite_literal,
         ))
     }
 
@@ -196,9 +197,9 @@ impl Driver for SqliteDriver {
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
         Ok(vector::scripts::update(
+            vector::Engine::Sqlite,
             target,
             changes,
-            vector::sqlite_literal,
         ))
     }
 
@@ -207,11 +208,7 @@ impl Driver for SqliteDriver {
         target: &ObjectRef,
         keys: &[Vec<(String, serde_json::Value)>],
     ) -> Result<String> {
-        Ok(vector::scripts::delete(
-            target,
-            keys,
-            vector::sqlite_literal,
-        ))
+        Ok(vector::scripts::delete(target, keys))
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {

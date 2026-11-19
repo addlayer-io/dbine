@@ -263,29 +263,88 @@ fn script_vector(value: &serde_json::Value) -> Option<Vec<f64>> {
     }
 }
 
-/// The SQL that writes a vector value of an edit or insert script: libSQL's
-/// `vector32('[…]')`. The scripts don't know the column's format, so it's
-/// the usual one, `F32` (see `docs/engine-support.md`).
-pub fn libsql_literal(value: &serde_json::Value) -> Option<String> {
-    script_vector(value).map(|n| format!("vector32('{}')", v::text(n)))
+/// Where a script runs: libSQL makes vectors with its functions
+/// (`vector64('[…]')`); SQLite, which has none, writes each format's blob
+/// (`X'…'`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Engine {
+    Libsql,
+    Sqlite,
 }
 
-/// The same for a SQLite file, which has no `vector32()`: the `F32` blob
-/// itself (`X'0000803F'`).
-pub fn sqlite_literal(value: &serde_json::Value) -> Option<String> {
+/// Each format with the declared types that name it, as `LIKE` patterns
+/// (the `FLOATnn` spellings only with a dimension: a bare `FLOAT8` is a
+/// REAL).
+const FORMATS: [(Kind, &str, &str); 6] = [
+    (Kind::F32, "F32%", "FLOAT32(%"),
+    (Kind::F64, "F64%", "FLOAT64(%"),
+    (Kind::F16, "F16%", "FLOAT16(%"),
+    (Kind::Bf16, "FB16%", "FLOATB16(%"),
+    (Kind::F8, "F8%", "FLOAT8(%"),
+    (Kind::Bit, "F1BIT%", "FLOAT1BIT(%"),
+];
+
+fn quoted(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "''"))
+}
+
+/// The SQL that writes a vector value of an edit or insert script into
+/// `column` of `table`. The scripts don't know the column's type, so the
+/// statement reads it (`pragma_table_info`) and makes the vector in that
+/// column's format: `F64_BLOB` gets `vector64('[…]')` (SQLite: the F64
+/// blob), and so on; a column that isn't a vector column gets the array's
+/// text; one the catalog doesn't show, the usual `F32`. `None`: not a
+/// vector value.
+pub fn literal(
+    engine: Engine,
+    table: &dbine_driver::ObjectRef,
+    column: &str,
+    value: &serde_json::Value,
+) -> Option<String> {
     let values = script_vector(value)?;
-    let hex: String = encode(Kind::F32, &values)
-        .iter()
-        .map(|b| format!("{b:02X}"))
-        .collect();
-    Some(format!("X'{hex}'"))
+    let text = v::text(values.iter().copied());
+    let make = |k: Kind| match engine {
+        Engine::Libsql => format!("{}(x.v)", k.function()),
+        Engine::Sqlite => {
+            let hex: String = encode(k, &values)
+                .iter()
+                .map(|b| format!("{b:02X}"))
+                .collect();
+            format!("X'{hex}'")
+        }
+    };
+    let mut case = String::from("CASE");
+    for (k, blob, float) in FORMATS {
+        case.push_str(&format!(
+            " WHEN t.type LIKE '{blob}' OR t.type LIKE '{float}' THEN {}",
+            make(k)
+        ));
+    }
+    case.push_str(&format!(
+        " WHEN t.type IS NULL THEN {} ELSE x.v END",
+        make(Kind::F32)
+    ));
+    let info = match table.schema().filter(|s| !s.is_empty()) {
+        Some(sch) => format!(
+            "pragma_table_info({}, {})",
+            quoted(&table.name),
+            quoted(sch)
+        ),
+        None => format!("pragma_table_info({})", quoted(&table.name)),
+    };
+    Some(format!(
+        "(SELECT {case} FROM (SELECT {} AS v) AS x LEFT JOIN {info} AS t ON t.name = {} COLLATE NOCASE)",
+        quoted(&text),
+        quoted(column)
+    ))
 }
 
 /// Insert, update and delete scripts as the driver contract's defaults
-/// write them for SQLite, with vectors as `vector` writes them.
+/// write them for SQLite, with vectors as [`literal`] writes them.
 pub mod scripts {
+    use super::{literal, Engine};
     use dbine_driver::ddl::{self, SqlFlavor};
-    use dbine_driver::sql::Quote;
+    use dbine_driver::sql::{qualified_name, quote_ident, Quote};
     use dbine_driver::{ObjectRef, RowChange};
     use serde_json::Value;
 
@@ -294,44 +353,95 @@ pub mod scripts {
         ..SqlFlavor::ansi()
     };
 
-    fn literal(v: &Value, vector: fn(&Value) -> Option<String>) -> String {
-        vector(v).unwrap_or_else(|| ddl::sql_literal(&FLAVOR, v))
+    fn lit(engine: Engine, target: &ObjectRef, column: &str, v: &Value) -> String {
+        literal(engine, target, column, v).unwrap_or_else(|| ddl::sql_literal(&FLAVOR, v))
     }
 
+    /// `INSERT … VALUES` 100 rows a statement, as the contract's.
     pub fn insert(
+        engine: Engine,
         target: &ObjectRef,
         columns: &[String],
         rows: &[Vec<Value>],
-        vector: fn(&Value) -> Option<String>,
     ) -> String {
-        ddl::insert_script_with(
-            &FLAVOR,
-            target.schema(),
+        let name = qualified_name(
+            FLAVOR.quote,
+            target.schema().filter(|s| !s.is_empty()),
             &target.name,
-            columns,
-            rows,
-            100,
-            &|v| literal(v, vector),
-        )
+        );
+        let cols: Vec<String> = columns
+            .iter()
+            .map(|c| quote_ident(FLAVOR.quote, c))
+            .collect();
+        let head = format!("INSERT INTO {name} ({}) VALUES", cols.join(", "));
+        rows.chunks(100)
+            .map(|chunk| {
+                let tuples: Vec<String> = chunk
+                    .iter()
+                    .map(|r| {
+                        let vals: Vec<String> = r
+                            .iter()
+                            .enumerate()
+                            .map(|(i, v)| match columns.get(i) {
+                                Some(c) => lit(engine, target, c, v),
+                                None => ddl::sql_literal(&FLAVOR, v),
+                            })
+                            .collect();
+                        format!("({})", vals.join(", "))
+                    })
+                    .collect();
+                format!("{head}\n  {};", tuples.join(",\n  "))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
-    pub fn update(
-        target: &ObjectRef,
-        changes: &[RowChange],
-        vector: fn(&Value) -> Option<String>,
-    ) -> String {
-        ddl::update_script_with(FLAVOR.quote, target.schema(), &target.name, changes, &|v| {
-            literal(v, vector)
-        })
+    /// `UPDATE … SET … WHERE …;` per changed row, as the contract's (vector
+    /// columns are never in the key).
+    pub fn update(engine: Engine, target: &ObjectRef, changes: &[RowChange]) -> String {
+        let name = qualified_name(
+            FLAVOR.quote,
+            target.schema().filter(|s| !s.is_empty()),
+            &target.name,
+        );
+        let q = |c: &str| quote_ident(FLAVOR.quote, c);
+        changes
+            .iter()
+            .filter(|c| !c.set.is_empty())
+            .map(|c| {
+                let set: Vec<String> = c
+                    .set
+                    .iter()
+                    .map(|(k, v)| format!("{} = {}", q(k), lit(engine, target, k, v)))
+                    .collect();
+                let wh: Vec<String> = c
+                    .key
+                    .iter()
+                    .map(|(k, v)| {
+                        if v.is_null() {
+                            format!("{} IS NULL", q(k))
+                        } else {
+                            format!("{} = {}", q(k), ddl::sql_literal(&FLAVOR, v))
+                        }
+                    })
+                    .collect();
+                if wh.is_empty() {
+                    format!("UPDATE {name} SET {};", set.join(", "))
+                } else {
+                    format!(
+                        "UPDATE {name} SET {} WHERE {};",
+                        set.join(", "),
+                        wh.join(" AND ")
+                    )
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
-    pub fn delete(
-        target: &ObjectRef,
-        keys: &[Vec<(String, Value)>],
-        vector: fn(&Value) -> Option<String>,
-    ) -> String {
+    pub fn delete(target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> String {
         ddl::delete_script_with(FLAVOR.quote, target.schema(), &target.name, keys, &|v| {
-            literal(v, vector)
+            ddl::sql_literal(&FLAVOR, v)
         })
     }
 }
@@ -457,30 +567,80 @@ mod tests {
     #[test]
     fn script_literals() {
         let val = serde_json::json!([1, 2.5]);
-        assert_eq!(libsql_literal(&val).as_deref(), Some("vector32('[1,2.5]')"));
-        assert_eq!(sqlite_literal(&val).as_deref(), Some("X'0000803F00002040'"));
-        assert_eq!(libsql_literal(&serde_json::json!("x")), None);
-        // Text that looks like a vector is still text.
-        assert_eq!(libsql_literal(&serde_json::json!("[1,2]")), None);
         let t = dbine_driver::ObjectRef {
             kind: "table".into(),
             schema: None,
-            name: "t".into(),
+            name: "t'x".into(),
         };
+        // libSQL: the column's own format, read from the catalog.
+        let lib = literal(Engine::Libsql, &t, "v", &val).unwrap();
+        assert_eq!(
+            lib,
+            "(SELECT CASE WHEN t.type LIKE 'F32%' OR t.type LIKE 'FLOAT32(%' THEN vector32(x.v) \
+             WHEN t.type LIKE 'F64%' OR t.type LIKE 'FLOAT64(%' THEN vector64(x.v) \
+             WHEN t.type LIKE 'F16%' OR t.type LIKE 'FLOAT16(%' THEN vector16(x.v) \
+             WHEN t.type LIKE 'FB16%' OR t.type LIKE 'FLOATB16(%' THEN vectorb16(x.v) \
+             WHEN t.type LIKE 'F8%' OR t.type LIKE 'FLOAT8(%' THEN vector8(x.v) \
+             WHEN t.type LIKE 'F1BIT%' OR t.type LIKE 'FLOAT1BIT(%' THEN vector1bit(x.v) \
+             WHEN t.type IS NULL THEN vector32(x.v) ELSE x.v END \
+             FROM (SELECT '[1,2.5]' AS v) AS x LEFT JOIN pragma_table_info('t''x') AS t ON t.name = 'v' COLLATE NOCASE)"
+        );
+        // SQLite: each format's blob.
+        let lite = literal(
+            Engine::Sqlite,
+            &dbine_driver::ObjectRef {
+                schema: Some("main".into()),
+                ..t.clone()
+            },
+            "v",
+            &val,
+        )
+        .unwrap();
+        assert!(
+            lite.contains("LIKE 'F32%' OR t.type LIKE 'FLOAT32(%' THEN X'0000803F00002040'"),
+            "{lite}"
+        );
+        assert!(
+            lite.contains("THEN X'000000000000F03F000000000000044002'"),
+            "{lite}"
+        );
+        assert!(
+            lite.contains("WHEN t.type IS NULL THEN X'0000803F00002040' ELSE x.v END"),
+            "{lite}"
+        );
+        assert!(lite.contains("pragma_table_info('t''x', 'main')"), "{lite}");
+        assert_eq!(
+            literal(Engine::Libsql, &t, "v", &serde_json::json!("x")),
+            None
+        );
+        // Text that looks like a vector is still text.
+        assert_eq!(
+            literal(Engine::Libsql, &t, "v", &serde_json::json!("[1,2]")),
+            None
+        );
         let rows = vec![vec![serde_json::json!(1), val.clone(), "[3]".into()]];
         let cols = ["id".to_string(), "v".into(), "s".into()];
+        let ins = scripts::insert(Engine::Libsql, &t, &cols, &rows);
         assert_eq!(
-            scripts::insert(&t, &cols, &rows, libsql_literal),
-            "INSERT INTO \"t\" (\"id\", \"v\", \"s\") VALUES\n  (1, vector32('[1,2.5]'), '[3]');"
+            ins,
+            format!("INSERT INTO \"t'x\" (\"id\", \"v\", \"s\") VALUES\n  (1, {lib}, '[3]');")
         );
         let change = dbine_driver::RowChange {
-            key: vec![("id".into(), serde_json::json!(1))],
-            set: vec![("v".into(), serde_json::json!([0.5]))],
+            key: vec![
+                ("id".into(), serde_json::json!(1)),
+                ("k".into(), serde_json::Value::Null),
+            ],
+            set: vec![
+                ("v".into(), serde_json::json!([0.5])),
+                ("s".into(), "a".into()),
+            ],
             row: Vec::new(),
         };
-        assert_eq!(
-            scripts::update(&t, &[change], sqlite_literal),
-            "UPDATE \"t\" SET \"v\" = X'0000003F' WHERE \"id\" = 1;"
+        let up = scripts::update(Engine::Sqlite, &t, &[change]);
+        assert!(
+            up.starts_with("UPDATE \"t'x\" SET \"v\" = (SELECT CASE WHEN t.type LIKE 'F32%' OR t.type LIKE 'FLOAT32(%' THEN X'0000003F'")
+                && up.ends_with("AS t ON t.name = 'v' COLLATE NOCASE), \"s\" = 'a' WHERE \"id\" = 1 AND \"k\" IS NULL;"),
+            "{up}"
         );
         assert_eq!(
             cell_text(None, Some(" [1, 2.50] ")).as_deref(),

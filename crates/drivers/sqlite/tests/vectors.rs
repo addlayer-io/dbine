@@ -133,6 +133,35 @@ async fn libsql_vector_columns_in_a_file() {
             run(&mut s, &up).await;
             let out = run(&mut s, "SELECT e FROM v").await;
             assert_eq!(out.results[0].rows[0][0], json!("[3,4.25]"));
+            // Each column's own format: the script reads it from the catalog.
+            let up = d
+                .update_script(
+                    &table("v"),
+                    &[RowChange {
+                        key: vec![("id".into(), json!(1))],
+                        set: vec![
+                            ("w".into(), json!([2.5, -1])),
+                            ("b".into(), json!([1, -1, 1])),
+                        ],
+                        row: Vec::new(),
+                    }],
+                )
+                .unwrap();
+            run(&mut s, &up).await;
+            let out = run(&mut s, "SELECT hex(w), w, b FROM v").await;
+            assert_eq!(
+                out.results[0].rows[0],
+                vec![
+                    json!("0000000000000440000000000000F0BF02"),
+                    json!("[2.5,-1]"),
+                    json!("[1,-1,1]")
+                ]
+            );
+            run(
+                &mut s,
+                "UPDATE v SET w = X'000000000000F03F000000000000004002', b = X'050D03' WHERE id = 1",
+            )
+            .await;
             // Transfer: vector text out, each column's format in.
             let sink = Arc::new(Mutex::new(Collect::default()));
             let spec = ReadSpec {

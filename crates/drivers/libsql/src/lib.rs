@@ -157,10 +157,10 @@ impl Driver for LibsqlDriver {
         rows: &[Vec<Value>],
     ) -> Result<String> {
         Ok(vector::scripts::insert(
+            vector::Engine::Libsql,
             target,
             columns,
             rows,
-            vector::libsql_literal,
         ))
     }
 
@@ -170,18 +170,14 @@ impl Driver for LibsqlDriver {
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
         Ok(vector::scripts::update(
+            vector::Engine::Libsql,
             target,
             changes,
-            vector::libsql_literal,
         ))
     }
 
     fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
-        Ok(vector::scripts::delete(
-            target,
-            keys,
-            vector::libsql_literal,
-        ))
+        Ok(vector::scripts::delete(target, keys))
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
