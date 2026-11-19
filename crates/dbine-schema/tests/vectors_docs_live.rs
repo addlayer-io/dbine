@@ -290,8 +290,10 @@ fn check_conversion(c: &Conversion, target: &str) -> TableSchema {
 }
 
 /// The converted table as the target describes it back: the vector types
-/// with their dimension, and both vector indexes with their metric.
-fn check_described(back: &TableSchema, converted: &TableSchema, target: &str) {
+/// with their dimension, and both vector indexes on their field with their
+/// metric (when the server reports it: the Cosmos DB emulator doesn't
+/// report the container's embedding policy, where the distance is).
+fn check_described(back: &TableSchema, converted: &TableSchema, target: &str, metrics: bool) {
     for col in ["emb", "h"] {
         let c = back
             .columns
@@ -304,10 +306,12 @@ fn check_described(back: &TableSchema, converted: &TableSchema, target: &str) {
         let got = back
             .indexes
             .iter()
-            .find(|i| {
-                i.name == ix.name || i.columns.first() == ix.columns.first() && i.vector.is_some()
-            })
+            .filter(|i| i.vector.is_some())
+            .find(|i| i.name == ix.name || i.columns.first() == ix.columns.first())
             .unwrap_or_else(|| panic!("{target}: {} in {:?}", ix.name, back.indexes));
+        if !metrics {
+            continue;
+        }
         assert_eq!(
             got.vector.as_ref().and_then(|v| v.metric.clone()),
             ix.vector.as_ref().and_then(|v| v.metric.clone()),
@@ -413,7 +417,7 @@ async fn mongo(pgc: &ConnectionConfig, mc: &ConnectionConfig) {
         .into_iter()
         .find(|x| x.name == t.name)
         .expect("the collection");
-    check_described(&back, &t, "MongoDB");
+    check_described(&back, &t, "MongoDB", true);
 
     // Searched with the converted l2 index, once mongot has built it.
     let l2_name = index_named(&t, "emb_l2").name.clone();
@@ -506,7 +510,7 @@ async fn cosmos_db(pgc: &ConnectionConfig, cc: &ConnectionConfig) {
         .into_iter()
         .find(|x| x.name == t.name)
         .expect("the container");
-    check_described(&back, &t, "Cosmos DB");
+    check_described(&back, &t, "Cosmos DB", false);
 
     // Searched with the embedding's distance (l2: euclidean). (The
     // emulator's backend aborts on TOP with a WHERE and VectorDistance:
@@ -617,7 +621,7 @@ async fn couchbase_db(pgc: &ConnectionConfig, cb: &ConnectionConfig) {
         .into_iter()
         .find(|x| x.name == t.name)
         .expect("the collection");
-    check_described(&back, &t, "Couchbase");
+    check_described(&back, &t, "Couchbase", true);
 
     let near = run_settled(
         &mut *s,
