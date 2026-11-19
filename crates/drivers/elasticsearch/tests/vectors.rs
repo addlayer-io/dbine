@@ -824,3 +824,160 @@ async fn opensearch_byte_and_binary_vectors() {
 
     cleanup(&mut s).await;
 }
+
+/// Elasticsearch 7, whose dense_vector has no ANN index (nor `index`): a
+/// vector field without a vector index is created, filled, read back and
+/// described; one with a vector index is refused by the server.
+#[tokio::test]
+#[ignore]
+async fn elasticsearch7_vectors() {
+    let Ok(url) = std::env::var("DBINE_TEST_ELASTICSEARCH7_URL") else {
+        return;
+    };
+    let d = driver("elasticsearch");
+    let mut s = d
+        .connect(&config("elasticsearch", &url), None)
+        .await
+        .expect("connect");
+    println!("{}", s.server_version().await.unwrap());
+    cleanup(&mut s).await;
+    let _guard = Guard {
+        id: "elasticsearch",
+        url: url.clone(),
+    };
+    let mut table = TableSchema {
+        kind: "index".into(),
+        name: INDEX.into(),
+        columns: vec![col("title", "keyword"), col("emb", "dense_vector(3)")],
+        options: [("number_of_replicas".to_string(), "0".to_string())].into(),
+        ..Default::default()
+    };
+    let parts = DdlParts {
+        drop: true,
+        if_exists: true,
+        create: true,
+        ..Default::default()
+    };
+    run(&mut s, &d.table_ddl(&table, parts).unwrap()).await;
+    let names: Vec<String> = ["_id", "title", "emb"].map(String::from).to_vec();
+    let rows = vec![vec![json!("1"), json!("uno"), json!([0.5, -1.0, 2.0])]];
+    run(
+        &mut s,
+        &d.insert_script(&obj(INDEX), &names, &rows).unwrap(),
+    )
+    .await;
+    let browse = s.browse_query(&obj(INDEX), 10);
+    let out = run(&mut s, &browse).await;
+    let emb = out.results[0]
+        .columns
+        .iter()
+        .find(|c| c.name == "emb")
+        .unwrap();
+    assert_eq!(
+        emb.vector,
+        Some(VectorMeta::dense(Some(3), VectorElement::F32))
+    );
+    assert_eq!(cells(&out, "emb"), [("1".to_string(), json!("[0.5,-1,2]"))]);
+    let schema = s.database_schema().await.unwrap();
+    let got = schema.iter().find(|t| t.name == INDEX).unwrap();
+    let c = got.columns.iter().find(|c| c.name == "emb").unwrap();
+    assert_eq!(
+        (c.data_type.as_str(), got.indexes.is_empty()),
+        ("dense_vector(3)", true)
+    );
+    // A vector index: Elasticsearch 7 has none, and says so.
+    table.indexes.push(IndexDef {
+        name: "emb_idx".into(),
+        columns: vec!["emb".into()],
+        vector: Some(vi("hnsw", "cosine", &[])),
+        ..Default::default()
+    });
+    let mut out = QueryOutcome::default();
+    let e = s
+        .execute(&d.table_ddl(&table, parts).unwrap(), 10, &mut out)
+        .await;
+    assert!(e.is_err() || out.error.is_some(), "{out:?}");
+    cleanup(&mut s).await;
+}
+
+/// Elasticsearch 8.18+ `rank_vectors` (several vectors per document, an
+/// Enterprise feature: a trial license does): typed with its dimension in
+/// the designer and describe, its cells the JSON array of arrays, not a
+/// vector column. Skipped on a server whose license lacks it.
+#[tokio::test]
+#[ignore]
+async fn elasticsearch_rank_vectors() {
+    let Ok(url) = std::env::var("DBINE_TEST_ELASTICSEARCH9_URL") else {
+        return;
+    };
+    let d = driver("elasticsearch");
+    let mut s = d
+        .connect(&config("elasticsearch", &url), None)
+        .await
+        .expect("connect");
+    cleanup(&mut s).await;
+    let _guard = Guard {
+        id: "elasticsearch",
+        url: url.clone(),
+    };
+    let table = TableSchema {
+        kind: "index".into(),
+        name: INDEX.into(),
+        columns: vec![col("title", "keyword"), col("r", "rank_vectors(3)")],
+        options: [("number_of_replicas".to_string(), "0".to_string())].into(),
+        ..Default::default()
+    };
+    let parts = DdlParts {
+        drop: true,
+        if_exists: true,
+        create: true,
+        ..Default::default()
+    };
+    let mut out = QueryOutcome::default();
+    if let Err(e) = s
+        .execute(&d.table_ddl(&table, parts).unwrap(), 10, &mut out)
+        .await
+    {
+        assert!(e.to_string().contains("license"), "{e}");
+        println!("rank_vectors needs an Enterprise (or trial) license: {e}");
+        return;
+    }
+    let names: Vec<String> = ["_id", "title", "r"].map(String::from).to_vec();
+    let rows = vec![vec![
+        json!("1"),
+        json!("uno"),
+        json!([[1.0, 0.0, 0.0], [0.5, 0.5, 0.0]]),
+    ]];
+    run(
+        &mut s,
+        &d.insert_script(&obj(INDEX), &names, &rows).unwrap(),
+    )
+    .await;
+    let browse = s.browse_query(&obj(INDEX), 10);
+    let out = run(&mut s, &browse).await;
+    let r = out.results[0]
+        .columns
+        .iter()
+        .find(|c| c.name == "r")
+        .unwrap();
+    assert_eq!(r.vector, None);
+    assert_eq!(
+        cells(&out, "r"),
+        [("1".to_string(), json!("[[1.0,0.0,0.0],[0.5,0.5,0.0]]"))]
+    );
+    let schema = s.database_schema().await.unwrap();
+    let got = schema.iter().find(|t| t.name == INDEX).unwrap();
+    let c = got.columns.iter().find(|c| c.name == "r").unwrap();
+    assert_eq!(
+        (c.data_type.as_str(), got.indexes.is_empty()),
+        ("rank_vectors(3)", true)
+    );
+    // Searched by MaxSim.
+    let out = run(
+        &mut s,
+        &format!("POST /{INDEX}/_search\n{{\"query\": {{\"script_score\": {{\"query\": {{\"match_all\": {{}}}}, \"script\": {{\"source\": \"maxSimDotProduct(params.q, 'r')\", \"params\": {{\"q\": [[1, 0, 0]]}}}}}}}}}}"),
+    )
+    .await;
+    assert_eq!(out.results[0].rows.len(), 1);
+    cleanup(&mut s).await;
+}
