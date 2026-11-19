@@ -23,6 +23,54 @@ const MAX_DECIMAL: u32 = 38;
 /// TIMESTAMP keeps 100 ns.
 const TIMESTAMP_PRECISION: u8 = 7;
 
+/// Most dimensions of a `REAL_VECTOR`.
+const MAX_VECTOR_DIMS: u32 = 65000;
+
+/// `REAL_VECTOR(n)` (HANA Cloud), any dimension when none is given; a
+/// sparse vector takes the fallback.
+fn render_vector(d: &dyn Dialect, t: &L) -> Rendered {
+    use dbine_driver::VectorElement as E;
+    use IssueCode::*;
+    use Severity::*;
+    let L::Vector {
+        dims,
+        element,
+        sparse: false,
+    } = t
+    else {
+        return super::vector_fallback(d, t);
+    };
+    let ty = match dims {
+        Some(n) if *n <= MAX_VECTOR_DIMS => format!("REAL_VECTOR({n})"),
+        _ => "REAL_VECTOR".to_string(),
+    };
+    let r = Rendered::exact(ty);
+    let r = match element {
+        E::F32 => r,
+        E::F64 => r.with(
+            Loss,
+            PrecisionLoss,
+            "REAL_VECTOR guarda float32: los float64 pierden precisión.",
+        ),
+        _ => r.with(
+            Info,
+            TypeChanged,
+            format!("{}: como REAL_VECTOR (float32).", t.describe()),
+        ),
+    };
+    if dims.is_some_and(|n| n > MAX_VECTOR_DIMS) {
+        r.with(
+            Warning,
+            TypeApproximated,
+            format!(
+                "REAL_VECTOR admite hasta {MAX_VECTOR_DIMS} dimensiones: queda sin dimensión fija."
+            ),
+        )
+    } else {
+        r
+    }
+}
+
 impl Dialect for Hana {
     fn id(&self) -> &'static str {
         "hana"
@@ -98,6 +146,12 @@ impl Dialect for Hana {
                 precision: Some(TIMESTAMP_PRECISION),
                 tz: false,
             },
+            // HANA Cloud's vector engine: `REAL_VECTOR(n)` (float32).
+            "real_vector" => L::Vector {
+                dims: p(0),
+                element: dbine_driver::VectorElement::F32,
+                sparse: false,
+            },
             "st_geometry" | "st_point" => L::Geometry {
                 kind: (t.name == "st_point").then(|| "point".to_string()),
                 srid: p(0),
@@ -113,7 +167,7 @@ impl Dialect for Hana {
         use IssueCode::*;
         use Severity::*;
         match t {
-            L::Vector { .. } => super::vector_fallback(self, t),
+            L::Vector { .. } => render_vector(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes: 1, unsigned: true } => Rendered::exact("TINYINT"),
             L::Int { bytes, unsigned } => {
@@ -224,6 +278,44 @@ impl Dialect for Hana {
             }
             other => standard_default(other, ty, "CURRENT_TIMESTAMP", None, false),
         }
+    }
+
+    /// `CREATE HNSW VECTOR INDEX … SIMILARITY FUNCTION COSINE_SIMILARITY |
+    /// L2DISTANCE`: another family's graph or list index becomes HNSW.
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        use dbine_driver::vector::{metric, param};
+        let metric = match v.metric.as_deref().map(str::to_ascii_lowercase).as_deref() {
+            None => None,
+            Some(metric::COSINE) => Some(metric::COSINE),
+            Some(metric::L2 | "euclidean") => Some(metric::L2),
+            Some(other) => {
+                return Err(format!(
+                    "HANA no tiene la distancia «{other}» (solo coseno y euclidiana)"
+                ))
+            }
+        };
+        let keep = [param::M, param::EF_CONSTRUCTION, "ef_search"];
+        let hnsw = v
+            .algorithm
+            .as_deref()
+            .is_none_or(|a| a.eq_ignore_ascii_case("hnsw"));
+        let params = v
+            .params
+            .iter()
+            .filter(|(k, _)| hnsw && keep.contains(&k.as_str()))
+            .map(|(k, x)| (k.clone(), x.clone()))
+            .collect();
+        Ok((
+            Some("HNSW VECTOR".into()),
+            dbine_driver::VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: metric.map(str::to_string),
+                params,
+            },
+        ))
     }
 
     fn caps(&self) -> Caps {
@@ -378,7 +470,7 @@ mod tests {
                 geography: false
             }
         );
-        assert!(matches!(p("REAL_VECTOR"), L::Other { .. }));
+        assert!(matches!(p("REAL_VECTOR"), L::Vector { dims: None, .. }));
     }
 
     #[test]
@@ -645,5 +737,54 @@ mod tests {
             d(DefaultValue::Text("x".into()), L::Text { unicode: true }),
             None
         );
+    }
+
+    #[test]
+    fn vectors_round_trip() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        let v = |dims, element| L::Vector {
+            dims,
+            element,
+            sparse: false,
+        };
+        let ty = |s: &str| Hana.parse_type(&crate::parse::parse(s));
+        assert_eq!(ty("REAL_VECTOR(3)"), v(Some(3), E::F32));
+        assert_eq!(ty("REAL_VECTOR"), v(None, E::F32));
+        assert_eq!(
+            Hana.render_type(&ty("REAL_VECTOR(1536)")).native,
+            "REAL_VECTOR(1536)"
+        );
+        assert_eq!(Hana.render_type(&v(None, E::F32)).native, "REAL_VECTOR");
+        // pgvector's vector(3) and halfvec(3).
+        assert_eq!(
+            Hana.render_type(&v(Some(3), E::F32)).native,
+            "REAL_VECTOR(3)"
+        );
+        let half = Hana.render_type(&v(Some(3), E::F16));
+        assert_eq!(half.native, "REAL_VECTOR(3)");
+        assert!(!half.notes.is_empty());
+        let sparse = L::Vector {
+            dims: Some(5),
+            element: E::F32,
+            sparse: true,
+        };
+        assert_ne!(Hana.render_type(&sparse).native, "REAL_VECTOR(5)");
+        let hnsw = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("cosine".into()),
+            params: [
+                ("m".to_string(), "16".to_string()),
+                ("lists".to_string(), "4".to_string()),
+            ]
+            .into(),
+        };
+        let (kind, m) = Hana.vector_index(&hnsw).unwrap();
+        assert_eq!(kind.as_deref(), Some("HNSW VECTOR"));
+        assert_eq!(m.params.len(), 1);
+        let ip = VectorIndex {
+            metric: Some("ip".into()),
+            ..Default::default()
+        };
+        assert!(Hana.vector_index(&ip).is_err());
     }
 }

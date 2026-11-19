@@ -48,6 +48,9 @@ const CHECKS: &str = "SELECT TABLE_NAME, CONSTRAINT_NAME, CHECK_CONDITION FROM S
 
 const FULLTEXT_INDEXES: &str = "SELECT * FROM SYS.FULLTEXT_INDEXES WHERE SCHEMA_NAME = ?";
 
+/// HNSW vector indexes (HANA Cloud), every column: their names vary.
+const VECTOR_INDEXES: &str = "SELECT * FROM SYS.VECTOR_INDEXES WHERE SCHEMA_NAME = ?";
+
 /// How a SYS.FULLTEXT_INDEXES setting is written in `CREATE FULLTEXT INDEX`.
 #[derive(Clone, Copy)]
 enum Clause {
@@ -183,6 +186,34 @@ pub(crate) async fn complete(s: &HanaSession, tables: &mut [TableSchema], only: 
             }
         }
         Err(e) => tracing::warn!("hana: full-text indexes not read: {e}"),
+    }
+    // HNSW vector indexes' settings (HANA Cloud); a view older releases
+    // don't have, so nothing is read there.
+    let (q, p) = crate::schema::scoped(VECTOR_INDEXES, schema, only);
+    if let Ok(rows) = named_rows(s, &q, &p).await {
+        for r in rows {
+            let Some(&ti) = r.get("TABLE_NAME").and_then(|n| at.get(n)) else {
+                continue;
+            };
+            let Some(name) = r.get("INDEX_NAME") else {
+                continue;
+            };
+            let v = crate::vector::from_catalog(&r);
+            let t = &mut tables[ti];
+            match t.indexes.iter_mut().find(|i| &i.name == name) {
+                Some(ix) => {
+                    ix.kind = Some(crate::vector::KIND.into());
+                    ix.vector = Some(v);
+                }
+                None => t.indexes.push(IndexDef {
+                    name: name.clone(),
+                    columns: r.get("COLUMN_NAME").cloned().into_iter().collect(),
+                    kind: Some(crate::vector::KIND.into()),
+                    vector: Some(v),
+                    ..Default::default()
+                }),
+            }
+        }
     }
     for t in tables.iter_mut() {
         for ix in t.indexes.iter_mut().filter(|i| {

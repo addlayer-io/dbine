@@ -27,6 +27,7 @@ mod stats;
 mod steps;
 mod structure;
 mod transfer;
+mod vector;
 
 use dbine_driver::sql::{leading_keyword, select_top, Limit, Quote, ScriptDefaults, ScriptDialect};
 use dbine_driver::{
@@ -162,7 +163,21 @@ fn message(e: &HdbError) -> String {
         m.push_str(&s.to_string());
         src = s.source();
     }
+    // A REAL_VECTOR result the client can't decode: what to do.
+    if let Some(why) = vector::explain(&m) {
+        m = format!("{why} ({m})");
+    }
     m
+}
+
+/// A value as a HANA literal: a vector through `TO_REAL_VECTOR`, the rest
+/// as the generic SQL literals.
+fn literal(v: &Value) -> String {
+    match v {
+        Value::Array(_) => vector::literal(v)
+            .unwrap_or_else(|| dbine_driver::ddl::sql_literal(&schema::flavor(), v)),
+        _ => dbine_driver::ddl::sql_literal(&schema::flavor(), v),
+    }
 }
 
 fn err(e: HdbError) -> Error {
@@ -471,7 +486,9 @@ impl Driver for HanaDriver {
             // The same scheduler jobs, created, changed and dropped from the
             // designer (see `scheduler`).
             scheduler: true,
-            vectors: false,
+            // REAL_VECTOR (HANA Cloud): describes, DDL, literals,
+            // transfers and HNSW vector indexes (see `vector`).
+            vectors: true,
         }
     }
 
@@ -519,13 +536,14 @@ impl Driver for HanaDriver {
         rows: &[Vec<Value>],
     ) -> Result<String> {
         // No multi-row VALUES in HANA: one INSERT per row.
-        Ok(dbine_driver::ddl::insert_script(
+        Ok(dbine_driver::ddl::insert_script_with(
             &schema::flavor(),
             target.schema(),
             &target.name,
             columns,
             rows,
             1,
+            &literal,
         ))
     }
 
@@ -534,20 +552,22 @@ impl Driver for HanaDriver {
         target: &ObjectRef,
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
-        Ok(dbine_driver::ddl::update_script(
-            &schema::flavor(),
+        Ok(dbine_driver::ddl::update_script_with(
+            schema::flavor().quote,
             target.schema(),
             &target.name,
             changes,
+            &literal,
         ))
     }
 
     fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
-        Ok(dbine_driver::ddl::delete_script(
-            &schema::flavor(),
+        Ok(dbine_driver::ddl::delete_script_with(
+            schema::flavor().quote,
             target.schema(),
             &target.name,
             keys,
+            &literal,
         ))
     }
 
@@ -1508,6 +1528,8 @@ fn format_type(ty: &str, len: Option<i64>, scale: Option<i64>) -> String {
             (Some(p), Some(s)) => format!("DECIMAL({p},{s})"),
             _ => "DECIMAL".to_string(),
         },
+        // LENGTH is the dimension (0: any).
+        vector::TYPE => vector::type_name(len),
         _ => ty.to_string(),
     }
 }
@@ -1515,6 +1537,50 @@ fn format_type(ty: &str, len: Option<i64>, scale: Option<i64>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vectors_in_scripts_and_types() {
+        let d = drivers().remove(0);
+        assert!(d.capabilities().vectors);
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("APP".into()),
+            name: "DOCS".into(),
+        };
+        let ins = d
+            .insert_script(
+                &t,
+                &["ID".into(), "EMB".into()],
+                &[vec![
+                    serde_json::json!(1),
+                    serde_json::json!([0.5, 1.0, -2.0]),
+                ]],
+            )
+            .unwrap();
+        assert_eq!(
+            ins,
+            "INSERT INTO \"APP\".\"DOCS\" (\"ID\", \"EMB\") VALUES (1, TO_REAL_VECTOR('[0.5,1,-2]'));"
+        );
+        let up = d
+            .update_script(
+                &t,
+                &[dbine_driver::RowChange {
+                    key: vec![("ID".into(), serde_json::json!(1))],
+                    set: vec![("EMB".into(), serde_json::json!([1, 2, 3]))],
+                    ..Default::default()
+                }],
+            )
+            .unwrap();
+        assert!(
+            up.contains("SET \"EMB\" = TO_REAL_VECTOR('[1,2,3]')"),
+            "{up}"
+        );
+        assert_eq!(
+            format_type("REAL_VECTOR", Some(1536), None),
+            "REAL_VECTOR(1536)"
+        );
+        assert_eq!(format_type("REAL_VECTOR", Some(0), None), "REAL_VECTOR");
+    }
 
     #[test]
     fn update_script_by_key() {

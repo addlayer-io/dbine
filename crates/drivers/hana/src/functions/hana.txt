@@ -222,6 +222,15 @@ s MEMBER_AT(array, position)
 s TRIM_ARRAY(array, n)
 t UNNEST(array [, array]...) [WITH ORDINALITY] [AS] alias (column [, column]...)
 
+# Vectors (HANA Cloud vector engine)
+s COSINE_SIMILARITY(vector1, vector2) -> DOUBLE since=4.0
+s L2DISTANCE(vector1, vector2) -> DOUBLE since=4.0
+s L2NORM(vector) -> DOUBLE since=4.0
+s L2NORMALIZE(vector) -> REAL_VECTOR since=4.0
+s SUBVECTOR(vector, start, length) -> REAL_VECTOR since=4.0
+s TO_REAL_VECTOR(expression [, dimension]) -> REAL_VECTOR since=4.0
+s VECTOR_EMBEDDING(text, 'DOCUMENT' | 'QUERY', model_id) -> REAL_VECTOR since=4.0
+
 # JSON
 s JSON_QUERY(json_document, path [RETURNING data_type] [wrapper] [on_empty] [on_error]) since=2.0
 s JSON_VALUE(json_document, path [RETURNING data_type] [on_empty] [on_error]) since=2.0
