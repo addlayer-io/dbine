@@ -184,6 +184,11 @@ pub fn info_type(
             Some(n) if !n.is_empty() => format!("{data_type}({n})"),
             _ => data_type.to_string(),
         },
+        // CrateDB's vectors keep their dimension there.
+        "float_vector" => match char_len {
+            Some(n) if !n.is_empty() => format!("FLOAT_VECTOR({n})"),
+            _ => "FLOAT_VECTOR".to_string(),
+        },
         "numeric" | "decimal" => match (precision, scale) {
             (Some(p), Some(s)) if !p.is_empty() => format!("{data_type}({p},{s})"),
             _ => data_type.to_string(),

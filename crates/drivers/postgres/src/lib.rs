@@ -47,6 +47,7 @@ mod session;
 mod stats;
 mod structure;
 mod transfer;
+mod vectors;
 
 use dbine_driver::{
     async_trait, Capabilities, ConnectionConfig, CreateTemplate, DdlParts, DesignerSpec, Driver,
@@ -801,6 +802,10 @@ impl Driver for PgDriver {
             return Err(Error::Unsupported(
                 "Denodo no crea tablas por SQL: las vistas base se definen en Denodo".into(),
             ));
+        }
+        if let Some(why) = vectors::table_refusal(self.variant, table, parts.create, parts.indexes)
+        {
+            return Err(Error::Unsupported(why));
         }
         Ok(design::table_ddl(self.variant, table, parts))
     }

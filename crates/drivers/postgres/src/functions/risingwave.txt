@@ -258,3 +258,18 @@ s rw_epoch_to_ts(epoch bigint) -> timestamptz since=2.2
 s rw_recovery_status() -> varchar since=2.0
 s set_config(setting_name, new_value, is_local) -> varchar since=1.1
 s version() -> varchar
+
+# Vectors (the vector(n) type, from 2.6; each function checked against the
+# release tags' builtin_scalar.rs: v2.5.0 has none, v2.6.0 the distances,
+# norms and operators, v2.7.0 subvector)
+s l2_distance(vector, vector) -> double precision since=2.6
+s cosine_distance(vector, vector) -> double precision since=2.6
+s l1_distance(vector, vector) -> double precision since=2.6
+s inner_product(vector, vector) -> double precision since=2.6
+s vector_norm(vector) -> double precision since=2.6
+s l2_normalize(vector) -> vector since=2.6
+s subvector(vector, start integer, count integer) -> vector since=2.7
+o <-> (vector, vector) -> double precision since=2.6
+o <=> (vector, vector) -> double precision since=2.6
+o <+> (vector, vector) -> double precision since=2.6
+o <#> (vector, vector) -> double precision since=2.6

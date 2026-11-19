@@ -792,16 +792,15 @@ impl PgSession {
         };
         let catalog = v.has_pg_catalog();
         // Column type names come from describing the statement, which the
-        // simple protocol can't do.
-        let types = self.tx == TxState::Idle && catalog && returns_rows && !self.simple;
-        let in_transaction = self.tx == TxState::Open;
+        // simple protocol can't do. CrateDB has no transactions (its BEGIN
+        // does nothing), so a describe can't abort one.
+        let idle = self.tx == TxState::Idle || v == Variant::CrateDb;
+        let types = idle && catalog && returns_rows && !self.simple;
+        let in_transaction = self.tx == TxState::Open && v != Variant::CrateDb;
         let first = out.results.len();
         let client = &self.client;
         let notices = &mut self.notices;
-        let describe = async {
-            if !types {
-                return None;
-            }
+        let describe = move || async move {
             match client.prepare(&format!("{}{sql}", script::DESCRIBE)).await {
                 Ok(stmt) => Some(stmt),
                 Err(e) => {
@@ -809,6 +808,20 @@ impl PgSession {
                     None
                 }
             }
+        };
+        // Rows that go to a sink (exports, the results store, compares) leave
+        // as they arrive: the statement is described first, so the sink gets
+        // the columns' types and vectors and the cells already rewritten
+        // (composites, CrateDB's vectors). Otherwise the describe goes out
+        // in the same pipeline, before the statement, and is applied after.
+        let early_describe = types && out.sink.is_some();
+        let early = if early_describe {
+            match describe().await {
+                Some(stmt) => Some(Shape::of(client, v, stmt.columns()).await),
+                None => None,
+            }
+        } else {
+            None
         };
         let run = async {
             if begin {
@@ -818,11 +831,26 @@ impl PgSession {
             }
             (
                 begin,
-                run_script(client, notices, sql, Some(&head), max_rows, out).await,
+                run_script(
+                    client,
+                    notices,
+                    sql,
+                    Some(&head),
+                    max_rows,
+                    early.as_ref(),
+                    out,
+                )
+                .await,
             )
         };
+        let described = async {
+            if !types || early_describe {
+                return None;
+            }
+            describe().await
+        };
         // Polled in this order: the describe is sent first.
-        let (stmt, (began, res)) = futures::join!(describe, run);
+        let (stmt, (began, res)) = futures::join!(described, run);
         if began {
             self.tx = TxState::Open;
         }
@@ -855,10 +883,14 @@ impl PgSession {
         };
         if let (Ok(()), Some(stmt), [r]) = (&res, stmt, &mut out.results[first..]) {
             if stmt.columns().len() == r.columns.len() {
-                for (c, t) in r.columns.iter_mut().zip(stmt.columns()) {
-                    c.type_name = t.type_().name().to_string();
-                }
-                crate::composite::name_fields(r, stmt.columns());
+                Shape::of(&self.client, v, stmt.columns()).await.apply(r);
+            }
+        }
+        // RisingWave can't describe a statement with a vector column: the
+        // table's own types say which columns are vectors.
+        if let (Ok(()), Variant::RisingWave, [r]) = (&res, v, &mut out.results[first..]) {
+            if !r.columns.is_empty() && r.columns.iter().all(|c| c.type_name.is_empty()) {
+                rw_vectors(&self.client, sql, r).await;
             }
         }
         res
@@ -1193,16 +1225,34 @@ impl Session for PgSession {
                 Some(stmts) => {
                     let mut res = Ok(());
                     for stmt in stmts {
-                        res =
-                            run_script(&self.client, &mut self.notices, &stmt, None, max_rows, out)
-                                .await;
+                        res = run_script(
+                            &self.client,
+                            &mut self.notices,
+                            &stmt,
+                            None,
+                            max_rows,
+                            None,
+                            out,
+                        )
+                        .await;
                         if res.is_err() {
                             break;
                         }
                     }
                     res
                 }
-                None => run_script(&self.client, &mut self.notices, sql, None, max_rows, out).await,
+                None => {
+                    run_script(
+                        &self.client,
+                        &mut self.notices,
+                        sql,
+                        None,
+                        max_rows,
+                        None,
+                        out,
+                    )
+                    .await
+                }
             };
             self.drain_notices(out);
             if units
@@ -2059,22 +2109,223 @@ async fn read_only_statement(
         .map_err(|e| script::statement_error(e, statement))?;
     let head = script::head(statement);
     let first = out.results.len();
-    let res = run_script(client, notices, statement, Some(&head), max_rows, out).await;
+    // Described already: the result's columns get their types (and the
+    // cells their rewriting) as they arrive, for a sink too.
+    let shape = match v.has_pg_catalog() {
+        true => Some(Shape::of(client, v, prepared.columns()).await),
+        false => None,
+    };
+    let res = run_script(
+        client,
+        notices,
+        statement,
+        Some(&head),
+        max_rows,
+        shape.as_ref(),
+        out,
+    )
+    .await;
     while let Ok(n) = notices.try_recv() {
         script::notice(out, &n);
     }
     if res.is_err() && out.sink.is_none() {
         out.results.truncate(first);
     }
-    if let (Ok(()), [r], true) = (&res, &mut out.results[first..], v.has_pg_catalog()) {
-        if prepared.columns().len() == r.columns.len() {
-            for (c, t) in r.columns.iter_mut().zip(prepared.columns()) {
-                c.type_name = t.type_().name().to_string();
+    res
+}
+
+/// How a described statement's result comes out: its columns with their
+/// types (vector columns marked with their dimension) and the cells
+/// rewritten as they arrive: composites as JSON objects, CrateDB's
+/// `FLOAT_VECTOR` (sent as `real[]`, `{"1.0","2.5"}`) as JSON arrays.
+pub(crate) struct Shape {
+    columns: Vec<ResultColumn>,
+    rewrite: Vec<(usize, Rewrite)>,
+}
+
+enum Rewrite {
+    Composite(tokio_postgres::types::Type),
+    CrateVector,
+}
+
+impl Shape {
+    async fn of(client: &Client, v: Variant, described: &[tokio_postgres::Column]) -> Shape {
+        let mut columns: Vec<ResultColumn> = described
+            .iter()
+            .map(|t| {
+                let mut c = ResultColumn::new(t.name(), t.type_().name());
+                crate::vectors::mark_column(v, &mut c, t.type_().name(), t.type_modifier());
+                c
+            })
+            .collect();
+        let mut rewrite: Vec<(usize, Rewrite)> = described
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| crate::composite::has_composite(c.type_(), 0))
+            .map(|(i, c)| (i, Rewrite::Composite(c.type_().clone())))
+            .collect();
+        if v == Variant::CrateDb {
+            for (i, dims) in crate_vectors(client, described).await {
+                let c = &mut columns[i];
+                c.type_name = match dims {
+                    Some(d) => format!("float_vector({d})"),
+                    None => "float_vector".into(),
+                };
+                c.vector = Some(dbine_driver::VectorMeta::dense(
+                    dims,
+                    dbine_driver::VectorElement::F32,
+                ));
+                rewrite.push((i, Rewrite::CrateVector));
             }
-            crate::composite::name_fields(r, prepared.columns());
+        }
+        Shape { columns, rewrite }
+    }
+
+    /// The columns of a result with `names` (as the server sent them), when
+    /// they are the described ones.
+    fn columns_for(&self, names: &[ResultColumn]) -> Option<Vec<ResultColumn>> {
+        (names.len() == self.columns.len()).then(|| {
+            names
+                .iter()
+                .zip(&self.columns)
+                .map(|(n, c)| ResultColumn {
+                    name: n.name.clone(),
+                    ..c.clone()
+                })
+                .collect()
+        })
+    }
+
+    fn rewrite_row(&self, row: &mut [serde_json::Value]) {
+        for (i, how) in &self.rewrite {
+            let Some(serde_json::Value::String(text)) = row.get(*i) else {
+                continue;
+            };
+            let json = match how {
+                Rewrite::Composite(ty) => crate::composite::render(text, ty),
+                Rewrite::CrateVector => crate::vectors::crate_text(text),
+            };
+            if let Some(json) = json {
+                row[*i] = serde_json::Value::String(json);
+            }
         }
     }
-    res
+
+    /// A result that came without it (kept in memory): its columns' types
+    /// and its cells rewritten.
+    fn apply(&self, r: &mut StatementResult) {
+        let Some(columns) = self.columns_for(&r.columns) else {
+            return;
+        };
+        r.columns = columns;
+        for row in &mut r.rows {
+            self.rewrite_row(row);
+        }
+    }
+}
+
+/// RisingWave's vector columns of a plain `SELECT … FROM t`
+/// ([`crate::vectors::single_table`]): the result's columns named as a
+/// `vector(n)` column of `t`, whose cells read as vectors, get their
+/// metadata.
+async fn rw_vectors(client: &Client, sql: &str, r: &mut StatementResult) {
+    let Some((schema, table)) = crate::vectors::single_table(sql) else {
+        return;
+    };
+    let v = Variant::RisingWave;
+    let schema = schema.map_or_else(|| "current_schema()".to_string(), |s| lit(v, &s));
+    let q = format!(
+        "SELECT column_name, data_type FROM information_schema.columns
+         WHERE table_schema = {schema} AND table_name = {} AND data_type LIKE 'vector%'",
+        lit(v, &table)
+    );
+    let rows = match client.simple_query(&q).await {
+        Ok(m) => rows(m),
+        Err(e) => {
+            tracing::debug!("risingwave: vector columns unknown: {e}");
+            return;
+        }
+    };
+    for row in rows {
+        let (Some(name), Some(ty)) = (row.get(0), row.get(1)) else {
+            continue;
+        };
+        let Some(meta) = crate::vectors::meta_of_type(v, ty) else {
+            continue;
+        };
+        let Some(i) = r.columns.iter().position(|c| c.name == name) else {
+            continue;
+        };
+        let cells_are_vectors = r.rows.iter().all(|row| match row.get(i) {
+            Some(serde_json::Value::String(s)) => dbine_driver::vector::parse(s).is_some(),
+            Some(serde_json::Value::Null) | None => true,
+            _ => false,
+        });
+        if cells_are_vectors {
+            r.columns[i].type_name = ty.to_string();
+            r.columns[i].vector = Some(meta);
+        }
+    }
+}
+
+/// CrateDB sends a `FLOAT_VECTOR` as `real[]` (`{"1.0","2.5"}`): the
+/// described columns that are vectors of a table there (by the table and
+/// column the statement described), with their dimension.
+async fn crate_vectors(
+    client: &Client,
+    described: &[tokio_postgres::Column],
+) -> Vec<(usize, Option<u32>)> {
+    // (result position, table oid, column number)
+    let wanted: Vec<(usize, u32, i16)> = described
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.type_().oid() == 1021)
+        .filter_map(|(i, c)| Some((i, c.table_oid()?, c.column_id()?)))
+        .filter(|(_, t, n)| *t != 0 && *n > 0)
+        .collect();
+    if wanted.is_empty() {
+        return Vec::new();
+    }
+    let mut tables: Vec<u32> = wanted.iter().map(|w| w.1).collect();
+    tables.sort_unstable();
+    tables.dedup();
+    let list = tables
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT c.oid, col.ordinal_position, col.character_maximum_length
+         FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+         JOIN information_schema.columns col ON col.table_schema = n.nspname AND col.table_name = c.relname
+         WHERE c.oid IN ({list}) AND col.data_type = 'float_vector'"
+    );
+    let rows = match client.simple_query(&sql).await {
+        Ok(m) => crate::catalog::rows(m),
+        Err(e) => {
+            tracing::debug!("cratedb: vector columns unknown: {e}");
+            return Vec::new();
+        }
+    };
+    let found: Vec<(u32, i64, Option<u32>)> = rows
+        .iter()
+        .filter_map(|row| {
+            Some((
+                row.get(0)?.parse().ok()?,
+                row.get(1)?.parse().ok()?,
+                row.get(2).and_then(|d| d.parse().ok()),
+            ))
+        })
+        .collect();
+    wanted
+        .into_iter()
+        .filter_map(|(i, table, col)| {
+            found
+                .iter()
+                .find(|(t, n, _)| *t == table && *n == i64::from(col))
+                .map(|(_, _, dims)| (i, *dims))
+        })
+        .collect()
 }
 
 /// Run `sql` as one simple query. Notices go to `out` as they arrive, in
@@ -2087,9 +2338,11 @@ async fn run_script(
     sql: &str,
     head: Option<&[String]>,
     max_rows: usize,
+    shape: Option<&Shape>,
     out: &mut QueryOutcome,
 ) -> Result<()> {
     let verb = head.map(|h| script::verb(sql, h));
+    let first = out.results.len();
     let stream = client
         .simple_query_raw(sql)
         .await
@@ -2097,6 +2350,8 @@ async fn run_script(
     pin_mut!(stream);
     // Whether the statement in progress returned a row description.
     let mut has_rows = false;
+    // `shape`, while it is the one of the result in progress.
+    let mut shaping: Option<&Shape> = None;
     loop {
         // A long statement's notices (RAISE in a loop) show while it runs.
         let msg = tokio::select! {
@@ -2114,20 +2369,27 @@ async fn run_script(
         match msg.map_err(|e| script::statement_error(e, sql))? {
             SimpleQueryMessage::RowDescription(cols) => {
                 has_rows = true;
-                out.begin_result(
-                    cols.iter()
-                        .map(|c| ResultColumn {
-                            name: c.name().to_string(),
-                            type_name: String::new(),
-                            vector: None,
-                        })
-                        .collect(),
-                );
+                let columns: Vec<ResultColumn> = cols
+                    .iter()
+                    .map(|c| ResultColumn::new(c.name(), ""))
+                    .collect();
+                // The described statement's result: the first one.
+                let described = shape
+                    .filter(|_| out.results.len() == first)
+                    .and_then(|s| Some((s, s.columns_for(&columns)?)));
+                shaping = described.as_ref().map(|(s, _)| *s);
+                out.begin_result(match described {
+                    Some((_, typed)) => typed,
+                    None => columns,
+                });
             }
             SimpleQueryMessage::Row(row) => {
-                let cells = (0..row.len())
+                let mut cells: Vec<serde_json::Value> = (0..row.len())
                     .map(|i| row.get(i).map_or(serde_json::Value::Null, Into::into))
                     .collect();
+                if let Some(s) = shaping {
+                    s.rewrite_row(&mut cells);
+                }
                 out.push_row(cells, max_rows);
             }
             SimpleQueryMessage::CommandComplete(n) => {
@@ -2150,6 +2412,7 @@ async fn run_script(
                     _ => {}
                 }
                 has_rows = false;
+                shaping = None;
             }
             _ => {}
         }
@@ -2238,6 +2501,42 @@ mod tests {
             "$10 $3 $$x$$"
         );
         assert_eq!(inline(Variant::Redshift, "$1", &["a\\b"]), "'a\\\\b'");
+    }
+
+    /// A described result's shape: the server's column names with the
+    /// described types and vectors, and CrateDB's `real[]` vector cells as
+    /// JSON arrays, the same whether rows stream to a sink or stay in
+    /// memory.
+    #[test]
+    fn a_shape_types_columns_and_rewrites_cells() {
+        let meta = dbine_driver::VectorMeta::dense(Some(2), dbine_driver::VectorElement::F32);
+        let shape = Shape {
+            columns: vec![
+                ResultColumn::new("?column?", "int4"),
+                ResultColumn::new("v", "float_vector(2)").with_vector(meta.clone()),
+            ],
+            rewrite: vec![(1, Rewrite::CrateVector)],
+        };
+        let sent = vec![ResultColumn::new("id", ""), ResultColumn::new("v", "")];
+        let cols = shape.columns_for(&sent).unwrap();
+        assert_eq!(cols[0].name, "id");
+        assert_eq!(cols[0].type_name, "int4");
+        assert_eq!(cols[1].vector, Some(meta));
+        assert!(shape.columns_for(&sent[..1]).is_none());
+        let mut row = vec![
+            serde_json::json!("1"),
+            serde_json::json!("{\"1.0\",\"2.5\"}"),
+        ];
+        shape.rewrite_row(&mut row);
+        assert_eq!(row[1], serde_json::json!("[1,2.5]"));
+        let mut r = StatementResult {
+            columns: sent,
+            rows: vec![vec![serde_json::json!("1"), serde_json::json!("{1,-0.5}")]],
+            ..Default::default()
+        };
+        shape.apply(&mut r);
+        assert_eq!(r.columns[1].type_name, "float_vector(2)");
+        assert_eq!(r.rows[0][1], serde_json::json!("[1,-0.5]"));
     }
 
     #[test]
