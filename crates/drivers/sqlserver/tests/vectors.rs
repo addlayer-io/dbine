@@ -446,6 +446,29 @@ async fn body(cfg: &ConnectionConfig) {
     run(&mut s, &update).await;
     let out = run(&mut s, "SELECT emb FROM dbo.docs WHERE id = 2").await;
     assert_eq!(out.results[0].rows[0][0], json!("[0,1,0.5]"));
+    // Typed, with the result's columns: a vector as the grid's text, and a
+    // character column's string that looks like a binary kept a string.
+    let out = run(&mut s, "SELECT id, emb, note FROM dbo.docs WHERE id = 2").await;
+    let types = &out.results[0].columns;
+    let typed = d
+        .update_script_typed(
+            &table("docs"),
+            &[RowChange {
+                key: vec![("id".into(), json!(2))],
+                set: vec![
+                    ("emb".into(), json!("[0.25,1,0.5]")),
+                    ("note".into(), json!("0x41")),
+                ],
+                ..Default::default()
+            }],
+            types,
+        )
+        .unwrap();
+    assert!(typed.contains("[note] = N'0x41'"), "{typed}");
+    run(&mut s, &typed).await;
+    let out = run(&mut s, "SELECT emb, note FROM dbo.docs WHERE id = 2").await;
+    assert_eq!(out.results[0].rows[0][0], json!("[0.25,1,0.5]"));
+    assert_eq!(out.results[0].rows[0][1], json!("0x41"));
 
     // 5. Describe keeps the dimension.
     let cols = s.columns(&table("docs")).await.unwrap();
@@ -477,6 +500,25 @@ async fn body(cfg: &ConnectionConfig) {
     assert_eq!(ix.columns, ["emb"]);
     assert_eq!(ix.kind.as_deref(), Some("VECTOR"));
     assert_eq!(ix.vector, Some(diskann("cosine")));
+    // Index usage lists it with the same settings and its column.
+    let usage = s
+        .index_usage(&table("docs"))
+        .await
+        .unwrap()
+        .expect("index usage");
+    let u = usage
+        .indexes
+        .iter()
+        .find(|i| i.name == "ix_docs_emb")
+        .expect("vector index in index usage");
+    assert_eq!(u.kind, "VECTOR");
+    assert_eq!(u.key_columns, ["emb"]);
+    assert_eq!(u.vector, ix.vector);
+    assert!(usage
+        .indexes
+        .iter()
+        .filter(|i| i.name != "ix_docs_emb")
+        .all(|i| i.vector.is_none()));
     // The same index scripted from the catalog.
     let again = d
         .table_ddl(
@@ -716,6 +758,47 @@ async fn body(cfg: &ConnectionConfig) {
     // Describe keeps the element type.
     let cols = s.columns(&table("halves")).await.unwrap();
     assert_eq!(cols[1].data_type, "vector(3, float16)");
+    // Typed scripts from the describe's types: float16 values from numbers
+    // or from their text.
+    let types: Vec<dbine_driver::ResultColumn> = cols
+        .iter()
+        .map(|c| dbine_driver::ResultColumn::new(c.name.clone(), c.data_type.clone()))
+        .collect();
+    run(
+        &mut s,
+        &d.insert_script_typed(
+            &table("halves"),
+            &types,
+            &[vec![json!(3), json!("[2,4,8]"), json!([0.5, 0.25])]],
+        )
+        .unwrap(),
+    )
+    .await;
+    run(
+        &mut s,
+        &d.update_script_typed(
+            &table("halves"),
+            &[RowChange {
+                key: vec![("id".into(), json!(3))],
+                set: vec![("h".into(), json!([1.5, -1.0, 0.0]))],
+                ..Default::default()
+            }],
+            &types,
+        )
+        .unwrap(),
+    )
+    .await;
+    let browse = s.browse_query(&table("halves"), 10);
+    let out = run(&mut s, &browse).await;
+    let r = &out.results[0];
+    assert_eq!(r.rows[2][1], json!("[1.5,-1,0]"));
+    assert_eq!(r.rows[2][2], json!("[0.5,0.25]"));
+    run(
+        &mut s,
+        &d.delete_script_typed(&table("halves"), &[vec![("id".into(), json!(3))]], &types)
+            .unwrap(),
+    )
+    .await;
 
     // 12. A vector index known by its kind only (settings not read):
     //     scripted as DiskANN with the cosine distance, never left out.

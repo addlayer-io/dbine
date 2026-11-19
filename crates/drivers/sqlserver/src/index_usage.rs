@@ -33,6 +33,12 @@ pub(crate) const INDEXES_SQL: &str = "SELECT CAST(i.index_id AS int), i.name, i.
  WHERE i.object_id = OBJECT_ID(@P1) AND i.index_id > 0 AND i.is_hypothetical = 0
  ORDER BY i.index_id";
 
+/// The table's vector indexes' type and distance (SQL Server 2025, Azure
+/// SQL), the same settings the schema reads.
+pub(crate) const VECTORS_SQL: &str = "SELECT CAST(vi.index_id AS int), CAST(vi.vector_index_type AS nvarchar(60)), CAST(vi.distance_metric AS nvarchar(60))
+  FROM sys.vector_indexes vi
+ WHERE vi.object_id = OBJECT_ID(@P1)";
+
 /// Their columns: keys in key order, then the INCLUDE ones.
 pub(crate) const COLUMNS_SQL: &str = "SELECT CAST(ic.index_id AS int), c.name, ic.is_included_column, ic.is_descending_key, CAST(ic.key_ordinal AS int)
   FROM sys.index_columns ic
@@ -83,6 +89,8 @@ pub(crate) struct IndexRow {
     pub primary_key: bool,
     pub filter: Option<String>,
     pub disabled: bool,
+    /// A vector index's settings (`sys.vector_indexes`).
+    pub vector: Option<dbine_driver::VectorIndex>,
 }
 
 /// One `sys.index_columns` row.
@@ -118,14 +126,16 @@ pub(crate) fn assemble(
         .iter()
         .map(|ix| {
             let columnstore = ix.kind.contains("COLUMNSTORE");
+            let vector = ix.kind == crate::vector::INDEX_KIND;
             let mut keys = Vec::new();
             let mut include = Vec::new();
             for c in columns.iter().filter(|c| c.index == ix.id) {
                 if c.included {
                     include.push(c.name.clone());
-                } else if c.key_ordinal > 0 || columnstore {
-                    // A columnstore's columns have no key order; any other
-                    // column without one is a partitioning column.
+                } else if c.key_ordinal > 0 || columnstore || vector {
+                    // A columnstore's columns and a vector index's column
+                    // have no key order; any other column without one is a
+                    // partitioning column.
                     keys.push(if c.descending {
                         format!("{} DESC", c.name)
                     } else {
@@ -153,6 +163,7 @@ pub(crate) fn assemble(
                 last_read: u.last_read,
                 last_write: u.last_write,
                 disabled: ix.disabled,
+                vector: ix.vector.clone(),
                 ..Default::default()
             }
         })
@@ -234,7 +245,7 @@ pub(crate) async fn report(
     let object = qualified_name(Quote::Bracket, table.schema(), &table.name);
     let p: [&str; 1] = [&object];
     // The catalog: what every login that sees the table can read.
-    let indexes: Vec<IndexRow> = s
+    let mut indexes: Vec<IndexRow> = s
         .rows(INDEXES_SQL, &p)
         .await?
         .iter()
@@ -246,8 +257,31 @@ pub(crate) async fn report(
             primary_key: flag(r, 4),
             filter: text(r, 5),
             disabled: flag(r, 6),
+            vector: None,
         })
         .collect();
+    if indexes
+        .iter()
+        .any(|ix| ix.kind == crate::vector::INDEX_KIND)
+    {
+        // Their settings; where the view can't be read, DiskANN without a
+        // distance, as the schema says.
+        let settings: HashMap<i32, (Option<String>, Option<String>)> =
+            match try_query(s, VECTORS_SQL, &p).await? {
+                Ok(rows) => rows
+                    .iter()
+                    .map(|r| (int(r, 0), (text(r, 1), text(r, 2))))
+                    .collect(),
+                Err(_) => HashMap::new(),
+            };
+        for ix in indexes
+            .iter_mut()
+            .filter(|ix| ix.kind == crate::vector::INDEX_KIND)
+        {
+            let (kind, metric) = settings.get(&ix.id).cloned().unwrap_or_default();
+            ix.vector = Some(crate::vector::index(kind.as_deref(), metric.as_deref()));
+        }
+    }
     let columns: Vec<ColumnRow> = s
         .rows(COLUMNS_SQL, &p)
         .await?
@@ -405,6 +439,7 @@ mod tests {
             primary_key: false,
             filter: None,
             disabled: false,
+            vector: None,
         }
     }
 
@@ -422,6 +457,36 @@ mod tests {
             descending,
             key_ordinal,
         }
+    }
+
+    #[test]
+    fn vector_indexes_keep_their_column_and_settings() {
+        let mut v = ix(1152000, "ix_emb", "VECTOR");
+        v.vector = Some(crate::vector::index(Some("DiskANN"), Some("COSINE")));
+        let out = assemble(
+            &[ix(1, "pk", "CLUSTERED"), v],
+            // The vector index's column has no key ordinal.
+            &[
+                col(1, "id", false, false, 1),
+                col(1152000, "emb", false, false, 0),
+            ],
+            None,
+            None,
+        );
+        assert_eq!(out[1].key_columns, ["emb"]);
+        let vi = out[1].vector.as_ref().unwrap();
+        assert_eq!(vi.algorithm.as_deref(), Some("diskann"));
+        assert_eq!(vi.metric.as_deref(), Some("cosine"));
+        assert!(out[0].vector.is_none());
+        // Settings not read: DiskANN, no distance, as the schema says.
+        assert_eq!(
+            crate::vector::index(None, None),
+            dbine_driver::VectorIndex {
+                algorithm: Some("diskann".into()),
+                ..Default::default()
+            }
+        );
+        assert!(VECTORS_SQL.contains("sys.vector_indexes") && VECTORS_SQL.contains("@P1"));
     }
 
     #[test]

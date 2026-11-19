@@ -350,17 +350,8 @@ impl RawIndex {
                 Vec::new()
             },
             options: o,
-            vector: (self.ty == 8).then(|| dbine_driver::VectorIndex {
-                algorithm: Some(
-                    self.vector_type
-                        .as_deref()
-                        .unwrap_or("DiskANN")
-                        .to_ascii_lowercase(),
-                ),
-                metric: self.vector_metric.as_deref().map(crate::vector::metric_of),
-                // DiskANN's build parameters (R, L, M, StartId) are the
-                // server's own: CREATE VECTOR INDEX doesn't take them.
-                params: BTreeMap::new(),
+            vector: (self.ty == 8).then(|| {
+                crate::vector::index(self.vector_type.as_deref(), self.vector_metric.as_deref())
             }),
         }
     }
