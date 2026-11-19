@@ -988,6 +988,191 @@ async fn opensearch_byte_and_binary_vectors() {
     cleanup(&mut s).await;
 }
 
+/// Elasticsearch 9.x quantizations and elements DBine writes as given:
+/// a BBQ HNSW index with `rescore_vector` (9.1+ for floats from 64
+/// dimensions), an int8 `flat` index, and a `bfloat16` vector (9.3+): made
+/// from the designer, filled by a typed script, read back with their
+/// element, their indexes listed as the designer wrote them, a sync
+/// against the model with nothing to do, and searched.
+#[tokio::test]
+#[ignore]
+async fn elasticsearch9_quantized_and_bfloat16_vectors() {
+    let Ok(url) = std::env::var("DBINE_TEST_ELASTICSEARCH9_URL") else {
+        return;
+    };
+    let _serial = SERIAL.lock().await;
+    let d = driver("elasticsearch");
+    let mut s = d
+        .connect(&config("elasticsearch", &url), None)
+        .await
+        .expect("connect");
+    let version = s.server_version().await.unwrap();
+    println!("{version}");
+    cleanup(&mut s).await;
+    let _guard = Guard {
+        id: "elasticsearch",
+        url: url.clone(),
+    };
+    let bf16 = dbine_driver::functions::version_at_least(&version, "9.3");
+    let index = |col: &str, vi: VectorIndex| IndexDef {
+        name: format!("{col}_idx"),
+        columns: vec![col.into()],
+        vector: Some(vi),
+        ..Default::default()
+    };
+    let mut columns = vec![
+        col("title", "keyword"),
+        col("q", "dense_vector(64)"),
+        col("f", "dense_vector(4)"),
+    ];
+    let mut indexes = vec![
+        index(
+            "q",
+            vi(
+                "hnsw",
+                "l2",
+                &[
+                    ("quantization", "bbq"),
+                    ("m", "16"),
+                    ("ef_construction", "100"),
+                    ("rescore_vector", r#"{"oversample":3.0}"#),
+                ],
+            ),
+        ),
+        index("f", vi("flat", "l2", &[("quantization", "int8")])),
+    ];
+    if bf16 {
+        columns.push(col("h", "dense_vector(4, bfloat16)"));
+        // By L2: a cosine index keeps the normalized bfloat16 vector and its
+        // length, so 9.2+ (which rebuilds vectors from the index) gives
+        // back `[1.0009766, …]` for `[1, …]`.
+        indexes.push(index("h", vi("hnsw", "l2", &[("quantization", "none")])));
+    }
+    let table = TableSchema {
+        kind: "index".into(),
+        name: INDEX.into(),
+        columns,
+        indexes,
+        options: [("number_of_replicas".to_string(), "0".to_string())].into(),
+        ..Default::default()
+    };
+    let parts = DdlParts {
+        drop: true,
+        if_exists: true,
+        create: true,
+        ..Default::default()
+    };
+    let ddl = d.table_ddl(&table, parts).unwrap();
+    println!("{ddl}");
+    run(&mut s, &ddl).await;
+
+    // Rows typed as a describe gives the columns; values bfloat16 keeps.
+    let mut names: Vec<String> = ["_id", "title", "q", "f"].map(String::from).to_vec();
+    if bf16 {
+        names.push("h".into());
+    }
+    let q = |i: usize| -> Vec<f64> { (0..64).map(|k| ((k + i) % 5) as f64 - 2.0).collect() };
+    let rows: Vec<Vec<Value>> = (0..3)
+        .map(|i| {
+            let mut r = vec![
+                json!((i + 1).to_string()),
+                json!(format!("t{i}")),
+                json!(q(i)),
+                json!([i as f64, 0.5, -0.25, 1.0]),
+            ];
+            if bf16 {
+                r.push(json!([1.0, i as f64, 0.5, -2.0]));
+            }
+            r
+        })
+        .collect();
+    let typed = described(&mut s, INDEX, &names).await;
+    run(
+        &mut s,
+        &d.insert_script_typed(&obj(INDEX), &typed, &rows).unwrap(),
+    )
+    .await;
+    let browse = s.browse_query(&obj(INDEX), 10);
+    let out = run(&mut s, &browse).await;
+    let r = &out.results[0];
+    let meta = |n: &str| {
+        r.columns
+            .iter()
+            .find(|c| c.name == n)
+            .unwrap()
+            .vector
+            .clone()
+    };
+    assert_eq!(
+        meta("q"),
+        Some(VectorMeta::dense(Some(64), VectorElement::F32))
+    );
+    assert_eq!(cells(&out, "f")[2].1, json!("[2,0.5,-0.25,1]"));
+    assert_eq!(
+        cells(&out, "q")[1].1,
+        json!(dbine_driver::vector::text(q(1)))
+    );
+    if bf16 {
+        assert_eq!(
+            meta("h"),
+            Some(VectorMeta::dense(Some(4), VectorElement::Bf16))
+        );
+        assert_eq!(cells(&out, "h")[1].1, json!("[1,1,0.5,-2]"));
+    }
+    let schema = s.database_schema().await.unwrap();
+    let got = schema.iter().find(|t| t.name == INDEX).unwrap();
+    for ix in &table.indexes {
+        let col = &ix.columns[0];
+        let c = got.columns.iter().find(|c| &c.name == col).unwrap();
+        let want_ty = &table
+            .columns
+            .iter()
+            .find(|c| &c.name == col)
+            .unwrap()
+            .data_type;
+        assert_eq!(&c.data_type, want_ty);
+        let read = got
+            .indexes
+            .iter()
+            .find(|i| &i.columns[0] == col)
+            .and_then(|i| i.vector.clone())
+            .unwrap_or_else(|| panic!("{col}: {:?}", got.indexes));
+        let want = ix.vector.as_ref().unwrap();
+        println!("{col}: read back {read:?}");
+        assert_eq!(read.algorithm, want.algorithm, "{col}");
+        assert_eq!(read.metric, want.metric, "{col}");
+        for (k, v) in &want.params {
+            let got_v = read.params.get(k).map(|x| x.replace(' ', ""));
+            assert_eq!(got_v.as_deref(), Some(v.as_str()), "{col}: {k} in {read:?}");
+        }
+    }
+    let mut model = got.clone();
+    model.indexes = table.indexes.clone();
+    let same = d
+        .sync_script(&[dbine_driver::TableChange::Alter {
+            old: got.clone(),
+            new: model,
+        }])
+        .unwrap();
+    assert!(
+        same.statements.is_empty() && same.warnings.is_empty(),
+        "{same:?}"
+    );
+    // Searched: the closest to document 2's vector is document 2.
+    let out = run(
+        &mut s,
+        &format!(
+            "POST /{INDEX}/_search\n{{\"knn\": {{\"field\": \"q\", \"query_vector\": {}, \"k\": 1, \"num_candidates\": 10}}}}",
+            dbine_driver::vector::text(q(1))
+        ),
+    )
+    .await;
+    let r = &out.results[0];
+    let id = r.columns.iter().position(|c| c.name == "_id").unwrap();
+    assert_eq!(r.rows[0][id], json!("2"), "{:?}", r.rows);
+    cleanup(&mut s).await;
+}
+
 /// Elasticsearch 7, whose dense_vector has no ANN index (nor `index`): a
 /// vector field without a vector index is created, filled, read back and
 /// described; one with a vector index is refused by the server.
