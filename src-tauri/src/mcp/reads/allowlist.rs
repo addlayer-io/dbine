@@ -780,6 +780,284 @@ const TSQL: &[&str] = &[
     "smalldatetime",
 ];
 
+/// The vector (embedding) functions of the engine `driver` connects to, so
+/// a similarity search (`ORDER BY cosine_distance(v, '[…]') LIMIT 5`) runs
+/// without approval where the server enforces the read. By driver, not by
+/// family: each name is one engine's, and on another server of the family
+/// (MySQL next to TiDB, PostgreSQL next to Redshift) it would be a user's
+/// function. Operators (pgvector's `<->`, `<#>`, `<=>`, `<+>`, `<~>`,
+/// `<%>`) aren't calls: the check never stops at them. Never a function
+/// that calls a model or another service (`vector_embedding`,
+/// `ai_generate_embeddings`, `aiSimilarity`, `ai_similarity`, Databricks'
+/// `vector_search`). Engines whose language isn't SQL (Cassandra's
+/// `similarity_*`, Neo4j's `vector.similarity.*`, Redis' `VSIM`, MongoDB's
+/// `$vectorSearch`) aren't checked here: their reads are always approved.
+fn vector_functions(driver: &str) -> &'static [&'static str] {
+    match driver {
+        "postgres" | "timescaledb" | "alloydb" | "cloudsql_postgres" | "aurora_postgres"
+        | "yugabytedb" | "greenplum" | "cloudberry" | "edb" | "fujitsu" => PGVECTOR,
+        "cockroachdb" => COCKROACH_VECTOR,
+        "cratedb" => &["knn_match", "vector_similarity"],
+        // The MySQL driver connects to MariaDB too (its reads are enforced
+        // there as well).
+        "mysql" | "aurora-mysql" | "cloudsql-mysql" => &[
+            "string_to_vector",
+            "to_vector",
+            "vector_to_string",
+            "from_vector",
+            "vector_dim",
+            "vec_fromtext",
+            "vec_totext",
+            "vec_distance",
+            "vec_distance_euclidean",
+            "vec_distance_cosine",
+        ],
+        "mariadb" => MARIADB_VECTOR,
+        "tidb" => &[
+            "vec_from_text",
+            "vec_as_text",
+            "vec_dims",
+            "vec_l1_distance",
+            "vec_l2_distance",
+            "vec_cosine_distance",
+            "vec_negative_inner_product",
+            "vec_l2_norm",
+        ],
+        "singlestore" => &[
+            "dot_product",
+            "euclidean_distance",
+            "vector_num_elements",
+            "vector_elements_sum",
+            "vector_kth_element",
+            "vector_subvector",
+            "vector_sort",
+            "vector_add",
+            "vector_sub",
+            "vector_mul",
+            "scalar_vector_mul",
+            "vector_sum",
+            "json_array_pack",
+            "json_array_unpack",
+        ],
+        "oceanbase" => &[
+            "l2_distance",
+            "cosine_distance",
+            "inner_product",
+            "negative_inner_product",
+            "vector_distance",
+            "vector_dims",
+            "vector_norm",
+        ],
+        "doris" | "velodb" => &[
+            "l1_distance",
+            "l2_distance",
+            "cosine_distance",
+            "cosine_similarity",
+            "inner_product",
+            "l2_distance_approximate",
+            "inner_product_approximate",
+        ],
+        "starrocks" => &[
+            "approx_cosine_similarity",
+            "approx_l2_distance",
+            "cosine_similarity",
+            "cosine_similarity_norm",
+            "l2_distance",
+        ],
+        "greptimedb" => &[
+            "parse_vec",
+            "vec_to_string",
+            "vec_dim",
+            "vec_norm",
+            "vec_add",
+            "vec_sub",
+            "vec_mul",
+            "vec_div",
+            "vec_scalar_add",
+            "vec_scalar_mul",
+            "vec_elem_sum",
+            "vec_elem_product",
+            "vec_elem_avg",
+            "vec_kth_elem",
+            "vec_subvector",
+            "vec_cos_distance",
+            "vec_l2sq_distance",
+            "vec_dot_product",
+            "vec_sum",
+            "vec_product",
+        ],
+        "manticore" => &["knn_dist"],
+        // Oracle 23ai. Not `vector_embedding` (it runs a model) or
+        // `vector_chunks`.
+        "oracle" | "oracle_adb" => &[
+            "vector_distance",
+            "cosine_distance",
+            "inner_product",
+            "l1_distance",
+            "l2_distance",
+            "hamming_distance",
+            "jaccard_distance",
+            "to_vector",
+            "vector",
+            "from_vector",
+            "vector_serialize",
+            "vector_dimension_count",
+            "vector_dims",
+            "vector_dimension_format",
+            "vector_norm",
+        ],
+        // SQL Server 2025 and Azure SQL. Not `ai_generate_embeddings`.
+        "sqlserver" | "azuresql" => &[
+            "vector_distance",
+            "vector_norm",
+            "vector_normalize",
+            "vectorproperty",
+            "vector_search",
+        ],
+        // libSQL's own (not `libsql_vector_idx`: it only builds an index).
+        "libsql" => &[
+            "vector",
+            "vector32",
+            "vector64",
+            "vector16",
+            "vectorb16",
+            "vector8",
+            "vector1bit",
+            "vector_extract",
+            "vector_distance_cos",
+            "vector_distance_l2",
+            "vector_top_k",
+        ],
+        // Lower case: the check compares names that way.
+        "clickhouse" | "timeplus" => &[
+            "cosinedistance",
+            "l1distance",
+            "l2distance",
+            "l2squareddistance",
+            "linfdistance",
+            "lpdistance",
+            "dotproduct",
+            "l1norm",
+            "l2norm",
+            "l2squarednorm",
+            "linfnorm",
+            "lpnorm",
+            "l1normalize",
+            "l2normalize",
+            "linfnormalize",
+            "lpnormalize",
+            "distancecosine",
+            "distancel1",
+            "distancel2",
+            "distancel2squared",
+            "distancelinf",
+            "distancelp",
+        ],
+        "duckdb" | "duckdb_files" => &[
+            "array_value",
+            "array_cosine_similarity",
+            "array_cosine_distance",
+            "array_distance",
+            "array_inner_product",
+            "array_negative_inner_product",
+            "array_dot_product",
+            "array_negative_dot_product",
+            "list_cosine_similarity",
+            "list_cosine_distance",
+            "list_distance",
+            "list_inner_product",
+            "list_negative_inner_product",
+            "list_dot_product",
+            "list_negative_dot_product",
+        ],
+        // `ML.DISTANCE` is a qualified name: it asks.
+        "bigquery" => &["cosine_distance", "euclidean_distance", "vector_search"],
+        "spanner" => &[
+            "cosine_distance",
+            "euclidean_distance",
+            "dot_product",
+            "approx_cosine_distance",
+            "approx_euclidean_distance",
+            "approx_dot_product",
+        ],
+        "snowflake" => &[
+            "vector_cosine_similarity",
+            "vector_inner_product",
+            "vector_l1_distance",
+            "vector_l2_distance",
+            "vector_normalize",
+            "vector_truncate",
+            "vector_avg",
+            "vector_sum",
+            "vector_min",
+            "vector_max",
+        ],
+        // Not `vector_search`: it queries a separate service.
+        "databricks" | "azure_databricks" => &[
+            "vector_cosine_similarity",
+            "vector_inner_product",
+            "vector_l2_distance",
+            "vector_norm",
+            "vector_normalize",
+            "vector_avg",
+            "vector_sum",
+        ],
+        "couchbase" => &[
+            "vector_distance",
+            "approx_vector_distance",
+            "isvector",
+            "decode_vector",
+            "encode_vector",
+            "normalize_vector",
+        ],
+        "cosmosdb" => &["vectordistance"],
+        // Not `vector_embedding` (it runs a model).
+        "hana" => &[
+            "cosine_similarity",
+            "l2distance",
+            "to_real_vector",
+            "cardinality",
+        ],
+        _ => &[],
+    }
+}
+
+/// pgvector 0.8 (an extension, not a built-in: listed for the variants that
+/// ship it). Not the index builders' support functions.
+const PGVECTOR: &[&str] = &[
+    "l2_distance",
+    "cosine_distance",
+    "inner_product",
+    "l1_distance",
+    "vector_dims",
+    "vector_norm",
+    "l2_norm",
+    "l2_normalize",
+    "binary_quantize",
+    "subvector",
+    "hamming_distance",
+    "jaccard_distance",
+];
+
+/// CockroachDB's native vectors (25.2), pgvector's names.
+const COCKROACH_VECTOR: &[&str] = &[
+    "l2_distance",
+    "cosine_distance",
+    "inner_product",
+    "l1_distance",
+    "vector_dims",
+    "vector_norm",
+];
+
+/// MariaDB 11.7 and later.
+const MARIADB_VECTOR: &[&str] = &[
+    "vec_fromtext",
+    "vec_totext",
+    "vec_distance",
+    "vec_distance_euclidean",
+    "vec_distance_cosine",
+];
+
 /// Words a `(` follows without being a call (`IN (`, `EXISTS (`, `OVER (`,
 /// `AS (`…). Only unquoted: `"values"(…)` is a call in PostgreSQL.
 const NOT_CALLS: &[&str] = &[
@@ -902,8 +1180,11 @@ pub(crate) fn dax_approval_free(units: &[ScriptStatement]) -> Result<(), String>
     Ok(())
 }
 
+/// `driver` is the driver's id (its vector functions, [`vector_functions`]);
+/// `hint` its dialect hint (the family's built-ins).
 pub(crate) fn approval_free(
     language: Language,
+    driver: &str,
     hint: &str,
     dialect: &ScriptDialect,
     query: &str,
@@ -912,6 +1193,7 @@ pub(crate) fn approval_free(
         return Err(format!("{language:?} statements aren't checked"));
     }
     let family = Family::of(hint);
+    let vectors = vector_functions(driver);
     // MySQL's `/*! … */` runs on the server: read it as code.
     let text = expose_versioned(query, dialect);
     let toks = name_tokens(&text, dialect);
@@ -926,7 +1208,10 @@ pub(crate) fn approval_free(
         toks.get(i)
             .is_some_and(|t| t.kind == TokenKind::Punct && t.text == p)
     };
-    let listed = |name: &str| family.lists(&name.to_ascii_lowercase());
+    let listed = |name: &str| {
+        let name = name.to_ascii_lowercase();
+        family.lists(&name) || vectors.contains(&name.as_str())
+    };
     let pragma_name = if word(0, "pragma") {
         if punct(2, ".") {
             Some(3)
@@ -942,10 +1227,11 @@ pub(crate) fn approval_free(
         }
         let name = toks[i].text;
         if i >= 1 && punct(i - 1, ".") {
-            // `schema.f(…)`: only a built-in under the system schema.
+            // `schema.f(…)`: only a built-in under the system schema (an
+            // extension's vector functions aren't there).
             let system = family.system_schema().is_some_and(|s| word(i - 2, s))
                 && !(i >= 3 && punct(i - 3, "."));
-            if system && bare(i) && listed(name) {
+            if system && bare(i) && family.lists(&name.to_ascii_lowercase()) {
                 continue;
             }
             return Err(qualified(&toks, i));
@@ -1074,13 +1360,25 @@ mod tests {
     use super::*;
 
     fn pg(q: &str) -> Result<(), String> {
-        approval_free(Language::Sql, "postgres", &ScriptDialect::postgres(), q)
+        approval_free(
+            Language::Sql,
+            "postgres",
+            "postgres",
+            &ScriptDialect::postgres(),
+            q,
+        )
     }
     fn my(q: &str) -> Result<(), String> {
-        approval_free(Language::Sql, "mysql", &ScriptDialect::mysql(), q)
+        approval_free(Language::Sql, "mysql", "mysql", &ScriptDialect::mysql(), q)
     }
     fn lite(q: &str) -> Result<(), String> {
-        approval_free(Language::Sql, "sqlite", &ScriptDialect::generic(), q)
+        approval_free(
+            Language::Sql,
+            "sqlite",
+            "sqlite",
+            &ScriptDialect::generic(),
+            q,
+        )
     }
 
     #[test]
@@ -1185,6 +1483,7 @@ mod tests {
         assert_eq!(
             approval_free(
                 Language::Sql,
+                "sqlserver",
                 "mssql",
                 &ScriptDialect::tsql(),
                 "SELECT dbo.f(1)"
@@ -1199,6 +1498,7 @@ mod tests {
         assert!(approval_free(
             Language::Cypher,
             "neo4j",
+            "neo4j",
             &ScriptDialect::generic(),
             "RETURN 1"
         )
@@ -1206,6 +1506,7 @@ mod tests {
         // DAX goes through the driver's own units, never this lexer.
         assert!(approval_free(
             Language::Dax,
+            "powerbi",
             "powerbi",
             &ScriptDialect::generic(),
             "EVALUATE {1}"
@@ -1348,5 +1649,214 @@ mod tests {
                 .bytes()
                 .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')));
         }
+        // Every driver's vector functions: never one that acts, runs SQL
+        // text, calls a model or another service; lower case.
+        let models = [
+            "vector_embedding",
+            "ai_generate_embeddings",
+            "aisimilarity",
+            "ai_similarity",
+            "libsql_vector_idx",
+            "distance",
+        ];
+        for d in dbine_drivers::all() {
+            let id = d.info().id;
+            let list = vector_functions(id);
+            for f in never.iter().chain(&models) {
+                assert!(!list.contains(f), "{f} is listed for {id}");
+            }
+            assert!(
+                list.iter().all(|f| f
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')),
+                "{id}"
+            );
+        }
+        // A service of its own, not a read of the warehouse.
+        assert!(!vector_functions("databricks").contains(&"vector_search"));
+    }
+
+    fn on(driver: &str, q: &str) -> Result<(), String> {
+        let d = dbine_drivers::find(driver).expect(driver);
+        let info = d.info();
+        approval_free(info.language, info.id, info.dialect, &d.script_dialect(), q)
+    }
+
+    /// Similarity searches run without approval where the server enforces
+    /// the read: pgvector's operators aren't calls and its functions are
+    /// listed for the PostgreSQL variants that ship it; MySQL 9, MariaDB
+    /// and libSQL have their own.
+    #[test]
+    fn mcp_allowlist_vector_searches_need_no_approval() {
+        for q in [
+            "SELECT id, embedding <-> '[1,2,3]' AS d FROM items ORDER BY embedding <-> '[1,2,3]' LIMIT 5",
+            "SELECT id FROM items ORDER BY embedding <=> '[1,2,3]'::vector(3) LIMIT 5",
+            "SELECT id FROM items ORDER BY embedding <#> $1 LIMIT 5",
+            "SELECT id FROM items ORDER BY embedding <+> '[1,2,3]' LIMIT 5",
+            "SELECT id FROM items ORDER BY b <~> '101'::bit(3), b <%> '101'::bit(3) LIMIT 5",
+            "SELECT id, cosine_distance(embedding, '[1,2,3]') AS d, l2_distance(embedding, '[1,2,3]'), inner_product(embedding, '[1,2,3]'), l1_distance(embedding, '[1,2,3]') FROM items ORDER BY d LIMIT 5",
+            "SELECT vector_dims(embedding), vector_norm(embedding), l2_normalize(embedding), subvector(embedding, 1, 2), binary_quantize(embedding) FROM items",
+            "SELECT hamming_distance(b, '101'), jaccard_distance(b, '101'), avg(embedding), sum(embedding) FROM items",
+            "SELECT id FROM items ORDER BY embedding <=> l2_normalize('[1,2,3]') LIMIT 5",
+        ] {
+            assert_eq!(on("postgres", q), Ok(()), "{q}");
+        }
+        assert_eq!(
+            on(
+                "timescaledb",
+                "SELECT id FROM t ORDER BY cosine_distance(v, '[1,2]') LIMIT 3"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            on(
+                "cockroachdb",
+                "SELECT id FROM t ORDER BY v <-> '[1,2]', l2_distance(v, '[1,2]') LIMIT 3"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            on(
+                "mysql",
+                "SELECT id, VECTOR_TO_STRING(v), VECTOR_DIM(v) FROM t WHERE v = STRING_TO_VECTOR('[1,2]')"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            on(
+                "mariadb",
+                "SELECT id FROM t ORDER BY VEC_DISTANCE_COSINE(v, VEC_FromText('[1,2]')) LIMIT 5"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            on(
+                "libsql",
+                "SELECT id, vector_extract(v), vector_distance_cos(v, vector32('[1,2]')) FROM vector_top_k('idx', vector32('[1,2]'), 5) JOIN t ON t.rowid = id"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            on(
+                "sqlserver",
+                "SELECT TOP 5 id, VECTOR_DISTANCE('cosine', v, CAST('[1,2]' AS VECTOR(2))) AS d FROM t ORDER BY d"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            on(
+                "oracle",
+                "SELECT id FROM t ORDER BY VECTOR_DISTANCE(v, TO_VECTOR('[1,2]'), COSINE) FETCH FIRST 5 ROWS ONLY"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            on(
+                "clickhouse",
+                "SELECT id, cosineDistance(v, [1., 2.]) AS d FROM t ORDER BY L2Distance(v, [1., 2.]) LIMIT 5"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            on(
+                "duckdb",
+                "SELECT id, array_cosine_similarity(v, [1, 2]::FLOAT[2]) AS s FROM t ORDER BY s DESC LIMIT 5"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            on(
+                "snowflake",
+                "SELECT id, VECTOR_COSINE_SIMILARITY(v, CAST([1, 2] AS VECTOR(FLOAT, 2))) FROM t"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            on(
+                "spanner",
+                "SELECT id FROM t ORDER BY APPROX_COSINE_DISTANCE(v, [1.0, 2.0], options => JSON '{}') LIMIT 5"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            on(
+                "couchbase",
+                "SELECT b.name FROM b ORDER BY APPROX_VECTOR_DISTANCE(b.v, [1, 2], 'cosine') LIMIT 5"
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            on("cosmosdb", "SELECT TOP 5 c.id, VectorDistance(c.v, [1, 2]) AS s FROM c ORDER BY VectorDistance(c.v, [1, 2])"),
+            Ok(())
+        );
+    }
+
+    /// A vector name is one engine's: on another server of the family (or
+    /// where an extension's name isn't one) it's a user's function, and a
+    /// function that calls a model always asks.
+    #[test]
+    fn mcp_allowlist_other_engines_vector_names_ask() {
+        // TiDB's and SingleStore's names on MySQL; MySQL 9's on MariaDB.
+        assert_eq!(
+            on("mysql", "SELECT VEC_COSINE_DISTANCE(v, '[1,2]') FROM t"),
+            Err("VEC_COSINE_DISTANCE".into())
+        );
+        assert_eq!(
+            on("mysql", "SELECT dot_product(v, v) FROM t"),
+            Err("dot_product".into())
+        );
+        assert_eq!(
+            on("mariadb", "SELECT STRING_TO_VECTOR('[1,2]')"),
+            Err("STRING_TO_VECTOR".into())
+        );
+        // HeatWave's DISTANCE() is a common name for a user's function.
+        assert_eq!(
+            on("mysql", "SELECT DISTANCE(v, v, 'COSINE') FROM t"),
+            Err("DISTANCE".into())
+        );
+        // pgvector's names where pgvector isn't (Redshift, Aurora DSQL).
+        assert_eq!(
+            on("redshift", "SELECT cosine_distance(v, v) FROM t"),
+            Err("cosine_distance".into())
+        );
+        assert_eq!(
+            on("dsql", "SELECT l2_distance(v, v) FROM t"),
+            Err("l2_distance".into())
+        );
+        // Qualified with the system schema: not pgvector's.
+        assert_eq!(
+            on("postgres", "SELECT pg_catalog.cosine_distance(v, v) FROM t"),
+            Err("pg_catalog.cosine_distance".into())
+        );
+        // A model or another service.
+        assert_eq!(
+            on(
+                "oracle",
+                "SELECT VECTOR_EMBEDDING(doc_model USING 'hello' AS data) FROM dual"
+            ),
+            Err("VECTOR_EMBEDDING".into())
+        );
+        assert_eq!(
+            on(
+                "sqlserver",
+                "SELECT AI_GENERATE_EMBEDDINGS(N'hola' USE MODEL m)"
+            ),
+            Err("AI_GENERATE_EMBEDDINGS".into())
+        );
+        assert_eq!(
+            on(
+                "databricks",
+                "SELECT * FROM vector_search(index => 'i', query_text => 'x')"
+            ),
+            Err("vector_search".into())
+        );
+        // libSQL's names aren't SQLite's (DBine loads no extension there).
+        assert_eq!(
+            on("sqlite", "SELECT vector_extract(v) FROM t"),
+            Err("vector_extract".into())
+        );
+        // Non-SQL engines aren't checked: their reads are approved.
+        assert!(on("cassandra", "SELECT similarity_cosine(v, [1, 2]) FROM t").is_err());
+        assert!(on("neo4j", "RETURN vector.similarity.cosine([1, 2], [1, 2])").is_err());
     }
 }

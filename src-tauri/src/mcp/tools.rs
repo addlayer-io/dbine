@@ -1012,7 +1012,14 @@ fn approval_free(conn: &SavedConnection, query: &str) -> bool {
         if info.language == Language::Dax {
             return reads::dax_approval_free(&d.split_script(query)).is_ok();
         }
-        reads::approval_free(info.language, info.dialect, &d.script_dialect(), query).is_ok()
+        reads::approval_free(
+            info.language,
+            info.id,
+            info.dialect,
+            &d.script_dialect(),
+            query,
+        )
+        .is_ok()
     })
 }
 

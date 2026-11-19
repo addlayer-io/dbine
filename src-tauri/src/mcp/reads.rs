@@ -218,6 +218,7 @@ mod tests {
         let free = approval_free(
             dbine_driver::Language::Sql,
             "postgres",
+            "postgres",
             &dbine_driver::ScriptDialect::postgres(),
             "SELECT pg_wal_replay_pause()",
         );

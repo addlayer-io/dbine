@@ -60,3 +60,5 @@ pub mod subset;
 pub mod sync;
 pub mod telemetry;
 pub mod updates;
+#[cfg(test)]
+mod vector_live_tests;
