@@ -342,6 +342,45 @@ pub fn index_type(v: &VectorIndex) -> Result<String, String> {
     Ok(out)
 }
 
+/// `v` in the form of ClickHouse 24.8–25.7, which has no dimension:
+/// `vector_similarity('hnsw', 'L2Distance')`, or the five arguments when a
+/// quantization, `m` or `ef_construction` is set (0 for the ones that
+/// aren't: the server's default).
+pub fn legacy_index_type(v: &VectorIndex) -> String {
+    let p = |k: &str| v.params.get(k).map(|x| x.trim()).filter(|x| !x.is_empty());
+    let lit = |s: &str| format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"));
+    let algorithm = v
+        .algorithm
+        .as_deref()
+        .filter(|a| !a.is_empty())
+        .unwrap_or("hnsw");
+    let m = v
+        .metric
+        .as_deref()
+        .filter(|m| !m.is_empty())
+        .unwrap_or(metric::L2);
+    let native = METRICS
+        .iter()
+        .find(|(_, std)| *std == m)
+        .map_or(m, |(n, _)| n);
+    let mut out = format!("{KIND}({}, {}", lit(algorithm), lit(native));
+    let (q, mm, ef) = (
+        p(param::QUANTIZATION),
+        p(param::M),
+        p(param::EF_CONSTRUCTION),
+    );
+    if q.is_some() || mm.is_some() || ef.is_some() {
+        out.push_str(&format!(
+            ", {}, {}, {}",
+            lit(q.unwrap_or("bf16")),
+            mm.unwrap_or("0"),
+            ef.unwrap_or("0")
+        ));
+    }
+    out.push(')');
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -455,6 +494,37 @@ mod tests {
         assert!(index_type(&VectorIndex::default())
             .unwrap_err()
             .contains("dimensions"));
+    }
+
+    #[test]
+    fn legacy_index_types() {
+        let v = |metric: &str, params: &[(&str, &str)]| VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some(metric.into()),
+            params: params
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        };
+        for (ix, want) in [
+            (
+                v("cosine", &[]),
+                "vector_similarity('hnsw', 'cosineDistance')",
+            ),
+            (
+                v("l2", &[("m", "16")]),
+                "vector_similarity('hnsw', 'L2Distance', 'bf16', 16, 0)",
+            ),
+            (
+                v("l2", &[("quantization", "f32"), ("ef_construction", "64")]),
+                "vector_similarity('hnsw', 'L2Distance', 'f32', 0, 64)",
+            ),
+        ] {
+            assert_eq!(legacy_index_type(&ix), want);
+            // It reads back as the same settings (the defaults aside).
+            let back = parse_index(want).unwrap();
+            assert_eq!(back.metric, ix.metric);
+        }
     }
 
     #[test]
