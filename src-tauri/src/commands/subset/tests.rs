@@ -975,3 +975,307 @@ async fn vector_live_subset_mysql9_to_mysql9() {
     })
     .await;
 }
+
+/// The starting object of an engine without foreign keys, as the engine
+/// lists it (a Redis search index: where it searches and its vector index)
+/// with the describe's columns: its document key (`id`) first, the listed
+/// columns' options kept, and the describe's primary key.
+#[test]
+fn the_listed_object_keeps_its_definition_and_the_describes_columns() {
+    use dbine_driver::{IndexDef, VectorIndex};
+    let col = |name: &str, ty: &str| ColumnDef {
+        name: name.into(),
+        data_type: ty.into(),
+        nullable: true,
+        ..Default::default()
+    };
+    let mut emb = col("emb", "VECTOR(3, FLOAT32)");
+    emb.options.insert("identifier".into(), "embedding".into());
+    let listed = TableSchema {
+        kind: "index".into(),
+        name: "docs".into(),
+        columns: vec![col("title", "TEXT"), emb.clone(), col("extra", "TAG")],
+        indexes: vec![IndexDef {
+            name: "emb".into(),
+            columns: vec!["emb".into()],
+            vector: Some(VectorIndex {
+                algorithm: Some("hnsw".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }],
+        options: [("on", "HASH"), ("prefix", "doc:")]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        ..Default::default()
+    };
+    let obj = ObjectRef {
+        kind: "index".into(),
+        schema: None,
+        name: "docs".into(),
+    };
+    let described = schema_from_columns(
+        &obj,
+        vec![
+            dbine_driver::ColumnInfo {
+                name: "id".into(),
+                data_type: "key".into(),
+                nullable: false,
+                primary_key: true,
+                auto_increment: false,
+                default_value: None,
+            },
+            dbine_driver::ColumnInfo {
+                name: "Title".into(),
+                data_type: "TEXT".into(),
+                nullable: true,
+                primary_key: false,
+                auto_increment: false,
+                default_value: None,
+            },
+            dbine_driver::ColumnInfo {
+                name: "emb".into(),
+                data_type: "VECTOR(3, FLOAT32)".into(),
+                nullable: true,
+                primary_key: false,
+                auto_increment: false,
+                default_value: None,
+            },
+        ],
+    );
+    let t = with_described(listed.clone(), described.clone());
+    assert_eq!(
+        t.columns
+            .iter()
+            .map(|c| c.name.as_str())
+            .collect::<Vec<_>>(),
+        ["id", "title", "emb", "extra"]
+    );
+    assert_eq!(t.columns[2], emb);
+    assert_eq!(t.options, listed.options);
+    assert_eq!(t.indexes, listed.indexes);
+    assert_eq!(pk_of(&t), ["id"]);
+    // A primary key of its own stays.
+    let mut keyed = listed;
+    keyed.primary_key = Some(KeyDef {
+        name: None,
+        columns: vec!["title".into()],
+    });
+    assert_eq!(pk_of(&with_described(keyed, described)), ["title"]);
+}
+
+/// A Redis-family server of the tests, from `env` (`host:port` or
+/// `redis://host:port`).
+fn redis_cfg(driver: &str, env: &str, default: &str) -> ConnectionConfig {
+    let url = std::env::var(env).unwrap_or_else(|_| default.into());
+    let rest = url.trim_start_matches("redis://").trim_end_matches('/');
+    let (host, port) = rest.rsplit_once(':').unwrap_or((rest, "6379"));
+    ConnectionConfig {
+        driver: driver.into(),
+        host: host.into(),
+        port: port.parse().unwrap(),
+        ..Default::default()
+    }
+}
+
+/// Bytes as a quoted argument of a Redis command (`"\x00\x01"`).
+fn redis_blob(v: &[f32]) -> String {
+    let hex: String = v
+        .iter()
+        .flat_map(|x| x.to_le_bytes())
+        .map(|b| format!("\\x{b:02x}"))
+        .collect();
+    format!("\"{hex}\"")
+}
+
+/// A subset of a Redis-family search index (database 0) into database 1,
+/// which doesn't have it: the index the target creates covers the same
+/// keys (its PREFIX, never every hash of the database) with the same
+/// fields (the document's key, `id`, isn't one) and vector index. With
+/// `run`, the copy runs too and its documents arrive whole; without it
+/// (Redis 8 creates indexes in database 0 only) it's planned. Everything
+/// it creates, on both databases, goes at the end, passed or not.
+async fn redis_index_subset(driver: &'static str, env: &str, default: &str, run_it: bool) {
+    use crate::commands::vector_live_tests::{exec, first, open};
+    use futures_util::FutureExt;
+    let cfg = redis_cfg(driver, env, default);
+    let tag = format!("{}_{driver}", std::process::id());
+    let name = format!("dbine_subset_ix_{tag}");
+    let prefix = format!("dbine:subset:{tag}:");
+    let outside = format!("dbine:subset_out:{tag}:1");
+    let docs: [(&str, &str, [f32; 3]); 3] = [
+        ("1", "uno", [0.1, 0.2, 0.3]),
+        ("2", "dos", [0.3, 0.1, 0.2]),
+        ("3", "tres", [-0.5, 0.25, 1.0]),
+    ];
+    let keys: Vec<String> = docs
+        .iter()
+        .map(|(id, _, _)| format!("{prefix}{id}"))
+        .chain([outside.clone()])
+        .collect();
+    let cleanup = || {
+        let (cfg, name, keys) = (cfg.clone(), name.clone(), keys.clone());
+        async move {
+            for db in ["db0", "db1"] {
+                let mut c = cfg.clone();
+                c.database = db.into();
+                let mut s = open(&c).await?;
+                // Not there (already dropped, or never created): fine.
+                let _ = exec(s.as_mut(), &format!("FT.DROPINDEX {name}")).await;
+                exec(s.as_mut(), &format!("DEL {}", keys.join(" "))).await?;
+            }
+            Ok::<(), String>(())
+        }
+    };
+    cleanup().await.expect("clean up before");
+
+    let d = dir(&format!("redis-{driver}"));
+    let body = std::panic::AssertUnwindSafe(async {
+        let state = AppState::new(StateStore::open(&d.join("state.sqlite")).unwrap());
+        save(&state, "src", cfg.clone(), vec![]);
+        save(&state, "tgt", cfg.clone(), vec![]);
+        let mut c0 = cfg.clone();
+        c0.database = "db0".into();
+        let mut s = open(&c0).await.unwrap();
+        exec(
+            s.as_mut(),
+            &format!("FT.CREATE {name} ON HASH PREFIX 1 {prefix} SCHEMA title TEXT emb VECTOR HNSW 6 TYPE FLOAT32 DIM 3 DISTANCE_METRIC COSINE"),
+        )
+        .await
+        .unwrap();
+        for (id, title, v) in &docs {
+            exec(
+                s.as_mut(),
+                &format!("HSET {prefix}{id} title {title} emb {}", redis_blob(v)),
+            )
+            .await
+            .unwrap();
+        }
+        // A hash outside the index's prefix: not one of its documents.
+        exec(s.as_mut(), &format!("HSET {outside} title fuera")).await.unwrap();
+        drop(s);
+
+        let mut a = args(&name, StartFilter::default(), None);
+        a.table.kind = "index".into();
+        a.database = "db0".into();
+        a.target_database = "db1".into();
+        let p = plan(&state, &a, events().0).await.unwrap();
+        assert_eq!(p.tables.len(), 1, "{p:#?}");
+        let t = &p.tables[0];
+        assert!(!t.exists && t.error.is_none(), "{t:#?}");
+        assert_eq!(t.rows, 3, "{t:#?}");
+        let ddl = t.create_ddl.as_deref().unwrap_or_default();
+        assert!(
+            ddl.starts_with(&format!("FT.CREATE {name} ON HASH PREFIX 1 {prefix} SCHEMA ")),
+            "{ddl}"
+        );
+        // Its vector index as the server reports it (Redis adds its
+        // defaults: M, EF_CONSTRUCTION, EF_RUNTIME).
+        assert!(
+            ddl.contains("emb VECTOR HNSW ")
+                && ddl.contains("TYPE FLOAT32 DIM 3 DISTANCE_METRIC COSINE"),
+            "{ddl}"
+        );
+        assert!(ddl.contains("title TEXT") && !ddl.contains(" id "), "{ddl}");
+        // The document's key is copied (it names the documents), not indexed.
+        assert!(
+            t.columns.iter().any(|c| c.name == "id" && c.skipped.is_none()),
+            "{t:#?}"
+        );
+        if !run_it {
+            return;
+        }
+
+        let ra = RunArgs {
+            subset: a.clone(),
+            masks: vec![],
+            confirm: String::new(),
+            seed: Some(1),
+        };
+        let r = run(&state, &ra, events().0).await.unwrap();
+        assert!(
+            r.tables
+                .iter()
+                .all(|t| t.status == "done" && t.created && t.written == 3),
+            "{r:#?}"
+        );
+        let mut c1 = cfg.clone();
+        c1.database = "db1".into();
+        let mut s = open(&c1).await.unwrap();
+        let ix = s
+            .database_schema()
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|t| t.name == name)
+            .expect("the index in the target");
+        assert_eq!(ix.options.get("prefix"), Some(&prefix), "{ix:#?}");
+        // Its fields (valkey-search reports them in an order of its own),
+        // not the document's key.
+        let mut fields: Vec<&str> = ix.columns.iter().map(|c| c.name.as_str()).collect();
+        fields.sort();
+        assert_eq!(fields, ["emb", "title"]);
+        let v = ix.indexes[0].vector.as_ref().expect("its vector index");
+        assert_eq!(
+            (v.algorithm.as_deref(), v.metric.as_deref()),
+            (Some("hnsw"), Some("cosine"))
+        );
+        // Its documents, whole; the hash outside it stays in the source.
+        let obj = ObjectRef {
+            kind: "index".into(),
+            schema: None,
+            name: name.clone(),
+        };
+        let browse = s.browse_query(&obj, 10);
+        let out = first(exec(s.as_mut(), &browse).await.unwrap());
+        let at = |c: &str| out.columns.iter().position(|x| x.name == c).unwrap();
+        let (id_at, title_at, emb_at) = (at("id"), at("title"), at("emb"));
+        let mut got: Vec<(String, String, Vec<f32>)> = out
+            .rows
+            .iter()
+            .map(|r| {
+                let nums = dbine_driver::vector::parse_value(&r[emb_at]).expect("a vector");
+                (
+                    crate::commands::vector_live_tests::text(&r[id_at]),
+                    crate::commands::vector_live_tests::text(&r[title_at]),
+                    nums.into_iter().map(|x| x as f32).collect(),
+                )
+            })
+            .collect();
+        got.sort_by(|a, b| a.0.cmp(&b.0));
+        let want: Vec<(String, String, Vec<f32>)> = docs
+            .iter()
+            .map(|(id, title, v)| (format!("{prefix}{id}"), title.to_string(), v.to_vec()))
+            .collect();
+        assert_eq!(got, want);
+        let out = first(exec(s.as_mut(), &format!("EXISTS {outside}")).await.unwrap());
+        assert_eq!(crate::commands::vector_live_tests::text(&out.rows[0][0]), "0");
+    })
+    .catch_unwind()
+    .await;
+    let cleaned = cleanup().await;
+    drop(d);
+    if let Err(e) = body {
+        std::panic::resume_unwind(e);
+    }
+    cleaned.expect("clean up at the end");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs dbine-test-redis8"]
+async fn redis8_index_subset_keeps_its_definition() {
+    redis_index_subset("redis", "DBINE_TEST_REDIS8_URL", "127.0.0.1:27203", false).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs dbine-test-valkey-bundle"]
+async fn valkey_index_subset_keeps_its_definition() {
+    redis_index_subset(
+        "valkey",
+        "DBINE_TEST_VALKEY_SEARCH_URL",
+        "127.0.0.1:27204",
+        true,
+    )
+    .await;
+}
