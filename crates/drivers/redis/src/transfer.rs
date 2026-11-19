@@ -1717,7 +1717,14 @@ mod tests {
             .iter()
             .map(|r| r.iter().map(Cell::to_json).collect())
             .collect();
-        let script = crate::ddl::insert_script(&target, &cols, &json, &Default::default()).unwrap();
+        let script = crate::ddl::insert_script(
+            &target,
+            &cols,
+            &json,
+            &Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
         let expected = crate::command::parse_script(&script).unwrap();
         let got: Vec<_> = rows
             .iter()

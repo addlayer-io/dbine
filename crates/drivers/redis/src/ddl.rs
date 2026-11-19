@@ -31,7 +31,7 @@
 //! `FT.CREATE` / `FT.DROPINDEX`.
 
 use crate::command::quote_arg;
-use crate::vectors::{self, FtField, FtIndex, FtVector, Known, Server, VType};
+use crate::vectors::{self, FtField, FtIndex, FtVector, Known, Server, Typed, Types, VType};
 use dbine_driver::vector::metric;
 use dbine_driver::{
     kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Error, Field, FieldKind, IndexDef,
@@ -795,19 +795,30 @@ fn is_vector_value(v: &Value) -> bool {
     matches!(v, Value::Array(a) if !a.is_empty() && a.iter().all(Value::is_number))
 }
 
-/// The type a vector written to the field `field` of the hash `key` takes:
-/// that of the search index that covers it (with its dimension), if DBine
-/// has seen one, else `FLOAT32` (what vectors in hashes usually are) for a
-/// value that is a vector. `None`: not a vector, written as it is.
+/// The type (and dimension, when known) a vector written to the field
+/// `field` of the hash `key` takes: the column's own type when the caller
+/// gives it as Redis spells it (`VECTOR(3, FLOAT16)`: the target's field),
+/// else that of the search index that covers the key, if DBine has seen
+/// one, else the type the caller gives in another engine's terms, else
+/// `FLOAT32` (what vectors in hashes usually are) for a value that is a
+/// JSON array of numbers. `None`: not a vector, written as it is.
 fn hash_vector_type(
     known: &Known,
     key: &str,
     field: &str,
     v: &Value,
+    typed: Option<Typed>,
 ) -> Result<Option<(VType, Option<u32>)>> {
+    let is_vector = dbine_driver::vector::parse_value(v).is_some();
+    if let Some(t) = typed.filter(|t| t.own) {
+        return Ok(is_vector.then_some((t.ty, t.dims)));
+    }
     Ok(match known.hash_vector(key, field).map_err(Error::Query)? {
-        Some(f) => dbine_driver::vector::parse_value(v).map(|_| (f.ty, Some(f.dims))),
-        None => is_vector_value(v).then_some((VType::F32, None)),
+        Some(f) => is_vector.then_some((f.ty, Some(f.dims))),
+        None => match typed {
+            Some(t) => is_vector.then_some((t.ty, None)),
+            None => is_vector_value(v).then_some((VType::F32, None)),
+        },
     })
 }
 
@@ -878,6 +889,7 @@ fn key_inserts(
     columns: &[String],
     rows: &[(usize, &Vec<Value>)],
     known: &Known,
+    types: &Types,
 ) -> Result<Vec<String>> {
     let get = |row: &Vec<Value>, c: &str| {
         columns
@@ -917,7 +929,7 @@ fn key_inserts(
             KeyShape::Hash => {
                 let field = cell_text(&need("field")?);
                 let value = get(row, "value").unwrap_or(Value::String(String::new()));
-                out.push(hset_line(key, &field, &value, known)?);
+                out.push(hset_line(key, &field, &value, known, types.get("value"))?);
             }
             KeyShape::SortedSet => {
                 let member = cell_text(&need("member")?);
@@ -934,15 +946,29 @@ fn key_inserts(
 }
 
 /// `HSET key field value` for a hash field: a vector field (of an index
-/// that covers the key) as the blob of its type, checked against its
-/// dimension, with what the comment says of it.
-fn hset_line(key: &str, field: &str, v: &Value, known: &Known) -> Result<String> {
-    match known.hash_vector(key, field).map_err(Error::Query)? {
-        Some(f) => {
+/// that covers the key, or a value whose type the caller gives as a
+/// vector, see [`hash_vector_type`]) as the blob of its type, checked
+/// against its dimension, with what the comment says of it.
+fn hset_line(
+    key: &str,
+    field: &str,
+    v: &Value,
+    known: &Known,
+    typed: Option<Typed>,
+) -> Result<String> {
+    let vector = match typed.filter(|t| t.own) {
+        Some(t) => Some((t.ty, t.dims)),
+        None => match known.hash_vector(key, field).map_err(Error::Query)? {
+            Some(f) => Some((f.ty, Some(f.dims))),
+            None => typed.map(|t| (t.ty, None)),
+        },
+    };
+    match vector {
+        Some((ty, dims)) => {
             if let Some(nums) = dbine_driver::vector::parse_value(v) {
-                check_dims(nums.len(), Some(f.dims), field)?;
+                check_dims(nums.len(), dims, field)?;
             }
-            Ok(match vector_arg(v, f.ty, field) {
+            Ok(match vector_arg(v, ty, field) {
                 Some((arg, note)) => {
                     blob_line(&["HSET".into(), key.into(), field.into(), arg], Some(&note))
                 }
@@ -1042,15 +1068,19 @@ fn index_inserts(
     columns: &[String],
     rows: &[(usize, &Vec<Value>)],
     known: &Known,
+    types: &Types,
 ) -> Result<Vec<String>> {
     if rows.is_empty() {
         return Ok(Vec::new());
     }
-    let index = known.index(name).map_err(Error::Query)?.ok_or_else(|| {
-        Error::Unsupported(format!(
-            "DBine no leyó todavía el índice {name}: abrilo de nuevo para que lea sus campos"
-        ))
-    })?;
+    let index = known
+        .index_for(name, types)
+        .map_err(Error::Query)?
+        .ok_or_else(|| {
+            Error::Unsupported(format!(
+                "DBine no leyó todavía el índice {name}: abrilo de nuevo para que lea sus campos"
+            ))
+        })?;
     let id_at = columns.iter().position(|c| c == "id").ok_or_else(|| {
         Error::Query("Un documento nuevo necesita su key en la columna id.".into())
     })?;
@@ -1114,11 +1144,19 @@ fn index_inserts(
 /// type of the search index that covers the key (checked against its
 /// dimension), or of `FLOAT32`. A row with no value at all (the grid's
 /// probe) writes nothing.
+///
+/// `types` are the columns' types when the caller knows them (see
+/// [`dbine_driver::Driver::insert_script_typed`]): a field Redis spells
+/// `VECTOR(3, FLOAT16)` is written as that blob, whatever DBine read of
+/// the open servers; another engine's vector type packs a vector no index
+/// covers as its element type; and of two open servers with different
+/// indexes of the same name, the one of those types is the script's.
 pub fn insert_script(
     target: &ObjectRef,
     columns: &[String],
     rows: &[Vec<Value>],
     known: &Known,
+    types: &Types,
 ) -> Result<String> {
     if columns.is_empty() {
         return Ok(String::new());
@@ -1131,13 +1169,13 @@ pub fn insert_script(
         .collect();
     let finish = |out: Vec<String>| out.into_iter().map(|l| l + "\n").collect::<String>();
     if target.kind == kinds::INDEX {
-        return index_inserts(&target.name, columns, &rows, known).map(finish);
+        return index_inserts(&target.name, columns, &rows, known, types).map(finish);
     }
     if let Some(shape) = (target.kind == kinds::KEY)
         .then(|| key_shape(columns))
         .flatten()
     {
-        return key_inserts(&target.name, shape, columns, &rows, known).map(finish);
+        return key_inserts(&target.name, shape, columns, &rows, known, types).map(finish);
     }
     let mut out = Vec::new();
     for (n, row) in rows {
@@ -1157,7 +1195,7 @@ pub fn insert_script(
                 continue;
             }
             args.push(c.clone().into());
-            let blob = match hash_vector_type(known, &key, c, v)? {
+            let blob = match hash_vector_type(known, &key, c, v, types.get(c))? {
                 Some((t, dims)) => packed_checked(v, t, dims, c)?,
                 None => None,
             };
@@ -1307,7 +1345,14 @@ fn vectorset_edits(key: &str, changes: &[RowChange], known: &Known) -> Result<Ve
     Ok(out)
 }
 
-pub fn update_script(target: &ObjectRef, changes: &[RowChange], known: &Known) -> Result<String> {
+/// `types`: the edited columns' types, when the caller knows them (as in
+/// [`insert_script`]).
+pub fn update_script(
+    target: &ObjectRef,
+    changes: &[RowChange],
+    known: &Known,
+    types: &Types,
+) -> Result<String> {
     let key = target.name.as_str();
     let get = |pairs: &[(String, Value)], c: &str| {
         pairs.iter().find(|(k, _)| k == c).map(|(_, v)| v.clone())
@@ -1321,11 +1366,14 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange], known: &Known) -
     };
     // The documents of a search index's results.
     if target.kind == kinds::INDEX {
-        let index = known.index(key).map_err(Error::Query)?.ok_or_else(|| {
-            Error::Unsupported(format!(
+        let index = known
+            .index_for(key, types)
+            .map_err(Error::Query)?
+            .ok_or_else(|| {
+                Error::Unsupported(format!(
                 "DBine no leyó todavía el índice {key}: abrilo de nuevo para que lea sus campos"
             ))
-        })?;
+            })?;
         return index_edits(index, changes).map(finish);
     }
     if changes
@@ -1336,7 +1384,7 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange], known: &Known) -
     }
     let mut out: Vec<String> = Vec::new();
     // A hash field that holds a vector: its blob, with what the comment says.
-    let hset = |field: &str, v: &Value| hset_line(key, field, v, known);
+    let hset = |field: &str, v: &Value| hset_line(key, field, v, known, types.get("value"));
     for ch in changes.iter().filter(|c| !c.set.is_empty()) {
         let (k, s) = (&ch.key, &ch.set);
         if let Some(field) = get(k, "field").filter(|v| !v.is_null()) {
@@ -1461,10 +1509,10 @@ mod tests {
         columns: &[String],
         rows: &[Vec<Value>],
     ) -> Result<String> {
-        super::insert_script(target, columns, rows, &Known::default())
+        super::insert_script(target, columns, rows, &Known::default(), &Types::default())
     }
     fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
-        super::update_script(target, changes, &Known::default())
+        super::update_script(target, changes, &Known::default(), &Types::default())
     }
 
     fn key(ty: &str, cols: &[(&str, Option<&str>)]) -> TableSchema {
@@ -2105,7 +2153,7 @@ mod tests {
             Value::from("{\"lang\":\"es\"}"),
         ]];
         assert_eq!(
-            parsed(&super::insert_script(&vs, &cols, &rows, &known).unwrap()),
+            parsed(&super::insert_script(&vs, &cols, &rows, &known, &Types::default()).unwrap()),
             [vec![
                 "VADD",
                 "vs",
@@ -2122,15 +2170,29 @@ mod tests {
         let only = vec![vec![Value::from("c"), serde_json::json!([1, 0])]];
         assert_eq!(
             parsed(
-                &super::insert_script(&vs, &strs(&["element", "vector"]), &only, &known).unwrap()
+                &super::insert_script(
+                    &vs,
+                    &strs(&["element", "vector"]),
+                    &only,
+                    &known,
+                    &Types::default()
+                )
+                .unwrap()
             ),
             [vec!["VADD", "vs", "VALUES", "2", "1", "0", "c", "NOQUANT"]]
         );
         let no_vector = vec![vec![Value::from("d"), Value::Null, Value::Null]];
-        assert!(super::insert_script(&vs, &cols, &no_vector, &known).is_err());
+        assert!(super::insert_script(&vs, &cols, &no_vector, &known, &Types::default()).is_err());
         // The grid's probe: nothing to write, and no error.
         assert_eq!(
-            super::insert_script(&vs, &cols, &[vec![Value::Null; 3]], &known).unwrap(),
+            super::insert_script(
+                &vs,
+                &cols,
+                &[vec![Value::Null; 3]],
+                &known,
+                &Types::default()
+            )
+            .unwrap(),
             ""
         );
         // A hash: HSET of the key itself; a vector field as its index's blob.
@@ -2146,6 +2208,7 @@ mod tests {
                 vec![Value::from("emb"), Value::from("[1,2,3,4]")],
             ],
             &known,
+            &Types::default(),
         )
         .unwrap();
         let p = parse_script(&s).unwrap();
@@ -2164,6 +2227,7 @@ mod tests {
             &strs(&["field", "value"]),
             &[vec![Value::from("emb"), Value::from("[1,2]")]],
             &known,
+            &Types::default(),
         )
         .unwrap_err();
         assert!(e.to_string().contains("2 dimensiones"), "{e}");
@@ -2174,7 +2238,8 @@ mod tests {
                     &target(kinds::KEY, "z"),
                     &strs(&["member", "score"]),
                     &[vec![Value::from("ana"), Value::from(3.5)]],
-                    &known
+                    &known,
+                    &Types::default()
                 )
                 .unwrap()
             ),
@@ -2185,6 +2250,7 @@ mod tests {
             &strs(&["value"]),
             &[vec![Value::from("x")]],
             &known,
+            &Types::default(),
         )
         .unwrap();
         let p = parsed(&s);
@@ -2199,7 +2265,8 @@ mod tests {
                     &target(kinds::TABLE, "person"),
                     &strs(&["id", "name"]),
                     &[vec![Value::from(1), Value::from("Ana")]],
-                    &known
+                    &known,
+                    &Types::default()
                 )
                 .unwrap()
             ),
@@ -2227,7 +2294,14 @@ mod tests {
         );
         let mut known = Known::default();
         known.put_index("t", 0, &redis_index());
-        let s = super::insert_script(&idx, &cols, std::slice::from_ref(&row), &known).unwrap();
+        let s = super::insert_script(
+            &idx,
+            &cols,
+            std::slice::from_ref(&row),
+            &known,
+            &Types::default(),
+        )
+        .unwrap();
         let p = parse_script(&s).unwrap();
         // `7` isn't under a prefix of the index: it goes under the first.
         assert_eq!(p[0][1], b"doc:7".to_vec());
@@ -2244,8 +2318,10 @@ mod tests {
             Value::Null,
         ];
         assert_eq!(
-            parse_script(&super::insert_script(&idx, &cols, &[art], &known).unwrap()).unwrap()[0]
-                [1],
+            parse_script(
+                &super::insert_script(&idx, &cols, &[art], &known, &Types::default()).unwrap()
+            )
+            .unwrap()[0][1],
             b"art:1".to_vec()
         );
         let bad = vec![
@@ -2254,14 +2330,21 @@ mod tests {
             Value::from("[1,2]"),
             Value::Null,
         ];
-        assert!(super::insert_script(&idx, &cols, &[bad], &known).is_err());
+        assert!(super::insert_script(&idx, &cols, &[bad], &known, &Types::default()).is_err());
         // A JSON index: the whole document, at the fields' paths.
         let mut j = redis_index();
         j.on_json = true;
         j.fields[0].identifier = "$.meta.title".into();
         j.fields[1].identifier = "$.emb".into();
         known.put_index("t", 0, &j);
-        let s = super::insert_script(&idx, &cols, std::slice::from_ref(&row), &known).unwrap();
+        let s = super::insert_script(
+            &idx,
+            &cols,
+            std::slice::from_ref(&row),
+            &known,
+            &Types::default(),
+        )
+        .unwrap();
         let got = parsed(&s);
         assert_eq!(got.len(), 1);
         assert_eq!(got[0][..3], ["JSON.SET", "doc:7", "$"]);
@@ -2273,7 +2356,7 @@ mod tests {
         );
         j.fields[0].identifier = "$.tags[*]".into();
         known.put_index("t", 0, &j);
-        assert!(super::insert_script(&idx, &cols, &[row], &known).is_err());
+        assert!(super::insert_script(&idx, &cols, &[row], &known, &Types::default()).is_err());
     }
 
     #[test]
@@ -2300,21 +2383,28 @@ mod tests {
         let mut ix = redis_index();
         ix.fields[1].identifier = "emb".into();
         known.put_index("t", 0, &ix);
-        let e = super::insert_script(&target, &cols, &rows, &known).unwrap_err();
+        let e = super::insert_script(&target, &cols, &rows, &known, &Types::default()).unwrap_err();
         assert!(e.to_string().contains("3 dimensiones"), "{e}");
         let rows4 = vec![vec![
             Value::from(1),
             serde_json::json!([0.5, 1, -2, 0]),
             serde_json::json!(["x"]),
         ]];
-        let s = super::insert_script(&target, &cols, &rows4, &known).unwrap();
+        let s = super::insert_script(&target, &cols, &rows4, &known, &Types::default()).unwrap();
         assert_eq!(
             parse_script(&s).unwrap()[0][5],
             VType::F16.encode(&[0.5, 1.0, -2.0, 0.0])
         );
         // A row of nothing (the grid's probe) writes nothing.
         assert_eq!(
-            super::insert_script(&target, &cols, &[vec![Value::Null; 3]], &known).unwrap(),
+            super::insert_script(
+                &target,
+                &cols,
+                &[vec![Value::Null; 3]],
+                &known,
+                &Types::default()
+            )
+            .unwrap(),
             ""
         );
         // An edited hash field, as text from the grid.
@@ -2327,7 +2417,8 @@ mod tests {
             set: vec![("value".into(), Value::from("[1,2,3,4]"))],
             ..Default::default()
         };
-        let s = super::update_script(&hash, std::slice::from_ref(&ch), &known).unwrap();
+        let s = super::update_script(&hash, std::slice::from_ref(&ch), &known, &Types::default())
+            .unwrap();
         assert!(s.trim_end().ends_with("# emb: FLOAT16 [1,2,3,4]"), "{s}");
         assert_eq!(
             parse_script(&s).unwrap()[0][3],
@@ -2362,6 +2453,7 @@ mod tests {
                 ("other", Value::Null),
             ])],
             &known,
+            &Types::default(),
         )
         .unwrap();
         let p = parse_script(&s).unwrap();
@@ -2390,13 +2482,20 @@ mod tests {
             &idx,
             &[ch(vec![("embedding", serde_json::json!([1, 2, 3, 4]))])],
             &known,
+            &Types::default(),
         )
         .unwrap();
         assert_eq!(
             parsed(&s),
             [vec!["JSON.SET", "doc:1", "$.emb", "[1,2,3,4]"]]
         );
-        assert!(super::update_script(&idx, &[ch(vec![("id", Value::from("x"))])], &known).is_err());
+        assert!(super::update_script(
+            &idx,
+            &[ch(vec![("id", Value::from("x"))])],
+            &known,
+            &Types::default()
+        )
+        .is_err());
         // Deleting a document is deleting its key.
         assert_eq!(
             parsed(&delete_script(&idx, &[vec![("id".into(), Value::from("doc:1"))]]).unwrap()),
@@ -2421,7 +2520,10 @@ mod tests {
         };
         let mut known = Known::default();
         assert_eq!(
-            parsed(&super::update_script(&vs, std::slice::from_ref(&ch), &known).unwrap()),
+            parsed(
+                &super::update_script(&vs, std::slice::from_ref(&ch), &known, &Types::default())
+                    .unwrap()
+            ),
             [
                 vec!["VADD", "vs", "VALUES", "2", "0.1", "2", "a b"],
                 vec!["VSETATTR", "vs", "a b", "{\"lang\":\"es\"}"],
@@ -2429,7 +2531,8 @@ mod tests {
         );
         // The set's quantization, once read, goes with VADD.
         known.put_vset("t", 0, "vs", "NOQUANT");
-        let s = super::update_script(&vs, std::slice::from_ref(&ch), &known).unwrap();
+        let s = super::update_script(&vs, std::slice::from_ref(&ch), &known, &Types::default())
+            .unwrap();
         assert!(
             s.starts_with("VADD vs VALUES 2 0.1 2 \"a b\" NOQUANT\n"),
             "{s}"
@@ -2438,7 +2541,7 @@ mod tests {
             set: vec![("vector".into(), Value::Null)],
             ..ch.clone()
         };
-        assert!(super::update_script(&vs, &[none], &known).is_err());
+        assert!(super::update_script(&vs, &[none], &known, &Types::default()).is_err());
         assert_eq!(
             parsed(&delete_script(&vs, &[vec![("element".into(), Value::from("a b"))]]).unwrap()),
             [vec!["VREM", "vs", "a b"]]
@@ -2469,5 +2572,174 @@ mod tests {
             p[1][3],
             b"{\"etiqueta\": \"a\", \"embedding\": [0.1, 0.2, 0.3]}".to_vec()
         );
+    }
+
+    fn typed(cols: &[(&str, &str)]) -> Vec<dbine_driver::ResultColumn> {
+        cols.iter()
+            .map(|(n, t)| dbine_driver::ResultColumn::new(*n, *t))
+            .collect()
+    }
+
+    /// With the columns' types: Redis' own spelling decides the blob (and
+    /// the dimension), over what DBine read of the open servers; another
+    /// engine's vector type only packs a vector no index covers.
+    #[test]
+    fn typed_scripts_take_the_blob_type_from_the_column() {
+        let target = ObjectRef {
+            kind: kinds::KEY.into(),
+            schema: None,
+            name: "doc".into(),
+        };
+        let cols = vec!["id".to_string(), "emb".into()];
+        let types = Types::of(&typed(&[("id", "key"), ("emb", "VECTOR(3, FLOAT16)")]));
+        let rows = vec![vec![Value::from(1), Value::from("[0.5,1,-2]")]];
+        // Nothing read: the column's FLOAT16, from text too.
+        let s = super::insert_script(&target, &cols, &rows, &Known::default(), &types).unwrap();
+        assert_eq!(
+            parse_script(&s).unwrap()[0][5],
+            VType::F16.encode(&[0.5, 1.0, -2.0])
+        );
+        // Two open servers disagree on doc:'s field: the type settles it.
+        let mut known = Known::default();
+        let mut a = redis_index();
+        a.fields[1].identifier = "emb".into();
+        a.fields[1].vector.as_mut().unwrap().dims = 3;
+        let mut b = a.clone();
+        b.fields[1].vector.as_mut().unwrap().ty = VType::F32;
+        known.put_index("a:1", 0, &a);
+        known.put_index("b:2", 0, &b);
+        assert!(super::insert_script(&target, &cols, &rows, &known, &Types::default()).is_err());
+        let s = super::insert_script(&target, &cols, &rows, &known, &types).unwrap();
+        assert_eq!(
+            parse_script(&s).unwrap()[0][5],
+            VType::F16.encode(&[0.5, 1.0, -2.0])
+        );
+        // The column's dimension is checked.
+        let four = vec![vec![Value::from(1), serde_json::json!([1, 2, 3, 4])]];
+        let e = super::insert_script(&target, &cols, &four, &Known::default(), &types).unwrap_err();
+        assert!(e.to_string().contains("4 dimensiones"), "{e}");
+        // Another engine's type: the covering index first…
+        let pg = Types::of(&typed(&[("emb", "halfvec(3)")]));
+        let mut only_a = Known::default();
+        let mut f32_ix = a.clone();
+        f32_ix.fields[1].vector.as_mut().unwrap().ty = VType::F32;
+        only_a.put_index("a:1", 0, &f32_ix);
+        let s = super::insert_script(&target, &cols, &rows, &only_a, &pg).unwrap();
+        assert_eq!(
+            parse_script(&s).unwrap()[0][5],
+            VType::F32.encode(&[0.5, 1.0, -2.0])
+        );
+        // …else its element (text included, which untyped stays text).
+        let s = super::insert_script(&target, &cols, &rows, &Known::default(), &pg).unwrap();
+        assert_eq!(
+            parse_script(&s).unwrap()[0][5],
+            VType::F16.encode(&[0.5, 1.0, -2.0])
+        );
+        let s = insert_script(&target, &cols, &rows).unwrap();
+        assert_eq!(
+            parsed(&s),
+            [vec!["HSET", "doc:1", "id", "1", "emb", "[0.5,1,-2]"]]
+        );
+        // A result column marked as a vector (no Redis spelling) is a hint too.
+        let meta = vec![
+            dbine_driver::ResultColumn::new("id", ""),
+            dbine_driver::ResultColumn::new("emb", "").with_vector(
+                dbine_driver::VectorMeta::dense(Some(3), dbine_driver::VectorElement::I8),
+            ),
+        ];
+        let s = super::insert_script(&target, &cols, &rows, &Known::default(), &Types::of(&meta))
+            .unwrap();
+        assert_eq!(
+            parse_script(&s).unwrap()[0][5],
+            VType::I8.encode(&[0.5, 1.0, -2.0])
+        );
+        // A hash grid's value column of a vector type, edited.
+        let hash = ObjectRef {
+            name: "doc:7".into(),
+            ..target.clone()
+        };
+        let ch = RowChange {
+            key: vec![("field".into(), Value::from("emb"))],
+            set: vec![("value".into(), Value::from("[1,2,3]"))],
+            ..Default::default()
+        };
+        let value_bf16 = Types::of(&typed(&[
+            ("field", "string"),
+            ("value", "VECTOR(3, BFLOAT16)"),
+        ]));
+        let s =
+            super::update_script(&hash, std::slice::from_ref(&ch), &known, &value_bf16).unwrap();
+        assert!(s.trim_end().ends_with("# emb: BFLOAT16 [1,2,3]"), "{s}");
+        assert_eq!(
+            parse_script(&s).unwrap()[0][3],
+            VType::Bf16.encode(&[1.0, 2.0, 3.0])
+        );
+        // A plain string value column changes nothing.
+        let plain = Types::of(&typed(&[("field", "string"), ("value", "string")]));
+        let s = super::update_script(&hash, std::slice::from_ref(&ch), &only_a, &plain).unwrap();
+        assert!(s.trim_end().ends_with("# emb: FLOAT32 [1,2,3]"), "{s}");
+    }
+
+    /// Two open servers with different indexes of the same name: the
+    /// result's types say which one a new or edited document is for.
+    #[test]
+    fn typed_scripts_pick_the_index_of_their_types() {
+        let idx = ObjectRef {
+            kind: kinds::INDEX.into(),
+            schema: None,
+            name: "docs".into(),
+        };
+        let mut known = Known::default();
+        let a = redis_index();
+        let mut b = a.clone();
+        b.fields[1].vector.as_mut().unwrap().ty = VType::F32;
+        known.put_index("a:1", 0, &a);
+        known.put_index("b:2", 0, &b);
+        let cols = vec!["id".to_string(), "title".into(), "embedding".into()];
+        let row = vec![
+            Value::from("doc:9"),
+            Value::from("Hola"),
+            serde_json::json!([1, 0, 0, 0.5]),
+        ];
+        let e = super::insert_script(
+            &idx,
+            &cols,
+            std::slice::from_ref(&row),
+            &known,
+            &Types::default(),
+        )
+        .unwrap_err();
+        assert!(e.to_string().contains("conexiones abiertas"), "{e}");
+        for (spelling, ty) in [
+            ("VECTOR(4, FLOAT32)", VType::F32),
+            ("VECTOR(4, FLOAT16)", VType::F16),
+        ] {
+            let types = Types::of(&typed(&[
+                ("id", "key"),
+                ("title", "TEXT"),
+                ("embedding", spelling),
+            ]));
+            let s = super::insert_script(&idx, &cols, std::slice::from_ref(&row), &known, &types)
+                .unwrap();
+            let p = parse_script(&s).unwrap();
+            assert_eq!(
+                p[0][..3],
+                [b"HSET".to_vec(), b"doc:9".to_vec(), b"title".to_vec()]
+            );
+            assert_eq!(p[0][5], ty.encode(&[1.0, 0.0, 0.0, 0.5]), "{spelling}");
+            let ch = RowChange {
+                key: vec![("id".into(), Value::from("doc:9"))],
+                set: vec![("embedding".into(), serde_json::json!([0, 1, 0, 0]))],
+                ..Default::default()
+            };
+            let s = super::update_script(&idx, &[ch], &known, &types).unwrap();
+            assert_eq!(
+                parse_script(&s).unwrap()[0][3],
+                ty.encode(&[0.0, 1.0, 0.0, 0.0])
+            );
+        }
+        // Types that match neither: as without types.
+        let other = Types::of(&typed(&[("embedding", "VECTOR(4, INT8)")]));
+        assert!(super::insert_script(&idx, &cols, &[row], &known, &other).is_err());
     }
 }
