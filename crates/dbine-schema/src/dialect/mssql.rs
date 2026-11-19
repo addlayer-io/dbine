@@ -477,6 +477,60 @@ impl Dialect for MsSql {
     }
 }
 
+/// T-SQL engines without vectors (Fabric Warehouse, Babelfish): SQL
+/// Server's types and rules, but a vector goes as its numbers in JSON text
+/// (with a warning) and a vector index is left out with the reason.
+///
+/// Not mapped yet: the core (`super::core`) sends `fabric` and `babelfish`
+/// to [`MsSql`]; mapping them here is the one-line change this family asked
+/// for.
+#[allow(dead_code)]
+pub struct MsSqlNoVectors;
+
+impl Dialect for MsSqlNoVectors {
+    fn id(&self) -> &'static str {
+        MsSql.id()
+    }
+
+    fn parse_type(&self, t: &TypeSpec) -> L {
+        MsSql.parse_type(t)
+    }
+
+    fn render_type(&self, t: &L) -> Rendered {
+        match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
+            other => MsSql.render_type(other),
+        }
+    }
+
+    fn render_default(&self, d: &DefaultValue, ty: &L) -> Option<String> {
+        MsSql.render_default(d, ty)
+    }
+
+    fn caps(&self) -> Caps {
+        MsSql.caps()
+    }
+
+    fn implies_auto_increment(&self, t: &TypeSpec) -> bool {
+        MsSql.implies_auto_increment(t)
+    }
+
+    fn target_refusal(&self, driver_id: &str) -> Option<&'static str> {
+        MsSql.target_refusal(driver_id)
+    }
+
+    fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
+        MsSql.finalize(t, report)
+    }
+
+    fn vector_index(
+        &self,
+        _: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        Err("Fabric Warehouse y Babelfish no tienen tipo vectorial ni índices vectoriales".into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -609,6 +663,33 @@ mod tests {
         assert_eq!(t.columns[0].data_type, "bigint");
         assert_eq!(t.columns[1].data_type, "nvarchar(850)");
         assert_eq!(t.foreign_keys[0].on_delete, None);
+    }
+
+    #[test]
+    fn engines_without_vectors_take_them_as_json() {
+        let v = L::Vector {
+            dims: Some(3),
+            element: dbine_driver::VectorElement::F32,
+            sparse: false,
+        };
+        let r = MsSqlNoVectors.render_type(&v);
+        assert!(!r.native.contains("vector"), "{}", r.native);
+        assert_eq!(
+            r.native,
+            MsSql
+                .render_type(&L::Array {
+                    of: Box::new(L::Float { bytes: 4 })
+                })
+                .native
+        );
+        assert!(!r.notes.is_empty());
+        // The rest is SQL Server's.
+        assert_eq!(MsSqlNoVectors.render_type(&L::Bool).native, "bit");
+        assert_eq!(MsSqlNoVectors.id(), "mssql");
+        let e = MsSqlNoVectors
+            .vector_index(&dbine_driver::VectorIndex::default())
+            .unwrap_err();
+        assert!(e.contains("Fabric"), "{e}");
     }
 
     #[test]
