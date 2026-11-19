@@ -1505,8 +1505,19 @@ impl SeenColumns {
     /// A result column named `column` of a query over `tables`: a vector
     /// when the tables that have a column of that name all have it as the
     /// same vector type (a join's other table may have one of another type,
-    /// which the name alone can't tell from it).
+    /// which the name alone can't tell from it). Manticore names a join's
+    /// columns `table.column`: that table's alone.
     pub(crate) fn known_in(&self, v: Variant, tables: &[(String, String)], column: &str) -> Known {
+        if let Some((t, c)) = column.rsplit_once('.') {
+            let own: Vec<(String, String)> = tables
+                .iter()
+                .filter(|(_, table)| table.eq_ignore_ascii_case(t))
+                .cloned()
+                .collect();
+            if !own.is_empty() && !c.is_empty() {
+                return self.known_in(v, &own, c);
+            }
+        }
         let column = column.to_ascii_lowercase();
         let mut found: Option<&String> = None;
         for (schema, table) in tables {
@@ -2496,6 +2507,15 @@ mod tests {
         // which one came, so not marked.
         s.insert_table("public", "b", cols(&[("v", "binary")]));
         assert_eq!(s.known_in(v, &both, "v"), Known::NotVector);
+        // Manticore names a join's columns after their table.
+        let m = Variant::Manticore;
+        s.insert_table("public", "a", cols(&[("v", "float_vector")]));
+        assert_eq!(
+            s.known_in(m, &both, "a.v"),
+            Known::Vector("float_vector".into())
+        );
+        assert_eq!(s.known_in(m, &both, "b.v"), Known::NotVector);
+        assert_eq!(s.known_in(m, &both, "c.v"), Known::NotVector);
         s.clear();
         assert_eq!(s.known_in(v, &[a], "v"), Known::Unknown);
         // MariaDB's VEC_FromText(…) column.
