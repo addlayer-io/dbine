@@ -676,6 +676,9 @@ impl TrinoSession {
             if !started {
                 if let Some(cols) = &page.columns {
                     if page.update_type.is_none() {
+                        // No column is marked as a vector: Trino and Presto
+                        // have no vector type or index, only functions over
+                        // array(real|double) (cosine_similarity…).
                         out.begin_result(
                             cols.iter()
                                 .map(|c| ResultColumn {

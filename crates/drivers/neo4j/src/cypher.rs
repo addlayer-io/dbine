@@ -407,6 +407,21 @@ pub fn literal(v: &Value) -> String {
 /// A property value: maps (and lists holding maps) aren't valid property
 /// values, so they go as JSON text.
 pub fn property(v: &Value) -> String {
+    // A Neo4j 2025 VECTOR as read (`{"~vector": […], "~coordinateType"}`):
+    // written back as one, not as a list or text.
+    if let Some((coordinate, numbers)) = crate::value::native_vector_json(v) {
+        let ok = numbers.iter().all(Value::is_number)
+            && coordinate.chars().all(|c| c.is_ascii_alphanumeric())
+            && !numbers.is_empty();
+        if ok {
+            let items: Vec<String> = numbers.iter().map(literal).collect();
+            return format!(
+                "vector([{}], {}, {coordinate})",
+                items.join(", "),
+                numbers.len()
+            );
+        }
+    }
     match v {
         Value::Object(_) => string(&v.to_string()),
         Value::Array(a) if a.iter().any(|x| x.is_object() || x.is_array()) => {
@@ -430,6 +445,26 @@ mod tests {
         assert_eq!(c.lines().count(), 1);
     }
     use serde_json::json;
+
+    #[test]
+    fn native_vectors_are_written_as_vectors() {
+        assert_eq!(
+            property(&json!({"~vector": [0.5, 2, -1.25], "~coordinateType": "FLOAT32"})),
+            "vector([0.5, 2, -1.25], 3, FLOAT32)"
+        );
+        assert_eq!(
+            property(&json!({"~vector": [1, -2], "~coordinateType": "INTEGER8"})),
+            "vector([1, -2], 2, INTEGER8)"
+        );
+        // Anything else that looks like it stays JSON text.
+        assert!(
+            property(&json!({"~vector": ["x"], "~coordinateType": "FLOAT32"})).starts_with('\'')
+        );
+        assert!(
+            property(&json!({"~vector": [1], "~coordinateType": "FLOAT32) RETURN 1 //"}))
+                .starts_with('\'')
+        );
+    }
 
     #[test]
     fn splits_outside_strings_and_comments() {

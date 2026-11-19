@@ -292,6 +292,28 @@ mod tests {
         );
     }
 
+    /// A plain index row added in the designer: BigQuery has none, and the
+    /// sync says so (as `table_ddl` does) instead of skipping it.
+    #[test]
+    fn plain_index_rows_are_said() {
+        let old = table("t", vec![col("id", "INT64", false)]);
+        let mut new = old.clone();
+        new.indexes.push(dbine_driver::IndexDef {
+            name: "ix_id".into(),
+            columns: vec!["id".into()],
+            ..Default::default()
+        });
+        let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
+        assert!(s.statements.is_empty(), "{:?}", s.statements);
+        assert!(
+            s.warnings
+                .iter()
+                .any(|w| w.contains("ix_id") && w.contains("no se crea")),
+            "{:?}",
+            s.warnings
+        );
+    }
+
     #[test]
     fn create_and_drop() {
         let mut a = table("nueva", vec![col("id", "INT64", false)]);

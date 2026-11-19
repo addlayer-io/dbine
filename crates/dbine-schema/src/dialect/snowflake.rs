@@ -4,6 +4,10 @@
 //! session's zone) and TZ (keeps the offset); VARIANT / OBJECT / ARRAY
 //! hold semi-structured data. Keys are informational except NOT NULL;
 //! there are no indexes, only UNIQUE constraints (not enforced either).
+//! `VECTOR(FLOAT | INT, n)` holds embeddings of 32-bit floats or integers,
+//! up to 4096 dimensions, without vector indexes. A graph engine keeps an
+//! embedding's dimension in its vector index, not in the property: that
+//! index gives the list its `VECTOR(FLOAT, n)` before it's dropped.
 
 use super::bigquery::{generic, nested, not_enforced};
 use super::postgres::{longest, prec, precision_loss};
@@ -20,6 +24,8 @@ pub struct Snowflake;
 const MAX_VARCHAR: u32 = 16_777_216;
 /// BINARY's maximum, in bytes.
 const MAX_BINARY: u32 = 8_388_608;
+/// VECTOR's largest dimension.
+const MAX_VECTOR_DIMS: u32 = 4096;
 
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
     static D: Snowflake = Snowflake;
@@ -112,6 +118,16 @@ impl Dialect for Snowflake {
                 key: Box::new(nested(self, &t.args[0])),
                 value: Box::new(nested(self, &t.args[1])),
             },
+            // VECTOR(FLOAT, n) / VECTOR(INT, n): 32-bit elements (an INT
+            // has no element type of its own).
+            "vector" if t.args.len() == 2 => L::Vector {
+                dims: p(1),
+                element: match t.args[0].trim().to_ascii_lowercase().as_str() {
+                    "float" | "float4" | "float32" | "real" => dbine_driver::VectorElement::F32,
+                    _ => dbine_driver::VectorElement::Other,
+                },
+                sparse: false,
+            },
             "geography" => L::Geometry {
                 kind: None,
                 srid: Some(4326),
@@ -139,6 +155,35 @@ impl Dialect for Snowflake {
         let text_note =
             |r: Rendered| r.with(Info, LengthLoss, "VARCHAR de Snowflake admite hasta 16 MB.");
         match t {
+            L::Vector {
+                dims: Some(n),
+                element,
+                sparse: false,
+            } if (1..=MAX_VECTOR_DIMS).contains(n) => {
+                use dbine_driver::VectorElement as E;
+                match element {
+                    // Whole numbers that fit a 32-bit INT.
+                    E::I8 | E::U8 | E::Bit => Rendered::exact(format!("VECTOR(INT, {n})")),
+                    E::F64 => Rendered::exact(format!("VECTOR(FLOAT, {n})")).with(
+                        Loss,
+                        PrecisionLoss,
+                        "VECTOR de Snowflake guarda floats de 32 bits: los de 64 se redondean.",
+                    ),
+                    // Snowflake's VECTOR(INT, n) reads back as Other (there's
+                    // no 32-bit integer element), as does an element type
+                    // this build doesn't know: FLOAT, said.
+                    E::Other => Rendered::exact(format!("VECTOR(FLOAT, {n})")).with(
+                        Warning,
+                        TypeApproximated,
+                        format!(
+                            "{}: el tipo de sus números no se conoce (o es INT de otro motor): quedan como FLOAT de 32 bits.",
+                            t.describe()
+                        ),
+                    ),
+                    _ => Rendered::exact(format!("VECTOR(FLOAT, {n})")),
+                }
+            }
+            // Without a dimension (or past 4096), or sparse: no VECTOR.
             L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
@@ -332,9 +377,44 @@ impl Dialect for Snowflake {
         }
     }
 
+    /// Snowflake has no vector indexes: the index is kept only until
+    /// `finalize`, which takes a graph index's dimension for its column
+    /// and then drops it, said.
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        let mut params = std::collections::BTreeMap::new();
+        if let Some(d) = v.params.get(DIMENSIONS) {
+            params.insert(DIMENSIONS.to_string(), d.clone());
+        }
+        Ok((
+            Some("VECTOR".into()),
+            dbine_driver::VectorIndex {
+                params,
+                ..Default::default()
+            },
+        ))
+    }
+
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         let name = t.name.clone();
+        let mut columns = std::mem::take(&mut t.columns);
         t.indexes.retain(|ix| {
+            if let Some(v) = &ix.vector {
+                vector_dimension(&name, ix, v, &mut columns, report);
+                report.push(
+                    Severity::Dropped,
+                    IssueCode::IndexDropped,
+                    &name,
+                    Some(&ix.name),
+                    format!(
+                        "El índice vectorial «{}» no se crea: Snowflake no tiene índices vectoriales (las búsquedas con VECTOR_COSINE_SIMILARITY y las demás recorren la tabla).",
+                        ix.name
+                    ),
+                );
+                return false;
+            }
             if ix.unique {
                 report.push(
                     Severity::Info,
@@ -354,8 +434,53 @@ impl Dialect for Snowflake {
             }
             ix.unique
         });
+        t.columns = columns;
         not_enforced(t, report, "Snowflake");
     }
+}
+
+/// The dimension a graph engine keeps in its vector index (Neo4j
+/// `vector.dimensions`, Memgraph `dimension`).
+const DIMENSIONS: &str = "dimensions";
+
+/// A float list that arrived as `ARRAY` (a graph property) with a vector
+/// index stating its dimension becomes `VECTOR(FLOAT, n)`.
+fn vector_dimension(
+    table: &str,
+    ix: &dbine_driver::IndexDef,
+    v: &dbine_driver::VectorIndex,
+    columns: &mut [dbine_driver::ColumnDef],
+    report: &mut Report,
+) {
+    let Some(n) = v
+        .params
+        .get(DIMENSIONS)
+        .and_then(|d| d.trim().parse::<u32>().ok())
+        .filter(|n| (1..=MAX_VECTOR_DIMS).contains(n))
+    else {
+        return;
+    };
+    let Some(c) = ix
+        .columns
+        .first()
+        .and_then(|c| columns.iter_mut().find(|x| &x.name == c))
+    else {
+        return;
+    };
+    if !c.data_type.trim().to_ascii_uppercase().starts_with("ARRAY") {
+        return;
+    }
+    c.data_type = format!("VECTOR(FLOAT, {n})");
+    report.push(
+        Severity::Info,
+        IssueCode::TypeChanged,
+        table,
+        Some(&c.name),
+        format!(
+            "La lista de números queda como VECTOR(FLOAT, {n}), con la dimensión del índice vectorial «{}»; VECTOR guarda floats de 32 bits.",
+            ix.name
+        ),
+    );
 }
 
 #[cfg(test)]
@@ -443,7 +568,121 @@ mod tests {
                 ..
             }
         ));
-        assert!(matches!(lt("VECTOR(FLOAT, 256)"), L::Other { .. }));
+        assert_eq!(
+            lt("VECTOR(FLOAT, 256)"),
+            L::Vector {
+                dims: Some(256),
+                element: dbine_driver::VectorElement::F32,
+                sparse: false
+            }
+        );
+        assert_eq!(
+            lt("VECTOR(INT,3)"),
+            L::Vector {
+                dims: Some(3),
+                element: dbine_driver::VectorElement::Other,
+                sparse: false
+            }
+        );
+    }
+
+    #[test]
+    fn vectors_keep_their_dimension() {
+        use dbine_driver::VectorElement as E;
+        let v = |dims, element, sparse| L::Vector {
+            dims,
+            element,
+            sparse,
+        };
+        let r = |t: L| Snowflake.render_type(&t);
+        assert_eq!(r(v(Some(3), E::F32, false)).native, "VECTOR(FLOAT, 3)");
+        assert!(r(v(Some(3), E::F32, false)).notes.is_empty());
+        assert_eq!(r(v(Some(3), E::F16, false)).native, "VECTOR(FLOAT, 3)");
+        assert_eq!(r(v(Some(3), E::I8, false)).native, "VECTOR(INT, 3)");
+        let f64 = r(v(Some(4096), E::F64, false));
+        assert_eq!(f64.native, "VECTOR(FLOAT, 4096)");
+        assert_eq!(f64.notes[0].code, IssueCode::PrecisionLoss);
+        // No dimension, too many, or sparse: an ARRAY, with a warning.
+        for t in [
+            v(None, E::F32, false),
+            v(Some(4097), E::F32, false),
+            v(Some(3), E::F32, true),
+        ] {
+            let got = r(t);
+            assert!(
+                got.notes
+                    .iter()
+                    .any(|n| n.code == IssueCode::TypeApproximated),
+                "{got:?}"
+            );
+            assert_ne!(got.native, "VECTOR");
+        }
+        // Round trip of both element types; INT (no element type of its
+        // own) comes back as FLOAT, said.
+        assert_eq!(r(lt("VECTOR(FLOAT, 256)")).native, "VECTOR(FLOAT, 256)");
+        let int = r(lt("VECTOR(INT, 3)"));
+        assert_eq!(int.native, "VECTOR(FLOAT, 3)");
+        assert!(
+            int.notes
+                .iter()
+                .any(|n| n.code == IssueCode::TypeApproximated && n.severity == Severity::Warning),
+            "{int:?}"
+        );
+    }
+
+    /// A graph label's float list with a vector index stating its
+    /// dimension: VECTOR(FLOAT, n), and the index (Snowflake has none) is
+    /// dropped and said. Another engine's vector index too.
+    #[test]
+    fn vector_indexes_give_the_dimension_and_go() {
+        use dbine_driver::{ColumnDef, VectorIndex};
+        let label = |dims: Option<&str>| {
+            let mut v = VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                ..Default::default()
+            };
+            if let Some(d) = dims {
+                v.params.insert("dimensions".into(), d.into());
+            }
+            TableSchema {
+                kind: "label".into(),
+                name: "Doc".into(),
+                columns: vec![ColumnDef {
+                    name: "emb".into(),
+                    data_type: "LIST<FLOAT>".into(),
+                    nullable: true,
+                    ..Default::default()
+                }],
+                indexes: vec![IndexDef {
+                    name: "doc_emb".into(),
+                    columns: vec!["emb".into()],
+                    kind: Some("VECTOR".into()),
+                    vector: Some(v),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }
+        };
+        for from in ["neo4j", "memgraph"] {
+            let c = crate::convert(&[label(Some("3"))], from, "snowflake", &Default::default())
+                .unwrap();
+            assert_eq!(
+                c.tables[0].columns[0].data_type, "VECTOR(FLOAT, 3)",
+                "{from}"
+            );
+            assert_eq!(c.columns[0].target_type, "VECTOR(FLOAT, 3)");
+            assert!(c.tables[0].indexes.is_empty());
+            assert!(c
+                .issues
+                .iter()
+                .any(|i| i.code == IssueCode::IndexDropped
+                    && i.message.contains("índices vectoriales")));
+            // Without a dimension: an ARRAY, as any list.
+            let c = crate::convert(&[label(None)], from, "snowflake", &Default::default()).unwrap();
+            assert_eq!(c.tables[0].columns[0].data_type, "ARRAY");
+            assert!(c.tables[0].indexes.is_empty());
+        }
     }
 
     #[test]

@@ -12,6 +12,15 @@
 //! stage: they're dropped and reported. Neptune has no user-defined
 //! indexes or constraints, so it receives nothing but the report.
 //!
+//! Embeddings are lists of FLOAT (Neo4j 2025's `VECTOR<FLOAT32>(n)` reads
+//! as a vector too); the dimension and distance belong to the vector index
+//! (Neo4j `vector.dimensions` / `vector.similarity_function`, Memgraph
+//! `dimension` / `metric`), which another family's vector index becomes.
+//! As a source, a `LIST<FLOAT>` property stays a list (the type alone
+//! doesn't say it's an embedding); its index carries `dimensions`, which
+//! targets that need it in the column (Spanner's `vector_length`,
+//! Snowflake's `VECTOR(FLOAT, n)`) take from there.
+//!
 //! OrientDB: a table is a (document) class with a `CREATE PROPERTY` per
 //! column, NOT NULL, defaults and indexes, the primary key as a unique
 //! index. Its links are record ids, not the values a foreign key holds, so
@@ -60,8 +69,47 @@ pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
 
 // ---- Cypher -----------------------------------------------------------------
 
+/// Neo4j 2025's `vector<float32>(3)` (lower case, as `type_list` gives it).
+fn cypher_vector(t: &str) -> Option<L> {
+    use dbine_driver::VectorElement as E;
+    let rest = t.strip_prefix("vector")?.trim_start();
+    let (element, rest) = match rest.strip_prefix('<') {
+        Some(r) => {
+            let (e, r) = r.split_once('>')?;
+            (
+                match e.trim() {
+                    "float32" => E::F32,
+                    "float" | "float64" => E::F64,
+                    "int8" | "integer8" => E::I8,
+                    _ => E::Other,
+                },
+                r.trim(),
+            )
+        }
+        None => (E::F32, rest),
+    };
+    let dims = match rest {
+        "" => None,
+        r => Some(
+            r.strip_prefix('(')?
+                .strip_suffix(')')?
+                .trim()
+                .parse()
+                .ok()?,
+        ),
+    };
+    Some(L::Vector {
+        dims,
+        element,
+        sparse: false,
+    })
+}
+
 fn cypher_type(t: &str) -> L {
     let t = t.trim();
+    if let Some(v) = cypher_vector(t) {
+        return v;
+    }
     if let Some(inner) = t.strip_prefix("list<").and_then(|r| r.strip_suffix('>')) {
         return L::Array {
             of: Box::new(cypher_type(inner)),
@@ -107,7 +155,17 @@ impl Cypher {
         use IssueCode::*;
         use Severity::*;
         match t {
-            L::Vector { .. } => super::vector_fallback(self, t),
+            L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
+            // What vector indexes index: a list of floats (the native VECTOR
+            // of Neo4j 2025 needs Bolt 6). The dimension is the index's.
+            L::Vector { dims, .. } => Rendered::exact("LIST<FLOAT>").with(
+                Info,
+                TypeChanged,
+                match dims {
+                    Some(n) => format!("El vector queda como lista de FLOAT: la propiedad no fija su dimensión ({n}); la fija el índice vectorial."),
+                    None => "El vector queda como lista de FLOAT.".to_string(),
+                },
+            ),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } if L::signed_bytes_for(*bytes, *unsigned) <= 8 => Rendered::exact("INTEGER"),
             L::Int { .. } => Rendered::exact("FLOAT").with(Loss, RangeLoss, "Los enteros son de 8 bytes: el valor queda como FLOAT y pierde precisión pasados los 15 dígitos."),
@@ -187,6 +245,78 @@ impl Dialect for Cypher {
             max_identifier: 255,
             case: IdentCase::Preserve,
         }
+    }
+
+    /// Neo4j: HNSW with cosine or euclidean similarity, `m`,
+    /// `ef_construction`, `quantization` and `dimensions`. Memgraph: cosine,
+    /// l2 (as l2sq), ip, hamming and its own metrics, with `dimensions`
+    /// (required), `capacity` and `quantization` (its `scalar_kind`).
+    /// Neptune has no indexes of its own.
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        use dbine_driver::vector::{metric, param};
+        let keep = |keys: &[&str]| {
+            v.params
+                .iter()
+                .filter(|(k, _)| keys.contains(&k.as_str()))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        let out = match self.flavor {
+            Flavor::Neptune => {
+                return Err("Neptune no tiene índices definidos por el usuario".into())
+            }
+            Flavor::Neo4j => {
+                let m = match v.metric.as_deref() {
+                    None => None,
+                    Some(m @ (metric::COSINE | metric::L2)) => Some(m.to_string()),
+                    Some(m) => {
+                        return Err(format!(
+                            "Neo4j no tiene la similitud «{m}» (solo coseno y euclídea)"
+                        ))
+                    }
+                };
+                dbine_driver::VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: m,
+                    params: keep(&[
+                        param::M,
+                        param::EF_CONSTRUCTION,
+                        param::QUANTIZATION,
+                        "dimensions",
+                    ]),
+                }
+            }
+            Flavor::Memgraph => {
+                let m = match v.metric.as_deref() {
+                    None => None,
+                    Some(m @ (metric::COSINE | metric::L2 | metric::IP | metric::HAMMING)) => {
+                        Some(m.to_string())
+                    }
+                    Some(
+                        m @ ("pearson" | "haversine" | "divergence" | "tanimoto" | "sorensen"),
+                    ) => Some(m.to_string()),
+                    Some(m) => return Err(format!("Memgraph no tiene la distancia «{m}»")),
+                };
+                // Other families keep the dimension in the column's type,
+                // which this call doesn't receive (see the contract
+                // request in the vectors plan).
+                if !v.params.contains_key("dimensions") {
+                    return Err(
+                        "Memgraph necesita la dimensión en el índice y el índice de origen no la trae (está en el tipo de la columna); crealo a mano con su dimension"
+                            .into(),
+                    );
+                }
+                dbine_driver::VectorIndex {
+                    algorithm: None,
+                    metric: m,
+                    params: keep(&["dimensions", "capacity", param::QUANTIZATION]),
+                }
+            }
+        };
+        Ok((Some("VECTOR".into()), out))
     }
 
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
@@ -458,6 +588,158 @@ impl Dialect for OrientDb {
 mod tests {
     use super::*;
     use crate::parse::parse;
+
+    #[test]
+    fn vectors_are_float_lists_with_the_dimension_in_the_index() {
+        use dbine_driver::{VectorElement as E, VectorIndex as V};
+        let d = lookup("neo4j").unwrap();
+        let p = |s: &str| d.parse_type(&parse(s));
+        assert_eq!(
+            p("VECTOR<FLOAT32>(3)"),
+            L::Vector {
+                dims: Some(3),
+                element: E::F32,
+                sparse: false
+            }
+        );
+        assert_eq!(
+            p("VECTOR<INTEGER8>(1024)"),
+            L::Vector {
+                dims: Some(1024),
+                element: E::I8,
+                sparse: false
+            }
+        );
+        let r = d.render_type(&L::Vector {
+            dims: Some(3),
+            element: E::F32,
+            sparse: false,
+        });
+        assert_eq!(r.native, "LIST<FLOAT>");
+        assert_eq!(r.notes[0].severity, Severity::Info);
+        let v = |alg: Option<&str>, m: Option<&str>, ps: &[(&str, &str)]| V {
+            algorithm: alg.map(str::to_string),
+            metric: m.map(str::to_string),
+            params: ps
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        };
+        // pgvector's HNSW on Neo4j: its settings, under Neo4j's names later.
+        let (kind, got) = d
+            .vector_index(&v(
+                Some("hnsw"),
+                Some("cosine"),
+                &[("m", "24"), ("ef_construction", "200")],
+            ))
+            .unwrap();
+        assert_eq!(kind.as_deref(), Some("VECTOR"));
+        assert_eq!(
+            got,
+            v(
+                Some("hnsw"),
+                Some("cosine"),
+                &[("ef_construction", "200"), ("m", "24")]
+            )
+        );
+        let (_, got) = d
+            .vector_index(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]))
+            .unwrap();
+        assert_eq!(got, v(Some("hnsw"), Some("l2"), &[]));
+        assert!(d.vector_index(&v(None, Some("ip"), &[])).is_err());
+        let mg = lookup("memgraph").unwrap();
+        assert!(mg
+            .vector_index(&v(None, Some("cosine"), &[]))
+            .unwrap_err()
+            .contains("dimensión"));
+        let (_, got) = mg
+            .vector_index(&v(None, Some("ip"), &[("dimensions", "3"), ("m", "16")]))
+            .unwrap();
+        assert_eq!(got, v(None, Some("ip"), &[("dimensions", "3")]));
+        assert!(lookup("neptune")
+            .unwrap()
+            .vector_index(&v(None, None, &[]))
+            .is_err());
+    }
+
+    /// A label with an embedding and its vector index, as `database_schema`
+    /// reads it, converted to the families that keep the dimension in the
+    /// column (Spanner, Snowflake), to BigQuery (none) and to a family
+    /// without vectors: the plain list stays a list everywhere else.
+    #[test]
+    fn graph_embeddings_as_a_source() {
+        use dbine_driver::{ColumnDef, IndexDef, VectorIndex};
+        for from in ["neo4j", "memgraph"] {
+            let mut v = VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                ..Default::default()
+            };
+            v.params.insert("dimensions".into(), "3".into());
+            let t = TableSchema {
+                kind: "label".into(),
+                name: "Doc".into(),
+                columns: vec![
+                    ColumnDef {
+                        name: "emb".into(),
+                        data_type: "LIST<FLOAT>".into(),
+                        nullable: true,
+                        ..Default::default()
+                    },
+                    ColumnDef {
+                        name: "prices".into(),
+                        data_type: "LIST<FLOAT>".into(),
+                        nullable: true,
+                        ..Default::default()
+                    },
+                ],
+                indexes: vec![IndexDef {
+                    name: "doc_emb".into(),
+                    columns: vec!["emb".into()],
+                    kind: Some("VECTOR".into()),
+                    vector: Some(v),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            let conv = |to: &str| {
+                crate::convert(std::slice::from_ref(&t), from, to, &Default::default()).unwrap()
+            };
+            let ty = |c: &crate::Conversion, n: &str| {
+                c.tables[0]
+                    .columns
+                    .iter()
+                    .find(|x| x.name.eq_ignore_ascii_case(n))
+                    .unwrap()
+                    .data_type
+                    .clone()
+            };
+            let sp = conv("spanner");
+            assert_eq!(ty(&sp, "emb"), "ARRAY<FLOAT64>(vector_length=>3)", "{from}");
+            assert_eq!(ty(&sp, "prices"), "ARRAY<FLOAT64>");
+            assert!(sp.tables[0].indexes.iter().any(|i| i.vector.is_some()));
+            let sf = conv("snowflake");
+            assert_eq!(ty(&sf, "emb"), "VECTOR(FLOAT, 3)");
+            assert_eq!(ty(&sf, "prices"), "ARRAY");
+            let bq = conv("bigquery");
+            assert_eq!(ty(&bq, "emb"), "ARRAY<FLOAT64>");
+            let ix = bq.tables[0]
+                .indexes
+                .iter()
+                .find(|i| i.vector.is_some())
+                .unwrap();
+            assert_eq!(
+                ix.vector.as_ref().unwrap().metric.as_deref(),
+                Some("cosine")
+            );
+            let pg = conv("postgres");
+            assert_eq!(ty(&pg, "prices"), "double precision[]");
+            assert!(pg
+                .issues
+                .iter()
+                .all(|i| !i.message.contains("tipo vectorial")));
+        }
+    }
 
     #[test]
     fn parses_cypher_types() {

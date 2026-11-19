@@ -5,6 +5,7 @@
 # and ST_CLUSTERDBSCAN as a window function. Also the conditional expressions written as calls
 # (COALESCE, IF, IFNULL, NULLIF), the graph functions and the differential privacy aggregate forms.
 # Namespaced names (NET.HOST, AEAD.ENCRYPT) are split into schema and name by the driver.
+# Plus the BigQuery ML scalar functions on vectors (ML.DISTANCE, ML.LP_NORM), from its reference.
 s ABS(X)
 s ACOS(X)
 s ACOSH(X)
@@ -254,6 +255,8 @@ s MAKE_INTERVAL([ [ year => ] value ] [, [ month => ] value ] [, [ day => ] valu
 a MAX(expression [ WHERE where_expression ])
 a MAX_BY(x, y)
 s MD5(input)
+s ML.DISTANCE(vector1, vector2 [, type])
+s ML.LP_NORM(vector, degree)
 a MIN(expression [ WHERE where_expression ])
 a MIN_BY(x, y)
 s MOD(X, Y)

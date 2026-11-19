@@ -11,9 +11,10 @@
 //!   from the server's own digits, `FLOAT` → float, `BINARY` → bytes
 //!   (whole), `DATE` / `TIME` / `TIMESTAMP_NTZ` → date, time, date-time,
 //!   `TIMESTAMP_LTZ` → date-time in UTC with `+00:00`, `TIMESTAMP_TZ` →
-//!   date-time with its own offset, `VARIANT` / `OBJECT` / `ARRAY` /
-//!   `VECTOR` → JSON (the server's text, only its layout whitespace
-//!   removed: numbers are never re-parsed, so `NUMBER(38)` inside a
+//!   date-time with its own offset, `VECTOR` → its vector text (`[1.5,2]`,
+//!   FLOAT elements at their 32-bit precision, see `crate::vector_text`),
+//!   `VARIANT` / `OBJECT` / `ARRAY` → JSON (the server's text, only its
+//!   layout whitespace removed: numbers are never re-parsed, so `NUMBER(38)` inside a
 //!   `VARIANT` stays exact; a value with Snowflake's non-JSON tokens,
 //!   `undefined` for a SQL NULL inside an array or object and `NaN` /
 //!   `Infinity`, is refused: JSON can't carry it, and as text or `null`
@@ -117,6 +118,8 @@ pub(crate) enum Read {
     Tz,
     Bytes,
     Json,
+    /// A VECTOR: its canonical text (`[1.5,2]`).
+    Vector,
     Text,
 }
 
@@ -138,7 +141,8 @@ pub(crate) fn read_kind(col: &Json) -> Read {
         "timestamp_ltz" => Read::Ltz,
         "timestamp_tz" => Read::Tz,
         "binary" => Read::Bytes,
-        "variant" | "object" | "array" | "vector" | "map" => Read::Json,
+        "vector" => Read::Vector,
+        "variant" | "object" | "array" | "map" => Read::Json,
         _ => Read::Text,
     }
 }
@@ -242,7 +246,12 @@ pub(crate) fn read_cell(kind: Read, v: &Json) -> Result<Cell> {
         });
     };
     let text = || Cell::Text(s.to_string());
-    if kind == Read::Json {
+    if kind == Read::Vector {
+        if let Some(t) = crate::vector_text(s) {
+            return Ok(Cell::Json(t));
+        }
+    }
+    if matches!(kind, Read::Json | Read::Vector) {
         return match compact_json(s) {
             Some(j) => Ok(Cell::Json(j)),
             None => match non_json_token(s) {
@@ -307,7 +316,7 @@ pub(crate) fn read_cell(kind: Read, v: &Json) -> Result<Cell> {
             }),
         Read::Tz => timestamp_tz(s).map_or_else(text, Cell::DateTimeTz),
         Read::Bytes => unhex(s).map_or_else(text, Cell::Bytes),
-        Read::Json | Read::Text => text(),
+        Read::Json | Read::Vector | Read::Text => text(),
     })
 }
 
@@ -408,7 +417,10 @@ pub(crate) fn declared_type(column: &str, base: &str, described: Option<&str>) -
 }
 
 /// Declared types by column name, from `DESCRIBE TABLE` (or `VIEW`).
-async fn describe(s: &SnowflakeSession, table_sql: &str) -> Result<HashMap<String, String>> {
+pub(crate) async fn describe(
+    s: &SnowflakeSession,
+    table_sql: &str,
+) -> Result<HashMap<String, String>> {
     let rows = match s
         .text_rows(&format!("DESCRIBE TABLE {table_sql}"), &[])
         .await
@@ -1975,6 +1987,16 @@ mod tests {
         ];
         let (t, _) = plan_targets(&two, &["A".to_string()], true).unwrap();
         assert_eq!(t[0].load, Load::Number);
+    }
+
+    #[test]
+    fn vectors_read_as_their_text() {
+        assert_eq!(read_kind(&json!({"type": "vector"})), Read::Vector);
+        assert_eq!(
+            read_cell(Read::Vector, &json!("[1.500000e+00, 2, 0.1]")).unwrap(),
+            Cell::Json("[1.5,2,0.1]".into())
+        );
+        assert_eq!(read_cell(Read::Vector, &Json::Null).unwrap(), Cell::Null);
     }
 
     #[test]

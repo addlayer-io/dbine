@@ -1,7 +1,15 @@
 //! BigQuery (GoogleSQL). Few types, all wide: INT64, NUMERIC / BIGNUMERIC,
 //! FLOAT64, STRING, BYTES, DATETIME (no zone) vs TIMESTAMP (an instant),
-//! ARRAY and STRUCT. No auto-increment and no indexes; primary and foreign
-//! keys are informational (`NOT ENFORCED`) and take no actions.
+//! ARRAY and STRUCT. No auto-increment; primary and foreign keys are
+//! informational (`NOT ENFORCED`) and take no actions. The only indexes are
+//! search and vector indexes: a vector index of another family arrives as a
+//! `CREATE VECTOR INDEX` (IVF or TREE_AH), the rest are dropped.
+//!
+//! Embeddings are `ARRAY<FLOAT64>` (what `ML.GENERATE_EMBEDDING` writes and
+//! `VECTOR_SEARCH` reads), but so are prices, coordinates and series, and
+//! BigQuery declares no dimension: as a source, `ARRAY<FLOAT64>` stays a
+//! list of floats, so a plain array never turns into another engine's
+//! vector type. Another family's vector becomes `ARRAY<FLOAT64>`.
 
 use super::postgres::precision_loss;
 use super::{Caps, Dialect, IdentCase, Rendered};
@@ -85,6 +93,9 @@ impl Dialect for BigQuery {
         let p = |i| t.arg_u32(i);
         if let Some((head, args)) = generic(&t.raw) {
             return match head.as_str() {
+                // `ARRAY<FLOAT64>` is an embedding only when a vector index
+                // covers it, which the type alone doesn't say: a list of
+                // floats (see the module notes).
                 "array" if args.len() == 1 => L::Array {
                     of: Box::new(nested(self, &args[0])),
                 },
@@ -163,7 +174,23 @@ impl Dialect for BigQuery {
         use IssueCode::*;
         use Severity::*;
         match t {
-            L::Vector { .. } => super::vector_fallback(self, t),
+            L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
+            L::Vector { dims, .. } => {
+                // FLOAT64 holds every element type exactly.
+                let r = Rendered::exact("ARRAY<FLOAT64>").with(
+                    Info,
+                    NullabilityChanged,
+                    "Los arreglos de BigQuery no admiten elementos NULL ni ser NULL: un vector NULL queda vacío.",
+                );
+                match dims {
+                    Some(n) => r.with(
+                        Info,
+                        TypeChanged,
+                        format!("BigQuery no declara la dimensión de un vector: nada controla que tenga {n} números."),
+                    ),
+                    None => r,
+                }
+            }
             L::Bool => Rendered::exact("BOOL"),
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {
                 1..=8 => Rendered::exact("INT64"),
@@ -261,7 +288,8 @@ impl Dialect for BigQuery {
             foreign_keys: true,
             on_delete: &[],
             on_update: &[],
-            indexes: false,
+            // Only vector (and search) indexes: `finalize` drops the rest.
+            indexes: true,
             partial_indexes: false,
             supports_include: false,
             auto_increment: false,
@@ -275,6 +303,81 @@ impl Dialect for BigQuery {
 
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         not_enforced(t, report, "BigQuery");
+        let name = t.name.clone();
+        let columns = t.columns.clone();
+        t.indexes.retain(|ix| {
+            let kind = ix.kind.as_deref().unwrap_or("").trim();
+            let vector = ix.vector.is_some() || kind.eq_ignore_ascii_case("vector");
+            if !vector && !kind.eq_ignore_ascii_case("search") {
+                report.push(
+                    Severity::Dropped,
+                    IssueCode::IndexDropped,
+                    &name,
+                    Some(&ix.name),
+                    "BigQuery solo tiene índices vectoriales y de búsqueda: este índice no se crea.",
+                );
+                return false;
+            }
+            // A vector index takes an ARRAY<FLOAT64> column, nothing else
+            // (a sparse vector arrives as JSON).
+            let column = ix
+                .columns
+                .first()
+                .and_then(|c| columns.iter().find(|x| &x.name == c));
+            if let Some(c) = column.filter(|c| {
+                vector && !c.data_type.replace(' ', "").eq_ignore_ascii_case("ARRAY<FLOAT64>")
+            }) {
+                report.push(
+                    Severity::Dropped,
+                    IssueCode::IndexDropped,
+                    &name,
+                    Some(&ix.name),
+                    format!(
+                        "El índice vectorial «{}» no se crea: BigQuery lo hace solo sobre ARRAY<FLOAT64> y «{}» queda {}.",
+                        ix.name, c.name, c.data_type
+                    ),
+                );
+                return false;
+            }
+            true
+        });
+    }
+
+    /// IVF or TREE_AH with COSINE, EUCLIDEAN or DOT_PRODUCT. IVF takes the
+    /// number of lists (`ivf_options.num_lists`); HNSW, DiskANN and the
+    /// like become IVF, ScaNN becomes TREE_AH (BigQuery's ScaNN).
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        use dbine_driver::vector::{metric, param};
+        let metric = match v.metric.as_deref() {
+            None => None,
+            Some(m @ (metric::COSINE | metric::L2 | metric::IP)) => Some(m.to_string()),
+            Some(m) => {
+                return Err(format!(
+                "BigQuery no tiene la distancia «{m}» (solo coseno, euclídea y producto escalar)"
+            ))
+            }
+        };
+        let tree = v
+            .algorithm
+            .as_deref()
+            .is_some_and(|a| matches!(a.to_ascii_lowercase().as_str(), "tree_ah" | "scann"));
+        let mut params = std::collections::BTreeMap::new();
+        if !tree {
+            if let Some(n) = v.params.get(param::LISTS) {
+                params.insert(param::LISTS.to_string(), n.clone());
+            }
+        }
+        Ok((
+            Some("VECTOR".into()),
+            dbine_driver::VectorIndex {
+                algorithm: Some(if tree { "tree_ah" } else { "ivf" }.into()),
+                metric,
+                params,
+            },
+        ))
     }
 }
 
@@ -584,6 +687,164 @@ mod tests {
         assert_eq!(r(L::Inet).native, "STRING");
         assert_eq!(r(L::MacAddr).native, "STRING");
         assert_eq!(r(L::RowVersion).native, "BYTES");
+    }
+
+    #[test]
+    fn vectors_become_float64_arrays() {
+        use dbine_driver::VectorElement as E;
+        // A plain float array (prices, a series) is no embedding: it stays
+        // a list of floats as a source, with no vector warning on targets
+        // without vectors.
+        let floats = L::Array {
+            of: Box::new(L::Float { bytes: 8 }),
+        };
+        assert_eq!(lt("ARRAY<FLOAT64>"), floats);
+        assert_eq!(
+            lt("ARRAY<INT64>"),
+            L::Array {
+                of: Box::new(L::int(8))
+            }
+        );
+        assert_eq!(BigQuery.render_type(&floats).native, "ARRAY<FLOAT64>");
+        for to in ["postgres", "mysql", "sqlserver", "duckdb", "clickhouse"] {
+            let t = TableSchema {
+                name: "t".into(),
+                columns: vec![dbine_driver::ColumnDef {
+                    name: "prices".into(),
+                    data_type: "ARRAY<FLOAT64>".into(),
+                    nullable: true,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            let c = crate::convert(&[t], "bigquery", to, &Default::default()).unwrap();
+            assert!(
+                c.issues.iter().all(|i| !i.message.contains("vector")),
+                "{to}: {:?}",
+                c.issues
+            );
+        }
+        // Another engine's vector, with and without a dimension.
+        let v = L::Vector {
+            dims: None,
+            element: E::F64,
+            sparse: false,
+        };
+        assert_eq!(BigQuery.render_type(&v).native, "ARRAY<FLOAT64>");
+        let r = BigQuery.render_type(&L::Vector {
+            dims: Some(3),
+            element: E::F32,
+            sparse: false,
+        });
+        assert_eq!(r.native, "ARRAY<FLOAT64>");
+        assert!(r.notes.iter().any(|n| n.code == IssueCode::TypeChanged));
+        assert!(r.notes.iter().all(|n| n.severity == Severity::Info));
+        // A sparse vector has no BigQuery form: JSON, with a warning.
+        let r = BigQuery.render_type(&L::Vector {
+            dims: Some(5),
+            element: E::F32,
+            sparse: true,
+        });
+        assert_eq!(r.native, "JSON");
+        assert!(r.notes.iter().any(|n| n.severity == Severity::Warning));
+    }
+
+    #[test]
+    fn vector_indexes_in_bigquery_terms() {
+        use dbine_driver::VectorIndex as V;
+        let v = |alg: Option<&str>, m: Option<&str>, p: &[(&str, &str)]| V {
+            algorithm: alg.map(str::to_string),
+            metric: m.map(str::to_string),
+            params: p
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        };
+        let (kind, got) = BigQuery
+            .vector_index(&v(
+                Some("hnsw"),
+                Some("cosine"),
+                &[("m", "16"), ("ef_construction", "64")],
+            ))
+            .unwrap();
+        assert_eq!(kind.as_deref(), Some("VECTOR"));
+        assert_eq!(got, v(Some("ivf"), Some("cosine"), &[]));
+        let (_, got) = BigQuery
+            .vector_index(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]))
+            .unwrap();
+        assert_eq!(got, v(Some("ivf"), Some("l2"), &[("lists", "100")]));
+        let (_, got) = BigQuery
+            .vector_index(&v(Some("scann"), Some("ip"), &[("lists", "100")]))
+            .unwrap();
+        assert_eq!(got, v(Some("tree_ah"), Some("ip"), &[]));
+        assert!(BigQuery
+            .vector_index(&v(None, Some("hamming"), &[]))
+            .unwrap_err()
+            .contains("hamming"));
+    }
+
+    #[test]
+    fn only_vector_and_search_indexes_stay() {
+        let mut t = TableSchema {
+            name: "t".into(),
+            indexes: vec![
+                dbine_driver::IndexDef {
+                    name: "plain".into(),
+                    columns: vec!["a".into()],
+                    ..Default::default()
+                },
+                dbine_driver::IndexDef {
+                    name: "vx".into(),
+                    columns: vec!["emb".into()],
+                    kind: Some("VECTOR".into()),
+                    vector: Some(Default::default()),
+                    ..Default::default()
+                },
+                dbine_driver::IndexDef {
+                    name: "sx".into(),
+                    columns: vec!["ALL COLUMNS".into()],
+                    kind: Some("SEARCH".into()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let mut report = Report::default();
+        BigQuery.finalize(&mut t, &mut report);
+        let names: Vec<_> = t.indexes.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(names, ["vx", "sx"]);
+        assert!(report
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::IndexDropped && i.object.as_deref() == Some("plain")));
+
+        // A vector index only on ARRAY<FLOAT64>.
+        let vx = |name: &str, col: &str| dbine_driver::IndexDef {
+            name: name.into(),
+            columns: vec![col.into()],
+            kind: Some("VECTOR".into()),
+            vector: Some(Default::default()),
+            ..Default::default()
+        };
+        let col = |name: &str, ty: &str| dbine_driver::ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            ..Default::default()
+        };
+        let mut t = TableSchema {
+            name: "t".into(),
+            columns: vec![col("emb", "ARRAY<FLOAT64>"), col("sparse", "JSON")],
+            indexes: vec![vx("ok", "emb"), vx("bad", "sparse")],
+            ..Default::default()
+        };
+        let mut report = Report::default();
+        BigQuery.finalize(&mut t, &mut report);
+        let names: Vec<_> = t.indexes.iter().map(|i| i.name.as_str()).collect();
+        assert_eq!(names, ["ok"]);
+        assert!(report
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::IndexDropped && i.object.as_deref() == Some("bad")));
     }
 
     #[test]

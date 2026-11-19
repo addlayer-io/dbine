@@ -30,7 +30,8 @@ use dbine_driver::{
     async_trait, json_bytes, json_f64, json_i64, kinds, Capabilities, ColumnDef, ColumnInfo,
     ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
     Family, Field, FieldKind, ForeignKeyDef, IndexDef, Language, ObjectKindInfo, ObjectRef,
-    QueryOutcome, Result, ResultColumn, SchemaInfo, Session, TableSchema,
+    QueryOutcome, Result, ResultColumn, SchemaInfo, Session, TableSchema, VectorElement,
+    VectorIndexSpec, VectorMeta, VectorParamSpec,
 };
 use serde_json::{json, Map, Value as Json};
 use std::time::Duration;
@@ -218,6 +219,8 @@ impl Driver for SpannerDriver {
             jobs: true,
             // Backup schedules managed whole (see `scheduler`).
             scheduler: true,
+            // ARRAY<FLOAT32 | FLOAT64>(vector_length=>n) and vector indexes.
+            vectors: true,
             ..Default::default()
         }
     }
@@ -244,6 +247,7 @@ impl Driver for SpannerDriver {
                     FieldKind::Select(vec![("", "NO ACTION"), ("CASCADE", "CASCADE")]),
                 ),
             ],
+            vector_indexes: Some(vector_index_spec()),
             ..DesignerSpec::sql_table(DATA_TYPES.to_vec())
         })
     }
@@ -329,6 +333,9 @@ impl Driver for SpannerDriver {
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
+        if parts.indexes {
+            structure::check_vectors(table)?;
+        }
         Ok(table_ddl(table, parts))
     }
 
@@ -781,7 +788,90 @@ const DATA_TYPES: &[&str] = &[
     "JSON",
     "ARRAY<STRING(MAX)>",
     "ARRAY<INT64>",
+    // Embeddings: a vector index needs the vector_length.
+    "ARRAY<FLOAT32>(vector_length=>768)",
+    "ARRAY<FLOAT64>(vector_length=>768)",
 ];
+
+/// Spanner's vector indexes (a ScaNN tree, its only algorithm): the
+/// distance, the tree's depth (2 or 3) and sizes; the designer's filter
+/// columns go to `STORING`, where queries can filter on them.
+fn vector_index_spec() -> VectorIndexSpec {
+    use dbine_driver::vector::{metric, param};
+    let p = |key, default| VectorParamSpec {
+        key,
+        algorithms: Vec::new(),
+        default,
+    };
+    VectorIndexSpec {
+        algorithms: Vec::new(),
+        metrics: vec![metric::COSINE, metric::L2, metric::IP],
+        params: vec![
+            p("tree_depth", "2"),
+            p(param::LISTS, "1000"),
+            p("num_branches", ""),
+            p("leaf_scatter_factor", ""),
+        ],
+        filter_columns: true,
+    }
+}
+
+/// The vector element of a float array type (`ARRAY<FLOAT32>`), if it's one.
+pub(crate) fn vector_element(t: &Json) -> Option<VectorElement> {
+    if t.get("code").and_then(Json::as_str) != Some("ARRAY") {
+        return None;
+    }
+    match t.pointer("/arrayElementType/code").and_then(Json::as_str)? {
+        "FLOAT32" => Some(VectorElement::F32),
+        "FLOAT64" => Some(VectorElement::F64),
+        _ => None,
+    }
+}
+
+/// A float array (as the API sends it) as the vector text: `[0.1,2]`,
+/// FLOAT32 at its own precision. `None` when it isn't a list of finite
+/// numbers: a NULL, NaN or ±∞ element (`"NaN"`, `"Infinity"` in the API)
+/// has no vector text (it would be `null`, and load back as a NULL), so
+/// such an array keeps its plain JSON text, NaN included.
+pub(crate) fn vector_text(v: &Json, element: VectorElement) -> Option<String> {
+    let vals = v
+        .as_array()?
+        .iter()
+        .map(|e| match e {
+            Json::Number(n) => n.as_f64().filter(|x| x.is_finite()),
+            _ => None,
+        })
+        .collect::<Option<Vec<f64>>>()?;
+    Some(if element == VectorElement::F32 {
+        dbine_driver::vector::text(vals.iter().map(|&x| x as f32))
+    } else {
+        dbine_driver::vector::text(vals)
+    })
+}
+
+/// A vector of an edit or insert as a GoogleSQL literal. The element type
+/// has to be written: an untyped `[1, 2]` is ARRAY<INT64>, and even
+/// `[1.0, 2.0]` (ARRAY<FLOAT64>) is refused by a FLOAT32 column, as
+/// `ARRAY<FLOAT32>[…]` is by a FLOAT64 one (no array coercion either way;
+/// checked on the emulator). Scripts don't receive the column's type, so
+/// this writes FLOAT32, the type of Spanner's vector index examples; a
+/// FLOAT64 vector column needs `ARRAY<FLOAT64>` written by hand (a
+/// contract request).
+fn vector_literal(v: &[f64]) -> String {
+    let items: Vec<String> = v
+        .iter()
+        .map(|x| {
+            let s = x.to_string();
+            // A whole number past INT64 isn't an integer literal.
+            if s.len() > 15 && !s.contains('.') {
+                format!("{s}.0")
+            } else {
+                s
+            }
+        })
+        .collect();
+    format!("ARRAY<FLOAT32>[{}]", items.join(", "))
+}
 /// Table options: `INTERLEAVE IN PARENT <parent> [ON DELETE CASCADE]`.
 const OPT_PARENT: &str = "interleave_in_parent";
 const OPT_ON_DELETE: &str = "on_delete";
@@ -884,7 +974,8 @@ fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
 
     if parts.indexes {
         for ix in &t.indexes {
-            out.push(structure::index_ddl(schema, &t.name, ix, parts.if_exists));
+            let ix = structure::prepared(t, ix);
+            out.push(structure::index_ddl(schema, &t.name, &ix, parts.if_exists));
         }
     }
 
@@ -939,6 +1030,11 @@ fn literal(v: &Json) -> String {
         Json::Bool(b) => if *b { "TRUE" } else { "FALSE" }.into(),
         Json::Number(n) => n.to_string(),
         Json::String(s) => lit(s),
+        // A vector (`vector::rows_for_scripts`).
+        Json::Array(_) => match dbine_driver::vector::parse_value(v) {
+            Some(nums) => vector_literal(&nums),
+            None => lit(&v.to_string()),
+        },
         other => lit(&other.to_string()),
     }
 }
@@ -1505,6 +1601,9 @@ impl Session for SpannerSession {
                     if let Some(opts) = ddl_options.get(&full) {
                         ix.options.extend(opts.clone());
                     }
+                    if ty == structure::VECTOR {
+                        ix.vector = Some(structure::vector_of(&ix.options));
+                    }
                     t.indexes.push(ix);
                     t.indexes.len() - 1
                 });
@@ -1805,14 +1904,18 @@ fn push_rows(r: &Json, max_rows: usize, out: &mut QueryOutcome) {
     out.begin_result(
         fields
             .iter()
-            .map(|f| ResultColumn {
-                name: f
-                    .get("name")
-                    .and_then(Json::as_str)
-                    .unwrap_or("")
-                    .to_string(),
-                type_name: type_name(f.get("type").unwrap_or(&Json::Null)),
-                vector: None,
+            .map(|f| {
+                let t = f.get("type").unwrap_or(&Json::Null);
+                let c = ResultColumn::new(
+                    f.get("name").and_then(Json::as_str).unwrap_or(""),
+                    type_name(t),
+                );
+                // Float arrays are Spanner's vectors (the result doesn't
+                // carry the column's vector_length).
+                match vector_element(t) {
+                    Some(e) => c.with_vector(VectorMeta::dense(None, e)),
+                    None => c,
+                }
             })
             .collect(),
     );
@@ -1861,6 +1964,9 @@ fn type_name(t: &Json) -> String {
 fn cell(v: &Json, t: &Json) -> Json {
     match t.get("code").and_then(Json::as_str) {
         _ if v.is_null() => Json::Null,
+        Some("ARRAY") if vector_element(t).is_some() => vector_element(t)
+            .and_then(|e| vector_text(v, e))
+            .map_or_else(|| Json::String(typed(v, t).to_string()), Json::String),
         Some("ARRAY") | Some("STRUCT") => Json::String(typed(v, t).to_string()),
         Some("JSON") => v
             .as_str()
@@ -1953,6 +2059,95 @@ mod tests {
         }
     }
     use dbine_driver::KeyDef;
+
+    #[test]
+    fn float_arrays_are_vectors() {
+        let f32t = json!({"code": "ARRAY", "arrayElementType": {"code": "FLOAT32"}});
+        let f64t = json!({"code": "ARRAY", "arrayElementType": {"code": "FLOAT64"}});
+        let ints = json!({"code": "ARRAY", "arrayElementType": {"code": "INT64"}});
+        assert_eq!(vector_element(&f32t), Some(VectorElement::F32));
+        assert_eq!(vector_element(&f64t), Some(VectorElement::F64));
+        assert_eq!(vector_element(&ints), None);
+        // FLOAT32 at its own precision; JSON numbers as the API sends them.
+        assert_eq!(
+            cell(&json!([0.10000000149011612, 2.0, -3.5]), &f32t),
+            json!("[0.1,2,-3.5]")
+        );
+        assert_eq!(
+            cell(&json!([0.1, 1e-7, -2]), &f64t),
+            json!("[0.1,0.0000001,-2]")
+        );
+        // NaN, ±∞ or a NULL element: no vector text (it would read back as
+        // NULL), the array's plain JSON as before.
+        assert_eq!(vector_text(&json!([0.1, "NaN"]), VectorElement::F64), None);
+        assert_eq!(vector_text(&json!([0.1, null]), VectorElement::F64), None);
+        assert_eq!(vector_text(&json!(["-Infinity"]), VectorElement::F32), None);
+        let odd = cell(&json!([0.1, 1e-7, "NaN", null]), &f64t);
+        assert!(odd.as_str().unwrap().contains("NaN"), "{odd}");
+        assert_eq!(cell(&json!(["1", "2"]), &ints), json!("[1,2]"));
+        let mut out = QueryOutcome::default();
+        push_rows(
+            &json!({
+                "metadata": {"rowType": {"fields": [
+                    {"name": "id", "type": {"code": "INT64"}},
+                    {"name": "e", "type": f32t}
+                ]}},
+                "rows": [["1", [1, 2.5, 3]]]
+            }),
+            10,
+            &mut out,
+        );
+        let r = &out.results[0];
+        assert_eq!(r.columns[0].vector, None);
+        assert_eq!(
+            r.columns[1].vector,
+            Some(VectorMeta::dense(None, VectorElement::F32))
+        );
+        assert_eq!(r.columns[1].type_name, "ARRAY<FLOAT32>");
+        assert_eq!(r.rows[0][1], json!("[1,2.5,3]"));
+    }
+
+    #[test]
+    fn vectors_are_typed_literals() {
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "v".into(),
+        };
+        let s = insert_script(
+            &t,
+            &["id".into(), "e".into()],
+            &[vec![json!(1), json!([1.0, 0.25, -3])]],
+        );
+        assert_eq!(
+            s,
+            "INSERT INTO `v` (`id`, `e`) VALUES\n  (1, ARRAY<FLOAT32>[1, 0.25, -3]);"
+        );
+        let up = update_script(
+            &t,
+            &[dbine_driver::RowChange {
+                key: vec![("id".into(), json!(1))],
+                set: vec![("e".into(), json!([1e20, 2]))],
+                row: Vec::new(),
+            }],
+        )
+        .unwrap();
+        assert!(
+            up.contains("SET `e` = ARRAY<FLOAT32>[100000000000000000000.0, 2]"),
+            "{up}"
+        );
+        // Arrays that aren't vectors keep their old form.
+        assert_eq!(literal(&json!(["a"])), "'[\"a\"]'");
+        let d = SpannerDriver { info: info() };
+        assert!(d.capabilities().vectors);
+        let spec = d.designer().unwrap();
+        assert!(spec
+            .data_types
+            .contains(&"ARRAY<FLOAT32>(vector_length=>768)"));
+        let v = spec.vector_indexes.unwrap();
+        assert_eq!(v.metrics, ["cosine", "l2", "ip"]);
+        assert!(v.filter_columns);
+    }
 
     #[test]
     fn filtered_browse_uses_googlesql_literals() {

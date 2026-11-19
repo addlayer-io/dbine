@@ -188,28 +188,68 @@ pub fn value(v: &Json) -> String {
         Json::Bool(b) => if *b { "TRUE" } else { "FALSE" }.into(),
         Json::Number(n) => n.to_string(),
         Json::String(s) => lit(s),
+        // A vector (`vector::rows_for_scripts`).
+        Json::Array(_) => match dbine_driver::vector::parse_value(v) {
+            Some(nums) => vector_literal(&nums),
+            None => lit(&v.to_string()),
+        },
         other => lit(&other.to_string()),
     }
 }
 
+/// A vector as Snowflake builds one: an array constant cast to
+/// `VECTOR(FLOAT, n)`, `n` its length (a VECTOR takes no other value). The
+/// script doesn't know the column, so an INT vector column needs `INT`
+/// written instead.
+pub fn vector_literal(v: &[f64]) -> String {
+    let items: Vec<String> = v
+        .iter()
+        .map(|x| {
+            let s = x.to_string();
+            // Past 38 digits a whole number isn't a NUMBER literal.
+            if s.len() > 15 && !s.contains('.') {
+                format!("{s}.0")
+            } else {
+                s
+            }
+        })
+        .collect();
+    format!("[{}]::VECTOR(FLOAT, {})", items.join(", "), v.len())
+}
+
+fn has_vector(row: &[Json]) -> bool {
+    row.iter()
+        .any(|v| v.is_array() && dbine_driver::vector::parse_value(v).is_some())
+}
+
+/// `INSERT … VALUES`, 100 rows per statement. Rows with a vector go as
+/// `INSERT … SELECT … UNION ALL SELECT …`: VALUES only takes constants, and
+/// a vector is a cast expression.
 pub fn insert_script(
     schema: Option<&str>,
     table: &str,
     columns: &[String],
     rows: &[Vec<Json>],
 ) -> String {
-    let head = format!(
-        "INSERT INTO {} ({}) VALUES",
+    let into = format!(
+        "INSERT INTO {} ({})",
         table_name(schema, table),
         cols(columns)
     );
+    let values = |r: &Vec<Json>| r.iter().map(value).collect::<Vec<_>>().join(", ");
     rows.chunks(100)
         .map(|chunk| {
-            let tuples: Vec<String> = chunk
-                .iter()
-                .map(|r| format!("({})", r.iter().map(value).collect::<Vec<_>>().join(", ")))
-                .collect();
-            format!("{head}\n  {};", tuples.join(",\n  "))
+            if chunk.iter().any(|r| has_vector(r)) {
+                let selects: Vec<String> = chunk
+                    .iter()
+                    .map(|r| format!("SELECT {}", values(r)))
+                    .collect();
+                format!("{into}\n  {};", selects.join("\n  UNION ALL "))
+            } else {
+                let tuples: Vec<String> =
+                    chunk.iter().map(|r| format!("({})", values(r))).collect();
+                format!("{into} VALUES\n  {};", tuples.join(",\n  "))
+            }
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -279,6 +319,7 @@ pub fn designer() -> DesignerSpec {
         "GEOGRAPHY",
         "GEOMETRY",
         "VECTOR(FLOAT, 256)",
+        "VECTOR(INT, 256)",
     ]);
     d.schemas = true;
     d.comments = true;
@@ -654,6 +695,41 @@ mod tests {
             ("fk_name", "FK_CLIENTE"),
         ])];
         assemble(&tables, &columns, &pks, &uniques, &fks)
+    }
+
+    #[test]
+    fn vectors_are_cast_array_constants() {
+        assert_eq!(
+            value(&serde_json::json!([1.5, 2, -0.25])),
+            "[1.5, 2, -0.25]::VECTOR(FLOAT, 3)"
+        );
+        assert_eq!(value(&serde_json::json!(["a"])), "'[\"a\"]'");
+        // VALUES takes no casts: the rows go as SELECTs.
+        let s = insert_script(
+            Some("PUBLIC"),
+            "V",
+            &["ID".into(), "VEC".into()],
+            &[
+                vec![serde_json::json!(1), serde_json::json!([1, 2])],
+                vec![serde_json::json!(2), serde_json::Value::Null],
+            ],
+        );
+        assert_eq!(s, "INSERT INTO \"PUBLIC\".\"V\" (\"ID\", \"VEC\")\n  SELECT 1, [1, 2]::VECTOR(FLOAT, 2)\n  UNION ALL SELECT 2, NULL;");
+        let plain = insert_script(None, "V", &["ID".into()], &[vec![serde_json::json!(1)]]);
+        assert_eq!(plain, "INSERT INTO \"V\" (\"ID\") VALUES\n  (1);");
+        let up = update_script(
+            None,
+            "V",
+            &[RowChange {
+                key: vec![("ID".into(), serde_json::json!(1))],
+                set: vec![("VEC".into(), serde_json::json!([0.5, 1]))],
+                row: Vec::new(),
+            }],
+        );
+        assert!(
+            up.contains("SET \"VEC\" = [0.5, 1]::VECTOR(FLOAT, 2)"),
+            "{up}"
+        );
     }
 
     #[test]

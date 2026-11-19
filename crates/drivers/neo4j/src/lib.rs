@@ -327,7 +327,8 @@ impl Driver for GraphDriver {
             // The same APOC jobs, created, changed and cancelled from the
             // designer (see `scheduler`).
             scheduler: scheduler::supported(self.flavor),
-            vectors: false,
+            // Float lists as vectors and vector indexes (Neptune has neither).
+            vectors: self.flavor != Flavor::Neptune,
         }
     }
 
@@ -653,18 +654,28 @@ impl GraphSession {
         out: &mut QueryOutcome,
     ) -> Result<Ran> {
         let mut begun = false;
+        let mut shapes: Vec<VectorShape> = Vec::new();
         let params = Bolt::Map(self.params.clone());
         let ran = {
             let out_ref = &mut *out;
             self.run_with(stmt, None, params, &mut |fields, row| {
                 if !begun {
                     out_ref.begin_result(columns(fields));
+                    shapes = vec![VectorShape::Unseen; fields.len()];
                     begun = true;
+                }
+                for (s, v) in shapes.iter_mut().zip(&row) {
+                    s.see(v);
                 }
                 out_ref.push_row(row.iter().map(value::cell).collect(), max_rows);
             })
             .await?
         };
+        if begun {
+            if let Some(r) = out.results.last_mut() {
+                mark_vectors(r, &shapes, self.flavor == Flavor::Memgraph);
+            }
+        }
         let meta = ran.meta.as_ref();
         let (summary, changed) = meta.map(stats).unwrap_or_default();
         if !begun {
@@ -1092,6 +1103,133 @@ fn scan_query(rel: bool) -> &'static str {
     }
 }
 
+/// Whether a result column holds vectors: every value that isn't null is
+/// a list of floats, all of the same length (an embedding property, or
+/// what a query built from one; Cypher results carry no types), or every
+/// one is a Neo4j 2025 VECTOR of one dimension and coordinate type.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum VectorShape {
+    Unseen,
+    Dims(usize),
+    /// VECTOR values (Bolt 6): their dimension and coordinate type.
+    Native(usize, &'static str),
+    No,
+}
+
+/// Cypher's coordinate types, as `value::NativeVector` names them.
+const COORDINATES: &[&str] = &[
+    "FLOAT32",
+    "FLOAT64",
+    "INTEGER8",
+    "INTEGER16",
+    "INTEGER32",
+    "INTEGER64",
+];
+
+impl VectorShape {
+    fn see(&mut self, v: &Value) {
+        if let Some((coordinate, numbers)) = value::native_vector_json(v) {
+            let coordinate = COORDINATES.iter().find(|c| **c == coordinate);
+            *self = match (*self, coordinate) {
+                (VectorShape::Unseen, Some(c)) if numbers.iter().all(Value::is_number) => {
+                    VectorShape::Native(numbers.len(), c)
+                }
+                (VectorShape::Native(n, c), Some(c2))
+                    if n == numbers.len() && c == *c2 && numbers.iter().all(Value::is_number) =>
+                {
+                    VectorShape::Native(n, c)
+                }
+                _ => VectorShape::No,
+            };
+            return;
+        }
+        if matches!(self, VectorShape::Native(..)) && !v.is_null() {
+            *self = VectorShape::No;
+            return;
+        }
+        let len = match v {
+            Value::Null => return,
+            Value::Array(a)
+                if !a.is_empty()
+                    && a.iter()
+                        .all(|x| x.as_number().is_some_and(serde_json::Number::is_f64)) =>
+            {
+                a.len()
+            }
+            _ => 0,
+        };
+        *self = match *self {
+            _ if len == 0 => VectorShape::No,
+            VectorShape::Unseen => VectorShape::Dims(len),
+            VectorShape::Dims(n) if n == len => VectorShape::Dims(n),
+            _ => VectorShape::No,
+        };
+    }
+}
+
+/// Vector columns marked (`LIST<FLOAT>` of their length), their cells as
+/// the vector text (`[0.5,2]`; on Memgraph, whose vector indexes keep
+/// 32-bit floats, at that precision when the numbers are such floats).
+fn mark_vectors(r: &mut dbine_driver::StatementResult, shapes: &[VectorShape], f32_storage: bool) {
+    for (i, s) in shapes.iter().enumerate() {
+        if let VectorShape::Native(n, coordinate) = *s {
+            mark_native(r, i, n, coordinate);
+            continue;
+        }
+        let VectorShape::Dims(n) = *s else { continue };
+        let Some(c) = r.columns.get_mut(i) else {
+            continue;
+        };
+        let mut all_f32 = true;
+        for row in r.rows.iter_mut() {
+            if let Some(cell) = row.get_mut(i) {
+                if let Some(v) = cell.as_str().and_then(dbine_driver::vector::parse) {
+                    all_f32 &= v.iter().all(|&x| f64::from(x as f32) == x);
+                    *cell = Value::String(transfer::float_text(&v, f32_storage));
+                }
+            }
+        }
+        c.type_name = "LIST<FLOAT>".into();
+        c.vector = Some(dbine_driver::VectorMeta::dense(
+            u32::try_from(n).ok(),
+            if f32_storage && all_f32 {
+                dbine_driver::VectorElement::F32
+            } else {
+                dbine_driver::VectorElement::F64
+            },
+        ));
+    }
+}
+
+/// A column of Neo4j 2025 VECTOR values: typed `VECTOR<FLOAT32>(3)`, its
+/// cells the vector text (FLOAT32 at its own precision).
+fn mark_native(r: &mut dbine_driver::StatementResult, i: usize, n: usize, coordinate: &str) {
+    for row in r.rows.iter_mut() {
+        let Some(cell) = row.get_mut(i) else { continue };
+        let numbers = cell
+            .as_str()
+            .and_then(|t| serde_json::from_str::<Value>(t).ok())
+            .and_then(|j| {
+                value::native_vector_json(&j)
+                    .map(|(_, v)| v.iter().filter_map(Value::as_f64).collect::<Vec<f64>>())
+            });
+        if let Some(v) = numbers {
+            *cell = Value::String(if coordinate == "FLOAT32" {
+                dbine_driver::vector::text(v.iter().map(|&x| x as f32))
+            } else {
+                dbine_driver::vector::text(v)
+            });
+        }
+    }
+    if let Some(c) = r.columns.get_mut(i) {
+        c.type_name = format!("VECTOR<{coordinate}>({n})");
+        c.vector = Some(dbine_driver::VectorMeta::dense(
+            u32::try_from(n).ok(),
+            value::coordinate_element(coordinate),
+        ));
+    }
+}
+
 fn columns(fields: &[String]) -> Vec<ResultColumn> {
     fields
         .iter()
@@ -1472,7 +1610,16 @@ impl CatalogEntry {
             kind: Some(self.spec_kind.clone()),
             filter: None,
             options: self.options.clone(),
-            ..Default::default()
+            vector: (self.spec_kind == "VECTOR").then(|| {
+                // Neo4j's settings are `vector.*`; Memgraph's aren't.
+                let f = if self.options.keys().any(|k| k.starts_with("vector.")) {
+                    Flavor::Neo4j
+                } else {
+                    Flavor::Memgraph
+                };
+                ddl::vector_of(f, &self.options)
+            }),
+            include: Vec::new(),
         })
     }
 }
@@ -2122,11 +2269,11 @@ impl Session for GraphSession {
     async fn bulk_load(
         &mut self,
         spec: &dbine_driver::LoadSpec,
-        _columns: &[dbine_driver::TransferColumn],
+        columns: &[dbine_driver::TransferColumn],
         source: &mut dyn dbine_driver::BatchSource,
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
-        self.transfer_load(spec, source, progress).await
+        self.transfer_load(spec, columns, source, progress).await
     }
 
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
@@ -2459,6 +2606,121 @@ impl GraphSession {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn float_list_columns_are_vectors() {
+        let mut shapes = vec![VectorShape::Unseen; 4];
+        let rows = [
+            vec![json!([0.5, 2.0]), json!([1, 2]), json!([0.5]), json!(null)],
+            vec![json!(null), json!([3, 4]), json!([0.5, 1.5]), json!("x")],
+            vec![json!([1.0, -0.25]), json!(null), json!(null), json!(null)],
+        ];
+        for r in &rows {
+            for (s, v) in shapes.iter_mut().zip(r) {
+                s.see(v);
+            }
+        }
+        // Floats of one length: a vector; integers, other lengths: not.
+        assert_eq!(
+            shapes,
+            [
+                VectorShape::Dims(2),
+                VectorShape::No,
+                VectorShape::No,
+                VectorShape::No
+            ]
+        );
+        let mut r = dbine_driver::StatementResult {
+            columns: columns(&["e".into(), "i".into(), "m".into(), "s".into()]),
+            rows: rows
+                .iter()
+                .map(|r| r.iter().map(value::cell).collect())
+                .collect(),
+            ..Default::default()
+        };
+        mark_vectors(&mut r, &shapes, false);
+        assert_eq!(
+            r.columns[0].vector,
+            Some(dbine_driver::VectorMeta::dense(
+                Some(2),
+                dbine_driver::VectorElement::F64
+            ))
+        );
+        assert_eq!(r.columns[0].type_name, "LIST<FLOAT>");
+        assert_eq!(r.columns[1].vector, None);
+        assert_eq!(r.rows[0][0], json!("[0.5,2]"));
+        assert_eq!(r.rows[2][0], json!("[1,-0.25]"));
+        assert_eq!(r.rows[0][1], json!("[1,2]"));
+        let caps: Vec<bool> = drivers().iter().map(|d| d.capabilities().vectors).collect();
+        // Neo4j, Memgraph, Neptune.
+        assert_eq!(caps, [true, true, false]);
+    }
+
+    /// Neo4j 2025 VECTOR values (Bolt 6), as `value::to_json` gives them: a
+    /// column of one dimension and coordinate type is a vector, typed as
+    /// Neo4j spells it; a mix with lists or other dimensions isn't.
+    #[test]
+    fn native_vector_columns_are_vectors() {
+        let v = |n: Vec<serde_json::Value>, c: &str| json!({"~vector": n, "~coordinateType": c});
+        let rows = [
+            vec![
+                v(vec![json!(0.1), json!(2.0), json!(-3.5)], "FLOAT32"),
+                v(vec![json!(1), json!(-2)], "INTEGER8"),
+                v(vec![json!(1.0)], "FLOAT64"),
+            ],
+            vec![
+                json!(null),
+                v(vec![json!(3), json!(4)], "INTEGER8"),
+                json!([0.5]),
+            ],
+            vec![
+                v(vec![json!(1.5), json!(0.25), json!(1e-7)], "FLOAT32"),
+                v(vec![json!(5), json!(6)], "INTEGER8"),
+                json!(null),
+            ],
+        ];
+        let mut shapes = vec![VectorShape::Unseen; 3];
+        for r in &rows {
+            for (s, x) in shapes.iter_mut().zip(r) {
+                s.see(x);
+            }
+        }
+        assert_eq!(
+            shapes,
+            [
+                VectorShape::Native(3, "FLOAT32"),
+                VectorShape::Native(2, "INTEGER8"),
+                VectorShape::No
+            ]
+        );
+        let mut r = dbine_driver::StatementResult {
+            columns: columns(&["e".into(), "i".into(), "m".into()]),
+            rows: rows
+                .iter()
+                .map(|r| r.iter().map(value::cell).collect())
+                .collect(),
+            ..Default::default()
+        };
+        mark_vectors(&mut r, &shapes, false);
+        assert_eq!(r.columns[0].type_name, "VECTOR<FLOAT32>(3)");
+        assert_eq!(
+            r.columns[0].vector,
+            Some(dbine_driver::VectorMeta::dense(
+                Some(3),
+                dbine_driver::VectorElement::F32
+            ))
+        );
+        assert_eq!(r.rows[0][0], json!("[0.1,2,-3.5]"));
+        assert_eq!(r.rows[1][0], json!(null));
+        assert_eq!(r.rows[2][0], json!("[1.5,0.25,0.0000001]"));
+        assert_eq!(r.columns[1].type_name, "VECTOR<INTEGER8>(2)");
+        assert_eq!(
+            r.columns[1].vector.as_ref().unwrap().element,
+            dbine_driver::VectorElement::I8
+        );
+        assert_eq!(r.rows[1][1], json!("[3,4]"));
+        assert_eq!(r.columns[2].vector, None);
+    }
 
     /// Every flavor cuts the editor's script as `execute` numbers it.
     #[test]

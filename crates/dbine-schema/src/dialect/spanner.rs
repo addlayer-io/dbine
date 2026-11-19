@@ -5,6 +5,10 @@
 //! nanosecond), JSON, ARRAY<T>. Every table needs a primary key; identity
 //! columns exist (INT64, bit-reversed, not consecutive); foreign keys take
 //! only ON DELETE CASCADE / NO ACTION.
+//!
+//! Embeddings are `ARRAY<FLOAT32>` / `ARRAY<FLOAT64>` with
+//! `(vector_length=>n)`, which a vector index needs; vector indexes take
+//! COSINE, EUCLIDEAN or DOT_PRODUCT and the tree's sizes in `OPTIONS`.
 
 use super::bigquery::{generic, nested};
 use super::postgres::{longest, precision_loss};
@@ -42,6 +46,19 @@ fn literal(s: &str) -> String {
     o
 }
 
+/// `ARRAY<FLOAT32>(vector_length=>3)` → (`ARRAY<FLOAT32>`, 3).
+pub(super) fn vector_length(raw: &str) -> Option<(&str, u32)> {
+    let s = raw.trim();
+    let open = s.rfind('(')?;
+    let inner = s[open + 1..].strip_suffix(')')?;
+    let (k, v) = inner.split_once("=>")?;
+    if !k.trim().eq_ignore_ascii_case("vector_length") {
+        return None;
+    }
+    let n = v.trim().parse().ok()?;
+    Some((s[..open].trim(), n))
+}
+
 fn string(len: Option<u32>) -> String {
     match len {
         Some(n) if n <= MAX_STRING => format!("STRING({n})"),
@@ -56,6 +73,22 @@ impl Dialect for Spanner {
 
     fn parse_type(&self, t: &TypeSpec) -> L {
         let len = || if t.is_max() { None } else { t.arg_u32(0) };
+        if let Some((array, dims)) = vector_length(&t.raw) {
+            return match generic(array).map(|(h, a)| (h, a.first().map(|e| nested(self, e)))) {
+                Some((h, Some(L::Float { bytes }))) if h == "array" => L::Vector {
+                    dims: Some(dims),
+                    element: if bytes == 4 {
+                        dbine_driver::VectorElement::F32
+                    } else {
+                        dbine_driver::VectorElement::F64
+                    },
+                    sparse: false,
+                },
+                _ => L::Other {
+                    native: t.raw.clone(),
+                },
+            };
+        }
         if let Some((head, args)) = generic(&t.raw) {
             return match head.as_str() {
                 "array" if args.len() == 1 => L::Array {
@@ -104,7 +137,31 @@ impl Dialect for Spanner {
         use IssueCode::*;
         use Severity::*;
         match t {
-            L::Vector { .. } => super::vector_fallback(self, t),
+            L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
+            L::Vector { dims, element, .. } => {
+                use dbine_driver::VectorElement as E;
+                // FLOAT32 holds halves, bfloat16, bytes and bits exactly.
+                let (of, r) = match element {
+                    E::F64 => ("FLOAT64", None),
+                    E::Other => (
+                        "FLOAT64",
+                        Some("el tipo de sus números no se conoce: quedan como FLOAT64"),
+                    ),
+                    _ => ("FLOAT32", None),
+                };
+                let r0 = match dims {
+                    Some(n) => Rendered::exact(format!("ARRAY<{of}>(vector_length=>{n})")),
+                    None => Rendered::exact(format!("ARRAY<{of}>")).with(
+                        Info,
+                        TypeChanged,
+                        "El vector no declara su dimensión: queda sin vector_length, y Spanner no le crea un índice vectorial hasta fijarla.",
+                    ),
+                };
+                match r {
+                    Some(m) => r0.with(Info, TypeChanged, format!("{}: {m}.", t.describe())),
+                    None => r0,
+                }
+            }
             L::Bool => Rendered::exact("BOOL"),
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {
                 1..=8 => Rendered::exact("INT64"),
@@ -287,9 +344,47 @@ impl Dialect for Spanner {
         }
     }
 
+    /// COSINE, EUCLIDEAN or DOT_PRODUCT (the distance is required). An
+    /// IVF index's lists are the tree's leaves (`num_leaves`); HNSW's
+    /// settings have no counterpart. A graph index's `dimensions` stays
+    /// for `finalize`, which sets the column's `vector_length` from it.
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        use dbine_driver::vector::{metric, param};
+        let metric = match v.metric.as_deref() {
+            Some(m @ (metric::COSINE | metric::L2 | metric::IP)) => m.to_string(),
+            Some(m) => {
+                return Err(format!(
+                    "Spanner no tiene la distancia «{m}» (solo coseno, euclídea y producto escalar)"
+                ))
+            }
+            None => return Err(
+                "Spanner necesita la distancia del índice (distance_type) y el origen no la dice"
+                    .into(),
+            ),
+        };
+        let params = v
+            .params
+            .iter()
+            .filter(|(k, _)| k.as_str() == param::LISTS || k.as_str() == DIMENSIONS)
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        Ok((
+            Some("VECTOR".into()),
+            dbine_driver::VectorIndex {
+                algorithm: None,
+                metric: Some(metric),
+                params,
+            },
+        ))
+    }
+
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         use IssueCode::*;
         use Severity::*;
+        vector_columns(t, report);
         for c in t.columns.iter_mut().filter(|c| c.auto_increment) {
             if c.data_type != "INT64" {
                 report.push(
@@ -345,6 +440,84 @@ impl Dialect for Spanner {
     }
 }
 
+/// The dimension a graph engine keeps in its vector index (Neo4j
+/// `vector.dimensions`, Memgraph `dimension`), not in the property.
+const DIMENSIONS: &str = "dimensions";
+
+/// Spanner makes a vector index only on an `ARRAY<FLOAT32|FLOAT64>` column
+/// with `vector_length`. A column that arrives without it takes the
+/// dimension the source index states (graph engines keep it there); when
+/// nothing states it, the index is left out and said, rather than written
+/// as a `CREATE VECTOR INDEX` that fails.
+fn vector_columns(t: &mut TableSchema, report: &mut Report) {
+    let name = t.name.clone();
+    let mut keep = Vec::with_capacity(t.indexes.len());
+    for mut ix in std::mem::take(&mut t.indexes) {
+        let vector = ix.vector.is_some()
+            || ix
+                .kind
+                .as_deref()
+                .is_some_and(|k| k.eq_ignore_ascii_case("vector"));
+        if !vector {
+            keep.push(ix);
+            continue;
+        }
+        let dims = ix
+            .vector
+            .as_mut()
+            .and_then(|v| v.params.remove(DIMENSIONS))
+            .and_then(|d| d.trim().parse::<u32>().ok())
+            .filter(|d| *d > 0);
+        let Some(col) = ix
+            .columns
+            .first()
+            .and_then(|c| t.columns.iter_mut().find(|x| &x.name == c))
+        else {
+            keep.push(ix);
+            continue;
+        };
+        if vector_length(&col.data_type).is_some() {
+            keep.push(ix);
+            continue;
+        }
+        let floats = generic(&col.data_type).is_some_and(|(h, a)| {
+            h == "array"
+                && a.len() == 1
+                && matches!(
+                    a[0].trim().to_ascii_uppercase().as_str(),
+                    "FLOAT32" | "FLOAT64"
+                )
+        });
+        match dims {
+            Some(n) if floats => {
+                col.data_type = format!("{}(vector_length=>{n})", col.data_type.trim());
+                report.push(
+                    Severity::Info,
+                    IssueCode::TypeChanged,
+                    &name,
+                    Some(&col.name),
+                    format!(
+                        "La columna toma la dimensión del índice vectorial «{}» (vector_length=>{n}): Spanner la necesita para crearlo.",
+                        ix.name
+                    ),
+                );
+                keep.push(ix);
+            }
+            _ => report.push(
+                Severity::Dropped,
+                IssueCode::IndexDropped,
+                &name,
+                Some(&ix.name),
+                format!(
+                    "El índice vectorial «{}» no se crea: Spanner lo hace solo sobre un ARRAY<FLOAT32> o ARRAY<FLOAT64> con vector_length, y «{}» queda {} sin dimensión conocida. Fijá la dimensión y crealo a mano.",
+                    ix.name, col.name, col.data_type
+                ),
+            ),
+        }
+    }
+    t.indexes = keep;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -353,6 +526,269 @@ mod tests {
 
     fn lt(s: &str) -> L {
         logical_of(&Spanner, &parse(s))
+    }
+
+    #[test]
+    fn vector_length_arrays_are_vectors() {
+        use dbine_driver::VectorElement as E;
+        let v = |dims, element| L::Vector {
+            dims,
+            element,
+            sparse: false,
+        };
+        assert_eq!(lt("ARRAY<FLOAT32>(vector_length=>3)"), v(Some(3), E::F32));
+        assert_eq!(
+            lt("ARRAY<FLOAT64>( vector_length => 768 )"),
+            v(Some(768), E::F64)
+        );
+        assert!(matches!(
+            lt("ARRAY<STRING(MAX)>(vector_length=>3)"),
+            L::Other { .. }
+        ));
+        // Without vector_length an array of floats is an array.
+        assert_eq!(
+            lt("ARRAY<FLOAT32>"),
+            L::Array {
+                of: Box::new(L::Float { bytes: 4 })
+            }
+        );
+        let r = |t: L| Spanner.render_type(&t);
+        assert_eq!(
+            r(v(Some(3), E::F32)).native,
+            "ARRAY<FLOAT32>(vector_length=>3)"
+        );
+        assert!(r(v(Some(3), E::F32)).notes.is_empty());
+        assert_eq!(
+            r(v(Some(8), E::F64)).native,
+            "ARRAY<FLOAT64>(vector_length=>8)"
+        );
+        assert_eq!(
+            r(v(Some(8), E::F16)).native,
+            "ARRAY<FLOAT32>(vector_length=>8)"
+        );
+        assert_eq!(
+            r(v(Some(8), E::I8)).native,
+            "ARRAY<FLOAT32>(vector_length=>8)"
+        );
+        assert_eq!(
+            r(v(Some(8), E::Other)).native,
+            "ARRAY<FLOAT64>(vector_length=>8)"
+        );
+        let none = r(v(None, E::F32));
+        assert_eq!(none.native, "ARRAY<FLOAT32>");
+        assert_eq!(none.notes[0].code, IssueCode::TypeChanged);
+        assert_eq!(
+            r(L::Vector {
+                dims: Some(4),
+                element: E::F32,
+                sparse: true
+            })
+            .native,
+            "JSON"
+        );
+        // Round trip.
+        for s in [
+            "ARRAY<FLOAT32>(vector_length=>3)",
+            "ARRAY<FLOAT64>(vector_length=>1536)",
+        ] {
+            assert_eq!(r(lt(s)).native, s);
+        }
+    }
+
+    /// A Spanner embedding table to BigQuery, Snowflake and Neo4j, and a
+    /// vector index each way: the dimension and distance carry over.
+    #[test]
+    fn vector_tables_cross_families() {
+        use dbine_driver::{ColumnDef, IndexDef, VectorIndex};
+        let mut vi = VectorIndex {
+            algorithm: None,
+            metric: Some("cosine".into()),
+            ..Default::default()
+        };
+        vi.params.insert("lists".into(), "100".into());
+        vi.params.insert("tree_depth".into(), "2".into());
+        let t = TableSchema {
+            name: "docs".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "INT64".into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "emb".into(),
+                    data_type: "ARRAY<FLOAT32>(vector_length=>3)".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![IndexDef {
+                name: "docs_emb".into(),
+                columns: vec!["emb".into()],
+                kind: Some("VECTOR".into()),
+                vector: Some(vi),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let conv = |to: &str| {
+            crate::convert(std::slice::from_ref(&t), "spanner", to, &Default::default()).unwrap()
+        };
+        let col = |c: &crate::Conversion, n: &str| {
+            c.tables[0]
+                .columns
+                .iter()
+                .find(|x| x.name.eq_ignore_ascii_case(n))
+                .unwrap()
+                .data_type
+                .clone()
+        };
+
+        let bq = conv("bigquery");
+        assert_eq!(col(&bq, "emb"), "ARRAY<FLOAT64>");
+        let ix = &bq.tables[0].indexes[0];
+        assert_eq!(ix.kind.as_deref(), Some("VECTOR"));
+        let v = ix.vector.as_ref().unwrap();
+        assert_eq!(v.algorithm.as_deref(), Some("ivf"));
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        assert_eq!(v.params.get("lists").map(String::as_str), Some("100"));
+        assert!(!v.params.contains_key("tree_depth"));
+
+        let sf = conv("snowflake");
+        assert_eq!(col(&sf, "EMB"), "VECTOR(FLOAT, 3)");
+        // Snowflake has no vector indexes: said, not silently dropped.
+        assert!(sf.tables[0].indexes.iter().all(|i| i.vector.is_none()));
+        assert!(sf.issues.iter().any(|i| i.code == IssueCode::IndexDropped));
+
+        let neo = conv("neo4j");
+        assert_eq!(col(&neo, "emb"), "LIST<FLOAT>");
+        let ix = neo.tables[0]
+            .indexes
+            .iter()
+            .find(|i| i.kind.as_deref() == Some("VECTOR"))
+            .unwrap();
+        assert_eq!(
+            ix.vector.as_ref().unwrap().metric.as_deref(),
+            Some("cosine")
+        );
+
+        // And back: BigQuery's ARRAY<FLOAT64> has no dimension, so Spanner
+        // gets no vector_length, and its vector index (which needs one) is
+        // left out and said, not written to fail.
+        let back = crate::convert(&bq.tables, "bigquery", "spanner", &Default::default()).unwrap();
+        assert_eq!(col(&back, "emb"), "ARRAY<FLOAT64>");
+        assert!(back.tables[0].indexes.iter().all(|i| i.vector.is_none()));
+        assert!(back.issues.iter().any(|i| i.code == IssueCode::IndexDropped
+            && i.object.as_deref() == Some("docs_emb")
+            && i.message.contains("vector_length")));
+        let back = crate::convert(&sf.tables, "snowflake", "spanner", &Default::default()).unwrap();
+        assert_eq!(col(&back, "EMB"), "ARRAY<FLOAT32>(vector_length=>3)");
+    }
+
+    /// A graph label's float list with a vector index that states its
+    /// dimension: the column takes it as vector_length and keeps the index.
+    #[test]
+    fn graph_vector_indexes_give_the_dimension() {
+        use dbine_driver::{ColumnDef, IndexDef, VectorIndex};
+        let index = |dims: Option<&str>| {
+            let mut v = VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                ..Default::default()
+            };
+            if let Some(d) = dims {
+                v.params.insert("dimensions".into(), d.into());
+            }
+            v.params.insert("m".into(), "16".into());
+            IndexDef {
+                name: "doc_emb".into(),
+                columns: vec!["emb".into()],
+                kind: Some("VECTOR".into()),
+                vector: Some(v),
+                ..Default::default()
+            }
+        };
+        let label = |ix: IndexDef| TableSchema {
+            kind: "label".into(),
+            name: "Doc".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "INTEGER".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "emb".into(),
+                    data_type: "LIST<FLOAT>".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            indexes: vec![ix],
+            ..Default::default()
+        };
+        for from in ["neo4j", "memgraph"] {
+            let c = crate::convert(
+                &[label(index(Some("3")))],
+                from,
+                "spanner",
+                &Default::default(),
+            )
+            .unwrap();
+            let t = &c.tables[0];
+            let emb = t.columns.iter().find(|c| c.name == "emb").unwrap();
+            assert_eq!(emb.data_type, "ARRAY<FLOAT64>(vector_length=>3)", "{from}");
+            let ix = t.indexes.iter().find(|i| i.vector.is_some()).unwrap();
+            let v = ix.vector.as_ref().unwrap();
+            assert_eq!(v.metric.as_deref(), Some("cosine"));
+            assert!(!v.params.contains_key("dimensions"));
+            assert_eq!(
+                c.columns
+                    .iter()
+                    .find(|m| m.column == "emb")
+                    .unwrap()
+                    .target_type,
+                emb.data_type
+            );
+
+            // No dimension anywhere: the index is left out, and said.
+            let c = crate::convert(&[label(index(None))], from, "spanner", &Default::default())
+                .unwrap();
+            assert!(c.tables[0].indexes.iter().all(|i| i.vector.is_none()));
+            assert!(c.issues.iter().any(
+                |i| i.code == IssueCode::IndexDropped && i.object.as_deref() == Some("doc_emb")
+            ));
+        }
+    }
+
+    #[test]
+    fn vector_indexes_in_spanner_terms() {
+        use dbine_driver::VectorIndex as V;
+        let v = |alg: Option<&str>, m: Option<&str>, p: &[(&str, &str)]| V {
+            algorithm: alg.map(str::to_string),
+            metric: m.map(str::to_string),
+            params: p
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        };
+        let (kind, got) = Spanner
+            .vector_index(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]))
+            .unwrap();
+        assert_eq!(kind.as_deref(), Some("VECTOR"));
+        assert_eq!(got, v(None, Some("l2"), &[("lists", "100")]));
+        let (_, got) = Spanner
+            .vector_index(&v(Some("hnsw"), Some("cosine"), &[("m", "16")]))
+            .unwrap();
+        assert_eq!(got, v(None, Some("cosine"), &[]));
+        assert!(Spanner.vector_index(&v(None, Some("l1"), &[])).is_err());
+        assert!(Spanner.vector_index(&v(None, None, &[])).is_err());
     }
 
     #[test]
