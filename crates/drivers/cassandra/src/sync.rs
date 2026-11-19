@@ -62,7 +62,20 @@ fn ix_same(a: &IndexDef, b: &IndexDef) -> bool {
         && a.unique == b.unique
         && kind(&a.kind) == kind(&b.kind)
         && a.options == b.options
-        && a.vector == b.vector
+        && vector_of(a) == vector_of(b)
+}
+
+/// A vector index's settings as the server keeps them: no distance is
+/// COSINE, the engines' default (what reading it back says).
+fn vector_of(ix: &IndexDef) -> Option<dbine_driver::VectorIndex> {
+    let mut v = ix.vector.clone()?;
+    let m = v
+        .metric
+        .take()
+        .filter(|m| !m.trim().is_empty())
+        .map_or_else(|| "cosine".to_string(), |m| crate::ddl::metric_of(&m));
+    v.metric = Some(m);
+    Some(v)
 }
 
 /// Partition key, and the clustering columns with their order (descending?).
@@ -396,6 +409,18 @@ mod tests {
                 "CREATE INDEX users_emb ON ks.users (emb) USING 'sai' WITH OPTIONS = {'similarity_function': 'DOT_PRODUCT'};"
             ]
         );
+        // No distance is the default one: nothing to do.
+        let mut unset = old.clone();
+        unset.indexes[0].vector.as_mut().unwrap().metric = None;
+        let s = sync_script(
+            Flavor::Cassandra,
+            &[TableChange::Alter {
+                old: old.clone(),
+                new: unset,
+            }],
+        )
+        .unwrap();
+        assert!(s.statements.is_empty(), "{:?}", s.statements);
         let s = sync_script(Flavor::Scylla, &[TableChange::Create { table: new }]).unwrap();
         assert_eq!(
             s.statements[1],
