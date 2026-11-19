@@ -520,6 +520,7 @@ async fn body(s: &mut Box<dyn Session>) {
 
     // 9. Transfers: a typed read gives the canonical text…
     let read_docs = read(s, "VEC_DOCS").await;
+    assert_eq!(read_docs.columns[1].type_name, "VECTOR(3, FLOAT32)");
     let first = &read_docs.batches[0].rows;
     assert!(
         first

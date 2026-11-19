@@ -259,7 +259,12 @@ fn read(
         .iter()
         .map(|m| TransferColumn {
             name: m.name().to_string(),
-            type_name: m.data_type(),
+            // A vector as DDL declares it: `VECTOR(3, FLOAT32)`, `…, SPARSE)`.
+            type_name: if m.db_type().name() == "DB_TYPE_VECTOR" {
+                crate::vector::column_shape(&m.data_type(), m.is_sparse_vector()).ddl()
+            } else {
+                m.data_type()
+            },
             nullable: m.nullable(),
         })
         .collect();
