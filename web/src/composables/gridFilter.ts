@@ -1,5 +1,6 @@
 import type { Cell } from '../api/types';
 import { rt } from './i18nLabels';
+import { vectorOfType } from './vector';
 
 // Column filters of the data grid (the row under the headers). What's typed
 // becomes structured filters the driver turns into its own WHERE / filter
@@ -30,8 +31,11 @@ export interface FilterState {
 
 export type ColumnKind = 'text' | 'number' | 'date' | 'bool';
 
-/** The kind of a column from its engine type name (or its values). */
+/** The kind of a column from its engine type name (or its values). A vector
+ *  type is text (its cells are JSON arrays), even when its name says FLOAT
+ *  or INT8 (`VECTOR(3, FLOAT32)`, `vector<float, 3>`). */
 export function columnKind(typeName: string, sample?: Cell): ColumnKind {
+  if (vectorOfType(typeName)) return 'text';
   const t = typeName.toLowerCase();
   if (/^(bit|bool|boolean)\b/.test(t)) return 'bool';
   if (/(int|dec|numeric|number|float|double|real|money|serial)/.test(t)) return 'number';
