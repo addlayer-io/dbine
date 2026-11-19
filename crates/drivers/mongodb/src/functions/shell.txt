@@ -44,6 +44,11 @@ s db.collection.dropIndex(index)
 s db.collection.dropIndexes(index)
 s db.collection.hideIndex(index) since=4.4
 s db.collection.unhideIndex(index) since=4.4
+s db.collection.createSearchIndex(name, type, definition) since=6.0.7
+s db.collection.createSearchIndexes(indexes) since=6.0.7
+s db.collection.getSearchIndexes(name) since=6.0.7
+s db.collection.updateSearchIndex(name, definition) since=6.0.7
+s db.collection.dropSearchIndex(name) since=6.0.7
 s cursor.sort(sort)
 s cursor.projection(projection)
 s cursor.limit(n)

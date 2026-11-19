@@ -28,6 +28,9 @@ mod steps;
 mod sync;
 mod tls;
 mod transfer;
+mod vector;
+
+use std::collections::HashMap;
 
 use dbine_driver::sql::{
     split_script, split_statements, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind,
@@ -237,6 +240,8 @@ impl Driver for CouchbaseDriver {
             database_properties: true,
             jobs: true,
             scheduler: true,
+            // GSI vector indexes, hyperscale and composite (see `vector`).
+            vectors: true,
             ..Default::default()
         }
     }
@@ -410,6 +415,7 @@ impl Driver for CouchbaseDriver {
             profiler: None,
             txid: None,
             manual: false,
+            vectors: None,
         };
         let check = async {
             s.query("SELECT RAW 1", None).await?;
@@ -667,6 +673,11 @@ pub struct CbSession {
     txid: Option<String>,
     /// Manual transactions: the first read or DML opens one.
     manual: bool,
+    /// The bucket's vector index fields, for a while (results mark them).
+    vectors: Option<(
+        std::time::Instant,
+        HashMap<String, dbine_driver::VectorMeta>,
+    )>,
 }
 
 static SEQ: AtomicU64 = AtomicU64::new(0);
@@ -778,6 +789,48 @@ fn created_collection(stmt: &str) -> Option<String> {
         .filter(|k| !k.is_empty() && !k.eq_ignore_ascii_case("IF"))
 }
 
+/// The statement calls the Search service (`SEARCH(…)`, with
+/// `SEARCH_META` / `SEARCH_SCORE`), outside strings and quoted names.
+fn uses_search(stmt: &str) -> bool {
+    let b = stmt.as_bytes();
+    let mut i = 0;
+    let mut quote: Option<u8> = None;
+    while i < b.len() {
+        let c = b[i];
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None if matches!(c, b'\'' | b'"' | b'`') => quote = Some(c),
+            None if c.eq_ignore_ascii_case(&b's')
+                && (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_'))
+                && b.len() >= i + 6
+                && b[i..i + 6].eq_ignore_ascii_case(b"SEARCH") =>
+            {
+                let rest = stmt[i + 6..].trim_start();
+                if rest.starts_with('(') {
+                    return true;
+                }
+            }
+            None => {}
+        }
+        i += 1;
+    }
+    false
+}
+
+/// The `(bucket, scope)` a `CREATE SCOPE [IF NOT EXISTS] b.s` makes (the
+/// session's bucket for a bare scope name).
+fn created_scope(stmt: &str, bucket: Option<&str>) -> Option<(String, String)> {
+    let rest = vector::take_words(stmt, "CREATE SCOPE")?;
+    let rest = vector::take_words(rest, "IF NOT EXISTS").unwrap_or(rest);
+    let parts = vector::keyspace_parts(rest.trim().trim_end_matches(';'));
+    match parts.as_slice() {
+        [.., b, s] if !b.is_empty() && !s.is_empty() => Some((b.clone(), s.clone())),
+        [s] if !s.is_empty() => Some((bucket?.to_string(), s.clone())),
+        _ => None,
+    }
+}
+
 fn json_type(v: &Value) -> &'static str {
     match v {
         Value::Null => "null",
@@ -806,7 +859,12 @@ impl CbSession {
     }
 
     fn body(&self, stmt: &str, id: Option<&str>) -> Value {
-        let mut b = json!({"statement": stmt, "scan_consistency": "request_plus"});
+        let mut b = json!({ "statement": stmt });
+        // The Search service (`SEARCH()`) doesn't take `request_plus`
+        // ("n1fty: scan_plus consistency not supported"): its own default.
+        if !uses_search(stmt) {
+            b["scan_consistency"] = Value::String("request_plus".into());
+        }
         if let Some(c) = self.context() {
             b["query_context"] = Value::String(c);
         }
@@ -833,6 +891,37 @@ impl CbSession {
             .unwrap_or_default())
     }
 
+    /// The fields of the bucket's vector indexes (cached for 30 s,
+    /// forgotten when a statement other than a read runs).
+    async fn vector_fields(&mut self) -> HashMap<String, dbine_driver::VectorMeta> {
+        if let Some((at, f)) = &self.vectors {
+            if at.elapsed() < std::time::Duration::from_secs(30) {
+                return f.clone();
+            }
+        }
+        let Ok(b) = self.bucket() else {
+            return HashMap::new();
+        };
+        let lit = serde_json::to_string(&b).unwrap_or_default();
+        let rows = self
+            .results(&format!(
+                "SELECT i.index_key, i.`with` FROM system:indexes AS i
+                 WHERE i.`using` = 'gsi' AND (i.bucket_id = {lit} OR (i.bucket_id IS MISSING AND i.keyspace_id = {lit}))
+                   AND ANY k IN i.index_key SATISFIES UPPER(k) LIKE '% VECTOR' END"
+            ))
+            .await
+            .unwrap_or_default();
+        let mut f = vector::fields(&rows);
+        // The Search service's vector fields, when it runs.
+        if let Ok(body) = self.conn.mgmt_get("/_p/fts/api/index").await {
+            for (k, m) in vector::fts_result_fields(&body, &b) {
+                f.entry(k).or_insert(m);
+            }
+        }
+        self.vectors = Some((std::time::Instant::now(), f.clone()));
+        f
+    }
+
     /// Run one statement (with `extra` request fields) into `out`.
     async fn run(
         &mut self,
@@ -841,6 +930,9 @@ impl CbSession {
         max_rows: usize,
         out: &mut QueryOutcome,
     ) -> Result<Value> {
+        if !matches!(first_word(stmt).as_str(), "SELECT" | "WITH") {
+            self.vectors = None;
+        }
         let id = context_id();
         *self
             .cancel
@@ -876,16 +968,47 @@ impl CbSession {
         } else if results.is_empty() && (signature.is_none() || mutations.is_some()) {
             out.push_affected(mutations.unwrap_or(0));
         } else {
-            let (cols, rows) = tabulate(&results, signature);
-            out.begin_result(
-                cols.into_iter()
-                    .map(|name| ResultColumn {
-                        name,
-                        type_name: String::new(),
-                        vector: None,
-                    })
-                    .collect(),
-            );
+            let (cols, mut rows) = tabulate(&results, signature);
+            // Columns of a vector index's field whose values are all
+            // arrays of numbers: vectors, their text canonical.
+            let arrays: Vec<usize> = (0..cols.len())
+                .filter(|&i| {
+                    rows.iter().any(|r| !r[i].is_null())
+                        && rows.iter().all(|r| {
+                            r[i].is_null()
+                                || r[i]
+                                    .as_str()
+                                    .and_then(dbine_driver::vector::parse)
+                                    .is_some()
+                        })
+                })
+                .collect();
+            let fields = if arrays.is_empty() {
+                HashMap::new()
+            } else {
+                self.vector_fields().await
+            };
+            let mut columns: Vec<ResultColumn> = cols
+                .iter()
+                .map(|n| ResultColumn::new(n.clone(), ""))
+                .collect();
+            for i in arrays {
+                let Some(m) = fields.get(&cols[i]) else {
+                    continue;
+                };
+                for r in rows.iter_mut() {
+                    if let Some(t) = r[i]
+                        .as_str()
+                        .and_then(dbine_driver::vector::parse)
+                        .map(dbine_driver::vector::text)
+                    {
+                        r[i] = Value::String(t);
+                    }
+                }
+                columns[i] = ResultColumn::new(cols[i].clone(), vector::type_name(m.dims))
+                    .with_vector(m.clone());
+            }
+            out.begin_result(columns);
             for r in rows {
                 out.push_row(r, max_rows);
             }
@@ -917,6 +1040,10 @@ impl CbSession {
         max_rows: usize,
         out: &mut QueryOutcome,
     ) -> Result<()> {
+        // DBine's Search index statements: the Search service's REST API.
+        if let Some(cmd) = vector::search_command(stmt) {
+            return self.run_search(cmd?, out).await;
+        }
         let effect = tx_effect(stmt);
         if self.manual && self.txid.is_none() && effect == TxEffect::Data {
             self.begin(out).await?;
@@ -943,6 +1070,20 @@ impl CbSession {
                 Ok(())
             }
             Err(e) => {
+                // A vector index on a collection without documents can't
+                // train: it's created deferred, and said so.
+                if self.txid.is_none() {
+                    if let Some((retry, ks)) = vector::deferred(stmt) {
+                        if self.empty_keyspace(&ks).await
+                            && self.run(&retry, None, max_rows, out).await.is_ok()
+                        {
+                            out.warning(format!(
+                                "El índice vectorial se creó diferido: {ks} no tiene documentos con qué entrenarlo ({e}). Construilo con BUILD INDEX cuando estén cargados."
+                            ));
+                            return Ok(());
+                        }
+                    }
+                }
                 // A failed COMMIT ends the transaction too (the server
                 // rolls it back).
                 if self.txid.is_some()
@@ -954,6 +1095,83 @@ impl CbSession {
                 Err(e)
             }
         }
+    }
+
+    /// The keyspace holds no documents (`false` when it can't be told).
+    async fn empty_keyspace(&self, ks: &str) -> bool {
+        self.results(&format!("SELECT RAW COUNT(*) FROM {ks}"))
+            .await
+            .ok()
+            .and_then(|r| r.first().and_then(Value::as_u64))
+            == Some(0)
+    }
+
+    /// A DBine Search index statement (see `vector::search_command`),
+    /// through the cluster manager's `/_p/fts` (the Search service's
+    /// scoped index API, Couchbase 7.6+).
+    async fn run_search(
+        &mut self,
+        cmd: vector::SearchCommand,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
+        use vector::SearchCommand as C;
+        if self.conn.read_only {
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se crean ni se borran índices de búsqueda.".into(),
+            ));
+        }
+        let session_bucket = self.bucket().ok();
+        let url = |b: &str, s: &str, name: &str| {
+            format!(
+                "{}/_p/fts/api/bucket/{}/scope/{}/index/{}",
+                self.conn.mgmt,
+                encode(b),
+                encode(s),
+                encode(name)
+            )
+        };
+        match cmd {
+            C::Create {
+                name,
+                if_not_exists,
+                keyspace,
+                definition,
+            } => {
+                let (b, s) = vector::bucket_scope(&keyspace, session_bucket.as_deref())?;
+                let body = vector::fts_body(&definition, &name, &b);
+                let rq = self
+                    .conn
+                    .http
+                    .put(url(&b, &s, &name))
+                    .header("Content-Type", "application/json")
+                    .body(body.to_string());
+                match self.cancel.run(self.conn.mgmt_send(rq)).await {
+                    Ok(_) => out.info(format!("Índice de búsqueda {name} creado.")),
+                    Err(e) if if_not_exists && e.to_string().contains("exist") => {
+                        out.info(format!("El índice de búsqueda {name} ya existía."))
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            C::Drop {
+                name,
+                if_exists,
+                keyspace,
+            } => {
+                let (b, s) = vector::bucket_scope(&keyspace, session_bucket.as_deref())?;
+                let rq = self.conn.http.delete(url(&b, &s, &name));
+                match self.cancel.run(self.conn.mgmt_send(rq)).await {
+                    Ok(_) => out.info(format!("Índice de búsqueda {name} borrado.")),
+                    Err(e) if if_exists && e.to_string().contains("not") => {
+                        out.info(format!("El índice de búsqueda {name} no existía."))
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        self.vectors = None;
+        out.push_affected(0);
+        Ok(())
     }
 
     /// `BEGIN WORK` for manual mode.
@@ -988,6 +1206,22 @@ impl CbSession {
                 .await
                 .is_ok()
             {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
+
+    /// Waits (up to 10 s) until the query service sees the scope.
+    async fn wait_scope(&self, bucket: &str, scope: &str) {
+        let lit = |x: &str| serde_json::to_string(x).unwrap_or_default();
+        let stmt = format!(
+            "SELECT RAW 1 FROM system:scopes AS s WHERE s.`bucket` = {} AND s.name = {}",
+            lit(bucket),
+            lit(scope)
+        );
+        for _ in 0..40 {
+            if self.results(&stmt).await.is_ok_and(|r| !r.is_empty()) {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
@@ -1275,7 +1509,7 @@ impl Session for CbSession {
         }
         let rows = self
             .results(&format!(
-                "SELECT i.name, i.scope_id, i.keyspace_id, i.bucket_id, i.is_primary, i.index_key, i.`condition`, i.`partition`, i.`with`
+                "SELECT i.name, i.scope_id, i.keyspace_id, i.bucket_id, i.is_primary, i.index_key, i.`condition`, i.`partition`, i.`with`, i.metadata.definition
                  FROM system:indexes AS i
                  WHERE (i.bucket_id = {0} OR (i.bucket_id IS MISSING AND i.keyspace_id = {0})) AND i.`using` = 'gsi'
                  ORDER BY i.keyspace_id, i.name",
@@ -1301,6 +1535,33 @@ impl Session for CbSession {
             {
                 t.indexes.push(ddl::index_from_row(&r));
             }
+        }
+        // The Search service's vector indexes (when it runs), each in the
+        // collections it maps. Not readable for lack of permission: said.
+        match self.conn.mgmt_get("/_p/fts/api/index").await {
+            Ok(body) => {
+                for (scope, coll, ix) in vector::fts_indexes(&body, &b) {
+                    let schema = format!("{b}.{scope}");
+                    if let Some(t) = out
+                        .iter_mut()
+                        .find(|t| t.name == coll && t.schema.as_deref() == Some(schema.as_str()))
+                    {
+                        t.indexes.push(ix);
+                    }
+                }
+            }
+            Err(e) if e.to_string().starts_with("Sin permiso") => {
+                for t in &mut out {
+                    t.warnings.push(format!(
+                        "No se pudieron leer los índices del servicio Search ({e}): la copia, la comparación y la sincronización no los incluyen."
+                    ));
+                }
+            }
+            Err(_) => {}
+        }
+        // Vector fields: their `vector(N)` type (see `vector`).
+        for t in &mut out {
+            vector::describe(t);
         }
         Ok(out)
     }
@@ -1406,6 +1667,11 @@ impl Session for CbSession {
             step.end(out, r)?;
             if let Some(ks) = created_collection(&u.text) {
                 self.wait_for(&ks).await;
+            } else if let Some((b, sc)) = created_scope(&u.text, self.bucket.as_deref()) {
+                // Enterprise Edition publishes a new scope to the query
+                // service a moment later: a collection made in it right
+                // after would fail with "Scope not found".
+                self.wait_scope(&b, &sc).await;
             }
         }
         Ok(())
@@ -2215,6 +2481,36 @@ fn text_of(v: &Value) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn search_queries_go_without_request_plus() {
+        assert!(uses_search(
+            "SELECT META(d).id FROM ks AS d WHERE SEARCH(d, {\"knn\": []})"
+        ));
+        assert!(uses_search("select * from k where search (k, 'x')"));
+        assert!(!uses_search("SELECT 'SEARCH(' FROM k"));
+        assert!(!uses_search("SELECT `search`(1) FROM k"));
+        assert!(!uses_search("SELECT my_search(1), SEARCH_META() FROM k"));
+        assert!(!uses_search("SELECT * FROM k"));
+    }
+
+    #[test]
+    fn scopes_made_by_a_script_are_waited_for() {
+        assert_eq!(
+            created_scope("CREATE SCOPE dbine_cmp.dst;", None),
+            Some(("dbine_cmp".into(), "dst".into()))
+        );
+        assert_eq!(
+            created_scope("create scope if not exists `b`.`s x`", None),
+            Some(("b".into(), "s x".into()))
+        );
+        assert_eq!(
+            created_scope("CREATE SCOPE s", Some("app")),
+            Some(("app".into(), "s".into()))
+        );
+        assert_eq!(created_scope("CREATE SCOPE s", None), None);
+        assert_eq!(created_scope("CREATE COLLECTION b.s.c", None), None);
+    }
+
     /// Every monitor metric says what it measures and where it comes from,
     /// whichever source answered; the query service's CPU is a share of its
     /// cores and the cache hits are the gets served from memory.
@@ -2401,6 +2697,7 @@ mod tests {
             profiler: None,
             txid: None,
             manual: false,
+            vectors: None,
         };
         let o = ObjectRef {
             kind: kinds::COLLECTION.into(),

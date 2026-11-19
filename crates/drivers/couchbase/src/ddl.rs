@@ -91,7 +91,9 @@ pub fn designer() -> DesignerSpec {
     DesignerSpec {
         kind: kinds::COLLECTION,
         label: "Nueva colección",
-        data_types: Vec::new(),
+        // The fields aren't stored; a vector index takes its dimension
+        // from its field's type.
+        data_types: vec!["vector(1536)"],
         schemas: true,
         primary_key: false,
         auto_increment: false,
@@ -108,7 +110,8 @@ pub fn designer() -> DesignerSpec {
             Field::new("primary_index", "Crear índice primario", FieldKind::Bool)
                 .help("Permite consultar cualquier campo sin índices secundarios (más lento en colecciones grandes)."),
         ],
-        columns_required: false, vector_indexes: None,
+        columns_required: false,
+        vector_indexes: Some(crate::vector::designer_spec()),
     }
 }
 
@@ -161,7 +164,21 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     }
     if parts.indexes {
         for ix in &t.indexes {
-            out.push(index_ddl(&name, ix, parts.if_exists)?);
+            let mut ix = crate::vector::with_dims(t, ix);
+            // A vector index trains on the documents: on a collection made
+            // in the same script (still empty) it's deferred, and built
+            // with BUILD INDEX once the documents are in.
+            if parts.create && crate::vector::is_vector(&ix) && !crate::vector::is_search(&ix) {
+                ix.options
+                    .entry("defer_build".into())
+                    .or_insert_with(|| "true".into());
+                out.push(format!(
+                    "-- {}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {name}({}).",
+                    ix.name,
+                    q(&ix.name)
+                ));
+            }
+            out.push(index_ddl(&name, &ix, parts.if_exists)?);
         }
     }
     Ok(out.join("\n"))
@@ -207,7 +224,7 @@ pub fn index_from_row(r: &Value) -> IndexDef {
             }
         }
     }
-    IndexDef {
+    let mut ix = IndexDef {
         name: s("name").unwrap_or_default(),
         columns: r
             .get("index_key")
@@ -221,11 +238,30 @@ pub fn index_from_row(r: &Value) -> IndexDef {
         filter: s("condition"),
         options,
         ..Default::default()
+    };
+    // A vector index (hyperscale or composite): its vector key, settings
+    // and kind (see `vector`).
+    crate::vector::from_row(r, &mut ix);
+    ix
+}
+
+/// `DROP INDEX` of an index (`DROP SEARCH INDEX` for a Search one).
+pub fn drop_index(keyspace: &str, ix: &IndexDef) -> String {
+    if crate::vector::is_search(ix) {
+        crate::vector::fts_drop(keyspace, &ix.name)
+    } else {
+        format!("DROP INDEX {} ON {keyspace};", q(&ix.name))
     }
 }
 
 /// `CREATE [PRIMARY] INDEX … ON <keyspace>` for an index.
 pub fn index_ddl(keyspace: &str, ix: &IndexDef, if_not_exists: bool) -> Result<String> {
+    if crate::vector::is_search(ix) {
+        return crate::vector::fts_ddl(keyspace, ix, if_not_exists);
+    }
+    if crate::vector::is_vector(ix) {
+        return crate::vector::ddl(keyspace, ix, if_not_exists, field_path);
+    }
     let ine = if if_not_exists { " IF NOT EXISTS" } else { "" };
     let primary = ix
         .kind

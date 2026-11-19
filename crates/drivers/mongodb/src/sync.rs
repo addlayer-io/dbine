@@ -6,6 +6,7 @@
 //! warnings.
 
 use crate::ddl::{collection_options, index_parts, opt, q, relaxed, table_ddl};
+use crate::vector;
 use dbine_driver::{
     kinds, ColumnDef, DdlParts, IndexDef, Result, SyncScript, TableChange, TableSchema,
 };
@@ -70,9 +71,14 @@ fn required(c: &ColumnDef) -> bool {
     )
 }
 
+/// Same index, once each takes its dimension from its table's field type.
 fn ix_same(a: &IndexDef, b: &IndexDef) -> bool {
-    match (index_parts(a), index_parts(b)) {
-        (Ok(x), Ok(y)) => x == y,
+    match (vector::is_search(a), vector::is_search(b)) {
+        (true, true) => vector::same_search(a, b),
+        (false, false) => match (index_parts(a), index_parts(b)) {
+            (Ok(x), Ok(y)) => x == y,
+            _ => false,
+        },
         _ => false,
     }
 }
@@ -215,27 +221,45 @@ fn alter(old: &TableSchema, new: &TableSchema, p: &mut Plan) -> Result<()> {
         field_warnings(tname, &old.columns, &new.columns, &mut p.warnings);
     }
 
-    // Indexes, by name.
-    for o in &old.indexes {
-        if new
-            .indexes
-            .iter()
-            .find(|n| eq_name(&n.name, &o.name))
-            .is_none_or(|n| !ix_same(o, n))
-        {
-            p.pre.push(format!("{coll}.dropIndex({})", q(&o.name)));
+    // Indexes, by name, each with the dimension of its vector field. A
+    // vector search index that changes is updated in place
+    // (`updateSearchIndex`); the others are dropped and made again.
+    let olds: Vec<IndexDef> = old
+        .indexes
+        .iter()
+        .map(|i| vector::with_dims(old, i))
+        .collect();
+    let news: Vec<IndexDef> = new
+        .indexes
+        .iter()
+        .map(|i| vector::with_dims(new, i))
+        .collect();
+    // In place only within one type (`vectorSearch`, or Atlas Search's
+    // `search`): another type is dropped and made again.
+    let updated = |n: &IndexDef| {
+        vector::is_search(n)
+            && olds.iter().any(|o| {
+                eq_name(&o.name, &n.name)
+                    && vector::is_search(o)
+                    && vector::is_knn(o) == vector::is_knn(n)
+            })
+    };
+    for o in &olds {
+        match news.iter().find(|n| eq_name(&n.name, &o.name)) {
+            Some(n) if ix_same(o, n) => {}
+            Some(n) if updated(n) => p.post.push(vector::update_search(&coll, n)?),
+            _ if vector::is_search(o) => p.pre.push(vector::drop_search(&coll, &o.name)),
+            _ => p.pre.push(format!("{coll}.dropIndex({})", q(&o.name))),
         }
     }
-    let add: Vec<IndexDef> = new
-        .indexes
+    let add: Vec<IndexDef> = news
         .iter()
         .filter(|n| {
             n.name.trim().is_empty()
-                || old
-                    .indexes
+                || olds
                     .iter()
                     .find(|o| eq_name(&o.name, &n.name))
-                    .is_none_or(|o| !ix_same(o, n))
+                    .is_none_or(|o| !ix_same(o, n) && !updated(n))
         })
         .cloned()
         .collect();
@@ -342,6 +366,79 @@ mod tests {
             vec!["db.runCommand({ \"collMod\": \"users\", \"validator\": {\"$jsonSchema\":{\"required\":[\"name\"]}}, \"validationAction\": \"warn\" })"]
         );
         assert_eq!(s.warnings.len(), 1);
+    }
+
+    #[test]
+    fn vector_indexes_are_updated_dropped_and_created() {
+        use dbine_driver::VectorIndex;
+        let search = |name: &str, metric: &str| IndexDef {
+            name: name.into(),
+            columns: vec!["v".into(), "c".into()],
+            kind: Some("vectorSearch".into()),
+            vector: Some(VectorIndex {
+                metric: Some(metric.into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let old = coll(
+            vec![col("v", "vector(3)"), col("c", "string")],
+            vec![search("vix", "cosine"), search("gone", "cosine")],
+        );
+        let new = coll(
+            vec![col("v", "vector(3)"), col("c", "string")],
+            vec![search("vix", "l2"), search("added", "ip")],
+        );
+        let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
+        assert_eq!(
+            s.statements,
+            vec![
+                "db.getCollection(\"users\").dropSearchIndex(\"gone\")",
+                "db.getCollection(\"users\").updateSearchIndex(\"vix\", {\"fields\":[{\"type\":\"vector\",\"path\":\"v\",\"numDimensions\":3,\"similarity\":\"euclidean\"},{\"type\":\"filter\",\"path\":\"c\"}]})",
+                "db.getCollection(\"users\").createSearchIndex({\"name\":\"added\",\"type\":\"vectorSearch\",\"definition\":{\"fields\":[{\"type\":\"vector\",\"path\":\"v\",\"numDimensions\":3,\"similarity\":\"dotProduct\"},{\"type\":\"filter\",\"path\":\"c\"}]}})",
+            ]
+        );
+        // The field's dimension changes: the index follows.
+        let a = coll(vec![col("v", "vector(3)")], vec![search("vix", "cosine")]);
+        let mut b = a.clone();
+        b.columns[0].data_type = "vector(4)".into();
+        let s = sync_script(&[TableChange::Alter {
+            old: a.clone(),
+            new: b,
+        }])
+        .unwrap();
+        assert!(
+            s.statements[0].contains("updateSearchIndex")
+                && s.statements[0].contains("\"numDimensions\":4"),
+            "{:?}",
+            s.statements
+        );
+        // Unchanged: nothing.
+        let s = sync_script(&[TableChange::Alter {
+            old: a.clone(),
+            new: a,
+        }])
+        .unwrap();
+        assert!(s.statements.is_empty(), "{:?}", s.statements);
+        // A DocumentDB / FerretDB vector index is an ordinary one.
+        let plain = IndexDef {
+            name: "vc".into(),
+            columns: vec!["v".into()],
+            kind: Some("cosmosSearch".into()),
+            vector: Some(VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let a = coll(vec![col("v", "vector(3)")], vec![]);
+        let b = coll(vec![col("v", "vector(3)")], vec![plain]);
+        let s = sync_script(&[TableChange::Alter { old: a, new: b }]).unwrap();
+        assert_eq!(
+            s.statements,
+            vec!["db.getCollection(\"users\").createIndex({\"v\":\"cosmosSearch\"}, {\"name\":\"vc\",\"cosmosSearchOptions\":{\"kind\":\"vector-hnsw\",\"similarity\":\"COS\",\"dimensions\":3}})"]
+        );
     }
 
     #[test]

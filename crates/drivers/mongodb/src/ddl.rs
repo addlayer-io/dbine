@@ -62,12 +62,18 @@ const BSON_TYPES: &[&str] = &[
     "maxKey",
 ];
 
-pub fn designer() -> DesignerSpec {
+pub fn designer(flavor: crate::Flavor) -> DesignerSpec {
     let bool_field = |k, l| Field::new(k, l, FieldKind::Bool);
+    let mut data_types: Vec<&'static str> = BSON_TYPES
+        .iter()
+        .copied()
+        .filter(|t| !matches!(*t, "null" | "javascript" | "minKey" | "maxKey"))
+        .collect();
+    data_types.push("vector(1536)");
     DesignerSpec {
         kind: kinds::COLLECTION,
         label: "Nueva colección",
-        data_types: BSON_TYPES.iter().copied().filter(|t| !matches!(*t, "null" | "javascript" | "minKey" | "maxKey")).collect(),
+        data_types,
         schemas: false,
         primary_key: false,
         auto_increment: false,
@@ -110,7 +116,8 @@ pub fn designer() -> DesignerSpec {
             Field::new("expireAfterSeconds", "Expirar documentos (segundos)", FieldKind::Number)
                 .help("Solo para series temporales o colecciones agrupadas."),
         ],
-        columns_required: false, vector_indexes: None,
+        columns_required: false,
+        vector_indexes: Some(crate::vector::designer_spec(flavor)),
     }
 }
 
@@ -185,6 +192,15 @@ fn bson_types(data_type: &str, nullable: bool) -> Result<Option<Value>> {
         .map(str::trim)
         .filter(|t| !t.is_empty())
     {
+        // A vector field: an array of numbers or a BinData vector.
+        if crate::vector::parse_type(raw).is_some() {
+            for t in ["array", "binData"] {
+                if !types.iter().any(|x| x == t) {
+                    types.push(t.into());
+                }
+            }
+            continue;
+        }
         let t = match raw.to_ascii_lowercase().as_str() {
             "any" | "mixed" | "*" => return Ok(None),
             "integer" | "int32" => "int".to_string(),
@@ -329,6 +345,21 @@ pub(crate) fn collection_options(t: &TableSchema) -> Result<Map<String, Value>> 
 
 /// Key document and options of an index (see the module docs).
 pub(crate) fn index_parts(ix: &IndexDef) -> Result<(Map<String, Value>, Map<String, Value>)> {
+    if crate::vector::is_vector_kind(ix.kind.as_deref()) && !crate::vector::is_search(ix) {
+        let (key, vo) = crate::vector::plain_index_parts(ix)?;
+        let mut o = Map::new();
+        if !ix.name.trim().is_empty() {
+            o.insert("name".into(), ix.name.trim().into());
+        }
+        o.extend(vo);
+        return Ok((key, o));
+    }
+    if crate::vector::is_search(ix) {
+        return Err(Error::Query(format!(
+            "el índice {} es de búsqueda vectorial (vectorSearch): se crea con createSearchIndex",
+            ix.name
+        )));
+    }
     let mut default_type: Option<Value> = None;
     let mut o = Map::new();
     for tok in ix
@@ -493,6 +524,11 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     }
     if parts.indexes && !view {
         for ix in &t.indexes {
+            let ix = &crate::vector::with_dims(t, ix);
+            if crate::vector::is_search(ix) {
+                lines.push(crate::vector::create_search(&coll, ix)?);
+                continue;
+            }
             let (key, o) = index_parts(ix)?;
             if o.is_empty() {
                 lines.push(format!("{coll}.createIndex({})", Value::Object(key)));
@@ -518,10 +554,14 @@ fn is_object_id(s: &str) -> bool {
 /// `insertMany` batches. Null cells are left out of the document (a missing
 /// field reads back as null); an `_id` that is 24 hex digits becomes an
 /// `ObjectId` (that's how the grid shows them). Other values go as JSON.
+/// `binary`: fields whose vectors the collection keeps as BinData (field →
+/// element, see `vector::binary_fields`); a vector value there (a JSON
+/// array of numbers) goes as a BinData vector, elsewhere as the array.
 pub fn insert_script(
     target: &ObjectRef,
     columns: &[String],
     rows: &[Vec<Value>],
+    binary: &std::collections::HashMap<String, dbine_driver::VectorElement>,
 ) -> Result<String> {
     let coll = format!("db.getCollection({})", q(&target.name));
     let mut out = Vec::new();
@@ -538,7 +578,10 @@ pub fn insert_script(
                             Value::String(s) if c == "_id" && is_object_id(s) => {
                                 format!("ObjectId(\"{s}\")")
                             }
-                            other => other.to_string(),
+                            other => match (binary.get(c.as_str()), vector_value(other)) {
+                                (Some(el), Some(n)) => crate::vector::binary_literal(&n, *el),
+                                _ => other.to_string(),
+                            },
                         };
                         format!("{}: {val}", q(c))
                     })
@@ -568,9 +611,26 @@ fn shell_doc(pairs: &[(String, Value)]) -> String {
     format!("{{ {} }}", fields.join(", "))
 }
 
+/// The numbers of a vector value of an edit (a JSON array of numbers).
+fn vector_value(v: &Value) -> Option<Vec<f64>> {
+    match v {
+        Value::Array(a) if !a.is_empty() => dbine_driver::vector::parse_value(v),
+        _ => None,
+    }
+}
+
 /// One `updateOne` per edited document. The filter is the `_id` alone when
 /// the key has it, otherwise every key field; null values are `$set` to null.
-pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
+/// With `keep_binary`, a vector value (a JSON array of numbers) keeps the
+/// form the document stores it in: the update is a pipeline whose `$set`
+/// writes a BinData vector where the field holds one and the array
+/// elsewhere (see [`crate::vector::keep_form_expr`]); the other values go
+/// as `$literal`.
+pub fn update_script(
+    target: &ObjectRef,
+    changes: &[RowChange],
+    keep_binary: bool,
+) -> Result<String> {
     let coll = format!("db.getCollection({})", q(&target.name));
     let mut out = Vec::new();
     for ch in changes.iter().filter(|c| !c.set.is_empty()) {
@@ -578,6 +638,36 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
             Some(id) => vec![id.clone()],
             None => ch.key.clone(),
         };
+        if keep_binary && ch.set.iter().any(|(_, v)| vector_value(v).is_some()) {
+            let fields: Vec<String> =
+                ch.set
+                    .iter()
+                    .map(|(c, v)| {
+                        let val = match vector_value(v) {
+                            Some(n) => {
+                                // The value it had (the grid's row: the
+                                // vector's text), to tell the stored element.
+                                let old =
+                                    ch.row.iter().find(|(k, _)| k == c).and_then(
+                                        |(_, o)| match o {
+                                            Value::String(t) => dbine_driver::vector::parse(t),
+                                            other => vector_value(other),
+                                        },
+                                    );
+                                crate::vector::keep_form_expr(c, &n, old.as_deref())
+                            }
+                            None => format!("{{ $literal: {} }}", shell_value(c, v)),
+                        };
+                        format!("{}: {val}", q(c))
+                    })
+                    .collect();
+            out.push(format!(
+                "{coll}.updateOne({}, [{{ $set: {{ {} }} }}])",
+                shell_doc(&filter),
+                fields.join(", ")
+            ));
+            continue;
+        }
         out.push(format!(
             "{coll}.updateOne({}, {{ $set: {} }})",
             shell_doc(&filter),
@@ -811,6 +901,9 @@ fn collation_text(c: &Document) -> String {
 /// other keys carry their direction (`field:1`). Settings go in `options`
 /// with the server's names and only when they aren't the default.
 pub fn index_def(spec: &Document) -> Option<IndexDef> {
+    if let Some(ix) = crate::vector::plain_index_def(spec) {
+        return Some(ix);
+    }
     let name = spec.get_str("name").ok()?.to_string();
     // A clustered collection's index is part of the collection (its
     // `clustered` option), not one `createIndex` can make.
@@ -920,7 +1013,20 @@ pub fn index_def(spec: &Document) -> Option<IndexDef> {
 /// `_id_`.
 pub(crate) const CLUSTERED_NAME: &str = "clusteredIndexName";
 
+#[cfg(test)]
 pub fn table_schema(info: &Document, columns: Vec<ColumnDef>, indexes: &[Document]) -> TableSchema {
+    table_schema_with(info, columns, indexes, &[])
+}
+
+/// [`table_schema`] with the collection's search indexes
+/// (`$listSearchIndexes`): its vector search indexes join the others, and
+/// their fields get their `vector(N)` type.
+pub fn table_schema_with(
+    info: &Document,
+    columns: Vec<ColumnDef>,
+    indexes: &[Document],
+    search: &[Document],
+) -> TableSchema {
     let name = info.get_str("name").unwrap_or_default().to_string();
     let view = info.get_str("type") == Ok("view");
     let empty = Document::new();
@@ -1011,15 +1117,17 @@ pub fn table_schema(info: &Document, columns: Vec<ColumnDef>, indexes: &[Documen
         .iter()
         .filter_map(index_def)
         .map(|mut ix| {
-            if simple_by_default && !ix.options.contains_key("collation") {
+            if simple_by_default && ix.vector.is_none() && !ix.options.contains_key("collation") {
                 ix.options
                     .insert("collation".into(), r#"{"locale":"simple"}"#.into());
             }
             ix
         })
         .collect();
+    let mut indexes = indexes;
+    indexes.extend(search.iter().filter_map(crate::vector::search_index_def));
     let has_id = columns.iter().any(|c| c.name == "_id");
-    TableSchema {
+    let mut t = TableSchema {
         kind: if view { kinds::VIEW } else { kinds::COLLECTION }.to_string(),
         schema: None,
         primary_key: (!view && has_id).then(|| KeyDef {
@@ -1034,7 +1142,9 @@ pub fn table_schema(info: &Document, columns: Vec<ColumnDef>, indexes: &[Documen
         options,
         name,
         warnings: Vec::new(),
-    }
+    };
+    crate::vector::describe_fields(&mut t);
+    t
 }
 
 /// `db.createView(…)` for a view's `listCollections` options (source,
@@ -1831,7 +1941,7 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let text = update_script(&target, &changes).unwrap();
+        let text = update_script(&target, &changes, true).unwrap();
         assert_eq!(
             text,
             "db.getCollection(\"users\").updateOne({ \"_id\": ObjectId(\"65a1b2c3d4e5f60718293a00\") }, { $set: { \"name\": \"O'Brien \\\"Bob\\\"\", \"age\": null } })\n\
@@ -1897,7 +2007,7 @@ mod tests {
             schema: None,
             name: "odd name".into(),
         };
-        let text = insert_script(&target, &cols, &rows).unwrap();
+        let text = insert_script(&target, &cols, &rows, &Default::default()).unwrap();
         let st = parse_script(&text).unwrap();
         assert_eq!(st.len(), 3);
         assert_eq!(st[0].shape, Shape::Write);

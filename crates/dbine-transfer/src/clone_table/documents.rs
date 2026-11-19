@@ -25,7 +25,10 @@
 //!   clone is built under a name of its own and renamed at the end;
 //!   `renameCollection` fails if the name was taken meanwhile, and then
 //!   only the clone's own collection is dropped. Time series collections
-//!   can't be renamed: they're built in place.
+//!   can't be renamed: they're built in place. Search indexes (Atlas
+//!   Vector Search, Atlas Search) live in mongot, apart from the
+//!   collection: those the building name had and the final name lacks
+//!   after the rename are made again on it ([`finish`]).
 
 use super::exec;
 use dbine_driver::{Driver, Error, Family, QueryOutcome, Result, Session};
@@ -46,6 +49,17 @@ pub(super) struct Prepared {
     pub rename_to: Option<String>,
     /// Statements run after the documents and the indexes.
     pub after: Vec<String>,
+    /// MongoDB's search indexes, each by name with the script that makes it
+    /// on the final name (see [`finish`]).
+    pub search_after_rename: Vec<(String, String)>,
+}
+
+/// Search index kinds of the MongoDB driver (`vectorSearch`, Atlas
+/// Search's `search`).
+fn search_kind(kind: Option<&str>) -> bool {
+    kind.is_some_and(|k| {
+        k.trim().eq_ignore_ascii_case("vectorSearch") || k.trim().eq_ignore_ascii_case("search")
+    })
 }
 
 /// Table options that make the object a member of something shared: never
@@ -129,6 +143,24 @@ pub(super) fn prepare(
         && !t.options.contains_key("timeField")
     {
         let final_name = t.name.clone();
+        // Each search index's script on the final name, in case the rename
+        // leaves it behind.
+        for ix in t.indexes.iter().filter(|i| search_kind(i.kind.as_deref())) {
+            let one = dbine_driver::TableSchema {
+                name: final_name.clone(),
+                columns: t.columns.clone(),
+                indexes: vec![ix.clone()],
+                ..Default::default()
+            };
+            let script = driver.table_ddl(
+                &one,
+                dbine_driver::DdlParts {
+                    indexes: true,
+                    ..Default::default()
+                },
+            )?;
+            out.search_after_rename.push((ix.name.clone(), script));
+        }
         t.name = format!("{final_name}__dbine_tmp_{}", unique_tag());
         out.rename_to = Some(final_name);
     }
@@ -236,6 +268,11 @@ pub(super) async fn finish(s: &mut dyn Session, plan: &ClonePlan, p: &Prepared) 
         })?;
     }
     if let Some(to) = &p.rename_to {
+        let before = if p.search_after_rename.is_empty() {
+            Vec::new()
+        } else {
+            search_index_names(s, &plan.table.name).await
+        };
         let db = mongo_database(s).await?;
         let cmd = serde_json::json!({ "renameCollection": format!("{db}.{}", plan.table.name), "to": format!("{db}.{to}") });
         if let Err(e) = exec(s, &format!("db.adminCommand({cmd})")).await {
@@ -249,8 +286,46 @@ pub(super) async fn finish(s: &mut dyn Session, plan: &ClonePlan, p: &Prepared) 
                 "no se pudo dar el nombre final a la colección: {e}"
             )));
         }
+        // Search indexes the rename didn't take along: made on the final
+        // name (their documents are already in).
+        let after = if before.is_empty() {
+            Vec::new()
+        } else {
+            search_index_names(s, to).await
+        };
+        for (name, script) in &p.search_after_rename {
+            if before.contains(name) && !after.contains(name) {
+                exec(s, script).await.map_err(|e| {
+                    Error::Query(format!(
+                        "el índice de búsqueda {name} no siguió a la colección al renombrarla y no se pudo crear de nuevo: {e}"
+                    ))
+                })?;
+            }
+        }
     }
     Ok(())
+}
+
+/// The names of a MongoDB collection's search indexes (none where the
+/// server has no search, or it can't tell).
+async fn search_index_names(s: &mut dyn Session, coll: &str) -> Vec<String> {
+    let mut out = QueryOutcome::default();
+    let stmt = format!(
+        "db.getCollection({}).getSearchIndexes()",
+        Value::String(coll.to_string())
+    );
+    if s.execute(&stmt, 10_000, &mut out).await.is_err() || out.error.is_some() {
+        return Vec::new();
+    }
+    out.results
+        .iter()
+        .flat_map(|r| {
+            let at = r.columns.iter().position(|c| c.name == "name");
+            r.rows
+                .iter()
+                .filter_map(move |row| row.get(at?)?.as_str().map(str::to_string))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -453,5 +528,50 @@ mod tests {
             );
         }
         assert!(check_whole_source(&os, &plan("i", &[]).table).is_ok());
+    }
+
+    /// MongoDB: the clone is built under another name; each search index
+    /// gets its script on the final name, for a rename that leaves it
+    /// behind (see `finish`).
+    #[test]
+    fn mongodb_search_indexes_have_their_script_for_the_final_name() {
+        let driver = dbine_drivers::find("mongodb").expect("the MongoDB driver");
+        let mut p = plan("items", &[]);
+        p.table.kind = "collection".into();
+        p.table.columns = vec![dbine_driver::ColumnDef {
+            name: "emb".into(),
+            data_type: "vector(3)".into(),
+            ..Default::default()
+        }];
+        p.table.indexes = vec![
+            dbine_driver::IndexDef {
+                name: "vix".into(),
+                columns: vec!["emb".into()],
+                kind: Some("vectorSearch".into()),
+                vector: Some(dbine_driver::VectorIndex::default()),
+                ..Default::default()
+            },
+            dbine_driver::IndexDef {
+                name: "a_1".into(),
+                columns: vec!["a".into()],
+                ..Default::default()
+            },
+        ];
+        let mut notes = Vec::new();
+        let out = prepare(&**driver, &mut p, &mut notes).unwrap();
+        assert_eq!(out.rename_to.as_deref(), Some("items"));
+        assert!(p.table.name.starts_with("items__dbine_tmp_"));
+        // Still made with the collection (under the building name)…
+        assert_eq!(p.table.indexes.len(), 2);
+        // …and ready to be made again on the final one.
+        assert_eq!(out.search_after_rename.len(), 1);
+        let (name, script) = &out.search_after_rename[0];
+        assert_eq!(name, "vix");
+        assert!(
+            script.starts_with("db.getCollection(\"items\").createSearchIndex(")
+                && script.contains("\"numDimensions\":3"),
+            "{script}"
+        );
+        assert!(search_kind(Some("search")) && !search_kind(Some("cosmosSearch")));
     }
 }

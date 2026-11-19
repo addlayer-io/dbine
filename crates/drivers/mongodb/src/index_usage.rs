@@ -25,6 +25,12 @@
 //!   missing (FerretDB has no `$indexStats`): the indexes are listed without
 //!   counters and the note says why.
 //! - No foreign keys: documents reference each other only by convention.
+//! - Vector search indexes (Atlas Vector Search, mongot): from
+//!   `$listSearchIndexes`, kind `VECTOR SEARCH` with the status
+//!   (`READY`, `BUILDING`…), or `SEARCH` for an Atlas Search index with
+//!   `knnVector` fields, no counters (see `vector::search_usage`). When
+//!   they can't be read (no permission, mongot not up yet), the note says
+//!   so.
 //! - Disable / enable: a hidden index (`hidden: true` in its spec,
 //!   MongoDB 4.4+) is `disabled`. `toggle_script` hides or unhides it with
 //!   `hideIndex` / `unhideIndex` (`collMod`): the index keeps being
@@ -318,7 +324,22 @@ impl MongoSession {
             }
         }
         let sizes = (!sizes.is_empty()).then_some(&sizes);
-        Ok(Some(assemble(&specs, stats.as_ref(), sizes, note)))
+        let mut report = assemble(&specs, stats.as_ref(), sizes, note);
+        // Vector search indexes (Atlas / mongot), with their status: the
+        // server keeps no usage counters for them.
+        match self.search_indexes(&self.db, &obj.name).await {
+            Ok(search) => report
+                .indexes
+                .extend(search.iter().filter_map(crate::vector::search_usage)),
+            Err(e) => {
+                let note = format!("No se pudieron leer los índices de búsqueda: {e}");
+                report.note = Some(match report.note.take() {
+                    Some(n) => format!("{n} {note}"),
+                    None => note,
+                });
+            }
+        }
+        Ok(Some(report))
     }
 }
 
