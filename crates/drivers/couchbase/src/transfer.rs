@@ -909,6 +909,18 @@ impl CbSession {
             spec.columns.clone()
         };
         let key_col = key_column(&names);
+        // Columns of another engine's vector type (pgvector's `vector`,
+        // `VECTOR(…)`…): their text cells are arrays of numbers here.
+        let vectors: Vec<bool> = (0..names.len())
+            .map(|i| {
+                let c = if columns.len() == names.len() {
+                    columns.get(i)
+                } else {
+                    columns.iter().find(|c| c.name == names[i])
+                };
+                c.is_some_and(|c| vector_type(&c.type_name))
+            })
+            .collect();
 
         // Every statement of the load carries this id: a dropped load stops
         // them all on the server. The interrupter doesn't get it: it only
@@ -963,7 +975,8 @@ impl CbSession {
                             names.len()
                         )));
                     }
-                    l.add(&entry_bytes(&names, key_col, row, rows)?).await?;
+                    let row = vector_cells(row, &vectors);
+                    l.add(&entry_bytes(&names, key_col, &row, rows)?).await?;
                 }
                 l.reap()?;
             }
@@ -987,9 +1000,74 @@ impl CbSession {
     }
 }
 
+/// A column type that holds vectors: this driver's `vector(N)` and other
+/// engines' (pgvector's `vector` / `halfvec`, `VECTOR(…)`, Cassandra's
+/// `vector<…>`, libSQL's `F32_BLOB`, HANA's `REAL_VECTOR`…). Sparse
+/// vectors aren't.
+fn vector_type(t: &str) -> bool {
+    let p = t.trim().to_ascii_lowercase();
+    [
+        "vector",
+        "halfvec",
+        "real_vector",
+        "half_vector",
+        "f32_blob",
+        "f64_blob",
+        "f16_blob",
+        "fb16_blob",
+        "f8_blob",
+        "f1bit_blob",
+    ]
+    .iter()
+    .any(|v| {
+        p.strip_prefix(v)
+            .is_some_and(|r| r.is_empty() || r.starts_with(['(', '<', ' ']))
+    })
+}
+
+/// `row` with the text of its vector columns as JSON arrays.
+fn vector_cells(row: &[Cell], vectors: &[bool]) -> Vec<Cell> {
+    row.iter()
+        .zip(vectors.iter().chain(std::iter::repeat(&false)))
+        .map(|(c, v)| match c {
+            Cell::Text(t) if *v => dbine_driver::vector::parse(t)
+                .map(|n| Cell::Json(dbine_driver::vector::text(n)))
+                .unwrap_or_else(|| c.clone()),
+            other => other.clone(),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vector_text_loads_as_arrays() {
+        assert!(
+            vector_type("vector(3)")
+                && vector_type("VECTOR(3, FLOAT32)")
+                && vector_type("F32_BLOB(4)")
+        );
+        assert!(!vector_type("sparsevec(3)") && !vector_type("varchar") && !vector_type(""));
+        let row = [
+            Cell::Text("k".into()),
+            Cell::Text("[0.5,1e-7]".into()),
+            Cell::Text("[1]".into()),
+        ];
+        let out = vector_cells(&row, &[false, true]);
+        assert_eq!(
+            out,
+            [
+                Cell::Text("k".into()),
+                Cell::Json("[0.5,0.0000001]".into()),
+                Cell::Text("[1]".into())
+            ]
+        );
+        let bytes = entry_bytes(&names(&["_id", "emb"]), Some(0), &out[..2], 1).unwrap();
+        let v: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(v.to_string().contains("[0.5,1e-7]"), "{v}");
+    }
 
     fn names(n: &[&str]) -> Vec<String> {
         n.iter().map(|s| s.to_string()).collect()

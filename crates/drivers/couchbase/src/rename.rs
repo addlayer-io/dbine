@@ -77,7 +77,11 @@ fn renamed_index(ix: &IndexDef, old: &str, new: &str) -> Option<IndexDef> {
     let mut out = ix.clone();
     let mut changed = false;
     for c in &mut out.columns {
-        if let Some(n) = rename_in(c, old, new) {
+        // A vector index's field goes by its name (see `vector`).
+        if c == old {
+            *c = new.to_string();
+            changed = true;
+        } else if let Some(n) = rename_in(c, old, new) {
             *c = n;
             changed = true;
         }
@@ -116,6 +120,8 @@ fn field(
         Some(t) => {
             let mut names = Vec::new();
             for ix in &t.indexes {
+                // The dimension comes from the field's type, under its old name.
+                let ix = &crate::vector::with_dims(t, ix);
                 if let Some(r) = renamed_index(ix, old, new) {
                     statements.push(format!("DROP INDEX {} ON {ks};", q(&ix.name)));
                     statements.push(index_ddl(&ks, &r, false)?);

@@ -28,6 +28,9 @@ mod steps;
 mod sync;
 mod tls;
 mod transfer;
+mod vector;
+
+use std::collections::HashMap;
 
 use dbine_driver::sql::{
     split_script, split_statements, ScriptDefaults, ScriptDialect, ScriptMode, StatementKind,
@@ -237,6 +240,8 @@ impl Driver for CouchbaseDriver {
             database_properties: true,
             jobs: true,
             scheduler: true,
+            // GSI vector indexes, hyperscale and composite (see `vector`).
+            vectors: true,
             ..Default::default()
         }
     }
@@ -410,6 +415,7 @@ impl Driver for CouchbaseDriver {
             profiler: None,
             txid: None,
             manual: false,
+            vectors: None,
         };
         let check = async {
             s.query("SELECT RAW 1", None).await?;
@@ -667,6 +673,11 @@ pub struct CbSession {
     txid: Option<String>,
     /// Manual transactions: the first read or DML opens one.
     manual: bool,
+    /// The bucket's vector index fields, for a while (results mark them).
+    vectors: Option<(
+        std::time::Instant,
+        HashMap<String, dbine_driver::VectorMeta>,
+    )>,
 }
 
 static SEQ: AtomicU64 = AtomicU64::new(0);
@@ -833,6 +844,31 @@ impl CbSession {
             .unwrap_or_default())
     }
 
+    /// The fields of the bucket's vector indexes (cached for 30 s,
+    /// forgotten when a statement other than a read runs).
+    async fn vector_fields(&mut self) -> HashMap<String, dbine_driver::VectorMeta> {
+        if let Some((at, f)) = &self.vectors {
+            if at.elapsed() < std::time::Duration::from_secs(30) {
+                return f.clone();
+            }
+        }
+        let Ok(b) = self.bucket() else {
+            return HashMap::new();
+        };
+        let lit = serde_json::to_string(&b).unwrap_or_default();
+        let rows = self
+            .results(&format!(
+                "SELECT i.index_key, i.`with` FROM system:indexes AS i
+                 WHERE i.`using` = 'gsi' AND (i.bucket_id = {lit} OR (i.bucket_id IS MISSING AND i.keyspace_id = {lit}))
+                   AND ANY k IN i.index_key SATISFIES UPPER(k) LIKE '% VECTOR' END"
+            ))
+            .await
+            .unwrap_or_default();
+        let f = vector::fields(&rows);
+        self.vectors = Some((std::time::Instant::now(), f.clone()));
+        f
+    }
+
     /// Run one statement (with `extra` request fields) into `out`.
     async fn run(
         &mut self,
@@ -841,6 +877,9 @@ impl CbSession {
         max_rows: usize,
         out: &mut QueryOutcome,
     ) -> Result<Value> {
+        if !matches!(first_word(stmt).as_str(), "SELECT" | "WITH") {
+            self.vectors = None;
+        }
         let id = context_id();
         *self
             .cancel
@@ -876,16 +915,47 @@ impl CbSession {
         } else if results.is_empty() && (signature.is_none() || mutations.is_some()) {
             out.push_affected(mutations.unwrap_or(0));
         } else {
-            let (cols, rows) = tabulate(&results, signature);
-            out.begin_result(
-                cols.into_iter()
-                    .map(|name| ResultColumn {
-                        name,
-                        type_name: String::new(),
-                        vector: None,
-                    })
-                    .collect(),
-            );
+            let (cols, mut rows) = tabulate(&results, signature);
+            // Columns of a vector index's field whose values are all
+            // arrays of numbers: vectors, their text canonical.
+            let arrays: Vec<usize> = (0..cols.len())
+                .filter(|&i| {
+                    rows.iter().any(|r| !r[i].is_null())
+                        && rows.iter().all(|r| {
+                            r[i].is_null()
+                                || r[i]
+                                    .as_str()
+                                    .and_then(dbine_driver::vector::parse)
+                                    .is_some()
+                        })
+                })
+                .collect();
+            let fields = if arrays.is_empty() {
+                HashMap::new()
+            } else {
+                self.vector_fields().await
+            };
+            let mut columns: Vec<ResultColumn> = cols
+                .iter()
+                .map(|n| ResultColumn::new(n.clone(), ""))
+                .collect();
+            for i in arrays {
+                let Some(m) = fields.get(&cols[i]) else {
+                    continue;
+                };
+                for r in rows.iter_mut() {
+                    if let Some(t) = r[i]
+                        .as_str()
+                        .and_then(dbine_driver::vector::parse)
+                        .map(dbine_driver::vector::text)
+                    {
+                        r[i] = Value::String(t);
+                    }
+                }
+                columns[i] = ResultColumn::new(cols[i].clone(), vector::type_name(m.dims))
+                    .with_vector(m.clone());
+            }
+            out.begin_result(columns);
             for r in rows {
                 out.push_row(r, max_rows);
             }
@@ -1275,7 +1345,7 @@ impl Session for CbSession {
         }
         let rows = self
             .results(&format!(
-                "SELECT i.name, i.scope_id, i.keyspace_id, i.bucket_id, i.is_primary, i.index_key, i.`condition`, i.`partition`, i.`with`
+                "SELECT i.name, i.scope_id, i.keyspace_id, i.bucket_id, i.is_primary, i.index_key, i.`condition`, i.`partition`, i.`with`, i.metadata.definition
                  FROM system:indexes AS i
                  WHERE (i.bucket_id = {0} OR (i.bucket_id IS MISSING AND i.keyspace_id = {0})) AND i.`using` = 'gsi'
                  ORDER BY i.keyspace_id, i.name",
@@ -1301,6 +1371,10 @@ impl Session for CbSession {
             {
                 t.indexes.push(ddl::index_from_row(&r));
             }
+        }
+        // Vector fields: their `vector(N)` type (see `vector`).
+        for t in &mut out {
+            vector::describe(t);
         }
         Ok(out)
     }
@@ -2401,6 +2475,7 @@ mod tests {
             profiler: None,
             txid: None,
             manual: false,
+            vectors: None,
         };
         let o = ObjectRef {
             kind: kinds::COLLECTION.into(),

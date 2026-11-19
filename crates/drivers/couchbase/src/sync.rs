@@ -61,6 +61,12 @@ fn ix_same(a: &IndexDef, b: &IndexDef) -> bool {
             .to_lowercase()
     };
     let kind = |x: &IndexDef| x.kind.as_deref().unwrap_or("").to_uppercase();
+    // A vector index by what it creates (kind, defaults and dimension
+    // filled in).
+    if crate::vector::is_vector(a) || crate::vector::is_vector(b) {
+        let text = |x: &IndexDef| crate::ddl::index_ddl("k", x, false).ok();
+        return text(a).is_some() && text(a) == text(b);
+    }
     cols(&a.columns) == cols(&b.columns)
         && w(&a.filter) == w(&b.filter)
         && kind(a) == kind(b)
@@ -98,7 +104,22 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
         (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for ch in changes {
         match ch {
-            TableChange::Create { table } => creates.push(table_ddl(table, CREATE)?),
+            TableChange::Create { table } => {
+                let vectors: Vec<String> = table
+                    .indexes
+                    .iter()
+                    .filter(|i| crate::vector::is_vector(i))
+                    .map(|i| format!("«{}»", i.name))
+                    .collect();
+                if !vectors.is_empty() {
+                    warnings.push(format!(
+                        "Los índices vectoriales {} de {} se crean diferidos: Couchbase los entrena con los documentos; después de cargarlos, constrúyelos con BUILD INDEX.",
+                        vectors.join(", "),
+                        display(table)
+                    ));
+                }
+                creates.push(table_ddl(table, CREATE)?)
+            }
             TableChange::Drop { table } => {
                 warnings.push(format!(
                     "Se borra la colección {} con todos sus documentos.",
@@ -119,9 +140,19 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
                     warnings.push(format!("{tname}: el TTL máximo de una colección no se cambia con SQL++; se deja como está."));
                 }
                 field_warnings(&tname, &old.columns, &new.columns, &mut warnings);
-                for o in &old.indexes {
-                    if new
-                        .indexes
+                // Each with the dimension of its vector field.
+                let olds: Vec<IndexDef> = old
+                    .indexes
+                    .iter()
+                    .map(|i| crate::vector::with_dims(old, i))
+                    .collect();
+                let news: Vec<IndexDef> = new
+                    .indexes
+                    .iter()
+                    .map(|i| crate::vector::with_dims(new, i))
+                    .collect();
+                for o in &olds {
+                    if news
                         .iter()
                         .find(|n| eq_name(&n.name, &o.name))
                         .is_none_or(|n| !ix_same(o, n))
@@ -129,12 +160,10 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
                         pre.push(format!("DROP INDEX {} ON {ks};", q(&o.name)));
                     }
                 }
-                let add: Vec<IndexDef> = new
-                    .indexes
+                let add: Vec<IndexDef> = news
                     .iter()
                     .filter(|n| {
-                        old.indexes
-                            .iter()
+                        olds.iter()
                             .find(|o| eq_name(&o.name, &n.name))
                             .is_none_or(|o| !ix_same(o, n))
                     })

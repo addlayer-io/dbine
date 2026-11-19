@@ -146,10 +146,23 @@ pub(crate) fn assemble(rows: &[Value], stats: Option<&Stats>) -> Vec<IndexUsage>
                 .get("partition")
                 .and_then(Value::as_str)
                 .is_some_and(|p| !p.is_empty());
-            let kind = match (primary, partitioned) {
-                (true, _) => "PRIMARY",
-                (false, true) => "GSI PARTITIONED",
-                (false, false) => "GSI",
+            let vector = keys.iter().any(|k| crate::vector::vector_key(k).is_some());
+            let hyperscale = r
+                .get("definition")
+                .and_then(Value::as_str)
+                .is_some_and(|d| {
+                    d.trim_start()
+                        .to_ascii_uppercase()
+                        .starts_with("CREATE VECTOR INDEX")
+                });
+            let kind = match (primary, partitioned, vector, hyperscale) {
+                (true, ..) => "PRIMARY",
+                (_, true, true, true) => "GSI VECTOR HYPERSCALE PARTITIONED",
+                (_, false, true, true) => "GSI VECTOR HYPERSCALE",
+                (_, true, true, false) => "GSI VECTOR COMPOSITE PARTITIONED",
+                (_, false, true, false) => "GSI VECTOR COMPOSITE",
+                (false, true, ..) => "GSI PARTITIONED",
+                (false, false, ..) => "GSI",
             };
             IndexUsage {
                 kind: kind.into(),
@@ -197,7 +210,7 @@ impl CbSession {
         };
         let rows = self
             .results(&format!(
-                "SELECT i.name, i.is_primary, i.index_key, i.`condition`, i.`partition`,
+                "SELECT i.name, i.is_primary, i.index_key, i.`condition`, i.`partition`, i.metadata.definition,
                         i.metadata.stats.last_known_scan_time AS last_scan, i.metadata.last_scan_time
                  FROM system:indexes AS i
                  WHERE i.`using` = 'gsi' AND ((i.bucket_id = {} AND i.scope_id = {} AND i.keyspace_id = {}){legacy})
@@ -242,11 +255,17 @@ impl CbSession {
         } else {
             None
         };
+        let mut indexes = assemble(&rows, available.then_some(&stats));
+        // The Search service's vector indexes, when it runs (through the
+        // cluster manager): listed, without counters.
+        if let Ok(body) = self.conn.mgmt_get("/_p/fts/api/index").await {
+            indexes.extend(crate::vector::fts_usages(&body, &bucket, &scope, &obj.name));
+        }
         Ok(Some(IndexUsageReport {
             since,
             stats_available: available,
             note: note.or_else(|| Some(NO_WRITES_NOTE.to_string())),
-            indexes: assemble(&rows, available.then_some(&stats)),
+            indexes,
             foreign_keys: Vec::new(),
             seek_scan_split: false,
             writes_counted: false,

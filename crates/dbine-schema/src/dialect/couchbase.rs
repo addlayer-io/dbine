@@ -10,7 +10,8 @@
 //! the collection can be browsed and queried without other indexes.
 
 use super::couchdb::{
-    json_caps, key_as_index, parse_json_type, render_json_type, schemaless_note, unique_to_plain,
+    json_caps, key_as_index, map_vector_index, parse_json_type, parse_vector_field,
+    render_json_type, render_vector_field, schemaless_note, unique_to_plain,
 };
 use super::{Caps, Dialect, Rendered};
 use crate::default::DefaultValue;
@@ -31,12 +32,38 @@ impl Dialect for Couchbase {
         "couchbase"
     }
 
+    /// A vector index's field is `vector(N)` (float32 arrays).
     fn parse_type(&self, t: &TypeSpec) -> L {
-        parse_json_type(t)
+        parse_vector_field(&t.raw, &[]).unwrap_or_else(|| parse_json_type(t))
     }
 
     fn render_type(&self, t: &L) -> Rendered {
+        if let L::Vector { element, .. } = t {
+            use dbine_driver::VectorElement as E;
+            if let Some(r) = render_vector_field(t, &[]) {
+                return match element {
+                    E::F32 => r,
+                    _ => r.with(Severity::Info, IssueCode::TypeChanged, "Los índices vectoriales de Couchbase toman arreglos de float32: los números se guardan como tales."),
+                };
+            }
+        }
         render_json_type(t, false)
+    }
+
+    /// GSI vector indexes (hyperscale by default): `cosine`, `l2`,
+    /// `l2_squared`, `ip` (DOT); the number of IVF lists carries over.
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        use dbine_driver::vector::{metric, param};
+        map_vector_index(
+            v,
+            "Couchbase",
+            &[metric::COSINE, metric::L2, "l2_squared", metric::IP],
+            &[],
+            &[param::LISTS],
+        )
     }
 
     fn render_default(&self, _d: &DefaultValue, _ty: &L) -> Option<String> {
@@ -95,5 +122,46 @@ mod tests {
         assert_eq!(d.parse_type(&parse("string")), L::Text { unicode: true });
         assert_eq!(d.render_type(&L::int(8)).native, "integer");
         assert!(d.render_type(&L::int(8)).notes.is_empty());
+    }
+
+    #[test]
+    fn vector_fields_and_indexes() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        let d = Couchbase;
+        let v = |dims, element| L::Vector {
+            dims,
+            element,
+            sparse: false,
+        };
+        assert_eq!(d.parse_type(&parse("vector(1536)")), v(Some(1536), E::F32));
+        assert_eq!(
+            d.parse_type(&parse("array | vector(3)")),
+            v(Some(3), E::F32)
+        );
+        assert_eq!(d.parse_type(&parse("array")), L::Json { binary: true });
+        // pgvector's `vector(3)` (the logical vector) and back.
+        let r = d.render_type(&v(Some(3), E::F32));
+        assert_eq!((r.native.as_str(), r.notes.len()), ("vector(3)", 0));
+        assert_eq!(d.parse_type(&parse(&r.native)), v(Some(3), E::F32));
+        let half = d.render_type(&v(Some(3), E::F16));
+        assert_eq!(half.native, "vector(3)");
+        assert!(!half.notes.is_empty());
+        let ivf = VectorIndex {
+            algorithm: Some("ivfflat".into()),
+            metric: Some("l2".into()),
+            params: [("lists", "100"), ("probes", "10")]
+                .into_iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        };
+        let (kind, out) = d.vector_index(&ivf).unwrap();
+        assert_eq!((kind, out.algorithm), (None, None));
+        assert_eq!(out.metric.as_deref(), Some("l2"));
+        assert_eq!(out.params.len(), 1);
+        let jaccard = VectorIndex {
+            metric: Some("jaccard".into()),
+            ..Default::default()
+        };
+        assert!(d.vector_index(&jaccard).is_err());
     }
 }
