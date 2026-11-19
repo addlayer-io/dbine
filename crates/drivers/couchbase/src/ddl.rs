@@ -168,7 +168,7 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
             // A vector index trains on the documents: on a collection made
             // in the same script (still empty) it's deferred, and built
             // with BUILD INDEX once the documents are in.
-            if parts.create && crate::vector::is_vector(&ix) {
+            if parts.create && crate::vector::is_vector(&ix) && !crate::vector::is_search(&ix) {
                 ix.options
                     .entry("defer_build".into())
                     .or_insert_with(|| "true".into());
@@ -245,8 +245,20 @@ pub fn index_from_row(r: &Value) -> IndexDef {
     ix
 }
 
+/// `DROP INDEX` of an index (`DROP SEARCH INDEX` for a Search one).
+pub fn drop_index(keyspace: &str, ix: &IndexDef) -> String {
+    if crate::vector::is_search(ix) {
+        crate::vector::fts_drop(keyspace, &ix.name)
+    } else {
+        format!("DROP INDEX {} ON {keyspace};", q(&ix.name))
+    }
+}
+
 /// `CREATE [PRIMARY] INDEX … ON <keyspace>` for an index.
 pub fn index_ddl(keyspace: &str, ix: &IndexDef, if_not_exists: bool) -> Result<String> {
+    if crate::vector::is_search(ix) {
+        return crate::vector::fts_ddl(keyspace, ix, if_not_exists);
+    }
     if crate::vector::is_vector(ix) {
         return crate::vector::ddl(keyspace, ix, if_not_exists, field_path);
     }

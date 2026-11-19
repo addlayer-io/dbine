@@ -864,7 +864,13 @@ impl CbSession {
             ))
             .await
             .unwrap_or_default();
-        let f = vector::fields(&rows);
+        let mut f = vector::fields(&rows);
+        // The Search service's vector fields, when it runs.
+        if let Ok(body) = self.conn.mgmt_get("/_p/fts/api/index").await {
+            for (k, m) in vector::fts_result_fields(&body, &b) {
+                f.entry(k).or_insert(m);
+            }
+        }
         self.vectors = Some((std::time::Instant::now(), f.clone()));
         f
     }
@@ -987,6 +993,10 @@ impl CbSession {
         max_rows: usize,
         out: &mut QueryOutcome,
     ) -> Result<()> {
+        // DBine's Search index statements: the Search service's REST API.
+        if let Some(cmd) = vector::search_command(stmt) {
+            return self.run_search(cmd?, out).await;
+        }
         let effect = tx_effect(stmt);
         if self.manual && self.txid.is_none() && effect == TxEffect::Data {
             self.begin(out).await?;
@@ -1013,6 +1023,20 @@ impl CbSession {
                 Ok(())
             }
             Err(e) => {
+                // A vector index on a collection without documents can't
+                // train: it's created deferred, and said so.
+                if self.txid.is_none() {
+                    if let Some((retry, ks)) = vector::deferred(stmt) {
+                        if self.empty_keyspace(&ks).await
+                            && self.run(&retry, None, max_rows, out).await.is_ok()
+                        {
+                            out.warning(format!(
+                                "El índice vectorial se creó diferido: {ks} no tiene documentos con qué entrenarlo ({e}). Construilo con BUILD INDEX cuando estén cargados."
+                            ));
+                            return Ok(());
+                        }
+                    }
+                }
                 // A failed COMMIT ends the transaction too (the server
                 // rolls it back).
                 if self.txid.is_some()
@@ -1024,6 +1048,83 @@ impl CbSession {
                 Err(e)
             }
         }
+    }
+
+    /// The keyspace holds no documents (`false` when it can't be told).
+    async fn empty_keyspace(&self, ks: &str) -> bool {
+        self.results(&format!("SELECT RAW COUNT(*) FROM {ks}"))
+            .await
+            .ok()
+            .and_then(|r| r.first().and_then(Value::as_u64))
+            == Some(0)
+    }
+
+    /// A DBine Search index statement (see `vector::search_command`),
+    /// through the cluster manager's `/_p/fts` (the Search service's
+    /// scoped index API, Couchbase 7.6+).
+    async fn run_search(
+        &mut self,
+        cmd: vector::SearchCommand,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
+        use vector::SearchCommand as C;
+        if self.conn.read_only {
+            return Err(Error::Query(
+                "Conexión de solo lectura: no se crean ni se borran índices de búsqueda.".into(),
+            ));
+        }
+        let session_bucket = self.bucket().ok();
+        let url = |b: &str, s: &str, name: &str| {
+            format!(
+                "{}/_p/fts/api/bucket/{}/scope/{}/index/{}",
+                self.conn.mgmt,
+                encode(b),
+                encode(s),
+                encode(name)
+            )
+        };
+        match cmd {
+            C::Create {
+                name,
+                if_not_exists,
+                keyspace,
+                definition,
+            } => {
+                let (b, s) = vector::bucket_scope(&keyspace, session_bucket.as_deref())?;
+                let body = vector::fts_body(&definition, &name, &b);
+                let rq = self
+                    .conn
+                    .http
+                    .put(url(&b, &s, &name))
+                    .header("Content-Type", "application/json")
+                    .body(body.to_string());
+                match self.cancel.run(self.conn.mgmt_send(rq)).await {
+                    Ok(_) => out.info(format!("Índice de búsqueda {name} creado.")),
+                    Err(e) if if_not_exists && e.to_string().contains("exist") => {
+                        out.info(format!("El índice de búsqueda {name} ya existía."))
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            C::Drop {
+                name,
+                if_exists,
+                keyspace,
+            } => {
+                let (b, s) = vector::bucket_scope(&keyspace, session_bucket.as_deref())?;
+                let rq = self.conn.http.delete(url(&b, &s, &name));
+                match self.cancel.run(self.conn.mgmt_send(rq)).await {
+                    Ok(_) => out.info(format!("Índice de búsqueda {name} borrado.")),
+                    Err(e) if if_exists && e.to_string().contains("not") => {
+                        out.info(format!("El índice de búsqueda {name} no existía."))
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        self.vectors = None;
+        out.push_affected(0);
+        Ok(())
     }
 
     /// `BEGIN WORK` for manual mode.
@@ -1371,6 +1472,29 @@ impl Session for CbSession {
             {
                 t.indexes.push(ddl::index_from_row(&r));
             }
+        }
+        // The Search service's vector indexes (when it runs), each in the
+        // collections it maps. Not readable for lack of permission: said.
+        match self.conn.mgmt_get("/_p/fts/api/index").await {
+            Ok(body) => {
+                for (scope, coll, ix) in vector::fts_indexes(&body, &b) {
+                    let schema = format!("{b}.{scope}");
+                    if let Some(t) = out
+                        .iter_mut()
+                        .find(|t| t.name == coll && t.schema.as_deref() == Some(schema.as_str()))
+                    {
+                        t.indexes.push(ix);
+                    }
+                }
+            }
+            Err(e) if e.to_string().starts_with("Sin permiso") => {
+                for t in &mut out {
+                    t.warnings.push(format!(
+                        "No se pudieron leer los índices del servicio Search ({e}): la copia, la comparación y la sincronización no los incluyen."
+                    ));
+                }
+            }
+            Err(_) => {}
         }
         // Vector fields: their `vector(N)` type (see `vector`).
         for t in &mut out {

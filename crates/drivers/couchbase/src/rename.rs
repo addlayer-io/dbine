@@ -123,7 +123,7 @@ fn field(
                 // The dimension comes from the field's type, under its old name.
                 let ix = &crate::vector::with_dims(t, ix);
                 if let Some(r) = renamed_index(ix, old, new) {
-                    statements.push(format!("DROP INDEX {} ON {ks};", q(&ix.name)));
+                    statements.push(crate::ddl::drop_index(&ks, ix));
                     statements.push(index_ddl(&ks, &r, false)?);
                     names.push(format!("«{}»", ix.name));
                 }
