@@ -198,6 +198,45 @@ fn result_types_map_to_duckdb_types() {
 }
 
 #[test]
+fn vector_columns_become_duckdb_arrays() {
+    use dbine_driver::{VectorElement, VectorMeta};
+    let v = |dims, element| col("emb", "vector").with_vector(VectorMeta::dense(dims, element));
+    let three = [json!("[1,0,0]"), json!(null), json!([0.5, 0.5, 0])];
+    let ty = |c: &ResultColumn, vals: &[Value]| vector_type(c, vals.iter());
+    assert_eq!(
+        ty(&v(Some(3), VectorElement::F32), &three),
+        Some(DuckType::Vector {
+            dims: Some(3),
+            double: false
+        })
+    );
+    assert_eq!(
+        ty(&v(Some(3), VectorElement::F32), &three).unwrap().sql(),
+        "FLOAT[3]"
+    );
+    // No dimension declared: the one they share; different lengths: a list.
+    assert_eq!(
+        ty(&v(None, VectorElement::F64), &three).unwrap().sql(),
+        "DOUBLE[3]"
+    );
+    let mixed = [json!("[1,0]"), json!("[1,0,0]")];
+    assert_eq!(
+        ty(&v(None, VectorElement::F32), &mixed).unwrap().sql(),
+        "FLOAT[]"
+    );
+    assert_eq!(
+        ty(&v(Some(2), VectorElement::F32), &mixed).unwrap().sql(),
+        "FLOAT[]"
+    );
+    // A value that isn't a vector, a sparse vector, or not a vector column:
+    // the usual inference.
+    assert_eq!(ty(&v(Some(3), VectorElement::F32), &[json!("x")]), None);
+    let sparse = col("s", "sparsevec").with_vector(VectorMeta::sparse(Some(5), VectorElement::F32));
+    assert_eq!(ty(&sparse, &[json!("{1:1}/5")]), None);
+    assert_eq!(ty(&col("t", "text"), &three), None);
+}
+
+#[test]
 fn values_become_cells_of_their_column_type() {
     assert_eq!(to_cell(&json!(null), DuckType::BigInt), Cell::Null);
     assert_eq!(to_cell(&json!("42"), DuckType::BigInt), Cell::Int(42));
@@ -516,6 +555,57 @@ async fn notebook_local_tables_load_with_types_and_cache() {
         vec![true, false]
     );
     assert_eq!(reruns.get(), 2);
+}
+
+/// A result's vector column is a DuckDB array in DataFrame SQL: a
+/// similarity search over an earlier cell runs there.
+#[tokio::test]
+async fn notebook_local_vector_columns_take_similarity_functions() {
+    use dbine_driver::{VectorElement, VectorMeta};
+    let mut s = open_sandboxed().await.expect("DuckDB");
+    let items = with_rows(
+        src("items", "SELECT id, embedding FROM items"),
+        1,
+        vec![
+            col("id", "int4"),
+            col("embedding", "vector").with_vector(VectorMeta::dense(Some(3), VectorElement::F32)),
+        ],
+        vec![
+            vec![json!(1), json!("[1,0,0]")],
+            vec![json!(2), json!("[0,1,0]")],
+            vec![json!(3), json!("[0.9,0.1,0]")],
+            vec![json!(4), json!(null)],
+        ],
+    );
+    let sql = "SELECT id, round(array_cosine_similarity(embedding, [1, 0, 0]::FLOAT[3]), 4) AS s \
+               FROM items WHERE embedding IS NOT NULL ORDER BY s DESC LIMIT 2";
+    let mut tables = HashMap::new();
+    let mut out = QueryOutcome::default();
+    materialize(
+        s.as_mut(),
+        &mut tables,
+        &HashSet::new(),
+        sql,
+        &[items],
+        1_000,
+        &mut out,
+        |_| async { unreachable!("the run's rows are used") },
+    )
+    .await
+    .unwrap();
+    let types = rows_of(s.as_mut(), "SELECT data_type FROM information_schema.columns WHERE table_name = 'items' ORDER BY ordinal_position").await;
+    assert_eq!(types, vec![vec![json!("BIGINT")], vec![json!("FLOAT[3]")]]);
+    let rows = rows_of(s.as_mut(), sql).await;
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    assert_eq!(rows[0][0], json!(1));
+    assert_eq!(rows[1][0], json!(3));
+    // The array's distance functions too.
+    let d = rows_of(
+        s.as_mut(),
+        "SELECT array_distance(embedding, [0, 1, 0]::FLOAT[3]) FROM items WHERE id = 2",
+    )
+    .await;
+    assert_eq!(d[0][0].as_f64(), Some(0.0), "{d:?}");
 }
 
 #[tokio::test]

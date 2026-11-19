@@ -1651,6 +1651,17 @@ fn transfer_columns(cols: Vec<dbine_driver::ColumnInfo>) -> Vec<TransferColumn> 
         .collect()
 }
 
+/// The target's vector columns, by their types on its engine (`driver`):
+/// the insert-script path writes their values as vectors.
+fn vector_columns(driver: &str, cols: &[TransferColumn]) -> Vec<String> {
+    cols.iter()
+        .filter(|c| {
+            crate::commands::vectors::of_type(driver, &c.type_name).is_some_and(|m| !m.sparse)
+        })
+        .map(|c| c.name.clone())
+        .collect()
+}
+
 /// A statement's first line, short (for the list of those that failed).
 fn short_sql(sql: &str) -> String {
     let line = sql.trim().lines().next().unwrap_or("");
@@ -1907,6 +1918,7 @@ async fn structure(
                 after,
                 post,
                 preexisting: existed,
+                vector_columns: vector_columns(p.target.info().id, &expected),
                 expected_columns: expected,
                 mode: TransferMode::Copy,
             });
@@ -2097,6 +2109,7 @@ async fn clone_structure(
                 after: String::new(),
                 post: ct.after_data.clone(),
                 preexisting: existed,
+                vector_columns: vector_columns(p.target.info().id, &expected),
                 expected_columns: expected,
                 mode: TransferMode::Copy,
             });
@@ -2219,6 +2232,7 @@ async fn sync_structure(
                 after: String::new(),
                 post: Vec::new(),
                 preexisting: true,
+                vector_columns: vector_columns(p.target.info().id, &expected),
                 expected_columns: expected,
                 mode: TransferMode::Delta {
                     key,

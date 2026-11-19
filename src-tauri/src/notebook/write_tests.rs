@@ -109,6 +109,43 @@ fn type_changes_and_warnings() {
     assert_eq!(decimal_scale("numeric(10)"), Some(0));
 }
 
+/// A vector target's `(n)` is its dimension, not a text length: a
+/// DataFrame's vectors into pgvector, MySQL 9, MariaDB, SQL Server,
+/// Oracle or CockroachDB get no "hasta N caracteres" warning, and a
+/// DataFrame's `FLOAT[n]` into a vector column isn't a change of kind.
+#[test]
+fn vector_targets_get_no_text_length_warning() {
+    for t in [
+        "vector(3)",
+        "VECTOR(768, FLOAT32)",
+        "vector(1536)",
+        "VECTOR(3)",
+        "halfvec(4)",
+        "F32_BLOB(3)",
+    ] {
+        assert_eq!(family(t), "vector", "{t}");
+        assert_eq!(text_length(t), None, "{t}");
+        let c = PlannedColumn {
+            source: "emb".into(),
+            source_type: "FLOAT[3]".into(),
+            target: "v".into(),
+            target_type: t.into(),
+            converted: converted("FLOAT[3]", t),
+        };
+        assert!(!c.converted, "{t}");
+        assert!(type_warnings(&c, Some(4_000)).is_empty(), "{t}");
+        // Vectors as text (a DataFrame read from JSON): no length either.
+        let c = PlannedColumn {
+            source_type: "VARCHAR".into(),
+            ..c
+        };
+        assert!(type_warnings(&c, Some(4_000)).is_empty(), "{t}");
+    }
+    // Text targets keep theirs.
+    assert_eq!(family("varchar(3)"), "text");
+    assert_eq!(text_length("varchar(3)"), Some(3));
+}
+
 #[test]
 fn engines_without_modes_only_insert_where_they_bulk_load() {
     let redis = dbine_drivers::find("redis").unwrap();

@@ -3,6 +3,7 @@
 //! See docs/api-commands.md.
 
 use crate::commands::schema::driver_of;
+use crate::commands::vectors;
 use crate::error::{CommandError, CommandResult};
 use crate::state::{AppState, SessionEntry};
 use dbine_driver::{
@@ -11,7 +12,7 @@ use dbine_driver::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -101,6 +102,14 @@ struct InsertSink {
     /// Source column → target column (another engine may rename them).
     rename: HashMap<String, String>,
     columns: Vec<String>,
+    /// The target's vector columns (by its names), from its table.
+    vector_columns: HashSet<String>,
+    /// The source's engine when it's the target's too: a column its driver
+    /// marks as vectors is one in the target.
+    same_engine: Option<&'static str>,
+    /// Which of `columns` hold vectors: their cells go to the script as
+    /// arrays.
+    vectors: Vec<bool>,
     buf: Vec<Vec<Value>>,
     out: Arc<Mutex<Out>>,
     rows: u64,
@@ -111,7 +120,7 @@ impl InsertSink {
         if self.buf.is_empty() {
             return Ok(());
         }
-        let rows = std::mem::take(&mut self.buf);
+        let rows = vectors::script_rows(&self.vectors, std::mem::take(&mut self.buf));
         let text = self
             .driver
             .insert_script(&self.target, &self.columns, &rows)
@@ -132,6 +141,16 @@ impl RowSink for InsertSink {
                         .get(&c.name)
                         .cloned()
                         .unwrap_or_else(|| c.name.clone())
+                })
+                .collect();
+            self.vectors = columns
+                .iter()
+                .zip(&self.columns)
+                .map(|(c, name)| {
+                    self.vector_columns.contains(name)
+                        || self
+                            .same_engine
+                            .is_some_and(|id| vectors::of_column(id, c).is_some_and(|m| !m.sparse))
                 })
                 .collect();
         }
@@ -670,11 +689,26 @@ pub(crate) async fn generate(
                 },
                 _ => (*obj).clone(),
             };
+            // The target's vector columns, as its engine spells them.
+            let vector_columns: HashSet<String> = table_schema(obj)
+                .map(|t| {
+                    t.columns
+                        .iter()
+                        .filter(|c| {
+                            vectors::of_type(w.info().id, &c.data_type).is_some_and(|m| !m.sparse)
+                        })
+                        .map(|c| c.name.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
             let sink = Arc::new(Mutex::new(InsertSink {
                 driver: w,
                 target,
                 rename: renames.get(&key).cloned().unwrap_or_default(),
                 columns: Vec::new(),
+                vector_columns,
+                same_engine: other_engine.is_none().then_some(src_id),
+                vectors: Vec::new(),
                 buf: Vec::new(),
                 out: out.clone(),
                 rows: 0,
@@ -905,6 +939,61 @@ pub async fn run_script_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dbine_driver::{VectorElement, VectorMeta};
+    use serde_json::json;
+
+    /// The data script hands vectors to the driver as arrays: a column the
+    /// source's driver marks (same engine), or one the target's table says
+    /// is a vector (by its name there); the other cells as they came.
+    #[test]
+    fn data_scripts_get_vectors_as_arrays() {
+        let sink = |vector_columns: &[&str], same_engine: Option<&'static str>| InsertSink {
+            driver: dbine_drivers::find("postgres").unwrap(),
+            target: ObjectRef {
+                kind: kinds::TABLE.into(),
+                schema: None,
+                name: "t".into(),
+            },
+            rename: HashMap::from([("emb".to_string(), "embedding".to_string())]),
+            columns: Vec::new(),
+            vector_columns: vector_columns.iter().map(|c| c.to_string()).collect(),
+            same_engine,
+            vectors: Vec::new(),
+            buf: Vec::new(),
+            out: Arc::new(Mutex::new(Out::Mem(String::new()))),
+            rows: 0,
+        };
+        let cols = [
+            ResultColumn::new("id", "int4"),
+            ResultColumn::new("emb", "vector")
+                .with_vector(VectorMeta::dense(Some(2), VectorElement::F32)),
+            ResultColumn::new("note", "text"),
+        ];
+        let mut same = sink(&[], Some("postgres"));
+        same.begin(0, &cols).unwrap();
+        assert_eq!(same.columns, ["id", "embedding", "note"]);
+        assert_eq!(same.vectors, [false, true, false]);
+        // Another engine: only what the target's table says.
+        let mut other = sink(&["embedding"], None);
+        other.begin(0, &cols).unwrap();
+        assert_eq!(other.vectors, [false, true, false]);
+        let mut none = sink(&[], None);
+        none.begin(0, &cols).unwrap();
+        assert_eq!(none.vectors, [false, false, false]);
+        // The rows reach the script with the vector as an array.
+        same.row(0, &[json!(1), json!("[1,2.5]"), json!("[3]")])
+            .unwrap();
+        assert_eq!(
+            vectors::script_rows(&same.vectors, same.buf.clone()),
+            vec![vec![json!(1), json!([1.0, 2.5]), json!("[3]")]]
+        );
+        same.flush().unwrap();
+        let Out::Mem(text) = &*same.out.lock().unwrap() else {
+            panic!("in memory")
+        };
+        assert!(text.contains("INSERT"), "{text}");
+        assert!(text.contains("2.5"), "{text}");
+    }
 
     #[test]
     fn a_name_cannot_end_a_comment_line() {

@@ -10,10 +10,11 @@
 //! and texts respect the column's length.
 
 use crate::commands::schema::driver_of;
+use crate::commands::vectors;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use chrono::{Duration as Days, NaiveDate};
-use dbine_driver::{ColumnInfo, ObjectRef, QueryOutcome};
+use dbine_driver::{ColumnInfo, ObjectRef, QueryOutcome, VectorElement, VectorMeta};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -266,7 +267,23 @@ enum Gen {
     List(Vec<String>),
     /// Values taken from the parent of a foreign key.
     Pool(Vec<Value>),
+    /// A random vector of `dims` numbers of `element` (floats of length 1,
+    /// bytes, bits), as the array an insert script takes.
+    Vector {
+        dims: usize,
+        element: VectorElement,
+    },
+    /// A random sparse vector of `dims` dimensions, in its engine's text
+    /// ([`vectors::SparseText`], [`random_sparse`]).
+    Sparse {
+        dims: usize,
+        element: VectorElement,
+        text: vectors::SparseText,
+    },
 }
+
+/// Numbers in a generated vector when its column doesn't say.
+const VECTOR_DIMS: usize = 8;
 
 /// The generator ids the dialog offers (besides "auto").
 pub const GENERATORS: &[&str] = &[
@@ -292,7 +309,19 @@ pub const GENERATORS: &[&str] = &[
     "address",
     "list",
     "foreign_key",
+    "vector",
 ];
+
+/// The generators the dialog offers for a table's columns: the vector one
+/// only where the table has a vector column.
+fn offered(metas: &[Meta]) -> Vec<&'static str> {
+    let has_vectors = metas.iter().any(|m| m.vector.is_some());
+    GENERATORS
+        .iter()
+        .copied()
+        .filter(|g| *g != "vector" || has_vectors)
+        .collect()
+}
 
 /// A column, with what the catalog says about it.
 #[derive(Debug, Clone)]
@@ -302,6 +331,18 @@ struct Meta {
     pool: Option<Vec<Value>>,
     /// Single-column primary key or unique: values may not repeat.
     unique: bool,
+    /// The column holds vectors (its type, on its engine), dense or sparse.
+    vector: Option<VectorMeta>,
+}
+
+impl Meta {
+    /// A sparse vector column's text, when DBine writes that engine's.
+    fn sparse_text(&self) -> Option<vectors::SparseText> {
+        self.vector
+            .as_ref()
+            .filter(|v| v.sparse)
+            .and_then(|_| vectors::SparseText::of_type(&self.info.data_type))
+    }
 }
 
 /// The length in `varchar(40)` / `nvarchar(max)` (None for max or none).
@@ -343,6 +384,26 @@ fn auto(m: &Meta, rng: &mut Rng) -> Gen {
     }
     if let Some(pool) = &m.pool {
         return Gen::Pool(pool.clone());
+    }
+    if let Some(v) = &m.vector {
+        let dims = v.dims.map_or(VECTOR_DIMS, |d| d as usize);
+        if !v.sparse {
+            return Gen::Vector {
+                dims,
+                element: v.element,
+            };
+        }
+        // A sparse vector in its engine's text; one whose text DBine
+        // doesn't write is left to the engine (NULL, or its default).
+        return match m.sparse_text() {
+            Some(text) if dims >= 3 => Gen::Sparse {
+                dims,
+                element: v.element,
+                text,
+            },
+            _ if m.info.nullable => Gen::Null,
+            _ => Gen::Skip,
+        };
     }
     let n = m.info.name.to_lowercase();
     let t = m.info.data_type.to_lowercase();
@@ -513,6 +574,21 @@ fn chosen(g: &ColumnGen, m: &Meta, rng: &mut Rng) -> CommandResult<Gen> {
             }
             Gen::List(values)
         }
+        "vector" => {
+            let dims = param(g, "dims")
+                .or(m.vector.as_ref().and_then(|v| v.dims.map(|d| d as usize)))
+                .unwrap_or(VECTOR_DIMS)
+                .clamp(1, 65_536);
+            let element = m.vector.as_ref().map_or(VectorElement::F32, |v| v.element);
+            match m.sparse_text() {
+                Some(text) if dims >= 3 => Gen::Sparse {
+                    dims,
+                    element,
+                    text,
+                },
+                _ => Gen::Vector { dims, element },
+            }
+        }
         "foreign_key" => match &m.pool {
             Some(p) if !p.is_empty() => Gen::Pool(p.clone()),
             _ => {
@@ -556,6 +632,7 @@ fn id_of(g: &Gen) -> &'static str {
         Gen::Address => "address",
         Gen::List(_) => "list",
         Gen::Pool(_) => "foreign_key",
+        Gen::Vector { .. } | Gen::Sparse { .. } => "vector",
     }
 }
 
@@ -635,7 +712,90 @@ fn value(g: &mut Gen, rng: &mut Rng, row: u64, len: Option<usize>) -> Value {
         Gen::Address => s(format!("{} {}", rng.pick(STREETS), rng.range(1, 9999))),
         Gen::List(v) => s(rng.pick(v).clone()),
         Gen::Pool(v) => rng.pick(v).clone(),
+        Gen::Vector { dims, element } => random_vector(rng, *dims, *element),
+        Gen::Sparse {
+            dims,
+            element,
+            text,
+        } => Value::String(random_sparse(rng, *dims, *element).text(*text)),
     }
+}
+
+/// A random sparse vector of `dims` dimensions (at least 3): one to eight
+/// non-zero positions between 1 and `dims - 2`, valid whether the engine
+/// counts positions from 0 or from 1, each a float32 in -1..1 (or a byte,
+/// for an INT8 one).
+pub(crate) fn random_sparse(rng: &mut Rng, dims: usize, element: VectorElement) -> vectors::Sparse {
+    let last = dims.saturating_sub(2).max(1) as i64;
+    let k = rng.range(1, last.min(8));
+    let mut at: Vec<u64> = Vec::new();
+    while (at.len() as i64) < k {
+        let i = rng.range(1, last) as u64;
+        if !at.contains(&i) {
+            at.push(i);
+        }
+    }
+    at.sort_unstable();
+    let entries = at
+        .into_iter()
+        .map(|i| {
+            let x = match element {
+                VectorElement::I8 => {
+                    let b = rng.range(1, 127) as f64;
+                    if rng.next().is_multiple_of(2) {
+                        b
+                    } else {
+                        -b
+                    }
+                }
+                _ => {
+                    let x = (rng.float() * 2.0 - 1.0) as f32;
+                    let x = if x == 0.0 { 0.5 } else { x };
+                    format!("{x}").parse().unwrap_or(0.5)
+                }
+            };
+            (i, x)
+        })
+        .collect();
+    vectors::Sparse {
+        dims: dims as u64,
+        entries,
+    }
+}
+
+/// A random vector as a JSON array: floats on the unit sphere (rounded to
+/// what the column keeps), or bytes and bits in their range.
+pub(crate) fn random_vector(rng: &mut Rng, dims: usize, element: VectorElement) -> Value {
+    let nums: Vec<f64> = match element {
+        VectorElement::I8 => (0..dims).map(|_| rng.range(-128, 127) as f64).collect(),
+        VectorElement::U8 => (0..dims).map(|_| rng.range(0, 255) as f64).collect(),
+        VectorElement::Bit => (0..dims).map(|_| rng.range(0, 1) as f64).collect(),
+        _ => {
+            let raw: Vec<f64> = (0..dims).map(|_| rng.float() * 2.0 - 1.0).collect();
+            let norm = raw
+                .iter()
+                .map(|x| x * x)
+                .sum::<f64>()
+                .sqrt()
+                .max(f64::MIN_POSITIVE);
+            raw.into_iter()
+                .map(|x| {
+                    let x = x / norm;
+                    if element == VectorElement::F64 {
+                        x
+                    } else {
+                        // The float32 a column keeps, written the shortest way.
+                        format!("{}", x as f32).parse().unwrap_or(x)
+                    }
+                })
+                .collect()
+        }
+    };
+    Value::Array(
+        nums.into_iter()
+            .map(dbine_driver::model::json_f64)
+            .collect(),
+    )
 }
 
 /// A made-up value of one of the person / place generators (`first_name`,
@@ -698,7 +858,13 @@ fn plan(metas: &[Meta], specs: &[ColumnGen], rng: &mut Rng) -> CommandResult<Pla
         };
         let texty = !matches!(
             g,
-            Gen::Seq { .. } | Gen::Int { .. } | Gen::Dec { .. } | Gen::Bool | Gen::Pool(_)
+            Gen::Seq { .. }
+                | Gen::Int { .. }
+                | Gen::Dec { .. }
+                | Gen::Bool
+                | Gen::Pool(_)
+                | Gen::Vector { .. }
+                | Gen::Sparse { .. }
         );
         let len = if texty {
             length(&m.info.data_type)
@@ -863,10 +1029,12 @@ async fn metas(
             None => None,
         };
         let is_unique = unique.contains(&c.name);
+        let vector = vectors::of_type(driver.info().id, &c.data_type);
         out.push(Meta {
             info: c,
             pool,
             unique: is_unique,
+            vector,
         });
     }
     Ok((out, labels))
@@ -903,7 +1071,7 @@ pub async fn datagen_preview(
             .collect();
         Ok(Preview {
             table_columns,
-            generators: GENERATORS.to_vec(),
+            generators: offered(&metas),
             columns: p.columns.clone(),
             rows: sample,
         })
@@ -932,6 +1100,26 @@ pub async fn datagen_run(
     state: State<'_, AppState>,
     args: DataGenArgs,
 ) -> CommandResult<GenResult> {
+    let (id, total) = (args.gen_id.clone(), args.rows);
+    run_generation(&state, args, |rows| {
+        let _ = app.emit(
+            "datagen-progress",
+            GenProgress {
+                id: &id,
+                rows,
+                total,
+            },
+        );
+    })
+    .await
+}
+
+/// [`datagen_run`]'s work, the rows inserted so far through `emit`.
+pub(crate) async fn run_generation(
+    state: &AppState,
+    args: DataGenArgs,
+    emit: impl Fn(u64),
+) -> CommandResult<GenResult> {
     let started = Instant::now();
     if args.rows == 0 || args.rows > MAX_ROWS {
         return Err(CommandError::BadRequest(format!(
@@ -948,21 +1136,11 @@ pub async fn datagen_run(
             conn.name
         )));
     }
-    let driver = driver_of(&state, &args.connection_id)?;
+    let driver = driver_of(state, &args.connection_id)?;
     let key = format!("datagen:{}", args.gen_id);
     let entry = state
         .dedicated_session(&key, &args.connection_id, &args.database, false)
         .await?;
-    let emit = |rows: u64| {
-        let _ = app.emit(
-            "datagen-progress",
-            GenProgress {
-                id: &args.gen_id,
-                rows,
-                total: args.rows,
-            },
-        );
-    };
     let run = async {
         let mut s = entry.session.lock().await;
         let (metas, _) = metas(&mut s, driver.as_ref(), &args.table).await?;
@@ -1135,6 +1313,7 @@ mod tests {
             },
             pool: None,
             unique: pk,
+            vector: None,
         }
     }
 
@@ -1170,6 +1349,130 @@ mod tests {
         let mut ai = meta("id", "int", true);
         ai.info.auto_increment = true;
         assert!(matches!(auto(&ai, &mut rng), Gen::Skip));
+    }
+
+    /// A vector column gets random vectors of its dimension, as arrays the
+    /// insert script writes as the engine's literal: unit floats, or bytes
+    /// and bits in their range.
+    #[test]
+    fn vector_columns_get_random_vectors() {
+        let mut rng = Rng::new(Some(3));
+        let mut m = meta("embedding", "vector(4)", false);
+        m.vector = Some(VectorMeta::dense(Some(4), VectorElement::F32));
+        let mut g = auto(&m, &mut rng);
+        assert_eq!(id_of(&g), "vector");
+        let v = value(&mut g, &mut rng, 1, Some(4));
+        let nums = dbine_driver::vector::parse_value(&v).expect("a vector");
+        assert_eq!(nums.len(), 4);
+        let norm: f64 = nums.iter().map(|x| x * x).sum::<f64>().sqrt();
+        assert!((norm - 1.0).abs() < 1e-5, "{norm}");
+        // Each number is a float32's, written the shortest way.
+        assert!(nums
+            .iter()
+            .all(|x| format!("{}", *x as f32).parse::<f64>().ok() == Some(*x)));
+        // Without a dimension, the default; the dialog's own dimension wins.
+        m.vector = Some(VectorMeta::dense(None, VectorElement::F32));
+        let mut g = auto(&m, &mut rng);
+        let n = dbine_driver::vector::parse_value(&value(&mut g, &mut rng, 1, None)).unwrap();
+        assert_eq!(n.len(), VECTOR_DIMS);
+        let spec = ColumnGen {
+            name: "embedding".into(),
+            generator: "vector".into(),
+            params: BTreeMap::from([("dims".to_string(), "16".to_string())]),
+            ..Default::default()
+        };
+        let mut g = chosen(&spec, &m, &mut rng).unwrap();
+        let n = dbine_driver::vector::parse_value(&value(&mut g, &mut rng, 1, None)).unwrap();
+        assert_eq!(n.len(), 16);
+        // Bytes and bits.
+        for (element, lo, hi) in [
+            (VectorElement::I8, -128.0, 127.0),
+            (VectorElement::U8, 0.0, 255.0),
+            (VectorElement::Bit, 0.0, 1.0),
+        ] {
+            m.vector = Some(VectorMeta::dense(Some(64), element));
+            let mut g = auto(&m, &mut rng);
+            let n = dbine_driver::vector::parse_value(&value(&mut g, &mut rng, 1, None)).unwrap();
+            assert_eq!(n.len(), 64);
+            assert!(
+                n.iter().all(|x| x.fract() == 0.0 && (lo..=hi).contains(x)),
+                "{element:?} {n:?}"
+            );
+        }
+        assert!(GENERATORS.contains(&"vector"));
+        // Offered where the table has a vector column only.
+        let plain = meta("name", "varchar(10)", false);
+        assert!(!offered(std::slice::from_ref(&plain)).contains(&"vector"));
+        assert!(offered(&[plain, m]).contains(&"vector"));
+    }
+
+    /// A sparse vector column gets sparse vectors in its engine's text
+    /// (pgvector's `sparsevec`, Oracle's SPARSE), never text or decimals
+    /// the engine rejects; one whose text DBine doesn't write is left to
+    /// the engine (NULL where it takes one, else left out).
+    #[test]
+    fn sparse_vector_columns_get_sparse_vectors_or_are_left_alone() {
+        use vectors::{Sparse, SparseText};
+        let mut rng = Rng::new(Some(5));
+        for (ty, text, element) in [
+            ("sparsevec(30)", SparseText::Pg, VectorElement::F32),
+            (
+                "VECTOR(30, FLOAT32, SPARSE)",
+                SparseText::Oracle,
+                VectorElement::F32,
+            ),
+            (
+                "VECTOR(30, INT8, SPARSE)",
+                SparseText::Oracle,
+                VectorElement::I8,
+            ),
+        ] {
+            let mut m = meta("terms", ty, false);
+            m.vector = Some(VectorMeta {
+                dims: Some(30),
+                element,
+                sparse: true,
+            });
+            for mut g in [
+                auto(&m, &mut rng),
+                chosen(
+                    &ColumnGen {
+                        name: "terms".into(),
+                        generator: "vector".into(),
+                        ..Default::default()
+                    },
+                    &m,
+                    &mut rng,
+                )
+                .unwrap(),
+            ] {
+                assert_eq!(id_of(&g), "vector", "{ty}");
+                for row in 0..50 {
+                    let v = value(&mut g, &mut rng, row, Some(30));
+                    let s = Sparse::parse(v.as_str().expect("text"), text).expect(ty);
+                    assert_eq!(s.dims, 30);
+                    assert!(!s.entries.is_empty() && s.entries.len() <= 8, "{ty} {v}");
+                    assert!(s.entries.windows(2).all(|w| w[0].0 < w[1].0), "{v}");
+                    assert!(s
+                        .entries
+                        .iter()
+                        .all(|(i, x)| (1..=28).contains(i) && *x != 0.0));
+                    if element == VectorElement::I8 {
+                        assert!(s.entries.iter().all(|(_, x)| x.fract() == 0.0));
+                    }
+                }
+            }
+        }
+        // A sparse type whose text DBine doesn't write: NULL, or left out.
+        let mut m = meta("terms", "sparse_vector", false);
+        m.vector = Some(VectorMeta {
+            dims: None,
+            element: VectorElement::F32,
+            sparse: true,
+        });
+        assert!(matches!(auto(&m, &mut rng), Gen::Null));
+        m.info.nullable = false;
+        assert!(matches!(auto(&m, &mut rng), Gen::Skip));
     }
 
     #[test]

@@ -1943,6 +1943,29 @@ mod tests {
         );
     }
 
+    /// The model sees a vector column with its dimension and element type,
+    /// as the describe spells them.
+    #[test]
+    fn vector_columns_show_their_dimension() {
+        let mut t = table("documentos", &["id"]);
+        for (name, ty) in [
+            ("embedding", "vector(1536)"),
+            ("resumen", "VECTOR(768, FLOAT32)"),
+        ] {
+            t.columns.push(ColumnDef {
+                name: name.into(),
+                data_type: ty.into(),
+                nullable: true,
+                ..Default::default()
+            });
+        }
+        let (text, _, _) = compact_schema(&[t], "", 10_000, prompts::get("es"));
+        assert_eq!(
+            text,
+            "dbo.documentos(id int PK, embedding vector(1536), resumen VECTOR(768, FLOAT32))\n"
+        );
+    }
+
     #[test]
     fn mentioned_tables_come_first_when_it_doesnt_fit() {
         let mut tables: Vec<TableSchema> = (0..200)

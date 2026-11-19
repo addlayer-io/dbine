@@ -1791,6 +1791,9 @@ impl Endpoints for CloneEndpoints {
     fn native_copy_allowed(&self) -> bool {
         self.0.native_copy_allowed()
     }
+    fn vector_columns(&self, table: &TableSchema) -> Vec<String> {
+        self.0.vector_columns(table)
+    }
 }
 
 /// Clone `req.source` as `req.new_name` in the same database. `endpoints`
@@ -2439,6 +2442,20 @@ async fn cleanup(s: &mut dyn Session, drop_sql: &str, events: &(dyn Fn(CloneEven
     }
 }
 
+/// The loaded columns of `clone` that hold dense vectors on its engine
+/// ([`Endpoints::vector_columns`]).
+fn clone_vector_columns(
+    endpoints: &dyn Endpoints,
+    clone: &TableSchema,
+    loaded: &[String],
+) -> Vec<String> {
+    endpoints
+        .vector_columns(clone)
+        .into_iter()
+        .filter(|c| loaded.is_empty() || loaded.iter().any(|l| l.eq_ignore_ascii_case(c)))
+        .collect()
+}
+
 /// The rows, through the bulk transfer engine (one table, one job).
 #[allow(clippy::too_many_arguments)]
 async fn copy_rows(
@@ -2489,6 +2506,10 @@ async fn copy_rows(
         post: Vec::new(),
         preexisting: false,
         expected_columns: Vec::new(),
+        // Engines without a bulk load (Manticore, CockroachDB, CrateDB,
+        // RisingWave…) get the clone's vector cells through
+        // `insert_script`, as arrays.
+        vector_columns: clone_vector_columns(&**endpoints, clone, loaded),
         mode: TransferMode::Copy,
     };
     let dir = std::env::temp_dir();
@@ -3032,6 +3053,77 @@ mod tests {
 
     fn pg() -> D {
         driver("postgres", "postgres", Family::Relational, Language::Sql)
+    }
+
+    /// Endpoints whose engine says `emb` holds vectors.
+    struct VectorEnds;
+
+    #[async_trait]
+    impl Endpoints for VectorEnds {
+        fn source_driver(&self) -> Arc<dyn Driver> {
+            Arc::new(pg())
+        }
+        fn target_driver(&self) -> Arc<dyn Driver> {
+            Arc::new(pg())
+        }
+        async fn open_source(&self) -> Result<Box<dyn Session>> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn open_target(&self) -> Result<Box<dyn Session>> {
+            Err(Error::Unsupported("test".into()))
+        }
+        fn vector_columns(&self, table: &TableSchema) -> Vec<String> {
+            table
+                .columns
+                .iter()
+                .filter(|c| c.data_type.starts_with("vector"))
+                .map(|c| c.name.clone())
+                .collect()
+        }
+    }
+
+    /// A clone's job takes its vector columns from the endpoints (through
+    /// the clone's own wrapper), so an engine without a bulk load gets
+    /// them as arrays; a column left out of the load isn't one of them.
+    #[test]
+    fn a_clones_vector_columns_come_from_the_endpoints() {
+        let mut t = sample();
+        t.columns.push(ColumnDef {
+            name: "emb".into(),
+            data_type: "vector(3)".into(),
+            ..Default::default()
+        });
+        t.columns.push(ColumnDef {
+            name: "otro".into(),
+            data_type: "vector(2)".into(),
+            ..Default::default()
+        });
+        let wrapped = CloneEndpoints(Arc::new(VectorEnds));
+        let loaded = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            clone_vector_columns(&wrapped, &t, &loaded(&["id", "EMB", "padre"])),
+            ["emb"]
+        );
+        // No column list: every column is loaded.
+        assert_eq!(clone_vector_columns(&wrapped, &t, &[]), ["emb", "otro"]);
+        // The default: none.
+        struct Plain;
+        #[async_trait]
+        impl Endpoints for Plain {
+            fn source_driver(&self) -> Arc<dyn Driver> {
+                Arc::new(pg())
+            }
+            fn target_driver(&self) -> Arc<dyn Driver> {
+                Arc::new(pg())
+            }
+            async fn open_source(&self) -> Result<Box<dyn Session>> {
+                Err(Error::Unsupported("test".into()))
+            }
+            async fn open_target(&self) -> Result<Box<dyn Session>> {
+                Err(Error::Unsupported("test".into()))
+            }
+        }
+        assert!(clone_vector_columns(&Plain, &t, &[]).is_empty());
     }
 
     fn sample() -> TableSchema {

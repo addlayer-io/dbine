@@ -189,6 +189,7 @@ async fn compare_with(
         key: key.iter().map(|k| k.to_string()).collect(),
         wanted: wanted.iter().map(|k| k.to_string()).collect(),
         cols,
+        ..Default::default()
     };
     let last = std::sync::Mutex::new(None::<Progress>);
     let started = Instant::now();

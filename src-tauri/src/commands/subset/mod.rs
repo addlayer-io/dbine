@@ -27,6 +27,7 @@ mod mask;
 
 use crate::commands::migration::{create_schema, default_schema, default_schema_rename};
 use crate::commands::schema::driver_of;
+use crate::commands::vectors;
 use crate::error::{CommandError, CommandResult};
 use crate::state::{AppState, SessionEntry};
 use dbine_driver::{
@@ -1085,6 +1086,8 @@ impl Writer<'_> {
             rule: Option<&'r MaskRule>,
             shape: Shape,
             nullable: bool,
+            /// A vector column: its values go to the script as arrays.
+            vector: bool,
         }
         let mut cols: Vec<Col> = Vec::new();
         for (at, name) in d.columns.iter().enumerate() {
@@ -1105,12 +1108,19 @@ impl Writer<'_> {
             if rule.is_some() {
                 report.masked.push(name.clone());
             }
+            // The target's type on the target's engine, else the source's:
+            // masks keep its vectors vectors.
+            let meta = match tgt_col.map(|c| c.data_type.as_str()) {
+                Some(t) if !t.is_empty() => vectors::of_type(p.tgt_driver.info().id, t),
+                _ => src_col.and_then(|c| vectors::of_type(p.src_driver.info().id, &c.data_type)),
+            };
             cols.push(Col {
                 at,
                 name: target.to_string(),
                 rule,
-                shape: Shape::of(ty),
+                shape: Shape::of_column(ty, meta.as_ref()),
                 nullable: tgt_col.is_none_or(|c| c.nullable),
+                vector: meta.is_some_and(|m| !m.sparse),
             });
         }
         if cols.is_empty() {
@@ -1123,9 +1133,14 @@ impl Writer<'_> {
             cols.iter()
                 .map(|c| {
                     let v = r.get(c.at).cloned().unwrap_or(Value::Null);
-                    match c.rule {
+                    let v = match c.rule {
                         Some(rule) => masker.apply(rule, &v, c.shape),
                         None => v,
+                    };
+                    if c.vector {
+                        vectors::script_value(v)
+                    } else {
+                        v
                     }
                 })
                 .collect()

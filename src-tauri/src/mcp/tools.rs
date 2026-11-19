@@ -463,6 +463,9 @@ async fn run(
             let routed = reads::route(
                 approval_free(&conn, query),
                 async {
+                    if !extension_calls_ok(inner, &key, &entry, &conn, query, limit).await {
+                        return Ok(Attempt::NotEnforced);
+                    }
                     match run_op(
                         inner,
                         &key,
@@ -513,6 +516,9 @@ async fn run(
             let routed = reads::route(
                 approval_free(&conn, query),
                 async {
+                    if !extension_calls_ok(inner, &key, &entry, &conn, query, limit).await {
+                        return Ok(Attempt::NotEnforced);
+                    }
                     match run_op(inner, &key, entry.clone(), Op::Probe, limit).await {
                         Err(RunFail::Unsupported) => Ok(Attempt::NotEnforced),
                         _ => run_on(
@@ -1012,8 +1018,65 @@ fn approval_free(conn: &SavedConnection, query: &str) -> bool {
         if info.language == Language::Dax {
             return reads::dax_approval_free(&d.split_script(query)).is_ok();
         }
-        reads::approval_free(info.language, info.dialect, &d.script_dialect(), query).is_ok()
+        reads::approval_free(
+            info.language,
+            info.id,
+            info.dialect,
+            &d.script_dialect(),
+            query,
+        )
+        .is_ok()
     })
+}
+
+/// Before a read that calls an extension's vector functions (pgvector's,
+/// `reads::vector_extension`) skips the approval: whether the server says
+/// every function of those names is the extension's or a built-in, asked
+/// on the read-only session. `false` (a user's function of that name, in
+/// any schema, or the check failed): the user approves the read instead.
+async fn extension_calls_ok(
+    inner: &Inner,
+    key: &str,
+    entry: &Arc<SessionEntry>,
+    conn: &SavedConnection,
+    query: &str,
+    limit: Duration,
+) -> bool {
+    let Some(driver) = dbine_drivers::find(&conn.config.driver) else {
+        return false;
+    };
+    let id = driver.info().id;
+    let Some(extension) = reads::vector_extension(id) else {
+        return true;
+    };
+    let names = reads::extension_calls(id, &driver.script_dialect(), query);
+    if names.is_empty() {
+        return true;
+    }
+    let sql = reads::extension_check_sql(extension, &names);
+    match run_op(inner, key, entry.clone(), Op::ReadOnly(sql, 1), limit).await {
+        Ok(out) => only_zero(&out),
+        Err(RunFail::Failed(e)) => {
+            tracing::debug!(%e, "mcp: the extension's functions weren't checked");
+            false
+        }
+        Err(RunFail::Unsupported) => false,
+    }
+}
+
+/// Whether a one-cell result says 0.
+fn only_zero(out: &QueryOutcome) -> bool {
+    let cell = out
+        .results
+        .iter()
+        .find(|r| !r.columns.is_empty())
+        .and_then(|r| r.rows.first())
+        .and_then(|row| row.first());
+    match cell {
+        Some(Value::Number(n)) => n.as_u64() == Some(0),
+        Some(Value::String(s)) => s.trim() == "0",
+        _ => false,
+    }
 }
 
 fn refuse_writes(conn: &SavedConnection, query: &str) -> Result<(), String> {

@@ -258,12 +258,28 @@ async fn insert_batches(
     if !job.before.trim().is_empty() {
         exec(tgt, &job.before).await?;
     }
+    let vectors: Vec<bool> = target
+        .columns
+        .iter()
+        .map(|c| job.vector_columns.iter().any(|v| v.eq_ignore_ascii_case(c)))
+        .collect();
     let mut done = 0u64;
     while let Some(batch) = source.next().await {
         let rows: Vec<Vec<serde_json::Value>> = batch
             .rows
             .iter()
-            .map(|r| r.iter().map(Cell::to_json).collect())
+            .map(|r| {
+                r.iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        if vectors.get(i).copied().unwrap_or(false) {
+                            script_vector(c)
+                        } else {
+                            c.to_json()
+                        }
+                    })
+                    .collect()
+            })
             .collect();
         let sql = driver.insert_script(&target.table, &target.columns, &rows)?;
         exec(tgt, &sql).await?;
@@ -271,6 +287,24 @@ async fn insert_batches(
         progress(done);
     }
     Ok(done)
+}
+
+/// A vector column's cell as `insert_script` takes it: the JSON array of
+/// its numbers (from the JSON-array text a vector travels as); a cell that
+/// isn't one (NULL, a sparse vector's own text) as it is.
+fn script_vector(c: &Cell) -> serde_json::Value {
+    let v = c.to_json();
+    if matches!(v, serde_json::Value::Array(_)) {
+        return v;
+    }
+    match dbine_driver::vector::parse_value(&v) {
+        Some(nums) => serde_json::Value::Array(
+            nums.into_iter()
+                .map(dbine_driver::model::json_f64)
+                .collect(),
+        ),
+        None => v,
+    }
 }
 
 /// Run a script; a statement's error as an `Err`.

@@ -6,6 +6,7 @@
 //! `update_script`, `delete_script`), so it's in the target's language; the
 //! UI shows it and runs it only when the user says so.
 
+use crate::commands::vectors;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_driver::filter::{ColumnFilter, FilterOp};
@@ -164,6 +165,10 @@ pub(crate) struct Diff {
     /// writes a value the way its target column takes it.
     pub(crate) left_types: Vec<String>,
     pub(crate) right_types: Vec<String>,
+    /// Each side's compared columns that hold dense vectors (by its
+    /// catalog): a script writes their values as arrays.
+    pub(crate) left_vectors: Vec<bool>,
+    pub(crate) right_vectors: Vec<bool>,
     /// A side had more rows than were read: a row seen on one side may exist
     /// on the other past what was read, so it's never inserted or deleted.
     /// Whole tables are compared now, so it's false; it stays for the
@@ -574,10 +579,28 @@ pub async fn data_compare_cancel(args: DataCompareCancelArgs) -> CommandResult<(
     Ok(())
 }
 
+/// A table's dense vector columns (lower-case names) and their numbers'
+/// type, by its catalog's types on `driver`'s engine.
+fn vector_columns(
+    driver: Option<&str>,
+    cols: &[ColumnInfo],
+) -> HashMap<String, dbine_driver::VectorElement> {
+    let Some(driver) = driver else {
+        return HashMap::new();
+    };
+    cols.iter()
+        .filter_map(|c| {
+            vectors::of_type(driver, &c.data_type)
+                .filter(|m| !m.sparse)
+                .map(|m| (c.name.to_lowercase(), m.element))
+        })
+        .collect()
+}
+
 /// Both sides on read-only sessions of their own (`dcmp:<run>:left|right`,
 /// stopped by `cancel_session`), compared whole; the result, and the
 /// difference kept for the script.
-async fn compare_sides(
+pub(crate) async fn compare_sides(
     state: &AppState,
     args: DataCompareArgs,
     run: &str,
@@ -627,11 +650,24 @@ async fn compare_sides(
         r = cols => r?,
         () = ctl.stopped() => return Err(ctl.error()),
     };
-    // No key given: the left table's primary key.
+    // Each side's vector columns, by its engine's names for its types.
+    let driver_of = |side: &Side| {
+        state
+            .store
+            .get_connection(&side.connection_id)
+            .ok()
+            .flatten()
+            .map(|c| c.config.driver)
+    };
+    let (lvec, rvec) = (
+        vector_columns(driver_of(&args.left).as_deref(), &lcols),
+        vector_columns(driver_of(&args.right).as_deref(), &rcols),
+    );
+    // No key given: the left table's primary key (never a vector column).
     let key: Vec<String> = if args.key.is_empty() {
         lcols
             .iter()
-            .filter(|c| c.primary_key)
+            .filter(|c| c.primary_key && !lvec.contains_key(&c.name.to_lowercase()))
             .map(|c| c.name.clone())
             .collect()
     } else {
@@ -658,6 +694,7 @@ async fn compare_sides(
         key,
         wanted: args.columns.clone(),
         cols: [lcols.clone(), rcols.clone()],
+        vectors: [lvec.clone(), rvec.clone()],
     };
     let c = whole::compare(
         whole::Side {
@@ -686,6 +723,16 @@ async fn compare_sides(
     let p = &c.projection;
     let left_types: Vec<String> = p.columns.iter().map(|x| type_of(&lcols, &x.0)).collect();
     let right_types: Vec<String> = p.columns.iter().map(|x| type_of(&rcols, &x.1)).collect();
+    let left_vectors: Vec<bool> = p
+        .columns
+        .iter()
+        .map(|x| lvec.contains_key(&x.0.to_lowercase()))
+        .collect();
+    let right_vectors: Vec<bool> = p
+        .columns
+        .iter()
+        .map(|x| rvec.contains_key(&x.1.to_lowercase()))
+        .collect();
     let id = uuid::Uuid::new_v4().to_string();
     let result = DataCompareResult {
         id: id.clone(),
@@ -733,6 +780,8 @@ async fn compare_sides(
             equal: c.equal,
             left_types,
             right_types,
+            left_vectors,
+            right_vectors,
             partial: false,
             diff_truncated: c.diff_truncated,
             counts: c.counts.clone(),
@@ -1076,11 +1125,12 @@ pub(crate) fn export_list(
     labels: &ExportLabels,
     sink: &mut dyn dbine_driver::RowSink,
 ) -> std::io::Result<()> {
-    use dbine_driver::ResultColumn;
-    let column = |name: String, type_name: Option<&String>| ResultColumn {
+    use dbine_driver::{ResultColumn, VectorMeta};
+    // A vector column says so: JSON writes its values as arrays.
+    let column = |name: String, type_name: Option<&String>, vector: Option<&bool>| ResultColumn {
         name,
         type_name: type_name.cloned().unwrap_or_default(),
-        vector: None,
+        vector: vector.copied().unwrap_or(false).then(VectorMeta::default),
     };
     let (rows, _) = passing(d, args);
     if args.kind != RowKind::Changed {
@@ -1088,7 +1138,12 @@ pub(crate) fn export_list(
             .columns
             .iter()
             .enumerate()
-            .map(|(i, (l, _))| column(l.clone(), d.left_types.get(i)))
+            .map(|(i, (l, _))| {
+                // The rows are either side's.
+                let vector = d.left_vectors.get(i).copied().unwrap_or(false)
+                    || d.right_vectors.get(i).copied().unwrap_or(false);
+                column(l.clone(), d.left_types.get(i), Some(&vector))
+            })
             .collect();
         sink.begin(0, &columns)?;
         for (_, left, _, _) in rows {
@@ -1098,19 +1153,21 @@ pub(crate) fn export_list(
     }
     let nk = d.key.len().min(d.columns.len());
     let mut columns: Vec<ResultColumn> = (0..nk)
-        .map(|i| column(d.columns[i].0.clone(), d.left_types.get(i)))
+        .map(|i| column(d.columns[i].0.clone(), d.left_types.get(i), None))
         .collect();
     for (i, (l, r)) in d.columns.iter().enumerate().skip(nk) {
         columns.push(column(
             format!("{l} ({})", labels.left),
             d.left_types.get(i),
+            d.left_vectors.get(i),
         ));
         columns.push(column(
             format!("{r} ({})", labels.right),
             d.right_types.get(i),
+            d.right_vectors.get(i),
         ));
     }
-    columns.push(column(labels.differs.clone(), None));
+    columns.push(column(labels.differs.clone(), None, None));
     sink.begin(0, &columns)?;
     let cell = |r: &[Value], i: usize| r.get(i).cloned().unwrap_or(Value::Null);
     let mut out = Vec::with_capacity(columns.len());
@@ -1307,6 +1364,14 @@ pub async fn data_compare_script(
     state: State<'_, AppState>,
     args: DataScriptArgs,
 ) -> CommandResult<Vec<DataScript>> {
+    scripts_for(&state, &args)
+}
+
+/// [`data_compare_script`]'s work.
+pub(crate) fn scripts_for(
+    state: &AppState,
+    args: &DataScriptArgs,
+) -> CommandResult<Vec<DataScript>> {
     let all = diffs().lock().unwrap();
     let d = all.get(&args.id).ok_or_else(|| {
         CommandError::NotFound("la comparación ya no está: volvé a comparar".into())
@@ -1322,7 +1387,7 @@ pub async fn data_compare_script(
         if plan.delete.is_empty() && plan.update.is_empty() && plan.insert.is_empty() {
             continue;
         }
-        out.push(side_script(&state, d, to_right, plan)?);
+        out.push(side_script(state, d, to_right, plan)?);
     }
     Ok(out)
 }
@@ -1349,13 +1414,8 @@ fn side_script(
         .map(|(l, r)| if to_right { r.clone() } else { l.clone() })
         .collect();
     let nk = d.key.len();
-    let (target_types, source_types) = if to_right {
-        (&d.right_types, &d.left_types)
-    } else {
-        (&d.left_types, &d.right_types)
-    };
     // Every value as the target column takes it.
-    let typed = |i: usize, v: &Value| write_as(&target_types[i], &source_types[i], v.clone());
+    let typed = |i: usize, v: &Value| script_value(d, to_right, i, v);
     let typed_row =
         |r: &[Value]| -> Vec<Value> { r.iter().enumerate().map(|(i, v)| typed(i, v)).collect() };
     let key_of = |r: &Vec<Value>| -> Vec<(String, Value)> {
@@ -1411,6 +1471,46 @@ fn side_script(
         atomic: driver.supports_manual_transactions(),
         script,
     })
+}
+
+/// Compared column `i`'s value `v` as the script writes it into the side
+/// `to_right` says: as its column's type takes it ([`write_as`]), and a
+/// vector as an array where that column holds vectors, or where the
+/// source's does and the target's column takes arrays as they are (it
+/// doesn't say its type, or it's an array or JSON one: a schemaless
+/// engine's field), so the target keeps an array, not its text.
+pub(crate) fn script_value(d: &Diff, to_right: bool, i: usize, v: &Value) -> Value {
+    let (target_types, source_types, target_vectors, source_vectors) = if to_right {
+        (
+            &d.right_types,
+            &d.left_types,
+            &d.right_vectors,
+            &d.left_vectors,
+        )
+    } else {
+        (
+            &d.left_types,
+            &d.right_types,
+            &d.left_vectors,
+            &d.right_vectors,
+        )
+    };
+    fn ty(t: &[String], i: usize) -> &str {
+        t.get(i).map_or("", String::as_str)
+    }
+    let at = |v: &Vec<bool>| v.get(i).copied().unwrap_or(false);
+    let target = ty(target_types, i).trim().to_ascii_lowercase();
+    let takes_arrays = matches!(target.as_str(), "" | "null")
+        || target.contains("json")
+        || ["array", "list", "variant", "object", "document", "any"]
+            .iter()
+            .any(|w| target.starts_with(w));
+    let v = write_as(ty(target_types, i), ty(source_types, i), v.clone());
+    if at(target_vectors) || (takes_arrays && at(source_vectors)) {
+        vectors::script_value(v)
+    } else {
+        v
+    }
 }
 
 /// The parts joined by the engine's separator, and how many statements the
@@ -1512,8 +1612,8 @@ fn assemble(driver: &dyn dbine_driver::Driver, parts: Vec<String>) -> (String, u
 mod tests {
     use super::{
         as_bool, as_number, assemble, canon, insert_parts, is_bool_type, is_number_type,
-        new_rows_parts, plans, rows_of, write_as, ChangedRow, Choices, DataCompareArgs,
-        DataRowsArgs, Diff, Dir, Pick, RowKind, Side, SHOWN,
+        new_rows_parts, plans, rows_of, script_value, write_as, ChangedRow, Choices,
+        DataCompareArgs, DataRowsArgs, Diff, Dir, Pick, RowKind, Side, SHOWN,
     };
     use dbine_driver::filter::{ColumnFilter, FilterOp};
     use dbine_driver::SortKey;
@@ -1765,11 +1865,57 @@ mod tests {
             equal: vec![vec![json!(4), json!("same")]],
             left_types: vec!["int".into(), "text".into()],
             right_types: vec!["int".into(), "text".into()],
+            left_vectors: vec![],
+            right_vectors: vec![],
             partial,
             diff_truncated: false,
             counts: super::Counts::default(),
             last_keys: None,
         }
+    }
+
+    /// A vector column's values reach the target's script as arrays (the
+    /// driver writes its engine's literal); other columns as before.
+    #[test]
+    fn sync_scripts_get_vectors_as_arrays() {
+        let mut d = diff(false);
+        d.columns.push(("v".into(), "v".into()));
+        d.left_types.push("vector(2)".into());
+        d.right_types.push(String::new());
+        d.left_vectors = vec![false, false, true];
+        d.right_vectors = vec![false, false, false];
+        let v = json!("[1,2.5]");
+        // Into the left: its column holds vectors.
+        assert_eq!(script_value(&d, false, 2, &v), json!([1.0, 2.5]));
+        // Into the right, which doesn't say its type: the source's says.
+        assert_eq!(script_value(&d, true, 2, &v), json!([1.0, 2.5]));
+        // A right column that says it's text keeps the text.
+        d.right_types[2] = "text".into();
+        assert_eq!(script_value(&d, true, 2, &v), v);
+        // A schemaless engine's array field, or a JSON column: an array.
+        for t in ["array", "jsonb", "JSON", "variant"] {
+            d.right_types[2] = t.into();
+            assert_eq!(script_value(&d, true, 2, &v), json!([1.0, 2.5]), "{t}");
+        }
+        // Other columns as before; NULL stays NULL.
+        assert_eq!(script_value(&d, false, 1, &json!("x")), json!("x"));
+        assert_eq!(script_value(&d, false, 2, &json!(null)), json!(null));
+        // The arrays reach the driver: PostgreSQL's script has the vector.
+        let pg = dbine_drivers::find("postgres").unwrap();
+        let target = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "t".into(),
+        };
+        let script = pg
+            .insert_script(
+                &target,
+                &["id".into(), "v".into()],
+                &[vec![json!(1), script_value(&d, false, 2, &v)]],
+            )
+            .unwrap();
+        assert!(script.contains("[1"), "{script}");
+        assert!(script.contains("2.5"), "{script}");
     }
 
     fn pick(dir: Dir) -> Pick {

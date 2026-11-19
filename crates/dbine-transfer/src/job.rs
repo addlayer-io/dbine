@@ -47,6 +47,12 @@ pub struct TransferJob {
     /// case; types only between the same engine). Empty: no check.
     #[serde(default)]
     pub expected_columns: Vec<TransferColumn>,
+    /// The target's columns that hold vectors (target names). Their cells
+    /// travel as JSON-array text whatever the path; where the rows go as the
+    /// driver's `insert_script`, they go as arrays (`dbine_driver::vector`),
+    /// which the driver writes as its engine's vector literal.
+    #[serde(default)]
+    pub vector_columns: Vec<String>,
     /// Copy every row (the default) or sync only what changed.
     #[serde(default)]
     pub mode: TransferMode,
@@ -188,6 +194,7 @@ mod tests {
             post: vec![],
             preexisting: false,
             expected_columns: vec![],
+            vector_columns: vec![],
             mode: TransferMode::Copy,
         }
     }

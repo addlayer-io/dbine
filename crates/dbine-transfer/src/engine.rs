@@ -50,6 +50,13 @@ pub trait Endpoints: Send + Sync {
         self.source_driver()
             .supports_native_copy(self.target_driver().info().id)
     }
+    /// The columns of `table` (as the target creates it) that hold dense
+    /// vectors on the target's engine: where it has no bulk load, their
+    /// cells reach `insert_script` as arrays (`TransferJob::vector_columns`).
+    /// The app answers it from the engine's dialect; none by default.
+    fn vector_columns(&self, _table: &dbine_driver::TableSchema) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// How a run ended, table by table.
