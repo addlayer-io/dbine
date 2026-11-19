@@ -741,6 +741,91 @@ async fn opendistro_vectors() {
     .await;
 }
 
+/// OpenSearch float vector indexes that name no engine, by distance, as
+/// each version's default engine takes them: L2 everywhere; cosine
+/// everywhere but 2.18 (Faiss, the default from 2.18, has it from 2.19);
+/// L1, which DBine gives NMSLIB (the only engine with it), until 3.0, which
+/// refuses NMSLIB for new indexes. Each one also reads back as made.
+#[tokio::test]
+#[ignore]
+async fn opensearch_default_engines() {
+    let Ok(url) = std::env::var("DBINE_TEST_OPENSEARCH_URL") else {
+        return;
+    };
+    let _serial = SERIAL.lock().await;
+    let d = driver("opensearch");
+    let mut s = d
+        .connect(&config("opensearch", &url), None)
+        .await
+        .expect("connect");
+    let version = s.server_version().await.unwrap();
+    println!("{version}");
+    cleanup(&mut s).await;
+    let _guard = Guard {
+        id: "opensearch",
+        url: url.clone(),
+    };
+    let at_least = |v: &str| dbine_driver::functions::version_at_least(&version, v);
+    for (metric, takes) in [
+        ("l2", true),
+        ("cosine", !at_least("2.18") || at_least("2.19")),
+        ("l1", !at_least("3.0")),
+    ] {
+        let table = TableSchema {
+            kind: "index".into(),
+            name: BYTES.into(),
+            columns: vec![col("title", "keyword"), col("emb", "knn_vector(3)")],
+            indexes: vec![IndexDef {
+                name: "emb_idx".into(),
+                columns: vec!["emb".into()],
+                vector: Some(VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some(metric.into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            options: [("number_of_replicas".to_string(), "0".to_string())].into(),
+            ..Default::default()
+        };
+        let parts = DdlParts {
+            drop: true,
+            if_exists: true,
+            create: true,
+            ..Default::default()
+        };
+        let ddl = d.table_ddl(&table, parts).unwrap();
+        let mut out = QueryOutcome::default();
+        let made = s.execute(&ddl, 10, &mut out).await;
+        println!("{metric}: {made:?}");
+        assert_eq!(
+            made.is_ok(),
+            takes,
+            "{metric} on {version}: {made:?}\n{ddl}"
+        );
+        if takes {
+            let schema = s.database_schema().await.unwrap();
+            let got = schema.iter().find(|t| t.name == BYTES).unwrap();
+            let read = got.indexes[0].vector.clone().unwrap();
+            println!("{metric}: read back {read:?}");
+            assert_eq!(read.metric.as_deref(), Some(metric));
+            let mut model = got.clone();
+            model.indexes = table.indexes.clone();
+            let same = d
+                .sync_script(&[dbine_driver::TableChange::Alter {
+                    old: got.clone(),
+                    new: model,
+                }])
+                .unwrap();
+            assert!(
+                same.statements.is_empty() && same.warnings.is_empty(),
+                "{metric}: {same:?}"
+            );
+        }
+        cleanup(&mut s).await;
+    }
+}
+
 /// OpenSearch byte and binary vectors whose vector index names no engine
 /// (the designer's default): created, filled as the grid hands them over,
 /// searched, and more of them added to the k-NN index by schema sync.
