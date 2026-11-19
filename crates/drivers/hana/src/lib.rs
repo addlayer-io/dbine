@@ -733,12 +733,76 @@ fn int(v: &HdbValue) -> Option<i64> {
 }
 
 impl HanaSession {
+    /// A browse query (`SELECT *` of a table, filtered or sorted or not) of
+    /// a table with `REAL_VECTOR` columns, as the same query with each
+    /// column named and the vectors read as text, and those columns with
+    /// their dimension. `None` for any other query, or a table without
+    /// vectors.
+    async fn browse_vectors_as_text(
+        &self,
+        sql: &str,
+    ) -> Option<(String, Vec<(String, Option<i64>)>)> {
+        let (schema, table, rest) = vector::browsed_table(sql)?;
+        let rows = self
+            .conn
+            .query(&vector::all_columns_sql(&schema, &table))
+            .await
+            .ok()?
+            .into_rows()
+            .await
+            .ok()?;
+        let cols: Vec<(String, String, Option<i64>)> = rows
+            .into_iter()
+            .filter_map(|mut r| {
+                let name = text(&r.next_value()?)?;
+                let ty = text(&r.next_value()?)?;
+                let len = r
+                    .next_value()
+                    .and_then(|v| text(&v))
+                    .and_then(|n| n.parse().ok());
+                Some((name, ty, len))
+            })
+            .collect();
+        let known: Vec<(String, Option<i64>)> = cols
+            .iter()
+            .filter(|(_, ty, _)| vector::is_vector(ty))
+            .map(|(n, _, d)| (n.clone(), *d))
+            .collect();
+        if known.is_empty() {
+            return None;
+        }
+        let list: Vec<String> = cols
+            .iter()
+            .map(|(n, ty, _)| {
+                if vector::is_vector(ty) {
+                    vector::read_expr(&quote(n))
+                } else {
+                    quote(n)
+                }
+            })
+            .collect();
+        Some((format!("SELECT {}{rest}", list.join(", ")), known))
+    }
+
     /// One statement of a script; its error is placed in the statement.
     async fn run_one(&mut self, stmt: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let response = self.conn.statement(stmt).await;
         self.warnings(out).await;
         let response = match response {
             Ok(r) => r,
+            // A server that sends REAL_VECTOR itself, which the client can't
+            // decode: a table's browse goes again with its vectors as text.
+            Err(e) if vector::explain(&message(&e)).is_some() => {
+                let Some((sql, known)) = self.browse_vectors_as_text(stmt).await else {
+                    return Err(stmt_err(e, stmt, 0));
+                };
+                let r = self
+                    .conn
+                    .statement(&sql)
+                    .await
+                    .map_err(|e| stmt_err(e, stmt, 0))?;
+                return push_response(&self.conn, r, max_rows, out, &known).await;
+            }
             Err(e) => {
                 let e = stmt_err(e, stmt, 0);
                 // REAL_VECTOR is HANA Cloud's: on another server, say so.
@@ -754,7 +818,7 @@ impl HanaSession {
             }
         };
         let before = out.results.len();
-        push_response(&self.conn, response, max_rows, out).await?;
+        push_response(&self.conn, response, max_rows, out, &[]).await?;
         let reads = out.results[before..].iter().all(|r| !r.columns.is_empty());
         match leading_keyword(stmt, &ScriptDialect::generic()).as_deref() {
             Some("commit" | "rollback") => self.dirty = false,
@@ -1401,15 +1465,21 @@ impl Session for HanaSession {
 
 // ------------------------------------------------------------- execution
 
+/// `known`: result columns (by name) that hold a vector's text, with their
+/// dimension (a browse read again with `TO_NVARCHAR`, see
+/// [`HanaSession::browse_vectors_as_text`]).
 async fn push_response(
     conn: &Connection,
     response: HdbResponse,
     max_rows: usize,
     out: &mut QueryOutcome,
+    known: &[(String, Option<i64>)],
 ) -> Result<()> {
     for rv in response {
         match rv {
-            HdbReturnValue::ResultSet(rs) => push_result_set(conn, rs, max_rows, out).await?,
+            HdbReturnValue::ResultSet(rs) => {
+                push_result_set(conn, rs, max_rows, out, known).await?
+            }
             HdbReturnValue::AffectedRows(v) => out.push_affected(v.iter().map(|n| *n as u64).sum()),
             HdbReturnValue::OutputParameters(op) => {
                 let (descriptors, values) = op.into_descriptors_and_values();
@@ -1442,9 +1512,18 @@ async fn push_result_set(
     mut rs: ResultSet,
     max_rows: usize,
     out: &mut QueryOutcome,
+    known: &[(String, Option<i64>)],
 ) -> Result<()> {
     let md = rs.metadata();
-    let dims = vector_columns(conn, &md).await;
+    let mut dims = vector_columns(conn, &md).await;
+    // Vectors read as text: marked by name, their cells made canonical.
+    let mut texts = vec![false; dims.len()];
+    for (i, f) in md.iter().enumerate() {
+        if let Some((_, d)) = known.iter().find(|(n, _)| n == f.displayname()) {
+            dims[i] = Some(*d);
+            texts[i] = true;
+        }
+    }
     out.begin_result(
         md.iter()
             .zip(&dims)
@@ -1462,7 +1541,12 @@ async fn push_result_set(
     while let Some(row) = rs.next_row().await.map_err(err)? {
         let mut cells = Vec::with_capacity(row.len());
         for (i, v) in row.into_iter().enumerate() {
-            cells.push(if matches!(dims.get(i), Some(Some(_))) {
+            cells.push(if texts.get(i) == Some(&true) {
+                match cell(v).await {
+                    Value::String(t) => vector::canonical(&t).into(),
+                    other => other,
+                }
+            } else if matches!(dims.get(i), Some(Some(_))) {
                 vector_cell(v).await
             } else {
                 cell(v).await

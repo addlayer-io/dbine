@@ -99,6 +99,56 @@ pub(crate) fn explain(message: &str) -> Option<&'static str> {
     )
 }
 
+/// A browse query's table (`SELECT *\nFROM "S"."T"`, then maybe the grid's
+/// filter, sort and the limit): (schema, table, the query after `SELECT
+/// *`). `None` for any other query.
+pub(crate) fn browsed_table(sql: &str) -> Option<(String, String, &str)> {
+    let rest = sql.strip_prefix("SELECT *")?;
+    let mut names = rest.strip_prefix("\nFROM ")?;
+    let mut parts = Vec::new();
+    loop {
+        let body = names.strip_prefix('"')?;
+        let mut name = String::new();
+        let mut chars = body.char_indices();
+        let end = loop {
+            match chars.next()? {
+                (i, '"') if body[i + 1..].starts_with('"') => {
+                    name.push('"');
+                    chars.next();
+                }
+                (i, '"') => break i + 1,
+                (_, c) => name.push(c),
+            }
+        };
+        parts.push(name);
+        names = &body[end..];
+        match names.strip_prefix('.') {
+            Some(r) if parts.len() < 2 => names = r,
+            Some(_) => return None,
+            None => break,
+        }
+    }
+    if !(names.is_empty() || names.starts_with(char::is_whitespace)) {
+        return None;
+    }
+    let mut parts = parts.into_iter();
+    match (parts.next(), parts.next()) {
+        (Some(s), Some(t)) => Some((s, t, rest)),
+        _ => None,
+    }
+}
+
+/// A table's columns in order: name, type and length.
+pub(crate) fn all_columns_sql(schema: &str, table: &str) -> String {
+    let s = |x: &str| format!("'{}'", x.replace('\'', "''"));
+    format!(
+        "SELECT COLUMN_NAME, DATA_TYPE_NAME, TO_NVARCHAR(LENGTH) FROM SYS.TABLE_COLUMNS \
+         WHERE SCHEMA_NAME = {} AND TABLE_NAME = {} ORDER BY POSITION",
+        s(schema),
+        s(table)
+    )
+}
+
 /// Whether a statement declares a vector column or makes a vector index.
 pub(crate) fn mentions_vectors(statement: &str) -> bool {
     let up = statement.to_ascii_uppercase();
@@ -265,6 +315,27 @@ mod tests {
         );
         assert!(explain("impl error: Illegal type code 96").is_some());
         assert!(explain("something else").is_none());
+    }
+
+    #[test]
+    fn browse_queries_name_their_table() {
+        use dbine_driver::sql::{select_top, Limit, Quote};
+        let b = select_top(Quote::Double, Limit::Limit, Some("APP"), "DOCS", 200);
+        let (s, t, rest) = browsed_table(&b).unwrap();
+        assert_eq!((s.as_str(), t.as_str()), ("APP", "DOCS"));
+        assert_eq!(rest, "\nFROM \"APP\".\"DOCS\"\nLIMIT 200");
+        let odd = select_top(Quote::Double, Limit::Limit, Some("a\"b"), "c.d", 5);
+        let (s, t, _) = browsed_table(&odd).unwrap();
+        assert_eq!((s.as_str(), t.as_str()), ("a\"b", "c.d"));
+        assert!(browsed_table("SELECT * FROM T").is_none());
+        assert!(browsed_table("SELECT *\nFROM \"T\"").is_none(), "no schema");
+        assert!(browsed_table("SELECT *\nFROM \"A\".\"B\".\"C\"").is_none());
+        assert!(browsed_table("SELECT a\nFROM \"A\".\"B\"").is_none());
+        assert_eq!(
+            all_columns_sql("A", "B"),
+            "SELECT COLUMN_NAME, DATA_TYPE_NAME, TO_NVARCHAR(LENGTH) FROM SYS.TABLE_COLUMNS \
+             WHERE SCHEMA_NAME = 'A' AND TABLE_NAME = 'B' ORDER BY POSITION"
+        );
     }
 
     #[test]
