@@ -749,20 +749,60 @@ fn field(a: &Value) -> Option<FtField> {
 fn redisearch_vector(p: &[(String, &Value)]) -> Option<FtVector> {
     let ty = VType::parse(&text(p, "data_type")?)?;
     let dims = text(p, "dim")?.parse().ok()?;
+    let algorithm = text(p, "algorithm")?.to_ascii_uppercase();
     let params = VECTOR_PARAMS
         .iter()
         .filter_map(|k| {
             let v = number(get(p, k)?);
             (!v.is_empty()).then(|| (k.to_ascii_uppercase(), compression(k, v)))
         })
+        // Dragonfly's INITIAL_CAP is 1000; Redis doesn't report it.
+        .filter(|(k, v)| !server_default(&algorithm, k, v, DRAGONFLY_INITIAL_CAP))
         .collect();
     Some(FtVector {
-        algorithm: text(p, "algorithm")?.to_ascii_uppercase(),
+        algorithm,
         ty,
         dims,
         metric: text(p, "distance_metric")?.to_ascii_uppercase(),
         params,
     })
+}
+
+/// valkey-search's and Dragonfly's `INITIAL_CAP` when an index doesn't
+/// set it.
+const VALKEY_INITIAL_CAP: &str = "10240";
+const DRAGONFLY_INITIAL_CAP: &str = "1000";
+
+/// Whether `value` is what the server uses for the setting `key` of an
+/// `algorithm` index that doesn't set it, as Redis, valkey-search and
+/// Dragonfly document it (`initial_cap`: that server's). `FT.INFO` reports
+/// some of those defaults, each server its own (Redis 8 its HNSW and
+/// SVS-VAMANA settings but never `INITIAL_CAP`, `BLOCK_SIZE` or `EPSILON`;
+/// valkey-search its capacity and FLAT block size; Dragonfly all of them
+/// but the block size), so they are left out of what is read: two indexes
+/// made the same way read the same on each server, a sync between them
+/// leaves nothing to change, and a script never writes an uncompressed
+/// SVS-VAMANA's `NO_COMPRESSION`, which `FT.CREATE` refuses.
+fn server_default(algorithm: &str, key: &str, value: &str, initial_cap: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    let default = match (algorithm.to_ascii_uppercase().as_str(), key.as_str()) {
+        (_, "initial_cap") => initial_cap,
+        ("HNSW", "m") => "16",
+        ("HNSW", "ef_construction") => "200",
+        ("HNSW", "ef_runtime") => "10",
+        ("HNSW" | "SVS-VAMANA", "epsilon") => "0.01",
+        ("FLAT", "block_size") => "1024",
+        ("SVS-VAMANA", "graph_max_degree") => "32",
+        ("SVS-VAMANA", "construction_window_size") => "200",
+        ("SVS-VAMANA", "search_window_size") => "10",
+        ("SVS-VAMANA", "training_threshold") => "10240",
+        ("SVS-VAMANA", "compression") => "NO_COMPRESSION",
+        _ => return false,
+    };
+    match (value.trim().parse::<f64>(), default.parse::<f64>()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => value.trim().eq_ignore_ascii_case(default),
+    }
 }
 
 /// SVS' compression as `FT.CREATE` takes it: where the server can't use
@@ -795,6 +835,7 @@ fn valkey_vector(ix: &Value) -> Option<FtVector> {
     if let Some(c) = get(&p, "capacity").map(number).filter(|c| !c.is_empty()) {
         params.push(("INITIAL_CAP".into(), c));
     }
+    params.retain(|(k, v)| !server_default(&algorithm, k, v, VALKEY_INITIAL_CAP));
     // In the order the scripts write them (see `FtVector::from_index`).
     params.sort_by_key(|(k, _)| {
         VECTOR_PARAMS
@@ -1869,7 +1910,8 @@ mod tests {
             VectorIndex {
                 algorithm: Some("hnsw".into()),
                 metric: Some("cosine".into()),
-                params: [("m", "8"), ("ef_construction", "100"), ("ef_runtime", "10")]
+                // EF_RUNTIME 10 is the server's default: left out.
+                params: [("m", "8"), ("ef_construction", "100")]
                     .into_iter()
                     .map(|(k, v)| (k.to_string(), v.to_string()))
                     .collect(),
@@ -1880,7 +1922,7 @@ mod tests {
         assert_eq!(
             ix.create_command(),
             "FT.CREATE docs ON HASH PREFIX 1 doc: SCHEMA title TEXT WEIGHT 2 SORTABLE \
-             emb VECTOR HNSW 12 TYPE FLOAT32 DIM 3 DISTANCE_METRIC COSINE M 8 EF_CONSTRUCTION 100 EF_RUNTIME 10 \
+             emb VECTOR HNSW 10 TYPE FLOAT32 DIM 3 DISTANCE_METRIC COSINE M 8 EF_CONSTRUCTION 100 \
              tag AS lang TAG SEPARATOR ;"
         );
         assert!(ix.covers(b"doc:1") && !ix.covers(b"other:1"));
@@ -1984,8 +2026,187 @@ mod tests {
         assert_eq!((v.dims, v.metric.as_str()), (2, "IP"));
         assert_eq!(
             ix.create_command(),
-            "FT.CREATE docs ON JSON PREFIX 1 j: SCHEMA $.v AS v VECTOR HNSW 14 TYPE FLOAT32 DIM 2 DISTANCE_METRIC IP \
-             M 16 EF_CONSTRUCTION 200 EF_RUNTIME 10 INITIAL_CAP 10240 $.tag AS tag TAG CASESENSITIVE $.lang AS lang TAG"
+            "FT.CREATE docs ON JSON PREFIX 1 j: SCHEMA $.v AS v VECTOR HNSW 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC IP \
+             $.tag AS tag TAG CASESENSITIVE $.lang AS lang TAG"
+        );
+    }
+
+    /// One vector attribute of `FT.INFO`, as RediSearch (Redis 8,
+    /// Dragonfly) lists it: `settings` beside the type, or as valkey-search
+    /// does (`valkey`): under `index`, with the settings under `algorithm`
+    /// and the capacity beside them.
+    fn info_with(valkey: bool, algorithm: &str, settings: &[(&str, &str)]) -> Value {
+        let mut attr = vec![b("identifier"), b("emb"), b("attribute"), b("emb")];
+        if valkey {
+            let mut alg = vec![b("name"), b(algorithm)];
+            let mut index = vec![
+                b("dimensions"),
+                Value::Int(3),
+                b("distance_metric"),
+                b("L2"),
+                b("data_type"),
+                b("FLOAT32"),
+            ];
+            for (k, v) in settings {
+                if *k == "capacity" {
+                    index.extend([b(k), b(v)]);
+                } else {
+                    alg.extend([b(k), b(v)]);
+                }
+            }
+            index.extend([b("algorithm"), arr(alg)]);
+            attr.extend([b("type"), b("VECTOR"), b("index"), arr(index)]);
+        } else {
+            attr.extend([
+                b("type"),
+                b("VECTOR"),
+                b("algorithm"),
+                b(algorithm),
+                b("data_type"),
+                b("FLOAT32"),
+                b("dim"),
+                Value::Int(3),
+                b("distance_metric"),
+                b("L2"),
+            ]);
+            for (k, v) in settings {
+                attr.extend([b(k), b(v)]);
+            }
+        }
+        arr(vec![
+            b("index_name"),
+            b("ix"),
+            b("index_definition"),
+            arr(vec![
+                b("key_type"),
+                b("HASH"),
+                b("prefixes"),
+                arr(vec![b("d:")]),
+            ]),
+            b("attributes"),
+            arr(vec![arr(attr)]),
+        ])
+    }
+
+    fn read_index(info: Value) -> VectorIndex {
+        FtIndex::from_info("ix", &info)
+            .unwrap()
+            .vector_field("emb")
+            .unwrap()
+            .index()
+    }
+
+    /// The same index, made without settings, as each server reports it
+    /// (Redis 8.10, valkey-search 1.x on Valkey 9.1, Dragonfly 2.0, what
+    /// their `FT.INFO` gave): the servers' defaults are left out, so they
+    /// read alike and compare equal; a setting that isn't the default
+    /// stays.
+    #[test]
+    fn server_defaults_are_left_out() {
+        let bare = |alg: &str| VectorIndex {
+            algorithm: Some(alg.into()),
+            metric: Some("l2".into()),
+            params: Default::default(),
+        };
+        let hnsw = [
+            info_with(
+                false,
+                "HNSW",
+                &[
+                    ("M", "16"),
+                    ("ef_construction", "200"),
+                    ("ef_runtime", "10"),
+                ],
+            ),
+            info_with(
+                true,
+                "HNSW",
+                &[
+                    ("capacity", "10240"),
+                    ("m", "16"),
+                    ("ef_construction", "200"),
+                    ("ef_runtime", "10"),
+                ],
+            ),
+            info_with(
+                false,
+                "HNSW",
+                &[
+                    ("initial_cap", "1000"),
+                    ("M", "16"),
+                    ("ef_construction", "200"),
+                    ("ef_runtime", "10"),
+                    ("epsilon", "0.010000"),
+                ],
+            ),
+        ];
+        for info in hnsw {
+            assert_eq!(read_index(info), bare("hnsw"));
+        }
+        for info in [
+            info_with(false, "FLAT", &[]),
+            info_with(
+                true,
+                "FLAT",
+                &[("capacity", "10240"), ("block_size", "1024")],
+            ),
+            info_with(false, "FLAT", &[("initial_cap", "1000")]),
+        ] {
+            assert_eq!(read_index(info), bare("flat"));
+        }
+        // SVS-VAMANA: no compression is the default (and `FT.CREATE`
+        // doesn't take `NO_COMPRESSION`); LVQ8 read back as the scalar
+        // quantization it fell back to.
+        assert_eq!(
+            read_index(info_with(
+                false,
+                "SVS-VAMANA",
+                &[
+                    ("graph_max_degree", "32"),
+                    ("construction_window_size", "200"),
+                    ("compression", "NO_COMPRESSION"),
+                ],
+            )),
+            bare("svs-vamana")
+        );
+        let lvq = read_index(info_with(
+            false,
+            "SVS-VAMANA",
+            &[
+                ("graph_max_degree", "32"),
+                ("construction_window_size", "200"),
+                ("compression", "GlobalSQ8"),
+                ("training_threshold", "10240"),
+            ],
+        ));
+        assert_eq!(
+            lvq.params.into_iter().collect::<Vec<_>>(),
+            [("quantization".to_string(), "LVQ8".to_string())]
+        );
+        // Settings that aren't the default stay, on each server.
+        let set = read_index(info_with(
+            true,
+            "HNSW",
+            &[
+                ("capacity", "500"),
+                ("m", "8"),
+                ("ef_construction", "200"),
+                ("ef_runtime", "20"),
+            ],
+        ));
+        assert_eq!(
+            set.params.into_iter().collect::<Vec<_>>(),
+            [
+                ("ef_runtime".to_string(), "20".to_string()),
+                ("initial_cap".to_string(), "500".to_string()),
+                ("m".to_string(), "8".to_string()),
+            ]
+        );
+        // Dragonfly's capacity default isn't valkey-search's.
+        let df = read_index(info_with(false, "FLAT", &[("initial_cap", "10240")]));
+        assert_eq!(
+            df.params.get("initial_cap").map(String::as_str),
+            Some("10240")
         );
     }
 
