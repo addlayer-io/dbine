@@ -16,7 +16,9 @@ const ROWS: usize = 100_000;
 
 async fn open(driver: &str, env: &str, default: &str) -> Box<dyn Session> {
     let url = std::env::var(env).unwrap_or_else(|_| default.into());
-    let (host, port) = url.rsplit_once(':').unwrap();
+    // `host:port`, or the `redis://host:port` the integration tests take.
+    let rest = url.trim_start_matches("redis://").trim_end_matches('/');
+    let (host, port) = rest.rsplit_once(':').unwrap();
     let cfg = ConnectionConfig {
         driver: driver.into(),
         host: host.into(),

@@ -15,6 +15,11 @@ pub struct Table {
     pub rows: Vec<Vec<J>>,
     /// A note for the messages panel (a SCAN's next cursor).
     pub message: Option<String>,
+    /// Each column's type, when known (`VECTOR(3, FLOAT32)`); empty or
+    /// shorter than `columns`: not known.
+    pub types: Vec<String>,
+    /// The columns that hold vectors (by position, as `columns`).
+    pub vectors: Vec<Option<dbine_driver::VectorMeta>>,
 }
 
 impl Table {
@@ -118,6 +123,8 @@ pub fn shape(args: &[Vec<u8>], v: Value) -> Table {
                 return pairs(&["member", "score"], items, true);
             }
             if name == "HGETALL"
+                || name == "VINFO"
+                || name == "FT.INFO"
                 || (name == "CONFIG" && args.get(1).is_some_and(|s| s.eq_ignore_ascii_case(b"GET")))
                 || (name == "HRANDFIELD" && has_arg("WITHVALUES"))
             {
@@ -444,6 +451,31 @@ mod tests {
             ]
         );
         assert_eq!(t.rows[1][0], J::from("Clients"));
+    }
+
+    #[test]
+    fn info_replies_are_field_value() {
+        let t = shape(
+            &args("VINFO vs"),
+            Value::Array(vec![
+                b("quant-type"),
+                b("int8"),
+                b("vector-dim"),
+                Value::Int(3),
+            ]),
+        );
+        assert_eq!(t.column_names(), ["field", "value"]);
+        assert_eq!(t.rows[1], vec![J::from("vector-dim"), J::from(3)]);
+        let t = shape(
+            &args("FT.INFO idx"),
+            Value::Array(vec![
+                b("index_name"),
+                b("idx"),
+                b("attributes"),
+                Value::Array(vec![Value::Array(vec![b("identifier"), b("v")])]),
+            ]),
+        );
+        assert_eq!(t.rows[1][1], J::from(r#"[["identifier","v"]]"#));
     }
 
     #[test]

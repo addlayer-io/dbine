@@ -1,7 +1,10 @@
 # Redis commands, for the editor's completion when the server refuses
 # COMMAND DOCS and COMMAND (renamed or disabled on a managed service).
 # Taken from Redis' own command reference (the COMMAND DOCS of Redis 7.4,
-# which is what redis.io publishes), plus the hash commands of Redis 8.0.
+# which is what redis.io publishes), plus the hash commands of Redis 8.0,
+# its vector sets (V*, with the Redis version each came in) and its query
+# engine (FT.*, in Redis' core since 8.0; Redis Stack, valkey-search and
+# Dragonfly have them as a module).
 # `since=` is the Redis version that added each one; Valkey and Dragonfly
 # are filtered by the Redis version they report (`redis_version`).
 # Container commands list each subcommand as CONTAINER|SUBCOMMAND (the
@@ -370,3 +373,48 @@ c ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [A
 c HGETDEL key FIELDS numfields field [field ...] since=8.0.0
 c HGETEX key [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | PERSIST] FIELDS numfields field [field ...] since=8.0.0
 c HSETEX key [FNX | FXX] [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | KEEPTTL] FIELDS numfields field value [field value ...] since=8.0.0
+# Vector sets (Redis 8).
+c VADD key [REDUCE dim] <FP32 vector | VALUES num value [value ...]> element [CAS] [NOQUANT | Q8 | BIN] [EF build-exploration-factor] [SETATTR attributes] [M numlinks] since=8.0.0
+c VCARD key since=8.0.0
+c VDIM key since=8.0.0
+c VEMB key element [RAW] since=8.0.0
+c VGETATTR key element since=8.0.0
+c VINFO key since=8.0.0
+c VISMEMBER key element since=8.2.0
+c VLINKS key element [WITHSCORES] since=8.0.0
+c VRANDMEMBER key [count] since=8.0.0
+c VRANGE key start end [count] since=8.4.0
+c VREM key element since=8.0.0
+c VSETATTR key element attributes since=8.0.0
+c VSIM key <ELE element | FP32 vector | VALUES num value [value ...]> [WITHSCORES] [WITHATTRIBS] [COUNT num] [EPSILON delta] [EF search-exploration-factor] [FILTER expression] [FILTER-EF max-filtering-effort] [TRUTH] [NOTHREAD] since=8.0.0
+# Query engine: search indexes, vector search (KNN), aggregations. A module before Redis 8
+# (RediSearch in Redis Stack, valkey-search, Dragonfly's own), so not tied to a Redis version.
+c FT._LIST
+c FT.AGGREGATE index query [VERBATIM] [LOAD count field [field ...]] [TIMEOUT timeout] [GROUPBY nargs property [property ...] [REDUCE function nargs arg [arg ...] [AS name] ...]] [SORTBY nargs [property ASC | DESC ...] [MAX num]] [APPLY expression AS name] [LIMIT offset num] [FILTER filter] [WITHCURSOR [COUNT read_size] [MAXIDLE idle_time]] [PARAMS nargs name value [name value ...]] [DIALECT dialect]
+c FT.ALIASADD alias index
+c FT.ALIASDEL alias
+c FT.ALIASUPDATE alias index
+c FT.ALTER index [SKIPINITIALSCAN] SCHEMA ADD field options
+c FT.CONFIG|GET option
+c FT.CONFIG|SET option value
+c FT.CREATE index [ON HASH | JSON] [PREFIX count prefix [prefix ...]] [FILTER filter] [LANGUAGE default_lang] [LANGUAGE_FIELD lang_attribute] [SCORE default_score] [SCORE_FIELD score_attribute] [PAYLOAD_FIELD payload_attribute] [MAXTEXTFIELDS] [TEMPORARY seconds] [NOOFFSETS] [NOHL] [NOFIELDS] [NOFREQS] [STOPWORDS count [stopword ...]] [SKIPINITIALSCAN] SCHEMA field_name [AS alias] <TEXT | TAG | NUMERIC | GEO | GEOSHAPE | VECTOR algorithm count attribute value [attribute value ...]> [SORTABLE [UNF]] [NOINDEX] [field_name ...]
+c FT.CURSOR|DEL index cursor_id
+c FT.CURSOR|READ index cursor_id [COUNT read_size]
+c FT.DICTADD dict term [term ...]
+c FT.DICTDEL dict term [term ...]
+c FT.DICTDUMP dict
+c FT.DROPINDEX index [DD]
+c FT.EXPLAIN index query [DIALECT dialect]
+c FT.EXPLAINCLI index query [DIALECT dialect]
+c FT.HYBRID index SEARCH query [SCORER scorer] [YIELD_SCORE_AS name] VSIM field vector [KNN count K k [EF_RUNTIME ef_runtime] [YIELD_SCORE_AS name] | RANGE count RADIUS radius [EPSILON epsilon] [YIELD_SCORE_AS name]] [FILTER filter] [COMBINE <RRF count [CONSTANT constant] [WINDOW window] | LINEAR count [ALPHA alpha BETA beta] [WINDOW window]> [YIELD_SCORE_AS name]] [LIMIT offset num] [SORTBY sortby [ASC | DESC] | NOSORT] [PARAMS nargs name value [name value ...]] [TIMEOUT timeout] [LOAD count field [field ...] | LOAD *] since=8.4.0
+c FT.INFO index
+c FT.PROFILE index <SEARCH | AGGREGATE> [LIMITED] QUERY query
+c FT.SEARCH index query [NOCONTENT] [VERBATIM] [INKEYS count key [key ...]] [INFIELDS count field [field ...]] [RETURN count identifier [AS property] [identifier [AS property] ...]] [SORTBY sortby [ASC | DESC] [WITHCOUNT]] [LIMIT offset num] [TIMEOUT timeout] [PARAMS nargs name value [name value ...]] [DIALECT dialect] [WITHSCORES]
+c FT.SPELLCHECK index query [DISTANCE distance] [TERMS <INCLUDE | EXCLUDE> dictionary [terms ...]] [DIALECT dialect]
+c FT.SUGADD key string score [INCR] [PAYLOAD payload]
+c FT.SUGDEL key string
+c FT.SUGGET key prefix [FUZZY] [WITHSCORES] [WITHPAYLOADS] [MAX max]
+c FT.SUGLEN key
+c FT.SYNDUMP index
+c FT.SYNUPDATE index synonym_group_id [SKIPINITIALSCAN] term [term ...]
+c FT.TAGVALS index field_name

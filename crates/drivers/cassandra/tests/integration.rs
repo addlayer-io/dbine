@@ -530,7 +530,7 @@ async fn designer(driver: &str, url: &str) {
     // has UDFs and materialized views off in cassandra.yaml.
     run(
         &mut s,
-        "CREATE TABLE tabla (id int PRIMARY KEY, email text, columna text)",
+        "CREATE TABLE tabla (id int PRIMARY KEY, email text, columna text, embedding vector<float, 3>)",
         10,
     )
     .await;

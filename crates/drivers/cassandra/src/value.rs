@@ -1,16 +1,21 @@
 //! CQL values as result cells: text as text, integers as numbers (strings
 //! past 2^53), decimals and varints as exact strings, dates and times in
 //! ISO form, UUIDs as strings, blobs as `0x…`, collections, tuples and
-//! UDTs as compact JSON.
+//! UDTs as compact JSON. A vector of numbers is the canonical vector text
+//! ([`dbine_driver::vector::text`]), as every engine's vectors are.
 
 use chrono::{DateTime, NaiveDate, NaiveTime, Timelike};
-use dbine_driver::{json_bytes, json_f64, json_i64};
+use dbine_driver::{json_bytes, json_f64, json_i64, VectorElement, VectorMeta};
+use scylla::frame::response::result::{ColumnType, NativeType};
 use scylla::value::CqlValue;
 use serde_json::Value as J;
 
 pub fn cell(v: Option<&CqlValue>) -> J {
     let Some(v) = v else { return J::Null };
     match v {
+        CqlValue::Vector(items) if vector_text(items).is_some() => {
+            J::String(vector_text(items).unwrap_or_default())
+        }
         CqlValue::List(_)
         | CqlValue::Set(_)
         | CqlValue::Map(_)
@@ -19,6 +24,49 @@ pub fn cell(v: Option<&CqlValue>) -> J {
         | CqlValue::UserDefinedType { .. } => J::String(to_json(v).to_string()),
         other => to_json(other),
     }
+}
+
+/// A vector of numbers (`vector<float, n>`, `vector<double, n>`,
+/// `vector<int, n>`…) as the canonical vector text, each number written the
+/// shortest way that reads back the same (`[0.1,2.5,3]`); `None` when its
+/// elements aren't numbers that fit a double exactly (`vector<text, 2>`,
+/// `vector<bigint, 2>`), which stay JSON.
+pub fn vector_text(items: &[CqlValue]) -> Option<String> {
+    if items.iter().all(|v| matches!(v, CqlValue::Float(_))) {
+        return Some(dbine_driver::vector::text(items.iter().map(|v| match v {
+            CqlValue::Float(f) => *f,
+            _ => 0.0,
+        })));
+    }
+    items
+        .iter()
+        .map(|v| match v {
+            CqlValue::Double(d) => Some(*d),
+            CqlValue::Int(i) => Some(f64::from(*i)),
+            CqlValue::SmallInt(i) => Some(f64::from(*i)),
+            CqlValue::TinyInt(i) => Some(f64::from(*i)),
+            _ => None,
+        })
+        .collect::<Option<Vec<f64>>>()
+        .map(dbine_driver::vector::text)
+}
+
+/// What a result column of type `t` knows about its vectors: a
+/// `vector<float, n>` (the one SAI indexes), `vector<double, n>`,
+/// `vector<tinyint, n>`, or of other integers (element `Other`). `None`
+/// for anything else, and for vectors of non-numbers.
+pub fn vector_meta(t: &ColumnType) -> Option<VectorMeta> {
+    let ColumnType::Vector { typ, dimensions } = t else {
+        return None;
+    };
+    let element = match typ.as_ref() {
+        ColumnType::Native(NativeType::Float) => VectorElement::F32,
+        ColumnType::Native(NativeType::Double) => VectorElement::F64,
+        ColumnType::Native(NativeType::TinyInt) => VectorElement::I8,
+        ColumnType::Native(NativeType::SmallInt | NativeType::Int) => VectorElement::Other,
+        _ => return None,
+    };
+    Some(VectorMeta::dense(Some(u32::from(*dimensions)), element))
 }
 
 /// A value as JSON, keeping collections as arrays and objects.
@@ -326,5 +374,55 @@ mod tests {
             ],
         };
         assert_eq!(cell(Some(&udt)), J::from(r#"{"city":"x","zip":null}"#));
+    }
+
+    #[test]
+    fn vectors_are_the_canonical_text() {
+        let f = CqlValue::Vector(vec![
+            CqlValue::Float(0.1),
+            CqlValue::Float(-2.0),
+            CqlValue::Float(3.5),
+            CqlValue::Float(1e-7),
+        ]);
+        assert_eq!(cell(Some(&f)), J::from("[0.1,-2,3.5,0.0000001]"));
+        let d = CqlValue::Vector(vec![CqlValue::Double(0.1), CqlValue::Double(2.0)]);
+        assert_eq!(cell(Some(&d)), J::from("[0.1,2]"));
+        let i = CqlValue::Vector(vec![CqlValue::Int(1), CqlValue::TinyInt(-3)]);
+        assert_eq!(cell(Some(&i)), J::from("[1,-3]"));
+        // Not numbers, or numbers a double can't hold: JSON as before.
+        let t = CqlValue::Vector(vec![CqlValue::Text("a".into())]);
+        assert_eq!(cell(Some(&t)), J::from(r#"["a"]"#));
+        let b = CqlValue::Vector(vec![CqlValue::BigInt(i64::MAX)]);
+        assert_eq!(cell(Some(&b)), J::from(r#"["9223372036854775807"]"#));
+        // Read back as the same numbers.
+        let back = dbine_driver::vector::parse(&vector_text(&[CqlValue::Float(0.1)]).unwrap());
+        assert_eq!(back.unwrap()[0] as f32, 0.1f32);
+    }
+
+    #[test]
+    fn vector_columns_carry_their_dimension() {
+        let v = |t: NativeType, n| ColumnType::Vector {
+            typ: Box::new(ColumnType::Native(t)),
+            dimensions: n,
+        };
+        assert_eq!(
+            vector_meta(&v(NativeType::Float, 1536)),
+            Some(VectorMeta::dense(Some(1536), VectorElement::F32))
+        );
+        assert_eq!(
+            vector_meta(&v(NativeType::Double, 2)).unwrap().element,
+            VectorElement::F64
+        );
+        assert_eq!(
+            vector_meta(&v(NativeType::TinyInt, 2)).unwrap().element,
+            VectorElement::I8
+        );
+        assert_eq!(
+            vector_meta(&v(NativeType::Int, 2)).unwrap().element,
+            VectorElement::Other
+        );
+        assert_eq!(vector_meta(&v(NativeType::Text, 2)), None);
+        assert_eq!(vector_meta(&v(NativeType::BigInt, 2)), None);
+        assert_eq!(vector_meta(&ColumnType::Native(NativeType::Float)), None);
     }
 }

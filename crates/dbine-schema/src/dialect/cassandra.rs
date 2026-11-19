@@ -19,31 +19,78 @@
 //! CQL has no foreign keys, NOT NULL, defaults, auto-increment or unique
 //! and multi-column indexes: all reported. Keyspaces has no secondary
 //! indexes at all.
+//!
+//! Vectors are `vector<float, n>` (Cassandra 5, ScyllaDB): other engines'
+//! vectors of halves, bytes or bits come as floats (their values fit
+//! exactly), and a vector without a dimension, or a sparse one, can't be
+//! one. Vector indexes are SAI on Cassandra and `vector_index` on
+//! ScyllaDB, with cosine, Euclidean or dot product distance; only ScyllaDB takes
+//! the graph settings from another engine (Cassandra needs a server flag
+//! for them). Keyspaces has no vectors.
 
 use super::{Caps, Dialect, IdentCase, Rendered};
 use crate::default::DefaultValue;
 use crate::issue::{IssueCode, Report, Severity};
 use crate::logical::LogicalType as L;
 use crate::parse::TypeSpec;
-use dbine_driver::{KeyDef, TableSchema};
+use dbine_driver::vector::{metric, param};
+use dbine_driver::{KeyDef, TableSchema, VectorElement, VectorIndex};
 use std::collections::HashSet;
 
 pub struct Cql {
     secondary_indexes: bool,
+    /// `vector<float, n>` and vector indexes (not Keyspaces).
+    vectors: bool,
+    /// ScyllaDB: `vector_index`, with graph settings and filter columns.
+    scylla: bool,
 }
 
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
     static CQL: Cql = Cql {
         secondary_indexes: true,
+        vectors: true,
+        scylla: false,
+    };
+    static SCYLLA: Cql = Cql {
+        secondary_indexes: true,
+        vectors: true,
+        scylla: true,
     };
     static KEYSPACES: Cql = Cql {
         secondary_indexes: false,
+        vectors: false,
+        scylla: false,
     };
     match driver_id {
-        "cassandra" | "scylladb" => Some(&CQL),
+        "cassandra" => Some(&CQL),
+        "scylladb" => Some(&SCYLLA),
         "keyspaces" => Some(&KEYSPACES),
         _ => None,
     }
+}
+
+/// A vector's element type as CQL spells it inside `vector<…, n>`: the
+/// numbers an embedding is made of.
+fn vector_element(cql: &str) -> Option<VectorElement> {
+    match cql {
+        "float" => Some(VectorElement::F32),
+        "double" => Some(VectorElement::F64),
+        "tinyint" => Some(VectorElement::I8),
+        _ => None,
+    }
+}
+
+/// ScyllaDB's `quantization` for another engine's (`int8`, `binary`,
+/// `halfvec`…); `None` when there's no match.
+fn scylla_quantization(q: &str) -> Option<&'static str> {
+    Some(match q.trim().to_ascii_lowercase().as_str() {
+        "f32" | "float32" | "fp32" | "none" | "noquant" => "f32",
+        "f16" | "float16" | "fp16" | "half" | "halfvec" => "f16",
+        "bf16" | "bfloat16" => "bf16",
+        "i8" | "int8" | "q8" | "sq8" | "scalar" => "i8",
+        "b1" | "bit" | "binary" | "bin" => "b1",
+        _ => return None,
+    })
 }
 
 /// `head<inner>` → (`head`, `inner`).
@@ -88,13 +135,23 @@ fn cql_type(s: &str) -> L {
                 },
                 _ => L::Json { binary: true },
             },
-            "vector" => L::Array {
-                of: Box::new(
-                    split_top(inner)
-                        .first()
-                        .map_or(L::Float { bytes: 4 }, |t| cql_type(t)),
-                ),
-            },
+            // `vector<float, 3>`: an embedding when it holds numbers of an
+            // embedding's kind, otherwise a fixed-length list.
+            "vector" => {
+                let parts = split_top(inner);
+                let elem = parts.first().copied().unwrap_or("float");
+                let dims = parts.get(1).and_then(|d| d.trim().parse::<u32>().ok());
+                match (vector_element(elem), dims) {
+                    (Some(element), Some(dims)) => L::Vector {
+                        dims: Some(dims),
+                        element,
+                        sparse: false,
+                    },
+                    _ => L::Array {
+                        of: Box::new(cql_type(elem)),
+                    },
+                }
+            }
             // Tuples and anything generic we don't know.
             _ => L::Json { binary: true },
         };
@@ -157,11 +214,55 @@ fn frozen(native: String) -> String {
 }
 
 impl Cql {
+    /// `vector<float, n>`, `vector<double, n>`; halves, bytes and bits as
+    /// floats (their values fit exactly). Without a dimension, sparse, or
+    /// on Keyspaces: a list, with the fallback's warning.
+    fn render_vector(&self, t: &L) -> Rendered {
+        use IssueCode::*;
+        use Severity::*;
+        let L::Vector {
+            dims: Some(n),
+            element,
+            sparse: false,
+        } = t
+        else {
+            return super::vector_fallback(self, t);
+        };
+        if !self.vectors {
+            return super::vector_fallback(self, t);
+        }
+        let float = Rendered::exact(format!("vector<float, {n}>"));
+        match element {
+            VectorElement::F32 => float,
+            VectorElement::F64 => Rendered::exact(format!("vector<double, {n}>")),
+            VectorElement::F16 | VectorElement::Bf16 => float.with(
+                Info,
+                TypeChanged,
+                "Vector de medios floats como vector<float>: CQL no los tiene, y los valores caben exactos.",
+            ),
+            VectorElement::I8 | VectorElement::U8 => float.with(
+                Info,
+                TypeChanged,
+                "Vector de enteros de un byte como vector<float>: los índices vectoriales de CQL son de floats, y los valores caben exactos.",
+            ),
+            VectorElement::Bit => float.with(
+                Warning,
+                TypeApproximated,
+                "Vector binario como vector<float> de 0 y 1: CQL no tiene vectores de bits ni distancia de Hamming.",
+            ),
+            VectorElement::Other => float.with(
+                Warning,
+                TypeApproximated,
+                "Vector de números de tipo desconocido como vector<float>.",
+            ),
+        }
+    }
+
     fn render(&self, t: &L) -> Rendered {
         use IssueCode::*;
         use Severity::*;
         match t {
-            L::Vector { .. } => super::vector_fallback(self, t),
+            L::Vector { .. } => self.render_vector(t),
             L::Bool => Rendered::exact("boolean"),
             L::Int { bytes, unsigned } => {
                 let r = match L::signed_bytes_for(*bytes, *unsigned) {
@@ -290,6 +391,211 @@ fn is_true(c: &dbine_driver::ColumnDef, k: &str) -> bool {
         .is_some_and(|v| v.eq_ignore_ascii_case("true"))
 }
 
+/// Settings of ScyllaDB's `vector_index` besides the distance (standard
+/// names where there is one).
+const SCYLLA_PARAMS: &[&str] = &[
+    param::M,
+    param::EF_CONSTRUCTION,
+    param::QUANTIZATION,
+    "search_beam_width",
+    "oversampling",
+    "rescoring",
+];
+
+impl Cql {
+    /// Each vector index in this flavor's terms, every change reported.
+    /// On Cassandra, an SAI index that takes only the distance (and
+    /// DataStax's `source_model`): its graph settings (`m`,
+    /// `ef_construction`) need the server option
+    /// `cassandra.sai.vector.allow_custom_parameters`, which a default
+    /// Cassandra refuses, and ScyllaDB's quantization, beam widths, filter
+    /// columns and local (partition) indexes don't exist there. An SAI
+    /// index read from Cassandra itself (`same_family`, kind `sai`) keeps
+    /// what it has: its server had the option. On ScyllaDB, a
+    /// `vector_index` with the settings it has (DataStax's options and
+    /// other engines' are left out). The source's algorithm (`hnsw`,
+    /// `ivfflat`…) becomes CQL's graph. And the vector column becomes
+    /// `vector<float, n>`: CQL indexes vectors of floats only.
+    fn vector_indexes(&self, t: &mut TableSchema, report: &mut Report, same_family: bool) {
+        if !self.vectors {
+            return;
+        }
+        let name = t.name.clone();
+        let mut float_columns: Vec<String> = Vec::new();
+        for ix in &mut t.indexes {
+            let kind = ix.kind.as_deref().unwrap_or("").to_ascii_lowercase();
+            let scylla_kind = kind == "vector_index";
+            if ix.vector.is_none() && !scylla_kind {
+                continue;
+            }
+            // Kept as read: an index of this flavor from this flavor.
+            let own = same_family && kind == if self.scylla { "vector_index" } else { "sai" };
+            let v = ix.vector.get_or_insert_with(VectorIndex::default);
+            let mut dropped: Vec<String> = Vec::new();
+            let mut graph: Vec<String> = Vec::new();
+            if let Some(a) = v
+                .algorithm
+                .take()
+                .filter(|a| !own && !a.eq_ignore_ascii_case("hnsw"))
+            {
+                report.push(
+                    Severity::Info,
+                    IssueCode::IndexChanged,
+                    &name,
+                    Some(&ix.name),
+                    format!(
+                        "El índice vectorial «{}» ({a}) pasa a ser el índice de grafo de CQL.",
+                        ix.name
+                    ),
+                );
+            }
+            if !own {
+                let keys: Vec<String> = v.params.keys().cloned().collect();
+                for k in keys {
+                    let val = v.params[&k].clone();
+                    let keep = if self.scylla {
+                        match k.as_str() {
+                            param::QUANTIZATION => match scylla_quantization(&val) {
+                                Some(q) => {
+                                    v.params.insert(k.clone(), q.to_string());
+                                    true
+                                }
+                                None => false,
+                            },
+                            param::M | param::EF_CONSTRUCTION => val.trim().parse::<u32>().is_ok(),
+                            other => SCYLLA_PARAMS.contains(&other),
+                        }
+                    } else {
+                        k == "source_model"
+                    };
+                    if keep {
+                        continue;
+                    }
+                    v.params.remove(&k);
+                    if !self.scylla && (k == param::M || k == param::EF_CONSTRUCTION) {
+                        graph.push(format!("{k}={val}"));
+                    } else {
+                        dropped.push(format!("{k}={val}"));
+                    }
+                }
+            }
+            if !graph.is_empty() {
+                report.push(
+                    Severity::Info,
+                    IssueCode::OptionDropped,
+                    &name,
+                    Some(&ix.name),
+                    format!(
+                        "El índice vectorial «{}» se crea con el grafo por defecto de Cassandra: sus parámetros ({}) piden la opción cassandra.sai.vector.allow_custom_parameters en el servidor.",
+                        ix.name,
+                        graph.join(", ")
+                    ),
+                );
+            }
+            if !dropped.is_empty() {
+                let (ix_name, list) = (&ix.name, dropped.join(", "));
+                report.push(
+                    Severity::Info,
+                    IssueCode::OptionDropped,
+                    &name,
+                    Some(&ix.name),
+                    if self.scylla {
+                        format!("El índice vectorial «{ix_name}» no lleva {list}: ScyllaDB no los tiene.")
+                    } else {
+                        format!("El índice vectorial «{ix_name}» no lleva {list}: Cassandra no los tiene.")
+                    },
+                );
+            }
+            if !own {
+                // ScyllaDB's local index (its partition columns) only on
+                // ScyllaDB; any other option is the source engine's.
+                if !self.scylla && ix.options.remove("pk").is_some() {
+                    report.push(
+                        Severity::Warning,
+                        IssueCode::IndexChanged,
+                        &name,
+                        Some(&ix.name),
+                        format!(
+                            "El índice vectorial «{}» era local a cada partición: en Cassandra es de toda la tabla.",
+                            ix.name
+                        ),
+                    );
+                }
+                let others: Vec<String> = ix
+                    .options
+                    .iter()
+                    .filter(|(k, _)| !(self.scylla && k.as_str() == "pk"))
+                    .map(|(k, v)| format!("{k}={v}"))
+                    .collect();
+                if !others.is_empty() {
+                    ix.options.retain(|k, _| self.scylla && k == "pk");
+                    report.push(
+                        Severity::Info,
+                        IssueCode::OptionDropped,
+                        &name,
+                        Some(&ix.name),
+                        format!(
+                            "se quitan las opciones del índice «{}»: {}",
+                            ix.name,
+                            others.join(", ")
+                        ),
+                    );
+                }
+            }
+            // Filter columns after the vector column only on ScyllaDB;
+            // Cassandra's SAI indexes the vector alone.
+            if !self.scylla && ix.columns.len() > 1 {
+                report.push(
+                    Severity::Warning,
+                    IssueCode::IndexChanged,
+                    &name,
+                    Some(&ix.name),
+                    format!(
+                        "El índice vectorial de Cassandra (SAI) no tiene columnas de filtro: indexa solo {} (quedan fuera {}).",
+                        ix.columns[0],
+                        ix.columns[1..].join(", ")
+                    ),
+                );
+                ix.columns.truncate(1);
+            }
+            ix.kind = Some(if self.scylla { "vector_index" } else { "sai" }.to_string());
+            if let Some(c) = ix.columns.first() {
+                float_columns.push(c.clone());
+            }
+        }
+        // The indexed vectors as floats.
+        for c in &mut t.columns {
+            if !float_columns.contains(&c.name) {
+                continue;
+            }
+            let ty = c.data_type.trim().to_ascii_lowercase();
+            let inner = ty
+                .strip_prefix("frozen<")
+                .and_then(|r| r.strip_suffix('>'))
+                .unwrap_or(&ty);
+            let Some((head, args)) = generic(inner) else {
+                continue;
+            };
+            let parts = split_top(args);
+            if head != "vector" || parts.len() != 2 || parts[0] == "float" {
+                continue;
+            }
+            let float = format!("vector<float, {}>", parts[1]);
+            report.push(
+                Severity::Warning,
+                IssueCode::PrecisionLoss,
+                &name,
+                Some(&c.name),
+                format!(
+                    "{} pasa de {} a {float}: los índices vectoriales de CQL son de vectores de floats.",
+                    c.name, c.data_type
+                ),
+            );
+            c.data_type = float;
+        }
+    }
+}
+
 impl Dialect for Cql {
     fn id(&self) -> &'static str {
         "cassandra"
@@ -329,9 +635,48 @@ impl Dialect for Cql {
         }
     }
 
+    /// SAI on Cassandra, `vector_index` on ScyllaDB, with the distances
+    /// CQL has. The settings go on as they came (with the source's
+    /// algorithm): [`Dialect::finalize`] keeps those the flavor takes and
+    /// reports the rest (see `Cql::vector_indexes`).
+    fn vector_index(&self, v: &VectorIndex) -> Result<(Option<String>, VectorIndex), String> {
+        if !self.vectors {
+            return Err("Amazon Keyspaces no tiene índices vectoriales".into());
+        }
+        let metric = match v.metric.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+            None => None,
+            Some(m) => Some(
+                [
+                    (metric::COSINE, "cosine"),
+                    (metric::L2, "euclidean"),
+                    (metric::IP, "dot_product"),
+                ]
+                .iter()
+                .find(|(std, cql)| m.eq_ignore_ascii_case(std) || m.eq_ignore_ascii_case(cql))
+                .map(|(std, _)| std.to_string())
+                .ok_or_else(|| {
+                    format!(
+                        "CQL no tiene la distancia «{m}»: solo coseno, euclídea y producto punto"
+                    )
+                })?,
+            ),
+        };
+        let kind = if self.scylla { "vector_index" } else { "sai" };
+        Ok((
+            Some(kind.to_string()),
+            VectorIndex {
+                algorithm: v.algorithm.clone(),
+                metric,
+                params: v.params.clone(),
+            },
+        ))
+    }
+
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         // Read from a CQL server: the key is already in the column options.
-        if t.columns.iter().any(|c| is_true(c, "partition_key")) {
+        let same_family = t.columns.iter().any(|c| is_true(c, "partition_key"));
+        self.vector_indexes(t, report, same_family);
+        if same_family {
             return;
         }
         let name = t.name.clone();
@@ -417,7 +762,7 @@ impl Dialect for Cql {
         for ix in std::mem::take(&mut t.indexes) {
             let why = if ix.unique {
                 Some("CQL no tiene índices únicos: la unicidad no se controla.")
-            } else if ix.columns.len() != 1 {
+            } else if ix.columns.len() != 1 && !(self.scylla && ix.vector.is_some()) {
                 Some("Un índice secundario de CQL lleva una sola columna.")
             } else if key.len() == 1 && key[0] == ix.columns[0] {
                 Some("La columna ya es la clave de partición.")
@@ -511,8 +856,10 @@ mod tests {
         assert_eq!(p("frozen<tuple<int, text>>"), L::Json { binary: true });
         assert_eq!(
             p("vector<float, 3>"),
-            L::Array {
-                of: Box::new(L::Float { bytes: 4 })
+            L::Vector {
+                dims: Some(3),
+                element: VectorElement::F32,
+                sparse: false
             }
         );
         assert_eq!(p("direccion"), L::Json { binary: true });
@@ -653,5 +1000,388 @@ mod tests {
             })
             .notes
             .is_empty());
+    }
+
+    fn vector(dims: Option<u32>, element: VectorElement) -> L {
+        L::Vector {
+            dims,
+            element,
+            sparse: false,
+        }
+    }
+
+    #[test]
+    fn vectors_parse_and_render_natively() {
+        assert_eq!(p("vector<double, 2>"), vector(Some(2), VectorElement::F64));
+        assert_eq!(
+            p("frozen<vector<float, 1536>>"),
+            vector(Some(1536), VectorElement::F32)
+        );
+        assert_eq!(p("vector<tinyint, 4>"), vector(Some(4), VectorElement::I8));
+        // Not an embedding: a fixed-length list.
+        assert_eq!(
+            p("vector<text, 2>"),
+            L::Array {
+                of: Box::new(L::Text { unicode: true })
+            }
+        );
+        assert_eq!(
+            p("vector<int, 2>"),
+            L::Array {
+                of: Box::new(L::int(4))
+            }
+        );
+        for id in ["cassandra", "scylladb"] {
+            let d = lookup(id).unwrap();
+            for native in ["vector<float, 3>", "vector<double, 2>"] {
+                let r = d.render_type(&p(native));
+                assert_eq!(r.native, native);
+                assert!(r.notes.is_empty(), "{native}: {:?}", r.notes);
+            }
+            // Other engines' halves, bytes and bits: floats, said so.
+            for e in [
+                VectorElement::F16,
+                VectorElement::Bf16,
+                VectorElement::I8,
+                VectorElement::U8,
+            ] {
+                let r = d.render_type(&vector(Some(8), e));
+                assert_eq!(r.native, "vector<float, 8>");
+                assert_eq!(r.notes[0].severity, Severity::Info);
+            }
+            let r = d.render_type(&vector(Some(16), VectorElement::Bit));
+            assert_eq!(r.native, "vector<float, 16>");
+            assert_eq!(r.notes[0].severity, Severity::Warning);
+            // No dimension, or sparse: a vector<…> can't hold it.
+            let r = d.render_type(&vector(None, VectorElement::F32));
+            assert_eq!(r.native, "list<float>");
+            assert_eq!(r.notes[0].code, IssueCode::TypeApproximated);
+            let r = d.render_type(&L::Vector {
+                dims: Some(5),
+                element: VectorElement::F32,
+                sparse: true,
+            });
+            assert_eq!(r.native, "text");
+        }
+        // Keyspaces has no vectors.
+        let k = lookup("keyspaces").unwrap();
+        assert_eq!(
+            k.render_type(&vector(Some(3), VectorElement::F32)).native,
+            "list<float>"
+        );
+    }
+
+    /// pgvector's `vector(3)` is `Vector { dims: 3, f32 }`: it comes as
+    /// `vector<float, 3>`, and goes back as that same logical type.
+    #[test]
+    fn pgvector_round_trip() {
+        let pg = vector(Some(3), VectorElement::F32);
+        let d = lookup("cassandra").unwrap();
+        let native = d.render_type(&pg).native;
+        assert_eq!(native, "vector<float, 3>");
+        assert_eq!(p(&native), pg);
+    }
+
+    fn params(kv: &[(&str, &str)]) -> std::collections::BTreeMap<String, String> {
+        kv.iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    /// A table as convert hands it to finalize: an `id` key, a vector
+    /// column of `ty` and an index on it.
+    fn vector_table(ty: &str, ix: dbine_driver::IndexDef, same_family: bool) -> TableSchema {
+        let col = |n: &str, t: &str, key: bool| {
+            let mut c = dbine_driver::ColumnDef {
+                name: n.into(),
+                data_type: t.into(),
+                ..Default::default()
+            };
+            if key && same_family {
+                c.options.insert("partition_key".into(), "true".into());
+            }
+            c
+        };
+        TableSchema {
+            name: "docs".into(),
+            columns: vec![
+                col("id", "int", true),
+                col("emb", ty, false),
+                col("lang", "text", false),
+            ],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![ix],
+            ..Default::default()
+        }
+    }
+
+    fn finalized(id: &str, mut t: TableSchema) -> (TableSchema, Report) {
+        let mut r = Report::default();
+        lookup(id).unwrap().finalize(&mut t, &mut r);
+        (t, r)
+    }
+
+    fn says(r: &Report, code: IssueCode, words: &[&str]) -> bool {
+        r.issues
+            .iter()
+            .any(|i| i.code == code && words.iter().all(|w| i.message.contains(w)))
+    }
+
+    #[test]
+    fn vector_indexes_from_other_engines() {
+        let hnsw = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("cosine".into()),
+            params: params(&[("m", "16"), ("ef_construction", "64"), ("lists", "100")]),
+        };
+        // The distance is mapped; the settings go on to finalize.
+        let (kind, v) = lookup("cassandra").unwrap().vector_index(&hnsw).unwrap();
+        assert_eq!(kind.as_deref(), Some("sai"));
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        let ix = |kind: &str, v: VectorIndex| dbine_driver::IndexDef {
+            name: "docs_emb".into(),
+            columns: vec!["emb".into()],
+            kind: Some(kind.into()),
+            vector: Some(v),
+            ..Default::default()
+        };
+        // Cassandra: SAI with the distance alone, each setting left out
+        // said (the graph's, with the server option it needs).
+        let (t, r) = finalized(
+            "cassandra",
+            vector_table("vector<float, 3>", ix("sai", v), false),
+        );
+        let got = t.indexes[0].vector.as_ref().unwrap();
+        assert_eq!(
+            got,
+            &VectorIndex {
+                metric: Some("cosine".into()),
+                ..Default::default()
+            }
+        );
+        assert!(says(
+            &r,
+            IssueCode::OptionDropped,
+            &["m=16", "ef_construction=64", "allow_custom_parameters"]
+        ));
+        assert!(says(
+            &r,
+            IssueCode::OptionDropped,
+            &["lists=100", "Cassandra no los tiene"]
+        ));
+        // ScyllaDB: vector_index with the graph settings it has.
+        let (kind, v) = lookup("scylladb").unwrap().vector_index(&hnsw).unwrap();
+        assert_eq!(kind.as_deref(), Some("vector_index"));
+        let (t, r) = finalized(
+            "scylladb",
+            vector_table("vector<float, 3>", ix("vector_index", v), false),
+        );
+        let got = t.indexes[0].vector.as_ref().unwrap();
+        assert_eq!(got.algorithm, None);
+        assert_eq!(
+            got.params,
+            params(&[("ef_construction", "64"), ("m", "16")])
+        );
+        assert!(says(
+            &r,
+            IssueCode::OptionDropped,
+            &["lists=100", "ScyllaDB no los tiene"]
+        ));
+        // Quantization by ScyllaDB's name; an IVF index is the graph.
+        let q = VectorIndex {
+            algorithm: Some("ivfflat".into()),
+            metric: Some("l2".into()),
+            params: params(&[("quantization", "int8")]),
+        };
+        let (_, v) = lookup("scylladb").unwrap().vector_index(&q).unwrap();
+        let (t, r) = finalized(
+            "scylladb",
+            vector_table("vector<float, 3>", ix("vector_index", v), false),
+        );
+        let got = t.indexes[0].vector.as_ref().unwrap();
+        assert_eq!(got.metric.as_deref(), Some("l2"));
+        assert_eq!(got.params["quantization"], "i8");
+        assert!(says(&r, IssueCode::IndexChanged, &["ivfflat"]));
+        // Distances CQL lacks, and Keyspaces.
+        let l1 = VectorIndex {
+            metric: Some("l1".into()),
+            ..Default::default()
+        };
+        assert!(lookup("cassandra")
+            .unwrap()
+            .vector_index(&l1)
+            .unwrap_err()
+            .contains("l1"));
+        assert!(lookup("keyspaces").unwrap().vector_index(&hnsw).is_err());
+    }
+
+    /// Within CQL: a ScyllaDB vector_index to Cassandra is an SAI index
+    /// with the distance alone (no graph settings a default Cassandra
+    /// refuses, no local or filter columns); a Cassandra SAI index to
+    /// ScyllaDB a vector_index without DataStax's options; an SAI index
+    /// read from Cassandra keeps its graph settings.
+    #[test]
+    fn vector_indexes_within_cql() {
+        let scylla_ix = dbine_driver::IndexDef {
+            name: "docs_emb".into(),
+            columns: vec!["emb".into(), "lang".into()],
+            kind: Some("vector_index".into()),
+            vector: Some(VectorIndex {
+                metric: Some("l2".into()),
+                params: params(&[
+                    ("m", "24"),
+                    ("quantization", "i8"),
+                    ("search_beam_width", "64"),
+                ]),
+                ..Default::default()
+            }),
+            options: params(&[("pk", "id")]),
+            ..Default::default()
+        };
+        let (t, r) = finalized(
+            "cassandra",
+            vector_table("vector<float, 3>", scylla_ix.clone(), true),
+        );
+        let ix = &t.indexes[0];
+        assert_eq!(ix.kind.as_deref(), Some("sai"));
+        assert_eq!(ix.columns, ["emb"]);
+        assert!(ix.options.is_empty());
+        assert_eq!(
+            ix.vector.as_ref().unwrap(),
+            &VectorIndex {
+                metric: Some("l2".into()),
+                ..Default::default()
+            }
+        );
+        assert!(says(
+            &r,
+            IssueCode::OptionDropped,
+            &["m=24", "allow_custom_parameters"]
+        ));
+        assert!(says(
+            &r,
+            IssueCode::OptionDropped,
+            &["quantization=i8", "search_beam_width=64"]
+        ));
+        assert!(says(&r, IssueCode::IndexChanged, &["local"]));
+        assert!(says(&r, IssueCode::IndexChanged, &["lang"]));
+        // ScyllaDB to ScyllaDB: as it is.
+        let (t, r) = finalized(
+            "scylladb",
+            vector_table("vector<float, 3>", scylla_ix, true),
+        );
+        assert_eq!(t.indexes[0].vector.as_ref().unwrap().params.len(), 3);
+        assert_eq!(t.indexes[0].options["pk"], "id");
+        assert!(r.issues.is_empty(), "{:?}", r.issues);
+        // Cassandra's SAI with graph settings and a source model.
+        let sai = dbine_driver::IndexDef {
+            name: "docs_emb".into(),
+            columns: vec!["emb".into()],
+            kind: Some("sai".into()),
+            vector: Some(VectorIndex {
+                metric: Some("cosine".into()),
+                params: params(&[("m", "32"), ("source_model", "OPENAI_V3_SMALL")]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let (t, r) = finalized(
+            "cassandra",
+            vector_table("vector<float, 3>", sai.clone(), true),
+        );
+        assert_eq!(t.indexes[0].vector.as_ref().unwrap().params.len(), 2);
+        assert!(r.issues.is_empty(), "{:?}", r.issues);
+        let (t, r) = finalized("scylladb", vector_table("vector<float, 3>", sai, true));
+        let ix = &t.indexes[0];
+        assert_eq!(ix.kind.as_deref(), Some("vector_index"));
+        assert_eq!(ix.vector.as_ref().unwrap().params, params(&[("m", "32")]));
+        assert!(says(
+            &r,
+            IssueCode::OptionDropped,
+            &["source_model=OPENAI_V3_SMALL"]
+        ));
+    }
+
+    /// CQL indexes vectors of floats: an indexed `vector<double, n>` (an
+    /// Oracle FLOAT64 vector, say) becomes `vector<float, n>`, said; one
+    /// without an index stays.
+    #[test]
+    fn indexed_vectors_are_floats() {
+        for id in ["cassandra", "scylladb"] {
+            let ix = dbine_driver::IndexDef {
+                name: "docs_emb".into(),
+                columns: vec!["emb".into()],
+                kind: Some(
+                    if id == "cassandra" {
+                        "sai"
+                    } else {
+                        "vector_index"
+                    }
+                    .into(),
+                ),
+                vector: Some(VectorIndex::default()),
+                ..Default::default()
+            };
+            let (t, r) = finalized(id, vector_table("vector<double, 3>", ix, false));
+            assert_eq!(t.columns[1].data_type, "vector<float, 3>", "{id}");
+            assert!(
+                says(&r, IssueCode::PrecisionLoss, &["vector<double, 3>"]),
+                "{id}"
+            );
+            let mut plain = vector_table("vector<double, 3>", Default::default(), false);
+            plain.indexes.clear();
+            let (t, _) = finalized(id, plain);
+            assert_eq!(t.columns[1].data_type, "vector<double, 3>");
+        }
+    }
+
+    #[test]
+    fn vector_index_filter_columns_only_on_scylla() {
+        let table = || TableSchema {
+            name: "docs".into(),
+            columns: vec![
+                dbine_driver::ColumnDef {
+                    name: "id".into(),
+                    data_type: "int".into(),
+                    ..Default::default()
+                },
+                dbine_driver::ColumnDef {
+                    name: "emb".into(),
+                    data_type: "vector<float, 3>".into(),
+                    ..Default::default()
+                },
+                dbine_driver::ColumnDef {
+                    name: "lang".into(),
+                    data_type: "text".into(),
+                    ..Default::default()
+                },
+            ],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![dbine_driver::IndexDef {
+                name: "docs_emb".into(),
+                columns: vec!["emb".into(), "lang".into()],
+                vector: Some(VectorIndex::default()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut t = table();
+        let mut r = Report::default();
+        lookup("scylladb").unwrap().finalize(&mut t, &mut r);
+        assert_eq!(t.indexes[0].columns, ["emb", "lang"]);
+        let mut t = table();
+        let mut r = Report::default();
+        lookup("cassandra").unwrap().finalize(&mut t, &mut r);
+        assert_eq!(t.indexes[0].columns, ["emb"]);
+        assert!(r
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::IndexChanged && i.message.contains("lang")));
     }
 }
