@@ -26,12 +26,13 @@ type Sources = HashMap<(String, String, String), String>;
 
 /// The objects' common filter (as `LIST_OBJECTS`).
 const LISTED: &str =
-    "o.owner = :1 AND o.generated = 'N' AND o.secondary = 'N' AND o.object_name NOT LIKE 'BIN$%'";
+    "o.owner = :1 AND o.generated = 'N' AND o.secondary = 'N' AND o.object_name NOT LIKE 'BIN$%'
+     AND NOT REGEXP_LIKE(o.object_name, '^VECTOR\\$.+\\$[0-9]+_[0-9]+_[0-9]+\\$')";
 
 /// Standalone indexes of the owner's tables (as `TABLE_INDEXES`).
 const INDEXES: &str = "SELECT i.owner, i.index_name, i.table_name FROM all_indexes i
   WHERE i.table_owner = :1
-    AND i.generated = 'N'
+    AND i.generated = 'N' AND NOT REGEXP_LIKE(i.table_name, '^VECTOR\\$.+\\$[0-9]+_[0-9]+_[0-9]+\\$')
     AND i.index_type NOT IN ('LOB', 'IOT - TOP', 'CLUSTER')
     AND NOT EXISTS (
           SELECT 1 FROM all_constraints k
@@ -353,5 +354,17 @@ impl OracleSession {
             }
         }
         Ok(Some(report))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vector_index_internals_are_not_searched() {
+        let p = crate::vector::INTERNAL_TABLES;
+        assert!(LISTED.contains(&format!("NOT REGEXP_LIKE(o.object_name, {p})")));
+        assert!(INDEXES.contains(&format!("NOT REGEXP_LIKE(i.table_name, {p})")));
     }
 }

@@ -243,11 +243,21 @@ pub(crate) fn complete(c: &Connection, owner: &str, tables: &mut [TableSchema]) 
 }
 
 /// Vector indexes (23ai): their algorithm (`ALL_INDEXES.INDEX_SUBTYPE`),
-/// and distance, target accuracy and parameters from
-/// `VECSYS.VECTOR$INDEX` (DBA / GSMUSER_ROLE), else distance and accuracy
-/// from `V$VECTOR_INDEX` (SELECT_CATALOG_ROLE), else the algorithm alone.
+/// and distance, target accuracy and parameters from, in order:
+/// - `SYS.KU$_VECTOR_INDEX_VIEW` (Data Pump's view, readable by PUBLIC):
+///   every index of the login's own schema, and of every schema with
+///   SELECT_CATALOG_ROLE;
+/// - `VECSYS.VECTOR$INDEX` (DBA / GSMUSER_ROLE);
+/// - `V$VECTOR_INDEX` (SELECT_CATALOG_ROLE): distance and accuracy.
+///
+/// An index none of them shows (someone else's, without the role) keeps
+/// its algorithm alone, and its DDL says so (see `ddl::table_ddl`).
 const VECTOR_SUBTYPES: &str = "SELECT index_name, index_subtype FROM all_indexes
   WHERE table_owner = :1 AND index_type = 'VECTOR'";
+const VECTOR_METADATA: &str = "SELECT v.idx_name, v.type, v.distance, TO_CHAR(v.accuracy),
+        TO_CHAR(v.num_neighbors), TO_CHAR(v.efconstruction), TO_CHAR(v.target_centroids)
+   FROM sys.ku$_vector_index_view v
+  WHERE v.base_obj.owner_name = :1";
 const VECTOR_PARAMS: &str =
     "SELECT x.idx_name, JSON_SERIALIZE(x.idx_params RETURNING VARCHAR2(4000))
    FROM vecsys.vector$index x JOIN all_users u ON u.user_id = x.idx_owner#
@@ -281,17 +291,26 @@ fn vector_indexes(c: &Connection, owner: &str, tables: &mut [TableSchema]) {
         }
     }
     let mut details: HashMap<String, Details> = HashMap::new();
-    for r in rows(VECTOR_PARAMS, 2) {
-        if let (Some(n), Some(p)) = (r[0].clone(), r.get(1).cloned().flatten()) {
-            let d = Details::from_params(&p);
-            if let Some(a) = p
-                .to_ascii_uppercase()
-                .contains("\"HNSW\"")
-                .then_some("hnsw")
-            {
-                algorithm.entry(n.clone()).or_insert(a);
+    for r in rows(VECTOR_METADATA, 7) {
+        let Some(n) = r[0].clone() else { continue };
+        if let Some(a) = r[1].as_deref().and_then(algorithm_of) {
+            algorithm.entry(n.clone()).or_insert(a);
+        }
+        details.insert(n, Details::from_metadata(&r[1..]));
+    }
+    if details.is_empty() {
+        for r in rows(VECTOR_PARAMS, 2) {
+            if let (Some(n), Some(p)) = (r[0].clone(), r.get(1).cloned().flatten()) {
+                let d = Details::from_params(&p);
+                if let Some(a) = p
+                    .to_ascii_uppercase()
+                    .contains("\"HNSW\"")
+                    .then_some("hnsw")
+                {
+                    algorithm.entry(n.clone()).or_insert(a);
+                }
+                details.insert(n, d);
             }
-            details.insert(n, d);
         }
     }
     if details.is_empty() {

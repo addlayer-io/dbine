@@ -444,6 +444,9 @@ enum Kind {
     Bool,
     /// Textual JSON (the server parses it into a `JSON` column).
     Json,
+    /// A `VECTOR(n, BINARY)` (`None`: `*` dimensions): one 0 / 1 per
+    /// dimension packed into Oracle's bytes ([`crate::vector::binary_text`]).
+    Bits(Option<u32>),
 }
 
 fn kind_of(data_type: &str) -> Kind {
@@ -484,7 +487,8 @@ impl Kind {
             | Kind::TimestampTz
             | Kind::IntervalDs
             | Kind::IntervalYm
-            | Kind::Json => oracledb::DB_TYPE_VARCHAR,
+            | Kind::Json
+            | Kind::Bits(_) => oracledb::DB_TYPE_VARCHAR,
         }
     }
 
@@ -630,6 +634,8 @@ impl Plan {
 /// The target's columns and identities, checked against the load.
 /// `source_types`: the source columns' types, in the batches' order
 /// (empty when unknown).
+/// `vector_info`: the dictionary has `VECTOR_INFO`
+/// ([`crate::vector::info_column`]), which tells a BINARY vector column.
 fn plan(
     c: &Connection,
     owner: &str,
@@ -637,15 +643,23 @@ fn plan(
     spec: &LoadSpec,
     source_types: &[String],
     native: bool,
+    vector_info: bool,
 ) -> Result<Plan> {
     let (o, t) = (owner.to_string(), table.to_string());
     let mut types = std::collections::HashMap::new();
-    for row in c
-        .query("SELECT column_name, data_type FROM all_tab_columns WHERE owner = :1 AND table_name = :2", &[&o, &t])
-        .map_err(err)?
-    {
+    let mut binary = std::collections::HashMap::new();
+    let sql = format!(
+        "SELECT c.column_name, c.data_type, {} FROM all_tab_columns c WHERE c.owner = :1 AND c.table_name = :2",
+        crate::vector::info_expr(vector_info)
+    );
+    for row in c.query(&sql, &[&o, &t]).map_err(err)? {
         let row = row.map_err(err)?;
-        let (name, ty): (String, Option<String>) = (row.get(0).map_err(err)?, row.get(1).map_err(err)?);
+        let (name, ty): (String, Option<String>) =
+            (row.get(0).map_err(err)?, row.get(1).map_err(err)?);
+        let info: Option<String> = row.get(2).map_err(err)?;
+        if let Some(dims) = info.as_deref().and_then(crate::vector::binary_dims) {
+            binary.insert(name.clone(), dims);
+        }
         types.insert(name, ty.unwrap_or_default());
     }
     if types.is_empty() {
@@ -689,7 +703,9 @@ fn plan(
         );
         cols.push(Col {
             name: name.clone(),
-            kind: kind_of(ty),
+            kind: binary
+                .get(name)
+                .map_or_else(|| kind_of(ty), |&dims| Kind::Bits(dims)),
             index,
             lob: matches!(upper.as_str(), "CLOB" | "NCLOB" | "BLOB"),
             raw_text: source_types
@@ -766,8 +782,12 @@ async fn load_with(
     let (owner, table, spec2) = (s.owner(&spec.table), spec.table.name.clone(), spec.clone());
     let source_types: Vec<String> = columns.iter().map(|c| c.type_name.clone()).collect();
     // Through `run`: reconnects first if the interrupter killed the session.
+    let shared = s.shared.clone();
     let plan = s
-        .run(move |c| plan(c, &owner, &table, &spec2, &source_types, native))
+        .run(move |c| {
+            let info = crate::vector::info_column(c, &shared.vector_info);
+            plan(c, &owner, &table, &spec2, &source_types, native, info)
+        })
         .await?;
 
     let gate = Arc::new(Gate::default());
@@ -1158,6 +1178,13 @@ fn bind(cell: Cell, col: &Col, native: bool) -> Result<B> {
             Cell::Text(s) => s,
             other => return Err(bad(&other, col)),
         }),
+        Kind::Bits(dims) => {
+            let text = match cell {
+                Cell::Text(s) | Cell::Json(s) => s,
+                other => return Err(bad(&other, col)),
+            };
+            B::S(crate::vector::binary_text(&text, dims).unwrap_or(text))
+        }
         Kind::Text | Kind::Json => B::S(match cell {
             Cell::Text(s)
             | Cell::Json(s)
@@ -1472,6 +1499,33 @@ mod tests {
             lob: false,
             raw_text: RawText::Unknown,
         }
+    }
+
+    #[test]
+    fn binary_vectors_load_packed() {
+        let s = |c: Cell, k: Kind| match bind(c, &col(k), false).unwrap() {
+            B::S(s) => s,
+            _ => panic!("not text"),
+        };
+        let bits = "[1,1,0,0,1,0,0,1,0,0,0,0,1,1,1,1]";
+        assert_eq!(s(Cell::Text(bits.into()), Kind::Bits(Some(16))), "[201,15]");
+        assert_eq!(s(Cell::Text(bits.into()), Kind::Bits(None)), "[201,15]");
+        assert_eq!(
+            s(Cell::Text("1100100100001111".into()), Kind::Bits(Some(16))),
+            "[201,15]"
+        );
+        // Bytes already: as they come.
+        assert_eq!(
+            s(Cell::Text("[201,15]".into()), Kind::Bits(Some(16))),
+            "[201,15]"
+        );
+        // A float vector stays as it is.
+        assert_eq!(s(Cell::Text(bits.into()), Kind::Text), bits);
+        assert!(bind(Cell::Int(1), &col(Kind::Bits(None)), false).is_err());
+        assert!(matches!(
+            bind(Cell::Null, &col(Kind::Bits(None)), false).unwrap(),
+            B::Null(_)
+        ));
     }
 
     #[test]

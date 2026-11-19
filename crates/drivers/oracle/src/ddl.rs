@@ -38,6 +38,7 @@ const TABLES: &str = "SELECT t.table_name, c.comments
    LEFT JOIN all_tab_comments c ON c.owner = t.owner AND c.table_name = t.table_name AND c.table_type = 'TABLE'
   WHERE t.owner = :1
     AND t.table_name NOT LIKE 'BIN$%' AND t.dropped = 'NO' AND t.nested = 'NO' AND t.secondary = 'N'
+    AND NOT REGEXP_LIKE(t.table_name, '^VECTOR\\$.+\\$[0-9]+_[0-9]+_[0-9]+\\$')
     AND (t.iot_type IS NULL OR t.iot_type = 'IOT')
     AND NOT EXISTS (SELECT 1 FROM all_mviews m WHERE m.owner = t.owner AND m.mview_name = t.table_name)
     AND NOT EXISTS (SELECT 1 FROM all_mview_logs l WHERE l.log_owner = t.owner AND l.log_table = t.table_name)
@@ -71,7 +72,7 @@ const INDEXES: &str = "SELECT i.table_name, i.index_name, i.uniqueness, i.index_
         ic.column_position
    FROM all_indexes i
    JOIN all_ind_columns ic ON ic.index_owner = i.owner AND ic.index_name = i.index_name
-  WHERE i.table_owner = :1 AND i.generated = 'N'
+  WHERE i.table_owner = :1 AND i.generated = 'N' AND NOT REGEXP_LIKE(i.table_name, '^VECTOR\\$.+\\$[0-9]+_[0-9]+_[0-9]+\\$')
     AND i.index_type IN ('NORMAL', 'NORMAL/REV', 'BITMAP', 'FUNCTION-BASED NORMAL', 'FUNCTION-BASED BITMAP',
                          'DOMAIN', 'FUNCTION-BASED DOMAIN', 'VECTOR')
     AND NOT EXISTS (SELECT 1 FROM all_constraints k
@@ -361,7 +362,12 @@ pub fn table_ddl(table: &TableSchema, parts: DdlParts) -> String {
             let cols: Vec<String> = ix.columns.iter().map(|c| index_column(c)).collect();
             let s = if let Some(v) = vector_of(ix) {
                 match crate::vector::index_sql(&name, &quote(&ix.name), &cols, &v) {
-                    Ok(s) => s,
+                    Ok(s) => {
+                        if v.metric.is_none() {
+                            out.push(crate::vector::unknown_settings_note(&ix.name));
+                        }
+                        s
+                    }
                     Err(why) => {
                         out.push(format!(
                             "-- Índice vectorial {} omitido: {}.",
@@ -724,6 +730,62 @@ mod tests {
     use super::*;
     use crate::script;
     use serde_json::json;
+
+    #[test]
+    fn a_vector_index_without_settings_says_so() {
+        let mut t = TableSchema {
+            name: "DOCS".into(),
+            columns: vec![ColumnDef {
+                name: "V".into(),
+                data_type: "VECTOR(3, FLOAT32)".into(),
+                nullable: true,
+                ..Default::default()
+            }],
+            indexes: vec![IndexDef {
+                name: "IX_V".into(),
+                columns: vec!["V".into()],
+                kind: Some("VECTOR".into()),
+                vector: Some(dbine_driver::VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let parts = DdlParts {
+            indexes: true,
+            ..Default::default()
+        };
+        let s = table_ddl(&t, parts);
+        assert!(
+            s.starts_with("-- El índice vectorial IX_V no indica la distancia"),
+            "{s}"
+        );
+        assert!(s.ends_with(
+            "CREATE VECTOR INDEX \"IX_V\" ON \"DOCS\" (\"V\") ORGANIZATION INMEMORY NEIGHBOR GRAPH;"
+        ));
+        assert_eq!(script::split(&s).len(), 1, "{s}");
+        // Read with its settings: no note.
+        t.indexes[0].vector.as_mut().unwrap().metric = Some("ip".into());
+        let s = table_ddl(&t, parts);
+        assert!(!s.contains("--"), "{s}");
+        assert!(s.contains("DISTANCE DOT"), "{s}");
+    }
+
+    #[test]
+    fn vector_index_internals_are_not_tables() {
+        let not = format!(
+            "NOT REGEXP_LIKE(t.table_name, {})",
+            crate::vector::INTERNAL_TABLES
+        );
+        assert!(TABLES.contains(&not), "{TABLES}");
+        let not = format!(
+            "NOT REGEXP_LIKE(i.table_name, {})",
+            crate::vector::INTERNAL_TABLES
+        );
+        assert!(INDEXES.contains(&not), "{INDEXES}");
+    }
 
     fn t() -> TableSchema {
         TableSchema {

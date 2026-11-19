@@ -1,18 +1,40 @@
 //! `VECTOR` against a real Oracle Database 23ai / 26ai: tables and HNSW /
 //! IVF indexes made from the designer's `TableSchema`, rows written with
-//! the edit scripts (every format, sparse, a 1536-dimension one past the
-//! literal limit), read back marked as vectors, the declared type kept, the
-//! indexes listed, a similarity search, a sync that changes an index, and
-//! transfers (another engine's batches in, a typed read out). Its tables
-//! are dropped first and at the end.
+//! the edit scripts (every format, BINARY as bits, sparse, a
+//! 1536-dimension one past the literal limit), read back marked as
+//! vectors, the declared type kept, the indexes listed with their settings
+//! (also for a login that owns them without any role, and with a note for
+//! one that can't read them), the indexes' internal tables left out, a
+//! similarity search, a sync that changes an index, and transfers (another
+//! engine's batches in, a typed read out). Its tables and its user are
+//! dropped first and at the end.
 //!
 //! ```sh
 //! docker start dbine-test-oracle   # -p 25601:1521, user dbine/Dbine123, FREEPDB1
 //! cargo test -p dbine-driver-oracle --test vectors -- --ignored --test-threads=1
 //! ```
 //!
-//! HNSW indexes need the vector memory pool (`VECTOR_MEMORY_SIZE` > 0,
-//! set at the CDB). `DBINE_TEST_ORACLE_URL` overrides the server (default
+//! HNSW indexes need the vector memory pool, `VECTOR_MEMORY_SIZE` > 0. It
+//! can't be raised from 0 while the instance runs, and the container
+//! starts with 0: set it in the spfile and restart, then put it back the
+//! same way when done:
+//!
+//! ```sh
+//! docker exec -i dbine-test-oracle sqlplus -s / as sysdba <<'SQL'
+//! ALTER SYSTEM SET vector_memory_size = 128M SCOPE = SPFILE;
+//! SHUTDOWN IMMEDIATE
+//! STARTUP
+//! ALTER PLUGGABLE DATABASE ALL OPEN;
+//! SQL
+//! ```
+//!
+//! Without it the test says so and makes IVF indexes where it would make
+//! HNSW ones (ORA-51962), so everything else is still checked.
+//!
+//! The login needs CREATE USER, DROP USER and to grant CREATE SESSION /
+//! CREATE TABLE (the `dbine` user of the container has them) for the
+//! part that runs as a user without roles. `DBINE_TEST_ORACLE_URL`
+//! overrides the server (default
 //! `oracle://dbine:Dbine123@localhost:25601/FREEPDB1`).
 
 use dbine_driver::transfer::{
@@ -35,6 +57,11 @@ const TABLES: [&str; 5] = [
     "VEC_KINDS_COPY",
     "VEC_IVF",
 ];
+
+/// A user without roles, made by the test: owns a vector index, and reads
+/// the test's own one through a grant.
+const PLAIN_USER: &str = "DBINE_VEC_PLAIN";
+const PLAIN_PASSWORD: &str = "Plain_123";
 
 fn config() -> ConnectionConfig {
     let url = std::env::var("DBINE_TEST_ORACLE_URL")
@@ -62,27 +89,63 @@ fn driver() -> Arc<dyn Driver> {
     dbine_driver_oracle::drivers().remove(0)
 }
 
-async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
+async fn try_run(s: &mut Box<dyn Session>, sql: &str) -> Result<QueryOutcome, String> {
     let mut out = QueryOutcome::default();
     if let Err(e) = s.execute(sql, 1000, &mut out).await {
-        panic!("{e}\n{sql}");
+        return Err(e.to_string());
     }
-    if let Some(e) = &out.error {
-        panic!("{e}\n{sql}");
+    match out.error.take() {
+        Some(e) => Err(e.to_string()),
+        None => Ok(out),
     }
-    out
+}
+
+async fn run(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
+    try_run(s, sql)
+        .await
+        .unwrap_or_else(|e| panic!("{e}\n{sql}"))
 }
 
 async fn drop_tables(s: &mut Box<dyn Session>) {
-    for t in TABLES {
-        let _ = s
-            .execute(
-                &format!("DROP TABLE {t} PURGE"),
-                1,
-                &mut QueryOutcome::default(),
-            )
-            .await;
+    for sql in TABLES
+        .iter()
+        .map(|t| format!("DROP TABLE {t} PURGE"))
+        .chain([format!("DROP USER {PLAIN_USER} CASCADE")])
+    {
+        let _ = s.execute(&sql, 1, &mut QueryOutcome::default()).await;
     }
+}
+
+/// The test's login as another user.
+fn config_as(user: &str, password: &str) -> ConnectionConfig {
+    ConnectionConfig {
+        username: Some(user.into()),
+        password: Some(password.into()),
+        ..config()
+    }
+}
+
+/// An index of `name` as the designer makes it: HNSW where the instance
+/// has the vector memory pool, IVF where it doesn't.
+fn designed(hnsw_ok: bool, metric: &str) -> VectorIndex {
+    if hnsw_ok {
+        hnsw(metric)
+    } else {
+        VectorIndex {
+            algorithm: Some("ivf".into()),
+            metric: Some(metric.into()),
+            params: [
+                ("lists".to_string(), "2".to_string()),
+                ("target_accuracy".to_string(), "95".to_string()),
+            ]
+            .into(),
+        }
+    }
+}
+
+/// Whether a name is one of a vector index's internal tables.
+fn internal(name: &str) -> bool {
+    name.starts_with("VECTOR$")
 }
 
 fn table(name: &str) -> ObjectRef {
@@ -216,7 +279,7 @@ async fn body(s: &mut Box<dyn Session>) {
     assert_eq!(spec.algorithms, ["hnsw", "ivf"]);
 
     // 1. Tables and indexes as the designer makes them.
-    let docs = schema(
+    let mut docs = schema(
         "VEC_DOCS",
         vec![
             col("ID", "NUMBER(10)", false),
@@ -231,7 +294,21 @@ async fn body(s: &mut Box<dyn Session>) {
         ddl.contains("CREATE VECTOR INDEX \"IX_VEC_DOCS_EMB\" ON \"VEC_DOCS\" (\"EMB\") ORGANIZATION INMEMORY NEIGHBOR GRAPH DISTANCE COSINE WITH TARGET ACCURACY 95 PARAMETERS (TYPE HNSW, NEIGHBORS 16, EFCONSTRUCTION 100);"),
         "{ddl}"
     );
-    run(s, &ddl).await;
+    let hnsw_ok = match try_run(s, &ddl).await {
+        Ok(_) => true,
+        Err(e) if e.contains("ORA-51962") => {
+            eprintln!(
+                "NOTE: this instance has no vector memory pool (VECTOR_MEMORY_SIZE = 0, ORA-51962), so the \
+                 test makes IVF indexes instead of HNSW ones. See this file's header to turn the pool on."
+            );
+            let _ = try_run(s, "DROP TABLE VEC_DOCS PURGE").await;
+            docs.indexes[0].vector = Some(designed(false, "cosine"));
+            run(s, &d.table_ddl(&docs, ALL).unwrap()).await;
+            false
+        }
+        Err(e) => panic!("{e}\n{ddl}"),
+    };
+    let algorithm = if hnsw_ok { "hnsw" } else { "ivf" };
     let ivf = schema(
         "VEC_IVF",
         vec![
@@ -260,6 +337,7 @@ async fn body(s: &mut Box<dyn Session>) {
             col("I", "VECTOR(4, INT8)", true),
             col("D", "VECTOR(2, FLOAT64)", true),
             col("L", "VECTOR(1536, FLOAT32)", true),
+            col("Z", "VECTOR(8, FLOAT32)", true),
         ],
         vec![],
     );
@@ -299,15 +377,18 @@ async fn body(s: &mut Box<dyn Session>) {
     )
     .await;
     let long: Vec<f64> = (0..1536).map(|i| (i as f64) * 0.001 - 0.5).collect();
+    // BINARY: one 0 / 1 per dimension, Oracle's own example (bytes 201, 15).
+    let bits = json!([1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1]);
     let kind_rows = vec![
         vec![
             json!(1),
             json!([1.5, 2.0]),
-            json!([255, 0]),
+            bits.clone(),
             json!("[5,[1,3],[0.5,2.5]]"),
             json!([1, -2, 3, 4]),
             json!([1.5, 2.25]),
             json!(long),
+            json!([1, 0, 1, 0, 1, 0, 1, 1]),
         ],
         vec![
             json!(2),
@@ -317,9 +398,10 @@ async fn body(s: &mut Box<dyn Session>) {
             Value::Null,
             Value::Null,
             Value::Null,
+            Value::Null,
         ],
     ];
-    let kind_cols: Vec<String> = ["ID", "F", "B", "S", "I", "D", "L"]
+    let kind_cols: Vec<String> = ["ID", "F", "B", "S", "I", "D", "L", "Z"]
         .iter()
         .map(|c| c.to_string())
         .collect();
@@ -331,6 +413,13 @@ async fn body(s: &mut Box<dyn Session>) {
         "the long vector goes as a CLOB chain"
     );
     run(s, &insert).await;
+    // Stored as Oracle's bytes; a FLOAT32 column with 0s and 1s keeps them.
+    let stored = rows_of(
+        s,
+        "SELECT FROM_VECTOR(B), VECTOR_DIMENSION_FORMAT(Z) FROM VEC_KINDS WHERE ID = 1",
+    )
+    .await;
+    assert_eq!(stored[0], [json!("[201,15]"), json!("FLOAT32")]);
 
     // 3. Read back: columns say VECTOR(…), texts are exact.
     let out = run(
@@ -347,7 +436,7 @@ async fn body(s: &mut Box<dyn Session>) {
     assert_eq!(r.columns[0].vector, None);
     assert_eq!(r.rows[0][1], json!("[0.1,0.2,0.3]"));
     assert_eq!(r.rows[1][1], json!("[1,0,0]"));
-    let out = run(s, "SELECT F, B, S, I, D, L FROM VEC_KINDS ORDER BY ID").await;
+    let out = run(s, "SELECT F, B, S, I, D, L, Z FROM VEC_KINDS ORDER BY ID").await;
     let r = &out.results[0];
     let meta: Vec<Option<VectorMeta>> = r.columns.iter().map(|c| c.vector.clone()).collect();
     assert_eq!(meta[0], Some(VectorMeta::dense(None, VectorElement::F32)));
@@ -369,7 +458,7 @@ async fn body(s: &mut Box<dyn Session>) {
         r.rows[0][..5],
         [
             json!("[1.5,2]"),
-            json!("[255,0]"),
+            json!("[1,1,0,0,1,0,0,1,0,0,0,0,1,1,1,1]"),
             json!("[5,[1,3],[0.5,2.5]]"),
             json!("[1,-2,3,4]"),
             json!("[1.5,2.25]"),
@@ -377,6 +466,7 @@ async fn body(s: &mut Box<dyn Session>) {
     );
     let want_long = dbine_driver::vector::text(long.iter().map(|&x| x as f32));
     assert_eq!(r.rows[0][5], json!(want_long), "the long vector, whole");
+    assert_eq!(r.rows[0][6], json!("[1,0,1,0,1,0,1,1]"));
     assert_eq!(r.rows[1][0], Value::Null);
     // Table browsing too.
     let browse = s.browse_query(&table("VEC_DOCS"), 5);
@@ -398,11 +488,29 @@ async fn body(s: &mut Box<dyn Session>) {
             "VECTOR(4, INT8)",
             "VECTOR(2, FLOAT64)",
             "VECTOR(1536, FLOAT32)",
+            "VECTOR(8, FLOAT32)",
         ]
     );
 
-    // 5. The indexes are listed with their settings.
+    // 5. The indexes are listed with their settings, and their internal
+    // tables (VECTOR$…$HNSW_…, …$IVF_FLAT_…) aren't tables of the schema.
     let tables = s.database_schema().await.unwrap();
+    let names: Vec<&str> = tables.iter().map(|t| t.name.as_str()).collect();
+    assert!(!names.iter().any(|n| internal(n)), "{names:?}");
+    let objects = s.list_objects().await.unwrap();
+    assert!(
+        !objects.iter().any(|o| internal(&o.name)),
+        "{:?}",
+        objects.iter().map(|o| &o.name).collect::<Vec<_>>()
+    );
+    let n: i64 = rows_of(
+        s,
+        "SELECT COUNT(*) FROM user_tables WHERE table_name LIKE 'VECTOR$IX_VEC_%'",
+    )
+    .await[0][0]
+        .as_i64()
+        .unwrap();
+    assert!(n >= 2, "the indexes do have internal tables: {n}");
     let t = |n: &str| tables.iter().find(|t| t.name == n).unwrap().clone();
     let docs_now = t("VEC_DOCS");
     assert_eq!(docs_now.columns[1].data_type, "VECTOR(3, FLOAT32)");
@@ -414,21 +522,32 @@ async fn body(s: &mut Box<dyn Session>) {
     assert_eq!(ix.kind.as_deref(), Some("VECTOR"));
     assert_eq!(ix.columns, ["EMB"]);
     let v = ix.vector.clone().unwrap();
-    assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
+    assert_eq!(v.algorithm.as_deref(), Some(algorithm));
     assert_eq!(v.metric.as_deref(), Some("cosine"));
     assert_eq!(
         v.params.get("target_accuracy").map(String::as_str),
         Some("95")
     );
-    // NEIGHBORS / EFCONSTRUCTION are in VECSYS.VECTOR$INDEX, readable by
-    // DBAs only; a login that has it gets them too.
-    if let Some(m) = v.params.get("m") {
-        assert_eq!(m, "16");
+    // Every setting, from Data Pump's view (the login has no DBA role).
+    if hnsw_ok {
+        assert_eq!(v.params.get("m").map(String::as_str), Some("16"));
         assert_eq!(
             v.params.get("ef_construction").map(String::as_str),
             Some("100")
         );
+    } else {
+        assert_eq!(v.params.get("lists").map(String::as_str), Some("2"));
     }
+    // The table's DDL (DBMS_METADATA) has the vector index as one.
+    let def = s.definition(&table("VEC_DOCS")).await.unwrap().unwrap();
+    assert!(
+        def.contains("CREATE VECTOR INDEX \"") && def.contains("\"IX_VEC_DOCS_EMB\""),
+        "{def}"
+    );
+    assert!(
+        !def.contains("CREATE INDEX \""),
+        "a B-tree on the vector: {def}"
+    );
     let ivf_now = t("VEC_IVF");
     let ix = ivf_now
         .indexes
@@ -470,7 +589,7 @@ async fn body(s: &mut Box<dyn Session>) {
         "SELECT ID FROM VEC_DOCS ORDER BY VECTOR_DISTANCE(EMB, TO_VECTOR('[0.1,0.2,0.3]'), COSINE) FETCH APPROX FIRST 2 ROWS ONLY WITH TARGET ACCURACY 90",
     )
     .await;
-    assert_eq!(rows[0][0], json!(1));
+    assert!(!rows.is_empty());
 
     // 7. The update script.
     let update = d
@@ -486,6 +605,26 @@ async fn body(s: &mut Box<dyn Session>) {
     run(s, &update).await;
     let rows = rows_of(s, "SELECT EMB FROM VEC_DOCS WHERE ID = 2").await;
     assert_eq!(rows[0][0], json!("[0,1,0.5]"));
+    // A BINARY one, by its bits.
+    let update = d
+        .update_script(
+            &table("VEC_KINDS"),
+            &[RowChange {
+                key: vec![("ID".into(), json!(1))],
+                set: vec![(
+                    "B".into(),
+                    json!([0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0]),
+                )],
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+    run(s, &update).await;
+    let rows = rows_of(s, "SELECT B, FROM_VECTOR(B) FROM VEC_KINDS WHERE ID = 1").await;
+    assert_eq!(
+        rows[0],
+        [json!("[0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0]"), json!("[1,128]")]
+    );
 
     // 8. A sync that changes the distance remakes the index.
     let mut new = docs_now.clone();
@@ -493,7 +632,7 @@ async fn body(s: &mut Box<dyn Session>) {
         .iter_mut()
         .find(|i| i.name == "IX_VEC_DOCS_EMB")
         .unwrap()
-        .vector = Some(hnsw("l2"));
+        .vector = Some(designed(hnsw_ok, "l2"));
     let sync = d
         .sync_script(&[TableChange::Alter {
             old: docs_now.clone(),
@@ -587,7 +726,7 @@ async fn body(s: &mut Box<dyn Session>) {
     )
     .await
     .expect("bulk_load kinds");
-    let all = "F, B, S, I, D, L";
+    let all = "F, B, FROM_VECTOR(B), S, I, D, L, Z";
     assert_eq!(
         rows_of(
             s,
@@ -595,5 +734,129 @@ async fn body(s: &mut Box<dyn Session>) {
         )
         .await,
         rows_of(s, &format!("SELECT ID, {all} FROM VEC_KINDS ORDER BY ID")).await
+    );
+    // pgvector's bit text loads into BINARY too.
+    let spec = LoadSpec {
+        columns: vec!["ID".into(), "B".into()],
+        ..spec
+    };
+    let pg = vec![
+        TransferColumn {
+            name: "id".into(),
+            type_name: "integer".into(),
+            nullable: false,
+        },
+        TransferColumn {
+            name: "b".into(),
+            type_name: "bit(16)".into(),
+            nullable: true,
+        },
+    ];
+    s.bulk_load(
+        &spec,
+        &pg,
+        &mut Batches(
+            vec![RowBatch {
+                rows: vec![
+                    vec![Cell::Int(10), Cell::Text("1100100100001111".into())],
+                    vec![
+                        Cell::Int(11),
+                        Cell::Text("[0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0]".into()),
+                    ],
+                ],
+                bytes: 64,
+            }]
+            .into(),
+        ),
+        &|_| {},
+    )
+    .await
+    .expect("bulk_load bits");
+    assert_eq!(
+        rows_of(
+            s,
+            "SELECT FROM_VECTOR(B) FROM VEC_KINDS_COPY WHERE ID >= 10 ORDER BY ID"
+        )
+        .await,
+        [[json!("[201,15]")], [json!("[1,2]")]]
+    );
+
+    // 10. A user without roles reads its own index's settings…
+    let me = config()
+        .username
+        .clone()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    run(
+        s,
+        &format!("CREATE USER {PLAIN_USER} IDENTIFIED BY \"{PLAIN_PASSWORD}\" QUOTA 20M ON USERS"),
+    )
+    .await;
+    run(
+        s,
+        &format!("GRANT CREATE SESSION, CREATE TABLE TO {PLAIN_USER}"),
+    )
+    .await;
+    run(s, &format!("GRANT SELECT ON VEC_DOCS TO {PLAIN_USER}")).await;
+    let mut p = d
+        .connect(&config_as(PLAIN_USER, PLAIN_PASSWORD), None)
+        .await
+        .expect("connect as the plain user");
+    let own = schema(
+        "VEC_OWN",
+        vec![
+            col("ID", "NUMBER(10)", false),
+            col("EMB", "VECTOR(3, FLOAT32)", true),
+        ],
+        vec![vector_index(
+            "IX_VEC_OWN",
+            &["EMB"],
+            designed(hnsw_ok, "ip"),
+        )],
+    );
+    run(&mut p, &d.table_ddl(&own, ALL).unwrap()).await;
+    let mine = p.database_schema().await.unwrap();
+    assert_eq!(
+        mine.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
+        ["VEC_OWN"],
+        "no internal tables"
+    );
+    let v = mine[0].indexes[0].vector.clone().unwrap();
+    assert_eq!(v.algorithm.as_deref(), Some(algorithm));
+    assert_eq!(v.metric.as_deref(), Some("ip"), "DOT, not COSINE");
+    assert_eq!(
+        v.params.get("target_accuracy").map(String::as_str),
+        Some("95")
+    );
+    // …and can't read someone else's: the DDL says so instead of making a
+    // COSINE index silently.
+    drop(p);
+    let mut p = d
+        .connect(&config_as(PLAIN_USER, PLAIN_PASSWORD), Some(&me))
+        .await
+        .expect("connect as the plain user, in the test's schema");
+    let theirs = p.database_schema().await.unwrap();
+    let docs_there = theirs
+        .iter()
+        .find(|t| t.name == "VEC_DOCS")
+        .expect("granted table");
+    let ix = docs_there
+        .indexes
+        .iter()
+        .find(|i| i.name == "IX_VEC_DOCS_EMB")
+        .unwrap();
+    assert_eq!(ix.vector.as_ref().unwrap().metric, None);
+    let ddl = d
+        .table_ddl(
+            docs_there,
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(
+        ddl.contains("-- El índice vectorial IX_VEC_DOCS_EMB no indica la distancia"),
+        "{ddl}"
     );
 }

@@ -730,22 +730,35 @@ impl Driver for OracleDriver {
         ddl::sync_script(changes)
     }
 
-    /// One INSERT per row (no multi-row VALUES before 23ai), booleans as 1 / 0.
+    /// One INSERT per row (no multi-row VALUES before 23ai), booleans as
+    /// 1 / 0, each value by its column ([`column_literal`]).
     fn insert_script(
         &self,
         target: &ObjectRef,
         columns: &[String],
         rows: &[Vec<Value>],
     ) -> Result<String> {
-        Ok(dbine_driver::ddl::insert_script_with(
-            &ddl::FLAVOR,
-            target.schema(),
-            &target.name,
-            columns,
-            rows,
-            1,
-            &literal,
-        ))
+        let name = dbine_driver::sql::qualified_name(Quote::Double, target.schema(), &target.name);
+        let cols: Vec<String> = columns
+            .iter()
+            .map(|c| dbine_driver::sql::quote_ident(Quote::Double, c))
+            .collect();
+        let head = format!("INSERT INTO {name} ({}) VALUES", cols.join(", "));
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let values: Vec<String> = r
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| match columns.get(i) {
+                        Some(c) => column_literal(target, c, v),
+                        None => literal(v),
+                    })
+                    .collect();
+                format!("{head} ({});", values.join(", "))
+            })
+            .collect::<Vec<_>>()
+            .join("\n"))
     }
 
     /// `UPDATE … WHERE <key>` per changed row, with the INSERTs' literals.
@@ -754,13 +767,37 @@ impl Driver for OracleDriver {
         target: &ObjectRef,
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
-        Ok(dbine_driver::ddl::update_script_with(
-            ddl::FLAVOR.quote,
-            target.schema(),
-            &target.name,
-            changes,
-            &literal,
-        ))
+        let q = |c: &str| dbine_driver::sql::quote_ident(Quote::Double, c);
+        let name = dbine_driver::sql::qualified_name(Quote::Double, target.schema(), &target.name);
+        Ok(changes
+            .iter()
+            .filter(|c| !c.set.is_empty())
+            .map(|c| {
+                let set: Vec<String> = c
+                    .set
+                    .iter()
+                    .map(|(k, v)| format!("{} = {}", q(k), column_literal(target, k, v)))
+                    .collect();
+                let wh: Vec<String> = c
+                    .key
+                    .iter()
+                    .map(|(k, v)| match v {
+                        Value::Null => format!("{} IS NULL", q(k)),
+                        v => format!("{} = {}", q(k), literal(v)),
+                    })
+                    .collect();
+                if wh.is_empty() {
+                    format!("UPDATE {name} SET {};", set.join(", "))
+                } else {
+                    format!(
+                        "UPDATE {name} SET {} WHERE {};",
+                        set.join(", "),
+                        wh.join(" AND ")
+                    )
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n"))
     }
 
     /// `DELETE … WHERE <key>` per row key, with the INSERTs' literals.
@@ -1053,7 +1090,7 @@ const LIST_OBJECTS: &str = "SELECT o.object_type, o.object_name, t.table_name
     AND o.object_type IN ('TABLE','VIEW','MATERIALIZED VIEW','PROCEDURE','FUNCTION','PACKAGE','TRIGGER','SEQUENCE',
                           'SYNONYM','TYPE')
     AND o.generated = 'N' AND o.secondary = 'N'
-    AND o.object_name NOT LIKE 'BIN$%'
+    AND o.object_name NOT LIKE 'BIN$%' AND NOT REGEXP_LIKE(o.object_name, '^VECTOR\\$.+\\$[0-9]+_[0-9]+_[0-9]+\\$')
     AND NOT (o.object_type = 'TABLE' AND EXISTS (
           SELECT 1 FROM all_mviews m WHERE m.owner = o.owner AND m.mview_name = o.object_name))
   ORDER BY o.object_name";
@@ -1897,7 +1934,7 @@ impl Session for OracleSession {
 /// back its primary key or a unique constraint (those are in the table's
 /// DDL), including domain indexes such as Oracle Text's. LOB, IOT and
 /// cluster indexes come with the table.
-const TABLE_INDEXES: &str = "SELECT i.owner, i.index_name FROM all_indexes i
+const TABLE_INDEXES: &str = "SELECT i.owner, i.index_name, i.index_type FROM all_indexes i
   WHERE i.table_owner = :1 AND i.table_name = :2
     AND i.generated = 'N'
     AND i.index_type NOT IN ('LOB', 'IOT - TOP', 'CLUSTER')
@@ -1910,26 +1947,44 @@ const TABLE_INDEXES: &str = "SELECT i.owner, i.index_name FROM all_indexes i
 
 /// The table's DDL followed by its standalone indexes' (see
 /// [`TABLE_INDEXES`]). An index DBMS_METADATA can't describe is left out.
+/// A vector index is asked for as `VECTOR_INDEX`: as an `INDEX`
+/// DBMS_METADATA writes a bare `CREATE INDEX … ("V")`, a B-tree.
 fn with_indexes(c: &Connection, table_ddl: &str, owner: &str, name: &str) -> String {
     let mut out = table_ddl.to_string();
-    let indexes: Vec<(String, String)> = match c.query(TABLE_INDEXES, &[&owner, &name]) {
+    let indexes: Vec<(String, String, &str)> = match c.query(TABLE_INDEXES, &[&owner, &name]) {
         Ok(rows) => rows
             .filter_map(|r| r.ok())
-            .filter_map(|r| Some((r.get::<String>(0).ok()?, r.get::<String>(1).ok()?)))
+            .filter_map(|r| {
+                let vector = r.get::<Option<String>>(2).ok()?.as_deref() == Some(vector::KIND);
+                Some((
+                    r.get::<String>(0).ok()?,
+                    r.get::<String>(1).ok()?,
+                    if vector { "VECTOR_INDEX" } else { "INDEX" },
+                ))
+            })
             .collect(),
         Err(e) => {
             tracing::debug!("oracle: indexes of {owner}.{name}: {e}");
             return out;
         }
     };
-    for (ix_owner, ix) in indexes {
-        match c
-            .query_row(
-                "SELECT DBMS_METADATA.GET_DDL('INDEX', :1, :2) FROM dual",
-                &[&ix, &ix_owner],
+    for (ix_owner, ix, kind) in indexes {
+        let get_ddl = || {
+            c.query_row(
+                "SELECT DBMS_METADATA.GET_DDL(:1, :2, :3) FROM dual",
+                &[&kind, &ix, &ix_owner],
             )
             .and_then(|r| r.get::<Option<String>>(0))
-        {
+        };
+        // A vector index's first GET_DDL in a session raises NO_DATA_FOUND
+        // now and then, like a materialized view's; the next one answers.
+        match get_ddl().or_else(|e| {
+            if matches!(e.kind(), oracledb::ErrorKind::NoDataFound) {
+                get_ddl()
+            } else {
+                Err(e)
+            }
+        }) {
             Ok(Some(d)) if !d.trim().is_empty() => {
                 out.push_str("\n\n");
                 out.push_str(d.trim());
@@ -3241,6 +3296,17 @@ fn vector(v: &oracledb::Vector) -> String {
     vector::text(v)
 }
 
+/// A value of `column` of `target` as an Oracle literal: [`literal`],
+/// except a vector that may be a BINARY one, whose literal asks the
+/// dictionary for the column's format ([`vector::column_literal`]).
+fn column_literal(target: &ObjectRef, column: &str, v: &Value) -> String {
+    match v {
+        Value::Array(_) => vector::column_literal(target.schema(), &target.name, column, v)
+            .unwrap_or_else(|| literal(v)),
+        _ => literal(v),
+    }
+}
+
 /// A value as an Oracle literal: a vector as its text (the server converts
 /// it to the column's type), the rest as the generic SQL literals.
 fn literal(v: &Value) -> String {
@@ -3303,6 +3369,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_explorer_leaves_out_vector_index_internals() {
+        let not = format!(
+            "NOT REGEXP_LIKE(o.object_name, {})",
+            vector::INTERNAL_TABLES
+        );
+        assert!(LIST_OBJECTS.contains(&not), "{LIST_OBJECTS}");
+    }
+
+    #[test]
     fn update_script_by_key() {
         let t = ObjectRef {
             kind: "table".into(),
@@ -3323,6 +3398,51 @@ mod tests {
         assert_eq!(
             drivers()[0].update_script(&t, &[c]).unwrap(),
             "UPDATE \"APP\".\"CLIENTES\" SET \"NOMBRE\" = \'O\'\'Brien\', \"BAJA\" = NULL WHERE \"ID\" = 7 AND \"REGION\" IS NULL;"
+        );
+    }
+
+    #[test]
+    fn edit_scripts_write_vectors_by_column() {
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "DOCS".into(),
+        };
+        let bits = serde_json::json!([1, 1, 0, 0, 1, 0, 0, 1]);
+        let ins = drivers()[0]
+            .insert_script(
+                &t,
+                &["ID".into(), "V".into(), "B".into()],
+                &[vec![
+                    serde_json::json!(1),
+                    serde_json::json!([0.5, 2]),
+                    bits.clone(),
+                ]],
+            )
+            .unwrap();
+        assert_eq!(
+            ins,
+            "INSERT INTO \"DOCS\" (\"ID\", \"V\", \"B\") VALUES (1, '[0.5,2]', \
+             (SELECT CASE WHEN MAX(vector_info) LIKE '%BINARY%' THEN '[201]' ELSE '[1,1,0,0,1,0,0,1]' END \
+             FROM all_tab_cols WHERE owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AND table_name = 'DOCS' AND column_name = 'B'));"
+        );
+        let up = drivers()[0]
+            .update_script(
+                &t,
+                &[dbine_driver::RowChange {
+                    key: vec![("ID".into(), serde_json::json!(1))],
+                    set: vec![("B".into(), bits)],
+                    ..Default::default()
+                }],
+            )
+            .unwrap();
+        assert!(
+            up.starts_with("UPDATE \"DOCS\" SET \"B\" = (SELECT CASE"),
+            "{up}"
+        );
+        assert!(
+            up.ends_with("AND column_name = 'B') WHERE \"ID\" = 1;"),
+            "{up}"
         );
     }
 

@@ -2,10 +2,12 @@
 //! (Oracle Database 23ai and later) and its vector indexes.
 //!
 //! - **Cells:** a dense vector is its JSON-array text (`[1,2.5,-3]`),
-//!   numbers written the shortest way. A BINARY vector keeps Oracle's own
-//!   text: its packed bytes (`[255,0]` for 16 dimensions), which is what a
-//!   literal of that column takes back. A SPARSE vector keeps Oracle's text
-//!   `[dims,[indices],[values]]`, indices from 0.
+//!   numbers written the shortest way. A BINARY vector is one 0 or 1 per
+//!   dimension (`[1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0]`), the form every
+//!   engine's bit vectors share, unpacked from Oracle's own text (its
+//!   bytes, `[255,0]` for those 16 dimensions, the first dimension the
+//!   first byte's high bit); loads and edits pack it back. A SPARSE vector
+//!   keeps Oracle's text `[dims,[indices],[values]]`, indices from 0.
 //! - **Types:** the dictionary's `VECTOR_INFO` (`VECTOR(3,FLOAT32,DENSE)`)
 //!   gives the declared type; a result column's metadata gives the same
 //!   from the client.
@@ -22,6 +24,19 @@ use std::collections::BTreeMap;
 
 /// `IndexDef::kind` of a vector index.
 pub const KIND: &str = "VECTOR";
+
+/// The tables (and their indexes) Oracle makes for each vector index in
+/// the index owner's schema: `VECTOR$<index>$<objn>_<objn>_<n>$HNSW_…`
+/// (checkpoints, rowid map, journal) and `…$IVF_FLAT_CENTROIDS` /
+/// `…_CENTROID_PARTITIONS`, the index name cut short when it's long. The
+/// dictionary doesn't flag them (`SECONDARY`, `GENERATED`, `NESTED` are
+/// all "no"), so every listing (tables, explorer, statistics, health,
+/// search) leaves out the names matching this `REGEXP_LIKE` pattern,
+/// written in each query: they're part of the index, recreated with it,
+/// and their object numbers never match between two databases. The tests
+/// check that every listing has it.
+#[cfg(test)]
+pub(crate) const INTERNAL_TABLES: &str = "'^VECTOR\\$.+\\$[0-9]+_[0-9]+_[0-9]+\\$'";
 
 /// Whether `ALL_TAB_COLS` / `ALL_TAB_COLUMNS` have `VECTOR_INFO` (each
 /// vector column's declared type); asked once per connection, kept in
@@ -180,9 +195,41 @@ fn dense(d: &oracledb::VectorData) -> String {
         D::Float32(x) => vector::text(x.iter().copied()),
         D::Float64(x) => vector::text(x.iter().copied()),
         D::Int8(x) => vector::text(x.iter().copied()),
-        // Oracle's own text for BINARY: the packed bytes.
-        D::Binary(x) => vector::text(x.iter().copied()),
+        // One 0 / 1 per dimension, the first one the first byte's high bit.
+        D::Binary(x) => vector::text(vector::from_bits(x, None)),
     }
+}
+
+/// The values of a vector that may be a BINARY one: a JSON array (or a
+/// bit string, `0101…`, as pgvector's `bit` writes it) of 0s and 1s, in
+/// whole bytes.
+fn bits(t: &str) -> Option<Vec<f64>> {
+    let t = t.trim();
+    let v = if !t.is_empty() && t.bytes().all(|b| b == b'0' || b == b'1') {
+        t.bytes().map(|b| f64::from(b - b'0')).collect()
+    } else {
+        vector::parse(t)?
+    };
+    (!v.is_empty() && v.len() % 8 == 0 && v.iter().all(|&b| b == 0.0 || b == 1.0)).then_some(v)
+}
+
+/// A vector's text for a `VECTOR(dims, BINARY)` column: Oracle's packed
+/// bytes from one 0 / 1 per dimension. Anything else (bytes already, a
+/// count that doesn't fit) goes as it is, for the server to take or
+/// refuse.
+pub(crate) fn binary_text(t: &str, dims: Option<u32>) -> Option<String> {
+    let v = bits(t)?;
+    match dims {
+        Some(d) if v.len() != d as usize => None,
+        _ => Some(vector::text(vector::to_bits(&v))),
+    }
+}
+
+/// The dimensions of a declared `VECTOR(n, BINARY)` (`Some(None)`: `*`),
+/// or `None` when the column isn't a BINARY vector.
+pub(crate) fn binary_dims(declared: &str) -> Option<Option<u32>> {
+    let s = Shape::parse(declared)?;
+    (s.format.as_deref() == Some("BINARY") && !s.sparse).then_some(s.dims)
 }
 
 /// A vector edit's value as a literal: its text in a string the server
@@ -190,6 +237,38 @@ fn dense(d: &oracledb::VectorData) -> String {
 /// 4000-byte limit of a literal. `None` when `v` isn't a vector.
 pub(crate) fn literal(v: &serde_json::Value) -> Option<String> {
     vector::value_text(v).map(|t| text_literal(&t))
+}
+
+/// A vector edit's literal for `column` of `table` (`owner`: its schema,
+/// `None` the current one) when the value may be a BINARY vector's, one
+/// 0 / 1 per dimension: only the column's declared type tells whether
+/// Oracle wants those as packed bytes (BINARY) or as numbers (any other
+/// format), and the edit scripts don't get it, so the statement asks the
+/// dictionary. `None` for any other value (see [`literal`]).
+pub(crate) fn column_literal(
+    owner: Option<&str>,
+    table: &str,
+    column: &str,
+    v: &serde_json::Value,
+) -> Option<String> {
+    let plain = vector::value_text(v)?;
+    let packed = binary_text(&plain, None)?;
+    let plain = text_literal(&plain);
+    let packed = if plain.starts_with("TO_CLOB(") {
+        format!("TO_CLOB({})", text_literal(&packed))
+    } else {
+        text_literal(&packed)
+    };
+    let s = |x: &str| format!("'{}'", x.replace('\'', "''"));
+    let owner = owner
+        .filter(|o| !o.is_empty())
+        .map_or_else(|| "SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')".to_string(), s);
+    Some(format!(
+        "(SELECT CASE WHEN MAX(vector_info) LIKE '%BINARY%' THEN {packed} ELSE {plain} END \
+         FROM all_tab_cols WHERE owner = {owner} AND table_name = {} AND column_name = {})",
+        s(table),
+        s(column)
+    ))
 }
 
 /// `'text'`, or `TO_CLOB('…') || '…'` in chunks for a long one. The text is
@@ -221,6 +300,17 @@ pub(crate) fn comment_text(s: &str) -> String {
             }
         })
         .collect()
+}
+
+/// What a script says before a vector index without a distance: Oracle
+/// makes it with its defaults (COSINE, its own accuracy and parameters),
+/// which may not be the original's when the settings couldn't be read.
+pub(crate) fn unknown_settings_note(index: &str) -> String {
+    format!(
+        "-- El índice vectorial {} no indica la distancia: Oracle lo crea con COSINE y sus valores por defecto. \
+         Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.",
+        comment_text(index)
+    )
 }
 
 /// Oracle's distance names and the standard ones.
@@ -263,8 +353,9 @@ pub(crate) fn algorithm_of(subtype: &str) -> Option<&'static str> {
     }
 }
 
-/// What the dictionary says about one vector index (`VECSYS.VECTOR$INDEX`'s
-/// parameters, or `V$VECTOR_INDEX`'s distance and accuracy).
+/// What the dictionary says about one vector index (`KU$_VECTOR_INDEX_VIEW`
+/// or `VECSYS.VECTOR$INDEX`'s parameters, or `V$VECTOR_INDEX`'s distance
+/// and accuracy).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Details {
     pub distance: Option<String>,
@@ -276,6 +367,29 @@ pub(crate) struct Details {
 }
 
 impl Details {
+    /// From `KU$_VECTOR_INDEX_VIEW`'s `type, distance, accuracy,
+    /// num_neighbors, efconstruction, target_centroids`, as text.
+    pub(crate) fn from_metadata(r: &[Option<String>]) -> Details {
+        let n = |i: usize| {
+            r.get(i)
+                .cloned()
+                .flatten()
+                .and_then(|v| v.trim().parse::<i64>().ok())
+        };
+        Details {
+            distance: r
+                .get(1)
+                .cloned()
+                .flatten()
+                .map(|d| d.trim().to_string())
+                .filter(|d| !d.is_empty()),
+            accuracy: n(2),
+            neighbors: n(3),
+            ef_construction: n(4),
+            partitions: n(5),
+        }
+    }
+
     /// From `VECSYS.VECTOR$INDEX.IDX_PARAMS` (JSON).
     pub(crate) fn from_params(json: &str) -> Details {
         let v: serde_json::Value = serde_json::from_str(json).unwrap_or_default();
@@ -433,6 +547,42 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn settings_from_the_data_pump_view() {
+        let row = |v: &[&str]| -> Vec<Option<String>> {
+            v.iter()
+                .map(|s| (!s.is_empty()).then(|| s.to_string()))
+                .collect()
+        };
+        let d = Details::from_metadata(&row(&["HNSW", "DOT", "93", "12", "77", ""]));
+        assert_eq!(algorithm_of("HNSW"), Some("hnsw"));
+        let v = index(Some("hnsw"), &d);
+        assert_eq!(v.metric.as_deref(), Some("ip"));
+        assert_eq!(
+            (
+                v.params.get("m").map(String::as_str),
+                v.params.get("ef_construction").map(String::as_str),
+                v.params.get(TARGET_ACCURACY).map(String::as_str)
+            ),
+            (Some("12"), Some("77"), Some("93"))
+        );
+        let d = Details::from_metadata(&row(&["IVF_FLAT", "HAMMING", "88", "", "", "3"]));
+        assert_eq!(algorithm_of("IVF_FLAT"), Some("ivf"));
+        let v = index(Some("ivf"), &d);
+        assert_eq!(v.metric.as_deref(), Some("hamming"));
+        assert_eq!(v.params.get("lists").map(String::as_str), Some("3"));
+        assert_eq!(
+            index_sql("\"T\"", "\"IX\"", &["\"B\"".into()], &v).unwrap(),
+            "CREATE VECTOR INDEX \"IX\" ON \"T\" (\"B\") ORGANIZATION NEIGHBOR PARTITIONS \
+             DISTANCE HAMMING WITH TARGET ACCURACY 88 PARAMETERS (TYPE IVF, NEIGHBOR PARTITIONS 3)"
+        );
+        // Nothing read: no distance, and the note says why.
+        assert_eq!(Details::from_metadata(&[]), Details::default());
+        let note = unknown_settings_note("IX\nX");
+        assert!(note.starts_with("-- El índice vectorial IX?X no indica la distancia"));
+        assert!(!note.contains('\n'));
+    }
+
+    #[test]
     fn shapes_from_the_dictionary_and_the_client() {
         let s = Shape::parse("VECTOR(3,FLOAT32,DENSE)").unwrap();
         assert_eq!(s.ddl(), "VECTOR(3, FLOAT32)");
@@ -476,14 +626,59 @@ mod tests {
         assert_eq!(text(&v), "[1.5,2.25]");
         let v = oracledb::Vector::Dense(D::Int8(vec![1, -2, 3]));
         assert_eq!(text(&v), "[1,-2,3]");
-        let v = oracledb::Vector::Dense(D::Binary(vec![255, 0]));
-        assert_eq!(text(&v), "[255,0]");
+        let v = oracledb::Vector::Dense(D::Binary(vec![201, 15]));
+        assert_eq!(text(&v), "[1,1,0,0,1,0,0,1,0,0,0,0,1,1,1,1]");
         let s = oracledb::Vector::Sparse(oracledb::SparseVector::new(
             5,
             vec![1, 3],
             D::Float32(vec![0.5, 2.5]),
         ));
         assert_eq!(text(&s), "[5,[1,3],[0.5,2.5]]");
+    }
+
+    #[test]
+    fn binary_vectors_pack_and_unpack() {
+        // Oracle's own example: [201,15] is 1,1,0,0,1,0,0,1, 0,0,0,0,1,1,1,1.
+        let bits = "[1,1,0,0,1,0,0,1,0,0,0,0,1,1,1,1]";
+        assert_eq!(binary_text(bits, Some(16)).as_deref(), Some("[201,15]"));
+        assert_eq!(binary_text(bits, None).as_deref(), Some("[201,15]"));
+        assert_eq!(
+            binary_text("1100100100001111", Some(16)).as_deref(),
+            Some("[201,15]"),
+            "pgvector's bit text"
+        );
+        // Already bytes, or not whole bytes: as they are.
+        assert_eq!(binary_text("[201,15]", Some(16)), None);
+        assert_eq!(binary_text("[1,0]", Some(16)), None);
+        assert_eq!(binary_text("[1,0,1]", None), None);
+        assert_eq!(binary_text(bits, Some(24)), None);
+        assert_eq!(binary_dims("VECTOR(16, BINARY)"), Some(Some(16)));
+        assert_eq!(binary_dims("VECTOR(*,BINARY,DENSE)"), Some(None));
+        assert_eq!(binary_dims("VECTOR(16, FLOAT32)"), None);
+        assert_eq!(binary_dims("VARCHAR2(10)"), None);
+    }
+
+    #[test]
+    fn bit_edits_ask_the_dictionary() {
+        let bits = json!([1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1]);
+        assert_eq!(
+            column_literal(Some("APP"), "T", "B", &bits).unwrap(),
+            "(SELECT CASE WHEN MAX(vector_info) LIKE '%BINARY%' THEN '[201,15]' \
+             ELSE '[1,1,0,0,1,0,0,1,0,0,0,0,1,1,1,1]' END FROM all_tab_cols \
+             WHERE owner = 'APP' AND table_name = 'T' AND column_name = 'B')"
+        );
+        assert!(column_literal(None, "T", "B", &bits)
+            .unwrap()
+            .contains("owner = SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')"));
+        // Any other vector is a plain literal.
+        assert_eq!(column_literal(None, "T", "V", &json!([0.5, 1.0])), None);
+        assert_eq!(column_literal(None, "T", "V", &json!([1, 0, 1])), None);
+        assert_eq!(column_literal(None, "T", "V", &json!("x")), None);
+        // A long one: both branches are CLOBs.
+        let long = json!(vec![1; 4096]);
+        let l = column_literal(None, "T", "B", &long).unwrap();
+        assert!(l.contains("THEN TO_CLOB('[255,"), "{}", &l[..80]);
+        assert!(l.contains("ELSE TO_CLOB('[1,1,"));
     }
 
     #[test]
