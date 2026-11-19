@@ -36,6 +36,10 @@ const COPY: &str = "dbine_vec_copy";
 const LOADED: &str = "dbine_vec_loaded";
 const BYTES: &str = "dbine_vec_bytes";
 
+/// The tests share their index names (and two of them a server): one at a
+/// time.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn driver(id: &str) -> Arc<dyn Driver> {
     dbine_driver_elasticsearch::drivers()
         .into_iter()
@@ -219,6 +223,7 @@ fn vi(alg: &str, metric: &str, params: &[(&str, &str)]) -> VectorIndex {
 }
 
 async fn exercise(case: Case, url: &str) {
+    let _serial = SERIAL.lock().await;
     let d = driver(case.id);
     assert!(d.capabilities().vectors);
     let spec = d.designer().unwrap();
@@ -270,7 +275,7 @@ async fn exercise(case: Case, url: &str) {
             .collect::<Vec<_>>()),
         // Bytes as a float source gives them: the typed script writes
         // them as integers.
-        Some(_) => json!([i as f64, -(i as f64), 127.0]),
+        Some(_) => json!([i as f64, 0.0 - i as f64, 127.0]),
         None => Value::Null,
     };
     let mut names = vec!["_id".to_string(), "title".into(), "emb".into()];
@@ -745,6 +750,7 @@ async fn opensearch_byte_and_binary_vectors() {
     let Ok(url) = std::env::var("DBINE_TEST_OPENSEARCH_URL") else {
         return;
     };
+    let _serial = SERIAL.lock().await;
     let d = driver("opensearch");
     let mut s = d
         .connect(&config("opensearch", &url), None)
@@ -906,6 +912,7 @@ async fn elasticsearch7_vectors() {
     let Ok(url) = std::env::var("DBINE_TEST_ELASTICSEARCH7_URL") else {
         return;
     };
+    let _serial = SERIAL.lock().await;
     let d = driver("elasticsearch");
     let mut s = d
         .connect(&config("elasticsearch", &url), None)
@@ -995,6 +1002,7 @@ async fn elasticsearch_rank_vectors() {
     let Ok(url) = std::env::var("DBINE_TEST_ELASTICSEARCH9_URL") else {
         return;
     };
+    let _serial = SERIAL.lock().await;
     let d = driver("elasticsearch");
     let mut s = d
         .connect(&config("elasticsearch", &url), None)
