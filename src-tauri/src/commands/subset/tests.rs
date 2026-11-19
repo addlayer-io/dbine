@@ -655,3 +655,90 @@ async fn postgres_to_postgres() {
         let _ = admin.drop_database(db).await;
     }
 }
+
+/// A subset of a pgvector table into another database of the same server
+/// (`dbine-test-pgvector`): the vectors arrive whole, through the target's
+/// insert script.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs dbine-test-pgvector"]
+async fn vector_live_subset_pgvector_to_pgvector() {
+    use crate::commands::vector_live_tests::{exec, first, open, pgvector};
+    let (src_db, tgt_db) = ("dbine_e2e_vecapp_subset_src", "dbine_e2e_vecapp_subset_tgt");
+    let cfg = pgvector("postgres");
+    let drop_dbs = || async {
+        let mut admin = open(&cfg).await.unwrap();
+        for db in [src_db, tgt_db] {
+            exec(
+                admin.as_mut(),
+                &format!("DROP DATABASE IF EXISTS {db} WITH (FORCE)"),
+            )
+            .await
+            .unwrap();
+        }
+    };
+    drop_dbs().await;
+    let body = async {
+        let mut admin = open(&cfg).await?;
+        for db in [src_db, tgt_db] {
+            exec(admin.as_mut(), &format!("CREATE DATABASE {db}")).await?;
+            let mut s = open(&pgvector(db)).await?;
+            exec(s.as_mut(), "CREATE EXTENSION vector").await?;
+        }
+        drop(admin);
+        let mut s = open(&pgvector(src_db)).await?;
+        exec(
+            s.as_mut(),
+            "CREATE TABLE emb (id int PRIMARY KEY, v vector(3)); \
+             INSERT INTO emb SELECT i, ('[' || i || ',-0.5,1e-07]')::vector FROM generate_series(1, 30) i",
+        )
+        .await?;
+        let want = first(exec(s.as_mut(), "SELECT id, v::text FROM emb WHERE id <= 10 ORDER BY id").await?).rows;
+        drop(s);
+        let d = dir("pgvector");
+        let state = AppState::new(StateStore::open(&d.join("state.sqlite")).unwrap());
+        save(&state, "pg", cfg.clone(), vec![]);
+        state.typed_secrets.insert(
+            "pg".into(),
+            [("password".to_string(), cfg.password.clone().unwrap_or_default())]
+                .into_iter()
+                .collect(),
+        );
+        let mut a = args(
+            "emb",
+            StartFilter {
+                expression: Some("id <= 10".into()),
+                ..Default::default()
+            },
+            None,
+        );
+        a.connection_id = "pg".into();
+        a.database = src_db.into();
+        a.target_connection_id = "pg".into();
+        a.target_database = tgt_db.into();
+        a.table.schema = Some("public".into());
+        let r = run(
+            &state,
+            &RunArgs {
+                subset: a,
+                masks: Vec::new(),
+                confirm: String::new(),
+                seed: Some(1),
+            },
+            events().0,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        if !r.tables.iter().all(|t| t.status == "done" && t.written == 10) {
+            return Err(format!("{r:#?}"));
+        }
+        let mut t = open(&pgvector(tgt_db)).await?;
+        let got = first(exec(t.as_mut(), "SELECT id, v::text FROM emb ORDER BY id").await?).rows;
+        if got != want {
+            return Err(format!("{got:?} != {want:?}"));
+        }
+        Ok::<(), String>(())
+    }
+    .await;
+    drop_dbs().await;
+    body.unwrap();
+}

@@ -691,3 +691,120 @@ async fn vector_live_transfers_keep_vectors() {
     })
     .await;
 }
+
+// ---------------------------------------------------------------------------
+// Server-enforced vector reads on MySQL 9 and MariaDB
+
+fn mysql_cfg(driver: &str, env: &str, default: &str, db: &str) -> dbine_driver::ConnectionConfig {
+    let url = std::env::var(env).unwrap_or_else(|_| default.into());
+    let mut c = pgvector(db);
+    let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
+    let (auth, hostport) = rest.rsplit_once('@').unwrap_or(("", rest));
+    let (user, pass) = auth.split_once(':').unwrap_or((auth, ""));
+    let (host, port) = hostport.rsplit_once(':').unwrap_or((hostport, "3306"));
+    c.driver = driver.into();
+    c.host = host.into();
+    c.port = port.parse().unwrap_or(3306);
+    c.username = Some(user.into());
+    c.password = Some(pass.into());
+    c
+}
+
+/// C1 on the MySQL family: MySQL 9's and MariaDB's vector functions read
+/// without approval, in the server's read-only transaction.
+async fn mysql_family_vector_reads(
+    driver: &str,
+    env: &str,
+    default: &str,
+    setup: &str,
+    queries: &[&str],
+) -> Res<()> {
+    let db = "dbine_e2e_vecapp_my";
+    let mut s = open(&mysql_cfg(driver, env, default, "")).await?;
+    exec(s.as_mut(), &format!("DROP DATABASE IF EXISTS {db}")).await?;
+    exec(s.as_mut(), &format!("CREATE DATABASE {db}")).await?;
+    let res = async {
+        let mut t = open(&mysql_cfg(driver, env, default, db)).await?;
+        exec(t.as_mut(), setup).await?;
+        let d = dbine_drivers::find(driver).ok_or("driver")?;
+        for q in queries {
+            crate::mcp::reads::approval_free(
+                dbine_driver::Language::Sql,
+                driver,
+                "mysql",
+                &d.script_dialect(),
+                q,
+            )
+            .map_err(|f| format!("asks for approval because of {f}: {q}"))?;
+            let mut out = QueryOutcome::default();
+            t.run_read_only(q, 100, &mut out)
+                .await
+                .map_err(|e| format!("{e}\n--- {q}"))?;
+            if let Some(e) = out.error {
+                return Err(format!("{e}\n--- {q}"));
+            }
+            let r = first(out);
+            check!(text(&r.rows[0][0]) == "1", "{q}: {:?}", r.rows);
+        }
+        drop(t);
+        Ok::<(), String>(())
+    }
+    .await;
+    let cleaned = exec(s.as_mut(), &format!("DROP DATABASE IF EXISTS {db}")).await;
+    res?;
+    cleaned.map(|_| ())
+}
+
+#[tokio::test]
+#[ignore = "needs dbine-test-mysql9"]
+async fn vector_live_mysql9_vector_functions_read_without_approval() {
+    mysql_family_vector_reads(
+        "mysql",
+        "DBINE_TEST_MYSQL9_URL",
+        "mysql://root:pw@127.0.0.1:27201",
+        "CREATE TABLE t (id int PRIMARY KEY, v VECTOR(3)); \
+         INSERT INTO t VALUES (1, STRING_TO_VECTOR('[1,0,0]')), (2, TO_VECTOR('[0,1,0]'))",
+        &[
+            "SELECT id, VECTOR_TO_STRING(v), VECTOR_DIM(v), FROM_VECTOR(v) FROM t ORDER BY id",
+            "SELECT id FROM t WHERE VECTOR_TO_STRING(v) = VECTOR_TO_STRING(STRING_TO_VECTOR('[1,0,0]'))",
+        ],
+    )
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs dbine-test-mariadb (11.7 or later)"]
+async fn vector_live_mariadb_vector_functions_read_without_approval() {
+    let cfg = mysql_cfg(
+        "mariadb",
+        "DBINE_TEST_MARIADB_URL",
+        "mysql://root:pw@127.0.0.1:25012",
+        "",
+    );
+    let mut s = open(&cfg).await.unwrap();
+    let v = first(exec(s.as_mut(), "SELECT VERSION()").await.unwrap());
+    drop(s);
+    let version = text(&v.rows[0][0]);
+    let mut parts = version
+        .split(['.', '-'])
+        .map(|p| p.parse::<u32>().unwrap_or(0));
+    let (major, minor) = (parts.next().unwrap_or(0), parts.next().unwrap_or(0));
+    if (major, minor) < (11, 7) {
+        eprintln!("MariaDB {version} has no vectors (11.7 or later): not tried");
+        return;
+    }
+    mysql_family_vector_reads(
+        "mariadb",
+        "DBINE_TEST_MARIADB_URL",
+        "mysql://root:pw@127.0.0.1:25012",
+        "CREATE TABLE t (id int PRIMARY KEY, v VECTOR(3) NOT NULL); \
+         INSERT INTO t VALUES (1, VEC_FromText('[1,0,0]')), (2, VEC_FromText('[0,1,0]'))",
+        &[
+            "SELECT id FROM t ORDER BY VEC_DISTANCE_COSINE(v, VEC_FromText('[1,0.1,0]')) LIMIT 1",
+            "SELECT id, VEC_ToText(v) FROM t ORDER BY VEC_DISTANCE_EUCLIDEAN(v, VEC_FromText('[1,0,0]')) LIMIT 1",
+        ],
+    )
+    .await
+    .unwrap();
+}
