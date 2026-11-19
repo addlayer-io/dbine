@@ -499,7 +499,7 @@ impl Session for LibsqlSession {
                     .and_then(|row| row.first())
                     .and_then(text)
                     .unwrap_or_default();
-                Ok(sqlite_functions::libsql_fallback(&version))
+                Ok(static_catalog(&version))
             }
         }
     }
@@ -883,9 +883,34 @@ impl Session for LibsqlSession {
     }
 }
 
+/// The static catalog, when the server won't list its functions (a host
+/// that restricts the pragma): SQLite's and libSQL's vector functions, for
+/// its `version` (libSQL reports its SQLite base).
+fn static_catalog(version: &str) -> Vec<dbine_driver::FunctionInfo> {
+    let mut out = sqlite_functions::fallback(version);
+    out.extend(dbine_driver::functions::parse_catalog(
+        sqlite_functions::LIBSQL,
+        Some(version),
+    ));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Without the server's list, the static catalog keeps libSQL's vector
+    /// functions (from the libSQL that has them).
+    #[test]
+    fn the_static_catalog_has_the_vector_functions() {
+        let c = static_catalog("3.47.0");
+        for n in ["abs", "vector32", "vector_extract", "vector_top_k"] {
+            assert!(c.iter().any(|f| f.name == n), "{n}");
+        }
+        assert!(!static_catalog("3.44.0")
+            .iter()
+            .any(|f| f.name == "vector32"));
+    }
 
     /// Through an SSH tunnel an https URL checks the real server's name.
     #[test]
