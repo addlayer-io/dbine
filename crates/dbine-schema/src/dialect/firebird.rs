@@ -229,7 +229,7 @@ impl Dialect for Firebird {
             // 63 characters since Firebird 4 (31 before).
             max_identifier: 63,
             case: IdentCase::Upper,
-            vector_indexes: true,
+            vector_indexes: false,
         }
     }
 

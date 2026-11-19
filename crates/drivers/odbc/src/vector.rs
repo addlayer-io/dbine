@@ -13,10 +13,10 @@
 //!   length, and loads bind each vector column as `VECTOR(?, n, type)` from
 //!   the target column's type.
 //!
-//! An edit can't tell a FLOAT32 column from an INT8 one (the edit scripts
-//! don't get the column types), so it writes FLOAT32, the common one; Db2
-//! refuses it for an INT8 column, and a transfer (which reads the target's
-//! types) loads either.
+//! An untyped edit can't tell a FLOAT32 column from an INT8 one, so it
+//! writes FLOAT32, the common one (Db2 refuses it for an INT8 column);
+//! scripts that know the columns' types ([`typed_literal`]) and transfers
+//! (which read the target's types) write either.
 
 use dbine_driver::vector::{self, VectorElement, VectorMeta};
 
@@ -100,6 +100,40 @@ pub fn literal(v: &serde_json::Value) -> Option<String> {
     ))
 }
 
+/// A vector value for a column of a known vector type (`type_name` as a
+/// result or a describe gives it, `meta` its vector meta), from its numbers
+/// or the grid's text: `VECTOR('[…]', n, FLOAT32 | INT8)` with the
+/// column's coordinate type and dimension (the value's length when the
+/// type doesn't say). `None` when the value isn't a vector.
+pub fn typed_literal(
+    type_name: &str,
+    meta: Option<&VectorMeta>,
+    v: &serde_json::Value,
+) -> Option<String> {
+    let values = vector::parse_value(v)?;
+    if values.is_empty() {
+        return None;
+    }
+    let up = type_name.to_ascii_uppercase();
+    let coord = if up.contains("INT8") {
+        "INT8"
+    } else if up.contains("FLOAT32") || up.contains("REAL") {
+        "FLOAT32"
+    } else if meta.is_some_and(|m| m.element == VectorElement::I8) {
+        "INT8"
+    } else {
+        "FLOAT32"
+    };
+    let dims = shape(type_name, None)
+        .and_then(|(d, _)| d)
+        .or_else(|| meta.and_then(|m| m.dims).map(u64::from))
+        .unwrap_or(values.len() as u64);
+    Some(format!(
+        "VECTOR('{}', {dims}, {coord})",
+        vector::text(values.iter().copied())
+    ))
+}
+
 /// The VALUES item that loads a vector column of this type from a text
 /// parameter, `VECTOR(?, n, FLOAT32)`; `None` when it isn't a vector or
 /// its dimension isn't known (the parameter then goes as it is).
@@ -169,5 +203,25 @@ mod tests {
         );
         assert_eq!(param("VECTOR", None), None);
         assert_eq!(param("INTEGER", Some(4)), None);
+    }
+
+    #[test]
+    fn typed_literals_take_the_columns_coordinate_type() {
+        // From a describe's type; from a result's meta; from the grid's text.
+        assert_eq!(
+            typed_literal("VECTOR(3, INT8)", None, &json!([1, -2, 3])).as_deref(),
+            Some("VECTOR('[1,-2,3]', 3, INT8)")
+        );
+        let int8 = VectorMeta::dense(Some(2), VectorElement::I8);
+        assert_eq!(
+            typed_literal("VECTOR", Some(&int8), &json!("[4,5]")).as_deref(),
+            Some("VECTOR('[4,5]', 2, INT8)")
+        );
+        assert_eq!(
+            typed_literal("VECTOR(FLOAT32)", None, &json!([0.5, 1])).as_deref(),
+            Some("VECTOR('[0.5,1]', 2, FLOAT32)")
+        );
+        assert_eq!(typed_literal("VECTOR(3, INT8)", None, &json!("x")), None);
+        assert_eq!(typed_literal("VECTOR(3, INT8)", None, &json!([])), None);
     }
 }

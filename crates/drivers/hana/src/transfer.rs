@@ -85,20 +85,18 @@ pub(crate) async fn read_batches(
 ) -> Result<u64> {
     let owner = s.owner(&spec.table);
     let table = format!("{}.{}", quote(&owner), quote(&spec.table.name));
-    // REAL_VECTOR columns (the client can't decode them) are read as
-    // text, so the select list names every column.
+    // REAL_VECTOR and HALF_VECTOR columns (the client can't decode them)
+    // are read as text, so the select list names every column.
     let catalog = s.rows(READ_COLUMNS, &[&owner, &spec.table.name]).await?;
-    let vectors: HashMap<String, Option<i64>> = catalog
+    let vectors: HashMap<String, crate::vector::Declared> = catalog
         .iter()
-        .filter(|r| {
-            r.get(1)
-                .and_then(super::text)
-                .is_some_and(|t| t == crate::vector::TYPE)
-        })
         .filter_map(|r| {
             Some((
                 r.first().and_then(super::text)?,
-                r.get(2).and_then(super::int),
+                crate::vector::Declared::new(
+                    &r.get(1).and_then(super::text)?,
+                    r.get(2).and_then(super::int),
+                )?,
             ))
         })
         .collect();
@@ -158,8 +156,8 @@ pub(crate) async fn read_batches(
             if let Some(srid) = srids.get(&name) {
                 type_name = format!("{type_name}({srid})");
             }
-            if let Some(dims) = vectors.get(&name) {
-                type_name = crate::vector::type_name(*dims);
+            if let Some(d) = vectors.get(&name) {
+                type_name = d.type_name();
             }
             TransferColumn {
                 name,
@@ -465,9 +463,10 @@ enum Mode {
     Spatial {
         srid: i64,
     },
-    /// `REAL_VECTOR`: its text through `TO_REAL_VECTOR` (the client has no
-    /// vector type).
-    Vector,
+    /// `REAL_VECTOR` or `HALF_VECTOR` (the catalog's name): its text
+    /// through `TO_REAL_VECTOR` or `TO_HALF_VECTOR` (the client has no
+    /// vector type, and HANA casts neither a string nor the other type).
+    Vector(&'static str),
 }
 
 /// A target column being loaded.
@@ -541,8 +540,8 @@ fn plan(qualified: &str, targets: &HashMap<String, Target>, spec: &LoadSpec) -> 
             Mode::Spatial {
                 srid: t.srid.unwrap_or(0),
             }
-        } else if crate::vector::is_vector(&t.data_type) {
-            Mode::Vector
+        } else if let Some(kind) = crate::vector::kind_of(&t.data_type) {
+            Mode::Vector(kind)
         } else {
             Mode::Plain
         };
@@ -565,7 +564,7 @@ fn insert_sql(table: &str, cols: &[Col]) -> String {
         .iter()
         .map(|c| match c.mode {
             Mode::Plain => "?".to_string(),
-            Mode::Vector => "TO_REAL_VECTOR(?)".to_string(),
+            Mode::Vector(kind) => format!("TO_{kind}(?)"),
             Mode::Spatial { srid } => {
                 format!("COALESCE(ST_GeomFromWKB(?, {srid}), ST_GeomFromText(?, {srid}))")
             }
@@ -745,7 +744,7 @@ fn row_params(
         let c = &row[col.index];
         match col.mode {
             Mode::Plain => out.push(param(c, slots[out.len()]).map_err(|e| (ci, e))?),
-            Mode::Vector => {
+            Mode::Vector(_) => {
                 // Another engine's JSON array, in the canonical form.
                 let c = match c {
                     Cell::Text(t) | Cell::Json(t) => Cell::Text(crate::vector::canonical(t)),
@@ -1810,7 +1809,7 @@ mod tests {
     use dbine_driver::ObjectRef;
 
     #[test]
-    fn vectors_load_through_to_real_vector() {
+    fn vectors_load_through_their_columns_constructor() {
         let cols = vec![
             Col {
                 name: "ID".into(),
@@ -1821,18 +1820,33 @@ mod tests {
             Col {
                 name: "EMB".into(),
                 index: 1,
-                mode: Mode::Vector,
+                mode: Mode::Vector(crate::vector::TYPE),
+                identity: false,
+            },
+            Col {
+                name: "HALF".into(),
+                index: 2,
+                mode: Mode::Vector(crate::vector::HALF),
                 identity: false,
             },
         ];
         assert_eq!(
             insert_sql("\"T\"", &cols),
-            "INSERT INTO \"T\" (\"ID\", \"EMB\") VALUES (?, TO_REAL_VECTOR(?))"
+            "INSERT INTO \"T\" (\"ID\", \"EMB\", \"HALF\") VALUES (?, TO_REAL_VECTOR(?), TO_HALF_VECTOR(?))"
         );
-        let slots = [Slot::from(TypeId::INT), Slot::from(TypeId::NVARCHAR)];
-        let row = [Cell::Int(1), Cell::Text("[1, 2.5, -3]".into())];
+        let slots = [
+            Slot::from(TypeId::INT),
+            Slot::from(TypeId::NVARCHAR),
+            Slot::from(TypeId::NVARCHAR),
+        ];
+        let row = [
+            Cell::Int(1),
+            Cell::Text("[1, 2.5, -3]".into()),
+            Cell::Json("[0.5,1]".into()),
+        ];
         let p = row_params(&cols, &row, &slots).unwrap();
         assert_eq!(p[1], Param::Text("[1,2.5,-3]".into()));
+        assert_eq!(p[2], Param::Text("[0.5,1]".into()));
         let targets: HashMap<String, Target> = [
             (
                 "ID".to_string(),
@@ -1848,10 +1862,18 @@ mod tests {
                     ..Default::default()
                 },
             ),
+            (
+                "HALF".to_string(),
+                Target {
+                    data_type: "HALF_VECTOR".into(),
+                    ..Default::default()
+                },
+            ),
         ]
         .into();
-        let planned = plan("\"T\"", &targets, &spec(&["ID", "EMB"], false)).unwrap();
-        assert_eq!(planned[1].mode, Mode::Vector);
+        let planned = plan("\"T\"", &targets, &spec(&["ID", "EMB", "HALF"], false)).unwrap();
+        assert_eq!(planned[1].mode, Mode::Vector("REAL_VECTOR"));
+        assert_eq!(planned[2].mode, Mode::Vector("HALF_VECTOR"));
     }
 
     fn spec(columns: &[&str], keep_identity: bool) -> LoadSpec {

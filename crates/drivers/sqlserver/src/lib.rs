@@ -167,6 +167,7 @@ impl Driver for SqlServerDriver {
                 "este motor no deshabilita índices".into(),
             ));
         }
+        index_usage::refuse_vector_toggle(index)?;
         Ok(index_usage::toggle_script(table, index, enable))
     }
 
@@ -450,6 +451,51 @@ impl Driver for SqlServerDriver {
         keys: &[Vec<(String, serde_json::Value)>],
     ) -> Result<String> {
         Ok(schema::delete_script(target.schema(), &target.name, keys))
+    }
+
+    /// Each value written for its column's type ([`schema::typed_literal`]):
+    /// a vector column's value as its JSON text, a character column's
+    /// string never taken for a binary.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        Ok(schema::insert_script_typed(
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+        ))
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        Ok(schema::update_script_typed(
+            target.schema(),
+            &target.name,
+            changes,
+            types,
+        ))
+    }
+
+    fn delete_script_typed(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        Ok(schema::delete_script_typed(
+            target.schema(),
+            &target.name,
+            keys,
+            types,
+        ))
     }
 
     /// T-SQL: `GO` batches (`GO N`), not split inside comments or strings.

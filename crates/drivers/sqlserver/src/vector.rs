@@ -206,6 +206,19 @@ pub(crate) fn metric_of(native: &str) -> String {
     }
 }
 
+/// A vector index's settings from `sys.vector_indexes`' type and distance
+/// (`DiskANN`, `COSINE`): the algorithm DiskANN when it wasn't read, the
+/// standard distance names. DiskANN's build parameters (R, L, M, StartId)
+/// are the server's own: `CREATE VECTOR INDEX` doesn't take them, so they
+/// aren't the index's settings.
+pub(crate) fn index(kind: Option<&str>, metric: Option<&str>) -> dbine_driver::VectorIndex {
+    dbine_driver::VectorIndex {
+        algorithm: Some(kind.unwrap_or("DiskANN").trim().to_ascii_lowercase()),
+        metric: metric.map(metric_of),
+        params: Default::default(),
+    }
+}
+
 /// The `METRIC = '…'` of a standard (or native) distance name.
 pub(crate) fn native_metric(standard: &str) -> Option<&'static str> {
     use dbine_driver::vector::metric;

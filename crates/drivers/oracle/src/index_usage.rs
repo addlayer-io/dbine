@@ -187,6 +187,8 @@ pub(crate) struct IndexRow {
     pub invisible: bool,
     pub primary_key: bool,
     pub unusable: Unusable,
+    /// A vector index's settings, as the schema reads them.
+    pub vector: Option<dbine_driver::VectorIndex>,
 }
 
 /// Whether an index (or part of it) is UNUSABLE: Oracle neither uses nor
@@ -297,6 +299,7 @@ pub(crate) fn assemble(
                 seeks: u.reads,
                 updates: writes.and_then(|m| m.get(&key).copied()).unwrap_or(0),
                 last_read: u.last_read,
+                vector: ix.vector.clone(),
                 ..Default::default()
             }
         })
@@ -434,7 +437,18 @@ pub(crate) fn report(c: &Connection, owner: &str, table: &str) -> Result<IndexUs
                 1 => Unusable::Partitions,
                 _ => Unusable::No,
             },
+            vector: None,
         });
+    }
+    // Vector indexes (23ai): their settings, where the views say them.
+    if indexes.iter().any(|ix| ix.kind == crate::vector::KIND) {
+        let settings = crate::structure::vector_settings(c, owner);
+        for ix in indexes
+            .iter_mut()
+            .filter(|ix| ix.kind == crate::vector::KIND)
+        {
+            ix.vector = Some(settings.get(&ix.name).cloned().unwrap_or_default());
+        }
     }
     let mut columns = Vec::new();
     for r in c.query(COLUMNS_SQL, &p).map_err(err)? {
@@ -616,6 +630,11 @@ pub(crate) fn toggle_script(
     } else {
         Unusable::No
     };
+    if unusable != Unusable::No && kind.starts_with(crate::vector::KIND) {
+        return Err(Error::Unsupported(
+            "Oracle no reconstruye índices vectoriales (ORA-51926): para volver a usarlo hay que eliminarlo y crearlo de nuevo.".into(),
+        ));
+    }
     let mut statements = Vec::new();
     let mut warnings = Vec::new();
     match unusable {
@@ -677,7 +696,45 @@ mod tests {
             invisible: false,
             primary_key: false,
             unusable: Unusable::No,
+            vector: None,
         }
+    }
+
+    #[test]
+    fn vector_indexes_turn_invisible_but_are_not_rebuilt() {
+        let t = t(Some("APP"));
+        // Invisible and visible again, as any index (verified on 23.26).
+        let off = toggle_script(&t, &usage("IX_EMB", "VECTOR"), false).unwrap();
+        assert_eq!(off.statements, ["ALTER INDEX \"APP\".\"IX_EMB\" INVISIBLE"]);
+        let on = toggle_script(&t, &usage("IX_EMB", "VECTOR INVISIBLE"), true).unwrap();
+        assert_eq!(on.statements, ["ALTER INDEX \"APP\".\"IX_EMB\" VISIBLE"]);
+        // An unusable one would need REBUILD, which Oracle refuses there.
+        assert!(matches!(
+            toggle_script(&t, &usage("IX_EMB", "VECTOR UNUSABLE"), true),
+            Err(Error::Unsupported(m)) if m.contains("ORA-51926")
+        ));
+    }
+
+    #[test]
+    fn vector_indexes_carry_their_settings() {
+        let mut v = ix("IX_EMB", "VECTOR");
+        let settings = dbine_driver::VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("ip".into()),
+            params: [("m".to_string(), "16".to_string())].into(),
+        };
+        v.vector = Some(settings.clone());
+        let out = assemble(
+            &[ix("PK", "NORMAL"), v],
+            &[col("IX_EMB", "EMB", false, None)],
+            None,
+            None,
+            None,
+        );
+        assert_eq!(out[1].kind, "VECTOR");
+        assert_eq!(out[1].key_columns, ["EMB"]);
+        assert_eq!(out[1].vector, Some(settings));
+        assert!(out[0].vector.is_none());
     }
 
     fn col(index: &str, name: &str, descending: bool, expression: Option<&str>) -> ColumnRow {

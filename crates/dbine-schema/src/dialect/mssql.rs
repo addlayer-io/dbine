@@ -357,12 +357,23 @@ impl Dialect for MsSql {
 
     /// `CREATE VECTOR INDEX … WITH (METRIC = 'cosine' | 'euclidean' |
     /// 'dot', TYPE = 'DiskANN')`: SQL Server picks DiskANN's parameters.
+    /// Its column must be a `vector(n)` here (float32 or float16, both
+    /// indexed); one [`render_vector`] writes as JSON text (sparse, without
+    /// a dimension, too many) can't be indexed.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::metric;
+        if let Some(c @ L::Vector { .. }) = column {
+            if !render_vector(self, c).native.starts_with("vector(") {
+                return Err(
+                    "su columna no es un vector en SQL Server (es dispersa, no tiene dimensión o tiene demasiadas)"
+                        .into(),
+                );
+            }
+        }
         let m = v.metric.as_deref().map(str::to_ascii_lowercase);
         let metric = match m.as_deref() {
             None => None,
@@ -510,7 +521,10 @@ impl Dialect for MsSqlNoVectors {
     }
 
     fn caps(&self) -> Caps {
-        MsSql.caps()
+        Caps {
+            vector_indexes: false,
+            ..MsSql.caps()
+        }
     }
 
     fn implies_auto_increment(&self, t: &TypeSpec) -> bool {
@@ -668,6 +682,59 @@ mod tests {
         assert_eq!(t.foreign_keys[0].on_delete, None);
     }
 
+    /// Moved here from another family, a vector index keeps its column a
+    /// `vector(n)`: a searched float array whose index states the
+    /// dimension becomes one, and an index on what goes as JSON text (a
+    /// sparse vector, a list without a dimension) is left out with why.
+    #[test]
+    fn vector_indexes_moved_into_sql_server() {
+        use super::super::clickhouse::tests::vector_table;
+        use crate::convert::{convert, Options};
+        use crate::issue::IssueCode;
+        let one = |t, from: &str| {
+            let r = convert(&[t], from, "sqlserver", &Options::default()).unwrap();
+            (r.tables[0].clone(), r.issues)
+        };
+        let (t, _) = one(vector_table("vector(3)", None, &[]), "postgres");
+        assert_eq!(t.columns[1].data_type, "vector(3)");
+        assert_eq!(t.indexes[0].kind.as_deref(), Some("VECTOR"));
+        assert_eq!(
+            t.indexes[0].vector.as_ref().unwrap().algorithm.as_deref(),
+            Some("diskann")
+        );
+        let (t, _) = one(
+            vector_table(
+                "Array(Float32)",
+                Some("vector_similarity"),
+                &[("dimensions", "3")],
+            ),
+            "clickhouse",
+        );
+        assert_eq!(t.columns[1].data_type, "vector(3)");
+        assert_eq!(t.indexes.len(), 1);
+        for (t, from, why) in [
+            (
+                vector_table("sparsevec(5)", None, &[]),
+                "postgres",
+                "no es un vector en SQL Server",
+            ),
+            (
+                vector_table("Array(Float32)", Some("vector_similarity"), &[]),
+                "clickhouse",
+                "su columna no es un vector",
+            ),
+        ] {
+            let (t, issues) = one(t, from);
+            assert!(t.indexes.is_empty(), "{from}");
+            assert!(
+                issues
+                    .iter()
+                    .any(|i| i.code == IssueCode::IndexDropped && i.message.contains(why)),
+                "{issues:?}"
+            );
+        }
+    }
+
     #[test]
     fn engines_without_vectors_take_them_as_json() {
         let v = L::Vector {
@@ -745,6 +812,25 @@ mod tests {
             ..Default::default()
         };
         assert!(MsSql.vector_index(&l1, None).is_err());
+        // The column decides: float32 and float16 vectors are indexed, a
+        // vector that goes as JSON text isn't.
+        let col = v;
+        for ok in [
+            col(Some(3), E::F32, false),
+            col(Some(3), E::F16, false),
+            col(Some(3), E::F64, false),
+            col(Some(3), E::Bit, false),
+        ] {
+            assert!(MsSql.vector_index(&hnsw, Some(&ok)).is_ok(), "{ok:?}");
+        }
+        for no in [
+            col(Some(3), E::F32, true),
+            col(None, E::F32, false),
+            col(Some(4000), E::F32, false),
+        ] {
+            let e = MsSql.vector_index(&hnsw, Some(&no)).unwrap_err();
+            assert!(e.contains("no es un vector"), "{no:?}: {e}");
+        }
     }
 
     #[test]

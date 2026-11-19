@@ -738,27 +738,15 @@ impl Driver for OracleDriver {
         columns: &[String],
         rows: &[Vec<Value>],
     ) -> Result<String> {
-        let name = dbine_driver::sql::qualified_name(Quote::Double, target.schema(), &target.name);
-        let cols: Vec<String> = columns
-            .iter()
-            .map(|c| dbine_driver::sql::quote_ident(Quote::Double, c))
-            .collect();
-        let head = format!("INSERT INTO {name} ({}) VALUES", cols.join(", "));
-        Ok(rows
-            .iter()
-            .map(|r| {
-                let values: Vec<String> = r
-                    .iter()
-                    .enumerate()
-                    .map(|(i, v)| match columns.get(i) {
-                        Some(c) => column_literal(target, c, v),
-                        None => literal(v),
-                    })
-                    .collect();
-                format!("{head} ({});", values.join(", "))
-            })
-            .collect::<Vec<_>>()
-            .join("\n"))
+        Ok(insert_rows(
+            target,
+            columns,
+            rows,
+            &|i, v| match columns.get(i) {
+                Some(c) => column_literal(target, c, v),
+                None => literal(v),
+            },
+        ))
     }
 
     /// `UPDATE … WHERE <key>` per changed row, with the INSERTs' literals.
@@ -767,37 +755,46 @@ impl Driver for OracleDriver {
         target: &ObjectRef,
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
-        let q = |c: &str| dbine_driver::sql::quote_ident(Quote::Double, c);
-        let name = dbine_driver::sql::qualified_name(Quote::Double, target.schema(), &target.name);
-        Ok(changes
+        Ok(update_rows(target, changes, &|k, v| {
+            column_literal(target, k, v)
+        }))
+    }
+
+    /// Each value written for its column's type ([`typed_literal`]): a
+    /// vector in the column's own format (BINARY packed, SPARSE in
+    /// Oracle's sparse text) without asking the dictionary.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        Ok(insert_rows(
+            target,
+            &names,
+            rows,
+            &|i, v| match columns.get(i) {
+                Some(c) => typed_literal(target, c, v),
+                None => literal(v),
+            },
+        ))
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        Ok(update_rows(target, changes, &|k, v| match types
             .iter()
-            .filter(|c| !c.set.is_empty())
-            .map(|c| {
-                let set: Vec<String> = c
-                    .set
-                    .iter()
-                    .map(|(k, v)| format!("{} = {}", q(k), column_literal(target, k, v)))
-                    .collect();
-                let wh: Vec<String> = c
-                    .key
-                    .iter()
-                    .map(|(k, v)| match v {
-                        Value::Null => format!("{} IS NULL", q(k)),
-                        v => format!("{} = {}", q(k), literal(v)),
-                    })
-                    .collect();
-                if wh.is_empty() {
-                    format!("UPDATE {name} SET {};", set.join(", "))
-                } else {
-                    format!(
-                        "UPDATE {name} SET {} WHERE {};",
-                        set.join(", "),
-                        wh.join(" AND ")
-                    )
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n"))
+            .find(|c| c.name == k)
+            .or_else(|| types.iter().find(|c| c.name.eq_ignore_ascii_case(k)))
+        {
+            Some(c) => typed_literal(target, c, v),
+            None => column_literal(target, k, v),
+        }))
     }
 
     /// `DELETE … WHERE <key>` per row key, with the INSERTs' literals.
@@ -3298,6 +3295,102 @@ fn vector(v: &oracledb::Vector) -> String {
     vector::text(v)
 }
 
+/// `INSERT … VALUES (…)` per row, each value written by `lit` (its
+/// column's position and the value).
+fn insert_rows(
+    target: &ObjectRef,
+    columns: &[String],
+    rows: &[Vec<Value>],
+    lit: &dyn Fn(usize, &Value) -> String,
+) -> String {
+    let name = dbine_driver::sql::qualified_name(Quote::Double, target.schema(), &target.name);
+    let cols: Vec<String> = columns
+        .iter()
+        .map(|c| dbine_driver::sql::quote_ident(Quote::Double, c))
+        .collect();
+    let head = format!("INSERT INTO {name} ({}) VALUES", cols.join(", "));
+    rows.iter()
+        .map(|r| {
+            let values: Vec<String> = r.iter().enumerate().map(|(i, v)| lit(i, v)).collect();
+            format!("{head} ({});", values.join(", "))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// `UPDATE … SET … WHERE <key>` per changed row: the new values written by
+/// `lit` (the column and the value), the key's with the plain literals (a
+/// vector is never a key).
+fn update_rows(
+    target: &ObjectRef,
+    changes: &[dbine_driver::RowChange],
+    lit: &dyn Fn(&str, &Value) -> String,
+) -> String {
+    let q = |c: &str| dbine_driver::sql::quote_ident(Quote::Double, c);
+    let name = dbine_driver::sql::qualified_name(Quote::Double, target.schema(), &target.name);
+    changes
+        .iter()
+        .filter(|c| !c.set.is_empty())
+        .map(|c| {
+            let set: Vec<String> = c
+                .set
+                .iter()
+                .map(|(k, v)| format!("{} = {}", q(k), lit(k, v)))
+                .collect();
+            let wh: Vec<String> = c
+                .key
+                .iter()
+                .map(|(k, v)| match v {
+                    Value::Null => format!("{} IS NULL", q(k)),
+                    v => format!("{} = {}", q(k), literal(v)),
+                })
+                .collect();
+            if wh.is_empty() {
+                format!("UPDATE {name} SET {};", set.join(", "))
+            } else {
+                format!(
+                    "UPDATE {name} SET {} WHERE {};",
+                    set.join(", "),
+                    wh.join(" AND ")
+                )
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A value for a column whose type the caller knows (a result's or a
+/// describe's): a vector column's in its format
+/// ([`vector::typed_literal`]), or as the plain literal when it isn't a
+/// vector; any other column's as the plain literal, an array or object as
+/// its own JSON text (not rewritten as a vector's), and that text or a
+/// long-text column's string chained through `TO_CLOB` past the 4000
+/// bytes of a literal ([`vector::text_literal`]). A column without a type
+/// is looked up as the untyped scripts do ([`column_literal`]).
+fn typed_literal(target: &ObjectRef, c: &ResultColumn, v: &Value) -> String {
+    match vector::shape_of(c) {
+        Some(shape) => vector::typed_literal(&shape, v).unwrap_or_else(|| literal(v)),
+        None if !c.type_name.trim().is_empty() => match v {
+            Value::Array(_) | Value::Object(_) => vector::text_literal(&v.to_string()),
+            Value::String(s) if is_long_text(&c.type_name) => vector::text_literal(s),
+            _ => dbine_driver::ddl::sql_literal(&ddl::FLAVOR, v),
+        },
+        None => column_literal(target, &c.name, v),
+    }
+}
+
+/// Whether a column of this type takes text longer than a literal, so a
+/// long string goes as a `TO_CLOB` chain (verified on 23.26 for every
+/// one): a describe's `CLOB`, `NCLOB`, `JSON` or `LONG`, and a result's,
+/// where the client fetches a CLOB as `LONG` and an NCLOB as `LONG
+/// NVARCHAR`.
+fn is_long_text(type_name: &str) -> bool {
+    let base = type_name.split('(').next().unwrap_or("").trim();
+    ["CLOB", "NCLOB", "JSON", "LONG", "LONG NVARCHAR"]
+        .iter()
+        .any(|t| base.eq_ignore_ascii_case(t))
+}
+
 /// A value of `column` of `target` as an Oracle literal: [`literal`],
 /// except a vector that may be a BINARY one, whose literal asks the
 /// dictionary for the column's format ([`vector::column_literal`]).
@@ -3446,6 +3539,156 @@ mod tests {
             up.ends_with("AND column_name = 'B') WHERE \"ID\" = 1;"),
             "{up}"
         );
+    }
+
+    #[test]
+    fn typed_edit_scripts_write_vectors_in_their_columns_format() {
+        use dbine_driver::{VectorElement, VectorMeta};
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "DOCS".into(),
+        };
+        let cols = [
+            ResultColumn::new("ID", "NUMBER"),
+            // From a result: the type and its meta.
+            ResultColumn::new("V", "VECTOR(2, FLOAT32)")
+                .with_vector(VectorMeta::dense(Some(2), VectorElement::F32)),
+            // From a describe: the declared type alone.
+            ResultColumn::new("B", "VECTOR(8, BINARY)"),
+            ResultColumn::new("S", "VECTOR(4, FLOAT32, SPARSE)"),
+            ResultColumn::new("J", "JSON"),
+            // No type: asked of the dictionary, as untyped.
+            ResultColumn::new("X", ""),
+        ];
+        let row = vec![
+            serde_json::json!(1),
+            serde_json::json!("[0.5,2]"),
+            serde_json::json!([1, 1, 0, 0, 1, 0, 0, 1]),
+            serde_json::json!([0, 1.5, 0, -2]),
+            serde_json::json!([1.0, 2]),
+            serde_json::json!([1, 0, 0, 0, 0, 0, 0, 1]),
+        ];
+        let ins = drivers()[0].insert_script_typed(&t, &cols, &[row]).unwrap();
+        assert!(
+            ins.starts_with(
+                "INSERT INTO \"DOCS\" (\"ID\", \"V\", \"B\", \"S\", \"J\", \"X\") VALUES (1, '[0.5,2]', '[201]', '[4,[1,3],[1.5,-2]]', '[1.0,2]', (SELECT CASE"
+            ),
+            "{ins}"
+        );
+        // An update finds the types by name; a sparse value into a dense
+        // column is spread out, pgvector's sparse text into a sparse one is
+        // Oracle's.
+        let up = drivers()[0]
+            .update_script_typed(
+                &t,
+                &[dbine_driver::RowChange {
+                    key: vec![("ID".into(), serde_json::json!(1))],
+                    set: vec![
+                        ("v".into(), serde_json::json!("[2,[1],[3]]")),
+                        ("S".into(), serde_json::json!("{2:1.5,4:-2}/4")),
+                        ("B".into(), Value::Null),
+                    ],
+                    ..Default::default()
+                }],
+                &cols,
+            )
+            .unwrap();
+        assert_eq!(
+            up,
+            "UPDATE \"DOCS\" SET \"v\" = '[0,3]', \"S\" = '[4,[1,3],[1.5,-2]]', \"B\" = NULL WHERE \"ID\" = 1;"
+        );
+    }
+
+    #[test]
+    fn typed_scripts_never_pass_text_through_unescaped() {
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "DOCS".into(),
+        };
+        let cols = [
+            ResultColumn::new("ID", "NUMBER"),
+            ResultColumn::new("V", "VECTOR(3, FLOAT32)"),
+        ];
+        let attack = "x'); DROP TABLE DOCS; --";
+        // Short and long text that isn't a vector, from a grid, a file or
+        // another database: one statement, the text a plain literal.
+        for text in [attack.to_string(), format!("{attack}{}", "a".repeat(4100))] {
+            let ins = drivers()[0]
+                .insert_script_typed(
+                    &t,
+                    &cols,
+                    &[vec![serde_json::json!(1), serde_json::json!(text)]],
+                )
+                .unwrap();
+            assert_eq!(script::split(&ins).len(), 1, "{ins}");
+            assert!(
+                ins.starts_with("INSERT INTO \"DOCS\" (\"ID\", \"V\") VALUES (1, 'x''); DROP"),
+                "{}",
+                &ins[..80]
+            );
+            let up = drivers()[0]
+                .update_script_typed(
+                    &t,
+                    &[dbine_driver::RowChange {
+                        key: vec![("ID".into(), serde_json::json!(1))],
+                        set: vec![("V".into(), serde_json::json!(text))],
+                        ..Default::default()
+                    }],
+                    &cols,
+                )
+                .unwrap();
+            assert_eq!(script::split(&up).len(), 1, "{up}");
+            assert!(up.contains("\"V\" = 'x''); DROP"), "{}", &up[..60]);
+        }
+        // A vector's text with blanks goes in its canonical form.
+        let ins = drivers()[0]
+            .insert_script_typed(
+                &t,
+                &cols,
+                &[vec![
+                    serde_json::json!(1),
+                    serde_json::json!(" [1, 2.50, -3] "),
+                ]],
+            )
+            .unwrap();
+        assert!(ins.ends_with("VALUES (1, '[1,2.5,-3]');"), "{ins}");
+    }
+
+    #[test]
+    fn typed_scripts_chain_long_text_into_clob_and_json_columns() {
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "DOCS".into(),
+        };
+        let cols = [
+            ResultColumn::new("C", "CLOB"),
+            ResultColumn::new("J", "JSON"),
+            ResultColumn::new("N", "VARCHAR2(4000)"),
+            // A result's CLOB.
+            ResultColumn::new("L", "LONG"),
+        ];
+        let array: Vec<f64> = (0..1200).map(|i| i as f64 * 0.001234567).collect();
+        let long = format!("it's {}", "é".repeat(2500));
+        let ins = drivers()[0]
+            .insert_script_typed(
+                &t,
+                &cols,
+                &[vec![
+                    serde_json::json!(long),
+                    serde_json::json!(array),
+                    serde_json::json!("o'k"),
+                    serde_json::json!(long),
+                ]],
+            )
+            .unwrap();
+        assert_eq!(script::split(&ins).len(), 1, "{ins}");
+        // The long values as CLOB chains, the short one a plain literal.
+        assert!(ins.contains("VALUES (TO_CLOB('it''s éé"), "{ins}");
+        assert!(ins.contains(", TO_CLOB('[0.0,0.001234567,"), "{ins}");
+        assert!(ins.contains(", 'o''k', TO_CLOB('it''s éé"), "{ins}");
     }
 
     #[test]

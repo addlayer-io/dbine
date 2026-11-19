@@ -460,6 +460,32 @@ impl Driver for OdbcDriver {
         design::delete_script(self.preset, target.schema(), &target.name, keys)
     }
 
+    /// Each value written for its column's type ([`design::typed_literal`]):
+    /// a Db2 vector column's with its own coordinate type (INT8 too).
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[dbine_driver::ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        Ok(design::insert_script_typed(
+            self.preset,
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+        ))
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[dbine_driver::ResultColumn],
+    ) -> Result<String> {
+        design::update_script_typed(self.preset, target.schema(), &target.name, changes, types)
+    }
+
     fn filtered_browse(
         &self,
         browse: &str,
