@@ -264,8 +264,10 @@ impl Dialect for Sqlite {
 
     /// AUTOINCREMENT only exists on an `INTEGER PRIMARY KEY` of one column:
     /// an integer key keeps it as `INTEGER` (SQLite's integers are all 8
-    /// bytes); anything else loses it.
+    /// bytes); anything else loses it. libSQL's vector indexes go on vector
+    /// columns with a dimension ([`libsql_vector_columns`]).
     fn finalize(&self, t: &mut TableSchema, report: &mut crate::issue::Report) {
+        libsql_vector_columns(t, report);
         let pk: Vec<String> = t
             .primary_key
             .as_ref()
@@ -346,6 +348,69 @@ fn libsql_vector(t: &TypeSpec) -> Option<L> {
     })
 }
 
+/// libSQL indexes a vector column (`F32_BLOB(n)`, `F64_BLOB(n)`…) that has
+/// a dimension. A column without one (a ClickHouse `Array(Float32)`) takes
+/// the dimension its index carries; an index on any other column, or
+/// without a dimension anywhere, is left out, with why. (SQLite can't
+/// create these indexes at all: its driver leaves them out of the DDL.)
+fn libsql_vector_columns(t: &mut TableSchema, report: &mut crate::issue::Report) {
+    let mut kept = Vec::new();
+    for mut ix in std::mem::take(&mut t.indexes) {
+        let Some(v) = ix.vector.as_mut() else {
+            kept.push(ix);
+            continue;
+        };
+        let dims = super::clickhouse::index_dimensions(&v.params);
+        v.params
+            .retain(|k, _| !super::clickhouse::is_dimension_key(k));
+        let col = ix
+            .columns
+            .first()
+            .and_then(|k| t.columns.iter_mut().find(|c| &c.name == k));
+        let why = match col {
+            None => Some("su clave no es una columna de la tabla".to_string()),
+            Some(c) => match (libsql_vector(&parse(&c.data_type)), dims) {
+                (Some(L::Vector { dims: Some(_), .. }), _) => None,
+                // A vector type without its dimension.
+                (Some(_), Some(n)) => {
+                    let name = c.data_type.trim().to_string();
+                    c.data_type = format!("{name}({n})");
+                    report.push(
+                        Severity::Info,
+                        IssueCode::TypeChanged,
+                        &t.name,
+                        Some(&c.name),
+                        format!(
+                            "La columna toma la dimensión de su índice vectorial: {}.",
+                            c.data_type
+                        ),
+                    );
+                    None
+                }
+                (Some(_), None) => Some(format!(
+                    "libSQL no indexa una columna vectorial sin dimensión, y «{}» es {}",
+                    c.name, c.data_type
+                )),
+                (None, _) => Some(format!(
+                    "libSQL lo crea sobre columnas vectoriales (F32_BLOB(n), F64_BLOB(n)…), y «{}» es {}",
+                    c.name, c.data_type
+                )),
+            },
+        };
+        match why {
+            Some(why) => report.push(
+                Severity::Dropped,
+                IssueCode::IndexDropped,
+                &t.name,
+                Some(&ix.name),
+                format!("El índice vectorial «{}» no se crea: {why}.", ix.name),
+            ),
+            None => kept.push(ix),
+        }
+    }
+    t.indexes = kept;
+}
+
 /// A vector index of another family as libSQL's (DiskANN through
 /// `libsql_vector_idx`): cosine or L2 distance; `m` (`max_neighbors`),
 /// `ef_construction` (`insert_l`) and `quantization`
@@ -385,6 +450,10 @@ fn libsql_vector_index(
             }
             _ => {}
         }
+    }
+    // A dimension the source index carries (ClickHouse's), for `finalize`.
+    if let Some(n) = super::clickhouse::index_dimensions(&v.params) {
+        params.insert(super::clickhouse::DIMENSIONS.into(), n.to_string());
     }
     Ok((
         None,
@@ -444,6 +513,53 @@ mod tests {
             sparse: true,
         });
         assert_eq!(sparse.native, "TEXT");
+    }
+
+    /// Into libSQL a vector index needs a vector column with a dimension: a
+    /// ClickHouse `Array(Float32)` takes its index's; a column that isn't a
+    /// vector, or has no dimension anywhere, loses the index, with why.
+    #[test]
+    fn vector_indexes_into_libsql() {
+        use super::super::clickhouse::tests::vector_table;
+        use crate::convert::{convert, Options};
+        let one = |t, from: &str| {
+            let r = convert(&[t], from, "libsql", &Options::default()).unwrap();
+            (r.tables[0].clone(), r.issues)
+        };
+        let ch = |ty, params: &[(&str, &str)]| vector_table(ty, Some("vector_similarity"), params);
+        let (t, _) = one(
+            ch("Array(Float32)", &[("dimensions", "3"), ("m", "8")]),
+            "clickhouse",
+        );
+        assert_eq!(t.columns[1].data_type, "F32_BLOB(3)");
+        let v = t.indexes[0].vector.as_ref().unwrap();
+        assert_eq!(
+            v.params.iter().collect::<Vec<_>>(),
+            [(&"m".to_string(), &"8".to_string())]
+        );
+        let (t, _) = one(ch("Array(BFloat16)", &[("dimensions", "2")]), "clickhouse");
+        assert_eq!(t.columns[1].data_type, "FB16_BLOB(2)");
+        assert_eq!(t.indexes.len(), 1);
+        for (t, why) in [
+            (ch("Array(Float32)", &[]), "sin dimensión"),
+            (
+                ch("Array(Float64)", &[("dimensions", "3")]),
+                "columnas vectoriales",
+            ),
+        ] {
+            let (t, issues) = one(t, "clickhouse");
+            assert!(t.indexes.is_empty());
+            assert!(
+                issues
+                    .iter()
+                    .any(|i| i.code == IssueCode::IndexDropped && i.message.contains(why)),
+                "{issues:?}"
+            );
+        }
+        // DuckDB's FLOAT[3] already has its dimension.
+        let (t, _) = one(vector_table("FLOAT[3]", Some("HNSW"), &[]), "duckdb");
+        assert_eq!(t.columns[1].data_type, "F32_BLOB(3)");
+        assert_eq!(t.indexes.len(), 1);
     }
 
     #[test]

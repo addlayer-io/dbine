@@ -34,6 +34,44 @@ fn vector_element(arg: &str) -> Option<dbine_driver::VectorElement> {
     }
 }
 
+/// The parameter of a ClickHouse vector index that holds its dimension
+/// (which ClickHouse's types don't).
+pub(super) const DIMENSIONS: &str = "dimensions";
+
+/// A parameter that names a vector index's dimension (`dimensions`, and
+/// the spellings other sources may use).
+pub(super) fn is_dimension_key(k: &str) -> bool {
+    matches!(k, "dimensions" | "dims" | "dimension")
+}
+
+/// The dimension a vector index's parameters carry, if any.
+pub(super) fn index_dimensions(params: &std::collections::BTreeMap<String, String>) -> Option<u32> {
+    params
+        .iter()
+        .filter(|(k, _)| is_dimension_key(k))
+        .find_map(|(_, v)| v.trim().parse().ok())
+}
+
+/// What a vector column's render says about the dimension its type loses.
+/// [`Dialect::finalize`] reads it back for the column's vector index, which
+/// needs it: the dialect API gives `finalize` the rendered types only, and
+/// this note is where the dimension survives.
+fn dims_note(n: u32) -> String {
+    format!("{DIMS_NOTE}{n}).")
+}
+
+const DIMS_NOTE: &str =
+    "ClickHouse no fija la dimensión en el tipo: la exige el índice vector_similarity (";
+
+/// The dimension in a [`dims_note`].
+fn dims_from_note(message: &str) -> Option<u32> {
+    message
+        .strip_prefix(DIMS_NOTE)?
+        .strip_suffix(").")?
+        .parse()
+        .ok()
+}
+
 /// Largest `Decimal(P, S)` precision.
 const MAX_DECIMAL: u32 = 76;
 
@@ -53,6 +91,74 @@ pub(super) fn ch_literal(s: &str) -> String {
 }
 
 impl ClickHouse {
+    /// A `vector_similarity` index goes on an `Array(Float32)`,
+    /// `Array(Float64)` or `Array(BFloat16)` column and needs the vector's
+    /// dimension: the index's own, or the one the column's type had in the
+    /// source (`vector(3)`), which ClickHouse's type doesn't keep. An index
+    /// read from ClickHouse 24.8–25.7 (no dimension, its type in the
+    /// options) stays as it was. Any other is left out, with why.
+    fn vector_indexes(&self, t: &mut TableSchema, report: &mut Report) {
+        let mut kept = Vec::new();
+        for mut ix in std::mem::take(&mut t.indexes) {
+            let Some(v) = ix.vector.as_mut() else {
+                kept.push(ix);
+                continue;
+            };
+            let col = ix
+                .columns
+                .first()
+                .and_then(|k| t.columns.iter().find(|c| &c.name == k));
+            let why = match col {
+                None => Some("su clave no es una columna de la tabla".to_string()),
+                Some(c) => {
+                    let element = match logical_of(self, &parse::parse(&c.data_type)) {
+                        L::Vector { sparse: false, .. } => true,
+                        L::Array { of } => matches!(*of, L::Float { .. }),
+                        _ => false,
+                    };
+                    let legacy = ix
+                        .options
+                        .get("type")
+                        .is_some_and(|x| x.trim_start().starts_with("vector_similarity"));
+                    let from_column = || {
+                        // convert.rs marks each column with its source
+                        // name under this key until `finalize` is done.
+                        let origin = c.options.get("__dbine_source_column")?;
+                        report.issues.iter().find_map(|i| {
+                            (i.object.as_deref() == Some(origin.as_str())
+                                && i.code == IssueCode::TypeChanged)
+                                .then(|| dims_from_note(&i.message))
+                                .flatten()
+                        })
+                    };
+                    if !element {
+                        Some(format!(
+                            "ClickHouse lo crea sobre columnas Array(Float32), Array(Float64) o Array(BFloat16), y «{}» es {}",
+                            c.name, c.data_type
+                        ))
+                    } else if index_dimensions(&v.params).is_some() || legacy {
+                        None
+                    } else if let Some(n) = from_column() {
+                        v.params.insert(DIMENSIONS.into(), n.to_string());
+                        None
+                    } else {
+                        Some("ClickHouse necesita la dimensión del vector, y ni el índice ni la columna del origen la dan".to_string())
+                    }
+                }
+            };
+            match why {
+                Some(why) => report.push(
+                    Severity::Dropped,
+                    IssueCode::IndexDropped,
+                    &t.name,
+                    Some(&ix.name),
+                    format!("El índice vectorial «{}» no se crea: {why}.", ix.name),
+                ),
+                None => kept.push(ix),
+            }
+        }
+        t.indexes = kept;
+    }
     /// The type name in this flavor's spelling (`DateTime64` → `datetime64`).
     fn n(&self, name: &str) -> String {
         if !self.timeplus {
@@ -281,11 +387,7 @@ impl Dialect for ClickHouse {
                 };
                 let r = Rendered::exact(format!("{}({})", self.n("Array"), self.n(of)));
                 let r = match dims {
-                    Some(n) => r.with(
-                        Info,
-                        TypeChanged,
-                        format!("ClickHouse no fija la dimensión en el tipo: la exige el índice vector_similarity ({n})."),
-                    ),
+                    Some(n) => r.with(Info, TypeChanged, dims_note(*n)),
                     None => r,
                 };
                 if *element == E::Bit {
@@ -523,10 +625,11 @@ impl Dialect for ClickHouse {
     }
 
     /// ClickHouse's `vector_similarity` (HNSW): cosine, L2 or inner product
-    /// (`dotProduct`); `m`, `ef_construction` and the quantization carry
-    /// over. It needs the dimension, which the type doesn't have: a source
-    /// index without a `dimensions` (or `dims`, `dimension`) parameter
-    /// can't come. Timeplus has no vector indexes.
+    /// (`dotProduct`, ClickHouse 26.4 and later); `m`, `ef_construction`
+    /// and the quantization carry over. It needs the dimension, which the
+    /// type doesn't have: the source index's (`dimensions`, `dims`,
+    /// `dimension`) or, in [`Dialect::finalize`], its column's. Timeplus has
+    /// no vector indexes.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
@@ -546,15 +649,10 @@ impl Dialect for ClickHouse {
                 ))
             }
         };
-        let dims = ["dimensions", "dims", "dimension"]
-            .iter()
-            .find_map(|k| v.params.get(*k))
-            .map(|d| d.trim().to_string())
-            .filter(|d| d.parse::<u32>().is_ok())
-            .ok_or(
-                "ClickHouse necesita la dimensión del vector para el índice, y el origen no la da",
-            )?;
-        let mut params = std::collections::BTreeMap::from([("dimensions".to_string(), dims)]);
+        let mut params = std::collections::BTreeMap::new();
+        if let Some(n) = index_dimensions(&v.params) {
+            params.insert(DIMENSIONS.to_string(), n.to_string());
+        }
         for (k, val) in &v.params {
             let val = val.trim();
             match k.as_str() {
@@ -643,6 +741,7 @@ impl Dialect for ClickHouse {
                 report.push(Info, NullabilityChanged, &t.name, Some(&c.name), "ClickHouse no admite NULL en arreglos, mapas ni JSON: un nulo queda como valor vacío.");
             }
         }
+        self.vector_indexes(t, report);
         // Skipping indexes don't enforce anything.
         for ix in t.indexes.iter_mut() {
             if ix.unique {
@@ -711,7 +810,7 @@ impl Dialect for ClickHouse {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::parse::parse;
     use dbine_driver::{ColumnDef, IndexDef, KeyDef};
@@ -896,10 +995,114 @@ mod tests {
                 ("quantization".into(), "b1".into())
             ]
         );
-        let e = ch().vector_index(&ix("l2", &[("m", "16")])).unwrap_err();
-        assert!(e.contains("dimensión"), "{e}");
+        // Without a dimension: finalize looks for the column's.
+        let (_, v) = ch().vector_index(&ix("l2", &[("m", "16")])).unwrap();
+        assert!(!v.params.contains_key("dimensions"));
         assert!(ch().vector_index(&ix("hamming", &[("dims", "3")])).is_err());
         assert!(tp().vector_index(&ix("l2", &[("dims", "3")])).is_err());
+    }
+
+    /// A table with a vector column `emb` of type `ty` and a vector index
+    /// on it, as `from` reads it.
+    pub(in crate::dialect) fn vector_table(
+        ty: &str,
+        kind: Option<&str>,
+        params: &[(&str, &str)],
+    ) -> TableSchema {
+        use dbine_driver::{ColumnDef, IndexDef, KeyDef, VectorIndex};
+        TableSchema {
+            name: "docs".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "INTEGER".into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "emb".into(),
+                    data_type: ty.into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![IndexDef {
+                name: "docs_emb".into(),
+                columns: vec!["emb".into()],
+                kind: kind.map(str::to_string),
+                vector: Some(VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some("cosine".into()),
+                    params: params
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect(),
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// Into ClickHouse the vector index takes the dimension the source
+    /// column had (`FLOAT[3]`, `F64_BLOB(3)`), which `Array(Float32)` loses;
+    /// without one anywhere, or on a column that isn't a float array, it's
+    /// left out with why.
+    #[test]
+    fn vector_indexes_into_clickhouse() {
+        use crate::convert::{convert, Options};
+        let one = |t: TableSchema, from: &str| {
+            let r = convert(&[t], from, "clickhouse", &Options::default()).unwrap();
+            (r.tables[0].clone(), r.issues)
+        };
+        let (t, _) = one(
+            vector_table("FLOAT[3]", Some("HNSW"), &[("m", "8")]),
+            "duckdb",
+        );
+        assert_eq!(t.columns[1].data_type, "Array(Float32)");
+        let ix = &t.indexes[0];
+        assert_eq!(ix.kind.as_deref(), Some("vector_similarity"));
+        let v = ix.vector.as_ref().unwrap();
+        assert_eq!(
+            (
+                v.metric.as_deref(),
+                v.params.get("dimensions").map(String::as_str)
+            ),
+            (Some("cosine"), Some("3"))
+        );
+        assert_eq!(v.params["m"], "8");
+        let (t, _) = one(vector_table("F64_BLOB(2)", None, &[]), "libsql");
+        assert_eq!(t.columns[1].data_type, "Array(Float64)");
+        assert_eq!(
+            t.indexes[0].vector.as_ref().unwrap().params["dimensions"],
+            "2"
+        );
+        // No dimension: a DuckDB list.
+        let (t, issues) = one(vector_table("FLOAT[]", Some("HNSW"), &[]), "duckdb");
+        assert!(t.indexes.is_empty());
+        assert!(issues.iter().any(|i| i.code == IssueCode::IndexDropped
+            && i.message.contains("ni el índice ni la columna")));
+        // Not a float array.
+        let (t, issues) = one(
+            vector_table("VARCHAR", Some("HNSW"), &[("dims", "3")]),
+            "duckdb",
+        );
+        assert!(t.indexes.is_empty());
+        assert!(issues
+            .iter()
+            .any(|i| i.code == IssueCode::IndexDropped && i.message.contains("Array(Float32)")));
+        // An index of ClickHouse 24.8–25.7 (no dimension) stays as it was.
+        let mut old = vector_table("Array(Float32)", Some("vector_similarity"), &[]);
+        old.indexes[0].options.insert(
+            "type".into(),
+            "vector_similarity('hnsw', 'cosineDistance')".into(),
+        );
+        let (t, _) = one(old, "clickhouse");
+        assert_eq!(t.indexes.len(), 1);
     }
 
     #[test]

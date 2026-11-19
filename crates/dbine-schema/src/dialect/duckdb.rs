@@ -9,9 +9,10 @@ use super::bigquery::nested;
 use super::postgres::precision_loss;
 use super::{standard_default, Caps, Dialect, IdentCase, Rendered};
 use crate::default::{quote, DefaultValue};
-use crate::issue::{IssueCode, Severity};
+use crate::issue::{IssueCode, Report, Severity};
 use crate::logical::LogicalType as L;
 use crate::parse::TypeSpec;
+use dbine_driver::TableSchema;
 
 pub struct DuckDb;
 
@@ -351,7 +352,9 @@ impl Dialect for DuckDb {
 
     /// vss's HNSW: L2 (`l2sq`, its default), cosine or inner product; `m`
     /// and `ef_construction` carry over (HNSW's own), the rest is another
-    /// algorithm's and doesn't. The index needs a `FLOAT[n]` column.
+    /// algorithm's and doesn't. The index needs a `FLOAT[n]` column: a
+    /// dimension the source index carries (ClickHouse's) stays for
+    /// [`Dialect::finalize`], which gives it to the column.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
@@ -368,7 +371,7 @@ impl Dialect for DuckDb {
                 ))
             }
         };
-        let params = v
+        let mut params: std::collections::BTreeMap<String, String> = v
             .params
             .iter()
             .filter(|(k, val)| {
@@ -377,6 +380,9 @@ impl Dialect for DuckDb {
             })
             .map(|(k, val)| (k.clone(), val.trim().to_string()))
             .collect();
+        if let Some(n) = super::clickhouse::index_dimensions(&v.params) {
+            params.insert(super::clickhouse::DIMENSIONS.into(), n.to_string());
+        }
         Ok((
             Some("HNSW".into()),
             dbine_driver::VectorIndex {
@@ -385,6 +391,77 @@ impl Dialect for DuckDb {
                 params,
             },
         ))
+    }
+
+    /// vss's HNSW index only takes a `FLOAT[n]` column. A `FLOAT[]` list
+    /// (a ClickHouse `Array(Float32)`) whose index says its dimension
+    /// becomes `FLOAT[n]`; a `DOUBLE` one (libSQL's `F64_BLOB`, ClickHouse's
+    /// `Array(Float64)`) keeps its precision and loses the index; any other
+    /// column loses it too. Each with why.
+    fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
+        use dbine_driver::VectorElement as E;
+        let mut kept = Vec::new();
+        for mut ix in std::mem::take(&mut t.indexes) {
+            let Some(v) = ix.vector.as_mut() else {
+                kept.push(ix);
+                continue;
+            };
+            let dims = super::clickhouse::index_dimensions(&v.params);
+            v.params
+                .retain(|k, _| !super::clickhouse::is_dimension_key(k));
+            let col = ix
+                .columns
+                .first()
+                .and_then(|k| t.columns.iter_mut().find(|c| &c.name == k));
+            let why = match col {
+                None => Some("su clave no es una columna de la tabla".to_string()),
+                Some(c) => {
+                    let ty = crate::parse::parse(&c.data_type);
+                    let float = |of: &L, bytes| matches!(of, L::Float { bytes: b } if *b == bytes);
+                    match (crate::convert::logical_of(self, &ty), dims) {
+                        (L::Vector { element: E::F32, sparse: false, .. }, _) => None,
+                        (L::Array { of }, Some(n)) if float(&of, 4) || float(&of, 8) => {
+                            let of = if float(&of, 4) { "FLOAT" } else { "DOUBLE" };
+                            report.push(
+                                Severity::Info,
+                                IssueCode::TypeChanged,
+                                &t.name,
+                                Some(&c.name),
+                                format!("La columna toma la dimensión de su índice vectorial: {of}[{n}]."),
+                            );
+                            c.data_type = format!("{of}[{n}]");
+                            (of == "DOUBLE").then(|| format!(
+                                "vss solo indexa columnas FLOAT[n], y «{}» queda {} para no perder precisión",
+                                c.name, c.data_type
+                            ))
+                        }
+                        (L::Vector { element: E::F64, .. }, _) => Some(format!(
+                            "vss solo indexa columnas FLOAT[n], y «{}» queda {} para no perder precisión",
+                            c.name, c.data_type
+                        )),
+                        (L::Array { .. }, None) => Some(format!(
+                            "vss solo indexa columnas FLOAT[n] de dimensión fija, y «{}» es una lista sin dimensión ({})",
+                            c.name, c.data_type
+                        )),
+                        _ => Some(format!(
+                            "vss solo indexa columnas FLOAT[n], y «{}» es {}",
+                            c.name, c.data_type
+                        )),
+                    }
+                }
+            };
+            match why {
+                Some(why) => report.push(
+                    Severity::Dropped,
+                    IssueCode::IndexDropped,
+                    &t.name,
+                    Some(&ix.name),
+                    format!("El índice vectorial «{}» no se crea: {why}.", ix.name),
+                ),
+                None => kept.push(ix),
+            }
+        }
+        t.indexes = kept;
     }
 
     fn caps(&self) -> Caps {
@@ -479,6 +556,62 @@ mod tests {
             })
             .unwrap_err();
         assert!(e.contains("hamming"), "{e}");
+    }
+
+    /// Into DuckDB, vss's HNSW needs a `FLOAT[n]` column: a ClickHouse
+    /// `Array(Float32)` takes its index's dimension; a double vector keeps
+    /// its precision and loses the index, with why (DuckDB refuses HNSW on
+    /// `DOUBLE[n]` and on lists).
+    #[test]
+    fn vector_indexes_into_duckdb() {
+        use super::super::clickhouse::tests::vector_table;
+        use crate::convert::{convert, Options};
+        let one = |t, from: &str| {
+            let r = convert(&[t], from, "duckdb", &Options::default()).unwrap();
+            (r.tables[0].clone(), r.issues)
+        };
+        let ch = |ty, params: &[(&str, &str)]| vector_table(ty, Some("vector_similarity"), params);
+        let (t, issues) = one(
+            ch("Array(Float32)", &[("dimensions", "3"), ("m", "8")]),
+            "clickhouse",
+        );
+        assert_eq!(t.columns[1].data_type, "FLOAT[3]");
+        let v = t.indexes[0].vector.as_ref().unwrap();
+        assert_eq!(t.indexes[0].kind.as_deref(), Some("HNSW"));
+        assert_eq!(
+            v.params.iter().collect::<Vec<_>>(),
+            [(&"m".to_string(), &"8".to_string())],
+            "the dimension went to the column"
+        );
+        assert!(issues
+            .iter()
+            .any(|i| i.code == IssueCode::TypeChanged && i.message.contains("FLOAT[3]")));
+        let (t, _) = one(ch("Array(BFloat16)", &[("dimensions", "4")]), "clickhouse");
+        assert_eq!(t.columns[1].data_type, "FLOAT[4]");
+        assert_eq!(t.indexes.len(), 1);
+        for (t, from, ty) in [
+            (
+                ch("Array(Float64)", &[("dimensions", "3")]),
+                "clickhouse",
+                "DOUBLE[3]",
+            ),
+            (
+                vector_table("F64_BLOB(3)", None, &[]),
+                "libsql",
+                "DOUBLE[3]",
+            ),
+            // ClickHouse 24.8–25.7 indexes say no dimension.
+            (ch("Array(Float32)", &[]), "clickhouse", "FLOAT[]"),
+        ] {
+            let (t, issues) = one(t, from);
+            assert_eq!(t.columns[1].data_type, ty);
+            assert!(t.indexes.is_empty(), "{ty}");
+            assert!(
+                issues.iter().any(|i| i.code == IssueCode::IndexDropped
+                    && i.message.contains("vss solo indexa columnas FLOAT[n]")),
+                "{issues:?}"
+            );
+        }
     }
 
     /// DuckDB → libSQL → DuckDB: the vector type and its index cross
