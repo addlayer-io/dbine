@@ -4,7 +4,7 @@
 use crate::commands::typed_scripts;
 use crate::error::{CommandError, CommandResult};
 use crate::state::{meta_key, AppState};
-use dbine_driver::{DdlParts, Driver, ObjectRef, ResultColumn, RowChange, TableSchema};
+use dbine_driver::{DdlParts, Driver, Language, ObjectRef, ResultColumn, RowChange, TableSchema};
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
@@ -342,6 +342,56 @@ pub struct DropObjectsResult {
     pub errors: Vec<(ObjectRef, String)>,
 }
 
+/// The statement that drops `o`: a table or collection by the driver's
+/// DDL; a view, routine, trigger… by its engine's DROP
+/// (`scripts::drop_other`); on an engine whose language isn't SQL or CQL,
+/// another kind it lists (Redis' search indexes, `FT.DROPINDEX`) by its DDL
+/// for that kind (`table_ddl` of a `TableSchema` of that kind, with
+/// `drop`). `None`: DBine can't drop it.
+pub(crate) fn drop_statement(driver: &dyn Driver, o: &ObjectRef) -> Option<String> {
+    let by_ddl = |kind: &str| {
+        let t = TableSchema {
+            kind: kind.to_string(),
+            schema: o.schema.clone(),
+            name: o.name.clone(),
+            ..Default::default()
+        };
+        driver
+            .table_ddl(
+                &t,
+                DdlParts {
+                    drop: true,
+                    ..Default::default()
+                },
+            )
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+    };
+    if o.kind == dbine_driver::kinds::TABLE || o.kind == dbine_driver::kinds::COLLECTION {
+        return by_ddl(&o.kind);
+    }
+    if let Some(s) = crate::commands::scripts::drop_other(driver, o, false) {
+        return Some(s).filter(|s| !s.trim().is_empty());
+    }
+    let info = driver.info();
+    // SQL and CQL engines' DDL is for tables only: another kind there would
+    // come out as a table's DROP.
+    if matches!(info.language, Language::Sql | Language::Cql)
+        || !info.object_kinds.iter().any(|k| k.id == o.kind)
+    {
+        return None;
+    }
+    let stmt = by_ddl(&o.kind)?;
+    // A DDL that doesn't know the kind writes its first kind's drop (an
+    // Elasticsearch alias as `DELETE /name`, which names an index): that
+    // isn't this object's.
+    let first = info.object_kinds.first().map(|k| k.id);
+    if first.is_some_and(|f| f != o.kind && by_ddl(f).as_deref() == Some(stmt.as_str())) {
+        return None;
+    }
+    Some(stmt)
+}
+
 /// Drop tables / collections (and, in SQL engines, views, routines,
 /// triggers…) with the driver's own DDL. In passes: an object others depend
 /// on goes once they're gone. Refused on read-only connections.
@@ -365,27 +415,7 @@ pub async fn drop_objects(
     let mut work: Vec<(ObjectRef, String)> = Vec::new();
     let mut errors: Vec<(ObjectRef, String)> = Vec::new();
     for o in &args.objects {
-        let stmt =
-            if o.kind == dbine_driver::kinds::TABLE || o.kind == dbine_driver::kinds::COLLECTION {
-                let t = TableSchema {
-                    kind: o.kind.clone(),
-                    schema: o.schema.clone(),
-                    name: o.name.clone(),
-                    ..Default::default()
-                };
-                driver
-                    .table_ddl(
-                        &t,
-                        DdlParts {
-                            drop: true,
-                            ..Default::default()
-                        },
-                    )
-                    .ok()
-            } else {
-                crate::commands::scripts::drop_other(driver.as_ref(), o, false)
-            };
-        match stmt.filter(|s| !s.trim().is_empty()) {
+        match drop_statement(driver.as_ref(), o) {
             Some(s) => work.push((o.clone(), s)),
             None => errors.push((
                 o.clone(),
@@ -455,4 +485,54 @@ pub async fn drop_objects(
     progress(dropped.len() + errors.len(), true);
     state.sessions.remove(&key);
     Ok(DropObjectsResult { dropped, errors })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn drop_of(driver: &str, kind: &str) -> Option<String> {
+        let d = dbine_drivers::find(driver).unwrap();
+        let o = ObjectRef {
+            kind: kind.into(),
+            schema: None,
+            name: "x".into(),
+        };
+        drop_statement(d.as_ref(), &o).map(|s| s.trim().to_string())
+    }
+
+    /// Other kinds of non-SQL engines drop by the driver's DDL for that
+    /// kind (Redis' search index); a kind that DDL doesn't know (it writes
+    /// its first kind's drop: an alias as an index) and SQL engines' other
+    /// kinds are refused, as before.
+    #[test]
+    fn non_sql_kinds_drop_by_their_ddl() {
+        for redis in ["redis", "valkey"] {
+            assert_eq!(drop_of(redis, "index").as_deref(), Some("FT.DROPINDEX x"));
+            assert_eq!(drop_of(redis, "key").as_deref(), Some("DEL x"));
+        }
+        assert_eq!(
+            drop_of("elasticsearch", "index").as_deref(),
+            Some("DELETE /x")
+        );
+        assert_eq!(drop_of("elasticsearch", "alias"), None);
+        assert_eq!(drop_of("opensearch", "stream"), None);
+        assert_eq!(drop_of("kdb", "view"), None);
+        assert_eq!(drop_of("neo4j", "label"), None);
+        // A kind the engine doesn't list.
+        assert_eq!(drop_of("redis", "stream"), None);
+        // As before: tables and collections by the DDL, the rest of SQL by
+        // its DROP, and nothing else on SQL engines.
+        assert!(drop_of("mongodb", "collection")
+            .unwrap()
+            .contains(".drop()"));
+        assert!(drop_of("postgres", "view")
+            .unwrap()
+            .starts_with("DROP VIEW"));
+        assert!(drop_of("postgres", "table")
+            .unwrap()
+            .starts_with("DROP TABLE"));
+        assert_eq!(drop_of("postgres", "index"), None);
+        assert_eq!(drop_of("postgres", "extension"), None);
+    }
 }
