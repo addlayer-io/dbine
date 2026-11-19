@@ -178,6 +178,9 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
                     q(&ix.name)
                 ));
             }
+            if let Some(note) = crate::vector::metric_note(&ix) {
+                out.push(format!("-- {note}"));
+            }
             out.push(index_ddl(&name, &ix, parts.if_exists)?);
         }
     }
@@ -797,6 +800,59 @@ mod tests {
             }
         )
         .is_err());
+    }
+
+    #[test]
+    fn hamming_over_bits_is_written_l2_squared_and_said() {
+        // A bit vector from another engine (0 and 1 here) with its hamming
+        // index, as the schema conversion lets it through.
+        let mut t = TableSchema {
+            kind: kinds::COLLECTION.into(),
+            schema: Some("b.s".into()),
+            name: "c".into(),
+            columns: vec![dbine_driver::ColumnDef {
+                name: "bits".into(),
+                data_type: "vector(8)".into(),
+                ..Default::default()
+            }],
+            indexes: vec![IndexDef {
+                name: "bix".into(),
+                columns: vec!["bits".into()],
+                vector: Some(dbine_driver::VectorIndex {
+                    metric: Some("hamming".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let parts = DdlParts {
+            indexes: true,
+            ..Default::default()
+        };
+        let s = table_ddl(&t, parts).unwrap();
+        assert!(
+            s.starts_with("-- bix: la distancia hamming queda L2_SQUARED"),
+            "{s}"
+        );
+        assert!(s.contains("\"similarity\": \"L2_SQUARED\""), "{s}");
+        // The same index read back (L2_SQUARED) isn't a difference to sync.
+        let mut back = t.indexes[0].clone();
+        back.vector.as_mut().unwrap().metric = Some("l2_squared".into());
+        let back = crate::vector::with_dims(&t, &back);
+        let mine = crate::vector::with_dims(&t, &t.indexes[0]);
+        assert_eq!(
+            index_ddl("k", &mine, false).unwrap(),
+            index_ddl("k", &back, false).unwrap()
+        );
+        // A Search one: l2_norm.
+        t.indexes[0].kind = Some(crate::vector::SEARCH.into());
+        let s = table_ddl(&t, parts).unwrap();
+        assert!(
+            s.starts_with("-- bix: la distancia hamming queda l2_norm"),
+            "{s}"
+        );
+        assert!(s.contains("\"similarity\":\"l2_norm\""), "{s}");
     }
 
     #[test]

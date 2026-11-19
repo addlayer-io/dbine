@@ -22,6 +22,10 @@ use dbine_driver::TableSchema;
 
 pub struct Couchbase;
 
+/// Most dimensions a vector index takes: GSI's `dimension` and a Search
+/// vector field's `dims` (7.6.2 and later).
+const MAX_DIMS: u32 = 4096;
+
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
     static D: Couchbase = Couchbase;
     (driver_id == "couchbase").then_some(&D as &dyn Dialect)
@@ -53,23 +57,38 @@ impl Dialect for Couchbase {
     /// GSI vector indexes (hyperscale by default): `cosine`, `l2`,
     /// `l2_squared`, `ip` (DOT); the number of IVF lists carries over. The
     /// index states its vector's `dimension`: a column without one can't
-    /// have it.
+    /// have it, nor one wider than [`MAX_DIMS`]. Over bits (stored here as
+    /// 0 and 1) `hamming` goes on, for the driver to write as
+    /// `L2_SQUARED`, which on 0/1 vectors is the same distance.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
         column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
-        if let Some(L::Vector { dims: None, .. }) = column {
-            return Err("su columna vectorial no tiene dimensión, y Couchbase la necesita".into());
+        match column {
+            Some(L::Vector { dims: None, .. }) => {
+                return Err(
+                    "su columna vectorial no tiene dimensión, y Couchbase la necesita".into(),
+                )
+            }
+            Some(L::Vector { dims: Some(n), .. }) if *n > MAX_DIMS => return Err(format!(
+                "Couchbase indexa vectores de hasta {MAX_DIMS} dimensiones, y su columna tiene {n}"
+            )),
+            _ => {}
         }
-        map_vector_index(
-            v,
-            "Couchbase",
-            &[metric::COSINE, metric::L2, "l2_squared", metric::IP],
-            &[],
-            &[param::LISTS],
-        )
+        let bits = matches!(
+            column,
+            Some(L::Vector {
+                element: dbine_driver::VectorElement::Bit,
+                ..
+            })
+        );
+        let mut metrics = vec![metric::COSINE, metric::L2, "l2_squared", metric::IP];
+        if bits {
+            metrics.push(metric::HAMMING);
+        }
+        map_vector_index(v, "Couchbase", &metrics, &[], &[param::LISTS])
     }
 
     fn render_default(&self, _d: &DefaultValue, _ty: &L) -> Option<String> {
@@ -178,5 +197,30 @@ mod tests {
         assert!(d.vector_index(&ivf, Some(&col(Some(3)))).is_ok());
         let why = d.vector_index(&ivf, Some(&col(None))).unwrap_err();
         assert!(why.contains("no tiene dimensión"), "{why}");
+        // Up to 4096 dimensions (an Oracle VECTOR(8192) is dropped).
+        assert!(d.vector_index(&ivf, Some(&col(Some(4096)))).is_ok());
+        let why = d.vector_index(&ivf, Some(&col(Some(8192)))).unwrap_err();
+        assert!(why.contains("hasta 4096 dimensiones"), "{why}");
+        // Hamming over bits goes on (the driver writes L2_SQUARED), over
+        // anything else it doesn't.
+        let hamming = VectorIndex {
+            metric: Some("hamming".into()),
+            ..Default::default()
+        };
+        let bits = L::Vector {
+            dims: Some(8),
+            element: E::Bit,
+            sparse: false,
+        };
+        assert_eq!(
+            d.vector_index(&hamming, Some(&bits))
+                .unwrap()
+                .1
+                .metric
+                .as_deref(),
+            Some("hamming")
+        );
+        assert!(d.vector_index(&hamming, Some(&col(Some(8)))).is_err());
+        assert!(d.vector_index(&hamming, None).is_err());
     }
 }

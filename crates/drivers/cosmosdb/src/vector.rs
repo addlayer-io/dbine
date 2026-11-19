@@ -101,19 +101,24 @@ fn metric_of(distance: &str) -> String {
     }
 }
 
-/// The squared euclidean distance (Couchbase's `l2_squared`): Cosmos DB
-/// has the euclidean one, with the same nearest neighbors (see [`notes`]).
+/// The squared euclidean distance (Couchbase's `l2_squared`), and
+/// hamming over bits (a bit vector from another engine, stored here as 0
+/// and 1; the schema conversion lets it through only over bits): Cosmos
+/// DB has the euclidean one, with the same nearest neighbors (see
+/// [`notes`]).
 fn squared(m: &str) -> bool {
     matches!(
         m.to_ascii_lowercase().as_str(),
-        "l2_squared" | "euclidean_squared"
+        "l2_squared" | "euclidean_squared" | metric::HAMMING
     )
 }
 
 fn distance_of(m: &str) -> Result<&'static str> {
     Ok(match m.to_ascii_lowercase().as_str() {
         metric::COSINE => "cosine",
-        metric::L2 | "euclidean" | "l2_squared" | "euclidean_squared" => "euclidean",
+        metric::L2 | "euclidean" | "l2_squared" | "euclidean_squared" | metric::HAMMING => {
+            "euclidean"
+        }
         metric::IP | "dotproduct" => "dotproduct",
         other => {
             return Err(Error::Query(format!(
@@ -404,10 +409,17 @@ pub fn notes(t: &TableSchema) -> Vec<String> {
             .and_then(|v| v.metric.as_deref())
             .filter(|m| squared(m))
         {
-            out.push(format!(
-                "El índice vectorial {} de {}: la distancia {m} queda euclidean (Cosmos DB no tiene la euclídea al cuadrado; los vecinos más cercanos son los mismos).",
-                i.name, t.name
-            ));
+            out.push(if m.eq_ignore_ascii_case(metric::HAMMING) {
+                format!(
+                    "El índice vectorial {} de {}: la distancia hamming queda euclidean (Cosmos DB no tiene hamming; sobre vectores de 0 y 1 los vecinos más cercanos son los mismos).",
+                    i.name, t.name
+                )
+            } else {
+                format!(
+                    "El índice vectorial {} de {}: la distancia {m} queda euclidean (Cosmos DB no tiene la euclídea al cuadrado; los vecinos más cercanos son los mismos).",
+                    i.name, t.name
+                )
+            });
         }
         let dims = field_dims(t, i);
         if index_type(i, None).eq_ignore_ascii_case("flat")
@@ -743,7 +755,7 @@ mod tests {
         assert_eq!(entry(&t.indexes[0], None)["type"], "diskANN");
         t.columns[0].data_type = "string".into();
         assert!(embedding_policy(&t).is_err());
-        t.indexes[0].vector.as_mut().unwrap().metric = Some("hamming".into());
+        t.indexes[0].vector.as_mut().unwrap().metric = Some("jaccard".into());
         t.columns[0].data_type = "vector(8)".into();
         assert!(embedding_policy(&t).is_err());
         assert_eq!(excluded_paths(&p), vec![json!({ "path": "/emb/*" })]);
@@ -851,8 +863,46 @@ mod tests {
         );
         assert_eq!(compared_metric(None), "cosine");
         assert_ne!(
-            compared_metric(Some("hamming")),
+            compared_metric(Some("cosine")),
             compared_metric(Some("jaccard"))
+        );
+    }
+
+    #[test]
+    fn hamming_over_bits_is_written_euclidean_and_said() {
+        // A bit vector from another engine (0 and 1 here, `vector(8)`) with
+        // its hamming index, as the schema conversion lets it through.
+        let t = TableSchema {
+            name: "d".into(),
+            columns: vec![ColumnDef {
+                name: "b".into(),
+                data_type: "vector(8)".into(),
+                ..Default::default()
+            }],
+            indexes: vec![IndexDef {
+                name: "bix".into(),
+                columns: vec!["b".into()],
+                vector: Some(VectorIndex {
+                    algorithm: Some("diskANN".into()),
+                    metric: Some("hamming".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let p = embedding_policy(&t).unwrap().unwrap();
+        assert_eq!(p["vectorEmbeddings"][0]["distanceFunction"], "euclidean");
+        let n = notes(&t);
+        assert_eq!(n.len(), 1);
+        assert!(
+            n[0].contains("la distancia hamming queda euclidean"),
+            "{n:?}"
+        );
+        // Compared as the policy stores it: no difference after creating.
+        assert_eq!(
+            compared_metric(Some("hamming")),
+            compared_metric(Some("l2"))
         );
     }
 }

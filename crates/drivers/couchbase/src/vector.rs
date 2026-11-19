@@ -108,12 +108,36 @@ fn similarity_of(m: &str) -> Result<&'static str> {
         metric::COSINE => "COSINE",
         metric::L2 | "euclidean" => "L2",
         metric::IP | "dot" => "DOT",
-        "l2_squared" | "euclidean_squared" => "L2_SQUARED",
+        // Over 0/1 vectors (a bit vector from another engine, which the
+        // schema conversion lets through only over bits) the squared
+        // euclidean distance is hamming's.
+        "l2_squared" | "euclidean_squared" | metric::HAMMING => "L2_SQUARED",
         other => {
             return Err(Error::Query(format!(
                 "Couchbase no tiene la distancia «{other}» (cosine, l2, l2_squared o dot)."
             )))
         }
+    })
+}
+
+/// What a vector index writes otherwise than its metric says (hamming,
+/// which Couchbase hasn't, from a bit vector of another engine), for the
+/// script.
+pub fn metric_note(ix: &IndexDef) -> Option<String> {
+    let m = ix.vector.as_ref()?.metric.as_deref()?;
+    if !m.eq_ignore_ascii_case(metric::HAMMING) {
+        return None;
+    }
+    Some(if is_search(ix) {
+        format!(
+            "{}: la distancia hamming queda l2_norm (el servicio Search no tiene hamming; sobre vectores de 0 y 1 los vecinos más cercanos son los mismos).",
+            ix.name
+        )
+    } else {
+        format!(
+            "{}: la distancia hamming queda L2_SQUARED (Couchbase no tiene hamming; sobre vectores de 0 y 1 es la misma distancia).",
+            ix.name
+        )
     })
 }
 
@@ -657,7 +681,12 @@ fn fts_metric(s: &str) -> String {
 fn fts_similarity(m: &str) -> Result<&'static str> {
     Ok(match m.to_ascii_lowercase().as_str() {
         metric::IP | "dot_product" | "dot" => "dot_product",
-        metric::L2 | "l2_norm" | "euclidean" | "l2_squared" | "euclidean_squared" => "l2_norm",
+        metric::L2
+        | "l2_norm"
+        | "euclidean"
+        | "l2_squared"
+        | "euclidean_squared"
+        | metric::HAMMING => "l2_norm",
         metric::COSINE => "cosine",
         other => {
             return Err(Error::Query(format!(
@@ -1288,7 +1317,7 @@ mod tests {
         );
         let bad = IndexDef {
             vector: Some(VectorIndex {
-                metric: Some("hamming".into()),
+                metric: Some("jaccard".into()),
                 ..Default::default()
             }),
             ..d.clone()
@@ -1555,9 +1584,9 @@ mod tests {
         let mut nodims = d.clone();
         nodims.options.clear();
         assert!(fts_ddl("`b`.`s`.`c`", &nodims, false).is_err());
-        let mut ham = d.clone();
-        ham.vector.as_mut().unwrap().metric = Some("hamming".into());
-        assert!(fts_ddl("`b`.`s`.`c`", &ham, false).is_err());
+        let mut jac = d.clone();
+        jac.vector.as_mut().unwrap().metric = Some("jaccard".into());
+        assert!(fts_ddl("`b`.`s`.`c`", &jac, false).is_err());
         assert_eq!(
             fts_drop("`b`.`s`.`c`", "n"),
             "DROP SEARCH INDEX `n` ON `b`.`s`.`c`;"

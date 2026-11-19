@@ -34,13 +34,46 @@ use dbine_driver::{IndexDef, TableSchema};
 pub struct Mongo {
     /// `$jsonSchema` validators are enforced (not by FerretDB).
     validators: bool,
+    /// The server, for what its vector indexes take.
+    vectors: VectorTarget,
+}
+
+/// What a server's vector index takes from another engine's.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct VectorTarget {
+    pub family: &'static str,
+    /// Most dimensions its index takes from another engine (the driver's
+    /// kind for it): Atlas Vector Search 8192, DocumentDB's `vector` index
+    /// 2000, FerretDB's `cosmosSearch` (`vector-hnsw` / `vector-ivf`, on
+    /// pgvector) 2000.
+    pub max_dims: u32,
 }
 
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
-    static MONGO: Mongo = Mongo { validators: true };
-    static FERRET: Mongo = Mongo { validators: false };
+    static MONGO: Mongo = Mongo {
+        validators: true,
+        vectors: VectorTarget {
+            family: "MongoDB",
+            max_dims: 8192,
+        },
+    };
+    static DOCDB: Mongo = Mongo {
+        validators: true,
+        vectors: VectorTarget {
+            family: "Amazon DocumentDB",
+            max_dims: 2000,
+        },
+    };
+    static FERRET: Mongo = Mongo {
+        validators: false,
+        vectors: VectorTarget {
+            family: "FerretDB",
+            max_dims: 2000,
+        },
+    };
     match driver_id {
-        "mongodb" | "documentdb" => Some(&MONGO),
+        "mongodb" => Some(&MONGO),
+        "documentdb" => Some(&DOCDB),
         "ferretdb" => Some(&FERRET),
         _ => None,
     }
@@ -155,14 +188,17 @@ pub(crate) fn vector_type(t: &str) -> Option<L> {
 /// DocumentDB `hnsw` / `ivfflat`, FerretDB `hnsw` / `ivf`) and the kind
 /// are the driver's choice for the server it writes to. `column`: the
 /// vector it searches. Every kind needs its dimension (`numDimensions`,
-/// `dimensions`); on bits, `hamming` goes on for the driver to write as
-/// euclidean, the only distance Atlas searches bits by.
+/// `dimensions`), up to the target's most; on bits, `hamming` goes on
+/// for the driver to write as euclidean (`vector::for_flavor`), which
+/// ranks 0/1 vectors as hamming does and every kind of the family has
+/// (Atlas searches bits by no other).
 pub(crate) fn vector_index(
     v: &dbine_driver::VectorIndex,
     column: Option<&L>,
-    family: &str,
+    target: VectorTarget,
 ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
     use dbine_driver::vector::{metric, param};
+    let family = target.family;
     let bits = matches!(
         column,
         Some(L::Vector {
@@ -170,10 +206,19 @@ pub(crate) fn vector_index(
             ..
         })
     );
-    if let Some(L::Vector { dims: None, .. }) = column {
-        return Err(format!(
-            "su columna vectorial no tiene dimensión, y {family} la necesita"
-        ));
+    match column {
+        Some(L::Vector { dims: None, .. }) => {
+            return Err(format!(
+                "su columna vectorial no tiene dimensión, y {family} la necesita"
+            ))
+        }
+        Some(L::Vector { dims: Some(n), .. }) if *n > target.max_dims => {
+            return Err(format!(
+                "{family} indexa vectores de hasta {} dimensiones, y su columna tiene {n}",
+                target.max_dims
+            ))
+        }
+        _ => {}
     }
     let mut out = dbine_driver::VectorIndex::default();
     if let Some(m) = v.metric.as_deref() {
@@ -330,7 +375,7 @@ impl Dialect for Mongo {
         v: &dbine_driver::VectorIndex,
         column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
-        vector_index(v, column, "MongoDB")
+        vector_index(v, column, self.vectors)
     }
 
     fn caps(&self) -> Caps {
@@ -691,6 +736,19 @@ mod tests {
             ..Default::default()
         };
         assert!(mongo.vector_index(&jaccard, Some(&bits)).is_err());
+        // Each target's most dimensions: wider is dropped with the reason.
+        for (id, max) in [("mongodb", 8192), ("documentdb", 2000), ("ferretdb", 2000)] {
+            let d = lookup(id).unwrap();
+            assert!(d.vector_index(&hnsw, Some(&col(Some(max), E::F32))).is_ok());
+            let why = d
+                .vector_index(&hnsw, Some(&col(Some(max + 1), E::F32)))
+                .unwrap_err();
+            assert!(
+                why.contains(&format!("hasta {max} dimensiones")),
+                "{id}: {why}"
+            );
+            assert_eq!(d.id(), "mongodb");
+        }
     }
 
     #[test]
