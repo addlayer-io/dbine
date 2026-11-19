@@ -290,6 +290,13 @@ async fn couchbase_vector_indexes() {
         .find(|i| i.name == "emb_hyper")
         .unwrap();
     assert!(u.kind.starts_with("GSI VECTOR HYPERSCALE"), "{}", u.kind);
+    // The explorer's vector indexes carry the schema's settings.
+    for name in ["emb_hyper", "emb_comp"] {
+        let u = usage.indexes.iter().find(|i| i.name == name).unwrap();
+        let ix = tb.indexes.iter().find(|i| i.name == name).unwrap();
+        assert!(u.vector.is_some(), "{name}");
+        assert_eq!(u.vector, ix.vector, "{name}");
+    }
     // Compared with itself, and with the designer's vector indexes:
     // nothing to do.
     let mut designer = tb.clone();
@@ -607,10 +614,12 @@ async fn couchbase_search_vector_indexes() {
         "vector(3)"
     );
     let usage = s.index_usage(&coll("docs")).await.unwrap().unwrap();
-    assert!(usage
+    let u = usage
         .indexes
         .iter()
-        .any(|u| u.name == "vs" && u.kind == "SEARCH VECTOR"));
+        .find(|u| u.name == "vs" && u.kind == "SEARCH VECTOR")
+        .expect("listed");
+    assert_eq!(u.vector, ix.vector);
     let same = d
         .sync_script(&[TableChange::Alter {
             old: tb.clone(),
