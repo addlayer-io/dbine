@@ -322,7 +322,7 @@ async fn read_copy(
             builder.push(row, &mut **guard.as_mut().expect("locked"))?;
         }
     }
-    if !parser.done {
+    if !parser.complete() {
         return Err(Error::Query("el COPY terminó sin su marca de fin".into()));
     }
     builder.flush(&mut *sink.lock().map_err(lock_err)?)?;
@@ -534,6 +534,13 @@ impl CopyParser {
     /// Bytes of `buf` taken by the header and the tuples read so far.
     pub(crate) fn consumed(&self) -> usize {
         self.pos
+    }
+
+    /// The stream ended where a tuple did: with its trailer, or without
+    /// one, as openGauss sends it (PostgreSQL's COPY FROM takes the end of
+    /// the data as the end too). Not after a cut tuple.
+    pub(crate) fn complete(&self) -> bool {
+        self.done || (self.header && self.pos == self.buf.len())
     }
 
     pub(crate) fn feed(&mut self, chunk: &[u8]) {
@@ -1511,7 +1518,7 @@ pub(crate) async fn copy_native(
                 sent = end;
             }
         }
-        if !parser.done {
+        if !parser.complete() {
             return Err(Error::Query(
                 "el COPY de origen terminó sin su marca de fin".into(),
             ));
@@ -1790,6 +1797,27 @@ mod tests {
             assert!(p.done, "chunks of {size}");
             assert_eq!(got, rows, "chunks of {size}");
         }
+        // openGauss sends no trailer: the stream ends after a whole tuple.
+        let without = &stream[..stream.len() - 2];
+        let mut p = CopyParser::new(3);
+        let mut fields = Vec::new();
+        p.feed(without);
+        let mut n = 0;
+        while p.next_tuple(&mut fields).unwrap() {
+            n += 1;
+        }
+        assert_eq!(n, 3);
+        assert!(!p.done && p.complete());
+        // A tuple cut short is not an end.
+        let mut p = CopyParser::new(3);
+        p.feed(&without[..without.len() - 1]);
+        while p.next_tuple(&mut fields).unwrap() {}
+        assert!(!p.complete());
+        // Nothing but the header: no rows.
+        let mut p = CopyParser::new(3);
+        p.feed(HEADER);
+        assert!(!p.next_tuple(&mut fields).unwrap());
+        assert!(p.complete());
     }
 
     #[test]
