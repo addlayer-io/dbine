@@ -6,7 +6,7 @@ import { CaretBottom, CaretTop, Filter, MoreFilled } from '@element-plus/icons-v
 import { coerce, coerceNew, sameValue, type Edits } from '../composables/gridEdit';
 import { isMac, isSaveShortcut } from '../composables/shortcuts';
 import type { FkLink, GridLinks } from '../composables/fkJump';
-import type { Cell, ResultColumn, SortKey } from '../api/types';
+import type { Cell, ResultColumn, SortKey, VectorMeta } from '../api/types';
 import { nextSort } from '../composables/gridSort';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import CellViewer from './CellViewer.vue';
@@ -14,6 +14,8 @@ import { columnKind, describe, menuFor, parseFilter, type ColumnFilter, type Fil
 import { gridFontSize } from '../composables/appearance';
 import { COPY_FORMATS, defaultCopyFormat, formatRows, setDefaultCopyFormat, type CopyContext, type CopyFormat } from '../composables/copyFormats';
 import { revealCell } from '../composables/gridReveal';
+import { ELEMENT_NAMES, checkVector, isDense, sameVector, vectorMeta, vectorPreview, type VectorPreview } from '../composables/vector';
+import { vectorProblemText } from '../composables/vectorLabels';
 
 // Virtualized result grid: only the rows in view are in the DOM, so tens of
 // thousands of rows scroll smoothly. Columns resize by dragging the header
@@ -186,6 +188,35 @@ function valueAt(r: number, c: number): Cell {
 }
 const isEdited = (r: number, c: number) => !isDeleted(r) && !isAdded(r) && !!props.edits?.[r] && c in props.edits[r];
 
+// -- vectors (composables/vector.ts) ----------------------------------------------------
+/** Each column's vectors (the driver's mark, or a vector type name); null: none. */
+const vecMetas = computed(() => props.columns.map(vectorMeta));
+/** The vector cells in view as the grid shows them: their first numbers and
+ *  dimensions (row → column → preview), never the 500-character cut. A cell
+ *  that doesn't read as a vector shows its text. */
+const vecShown = computed(() => {
+  const out = new Map<number, Map<number, VectorPreview>>();
+  const cols = vecMetas.value.flatMap((m, c) => (m ? [c] : []));
+  if (!cols.length) return out;
+  for (const { i } of visible.value) {
+    for (const c of cols) {
+      const p = isUnset(i, c) ? null : vectorPreview(valueAt(i, c), vecMetas.value[c]);
+      if (!p) continue;
+      let row = out.get(i);
+      if (!row) out.set(i, (row = new Map()));
+      row.set(c, p);
+    }
+  }
+  return out;
+});
+const vecAt = (r: number, c: number) => vecShown.value.get(r)?.get(c) ?? null;
+/** The dims badge's tooltip: «1536 dimensiones · float32». */
+function vecTitle(c: number, p: VectorPreview) {
+  const m = vecMetas.value[c];
+  return [t('vectors:cell.dims', { count: p.dims ?? 0 }), m ? ELEMENT_NAMES[m.element] : '', p.sparse ? t('vectors:cell.sparse') : '']
+    .filter(Boolean).join(' · ');
+}
+
 function cellClass(v: Cell) {
   if (v === null) return 'nm-null';
   if (typeof v === 'number') return 'nm-num';
@@ -298,6 +329,21 @@ function rowsForCopy(): Cell[][] {
   return props.rows;
 }
 
+/** Copies rows as `format`. SQL INSERTs / UPDATEs of rows with vectors
+ *  come from the table's driver when the pane offers it (its engine's
+ *  vector literal: `STRING_TO_VECTOR('…')`, `VEC_FromText('…')`…); else,
+ *  or when that fails, the generic SQL. */
+async function copyRows(format: CopyFormat, cols: ResultColumn[], rows: Cell[][]) {
+  const script = props.copyContext?.script;
+  if (script && (format === 'sql_insert' || format === 'sql_update') && cols.some((c) => isDense(vectorMeta(c)))) {
+    try {
+      const text = await script(format, cols, rows);
+      if (text) return copy(text);
+    } catch { /* the generic SQL below */ }
+  }
+  return copy(formatRows(format, cols, rows, props.copyContext));
+}
+
 function copyAs(format: CopyFormat) {
   // A block of cells: those columns of those rows, shown columns only, with
   // the values as shown (edits included).
@@ -313,7 +359,7 @@ function copyAs(format: CopyFormat) {
     }
     const rowsIdx = [...rs].sort((a, b) => a - b), cols = [...cs].sort((a, b) => a - b);
     const rows = rowsIdx.map((r) => cols.map((c) => (blocks.some((x) => within(x, r, c)) ? valueAt(r, c) : null)));
-    copy(formatRows(format, cols.map((c) => props.columns[c]), rows, props.copyContext));
+    copyRows(format, cols.map((c) => props.columns[c]), rows);
     return;
   }
   const b = block.value;
@@ -322,7 +368,7 @@ function copyAs(format: CopyFormat) {
     for (let c = b.c0; c <= b.c1; c++) if (!isHidden(c)) cols.push(c);
     const rows: Cell[][] = [];
     for (let r = b.r0; r <= b.r1; r++) rows.push(cols.map((c) => valueAt(r, c)));
-    copy(formatRows(format, cols.map((c) => props.columns[c]), rows, props.copyContext));
+    copyRows(format, cols.map((c) => props.columns[c]), rows);
     return;
   }
   // A single cell with a plain format copies just its value.
@@ -330,7 +376,7 @@ function copyAs(format: CopyFormat) {
     copy(tsv(props.rows[selection.value.r]?.[selection.value.c] ?? null));
     return;
   }
-  copy(formatRows(format, props.columns, rowsForCopy(), props.copyContext));
+  copyRows(format, props.columns, rowsForCopy());
 }
 
 function onKey(e: KeyboardEvent) {
@@ -399,25 +445,52 @@ function startEdit(r: number, c: number, text?: string) {
     if (text === undefined) editInput.value?.select();
   });
 }
-function commitEdit(move: [number, number] | null = null) {
+/** A dense vector cell's text, checked: its canonical form, or null when
+ *  it isn't a vector of the column (the message says why). */
+function vectorText(c: number, text: string): string | null {
+  const meta = vecMetas.value[c];
+  const res = checkVector(text, meta);
+  if ('problem' in res) {
+    ElMessage.warning({ message: vectorProblemText(res.problem, props.columns[c]?.name ?? ''), duration: 5000 });
+    return null;
+  }
+  return res.text;
+}
+/** `keep`: a refused vector leaves the editor open (Enter, Tab) instead of
+ *  dropping the text (leaving the cell). */
+function commitEdit(move: [number, number] | null = null, keep = false) {
   const e = editing.value;
   if (!e) return;
+  const vector = isDense(vecMetas.value[e.c]);
+  // An empty input means "nothing" (a new row) or NULL kept (the input shows it empty).
+  const emptyOk = isAdded(e.r) || valueAt(e.r, e.c) === null;
+  let text = e.text;
+  if (vector && !(e.text === '' && emptyOk)) {
+    const v = vectorText(e.c, e.text);
+    if (v === null) {
+      if (keep) { nextTick(() => editInput.value?.focus()); return; }
+      editing.value = null;
+      afterCommit(e, null);
+      return;
+    }
+    text = v;
+  }
   editing.value = null;
   if (isAdded(e.r)) {
     // A new row: an empty input leaves the cell to the column's default
     // (an explicit NULL comes from "Establecer NULL").
     const set = !isUnset(e.r, e.c);
-    if (e.text === '') { if (set && valueAt(e.r, e.c) !== null) emit('edit', e.r, e.c, undefined); }
-    else emit('edit', e.r, e.c, coerceNew(props.columns[e.c]?.type_name ?? '', e.text));
+    if (text === '') { if (set && valueAt(e.r, e.c) !== null) emit('edit', e.r, e.c, undefined); }
+    else emit('edit', e.r, e.c, vector ? text : coerceNew(props.columns[e.c]?.type_name ?? '', text));
     afterCommit(e, move);
     return;
   }
   const original = props.rows[e.r]?.[e.c] ?? null;
   const prev = valueAt(e.r, e.c);
   // Leaving a NULL untouched keeps it NULL (the input shows it empty).
-  if (!(prev === null && e.text === '')) {
-    const v = coerce(original, e.text);
-    emit('edit', e.r, e.c, sameValue(v, original) ? undefined : v);
+  if (!(prev === null && text === '')) {
+    const v = vector ? text : coerce(original, text);
+    emit('edit', e.r, e.c, (vector ? sameVector(v, original) : sameValue(v, original)) ? undefined : v);
   }
   afterCommit(e, move);
 }
@@ -435,8 +508,8 @@ function cancelEdit() {
   scroller.value?.focus();
 }
 function onEditKey(ev: KeyboardEvent) {
-  if (ev.key === 'Enter') { ev.preventDefault(); commitEdit([1, 0]); }
-  else if (ev.key === 'Tab') { ev.preventDefault(); commitEdit([0, ev.shiftKey ? -1 : 1]); }
+  if (ev.key === 'Enter') { ev.preventDefault(); commitEdit([1, 0], true); }
+  else if (ev.key === 'Tab') { ev.preventDefault(); commitEdit([0, ev.shiftKey ? -1 : 1], true); }
   else if (ev.key === 'Escape') { ev.preventDefault(); cancelEdit(); }
   // ⌘S keeps the value and goes on to the pane, which saves.
   else if (isSaveShortcut(ev)) { commitEdit(); return; }
@@ -656,7 +729,7 @@ function hoverStart(e: MouseEvent, r: number, c: number) {
   if (peekTimer) clearTimeout(peekTimer);
   peekTimer = setTimeout(() => {
     const text = fullText(valueAt(r, c));
-    if (!text || !(el.scrollWidth > el.clientWidth || text.includes('\n') || text.length > 500)) return;
+    if (!text || !(el.scrollWidth > el.clientWidth || text.includes('\n') || text.length > 500 || vecAt(r, c)?.cut)) return;
     const box = el.getBoundingClientRect();
     const W = 520;
     const left = Math.max(8, Math.min(box.left, window.innerWidth - W - 8));
@@ -737,9 +810,9 @@ function linkItems(r: number, c: number): MenuItem[] {
 }
 
 // -- viewer / menu ---------------------------------------------------------------
-const viewer = ref<{ title: string; value: Cell } | null>(null);
+const viewer = ref<{ title: string; value: Cell; vector: VectorMeta | null } | null>(null);
 function openViewer(r: number, c: number) {
-  viewer.value = { title: props.columns[c]?.name ?? '', value: props.rows[r]?.[c] ?? null };
+  viewer.value = { title: props.columns[c]?.name ?? '', value: props.rows[r]?.[c] ?? null, vector: vecMetas.value[c] ?? null };
 }
 
 const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
@@ -930,7 +1003,9 @@ function columnsMenu(e: MouseEvent) {
           @mouseleave="hideSoon()"
           @dblclick="canEditCell(i, c) ? startEdit(i, c) : openViewer(i, c)"
           @contextmenu="onContext($event, i, c)"
-        >{{ isUnset(i, c) ? $t('results:grid.defaultValue') : display(valueAt(i, c)) }}</div>
+        ><span v-if="vecAt(i, c)" class="rg-vec"><span class="rg-vtext">{{ vecAt(i, c)!.text }}</span><span
+          v-if="vecAt(i, c)!.dims != null" class="rg-vdims" :class="{ sparse: vecAt(i, c)!.sparse }" :title="vecTitle(c, vecAt(i, c)!)"
+        >{{ vecAt(i, c)!.dims }}</span></span><template v-else>{{ isUnset(i, c) ? $t('results:grid.defaultValue') : display(valueAt(i, c)) }}</template></div>
       </div>
     </div>
     <input
@@ -944,7 +1019,7 @@ function columnsMenu(e: MouseEvent) {
       @blur="commitEdit()"
     />
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
-    <CellViewer v-if="viewer" :title="viewer.title" :value="viewer.value" @close="viewer = null" />
+    <CellViewer v-if="viewer" :title="viewer.title" :value="viewer.value" :vector="viewer.vector" @close="viewer = null" />
     <Teleport to="body">
       <div
         v-if="peek"
@@ -1116,6 +1191,15 @@ function columnsMenu(e: MouseEvent) {
 .rg-row.deleted .rg-cell { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--nm-danger) 70%, transparent); opacity: 0.7; }
 .rg-row.deleted .rg-num { color: var(--nm-danger); box-shadow: inset 2px 0 0 var(--nm-danger); }
 .rg-cell.edited { background: color-mix(in srgb, var(--nm-warning) 22%, transparent); box-shadow: inset 2px 0 0 var(--nm-warning); }
+/* A vector cell: its first numbers, and its dimensions in a small badge. */
+.rg-vec { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; height: var(--rg-row); vertical-align: top; }
+.rg-vtext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--nm-syn-number); }
+.rg-vdims {
+  flex-shrink: 0; padding: 0 5px; border-radius: 8px; line-height: 15px;
+  font-family: var(--nm-font); font-size: calc(var(--nm-grid-font-size) - 2px); font-variant-numeric: tabular-nums;
+  color: var(--nm-syn-type); background: color-mix(in srgb, var(--nm-syn-type) 14%, transparent);
+}
+.rg-vdims.sparse { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--nm-syn-type) 45%, transparent); }
 .rg-editor {
   position: absolute; z-index: 5; height: var(--rg-row); box-sizing: border-box; padding: 0 5px; border: 1px solid var(--ide-focus, var(--nm-accent));
   background: var(--ide-input); color: var(--nm-text-strong); font: inherit; font-family: var(--nm-mono); font-size: var(--nm-grid-font-size); outline: none;

@@ -1,0 +1,56 @@
+{
+  "cell": {
+    "dims_one": "{{count}} dimensión",
+    "dims_many": "{{count}} dimensiones",
+    "dims_other": "{{count}} dimensiones",
+    "sparse": "disperso"
+  },
+  "viewer": {
+    "element": "Tipo",
+    "dims": "Dimensiones",
+    "declared": "(la columna declara {{dims}})",
+    "norm": "Norma (L2)",
+    "min": "Mínimo",
+    "max": "Máximo",
+    "empty": "Vector vacío",
+    "sparse": "Vector disperso: se muestra como lo escribe el motor.",
+    "copyJson": "Copiar como JSON"
+  },
+  "edit": {
+    "format": "«{{column}}» es una columna vectorial: el valor se escribe como un arreglo JSON de números, por ejemplo [0.12, -0.03, 0.88]. Para dejarla en NULL usá «Establecer NULL».",
+    "dims": "«{{column}}» tiene vectores de {{expected}} dimensiones y el valor tiene {{got}}.",
+    "range": "«{{column}}» lleva enteros de {{min}} a {{max}}: el número {{position}} del vector es {{value}}.",
+    "skippedColumns": "Las columnas vectoriales ({{columns}}) quedan fuera del WHERE."
+  },
+  "metric": {
+    "cosine": "Coseno",
+    "l2": "Euclídea (L2)",
+    "ip": "Producto interno",
+    "l1": "Manhattan (L1)",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "param": {
+    "m": "Conexiones por nodo (m)",
+    "ef_construction": "Candidatos al construir (ef_construction)",
+    "lists": "Listas (lists)",
+    "quantization": "Cuantización"
+  },
+  "designer": {
+    "toggle": "Vectorial",
+    "toggleHint": "Un índice de búsqueda por similitud sobre una columna vectorial",
+    "algorithm": "Algoritmo",
+    "metric": "Distancia",
+    "vectorColumn": "Columna vectorial",
+    "vectorColumnPlaceholder": "Elegí la columna vectorial",
+    "filterColumns": "Columnas de filtro",
+    "filterColumnsPlaceholder": "Ninguna",
+    "paramPlaceholder": "Predeterminado del motor",
+    "vectorType": "vectorial",
+    "notVectorColumn": "El índice «{{label}}» es vectorial y «{{column}}» no es una columna vectorial.",
+    "noFilterColumns": "El índice «{{label}}» es vectorial: en este motor lleva solo la columna vectorial."
+  },
+  "index": {
+    "summary": "Vectorial: {{text}}"
+  }
+}

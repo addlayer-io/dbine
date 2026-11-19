@@ -1,0 +1,55 @@
+{
+  "cell": {
+    "dims_one": "{{count}} dimension",
+    "dims_other": "{{count}} dimensions",
+    "sparse": "sparse"
+  },
+  "viewer": {
+    "element": "Type",
+    "dims": "Dimensions",
+    "declared": "(the column declares {{dims}})",
+    "norm": "Norm (L2)",
+    "min": "Minimum",
+    "max": "Maximum",
+    "empty": "Empty vector",
+    "sparse": "Sparse vector: shown as the engine writes it.",
+    "copyJson": "Copy as JSON"
+  },
+  "edit": {
+    "format": "“{{column}}” is a vector column: write the value as a JSON array of numbers, for example [0.12, -0.03, 0.88]. To leave it NULL, use “Set NULL”.",
+    "dims": "“{{column}}” holds vectors of {{expected}} dimensions and the value has {{got}}.",
+    "range": "“{{column}}” takes integers from {{min}} to {{max}}: number {{position}} of the vector is {{value}}.",
+    "skippedColumns": "The vector columns ({{columns}}) are left out of the WHERE."
+  },
+  "metric": {
+    "cosine": "Cosine",
+    "l2": "Euclidean (L2)",
+    "ip": "Inner product",
+    "l1": "Manhattan (L1)",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "param": {
+    "m": "Links per node (m)",
+    "ef_construction": "Build candidates (ef_construction)",
+    "lists": "Lists (lists)",
+    "quantization": "Quantization"
+  },
+  "designer": {
+    "toggle": "Vector",
+    "toggleHint": "A similarity search index on a vector column",
+    "algorithm": "Algorithm",
+    "metric": "Distance",
+    "vectorColumn": "Vector column",
+    "vectorColumnPlaceholder": "Pick the vector column",
+    "filterColumns": "Filter columns",
+    "filterColumnsPlaceholder": "None",
+    "paramPlaceholder": "Engine default",
+    "vectorType": "vector",
+    "notVectorColumn": "Index “{{label}}” is a vector index and “{{column}}” isn't a vector column.",
+    "noFilterColumns": "Index “{{label}}” is a vector index: on this engine it takes only the vector column."
+  },
+  "index": {
+    "summary": "Vector: {{text}}"
+  }
+}

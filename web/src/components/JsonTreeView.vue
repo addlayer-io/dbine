@@ -2,7 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { t } from '../i18n';
-import type { Cell, ResultColumn } from '../api/types';
+import type { Cell, ResultColumn, VectorMeta } from '../api/types';
+import { vectorMeta } from '../composables/vector';
 import type { Edits } from '../composables/gridEdit';
 import { columnKind, parseFilter, type FilterState } from '../composables/gridFilter';
 import { isSaveShortcut } from '../composables/shortcuts';
@@ -583,9 +584,11 @@ function copyValue(n: TreeNode) { copy(asJson(n)); }
 function pathText(n: TreeNode): string {
   return n.path.reduce<string>((acc, s) => (typeof s === 'number' ? `${acc}[${s}]` : acc ? `${acc}.${s}` : s), '');
 }
-const viewer = ref<{ title: string; value: Cell } | null>(null);
+const viewer = ref<{ title: string; value: Cell; vector: VectorMeta | null } | null>(null);
 function openViewer(n: TreeNode) {
-  viewer.value = { title: pathText(n) || keyText(n), value: asJson(n) };
+  // A field of a vector column shows as a vector (its dimensions, norm…).
+  const col = n.path.length === 1 && n.kind !== 'chunk' ? props.columns.find((c) => c.name === n.key) : undefined;
+  viewer.value = { title: pathText(n) || keyText(n), value: asJson(n), vector: vectorMeta(col) };
 }
 const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
 function onContext(e: MouseEvent, i: number) {
@@ -707,7 +710,7 @@ function onContext(e: MouseEvent, i: number) {
       <div v-if="!flat.length" class="jt-empty nm-muted">{{ search ? $t('results:tree.noMatches') : $t('results:tree.empty') }}</div>
     </div>
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
-    <CellViewer v-if="viewer" :title="viewer.title" :value="viewer.value" @close="viewer = null" />
+    <CellViewer v-if="viewer" :title="viewer.title" :value="viewer.value" :vector="viewer.vector" @close="viewer = null" />
     <el-dialog
       :model-value="!!jsonEdit"
       :title="jsonEdit ? $t('results:tree.editJsonTitle', { path: pathText(jsonEdit.node) }) : ''"
