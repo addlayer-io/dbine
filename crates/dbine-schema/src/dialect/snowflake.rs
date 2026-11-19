@@ -375,8 +375,9 @@ impl Dialect for Snowflake {
             max_identifier: 255,
             case: IdentCase::Upper,
             // Searches (VECTOR_COSINE_SIMILARITY and the rest) scan the
-            // table: `convert` leaves vector indexes out, said. A graph
-            // list one searched states its dimension becomes VECTOR(FLOAT, n).
+            // table: `convert` leaves vector indexes out, said. A float
+            // list searched by an index that states its dimension still
+            // becomes VECTOR(FLOAT, n).
             vector_indexes: false,
         }
     }
