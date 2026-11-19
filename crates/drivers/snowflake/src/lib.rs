@@ -487,8 +487,38 @@ impl Driver for SnowflakeDriver {
         ))
     }
 
+    /// A `VECTOR(INT, n)` column's vectors are cast to `INT` (an INT
+    /// vector doesn't take a FLOAT one).
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<Json>],
+    ) -> Result<String> {
+        Ok(ddl::insert_script_typed(
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+        ))
+    }
+
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
         Ok(ddl::update_script(target.schema(), &target.name, changes))
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        Ok(ddl::update_script_typed(
+            target.schema(),
+            &target.name,
+            changes,
+            types,
+        ))
     }
 
     fn delete_script(
