@@ -46,7 +46,9 @@
     "editorFontSize": "Editor font size",
     "editorFontSizeHelp": "The text of the SQL and script editor.",
     "gridFontSize": "Grid font size",
-    "gridFontSizeHelp": "The cells of the results grid; rows grow with the text."
+    "gridFontSizeHelp": "The cells of the results grid; rows grow with the text.",
+    "gridTypes": "Data type in headers",
+    "gridTypesHelp": "The type of each column, in small text under its name, in the results grids."
   },
   "sync": {
     "folderDialogTitle": "Folder for the DBine backup",

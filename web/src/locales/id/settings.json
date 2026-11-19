@@ -46,7 +46,9 @@
     "editorFontSize": "Ukuran huruf editor",
     "editorFontSizeHelp": "Teks editor SQL dan skrip.",
     "gridFontSize": "Ukuran huruf grid",
-    "gridFontSizeHelp": "Sel grid hasil; baris membesar mengikuti huruf."
+    "gridFontSizeHelp": "Sel grid hasil; baris membesar mengikuti huruf.",
+    "gridTypes": "Tipe data di header",
+    "gridTypesHelp": "Tipe setiap kolom, dengan huruf kecil di bawah namanya, pada grid hasil."
   },
   "sync": {
     "folderDialogTitle": "Folder untuk cadangan DBine",

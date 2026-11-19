@@ -17,6 +17,8 @@ import { gridFontSize } from '../composables/appearance';
 import { COPY_FORMATS, defaultCopyFormat, formatRows, setDefaultCopyFormat, type CopyContext, type CopyFormat } from '../composables/copyFormats';
 import { revealCell } from '../composables/gridReveal';
 import { cellText, parts } from '../composables/gridSearch';
+import { GRID_TYPES_KEY, headerLayout, showsTypes } from '../composables/gridHeader';
+import { useSettingsStore } from '../stores/settings';
 
 // Virtualized result grid: only the rows in view are in the DOM, so tens of
 // thousands of rows scroll smoothly. Columns resize by dragging the header
@@ -100,8 +102,12 @@ const emit = defineEmits<{
 const ROW_H_AT_12 = 22;
 const rowH = computed(() => Math.round((gridFontSize.value * ROW_H_AT_12) / 12));
 const NUM_W = 52;
-/** Header rows above the data: the names, and the filters. */
-const HEAD = computed(() => (props.filterable ? 2 : 1));
+const settings = useSettingsStore();
+/** Each column's data type in small text under its name (Configuración › General). */
+const types = computed(() => showsTypes(props.columns, settings.get<boolean>(GRID_TYPES_KEY, true) !== false));
+/** Header rows above the data: the names (taller with the types) and the
+ *  filters; `top` is where the data rows start. */
+const head = computed(() => headerLayout(rowH.value, types.value, !!props.filterable));
 
 const scroller = ref<HTMLDivElement | null>(null);
 const scrollTop = ref(0);
@@ -147,6 +153,8 @@ watch(
     hiddenNames.value = new Set();
     widths.value = cols.map((c, i) => {
       let w = measure(c.name);
+      // The type under the name is in smaller letters.
+      if (types.value && c.type_name) w = Math.max(w, Math.round(measure(c.type_name) * 0.85));
       for (const r of props.rows.slice(0, 100)) w = Math.max(w, measure(display(r[i])));
       return w;
     });
@@ -339,7 +347,7 @@ function drawMarks() {
   const el = scroller.value;
   if (!cv || !m || !el) return;
   const dpr = window.devicePixelRatio || 1;
-  const h = Math.max(1, el.clientHeight - rowH.value * HEAD.value);
+  const h = Math.max(1, el.clientHeight - head.value.top);
   cv.width = Math.round(4 * dpr);
   cv.height = Math.round(h * dpr);
   const ctx = cv.getContext('2d');
@@ -362,7 +370,7 @@ function drawMarks() {
     ctx.fillRect(0, Math.min(px - 2 * tick, Math.floor((props.current.r / n) * px)), cv.width, 2 * tick);
   }
 }
-watch([() => props.marks, () => props.current, () => props.rows.length, viewH, rowH], () => nextTick(() => { measureBars(); drawMarks(); }));
+watch([() => props.marks, () => props.current, () => props.rows.length, viewH, rowH, () => head.value.top], () => nextTick(() => { measureBars(); drawMarks(); }));
 
 function cellClass(v: Cell) {
   if (v === null) return 'nm-null';
@@ -579,7 +587,7 @@ function reveal(r: number, c: number) {
   const to = revealCell(
     { top: el.scrollTop, left: el.scrollLeft, height: el.clientHeight, width: el.clientWidth },
     { top: r * rowH.value, height: rowH.value, left: widthUpTo(c), width: widths.value[c] ?? 0 },
-    rowH.value * HEAD.value, NUM_W,
+    head.value.top, NUM_W,
   );
   if (to.top !== el.scrollTop) el.scrollTop = to.top;
   if (to.left !== el.scrollLeft) el.scrollLeft = to.left;
@@ -1096,12 +1104,12 @@ function columnsMenu(e: MouseEvent) {
     ref="scroller"
     class="rg"
     tabindex="0"
-    :style="{ '--rg-row': rowH + 'px' }"
+    :style="{ '--rg-row': rowH + 'px', '--rg-head': head.names + 'px' }"
     @scroll="scrollTop = ($event.target as HTMLDivElement).scrollTop; hideSoon(0)"
     @keydown="hideSoon(0); onKey($event)"
     @mousedown="hideSoon(0)"
   >
-    <div class="rg-inner" :style="{ width: totalW + 'px', height: (rows.length + HEAD) * rowH + 'px' }">
+    <div class="rg-inner" :style="{ width: totalW + 'px', height: head.top + rows.length * rowH + 'px' }">
       <div class="rg-head" :style="{ width: totalW + 'px' }" @contextmenu="columnsMenu">
         <div class="rg-num rg-hcell" :style="{ width: NUM_W + 'px' }">#</div>
         <div
@@ -1119,7 +1127,10 @@ function columnsMenu(e: MouseEvent) {
           @keydown.enter.self.prevent.stop="onHeadKey($event, c)"
           @keydown.space.self.prevent.stop="onHeadKey($event, c)"
         >
-          <span class="rg-hname">{{ col.name }}</span>
+          <span class="rg-htext">
+            <span class="rg-hname">{{ col.name }}</span>
+            <span v-if="types && col.type_name" class="rg-htype">{{ col.type_name }}</span>
+          </span>
           <span v-if="sortOf(col.name)" class="rg-sort" :data-sort="sortOf(col.name)!.desc ? 'desc' : 'asc'">
             <el-icon><CaretBottom v-if="sortOf(col.name)!.desc" /><CaretTop v-else /></el-icon>
             <sup v-if="(sort?.length ?? 0) > 1">{{ sortOf(col.name)!.n }}</sup>
@@ -1159,7 +1170,7 @@ function columnsMenu(e: MouseEvent) {
         class="rg-row"
         :class="{ odd: i % 2 === 1, selected: rowSelected(i), deleted: isDeleted(i), added: isAdded(i) }"
         :title="isDeleted(i) ? $t('results:grid.markedDelete') : isAdded(i) ? $t('results:grid.newRow') : undefined"
-        :style="{ top: (i + HEAD) * rowH + 'px', width: totalW + 'px' }"
+        :style="{ top: head.top + i * rowH + 'px', width: totalW + 'px' }"
       >
         <div class="rg-num" :style="{ width: NUM_W + 'px' }" @click="selectRow(i, $event)" @contextmenu="onContext($event, i, null)">
           {{ isAdded(i) ? '+' : (rowNumbers?.[i] ?? i) + 1 }}
@@ -1187,7 +1198,7 @@ function columnsMenu(e: MouseEvent) {
       ref="editInput"
       v-model="editing.text"
       class="rg-editor"
-      :style="{ top: (editing.r + HEAD) * rowH + 'px', left: editLeft + 'px', width: Math.max(widths[editing.c], 120) + 'px' }"
+      :style="{ top: head.top + editing.r * rowH + 'px', left: editLeft + 'px', width: Math.max(widths[editing.c], 120) + 'px' }"
       spellcheck="false"
       @keydown="onEditKey"
       @blur="commitEdit()"
@@ -1209,7 +1220,7 @@ function columnsMenu(e: MouseEvent) {
     ref="markCanvas"
     class="rg-marks"
     aria-hidden="true"
-    :style="{ top: rowH * HEAD + 'px', right: bars.w + 'px', bottom: bars.h + 'px' }"
+    :style="{ top: head.top + 'px', right: bars.w + 'px', bottom: bars.h + 'px' }"
   />
   </div>
 </template>
@@ -1251,7 +1262,7 @@ function columnsMenu(e: MouseEvent) {
   top: 0;
   z-index: 2;
   display: flex;
-  height: var(--rg-row);
+  height: var(--rg-head);
   background: var(--ide-sidebar);
   border-bottom: 1px solid var(--nm-border);
 }
@@ -1268,7 +1279,18 @@ function columnsMenu(e: MouseEvent) {
   border-right: 1px solid var(--nm-border-soft);
   overflow: hidden;
 }
+.rg-htext { display: flex; flex-direction: column; justify-content: center; min-width: 0; line-height: 1.25; }
 .rg-hname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The column's data type, small and muted under its name. */
+.rg-htype {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--nm-mono);
+  font-weight: 400;
+  font-size: calc(var(--nm-grid-font-size) - 2px);
+  color: var(--nm-text-muted);
+}
 .rg-hcell.sortable { cursor: pointer; user-select: none; }
 .rg-hcell.sortable:hover { background: color-mix(in srgb, var(--nm-text) 6%, transparent); }
 .rg-sort {
@@ -1292,7 +1314,7 @@ function columnsMenu(e: MouseEvent) {
 .rg-resize:hover { background: var(--ide-focus); }
 .rg-filters {
   position: sticky;
-  top: var(--rg-row);
+  top: var(--rg-head);
   z-index: 2;
   display: flex;
   height: var(--rg-row);

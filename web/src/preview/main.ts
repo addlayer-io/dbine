@@ -583,6 +583,8 @@ const app = createApp({
         : view === 'results'
           ? h(ResultsPane, {
             running: false, title: 'Ventas', dialect: 'mssql',
+            // &filters=1: the filter row under the column names, as a table's data view has.
+            filterable: params.get('filters') === '1',
             source: { connectionId: 'x', database: 'ventas', sql: 'select 1' },
             outcome: { results: [{ ...sampleResult, total_rows: 12000, truncated: true, rows_affected: null }], messages: [], error: null, elapsed_ms: 38, plans: [] },
           })
