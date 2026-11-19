@@ -42,6 +42,14 @@
     "hamming": "Hamming",
     "jaccard": "Jaccard"
   },
+  "metricShort": {
+    "cosine": "Coseno",
+    "l2": "L2",
+    "ip": "IP",
+    "l1": "L1",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
   "param": {
     "m": "Conexiones por nodo (m)",
     "ef_construction": "Candidatos al construir (ef_construction)",

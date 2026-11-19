@@ -440,16 +440,19 @@ export function sameVectorIndex(a: VectorIndex | null | undefined, b: VectorInde
   return norm(a) === norm(b);
 }
 
-/** A vector index's short tag, as the explorer shows it next to the index:
- *  its kind's tag (`HNSW`, `VECTOR`…), the algorithm when the tag doesn't
- *  name it (`VECTOR · DISKANN`) and the metric (`metricName` gives its
- *  label); the parameters are left for the whole line. */
+/** A vector index's short tag, as the explorer shows it next to the index
+ *  (short enough to stay in view next to the name): its kind's tag (`HNSW`,
+ *  `IVFFLAT`…), the algorithm when the tag doesn't name it (a kind that
+ *  only says `VECTOR` gives way to it: `DISKANN`) and the metric
+ *  (`metricName` gives its label); the parameters are left for the whole
+ *  line. */
 export function vectorIndexTag(tag: string, v: VectorIndex | null | undefined, metricName: (m: string) => string = (m) => m): string {
   if (!v) return tag;
   const bare = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, '');
   const alg = (v.algorithm ?? '').trim();
   const named = !alg || (!!tag && bare(tag).includes(bare(alg)));
-  return [tag, named ? '' : alg.toUpperCase(), v.metric ? metricName(v.metric) : ''].filter(Boolean).join(' · ');
+  const kind = !named && bare(tag) === 'vector' ? '' : tag;
+  return [kind, named ? '' : alg.toUpperCase(), v.metric ? metricName(v.metric) : ''].filter(Boolean).join(' · ');
 }
 
 /** A vector index in one line: `hnsw · Coseno · m = 16, ef_construction = 64`

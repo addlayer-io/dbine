@@ -4,7 +4,7 @@ import type { VectorIndex } from '../api/schema-types';
 import { findTable, relationsSchema } from './fkJump';
 import { objKey, useConnectionsStore } from '../stores/connections';
 import { indexableVectorType, vectorIndexTag } from './vector';
-import { metricLabel, vectorIndexLine } from './vectorLabels';
+import { metricShortLabel, vectorIndexLine } from './vectorLabels';
 
 // A table's vector indexes (algorithm, distance, build parameters) for the
 // views that list indexes from their usage (the explorer's "Índices"
@@ -29,9 +29,9 @@ export function indexVector(connectionId: string, database: string, table: Table
   return found[keyOf(connectionId, database, table)]?.[name] ?? null;
 }
 
-/** "HNSW · Coseno", "VECTOR · DISKANN · Coseno": an index's tag with its
- *  algorithm and distance, for the explorer. */
-export const vectorTag = (tag: string, v: VectorIndex | null) => vectorIndexTag(tag, v, metricLabel);
+/** "HNSW · Coseno", "IVFFLAT · L2", "DISKANN · Coseno": an index's tag
+ *  with its algorithm and distance, short, for the explorer. */
+export const vectorTag = (tag: string, v: VectorIndex | null) => vectorIndexTag(tag, v, metricShortLabel);
 
 /** The whole line: `hnsw · Coseno · m = 16, ef_construction = 64`. */
 export const vectorLine = (v: VectorIndex | null) => (v ? vectorIndexLine(v) : '');

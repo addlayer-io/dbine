@@ -331,8 +331,12 @@ test("a vector index's tag in the explorer names its algorithm once, with its me
   // pgvector: the kind is the algorithm.
   assert.equal(vectorIndexTag('HNSW', { algorithm: 'hnsw', metric: 'cosine', params: { m: '16' } }, up), 'HNSW · COSINE');
   assert.equal(vectorIndexTag('IVFFLAT', { algorithm: 'ivfflat', metric: 'l2' }), 'IVFFLAT · l2');
-  // SQL Server 2025 / MySQL: a generic kind, the algorithm apart.
-  assert.equal(vectorIndexTag('VECTOR', { algorithm: 'diskann', metric: 'cosine' }), 'VECTOR · DISKANN · cosine');
+  // SQL Server 2025 / MySQL: a generic kind gives way to the algorithm.
+  assert.equal(vectorIndexTag('VECTOR', { algorithm: 'diskann', metric: 'cosine' }), 'DISKANN · cosine');
+  assert.equal(vectorIndexTag('vector', { algorithm: 'hnsw', metric: 'l2' }), 'HNSW · l2');
+  // Without an algorithm the kind stays; another kind stays with it.
+  assert.equal(vectorIndexTag('VECTOR', { algorithm: '', metric: 'cosine' }), 'VECTOR · cosine');
+  assert.equal(vectorIndexTag('NC', { algorithm: 'diskann', metric: 'cosine' }), 'NC · DISKANN · cosine');
   // Spelled apart (vector_similarity vs VECTOR SIMILARITY) still counts as named.
   assert.equal(vectorIndexTag('VECTOR SIMILARITY', { algorithm: 'vector_similarity', metric: 'l2' }), 'VECTOR SIMILARITY · l2');
   // No kind: the algorithm alone; no algorithm: the kind alone.

@@ -100,6 +100,9 @@ interface TNode {
   hint?: string;
   /** The hint's tooltip (a vector index's whole line). */
   hintTitle?: string;
+  /** The hint shares the row with the name instead of giving way to it
+   *  (a vector index's `HNSW · Coseno`). */
+  hintKeep?: boolean;
   icon?: string;
   count?: number;
   status?: 'loading' | 'error' | 'empty';
@@ -491,7 +494,7 @@ function indexesNode(c: SavedConnection, db: string, o: DbObject, parentId: stri
             return {
               id: `ix:${id}:${i.name}`, label: i.name, type: 'index' as const, connectionId: c.id, database: db, object: o,
               hint: vectorTag(indexTag(i), v), badge: usageBadge(i, usage?.report),
-              hintTitle: v ? t('vectors:index.summary', { text: vectorLine(v) || '—' }) : undefined,
+              hintTitle: v ? t('vectors:index.summary', { text: vectorLine(v) || '—' }) : undefined, hintKeep: !!v,
             };
           })
           : [status(id, 'empty', t('explorer:indexes.none'))],
@@ -1622,7 +1625,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
             <el-icon v-else-if="n.type === 'keymore'" class="ex-ic q"><ei-arrow-down /></el-icon>
             <span v-else-if="n.type === 'object' && n.key?.key_type" class="ex-ktype" :class="n.key.key_type">{{ typeTag(n.key.key_type) }}</span>
             <el-icon v-else-if="n.type === 'object'" class="ex-ic o"><component :is="`ei-${n.icon}`" /></el-icon>
-            <span v-if="n.type !== 'keysearch'" class="ex-label" :title="n.status === 'error' ? n.label : n.type === 'connerr' ? conns.live[n.connectionId]?.error ?? n.label : undefined"><span v-if="n.qualifier" class="ex-qual">{{ n.qualifier }}.</span>{{ n.label }}</span>
+            <span v-if="n.type !== 'keysearch'" class="ex-label" :class="{ keep: n.hintKeep }" :title="n.status === 'error' ? n.label : n.type === 'connerr' ? conns.live[n.connectionId]?.error ?? n.label : undefined"><span v-if="n.qualifier" class="ex-qual">{{ n.qualifier }}.</span>{{ n.label }}</span>
             <span
               v-if="n.type === 'connection' && conns.byId(n.connectionId!)?.temporary"
               class="ex-tag ex-file" :title="$t('explorer:tree.fileTitle', { path: conns.byId(n.connectionId!)?.config.host })"
@@ -1651,7 +1654,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
               :title="n.badge.disabled ? n.badge.healthTip! : n.badge.unused ? $t('explorer:indexes.unusedTitle') : [$t('explorer:indexes.shareTitle'), n.badge.healthTip].filter(Boolean).join('\n')"
             >{{ n.badge.text }}</span>
             <span v-if="n.changes" class="ex-changes" :title="$t('explorer:tree.projectChanges', { count: n.changes })">{{ n.changes }}</span>
-            <span v-if="n.hint" class="ex-hint" :title="n.hintTitle">{{ n.hint }}</span>
+            <span v-if="n.hint" class="ex-hint" :class="{ keep: n.hintKeep }" :title="n.hintTitle">{{ n.hint }}</span>
             <span v-if="n.type === 'connerr'" class="ex-connerr-actions">
               <button class="ex-connerr-btn" :disabled="conns.live[n.connectionId]?.status === 'connecting'" @click.stop="retryConnect(n.connectionId!)">{{ $t('explorer:tree.retry') }}</button>
               <button class="ex-connerr-btn" @click.stop="explainError(n.connectionId!)">{{ $t('explorer:tree.whatsWrong') }}</button>
@@ -1742,6 +1745,10 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 .ex-hint { color: var(--nm-text-muted); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A vector index's tag keeps up to half the row: its distance stays in view
+   at the sidebar's usual width, the name gives way first (both whole on hover). */
+.ex-hint.keep { flex-shrink: 0; max-width: 50%; }
+.ex-label.keep { min-width: 4em; }
 .ex-count { color: var(--nm-text-muted); font-size: 11px; }
 .ex-ic { flex-shrink: 0; color: var(--nm-text-dim); font-size: 14px; }
 .ex-ic.f { color: var(--nm-folder-2); }
