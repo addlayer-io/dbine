@@ -169,23 +169,14 @@ pub(crate) async fn read_batches(
         })
         .collect();
     let binary = binary_vectors(&coll, &filter, &binary_candidates, &s.tag).await?;
-    let type_of = |n: &String| {
-        found.get(n).cloned().or_else(|| {
-            types
-                .iter()
-                .find(|c| c.name == *n)
-                .map(|c| c.data_type.clone())
-        })
-    };
+    // A field with BinData vectors says their element: a load by rows
+    // writes its text cells (BinData here) as BinData of it, and its JSON
+    // cells (arrays here) as arrays, so a field that holds both keeps each
+    // document's form.
     let vectors: HashMap<String, String> = names
         .iter()
         .filter_map(|n| {
             let t = match (binary.get(n), paths.get(n)) {
-                // A field that holds arrays too loads as arrays, as an
-                // insert with its result's type does (`vector(N)`).
-                (Some(m), _) if type_of(n).is_some_and(|t| holds_arrays(&t)) => {
-                    crate::vector::type_name(m.dims)
-                }
                 (Some(m), _) => {
                     let el = match m.element {
                         dbine_driver::VectorElement::I8 => "int8",
@@ -307,13 +298,6 @@ fn vector_cell(v: RawBsonRef<'_>, vector_field: bool) -> Result<Option<Cell>> {
         }
         _ => Ok(None),
     }
-}
-
-/// A field's types (`vector(3, int8)|array`) include arrays of numbers.
-fn holds_arrays(t: &str) -> bool {
-    t.split('|')
-        .map(|p| p.trim().strip_prefix(TYPE_MARK).unwrap_or(p.trim()))
-        .any(|p| p.eq_ignore_ascii_case("array"))
 }
 
 /// Documents a read looks at, at most, to learn the element of its BinData
@@ -2046,14 +2030,6 @@ pub(crate) async fn copy_native(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn binary_fields_with_arrays_load_as_arrays() {
-        assert!(holds_arrays("bson:vector(3, int8)|bson:array"));
-        assert!(holds_arrays("array|vector(3, bit)"));
-        assert!(!holds_arrays("bson:vector(3, int8)|bson:null"));
-        assert!(!holds_arrays("binData"));
-    }
 
     #[test]
     fn vector_types_of_every_engine() {
