@@ -579,7 +579,9 @@ async fn vectors_end_to_end() {
 }
 
 /// Timeplus Proton: `array(float32)` is its embedding type (it has the
-/// distances, no vector index). A stream described and a vector read;
+/// distances, no vector index). A stream from the designer's DDL, rows
+/// through insert_script, read back marked and exact, an edit (a mutation),
+/// a similarity query and a transfer to another stream;
 /// `DBINE_TEST_TIMEPLUS_URL` (default `http://localhost:25119`).
 #[tokio::test]
 #[ignore]
@@ -598,48 +600,145 @@ async fn timeplus_vectors() {
         .find(|d| d.info().id == "timeplus")
         .unwrap();
     let name = format!("dbine_vec_tp_{}", std::process::id());
+    let copy = format!("{name}_copy");
     let mut s = d.connect(&c, None).await.expect("connect");
-    run(&mut s, &format!("DROP STREAM IF EXISTS {name}")).await;
+    for n in [&name, &copy] {
+        run(&mut s, &format!("DROP STREAM IF EXISTS {n}")).await;
+    }
     let r = {
-        let (d, c, name) = (d.clone(), c.clone(), name.clone());
+        let (d, c, name, copy) = (d.clone(), c.clone(), name.clone(), copy.clone());
         tokio::spawn(async move {
+            let stream = |n: &str| ObjectRef {
+                kind: kinds::STREAM.into(),
+                schema: None,
+                name: n.into(),
+            };
+            // Rows reach a stream's historical store a moment after the
+            // insert, and a mutation runs in the background: poll.
+            async fn until(s: &mut Box<dyn Session>, sql: &str, want: &[Vec<Value>]) {
+                let mut got = Vec::new();
+                for _ in 0..60 {
+                    got = run(s, sql).await.results[0].rows.clone();
+                    if got == want {
+                        return;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+                }
+                panic!("{sql}: {got:?}");
+            }
             let mut s = d.connect(&c, None).await.expect("connect");
             assert!(d.capabilities().vectors);
             assert!(d.designer().unwrap().data_types.contains(&"array(float32)"));
-            run(
-                &mut s,
-                &format!("CREATE STREAM {name} (id uint64, v array(float32))"),
-            )
-            .await;
-            let cols = s
-                .columns(&ObjectRef {
-                    kind: kinds::STREAM.into(),
-                    schema: None,
-                    name: name.clone(),
-                })
-                .await
-                .unwrap();
+            // 1. The designer's DDL (no vector index: Proton has none).
+            let t = TableSchema {
+                kind: kinds::STREAM.into(),
+                name: name.clone(),
+                columns: vec![col("id", "uint64"), col("v", "array(float32)")],
+                ..Default::default()
+            };
+            for n in [&name, &copy] {
+                let ddl = d
+                    .table_ddl(
+                        &TableSchema {
+                            name: n.to_string(),
+                            ..t.clone()
+                        },
+                        DdlParts {
+                            create: true,
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                run(&mut s, &ddl).await;
+            }
+            let cols = s.columns(&stream(&name)).await.unwrap();
             assert!(
                 cols.iter()
                     .any(|c| c.name == "v" && c.data_type == "array(float32)"),
                 "{cols:?}"
             );
-            let out = run(
+            // 2. Rows through insert_script: array literals.
+            let ins = d
+                .insert_script(
+                    &stream(&name),
+                    &["id".into(), "v".into()],
+                    &[
+                        vec![json!(1), json!([0.1, 2, 1e-7])],
+                        vec![json!(2), json!([1, 0, 0])],
+                    ],
+                )
+                .unwrap();
+            assert!(ins.contains("[0.1,2,0.0000001]"), "{ins}");
+            run(&mut s, &ins).await;
+            // 3. Read back: marked, whole, exact.
+            let q = format!("SELECT id, v FROM table({name}) ORDER BY id");
+            until(
                 &mut s,
-                "SELECT cast([0.1, 2, 1e-7], 'array(float32)') AS v, cosine_distance(v, [0.1, 2, 0]) AS d",
+                &q,
+                &[
+                    vec![json!(1), json!("[0.1,2,0.0000001]")],
+                    vec![json!(2), json!("[1,0,0]")],
+                ],
             )
             .await;
-            let r = &out.results[0];
-            assert_eq!(
-                r.columns[0].vector.as_ref().unwrap().element,
-                VectorElement::F32
-            );
-            assert_eq!(r.rows[0][0], json!("[0.1,2,0.0000001]"));
-            assert!(r.columns[1].vector.is_none());
+            let out = run(&mut s, &q).await;
+            let v = out.results[0].columns[1].vector.as_ref().expect("a vector");
+            assert_eq!(v.element, VectorElement::F32);
+            // 6. Similarity by distance.
+            let out = run(
+                &mut s,
+                &format!(
+                    "SELECT id FROM table({name}) ORDER BY cosine_distance(v, [1, 0.1, 0]) LIMIT 1"
+                ),
+            )
+            .await;
+            assert_eq!(ids(&out), [json!(2)]);
+            // 7. An edit: a mutation on the stream.
+            let up = d
+                .update_script(
+                    &stream(&name),
+                    &[RowChange {
+                        key: vec![("id".into(), json!(2))],
+                        set: vec![("v".into(), json!([3, 4.25, -1]))],
+                        row: Vec::new(),
+                    }],
+                )
+                .unwrap();
+            assert!(up.starts_with("ALTER STREAM"), "{up}");
+            run(&mut s, &up).await;
+            until(
+                &mut s,
+                &format!("SELECT v FROM table({name}) WHERE id = 2"),
+                &[vec![json!("[3,4.25,-1]")]],
+            )
+            .await;
+            // 8. A transfer: vector text out (as JSON, like ClickHouse's
+            // arrays), array(float32) in.
+            let (tcols, rows) = read_all(&mut s, stream(&name)).await;
+            assert_eq!(tcols[1].type_name, "array(float32)");
+            assert_eq!(rows[0][1], Cell::Json("[0.1,2,0.0000001]".into()));
+            assert_eq!(rows[1][1], Cell::Json("[3,4.25,-1]".into()));
+            // Every column the read gave (Proton's _tp_time too).
+            let names: Vec<&str> = tcols.iter().map(|c| c.name.as_str()).collect();
+            assert_eq!(names[..2], ["id", "v"]);
+            load(&mut s, stream(&copy), &names, rows.clone()).await;
+            until(
+                &mut s,
+                &format!("SELECT id, v FROM table({copy}) ORDER BY id"),
+                &[
+                    vec![json!(1), json!("[0.1,2,0.0000001]")],
+                    vec![json!(2), json!("[3,4.25,-1]")],
+                ],
+            )
+            .await;
+            let (_, copied) = read_all(&mut s, stream(&copy)).await;
+            assert_eq!(copied, rows);
         })
     };
     let r = r.await;
-    run(&mut s, &format!("DROP STREAM IF EXISTS {name}")).await;
+    for n in [&name, &copy] {
+        run(&mut s, &format!("DROP STREAM IF EXISTS {n}")).await;
+    }
     if let Err(e) = r {
         std::panic::resume_unwind(e.into_panic());
     }
