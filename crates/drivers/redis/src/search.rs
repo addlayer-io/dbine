@@ -5,8 +5,8 @@
 
 use crate::shape::{self, text_of, Table};
 use crate::vectors::{
-    aggregate_table, quant_flag, search_table, spell, vemb_text, vsim_table, FtIndex, FtVector,
-    VType, FT_READS,
+    aggregate_table, hybrid_table, quant_flag, search_table, spell, vemb_text, vsim_table, FtIndex,
+    FtVector, VType, FT_READS,
 };
 use crate::RedisSession;
 use dbine_driver::{vector, VectorElement, VectorMeta};
@@ -231,7 +231,7 @@ impl RedisSession {
 
     /// An editor command's reply as a table that knows its vectors, or
     /// `None` for the plain shape: search results (`FT.SEARCH`, a vector
-    /// field decoded by its index), `FT.AGGREGATE`'s rows, a vector set's
+    /// field decoded by its index), `FT.AGGREGATE`'s and `FT.HYBRID`'s rows, a vector set's
     /// elements with their vectors (`VRANGE`, `VRANDMEMBER`), `VSIM` and
     /// `VEMB`, and a hash's vector fields (`HGETALL`, `HSCAN`, `HGET`,
     /// `HMGET`, `HRANDFIELD … WITHVALUES`) decoded by the index that
@@ -260,6 +260,10 @@ impl RedisSession {
             "FT.AGGREGATE" => {
                 let ix = self.ft_index(&String::from_utf8_lossy(key)).await;
                 Some(aggregate_table(cmd, reply, ix.as_ref()))
+            }
+            "FT.HYBRID" => {
+                let ix = self.ft_index(&String::from_utf8_lossy(key)).await;
+                Some(hybrid_table(cmd, reply, ix.as_ref()))
             }
             // FT.CURSOR READ <index> <cursor>: more of an FT.AGGREGATE.
             "FT.CURSOR" if key.eq_ignore_ascii_case(b"READ") => {

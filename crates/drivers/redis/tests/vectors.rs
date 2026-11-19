@@ -19,7 +19,7 @@ use dbine_driver::transfer::{
 };
 use dbine_driver::{
     kinds, ColumnDef, ConnectionConfig, DdlParts, Driver, IndexDef, ObjectRef, QueryOutcome,
-    RowChange, Session, TableSchema, VectorElement, VectorIndex,
+    ResultColumn, RowChange, Session, TableSchema, VectorElement, VectorIndex,
 };
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
@@ -301,6 +301,7 @@ async fn search(
 
 const CLEANUP: &str = "FT.DROPINDEX dbvec_docs\nFT.DROPINDEX dbvec_copy\nFT.DROPINDEX dbvec_pg\nFT.DROPINDEX dbvec_json\nFT.DROPINDEX dbvec_opts\nFT.DROPINDEX dbvec_bad\nFT.DROPINDEX dbvec_types\n\
 FT.DROPINDEX dbvec_reg_redis\nFT.DROPINDEX dbvec_reg_valkey\nFT.DROPINDEX dbvec_reg_dragonfly\nFT.DROPINDEX dbvec_tpl\nDEL dbvec_tpl dbvec_tpl:1 dbvec_tpl:2\n\
+DEL dbvec:reg:redis:8 dbvec:reg:valkey:8 dbvec:reg:dragonfly:8\n\
 DEL dbvec:doc:1 dbvec:doc:2 dbvec:doc:3 dbvec:doc:4 dbvec:doc:5 dbvec:copy:1 dbvec:copy:2 dbvec:copy:3 dbvec:pg:10 dbvec:pg:11 dbvec:vs dbvec:vs2 dbvec:j:1 dbvec:j:2 dbvec:j:3";
 
 async fn cleanup(s: &mut Box<dyn Session>) {
@@ -450,6 +451,26 @@ async fn body(id: &str, url: &str) {
         })
         .unwrap();
     assert_eq!(nearest[0], json!("dbvec:doc:1"), "{:?}", r.rows);
+    // Redis 8.4's hybrid search: text and vector, its results a table
+    // whose vectors are decoded and marked.
+    if id == "redis" {
+        let hybrid = format!(
+            "FT.HYBRID dbvec_docs SEARCH \"@lang:{{es}}\" VSIM @emb $q LOAD 2 @__key @emb PARAMS 2 q {}",
+            blob_arg(&q)
+        );
+        let out = run(&mut s, &hybrid).await;
+        let r = &out.results[0];
+        println!("{:?} {:?}", r.columns, r.rows);
+        let key = r.columns.iter().position(|c| c.name == "__key").unwrap();
+        let emb = r.columns.iter().position(|c| c.name == "emb").unwrap();
+        assert!(r.columns[emb].vector.is_some(), "{:?}", r.columns);
+        let one = r
+            .rows
+            .iter()
+            .find(|row| row[key] == json!("dbvec:doc:1"))
+            .unwrap_or_else(|| panic!("{:?}", r.rows));
+        assert_eq!(one[emb], json!("[0.5,0.25,1]"));
+    }
 
     // 7. Edits: a search result's vector, and a hash field typed as text.
     let upd = d
@@ -780,6 +801,22 @@ async fn index_endpoints(id: &str, d: &Arc<dyn Driver>, s: &mut Box<dyn Session>
         .is_err());
 }
 
+/// The bytes of one element of the test's vector type on `id`.
+fn width(id: &str) -> usize {
+    encode(id, &[0.0]).len()
+}
+
+/// A document's `emb` as the session decodes it (by its index's type) and
+/// its length in bytes.
+async fn stored(s: &mut Box<dyn Session>, doc: &str) -> (String, usize) {
+    let text = run(s, &format!("HGET {doc} emb")).await.results[0].rows[0][0]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let len = run(s, &format!("HSTRLEN {doc} emb")).await.results[0].rows[0][0].clone();
+    (text, len.as_u64().unwrap() as usize)
+}
+
 /// What the scripts know of each server follows its sessions: a dropped
 /// index is forgotten, and two open servers that disagree make the
 /// scripts refuse instead of guessing.
@@ -845,6 +882,7 @@ async fn registry(id: &str, url: &str, d: &Arc<dyn Driver>, s: &mut Box<dyn Sess
     // still lets both indexes be dropped.
     let checks = {
         let (d, name, prefix, change) = (d.clone(), name.clone(), prefix.clone(), change.clone());
+        let id = id.to_string();
         let mut mine = open(&d, url, false).await;
         tokio::spawn(async move {
             mine.columns(&index(&name)).await.unwrap();
@@ -858,6 +896,41 @@ async fn registry(id: &str, url: &str, d: &Arc<dyn Driver>, s: &mut Box<dyn Sess
                 .update_script(&index(&name), std::slice::from_ref(&change))
                 .unwrap_err();
             assert!(e.to_string().contains("conexiones abiertas"), "{e}");
+            // With the columns' types (a result or describe of this
+            // server) the scripts know which index they are for: the row
+            // is this server's blob, and its index takes it.
+            let types = [
+                ResultColumn::new("id", "key"),
+                ResultColumn::new("emb", format!("VECTOR(3, {})", vtype(&id))),
+            ];
+            let doc = format!("{prefix}8");
+            let script = d.insert_script_typed(&table, &types, &rows).unwrap();
+            run(&mut mine, &script).await;
+            assert_eq!(stored(&mut mine, &doc).await, ("[1,0,0]".into(), 3 * width(&id)));
+            let knn = format!(
+                "FT.SEARCH {name} \"*=>[KNN 1 @emb $q]\" PARAMS 2 q {} RETURN 1 __emb_score DIALECT 2",
+                blob_arg(&encode(&id, &[1.0, 0.0, 0.0]))
+            );
+            let mut found = 0;
+            for _ in 0..100 {
+                found = run(&mut mine, &knn).await.results[0].rows.len();
+                if found == 1 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            assert_eq!(found, 1, "the typed row isn't in {name}");
+            let edit = RowChange {
+                key: vec![("id".into(), json!(doc))],
+                set: vec![("emb".into(), json!([0, 1, 0]))],
+                ..Default::default()
+            };
+            let script = d
+                .update_script_typed(&index(&name), std::slice::from_ref(&edit), &types)
+                .unwrap();
+            run(&mut mine, &script).await;
+            assert_eq!(stored(&mut mine, &doc).await, ("[0,1,0]".into(), 3 * width(&id)));
+            run(&mut mine, &format!("DEL {doc}")).await;
             run(&mut other, &format!("FT.DROPINDEX {name}")).await;
             // Its last session gone, the other server's index is too.
             drop(other);

@@ -389,7 +389,21 @@ impl Driver for RedisDriver {
         columns: &[String],
         rows: &[Vec<serde_json::Value>],
     ) -> Result<String> {
-        ddl::insert_script(target, columns, rows, &self.known())
+        ddl::insert_script(target, columns, rows, &self.known(), &Default::default())
+    }
+
+    /// A vector's blob type comes from the column's type when Redis spells
+    /// it (`VECTOR(3, FLOAT16)`), not from what DBine read of the open
+    /// servers (see [`ddl::insert_script`]).
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[dbine_driver::ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        let types = vectors::Types::of(columns);
+        ddl::insert_script(target, &names, rows, &self.known(), &types)
     }
 
     fn update_script(
@@ -397,7 +411,16 @@ impl Driver for RedisDriver {
         target: &ObjectRef,
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
-        ddl::update_script(target, changes, &self.known())
+        ddl::update_script(target, changes, &self.known(), &Default::default())
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[dbine_driver::ResultColumn],
+    ) -> Result<String> {
+        ddl::update_script(target, changes, &self.known(), &vectors::Types::of(types))
     }
 
     fn delete_script(
@@ -1499,5 +1522,52 @@ mod tests {
     fn three_drivers_with_stable_ids() {
         let ids: Vec<_> = drivers().iter().map(|d| d.info().id).collect();
         assert_eq!(ids, ["redis", "valkey", "dragonfly"]);
+    }
+
+    /// The typed scripts go through the driver: a vector column Redis
+    /// spells `VECTOR(2, FLOAT64)` is written as that blob, on every
+    /// server of the family.
+    #[test]
+    fn typed_scripts_through_the_driver() {
+        use dbine_driver::ResultColumn as C;
+        for d in drivers() {
+            let target = ObjectRef {
+                kind: kinds::KEY.into(),
+                schema: None,
+                name: "doc".into(),
+            };
+            let cols = [C::new("id", "key"), C::new("emb", "VECTOR(2, FLOAT64)")];
+            let rows = [vec![serde_json::json!(1), serde_json::json!([1, 2])]];
+            let blob = vectors::quote_bytes(&vectors::VType::F64.encode(&[1.0, 2.0]));
+            let s = d.insert_script_typed(&target, &cols, &rows).unwrap();
+            assert!(s.contains(&blob), "{s}");
+            // Untyped, nothing read: FLOAT32.
+            let names = ["id".to_string(), "emb".into()];
+            let s = d.insert_script(&target, &names, &rows).unwrap();
+            assert!(!s.contains(&blob), "{s}");
+            let hash = ObjectRef {
+                name: "doc:1".into(),
+                ..target
+            };
+            let ch = dbine_driver::RowChange {
+                key: vec![("field".into(), serde_json::json!("emb"))],
+                set: vec![("value".into(), serde_json::json!("[1,2]"))],
+                ..Default::default()
+            };
+            let types = [
+                C::new("field", "string"),
+                C::new("value", "VECTOR(2, FLOAT64)"),
+            ];
+            let s = d
+                .update_script_typed(&hash, std::slice::from_ref(&ch), &types)
+                .unwrap();
+            assert!(s.contains(&blob), "{s}");
+            // Deletes have no vector literal: the same either way.
+            let keys = [vec![("field".to_string(), serde_json::json!("emb"))]];
+            assert_eq!(
+                d.delete_script_typed(&hash, &keys, &types).unwrap(),
+                d.delete_script(&hash, &keys).unwrap()
+            );
+        }
     }
 }

@@ -937,9 +937,42 @@ impl Known {
 
     /// The search index `name`, for a script: `None` when no open session
     /// read it, an error when two servers have different ones.
+    #[cfg(test)]
     pub fn index(&self, name: &str) -> Result<Option<&FtIndex>, String> {
+        self.index_for(name, &Types::default())
+    }
+
+    /// [`Known::index`] for a script that knows its columns' types: when
+    /// the open servers have different indexes `name`, the one whose vector
+    /// fields are of those types (Redis' own spelling) is the script's.
+    /// When none is, as [`Known::index`]; the script then still writes each
+    /// vector in the column's own type (see `document_vector` in `ddl`),
+    /// and takes only the keys' prefix and the fields' paths from the
+    /// index. Indexes whose vector fields agree but that differ in
+    /// something else (a prefix, a text field) are still told apart only
+    /// by the server: the script is refused.
+    pub fn index_for(&self, name: &str, types: &Types) -> Result<Option<&FtIndex>, String> {
+        let named = || self.all_indexes().filter(move |i| i.name == name);
+        let agrees = |ix: &FtIndex| {
+            ix.fields
+                .iter()
+                .all(|f| match (&f.vector, types.own(&f.attribute)) {
+                    (Some(v), Some(t)) => t.ty == v.ty && t.dims.is_none_or(|d| d == v.dims),
+                    _ => true,
+                })
+        };
+        if !types.is_empty() && named().any(&agrees) && !named().all(&agrees) {
+            return Self::one_index(name, named().filter(|i| agrees(i)));
+        }
+        Self::one_index(name, named())
+    }
+
+    fn one_index<'a>(
+        name: &str,
+        candidates: impl Iterator<Item = &'a FtIndex>,
+    ) -> Result<Option<&'a FtIndex>, String> {
         let mut found: Option<&FtIndex> = None;
-        for ix in self.all_indexes().filter(|i| i.name == name) {
+        for ix in candidates {
             match found {
                 None => found = Some(ix),
                 Some(f) if f.same_shape(ix) => {}
@@ -989,6 +1022,96 @@ impl Known {
             .filter_map(|m| m.get(key));
         let first = flags.next()?;
         flags.all(|f| f == first).then_some(first.as_str())
+    }
+}
+
+/// A column's vector type as a script's caller gives it (see
+/// [`dbine_driver::Driver::insert_script_typed`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Typed {
+    pub ty: VType,
+    pub dims: Option<u32>,
+    /// Spelled the way Redis' fields are (`VECTOR(3, FLOAT16)`, from the
+    /// target's results or describe): the field's type on the server, which
+    /// decides the blob. Otherwise another engine's vector type
+    /// (`vector(3)`, `vector<float, 3>`, `halfvec(3)`) or only the
+    /// column's [`VectorMeta`]: a hint, after the index that covers the key.
+    pub own: bool,
+}
+
+/// The vector columns of a script's types, by name.
+#[derive(Debug, Clone, Default)]
+pub struct Types(HashMap<String, Typed>);
+
+/// Redis' own spelling of a vector field's type: `VECTOR(3, FLOAT16)`.
+pub fn own_spelling(s: &str) -> Option<(u32, VType)> {
+    let t = s.trim();
+    let head = t.get(..6)?;
+    if !head.eq_ignore_ascii_case("vector") {
+        return None;
+    }
+    let inner = t[6..].trim().strip_prefix('(')?.strip_suffix(')')?;
+    let (dims, ty) = inner.split_once(',')?;
+    let ty = ty.trim();
+    let ty = VType::ALL
+        .into_iter()
+        .find(|v| v.name().eq_ignore_ascii_case(ty))?;
+    Some((dims.trim().parse().ok()?, ty))
+}
+
+impl Types {
+    pub fn of(columns: &[dbine_driver::ResultColumn]) -> Types {
+        let mut m = HashMap::new();
+        for c in columns {
+            let typed = if let Some((dims, ty)) = own_spelling(&c.type_name) {
+                Some(Typed {
+                    ty,
+                    dims: Some(dims),
+                    own: true,
+                })
+            } else if let Some(meta) = c.vector.as_ref().filter(|m| !m.sparse) {
+                let ty = match meta.element {
+                    VectorElement::F64 => VType::F64,
+                    VectorElement::F16 => VType::F16,
+                    VectorElement::Bf16 => VType::Bf16,
+                    VectorElement::I8 => VType::I8,
+                    VectorElement::U8 => VType::U8,
+                    // Bits and unknown numbers as floats, what hashes
+                    // usually hold.
+                    _ => VType::F32,
+                };
+                Some(Typed {
+                    ty,
+                    dims: meta.dims,
+                    own: false,
+                })
+            } else {
+                parse_spelling(&c.type_name)
+                    .filter(|_| !c.type_name.trim().is_empty())
+                    .map(|(dims, ty)| Typed {
+                        ty,
+                        dims,
+                        own: false,
+                    })
+            };
+            if let Some(t) = typed {
+                m.insert(c.name.clone(), t);
+            }
+        }
+        Types(m)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn get(&self, column: &str) -> Option<Typed> {
+        self.0.get(column).copied()
+    }
+
+    /// The column's type when it is Redis' own spelling.
+    pub fn own(&self, column: &str) -> Option<Typed> {
+        self.get(column).filter(|t| t.own)
     }
 }
 
@@ -1355,12 +1478,18 @@ pub fn search_table(
         }
         t.rows.push(row);
     }
-    t.message = Some(format!(
-        "{}: {} documentos coinciden",
-        String::from_utf8_lossy(&args[0]).to_ascii_uppercase(),
-        text_of(total)
-    ));
+    t.message = Some(matched(&args[0], &text_of(total)));
     t
+}
+
+/// `FT.SEARCH: 3 documentos coinciden` (one document in the singular).
+fn matched(command: &[u8], total: &str) -> String {
+    let command = String::from_utf8_lossy(command).to_ascii_uppercase();
+    if total.trim() == "1" {
+        format!("{command}: 1 documento coincide")
+    } else {
+        format!("{command}: {total} documentos coinciden")
+    }
 }
 
 /// A JSON vector as RediSearch returns it (`[1.5,2]`, or `[[1.5,2]]` with
@@ -1436,6 +1565,34 @@ pub fn aggregate_table(
     if let Some(c) = cursor {
         t.message = Some(format!("FT.AGGREGATE: cursor {c}"));
     }
+    t
+}
+
+/// `FT.HYBRID`'s reply (Redis 8.4: `total_results`, `results`,
+/// `warnings`, `execution_time`): its results as [`aggregate_table`]'s
+/// rows (`__key`, `__score` and what `LOAD` brings, a vector field of
+/// `index` decoded and its column marked), the count and any warning as the
+/// message.
+pub fn hybrid_table(
+    args: &[Vec<u8>],
+    reply: &Value,
+    index: Option<&FtIndex>,
+) -> crate::shape::Table {
+    let (pairs, _) = pairs(reply, false);
+    let total = get(&pairs, "total_results").map(text_of);
+    let results: Vec<Value> = get(&pairs, "results")
+        .map(|r| items(r).into_iter().cloned().collect())
+        .unwrap_or_default();
+    let rows = Value::Array(std::iter::once(Value::Int(0)).chain(results).collect());
+    let mut t = aggregate_table(args, &rows, index);
+    let mut message = vec![matched(
+        &args[0],
+        &total.unwrap_or_else(|| t.rows.len().to_string()),
+    )];
+    if let Some(w) = get(&pairs, "warnings") {
+        message.extend(items(w).into_iter().map(text_of).filter(|w| !w.is_empty()));
+    }
+    t.message = Some(message.join("; "));
     t
 }
 
@@ -2186,5 +2343,139 @@ mod tests {
         assert!(no_such_index("ERR x: no such index"));
         assert!(no_such_index("Index with name 'x' not found in database 0"));
         assert!(!no_such_index("ERR wrong number of arguments"));
+    }
+
+    #[test]
+    fn script_types_from_result_columns() {
+        use dbine_driver::ResultColumn as C;
+        assert_eq!(own_spelling("VECTOR(3, FLOAT16)"), Some((3, VType::F16)));
+        assert_eq!(own_spelling(" vector( 8 ,uint8 ) "), Some((8, VType::U8)));
+        assert_eq!(own_spelling("vector(3)"), None);
+        assert_eq!(own_spelling("vector<float, 3>"), None);
+        assert_eq!(own_spelling("VECTOR"), None);
+        assert_eq!(own_spelling("TEXT"), None);
+        let t = Types::of(&[
+            C::new("id", "key"),
+            C::new("title", "TEXT"),
+            C::new("a", "VECTOR(4, BFLOAT16)"),
+            C::new("b", "vector(3)"),
+            C::new("c", "vector<double, 2>"),
+            C::new("d", "").with_vector(VectorMeta::dense(None, VectorElement::U8)),
+            C::new("e", "").with_vector(VectorMeta::sparse(Some(9), VectorElement::F32)),
+        ]);
+        assert!(t.get("id").is_none() && t.get("title").is_none());
+        assert_eq!(
+            t.own("a"),
+            Some(Typed {
+                ty: VType::Bf16,
+                dims: Some(4),
+                own: true
+            })
+        );
+        assert_eq!(
+            t.get("b"),
+            Some(Typed {
+                ty: VType::F32,
+                dims: Some(3),
+                own: false
+            })
+        );
+        assert!(t.own("b").is_none());
+        assert_eq!(t.get("c").map(|x| x.ty), Some(VType::F64));
+        assert_eq!(t.get("d").map(|x| (x.ty, x.dims)), Some((VType::U8, None)));
+        // Sparse vectors aren't hash blobs.
+        assert!(t.get("e").is_none());
+        // The index whose fields are of the types, when servers differ.
+        let mut k = Known::default();
+        let ix = FtIndex::from_info("docs", &redis8_info()).unwrap();
+        let mut other = ix.clone();
+        other.fields[1].vector.as_mut().unwrap().ty = VType::F16;
+        k.put_index("a:1", 0, &ix);
+        k.put_index("b:2", 0, &other);
+        assert!(k.index("docs").is_err());
+        let f16 = Types::of(&[C::new("emb", "VECTOR(3, FLOAT16)")]);
+        let got = k.index_for("docs", &f16).unwrap().unwrap();
+        assert_eq!(got.fields[1].vector.as_ref().unwrap().ty, VType::F16);
+        let f32 = Types::of(&[C::new("emb", "VECTOR(3, FLOAT32)")]);
+        let got = k.index_for("docs", &f32).unwrap().unwrap();
+        assert_eq!(got.fields[1].vector.as_ref().unwrap().ty, VType::F32);
+        // Another dimension: neither; a hint isn't Redis' own: neither.
+        assert!(k
+            .index_for("docs", &Types::of(&[C::new("emb", "VECTOR(4, FLOAT16)")]))
+            .is_err());
+        assert!(k
+            .index_for("docs", &Types::of(&[C::new("emb", "halfvec(3)")]))
+            .is_err());
+    }
+
+    /// FT.HYBRID's results (Redis 8.4) as a table: the key, the score and
+    /// what LOAD brings, a vector decoded by the index's type.
+    #[test]
+    fn hybrid_results() {
+        let ix = FtIndex::from_info("docs", &redis8_info()).unwrap();
+        let blob = Value::BulkString(VType::F32.encode(&[1.0, 0.0, 0.5]));
+        let reply = arr(vec![
+            b("total_results"),
+            Value::Int(2),
+            b("results"),
+            arr(vec![
+                arr(vec![b("__key"), b("doc:1"), b("emb"), blob]),
+                arr(vec![b("__key"), b("doc:2")]),
+            ]),
+            b("warnings"),
+            arr(vec![]),
+            b("execution_time"),
+            b("0.5"),
+        ]);
+        let args: Vec<Vec<u8>> = [
+            "FT.HYBRID",
+            "docs",
+            "SEARCH",
+            "x",
+            "LOAD",
+            "2",
+            "@__key",
+            "@emb",
+        ]
+        .iter()
+        .map(|a| a.as_bytes().to_vec())
+        .collect();
+        let t = hybrid_table(&args, &reply, Some(&ix));
+        assert_eq!(t.columns, ["__key", "emb"]);
+        assert_eq!(
+            t.rows[0],
+            [serde_json::json!("doc:1"), serde_json::json!("[1,0,0.5]")]
+        );
+        assert_eq!(t.rows[1][1], serde_json::Value::Null);
+        assert_eq!(t.types[1], "VECTOR(3, FLOAT32)");
+        assert!(t.vectors[1].is_some());
+        assert_eq!(
+            t.message.as_deref(),
+            Some("FT.HYBRID: 2 documentos coinciden")
+        );
+        // A warning goes with the count.
+        let warned = arr(vec![
+            b("total_results"),
+            Value::Int(0),
+            b("results"),
+            arr(vec![]),
+            b("warnings"),
+            arr(vec![b("Timeout limit was reached")]),
+        ]);
+        let t = hybrid_table(&args, &warned, None);
+        assert!(t.rows.is_empty());
+        assert_eq!(
+            t.message.as_deref(),
+            Some("FT.HYBRID: 0 documentos coinciden; Timeout limit was reached")
+        );
+        // One document, in the singular.
+        assert_eq!(
+            matched(b"ft.search", "1"),
+            "FT.SEARCH: 1 documento coincide"
+        );
+        assert_eq!(
+            matched(b"FT.HYBRID", "12"),
+            "FT.HYBRID: 12 documentos coinciden"
+        );
     }
 }

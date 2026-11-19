@@ -731,10 +731,93 @@ fn json_cell(v: &Value) -> Value {
     v.clone()
 }
 
+/// What a script knows of a column's CQL type (see
+/// [`dbine_driver::Driver::insert_script_typed`]): the cells whose JSON
+/// depends on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CellType {
+    /// `text`, `varchar`, `ascii`: a string stays a string, even when it
+    /// reads as JSON (`[1,2]`), and any other value (a number, a boolean,
+    /// another engine's JSON array or object) goes as its JSON text.
+    Text,
+    /// `vector<…, n>`: the cell as a JSON array of numbers (from its text
+    /// too), of `n` of them when the type says `n`.
+    Vector(Option<u32>),
+    /// Anything else: as without types.
+    Other,
+}
+
+impl CellType {
+    pub fn of(c: &dbine_driver::ResultColumn) -> CellType {
+        let t = c.type_name.trim().to_ascii_lowercase();
+        let t = t
+            .strip_prefix("frozen<")
+            .and_then(|r| r.strip_suffix('>'))
+            .unwrap_or(&t)
+            .trim();
+        if let Some(meta) = c.vector.as_ref().filter(|m| !m.sparse) {
+            return CellType::Vector(meta.dims);
+        }
+        if let Some(inner) = t.strip_prefix("vector<").and_then(|r| r.strip_suffix('>')) {
+            let dims = inner.rsplit(',').next().and_then(|d| d.trim().parse().ok());
+            return CellType::Vector(dims);
+        }
+        match t {
+            "text" | "varchar" | "ascii" => CellType::Text,
+            _ => CellType::Other,
+        }
+    }
+}
+
+/// [`json_cell`] knowing the column's type.
+fn typed_cell(v: &Value, ty: Option<CellType>, column: &str) -> Result<Value> {
+    match (ty, v) {
+        (Some(CellType::Text), Value::Null | Value::String(_)) => Ok(v.clone()),
+        // A number, a boolean, or a JSON value of another engine (`json`,
+        // `jsonb`, a document): its text, which is what the column keeps.
+        (Some(CellType::Text), other) => Ok(Value::String(other.to_string())),
+        (Some(CellType::Vector(dims)), _) => match dbine_driver::vector::parse_value(v) {
+            Some(nums) => {
+                if let Some(d) = dims.filter(|d| *d as usize != nums.len()) {
+                    return Err(Error::Query(format!(
+                        "El vector de {column} tiene {} dimensiones y la columna, {d}.",
+                        nums.len()
+                    )));
+                }
+                // The canonical text's numbers (`1`, not `1.0`).
+                Ok(serde_json::from_str(&dbine_driver::vector::text(nums)).unwrap_or(Value::Null))
+            }
+            None => Ok(json_cell(v)),
+        },
+        _ => Ok(json_cell(v)),
+    }
+}
+
+/// The types of `names`, by name, from what the caller knows.
+fn types_by_name(
+    types: &[dbine_driver::ResultColumn],
+) -> std::collections::HashMap<&str, CellType> {
+    types
+        .iter()
+        .map(|c| (c.name.as_str(), CellType::of(c)))
+        .collect()
+}
+
 /// One `INSERT INTO t JSON '{…}';` per row.
 pub fn insert_script(
     target: &ObjectRef,
     columns: &[String],
+    rows: &[Vec<Value>],
+) -> Result<String> {
+    insert_script_typed(target, columns, &[], rows)
+}
+
+/// [`insert_script`] with the columns' types, in their order (none: as
+/// without types).
+pub fn insert_script_typed(
+    target: &ObjectRef,
+    columns: &[String],
+    types: &[CellType],
     rows: &[Vec<Value>],
 ) -> Result<String> {
     let table = qualified(target.schema(), &target.name);
@@ -752,11 +835,15 @@ pub fn insert_script(
     let mut out = String::new();
     for row in rows {
         // Written by hand to keep the column order (serde_json's map sorts).
-        let fields: Vec<String> = keys
+        let fields = keys
             .iter()
             .zip(row)
-            .map(|(k, v)| format!("{}:{}", Value::from(k.as_str()), json_cell(v)))
-            .collect();
+            .enumerate()
+            .map(|(i, (k, v))| {
+                let cell = typed_cell(v, types.get(i).copied(), &columns[i])?;
+                Ok(format!("{}:{cell}", Value::from(k.as_str())))
+            })
+            .collect::<Result<Vec<String>>>()?;
         out.push_str(&format!(
             "INSERT INTO {table} JSON {};\n",
             lit(&format!("{{{}}}", fields.join(",")))
@@ -774,8 +861,27 @@ fn from_json(v: &Value) -> String {
     }
 }
 
+/// [`from_json`] knowing the column's type (see [`typed_cell`]).
+fn from_json_typed(v: &Value, ty: Option<CellType>, column: &str) -> Result<String> {
+    Ok(match typed_cell(v, ty, column)? {
+        Value::Null => "null".into(),
+        j => format!("fromJson({})", lit(&j.to_string())),
+    })
+}
+
 /// One `UPDATE t SET c = … WHERE <primary key> = …;` per edited row.
 pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
+    update_script_typed(target, changes, &[])
+}
+
+/// [`update_script`] with the columns' types, by name.
+pub fn update_script_typed(
+    target: &ObjectRef,
+    changes: &[RowChange],
+    types: &[dbine_driver::ResultColumn],
+) -> Result<String> {
+    let types = types_by_name(types);
+    let cell = |c: &str, v: &Value| from_json_typed(v, types.get(c).copied(), c);
     let table = qualified(target.schema(), &target.name);
     let mut out = String::new();
     for ch in changes.iter().filter(|c| !c.set.is_empty()) {
@@ -784,16 +890,16 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
                 "para actualizar una fila de Cassandra hace falta su clave primaria".into(),
             ));
         }
-        let set: Vec<String> = ch
+        let set = ch
             .set
             .iter()
-            .map(|(c, v)| format!("{} = {}", ident(c), from_json(v)))
-            .collect();
-        let conds: Vec<String> = ch
+            .map(|(c, v)| Ok(format!("{} = {}", ident(c), cell(c, v)?)))
+            .collect::<Result<Vec<String>>>()?;
+        let conds = ch
             .key
             .iter()
-            .map(|(c, v)| format!("{} = {}", ident(c), from_json(v)))
-            .collect();
+            .map(|(c, v)| Ok(format!("{} = {}", ident(c), cell(c, v)?)))
+            .collect::<Result<Vec<String>>>()?;
         out.push_str(&format!(
             "UPDATE {table} SET {} WHERE {};\n",
             set.join(", "),
@@ -807,16 +913,32 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
 /// columns are never null in Cassandra, so a null key part (or no key at
 /// all) can't identify a row and the whole script is refused.
 pub fn delete_script(target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
+    delete_script_typed(target, keys, &[])
+}
+
+/// [`delete_script`] with the key columns' types, by name.
+pub fn delete_script_typed(
+    target: &ObjectRef,
+    keys: &[Vec<(String, Value)>],
+    types: &[dbine_driver::ResultColumn],
+) -> Result<String> {
+    let types = types_by_name(types);
     let table = qualified(target.schema(), &target.name);
     let mut out = String::new();
     for key in keys {
         if key.is_empty() || key.iter().any(|(_, v)| v.is_null()) {
             return Err(Error::Unsupported("para borrar una fila de Cassandra hace falta su clave primaria completa y sin nulos".into()));
         }
-        let conds: Vec<String> = key
+        let conds = key
             .iter()
-            .map(|(c, v)| format!("{} = {}", ident(c), from_json(v)))
-            .collect();
+            .map(|(c, v)| {
+                Ok(format!(
+                    "{} = {}",
+                    ident(c),
+                    from_json_typed(v, types.get(c.as_str()).copied(), c)?
+                ))
+            })
+            .collect::<Result<Vec<String>>>()?;
         out.push_str(&format!(
             "DELETE FROM {table} WHERE {};\n",
             conds.join(" AND ")
@@ -1398,6 +1520,120 @@ mod tests {
         assert_eq!(
             u,
             "UPDATE ks.docs SET emb = fromJson('[1,2.5,3]') WHERE id = fromJson('1');\n"
+        );
+    }
+
+    /// With the columns' types: text that reads as JSON stays text in a
+    /// text column, a number goes to one as its text, and a vector's text
+    /// becomes its array, of the column's dimension.
+    #[test]
+    fn typed_scripts_follow_the_column_types() {
+        use dbine_driver::{ResultColumn as C, VectorElement, VectorMeta};
+        let target = ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: Some("ks".into()),
+            name: "docs".into(),
+        };
+        let cols = ["id".to_string(), "note".into(), "emb".into(), "tags".into()];
+        let types = [
+            C::new("id", "text"),
+            C::new("note", "varchar"),
+            C::new("emb", "vector<float, 3>")
+                .with_vector(VectorMeta::dense(Some(3), VectorElement::F32)),
+            C::new("tags", "list<text>"),
+        ];
+        let cell_types: Vec<CellType> = types.iter().map(CellType::of).collect();
+        assert_eq!(
+            cell_types,
+            [
+                CellType::Text,
+                CellType::Text,
+                CellType::Vector(Some(3)),
+                CellType::Other
+            ]
+        );
+        assert_eq!(
+            CellType::of(&C::new("v", "frozen<vector<double, 2>>")),
+            CellType::Vector(Some(2))
+        );
+        let row = vec![
+            Value::from("[1]"),
+            Value::from(5),
+            Value::from("[1, 2.50, -3]"),
+            Value::from("[\"a\"]"),
+        ];
+        let s =
+            insert_script_typed(&target, &cols, &cell_types, std::slice::from_ref(&row)).unwrap();
+        assert_eq!(
+            s,
+            "INSERT INTO ks.docs JSON '{\"id\":\"[1]\",\"note\":\"5\",\"emb\":[1,2.5,-3],\"tags\":[\"a\"]}';\n"
+        );
+        // Without types, text that reads as JSON is JSON.
+        let s = insert_script(&target, &cols, std::slice::from_ref(&row)).unwrap();
+        assert_eq!(
+            s,
+            "INSERT INTO ks.docs JSON '{\"id\":[1],\"note\":5,\"emb\":[1,2.5,-3],\"tags\":[\"a\"]}';\n"
+        );
+        // JSON values of another engine (a `jsonb` synced or imported) in
+        // text columns: their JSON as text, which INSERT JSON and fromJson
+        // take; as structures the server refuses them.
+        let json_row = vec![
+            serde_json::json!({"a": [1, 2]}),
+            serde_json::json!([true, null]),
+            Value::from("[0, 0, 1]"),
+            Value::Null,
+        ];
+        let s = insert_script_typed(&target, &cols, &cell_types, std::slice::from_ref(&json_row))
+            .unwrap();
+        assert_eq!(
+            s,
+            "INSERT INTO ks.docs JSON '{\"id\":\"{\\\"a\\\":[1,2]}\",\"note\":\"[true,null]\",\"emb\":[0,0,1],\"tags\":null}';\n"
+        );
+        let doc = RowChange {
+            key: vec![("id".into(), Value::from("k"))],
+            set: vec![
+                ("note".into(), serde_json::json!({"b": "c"})),
+                ("tags".into(), serde_json::json!(["x"])),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            update_script_typed(&target, std::slice::from_ref(&doc), &types).unwrap(),
+            "UPDATE ks.docs SET note = fromJson('\"{\\\"b\\\":\\\"c\\\"}\"'), tags = fromJson('[\"x\"]') WHERE id = fromJson('\"k\"');\n"
+        );
+        // Untyped, the same object goes as a map.
+        assert!(update_script(&target, std::slice::from_ref(&doc))
+            .unwrap()
+            .contains("note = fromJson('{\"b\":\"c\"}')"));
+        // Another dimension: refused before the server.
+        let mut bad = row.clone();
+        bad[2] = serde_json::json!([1, 2]);
+        let e = insert_script_typed(&target, &cols, &cell_types, &[bad]).unwrap_err();
+        assert!(
+            e.to_string().contains("2 dimensiones y la columna, 3"),
+            "{e}"
+        );
+        let ch = RowChange {
+            key: vec![("id".into(), Value::from("{k}"))],
+            set: vec![
+                ("emb".into(), Value::from("[0,1,0]")),
+                ("note".into(), Value::from("[nota]")),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            update_script_typed(&target, std::slice::from_ref(&ch), &types).unwrap(),
+            "UPDATE ks.docs SET emb = fromJson('[0,1,0]'), note = fromJson('\"[nota]\"') WHERE id = fromJson('\"{k}\"');\n"
+        );
+        let keys = [vec![("id".to_string(), Value::from("[1]"))]];
+        assert_eq!(
+            delete_script_typed(&target, &keys, &types).unwrap(),
+            "DELETE FROM ks.docs WHERE id = fromJson('\"[1]\"');\n"
+        );
+        // Untyped, that key would be a list, which a text key isn't.
+        assert_eq!(
+            delete_script(&target, &keys).unwrap(),
+            "DELETE FROM ks.docs WHERE id = fromJson('[1]');\n"
         );
     }
 
