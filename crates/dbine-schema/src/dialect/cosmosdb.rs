@@ -13,7 +13,10 @@
 //! unique ones become the unique key policy, which is checked only within
 //! each logical partition.
 
-use super::couchdb::{json_caps, parse_json_type, render_json_type, schemaless_note};
+use super::couchdb::{
+    json_caps, map_vector_index, parse_json_type, parse_vector_field, render_json_type,
+    render_vector_field, schemaless_note,
+};
 use super::{Caps, Dialect, Rendered};
 use crate::default::DefaultValue;
 use crate::issue::{IssueCode, Report, Severity};
@@ -30,17 +33,60 @@ pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
 
 const PARTITION_KEY: &str = "partition_key";
 
+/// The vector element types of Cosmos DB's embedding policy, besides
+/// float32.
+const VECTOR_ELEMENTS: &[(&str, dbine_driver::VectorElement)] = &[
+    ("int8", dbine_driver::VectorElement::I8),
+    ("uint8", dbine_driver::VectorElement::U8),
+];
+
 impl Dialect for CosmosDb {
     fn id(&self) -> &'static str {
         "cosmosdb"
     }
 
+    /// A field of the container's vector embedding policy is `vector(N)`
+    /// (float32), `vector(N, int8)` or `vector(N, uint8)`.
     fn parse_type(&self, t: &TypeSpec) -> L {
-        parse_json_type(t)
+        parse_vector_field(&t.raw, VECTOR_ELEMENTS).unwrap_or_else(|| parse_json_type(t))
     }
 
     fn render_type(&self, t: &L) -> Rendered {
+        if let L::Vector { element, .. } = t {
+            use dbine_driver::VectorElement as E;
+            if let Some(r) = render_vector_field(t, VECTOR_ELEMENTS) {
+                return match element {
+                    E::F32 | E::I8 | E::U8 => r,
+                    E::Bit => r.with(
+                        Severity::Warning,
+                        IssueCode::TypeApproximated,
+                        "Cosmos DB no tiene vectores de bits: quedan como float32 (0 y 1).",
+                    ),
+                    _ => r.with(
+                        Severity::Info,
+                        IssueCode::TypeChanged,
+                        "Cosmos DB guarda los vectores como float32, int8 o uint8: queda float32.",
+                    ),
+                };
+            }
+        }
         render_json_type(t, true)
+    }
+
+    /// `flat`, `quantizedFlat` or `diskANN`, with the embedding's distance
+    /// (`cosine`, `euclidean` = `l2`, `dotproduct` = `ip`).
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        use dbine_driver::vector::metric;
+        map_vector_index(
+            v,
+            "Cosmos DB",
+            &[metric::COSINE, metric::L2, metric::IP],
+            &["flat", "quantizedFlat", "diskANN"],
+            &[],
+        )
     }
 
     fn render_default(&self, _d: &DefaultValue, _ty: &L) -> Option<String> {
@@ -144,5 +190,69 @@ mod tests {
         assert_eq!(d.render_type(&L::int(8)).native, "integer");
         assert!(!d.render_type(&L::int(8)).notes.is_empty());
         assert!(!d.caps().nullability && !d.caps().foreign_keys);
+    }
+
+    #[test]
+    fn vector_fields_and_indexes() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        let d = CosmosDb;
+        let v = |dims, element| L::Vector {
+            dims,
+            element,
+            sparse: false,
+        };
+        assert_eq!(d.parse_type(&parse("vector(1536)")), v(Some(1536), E::F32));
+        assert_eq!(d.parse_type(&parse("vector(3, uint8)")), v(Some(3), E::U8));
+        assert_eq!(
+            d.parse_type(&parse("array|vector(3, int8)")),
+            v(Some(3), E::I8)
+        );
+        assert_eq!(d.parse_type(&parse("array")), L::Json { binary: true });
+        // pgvector's `vector(3)` (the logical vector) and back.
+        for (t, native, notes) in [
+            (v(Some(3), E::F32), "vector(3)", false),
+            (v(Some(3), E::U8), "vector(3, uint8)", false),
+            (v(Some(3), E::I8), "vector(3, int8)", false),
+            (v(Some(3), E::F16), "vector(3)", true),
+            (v(Some(8), E::Bit), "vector(8)", true),
+        ] {
+            let r = d.render_type(&t);
+            assert_eq!(r.native, native);
+            assert_eq!(!r.notes.is_empty(), notes, "{native}");
+        }
+        assert_eq!(d.parse_type(&parse("vector(3)")), v(Some(3), E::F32));
+        // A sparse vector has no embedding: an array with a warning.
+        let sparse = d.render_type(&L::Vector {
+            dims: Some(5),
+            element: E::F32,
+            sparse: true,
+        });
+        assert_eq!(sparse.native, "array");
+        assert!(!sparse.notes.is_empty());
+        // Indexes: the distance stays, the algorithm only when Cosmos has it.
+        let hnsw = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("ip".into()),
+            params: [("m".to_string(), "16".to_string())].into(),
+        };
+        let (kind, out) = d.vector_index(&hnsw).unwrap();
+        assert_eq!(
+            (kind, out.algorithm, out.metric.as_deref()),
+            (None, None, Some("ip"))
+        );
+        assert!(out.params.is_empty());
+        let disk = VectorIndex {
+            algorithm: Some("diskann".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            d.vector_index(&disk).unwrap().1.algorithm.as_deref(),
+            Some("diskANN")
+        );
+        let hamming = VectorIndex {
+            metric: Some("hamming".into()),
+            ..Default::default()
+        };
+        assert!(d.vector_index(&hamming).is_err());
     }
 }

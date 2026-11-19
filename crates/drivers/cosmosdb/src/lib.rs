@@ -55,6 +55,7 @@ mod sync;
 #[path = "../../influxdb/src/tls_http.rs"]
 mod tls_http;
 mod transfer;
+pub mod vector;
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
@@ -273,6 +274,8 @@ impl Driver for CosmosDriver {
             foreign_keys: false,
             monitor: true,
             database_properties: true,
+            // The vector embedding policy and vector indexes (see `vector`).
+            vectors: true,
             ..Default::default()
         }
     }
@@ -385,6 +388,7 @@ impl Driver for CosmosDriver {
             container: None,
             read_only: cfg.read_only,
             pk_paths: HashMap::new(),
+            vector_fields: HashMap::new(),
             monitor_cache: None,
         };
         // Proves the endpoint and the key.
@@ -415,6 +419,8 @@ pub struct CosmosSession {
     read_only: bool,
     /// Partition key paths per container, for INSERT / UPSERT.
     pk_paths: HashMap<String, Vec<String>>,
+    /// Vector fields per container (its embedding policy), for results.
+    vector_fields: HashMap<String, HashMap<String, dbine_driver::VectorMeta>>,
     /// The monitor's per-container reads (usage, partitions), refreshed
     /// once a minute: (when, database, container id → stats).
     monitor_cache: Option<(Instant, String, HashMap<String, monitor::ContainerStats>)>,
@@ -816,7 +822,22 @@ impl CosmosSession {
             })
             .unwrap_or_default();
         self.pk_paths.insert(coll.to_string(), paths.clone());
+        self.vector_fields
+            .insert(coll.to_string(), vector::fields(&body));
         Ok(paths)
+    }
+
+    /// A container's vector fields (cached with its partition key). A
+    /// container that can't be read has none.
+    pub(crate) async fn vectors_of(
+        &mut self,
+        coll: &str,
+    ) -> HashMap<String, dbine_driver::VectorMeta> {
+        if !self.vector_fields.contains_key(coll) {
+            self.pk_paths.remove(coll);
+            let _ = self.partition_paths(coll).await;
+        }
+        self.vector_fields.get(coll).cloned().unwrap_or_default()
     }
 
     /// One of the extensions of [`ddl`].
@@ -884,6 +905,7 @@ impl CosmosSession {
                 self.call(Method::DELETE, "colls", &link, &path, None, &[])
                     .await?;
                 self.pk_paths.remove(&name);
+                self.vector_fields.remove(&name);
                 if self.container.as_deref() == Some(name.as_str()) {
                     self.container = None;
                 }
@@ -1107,6 +1129,7 @@ impl CosmosSession {
         max_rows: usize,
         out: &mut QueryOutcome,
         metrics: bool,
+        vectors: &HashMap<String, dbine_driver::VectorMeta>,
     ) -> Result<Run> {
         let limit = max_rows.saturating_add(1);
         let run = match self.query_run(coll, sql, limit, None, metrics).await {
@@ -1115,7 +1138,7 @@ impl CosmosSession {
             }
             r => r?,
         };
-        push_items(out, &run.items, max_rows);
+        push_items_with(out, &run.items, max_rows, vectors);
         if run.more {
             if let Some(r) = out.results.last_mut() {
                 r.truncated = true;
@@ -1383,6 +1406,7 @@ pub fn container_schema(coll: &Value, sample: &[Value], offer: Option<&Value>) -
             })
             .unwrap_or_default()
     };
+    let embeddings = vector::embeddings(coll);
     let mut options = BTreeMap::new();
     let pk: Vec<String> = coll["partitionKey"]["paths"]
         .as_array()
@@ -1449,7 +1473,11 @@ pub fn container_schema(coll: &Value, sample: &[Value], offer: Option<&Value>) -
                 .iter()
                 .enumerate()
             {
-                indexes.push(ddl::policy_index(kind, n + 1, e));
+                indexes.push(if *list == "vectorIndexes" {
+                    vector::index(n + 1, e, &embeddings)
+                } else {
+                    ddl::policy_index(kind, n + 1, e)
+                });
             }
         }
     }
@@ -1486,7 +1514,7 @@ pub fn container_schema(coll: &Value, sample: &[Value], offer: Option<&Value>) -
             ..Default::default()
         })
         .collect();
-    TableSchema {
+    let mut t = TableSchema {
         kind: kinds::COLLECTION.into(),
         name: coll["id"].as_str().unwrap_or_default().to_string(),
         columns,
@@ -1497,26 +1525,62 @@ pub fn container_schema(coll: &Value, sample: &[Value], offer: Option<&Value>) -
         indexes,
         options,
         ..Default::default()
-    }
+    };
+    vector::describe(&mut t, &embeddings, sample);
+    t
 }
 
 /// One row per item; scalars (`SELECT VALUE …`) in a `value` column.
 pub fn push_items(out: &mut QueryOutcome, items: &[Value], max_rows: usize) {
+    push_items_with(out, items, max_rows, &HashMap::new());
+}
+
+/// [`push_items`] with the container's vector fields marked (`vectors`:
+/// field → vector): their cells are the vector's numbers as text, whole.
+pub fn push_items_with(
+    out: &mut QueryOutcome,
+    items: &[Value],
+    max_rows: usize,
+    vectors: &HashMap<String, dbine_driver::VectorMeta>,
+) {
     if items.iter().all(Value::is_object) {
         let keys = union_keys(items);
+        // A vector field whose values are all arrays of numbers.
+        let marked: HashMap<&String, dbine_driver::VectorMeta> = keys
+            .iter()
+            .filter_map(|k| Some((k, vectors.get(k)?)))
+            .filter(|(k, _)| {
+                items
+                    .iter()
+                    .filter_map(|d| d.get(k.as_str()))
+                    .filter(|v| !v.is_null())
+                    .all(|v| vector::cell_text(v).is_some())
+            })
+            .map(|(k, m)| {
+                let mut m = m.clone();
+                m.dims = m.dims.or_else(|| vector::sampled_dims(items, k));
+                (k, m)
+            })
+            .collect();
         out.begin_result(
             keys.iter()
-                .map(|k| ResultColumn {
-                    name: k.clone(),
-                    type_name: String::new(),
-                    vector: None,
+                .map(|k| match marked.get(k) {
+                    Some(m) => ResultColumn::new(k.clone(), vector::type_name(m.dims, m.element))
+                        .with_vector(m.clone()),
+                    None => ResultColumn::new(k.clone(), ""),
                 })
                 .collect(),
         );
         for d in items {
             out.push_row(
                 keys.iter()
-                    .map(|k| d.get(k).map_or(Value::Null, cell))
+                    .map(|k| match d.get(k) {
+                        None => Value::Null,
+                        Some(v) if marked.contains_key(k) => vector::cell_text(v)
+                            .map(Value::String)
+                            .unwrap_or_else(|| cell(v)),
+                        Some(v) => cell(v),
+                    })
                     .collect(),
                 max_rows,
             );
@@ -1828,6 +1892,7 @@ impl Session for CosmosSession {
         if self.db == name {
             self.container = None;
             self.pk_paths.clear();
+            self.vector_fields.clear();
         }
         Ok(())
     }
@@ -1861,10 +1926,12 @@ impl Session for CosmosSession {
                     self.run_admin(a, out).await
                 }
                 Stmt::Query { sql } => match self.container_for(&sql, &mut known).await {
-                    Ok(coll) => self
-                        .run_into(&coll, &sql, max_rows, out, false)
-                        .await
-                        .map(|_| ()),
+                    Ok(coll) => {
+                        let vectors = self.vectors_of(&coll).await;
+                        self.run_into(&coll, &sql, max_rows, out, false, &vectors)
+                            .await
+                            .map(|_| ())
+                    }
                     Err(e) => Err(e),
                 },
             };
@@ -1929,7 +1996,10 @@ impl Session for CosmosSession {
             };
             let coll = self.container_for(&sql, &mut known).await?;
             if analyze {
-                let run = self.run_into(&coll, &sql, max_rows, out, true).await?;
+                let vectors = self.vectors_of(&coll).await;
+                let run = self
+                    .run_into(&coll, &sql, max_rows, out, true, &vectors)
+                    .await?;
                 if run.metrics.is_empty() {
                     out.info("El servidor no devolvió métricas de la consulta (x-ms-documentdb-query-metrics).");
                 }
@@ -2191,7 +2261,10 @@ mod tests {
                 "spatialIndexes": [{ "path": "/loc/*", "types": ["Point", "Polygon"] }],
                 "fullTextIndexes": [{ "path": "/text" }],
                 "vectorIndexes": [{ "path": "/emb", "type": "quantizedFlat" }] },
-            "uniqueKeyPolicy": { "uniqueKeys": [{ "paths": ["/email"] }] }
+            "uniqueKeyPolicy": { "uniqueKeys": [{ "paths": ["/email"] }] },
+            "vectorEmbeddingPolicy": { "vectorEmbeddings": [
+                { "path": "/emb", "dataType": "float32", "distanceFunction": "cosine", "dimensions": 3 }
+            ] }
         });
         let offer = json!({ "offerResourceId": "abc", "content": { "offerThroughput": 400 } });
         let t = container_schema(
@@ -2204,8 +2277,9 @@ mod tests {
                 .iter()
                 .map(|c| c.name.as_str())
                 .collect::<Vec<_>>(),
-            ["id", "cat"]
+            ["id", "cat", "emb"]
         );
+        assert_eq!(t.columns[2].data_type, "vector(3)");
         assert_eq!(t.primary_key.as_ref().unwrap().columns, ["id"]);
         assert_eq!(t.options[ddl::PARTITION_KEY], "/cat");
         assert_eq!(t.options[ddl::THROUGHPUT_MODE], "manual");
@@ -2219,7 +2293,9 @@ mod tests {
         );
         assert_eq!(spatial.options["types"], "[\"Point\",\"Polygon\"]");
         assert_eq!(t.indexes[3].kind.as_deref(), Some("FULLTEXT"));
-        assert_eq!(t.indexes[4].options["type"], "quantizedFlat");
+        let v = t.indexes[4].vector.as_ref().unwrap();
+        assert_eq!(v.algorithm.as_deref(), Some("quantizedFlat"));
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
         assert!(!t.options[ddl::INDEXING_POLICY].contains("spatial"));
         let ddl = ddl::table_ddl(
             &t,

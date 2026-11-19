@@ -45,7 +45,7 @@ pub fn designer() -> DesignerSpec {
     DesignerSpec {
         kind: kinds::COLLECTION,
         label: "Nuevo contenedor",
-        data_types: vec!["string", "number", "boolean", "object", "array"],
+        data_types: vec!["string", "number", "boolean", "object", "array", "vector(1536)"],
         schemas: false,
         primary_key: false,
         auto_increment: false,
@@ -79,7 +79,8 @@ pub fn designer() -> DesignerSpec {
                 .placeholder("{ \"indexingMode\": \"consistent\", \"includedPaths\": [{ \"path\": \"/*\" }] }")
                 .help("Vacío = la predeterminada (indexa todo)."),
         ],
-        columns_required: false, vector_indexes: None,
+        columns_required: false,
+        vector_indexes: Some(crate::vector::designer_spec()),
     }
 }
 
@@ -177,6 +178,9 @@ pub const POLICY_KINDS: &[(&str, &str)] = &[
 ];
 
 fn policy_list(i: &IndexDef) -> Option<&'static str> {
+    if i.vector.is_some() {
+        return Some("vectorIndexes");
+    }
     let k = i.kind.as_deref()?.trim();
     POLICY_KINDS
         .iter()
@@ -211,6 +215,9 @@ pub fn policy_index(kind: &str, n: usize, entry: &Value) -> IndexDef {
 
 /// The indexing policy entry of a spatial, full-text or vector index.
 fn policy_entry(i: &IndexDef) -> Value {
+    if crate::vector::is_vector(i) {
+        return crate::vector::entry(i);
+    }
     let mut e = Map::new();
     e.insert(
         "path".into(),
@@ -247,6 +254,12 @@ pub fn container_body(t: &TableSchema, indexes: bool) -> Result<Value> {
         ),
         None => None,
     };
+    // The vector fields: the embedding policy, fixed at creation (a vector
+    // index needs its path there).
+    let vectors = crate::vector::embedding_policy(t)?;
+    if let Some(v) = &vectors {
+        body.insert("vectorEmbeddingPolicy".into(), v.clone());
+    }
     if indexes {
         let mut composites = Vec::new();
         let mut uniques = Vec::new();
@@ -282,7 +295,10 @@ pub fn container_body(t: &TableSchema, indexes: bool) -> Result<Value> {
         }
         if !lists.is_empty() {
             let p = policy.get_or_insert_with(|| {
-                json!({ "indexingMode": "consistent", "automatic": true, "includedPaths": [{ "path": "/*" }], "excludedPaths": [{ "path": "/\"_etag\"/?" }] })
+                let mut excluded = vec![json!({ "path": "/\"_etag\"/?" })];
+                // The vector paths stay out of the range index.
+                excluded.extend(vectors.as_ref().map(crate::vector::excluded_paths).unwrap_or_default());
+                json!({ "indexingMode": "consistent", "automatic": true, "includedPaths": [{ "path": "/*" }], "excludedPaths": excluded })
             });
             if let Some(o) = p.as_object_mut() {
                 for (name, entry) in lists {

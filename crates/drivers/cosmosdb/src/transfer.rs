@@ -772,18 +772,24 @@ impl CosmosSession {
                 (names, Some(found))
             }
         };
+        // The embedding policy's fields: `vector(N)`, cells as the vector's
+        // text.
+        let vectors = self.vectors_of(&spec.table.name).await;
         let cols: Vec<TransferColumn> = names
             .iter()
             .map(|n| TransferColumn {
                 name: n.clone(),
                 type_name: if n == "id" {
                     "string".into()
+                } else if let Some(m) = vectors.get(n) {
+                    crate::vector::type_name(m.dims, m.element)
                 } else {
                     String::new()
                 },
                 nullable: n != "id",
             })
             .collect();
+        let vector_at: Vec<bool> = names.iter().map(|n| vectors.contains_key(n)).collect();
         sink.lock().map_err(lock_err)?.begin(&cols)?;
         let mut builder = BatchBuilder::new();
         scan(&rest, &plan, |items| {
@@ -797,7 +803,15 @@ impl CosmosSession {
                         )));
                     }
                 }
-                builder.push(item_row(&it, &names), &mut *s)?;
+                let mut row = item_row(&it, &names);
+                for (c, _) in row.iter_mut().zip(&vector_at).filter(|(_, v)| **v) {
+                    if let Cell::Json(j) = c {
+                        if let Some(t) = dbine_driver::vector::parse(j).map(dbine_driver::vector::text) {
+                            *c = Cell::Text(t);
+                        }
+                    }
+                }
+                builder.push(row, &mut *s)?;
             }
             Ok(())
         })
@@ -818,8 +832,27 @@ impl CosmosSession {
         } else {
             spec.columns.clone()
         };
-        self.write(spec, Feed::Rows { names, source }, progress)
-            .await
+        // Vector columns of the source, by position (as the cells come).
+        let vectors: Vec<bool> = (0..names.len())
+            .map(|i| {
+                let c = if columns.len() == names.len() {
+                    columns.get(i)
+                } else {
+                    columns.iter().find(|c| c.name == names[i])
+                };
+                c.is_some_and(|c| crate::vector::is_vector_type(&c.type_name))
+            })
+            .collect();
+        self.write(
+            spec,
+            Feed::Rows {
+                names,
+                source,
+                vectors,
+            },
+            progress,
+        )
+        .await
     }
 
     /// Create `feed`'s items in `spec.table`; returns the items written.
@@ -1094,6 +1127,9 @@ enum Feed<'a> {
     Rows {
         names: Vec<String>,
         source: &'a mut dyn BatchSource,
+        /// Columns holding vectors (another engine's vector type): their
+        /// text cells are stored as arrays of numbers.
+        vectors: Vec<bool>,
     },
     Items {
         pages: mpsc::Receiver<Result<Page>>,
@@ -1178,9 +1214,20 @@ async fn load(
 ) -> std::result::Result<(), Failed> {
     let mut q = Queue::default();
     match feed {
-        Feed::Rows { names, source } => {
+        Feed::Rows {
+            names,
+            source,
+            vectors,
+        } => {
             while let Some(batch) = source.next().await {
-                for row in batch.rows {
+                for mut row in batch.rows {
+                    for (c, _) in row.iter_mut().zip(vectors.iter()).filter(|(_, v)| **v) {
+                        if let Cell::Text(t) = c {
+                            if let Some(n) = dbine_driver::vector::parse(t) {
+                                *c = Cell::Json(dbine_driver::vector::text(n));
+                            }
+                        }
+                    }
                     if row.len() != names.len() {
                         return Err(sure(Error::Query(format!(
                             "la fila tiene {} valores y la carga {} columnas",
@@ -1808,6 +1855,7 @@ mod tests {
             &mut Feed::Rows {
                 names: cols.clone(),
                 source: &mut src,
+                vectors: Vec::new(),
             },
             &mut tick,
         )
@@ -1837,6 +1885,7 @@ mod tests {
                 &mut Feed::Rows {
                     names: cols,
                     source: &mut src,
+                    vectors: Vec::new(),
                 },
                 &mut tick,
             )
