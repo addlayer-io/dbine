@@ -73,9 +73,10 @@ impl Dialect for Manticore {
             |why: &str| Rendered::exact("string").with(Warning, TypeApproximated, why.to_string());
         match t {
             L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
-            // float_vector; the dimension goes to the KNN settings (finalize).
-            L::Vector { dims, element, .. } => {
-                let r = Rendered::exact(super::starrocks::with_dim("float_vector", *dims));
+            // float_vector; the dimension goes to the KNN settings
+            // (`vector_index`, then finalize).
+            L::Vector { element, .. } => {
+                let r = Rendered::exact("float_vector");
                 if *element == dbine_driver::VectorElement::F32 {
                     r
                 } else {
@@ -148,14 +149,15 @@ impl Dialect for Manticore {
     }
 
     /// A float_vector's KNN settings (HNSW; L2, inner product, cosine),
-    /// kept as its vector index; `knn_dims` comes from the column's type in
-    /// finalize.
+    /// kept as its vector index; `knn_dims` is the dimension of the column
+    /// it searches (finalize writes it).
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
+        super::starrocks::refuse_column("Manticore", v, column, true)?;
         let m = v.metric.as_deref().unwrap_or(metric::L2);
         if ![metric::L2, metric::IP, metric::COSINE].contains(&m) {
             return Err(format!(
@@ -163,7 +165,7 @@ impl Dialect for Manticore {
                 "Manticore", "l2, ip, cosine"
             ));
         }
-        let params = super::starrocks::index_params(v, &[param::M, param::EF_CONSTRUCTION]);
+        let params = super::starrocks::index_params(v, &[param::M, param::EF_CONSTRUCTION], column);
         Ok((
             Some("KNN".into()),
             dbine_driver::VectorIndex {
@@ -317,16 +319,23 @@ mod tests {
         };
         assert_eq!(p("float_vector"), v);
         let r = |t: L| Manticore.render_type(&t).native;
-        // finalize takes the mark off (the dimension goes to knn_dims).
-        assert_eq!(r(v), "float_vector /* dim=? */");
-        assert_eq!(
-            r(L::Vector {
-                dims: Some(3),
-                element: dbine_driver::VectorElement::F32,
-                sparse: false
-            }),
-            "float_vector /* dim=3 */"
-        );
+        // The dimension goes to knn_dims (vector_index, then finalize).
+        assert_eq!(r(v.clone()), "float_vector");
+        let v3 = L::Vector {
+            dims: Some(3),
+            element: dbine_driver::VectorElement::F32,
+            sparse: false,
+        };
+        assert_eq!(r(v3.clone()), "float_vector");
+        let pg = dbine_driver::VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("cosine".into()),
+            ..Default::default()
+        };
+        let (_, vi) = Manticore.vector_index(&pg, Some(&v3)).unwrap();
+        assert_eq!(vi.params.get("dim").map(String::as_str), Some("3"));
+        let e = Manticore.vector_index(&pg, Some(&v)).unwrap_err();
+        assert!(e.contains("necesita la dimensión"), "{e}");
         assert!(matches!(p("tokencount"), L::Other { .. }));
     }
 

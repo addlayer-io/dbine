@@ -409,8 +409,21 @@ impl Dialect for MySql {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        // Every engine of the family indexes dense vectors of a fixed
+        // dimension (TiDB's `vector` without one takes no index).
+        match column {
+            Some(L::Vector { sparse: true, .. }) => {
+                return Err(
+                    "MariaDB, TiDB, OceanBase y SingleStore no indexan vectores dispersos".into(),
+                )
+            }
+            Some(L::Vector { .. }) if super::starrocks::searched_dims(v, column).is_none() => {
+                return Err("los índices vectoriales de MariaDB, TiDB, OceanBase y SingleStore necesitan la dimensión de los vectores y no se conoce".into())
+            }
+            _ => {}
+        }
         if let Some(m) = v.metric.as_deref() {
             if !VECTOR_METRICS.contains(&m) {
                 return Err(format!(
@@ -419,7 +432,7 @@ impl Dialect for MySql {
             }
         }
         // And the dimension the index holds (Manticore's knn_dims,
-        // Doris' dim): finalize gives it to the column.
+        // Doris' dim) or its column's: finalize gives it to the column.
         let params = super::starrocks::index_params(
             v,
             &[
@@ -427,6 +440,7 @@ impl Dialect for MySql {
                 dbine_driver::vector::param::EF_CONSTRUCTION,
                 dbine_driver::vector::param::LISTS,
             ],
+            column,
         );
         Ok((
             Some("VECTOR".into()),
@@ -789,6 +803,58 @@ mod tests {
                 None
             )
             .is_err());
+        // The searched column: its dimension rides to finalize; one of
+        // unknown dimension, or a sparse one, takes no index.
+        let (_, v) = MySql.vector_index(&pg, Some(&v3)).unwrap();
+        assert_eq!(v.params.get("dim").map(String::as_str), Some("3"));
+        let any = L::Vector {
+            dims: None,
+            element: E::F32,
+            sparse: false,
+        };
+        let e = MySql.vector_index(&pg, Some(&any)).unwrap_err();
+        assert!(e.contains("necesitan la dimensión"), "{e}");
+        let mut with_dim = pg.clone();
+        with_dim.params.insert("knn_dims".into(), "3".into());
+        assert!(MySql.vector_index(&with_dim, Some(&any)).is_ok());
+        let sparse = L::Vector {
+            dims: Some(9),
+            element: E::F32,
+            sparse: true,
+        };
+        let e = MySql.vector_index(&pg, Some(&sparse)).unwrap_err();
+        assert!(e.contains("dispersos"), "{e}");
+    }
+
+    /// A searched list of numbers whose index states its dimension moves as
+    /// a vector out of Doris and StarRocks (`convert`), also to families
+    /// outside this one; Manticore's float_vector keeps its knn_dims inside
+    /// the family.
+    #[test]
+    fn olap_vectors_leave_as_vectors() {
+        use crate::convert::{convert, Options};
+        for from in ["doris", "starrocks"] {
+            for (to, want) in [("postgres", "vector(3)"), ("mariadb", "vector(3)")] {
+                let c = convert(&[dim_in_index(from)], from, to, &Options::default()).unwrap();
+                let t = &c.tables[0];
+                let v = t.columns.iter().find(|c| c.name == "v").unwrap();
+                assert_eq!(v.data_type, want, "{from} -> {to}: {:?}", c.issues);
+                assert!(
+                    t.indexes.iter().any(|i| i.vector.is_some()),
+                    "{from} -> {to}: {:?}",
+                    c.issues
+                );
+            }
+        }
+        // A sparse vector's index isn't taken by the family's engines.
+        let mut t = vector_table();
+        t.columns[1].data_type = "sparsevec(30000)".into();
+        let c = convert(&[t], "postgres", "mariadb", &Options::default()).unwrap();
+        assert!(c.tables[0].indexes.iter().all(|i| i.vector.is_none()));
+        assert!(c
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::IndexDropped && i.message.contains("dispersos")));
     }
 
     /// A table with a vector column and a vector index, as the MySQL family
