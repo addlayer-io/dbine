@@ -564,6 +564,37 @@ pub(crate) fn table_vector_indexes(
     Ok(out)
 }
 
+/// Whether the index settings being written turn k-NN on.
+fn knn_on(settings: &Obj) -> bool {
+    settings
+        .iter()
+        .any(|(k, v)| k == "knn" && *v == J::Bool(true))
+}
+
+/// The vector index OpenSearch needs for a byte or binary `knn_vector`
+/// with k-NN on: Lucene's HNSW for bytes, Faiss's with Hamming for bits
+/// (the only engines that take them).
+fn implicit_os_index(c: &ColumnDef) -> Result<Option<IndexDef>> {
+    let Some(t) = vector_type(c)?.filter(|t| t.base == "knn_vector") else {
+        return Ok(None);
+    };
+    let (engine, metric) = match t.elem {
+        vectors::Elem::Byte => ("lucene", None),
+        vectors::Elem::Bit => ("faiss", Some(dbine_driver::vector::metric::HAMMING)),
+        _ => return Ok(None),
+    };
+    Ok(Some(IndexDef {
+        name: c.name.trim().to_string(),
+        columns: vec![c.name.trim().to_string()],
+        vector: Some(dbine_driver::VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: metric.map(Into::into),
+            params: [("engine".to_string(), engine.to_string())].into(),
+        }),
+        ..Default::default()
+    }))
+}
+
 /// The vector index on column `col` (unchecked; see [`table_vector_indexes`]).
 pub(crate) fn vector_index_of<'a>(t: &'a TableSchema, col: &str) -> Option<&'a IndexDef> {
     t.indexes
@@ -658,7 +689,20 @@ pub(crate) fn index_body(t: &TableSchema, flavor: Flavor) -> Result<Obj> {
             .iter()
             .find(|(i, _)| i.columns[0].trim() == name)
             .map(|(i, _)| *i);
-        put_field(&mut props, &path, field_mapping(c, flavor, ix)?, name)?;
+        // With k-NN on, OpenSearch indexes every knn_vector, and its
+        // default engine (nmslib up to 2.18) takes floats only: a byte or
+        // binary field without a vector index of its own gets the engine
+        // that takes it.
+        let implicit = match (ix, flavor, knn_on(&settings)) {
+            (None, Flavor::OpenSearch, true) => implicit_os_index(c)?,
+            _ => None,
+        };
+        put_field(
+            &mut props,
+            &path,
+            field_mapping(c, flavor, ix.or(implicit.as_ref()))?,
+            name,
+        )?;
     }
     if !props.is_empty() {
         mappings.push(("properties".into(), J::Obj(props)));
@@ -2172,6 +2216,22 @@ mod tests {
         .unwrap_err()
         .to_string()
         .contains("index.knn"));
+        // A byte vector without one, k-NN on: the engine that takes bytes.
+        let mut bytes = vector_table("knn_vector(3)", Some(vi(None, None, &[])));
+        bytes.columns.push(col("b", "knn_vector(4, byte)", &[]));
+        bytes
+            .columns
+            .push(col("bits", "knn_vector(16, binary)", &[]));
+        let p = &create_body(&bytes, Flavor::OpenSearch)["mappings"]["properties"];
+        assert_eq!(
+            p["b"]["method"],
+            json!({"name": "hnsw", "engine": "lucene"})
+        );
+        assert_eq!(
+            p["bits"]["method"],
+            json!({"name": "hnsw", "space_type": "hamming", "engine": "faiss"})
+        );
+        assert!(p["emb"].get("method").is_none());
         let got =
             J::parse(r#"{"mappings":{"properties":{"emb":{"type":"knn_vector","dimension":3}}}}"#)
                 .unwrap();
