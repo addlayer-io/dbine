@@ -937,6 +937,46 @@ async fn typed_scripts(d: &dyn dbine_driver::Driver, s: &mut Box<dyn Session>, u
     assert_eq!(stored(&got[1], "b").0, Some(0x10));
     assert_eq!(stored(&got[1], "f").0, Some(0x27));
     assert_eq!(stored(&got[1], "a").0, None);
+
+    // A field that mixes BinData int8 with arrays is `vector(3)` in a
+    // result, so a typed insert with the result's types writes an array.
+    run(
+        s,
+        &format!("db.getCollection(\"{t}\").insertOne({{ _id: 3, q: [7, 8, 9] }})"),
+    )
+    .await;
+    let out = run(
+        s,
+        &format!("db.getCollection(\"{t}\").find({{}}).sort({{ _id: 1 }})"),
+    )
+    .await;
+    let r = &out.results[0];
+    let q = r.columns.iter().find(|c| c.name == "q").unwrap().clone();
+    assert_eq!(q.type_name, "vector(3)");
+    assert!(q.vector.is_some());
+    // Results of this collection noted `b` as BinData bits (a hint kept by
+    // the collection's name only): a typed insert whose column for it says
+    // nothing writes an array all the same.
+    let ins = d
+        .insert_script_typed(
+            &coll(t),
+            &[
+                ResultColumn::new("_id", "int"),
+                q,
+                ResultColumn::new("b", ""),
+            ],
+            &[vec![
+                json!(4),
+                json!([1.0, 2.0, 3.0]),
+                json!([1.0, 0.0, 1.0]),
+            ]],
+        )
+        .unwrap();
+    run(s, &ins).await;
+    let got = docs(&db, t).await;
+    assert_eq!(got[3].get_i32("_id"), Ok(4));
+    assert_eq!(stored(&got[3], "q"), (None, vec![1.0, 2.0, 3.0]));
+    assert_eq!(stored(&got[3], "b"), (None, vec![1.0, 0.0, 1.0]));
     cleanup(s, &[t]).await;
 }
 
