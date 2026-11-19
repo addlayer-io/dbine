@@ -300,7 +300,7 @@ pub(crate) fn greptime_indexes(create: &str) -> Vec<(String, String, BTreeMap<St
         };
         let col = l[1..end + 1].to_string();
         let upper = l.to_ascii_uppercase();
-        for kind in ["INVERTED", "FULLTEXT", "SKIPPING"] {
+        for kind in ["INVERTED", "FULLTEXT", "SKIPPING", "VECTOR"] {
             let Some(at) = upper.find(&format!("{kind} INDEX")) else {
                 continue;
             };

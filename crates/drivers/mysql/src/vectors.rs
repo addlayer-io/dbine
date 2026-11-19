@@ -221,6 +221,12 @@ fn metrics(v: Variant) -> &'static [(&'static str, &'static str)] {
             (metric::L2, "l2"),
             (metric::L1, "l1"),
         ],
+        // Squared L2 orders like L2.
+        Variant::GreptimeDb => &[
+            (metric::L2, "l2sq"),
+            (metric::COSINE, "cosine"),
+            (metric::IP, "ip"),
+        ],
         _ => &[],
     }
 }
@@ -316,6 +322,12 @@ fn params(v: Variant) -> &'static [(&'static str, &'static str)] {
             (param::QUANTIZATION, "quantization"),
         ],
         Variant::Databend => &[(param::M, "m"), (param::EF_CONSTRUCTION, "ef_construct")],
+        Variant::GreptimeDb => &[
+            (param::M, "connectivity"),
+            (param::EF_CONSTRUCTION, "expansion_add"),
+            ("ef_search", "expansion_search"),
+            ("engine", "engine"),
+        ],
         _ => &[],
     }
 }
@@ -447,6 +459,16 @@ pub(crate) fn designer(v: Variant) -> Option<VectorIndexSpec> {
             ],
             filter_columns: false,
         },
+        Variant::GreptimeDb => VectorIndexSpec {
+            algorithms: Vec::new(),
+            metrics: metric_names(v),
+            params: vec![
+                spec_param(param::M, &[], "16"),
+                spec_param(param::EF_CONSTRUCTION, &[], "128"),
+                spec_param("ef_search", &[], "64"),
+            ],
+            filter_columns: false,
+        },
         Variant::Databend => VectorIndexSpec {
             algorithms: vec!["hnsw"],
             metrics: metric_names(v),
@@ -477,10 +499,13 @@ fn vector_of(v: Variant, ix: &IndexDef) -> Result<(&VectorIndex, &str)> {
     }
 }
 
+/// The index's build parameters the engine has, in its names (another
+/// engine's tuning, from a conversion, is left out).
 fn params_text(v: Variant, vi: &VectorIndex, skip: &[&str]) -> Vec<(String, String)> {
     vi.params
         .iter()
         .filter(|(k, _)| !skip.contains(&k.as_str()))
+        .filter(|(k, _)| params(v).iter().any(|(s, n)| s == k || n == k))
         .map(|(k, val)| (native_param(v, k), val.clone()))
         .collect()
 }
@@ -502,12 +527,7 @@ pub(crate) fn create_index(
         Variant::MariaDb => {
             let guard = if if_exists { "IF NOT EXISTS " } else { "" };
             let mut s = format!("CREATE VECTOR INDEX {guard}{name} ON {table} ({col_q})");
-            for (k, val) in params_text(v, vi, &[]) {
-                if k != "M" {
-                    return Err(Error::Unsupported(format!(
-                        "MariaDB no tiene el parámetro «{k}» en sus índices vectoriales (solo M)"
-                    )));
-                }
+            for (_, val) in params_text(v, vi, &[]) {
                 s.push_str(&format!(" M={}", number(&val)?));
             }
             if let Some(m) = metric {
@@ -930,6 +950,49 @@ pub(crate) fn from_databend(ix: &mut IndexDef) {
     ix.vector = Some(vi);
 }
 
+/// GreptimeDB: a column's `VECTOR INDEX WITH(metric = '…', connectivity =
+/// '…', …)`, written in its CREATE TABLE line (ALTER doesn't add one).
+pub(crate) fn greptime_column_index(ix: &IndexDef) -> Result<String> {
+    let v = Variant::GreptimeDb;
+    let (vi, _) = vector_of(v, ix)?;
+    let mut with = Vec::new();
+    if let Some(m) = vi.metric.as_deref() {
+        with.push(format!("metric = '{}'", native_metric(v, m)?));
+    }
+    for (k, val) in params_text(v, vi, &[]) {
+        with.push(format!("{k} = '{}'", word(&val)?));
+    }
+    Ok(if with.is_empty() {
+        " VECTOR INDEX".into()
+    } else {
+        format!(" VECTOR INDEX WITH({})", with.join(", "))
+    })
+}
+
+/// A GreptimeDB vector index read from its column's `WITH(…)` options.
+pub(crate) fn greptime_index(column: &str, options: BTreeMap<String, String>) -> IndexDef {
+    let v = Variant::GreptimeDb;
+    let mut vi = VectorIndex::default();
+    for (k, val) in &options {
+        match k.as_str() {
+            "metric" => vi.metric = Some(standard_metric(v, val)),
+            // usearch's HNSW, the one engine: its defaults aren't settings.
+            "engine" => {}
+            _ => {
+                vi.params.insert(standard_param(v, k), val.clone());
+            }
+        }
+    }
+    IndexDef {
+        name: format!("VECTOR_INDEX_{column}"),
+        columns: vec![column.to_string()],
+        kind: Some(kind(v).into()),
+        options,
+        vector: Some(vi),
+        ..Default::default()
+    }
+}
+
 /// Manticore's KNN settings of each `float_vector` column in its `SHOW
 /// CREATE TABLE` (`v float_vector knn_type='hnsw' knn_dims='3'
 /// hnsw_similarity='L2'`), as vector indexes named after the column.
@@ -1050,9 +1113,51 @@ impl SeenColumns {
 
 /// Engines whose result columns are found to be vectors through the
 /// catalog: their wire type is a string or a blob (MySQL 9's has a type of
-/// its own; Manticore's results say no table).
+/// its own).
 pub(crate) fn looked_up(v: Variant) -> bool {
-    !matches!(v.base(), Variant::MySql | Variant::Manticore)
+    v.base() != Variant::MySql
+}
+
+/// The table a single-table `SELECT` reads (`[schema.]table`), for the
+/// engines whose result columns don't say which table they come from
+/// (GreptimeDB, Manticore). `None` for anything else: joins, several
+/// tables, subqueries, other statements.
+pub(crate) fn single_table(sql: &str) -> Option<(Option<String>, String)> {
+    let s = sql.replace(['\n', '\r', '\t'], " ");
+    let s = s.trim().trim_end_matches(';').trim();
+    let lower = s.to_ascii_lowercase();
+    if !lower.starts_with("select") || s.contains(';') || lower.contains(" join ") {
+        return None;
+    }
+    let at = lower.find(" from ")? + " from ".len();
+    if lower[at..].contains(" from ") {
+        return None;
+    }
+    let (first, rest) = ident(&s[at..])?;
+    let (schema, table, rest) = match rest.strip_prefix('.') {
+        Some(r) => {
+            let (t, r) = ident(r)?;
+            (Some(first), t, r)
+        }
+        None => (None, first, rest),
+    };
+    let rest = rest.trim_start();
+    // `FROM t, u`, `FROM t AS x, u`: more than one table.
+    if rest.starts_with(',')
+        || rest.starts_with('(')
+        || rest.contains(',') && {
+            let r = rest.to_ascii_lowercase();
+            let end = ["where", "group", "order", "limit", "option", "having"]
+                .iter()
+                .filter_map(|k| r.find(&format!("{k} ")).or_else(|| r.find(k)))
+                .min()
+                .unwrap_or(r.len());
+            r[..end].contains(',')
+        }
+    {
+        return None;
+    }
+    Some((schema, table))
 }
 
 /// The catalog query for a schema's vector columns (table, column, type):
@@ -1458,6 +1563,38 @@ mod tests {
     }
 
     #[test]
+    fn single_tables_are_found_in_selects() {
+        let one = |s: &str| single_table(s);
+        assert_eq!(one("SELECT * FROM `t` LIMIT 10"), Some((None, "t".into())));
+        assert_eq!(
+            one("SELECT *\nFROM `t`\nLIMIT 100"),
+            Some((None, "t".into()))
+        );
+        assert_eq!(
+            one("select id, v from db.items where id = 1;"),
+            Some((Some("db".into()), "items".into()))
+        );
+        assert_eq!(
+            one("SELECT v FROM t ORDER BY knn_dist() LIMIT 3"),
+            Some((None, "t".into()))
+        );
+        assert_eq!(
+            one("SELECT a, b FROM t WHERE a IN (1, 2)"),
+            Some((None, "t".into()))
+        );
+        for none in [
+            "SELECT * FROM a, b",
+            "SELECT * FROM a JOIN b ON a.x = b.x",
+            "SELECT * FROM (SELECT 1) x",
+            "INSERT INTO t VALUES (1)",
+            "SELECT 1; SELECT * FROM t",
+            "SELECT * FROM t WHERE x IN (SELECT y FROM u)",
+        ] {
+            assert_eq!(one(none), None, "{none}");
+        }
+    }
+
+    #[test]
     fn seen_columns_expire_and_clear() {
         let mut s = SeenColumns::default();
         assert_eq!(s.known("db", "t", "v"), Known::Unknown);
@@ -1472,8 +1609,56 @@ mod tests {
         assert_eq!(s.known("db", "t", "v"), Known::Unknown);
         assert!(may_change_columns("ALTER TABLE t ADD v vector(3)"));
         assert!(!may_change_columns("SELECT * FROM t"));
-        assert!(looked_up(Variant::MariaDb) && looked_up(Variant::TiDb));
+        assert!(
+            looked_up(Variant::MariaDb)
+                && looked_up(Variant::TiDb)
+                && looked_up(Variant::Manticore)
+        );
         assert!(!looked_up(Variant::MySql) && !looked_up(Variant::AuroraMySql));
+    }
+
+    #[test]
+    fn greptime_indexes_go_in_the_column() {
+        let ix = vix(
+            "iv",
+            "v",
+            None,
+            Some("cosine"),
+            &[("m", "16"), ("ef_construction", "128")],
+        );
+        assert_eq!(
+            greptime_column_index(&ix).unwrap(),
+            " VECTOR INDEX WITH(metric = 'cosine', expansion_add = '128', connectivity = '16')"
+        );
+        let opts: BTreeMap<String, String> = [
+            ("connectivity", "16"),
+            ("engine", "usearch"),
+            ("expansion_add", "128"),
+            ("metric", "cosine"),
+        ]
+        .iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect();
+        let back = greptime_index("v", opts);
+        assert_eq!(back.name, "VECTOR_INDEX_v");
+        assert_eq!(back.vector, ix.vector);
+        assert_eq!(standard_metric(Variant::GreptimeDb, "l2sq"), "l2");
+    }
+
+    #[test]
+    fn other_engines_tuning_is_left_out() {
+        // pgvector's ef_search or Oracle's neighbors mean nothing to MariaDB.
+        let ix = vix(
+            "iv",
+            "v",
+            None,
+            Some("l2"),
+            &[("m", "8"), ("ef_search", "40"), ("neighbors", "32")],
+        );
+        assert_eq!(
+            create_index(Variant::MariaDb, "`t`", &ix, false).unwrap(),
+            "CREATE VECTOR INDEX `iv` ON `t` (`v`) M=8 DISTANCE=euclidean;"
+        );
     }
 
     #[test]

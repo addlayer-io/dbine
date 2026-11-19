@@ -284,6 +284,7 @@ impl MySqlSession {
             seen: &self.vector_columns,
             lookup: crate::vectors::looked_up(self.variant),
             variant: self.variant,
+            table: self.table_of(sql),
         };
         let result = self
             .conn
@@ -326,19 +327,49 @@ impl MySqlSession {
     }
 
     /// A schema's vector columns, from the catalog (none when it can't say).
+    /// Manticore has no catalog: its "schema" is a table, described.
     pub(crate) async fn look_up_vectors(&mut self, schema: &str) {
-        let rows = self
-            .optional_rows(&crate::vectors::columns_query(&lit(schema)))
-            .await;
         let mut cols = crate::vectors::SchemaColumns::new();
-        for r in rows {
-            if let (Some(t), Some(c), Some(ty)) = (at(&r, 0), at(&r, 1), at(&r, 2)) {
-                if crate::vectors::meta(self.variant, &ty).is_some() {
-                    cols.insert((t, c.to_ascii_lowercase()), ty);
+        if self.variant == Variant::Manticore {
+            let obj = ObjectRef {
+                kind: kinds::TABLE.into(),
+                schema: None,
+                name: schema.to_string(),
+            };
+            for c in self.columns_from_describe(&obj).await.unwrap_or_default() {
+                if crate::vectors::meta(self.variant, &c.data_type).is_some() {
+                    cols.insert(
+                        (schema.to_string(), c.name.to_ascii_lowercase()),
+                        c.data_type,
+                    );
+                }
+            }
+        } else {
+            let rows = self
+                .optional_rows(&crate::vectors::columns_query(&lit(schema)))
+                .await;
+            for r in rows {
+                if let (Some(t), Some(c), Some(ty)) = (at(&r, 0), at(&r, 1), at(&r, 2)) {
+                    if crate::vectors::meta(self.variant, &ty).is_some() {
+                        cols.insert((t, c.to_ascii_lowercase()), ty);
+                    }
                 }
             }
         }
         self.vector_columns.insert(schema, cols);
+    }
+
+    /// The (schema, table) a single-table SELECT reads, for engines whose
+    /// result columns don't name their table.
+    fn table_of(&self, sql: &str) -> Option<(String, String)> {
+        if !crate::vectors::looked_up(self.variant) {
+            return None;
+        }
+        let (schema, table) = crate::vectors::single_table(sql)?;
+        if self.variant == Variant::Manticore {
+            return Some((table.clone(), table));
+        }
+        Some((schema.or_else(|| self.database.clone())?, table))
     }
 
     /// The warnings of a run: SHOW WARNINGS lists the last statement's
@@ -526,6 +557,7 @@ impl MySqlSession {
             seen: &self.vector_columns,
             lookup: crate::vectors::looked_up(self.variant),
             variant: self.variant,
+            table: self.table_of(statement),
         };
         let read = match self.conn.exec_iter(&stmt, ()).await {
             Ok(result) => read_results(result, statement, max_rows, out, &hints).await,
@@ -564,6 +596,10 @@ pub(crate) struct VectorHints<'a> {
     /// The engine's vectors are found through the catalog.
     lookup: bool,
     variant: Variant,
+    /// (schema, table) of a single-table SELECT, for the columns that don't
+    /// say their table (GreptimeDB, Manticore: there the "schema" is the
+    /// table, described alone).
+    table: Option<(String, String)>,
 }
 
 impl VectorHints<'_> {
@@ -610,9 +646,25 @@ async fn read_results<P: mysql_async::prelude::Protocol>(
                 let mut header = Vec::with_capacity(cols.len());
                 for (i, c) in cols.iter().enumerate() {
                     let mut rc = result_column(c);
-                    if rc.vector.is_none() && hints.lookup && may_be_vector(c) {
-                        let (schema, table) = (c.schema_str(), c.org_table_str());
-                        let column = c.org_name_str();
+                    let place = if !c.org_table_str().is_empty() && !c.schema_str().is_empty() {
+                        Some((
+                            c.schema_str().into_owned(),
+                            c.org_table_str().into_owned(),
+                            c.org_name_str().into_owned(),
+                        ))
+                    } else {
+                        hints.table.as_ref().map(|(s, t)| {
+                            let name = if c.org_name_str().is_empty() {
+                                c.name_str()
+                            } else {
+                                c.org_name_str()
+                            };
+                            (s.clone(), t.clone(), name.into_owned())
+                        })
+                    };
+                    if let (None, true, true, Some((schema, table, column))) =
+                        (&rc.vector, hints.lookup, may_be_vector(c), place)
+                    {
                         match hints.seen.known(&schema, &table, &column) {
                             Known::Vector(ty) => {
                                 if let Some(m) = crate::vectors::meta(hints.variant(), &ty) {
@@ -624,9 +676,9 @@ async fn read_results<P: mysql_async::prelude::Protocol>(
                             Known::Unknown if kept => pending.push(PendingVector {
                                 result: index,
                                 col: i,
-                                schema: schema.into_owned(),
-                                table: table.into_owned(),
-                                column: column.into_owned(),
+                                schema,
+                                table,
+                                column,
                                 raw: Vec::new(),
                                 binary: is_binary(c),
                             }),
@@ -1584,6 +1636,11 @@ impl MySqlSession {
             match v {
                 Variant::GreptimeDb => {
                     for (col, kind, opts) in crate::structure::greptime_indexes(&create) {
+                        if kind == "VECTOR" {
+                            // Not in SHOW INDEX: only the column's line says it.
+                            t.indexes.push(crate::vectors::greptime_index(&col, opts));
+                            continue;
+                        }
                         if let Some(ix) = t.indexes.iter_mut().find(|i| {
                             i.kind
                                 .as_deref()
@@ -2139,6 +2196,7 @@ impl Session for MySqlSession {
                 seen: &self.vector_columns,
                 lookup: crate::vectors::looked_up(self.variant),
                 variant: self.variant,
+                table: self.table_of(&sql),
             };
             let read = match self.conn.exec_iter(&stmt, params).await {
                 Ok(result) => read_results(result, &sql, max_rows, out, &hints).await,

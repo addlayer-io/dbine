@@ -164,6 +164,9 @@ struct Case {
     index: Option<IndexDef>,
     /// What the catalog reads back of it.
     index_back: Option<VectorIndex>,
+    /// What the DDL made from the read-back table must have (the engine's
+    /// vector index syntax).
+    marker: &'static str,
     /// Ordered by similarity to [1,0,0], ids in order.
     similarity: &'static str,
     /// The result header's type of the vector column.
@@ -323,6 +326,7 @@ struct CaseData {
     copy: TableSchema,
     described: String,
     index_back: Option<VectorIndex>,
+    marker: String,
     similarity: String,
     header: String,
     update: bool,
@@ -336,6 +340,7 @@ impl From<&Case> for CaseData {
             copy: schema(c, "vec_copy", false),
             described: c.described.into(),
             index_back: c.index_back.clone(),
+            marker: c.marker.into(),
             similarity: c.similarity.into(),
             header: c.header.into(),
             update: c.update,
@@ -402,7 +407,12 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
 
     // 3. Read back: a query and the table browse.
     for sql in [
-        "SELECT id, v FROM vec_items ORDER BY id".to_string(),
+        // Manticore doesn't sort by a quoted name; GreptimeDB needs `id` quoted.
+        if id == "manticore" {
+            "SELECT id, v FROM vec_items ORDER BY id ASC".to_string()
+        } else {
+            "SELECT `id`, `v` FROM `vec_items` ORDER BY `id`".to_string()
+        },
         s.browse_query(&table("vec_items"), 100),
     ] {
         let out = must(&mut s, &sql).await;
@@ -459,20 +469,9 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         assert_eq!(ix.columns, ["v"]);
         assert_eq!(ix.vector.as_ref(), Some(back), "{ix:?}");
         // The DDL made from what was read is the same index again.
-        let again = d
-            .table_ddl(
-                t,
-                DdlParts {
-                    indexes: true,
-                    ..Default::default()
-                },
-            )
-            .unwrap();
-        assert!(!again.contains("CREATE INDEX `"), "{again}");
-        assert!(
-            !again.trim().is_empty() && !again.contains("-- "),
-            "{again}"
-        );
+        let again = d.table_ddl(t, all).unwrap();
+        assert!(again.contains(&c.marker), "{again}");
+        assert!(!again.contains("\n-- "), "{again}");
     }
 
     // 6. Similarity.
@@ -505,12 +504,23 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         if matches!(id, "doris" | "starrocks") {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
-        let out = must(&mut s, "SELECT v FROM vec_items WHERE id = 2").await;
+        let out = must(&mut s, "SELECT `v` FROM `vec_items` WHERE `id` = 2").await;
         assert_eq!(out.results[0].rows[0][0], json!("[0.25,-4,8]"));
     }
 
     // 8. Transfer: read, load into a copy, read the copy; then text cells
     // as pgvector's reader sends them.
+    // Manticore has no bulk load (its moves write insert_script): its read
+    // is checked.
+    if !c.transfer {
+        let (cols, rows) = read_cells(&mut s, "vec_items").await;
+        let vpos = cols.iter().position(|c| c.name == "v").unwrap();
+        assert!(
+            matches!(&rows[0][vpos], Cell::Text(t) if t == "[1,0,0]"),
+            "{:?}",
+            rows[0][vpos]
+        );
+    }
     if c.transfer {
         let (cols, rows) = read_cells(&mut s, "vec_items").await;
         let vpos = cols.iter().position(|c| c.name == "v").unwrap();
@@ -541,7 +551,7 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         let (_, back) = read_cells(&mut s, "vec_copy").await;
         assert_eq!(back, rows);
         // Another family's source: pgvector's text, with its spacing.
-        must(&mut s, "DELETE FROM vec_copy WHERE id > 0").await;
+        must(&mut s, "DELETE FROM `vec_copy` WHERE `id` > 0").await;
         if matches!(id, "doris" | "starrocks") {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         }
@@ -580,6 +590,7 @@ async fn mysql9_vectors() {
         // MySQL Community has no vector index.
         index: None,
         index_back: None,
+        marker: "`v` vector(3) NOT NULL",
         // Community has no distance function: a dot product over the
         // vector's text.
         similarity: "SELECT id FROM vec_items, JSON_TABLE(VECTOR_TO_STRING(v), '$[*]' \
@@ -604,6 +615,7 @@ async fn mariadb_vectors() {
         described: "vector(3)",
         index: Some(vindex("iv", None, Some("cosine"), &[("m", "8")])),
         index_back: Some(vi(None, Some("cosine"), &[("m", "8")])),
+        marker: "CREATE VECTOR INDEX `iv` ON `vec_items` (`v`) M=8 DISTANCE=cosine;",
         similarity: "SELECT id FROM vec_items ORDER BY VEC_DISTANCE_COSINE(v, VEC_FromText('[1,0,0]')) LIMIT 3",
         header: "vector(3)",
         options: vec![],
@@ -626,11 +638,60 @@ async fn tidb_vectors() {
         // DDL is covered by the unit tests.
         index: None,
         index_back: None,
+        marker: "`v` vector(3) NOT NULL",
         similarity: "SELECT id FROM vec_items ORDER BY VEC_COSINE_DISTANCE(v, '[1,0,0]') LIMIT 3",
         header: "vector(3)",
         options: vec![],
         update: true,
         transfer: true,
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn greptimedb_vectors() {
+    exercise(Case {
+        id: "greptimedb",
+        env: "DBINE_TEST_GREPTIMEDB_URL",
+        db: Some("dbine_vec"),
+        column_type: "VECTOR(3)",
+        described: "vector(3)",
+        index: Some(vindex("iv", None, Some("cosine"), &[("m", "16")])),
+        // Its defaults come back written out.
+        index_back: Some(vi(
+            None,
+            Some("cosine"),
+            &[("m", "16"), ("ef_construction", "128"), ("ef_search", "64")],
+        )),
+        marker: "VECTOR INDEX WITH(metric = 'cosine', expansion_add = '128', expansion_search = '64', connectivity = '16')",
+        similarity: "SELECT `id` FROM vec_items ORDER BY vec_cos_distance(v, '[1,0,0]') LIMIT 3",
+        header: "vector(3)",
+        options: vec![],
+        // No UPDATE: a row is replaced by inserting it again.
+        update: false,
+        transfer: true,
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn manticore_vectors() {
+    exercise(Case {
+        id: "manticore",
+        env: "DBINE_TEST_MANTICORE_URL",
+        db: None,
+        column_type: "float_vector",
+        described: "float_vector",
+        index: Some(vindex("v", Some("hnsw"), Some("l2"), &[("knn_dims", "3")])),
+        index_back: Some(vi(Some("hnsw"), Some("l2"), &[("knn_dims", "3")])),
+        marker: "`v` float_vector knn_type='hnsw' knn_dims='3' hnsw_similarity='L2'",
+        similarity: "SELECT id FROM vec_items WHERE knn(v, 3, (1,0,0))",
+        header: "float_vector",
+        options: vec![],
+        update: true,
+        transfer: false,
     })
     .await;
 }

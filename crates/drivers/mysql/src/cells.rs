@@ -102,21 +102,19 @@ pub fn vector_cell(meta: &VectorMeta, col: &Column, v: Value) -> Json {
 }
 
 /// Whether the wire's type of `col` could carry a vector the catalog
-/// knows (a string or a blob of a table's column).
+/// knows (a string or a blob).
 pub fn may_be_vector(col: &Column) -> bool {
     use ColumnType::*;
-    !col.org_table_str().is_empty()
-        && !col.schema_str().is_empty()
-        && matches!(
-            col.column_type(),
-            MYSQL_TYPE_STRING
-                | MYSQL_TYPE_VAR_STRING
-                | MYSQL_TYPE_VARCHAR
-                | MYSQL_TYPE_BLOB
-                | MYSQL_TYPE_TINY_BLOB
-                | MYSQL_TYPE_MEDIUM_BLOB
-                | MYSQL_TYPE_LONG_BLOB
-        )
+    matches!(
+        col.column_type(),
+        MYSQL_TYPE_STRING
+            | MYSQL_TYPE_VAR_STRING
+            | MYSQL_TYPE_VARCHAR
+            | MYSQL_TYPE_BLOB
+            | MYSQL_TYPE_TINY_BLOB
+            | MYSQL_TYPE_MEDIUM_BLOB
+            | MYSQL_TYPE_LONG_BLOB
+    )
 }
 
 /// Whether `col` holds binary strings (its bytes, not text).

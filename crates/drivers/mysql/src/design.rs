@@ -1302,25 +1302,30 @@ fn greptime_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
                 })?,
         };
         let t = escaped_comments(t);
-        let mut lines: Vec<String> = t
-            .columns
-            .iter()
-            .map(|c| {
-                let mut l = format!("    {} {}", q(&c.name), c.data_type);
-                l.push_str(if !c.nullable || c.name == ts {
-                    " NOT NULL"
-                } else {
-                    " NULL"
-                });
-                if let Some(d) = c.default_value.as_deref().filter(|d| !d.is_empty()) {
-                    l.push_str(&format!(" DEFAULT {d}"));
-                }
-                if let Some(cm) = c.comment.as_deref().filter(|s| !s.is_empty()) {
-                    l.push_str(&format!(" COMMENT '{}'", cm.replace('\'', "''")));
-                }
-                l
-            })
-            .collect();
+        let mut lines: Vec<String> = Vec::new();
+        for c in &t.columns {
+            let mut l = format!("    {} {}", q(&c.name), c.data_type);
+            l.push_str(if !c.nullable || c.name == ts {
+                " NOT NULL"
+            } else {
+                " NULL"
+            });
+            if let Some(d) = c.default_value.as_deref().filter(|d| !d.is_empty()) {
+                l.push_str(&format!(" DEFAULT {d}"));
+            }
+            if let Some(cm) = c.comment.as_deref().filter(|s| !s.is_empty()) {
+                l.push_str(&format!(" COMMENT '{}'", cm.replace('\'', "''")));
+            }
+            // A vector index is the column's, made with the table.
+            if let Some(ix) = t
+                .indexes
+                .iter()
+                .find(|i| i.vector.is_some() && i.columns.len() == 1 && i.columns[0] == c.name)
+            {
+                l.push_str(&crate::vectors::greptime_column_index(ix)?);
+            }
+            lines.push(l);
+        }
         lines.push(format!("    TIME INDEX ({})", q(&ts)));
         let tags: Vec<String> = t
             .primary_key
@@ -1364,6 +1369,12 @@ fn greptime_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     }
     if parts.indexes {
         for ix in &t.indexes {
+            if ix.vector.is_some() {
+                if !parts.create {
+                    out.push(greptime_index(t, ix, true)?);
+                }
+                continue;
+            }
             out.push(greptime_index(t, ix, true)?);
         }
     }
@@ -1378,6 +1389,15 @@ fn greptime_options(t: &TableSchema) -> impl Iterator<Item = (&String, &String)>
 /// GreptimeDB's indexes are column settings: `SET` (with their `WITH`
 /// options) or `UNSET` them.
 fn greptime_index(t: &TableSchema, ix: &dbine_driver::IndexDef, set: bool) -> Result<String> {
+    if ix.vector.is_some() {
+        // Its ALTER sets and unsets INVERTED, FULLTEXT and SKIPPING only.
+        return vector_index_or_note(Err(Error::Unsupported(format!(
+            "GreptimeDB {} un índice vectorial solo con la tabla: «{}» en «{}» pide recrear la tabla",
+            if set { "crea" } else { "quita" },
+            ix.name,
+            t.name
+        ))));
+    }
     let kind = ix.kind.as_deref().unwrap_or("").to_ascii_uppercase();
     let [col] = ix.columns.as_slice() else {
         return Err(Error::Unsupported(format!(
@@ -1586,13 +1606,40 @@ pub(crate) fn update_script(
                     "Manticore no admite NULL: no se puede asignar un valor nulo".into(),
                 ));
             }
-            Ok(ddl::update_script_with(
+            // A float_vector with KNN settings isn't updated in place: the
+            // partial REPLACE (6.2+) rewrites the document's fields by id.
+            let (vectors, rest): (Vec<RowChange>, Vec<RowChange>) =
+                changes.iter().cloned().partition(|c| {
+                    c.set
+                        .iter()
+                        .any(|(_, v)| crate::vectors::edit_value(v).is_some())
+                        && matches!(c.key.as_slice(), [(k, _)] if k.eq_ignore_ascii_case("id"))
+                });
+            let mut out = Vec::new();
+            for c in &vectors {
+                let set: Vec<String> = c
+                    .set
+                    .iter()
+                    .map(|(k, v)| format!("{} = {}", q(k), manticore_value(v)))
+                    .collect();
+                out.push(format!(
+                    "REPLACE INTO {} SET {} WHERE id = {};",
+                    q(&target.name),
+                    set.join(", "),
+                    manticore_value(&c.key[0].1)
+                ));
+            }
+            let plain = ddl::update_script_with(
                 Quote::Backtick,
                 None,
                 &target.name,
-                changes,
+                &rest,
                 &manticore_value,
-            ))
+            );
+            if !plain.is_empty() {
+                out.push(plain);
+            }
+            Ok(out.join("\n"))
         }
         _ => {
             let f = flavor(v);
@@ -2382,6 +2429,11 @@ mod tests {
         assert_eq!(
             update_script(Variant::MySql, &target, &changes).unwrap(),
             "UPDATE `t` SET `v` = STRING_TO_VECTOR('[0.5,4]') WHERE `id` = 1;"
+        );
+        // Manticore: a KNN attribute is rewritten with a partial REPLACE.
+        assert_eq!(
+            update_script(Variant::Manticore, &target, &changes).unwrap(),
+            "REPLACE INTO `t` SET `v` = (0.5,4) WHERE id = 1;"
         );
         // Text (not an array) stays a string literal.
         let rows = vec![vec![json!(1), json!("[1,2]")]];
