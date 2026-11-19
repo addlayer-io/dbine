@@ -79,6 +79,13 @@ fn vector_fields(f: Flavor) -> Vec<Field> {
             )
             .placeholder("100")
             .when("index_type", vector),
+            Field::new(
+                "vector.quantization.enabled",
+                "Cuantización",
+                FieldKind::Select(vec![("true", "Activada"), ("false", "Desactivada")]),
+            )
+            .help("Guarda los vectores del índice comprimidos: ocupa menos y pierde algo de precisión (Neo4j 5.23 o posterior).")
+            .when("index_type", vector),
         ],
         Flavor::Memgraph => vec![
             Field::new("dimension", "Dimensiones", FieldKind::Number)
@@ -118,9 +125,85 @@ fn vector_fields(f: Flavor) -> Vec<Field> {
             )
             .default_value("f32")
             .when("index_type", vector),
+            Field::new(
+                "resize_coefficient",
+                "Coeficiente de crecimiento",
+                FieldKind::Number,
+            )
+            .placeholder("2")
+            .help("Cuánto crece la capacidad del índice cuando se llena.")
+            .when("index_type", vector),
         ],
         Flavor::Neptune => Vec::new(),
     }
+}
+
+/// Without the quotes a catalog may leave around a setting.
+fn bare(v: &str) -> &str {
+    v.trim().trim_matches(|c| c == '\'' || c == '"')
+}
+
+/// A vector index's settings, checked before anything runs (the server
+/// says the same, but only once the script started): Neo4j's limits
+/// (dimensions 1–4096, M 1–512, ef_construction 1–3200, similarity cosine
+/// or euclidean, quantization on or off) and Memgraph's (whole numbers
+/// above zero, its metrics and number types).
+pub fn check_vector(f: Flavor, name: &str, o: &BTreeMap<String, String>) -> Result<()> {
+    let int =
+        |v: &str, lo: i64, hi: i64| bare(v).parse::<i64>().is_ok_and(|n| (lo..=hi).contains(&n));
+    for (k, v) in o {
+        let v = v.as_str();
+        let why = match (f, k.as_str()) {
+            (Flavor::Neo4j, "vector.dimensions") if !int(v, 1, 4096) => "va de 1 a 4096",
+            (Flavor::Neo4j, "vector.hnsw.m") if !int(v, 1, 512) => "va de 1 a 512",
+            (Flavor::Neo4j, "vector.hnsw.ef_construction") if !int(v, 1, 3200) => "va de 1 a 3200",
+            (Flavor::Neo4j, "vector.similarity_function")
+                if !matches!(
+                    bare(v).to_ascii_uppercase().as_str(),
+                    "COSINE" | "EUCLIDEAN"
+                ) =>
+            {
+                "es COSINE o EUCLIDEAN"
+            }
+            (Flavor::Neo4j, "vector.quantization.enabled")
+                if !matches!(bare(v).to_ascii_lowercase().as_str(), "true" | "false") =>
+            {
+                "es true o false"
+            }
+            (Flavor::Memgraph, "dimension" | "capacity" | "resize_coefficient")
+                if !int(v, 1, i64::MAX) =>
+            {
+                "es un número entero mayor que cero"
+            }
+            (Flavor::Memgraph, "metric")
+                if !matches!(
+                    bare(v),
+                    "cos"
+                        | "l2sq"
+                        | "ip"
+                        | "hamming"
+                        | "tanimoto"
+                        | "sorensen"
+                        | "pearson"
+                        | "haversine"
+                        | "divergence"
+                ) =>
+            {
+                "no es una métrica de Memgraph"
+            }
+            (Flavor::Memgraph, "scalar_kind")
+                if !matches!(bare(v), "f32" | "f16" | "bf16" | "f64" | "i8" | "b1x8") =>
+            {
+                "no es un tipo de número de Memgraph"
+            }
+            _ => continue,
+        };
+        return Err(Error::Query(format!(
+            "Índice vectorial {name}: {k} = {} no sirve ({why}).",
+            v.trim()
+        )));
+    }
+    Ok(())
 }
 
 /// What a vector index takes ([`DesignerSpec::vector_indexes`]): Neo4j's
@@ -161,6 +244,7 @@ pub fn vector_index_spec(f: Flavor) -> Option<VectorIndexSpec> {
                 p(DIMENSIONS, ""),
                 p("capacity", "1000"),
                 p(param::QUANTIZATION, ""),
+                p("resize_coefficient", ""),
             ],
             filter_columns: false,
         }),
@@ -240,6 +324,9 @@ pub fn vector_of(f: Flavor, o: &BTreeMap<String, String>) -> VectorIndex {
             if let Some(k) = get("scalar_kind").filter(|k| k != "f32") {
                 v.params.insert(param::QUANTIZATION.into(), k);
             }
+            if let Some(r) = get("resize_coefficient") {
+                v.params.insert("resize_coefficient".into(), r);
+            }
         }
         Flavor::Neptune => {}
     }
@@ -299,6 +386,9 @@ pub fn vector_options(f: Flavor, v: &VectorIndex) -> BTreeMap<String, String> {
             }
             if let Some(c) = p("capacity") {
                 o.insert("capacity".into(), c);
+            }
+            if let Some(r) = p("resize_coefficient") {
+                o.insert("resize_coefficient".into(), r);
             }
             if let Some(q) = p(param::QUANTIZATION).filter(|q| !off(q)) {
                 let k = match q.to_ascii_lowercase().as_str() {
@@ -618,7 +708,11 @@ pub fn create(f: Flavor, s: &IndexSpec, if_not_exists: bool) -> Result<String> {
                     "CREATE VECTOR INDEX{name}{ine}\nFOR {pattern} ON ({})\nOPTIONS {{indexConfig: {{`vector.dimensions`: 1536, `vector.similarity_function`: 'cosine'}}}}",
                     on(props)
                 ),
-                "TEXT" | "POINT" | "VECTOR" => format!("CREATE {} INDEX{name}{ine}\nFOR {pattern} ON ({}){}", s.kind, on(props), index_options(s)),
+                "VECTOR" => {
+                    check_vector(f, &s.name, &s.options)?;
+                    format!("CREATE VECTOR INDEX{name}{ine}\nFOR {pattern} ON ({}){}", on(props), index_options(s))
+                }
+                "TEXT" | "POINT" => format!("CREATE {} INDEX{name}{ine}\nFOR {pattern} ON ({}){}", s.kind, on(props), index_options(s)),
                 "LOOKUP" => {
                     let f = if s.relationship { "()-[e]-() ON EACH type(e)" } else { "(e) ON EACH labels(e)" };
                     format!("CREATE LOOKUP INDEX{name}{ine}\nFOR {f}")
@@ -673,6 +767,7 @@ pub fn create(f: Flavor, s: &IndexSpec, if_not_exists: bool) -> Result<String> {
                             "Un índice vectorial de Memgraph necesita la dimensión de los vectores.".into(),
                         ));
                     }
+                    check_vector(f, &s.name, &s.options)?;
                     let mut cfg: Vec<String> = s
                         .options
                         .iter()
@@ -1421,6 +1516,84 @@ mod tests {
         assert!(
             matches!(create(Flavor::Memgraph, &no_dims, false), Err(Error::Query(m)) if m.contains("dimensión"))
         );
+    }
+
+    /// Settings the server would refuse are refused before anything runs.
+    #[test]
+    fn vector_settings_are_checked() {
+        let o = |kv: &[(&str, &str)]| -> BTreeMap<String, String> {
+            kv.iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let ok = o(&[
+            ("vector.dimensions", "1536"),
+            ("vector.similarity_function", "'cosine'"),
+            ("vector.hnsw.m", "16"),
+            ("vector.hnsw.ef_construction", "100"),
+            ("vector.quantization.enabled", "false"),
+        ]);
+        assert!(check_vector(Flavor::Neo4j, "v", &ok).is_ok());
+        for bad in [
+            ("vector.dimensions", "4097"),
+            ("vector.dimensions", "0"),
+            ("vector.hnsw.m", "513"),
+            ("vector.hnsw.ef_construction", "3201"),
+            ("vector.similarity_function", "DOT"),
+            ("vector.quantization.enabled", "maybe"),
+        ] {
+            let e = check_vector(Flavor::Neo4j, "v", &o(&[bad]))
+                .unwrap_err()
+                .to_string();
+            assert!(e.contains(bad.0) && e.contains("no sirve"), "{bad:?}: {e}");
+        }
+        let ok = o(&[
+            ("dimension", "3"),
+            ("capacity", "1000"),
+            ("metric", "cos"),
+            ("scalar_kind", "f16"),
+            ("resize_coefficient", "2"),
+        ]);
+        assert!(check_vector(Flavor::Memgraph, "v", &ok).is_ok());
+        for bad in [
+            ("dimension", "-3"),
+            ("capacity", "mil"),
+            ("resize_coefficient", "0"),
+            ("metric", "manhattan"),
+            ("scalar_kind", "f8"),
+        ] {
+            assert!(
+                check_vector(Flavor::Memgraph, "v", &o(&[bad])).is_err(),
+                "{bad:?}"
+            );
+        }
+        // Through the designer: the statement isn't written.
+        let spec = |opts: &[(&str, &str)]| IndexSpec {
+            name: "v".into(),
+            target: "Doc".into(),
+            relationship: false,
+            kind: "VECTOR".into(),
+            properties: vec!["emb".into()],
+            options: o(opts),
+        };
+        assert!(create(Flavor::Neo4j, &spec(&[("vector.hnsw.m", "0")]), false).is_err());
+        assert!(create(
+            Flavor::Memgraph,
+            &spec(&[("dimension", "3"), ("metric", "cosine")]),
+            false
+        )
+        .is_err());
+        // The designer offers Neo4j's quantization and Memgraph's growth.
+        let keys = |f| {
+            designer(f)
+                .unwrap()
+                .table_options
+                .iter()
+                .map(|x| x.key)
+                .collect::<Vec<_>>()
+        };
+        assert!(keys(Flavor::Neo4j).contains(&"vector.quantization.enabled"));
+        assert!(keys(Flavor::Memgraph).contains(&"resize_coefficient"));
     }
 
     #[test]

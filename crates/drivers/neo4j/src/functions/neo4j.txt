@@ -1,7 +1,8 @@
 # Neo4j's built-in Cypher functions, for the editor's completion when the
 # server lists none (SHOW FUNCTIONS, or dbms.functions() before 4.3, both
 # refused): Neo4j 5.26 LTS's own list without its deprecated functions,
-# with `since=` for the ones added in 4.4 and 5.x. Overloads are separate
+# with `since=` for the ones added in 4.4 and 5.x, plus the VECTOR
+# functions of Neo4j 2025.10 (Cypher 25). Overloads are separate
 # lines. A namespaced name (date.truncate) has its namespace as the schema.
 s abs(input :: INTEGER | FLOAT) -> INTEGER | FLOAT
 s acos(input :: FLOAT) -> FLOAT
@@ -142,4 +143,10 @@ s type(input :: RELATIONSHIP) -> STRING
 s upper(input :: STRING) -> STRING since=5.21
 s valueType(input :: ANY) -> STRING since=5.13
 s vector.similarity.cosine(a :: LIST<INTEGER | FLOAT>, b :: LIST<INTEGER | FLOAT>) -> FLOAT since=5.18
+s vector.similarity.cosine(a :: VECTOR, b :: VECTOR) -> FLOAT since=2025.10
 s vector.similarity.euclidean(a :: LIST<INTEGER | FLOAT>, b :: LIST<INTEGER | FLOAT>) -> FLOAT since=5.18
+s vector.similarity.euclidean(a :: VECTOR, b :: VECTOR) -> FLOAT since=2025.10
+s vector(vectorValue :: STRING | LIST<INTEGER | FLOAT>, dimension :: INTEGER, coordinateType :: INTEGER64 | INTEGER32 | INTEGER16 | INTEGER8 | FLOAT64 | FLOAT32) -> VECTOR since=2025.10
+s vector_dimension_count(vector :: VECTOR) -> INTEGER since=2025.10
+s vector_distance(vector1 :: VECTOR, vector2 :: VECTOR, vectorDistanceMetric :: EUCLIDEAN | EUCLIDEAN_SQUARED | MANHATTAN | COSINE | DOT | HAMMING) -> FLOAT since=2025.10
+s vector_norm(vector :: VECTOR, vectorDistanceMetric :: EUCLIDEAN | MANHATTAN) -> FLOAT since=2025.10

@@ -138,6 +138,63 @@ async fn vectors_memgraph() {
     both_ways("memgraph", url).await;
 }
 
+/// The protocol: Neo4j 5.26 answers the version manifest and the driver
+/// takes 5.8 (Neo4j 2025.10+ would give 6.0, which carries VECTOR), whose
+/// GQL statuses and `neo4j_code` failures read as notifications and codes;
+/// Memgraph (no manifest) stays on the classic proposals. Read-only.
+#[tokio::test]
+#[ignore]
+async fn bolt_protocol_versions() {
+    for (id, var, default) in [
+        (
+            "neo4j",
+            "DBINE_TEST_NEO4J_URL",
+            "neo4j:dbine-test-pass@localhost:17687",
+        ),
+        ("memgraph", "DBINE_TEST_MEMGRAPH_URL", "localhost:27687"),
+    ] {
+        let url = std::env::var(var).unwrap_or_else(|_| default.into());
+        let (_, mut s) = open(id, &url).await;
+        let snap = s.monitor().await.unwrap();
+        let protocol = snap
+            .info
+            .iter()
+            .find(|(k, _)| k == "Protocolo")
+            .map(|(_, v)| v.clone())
+            .unwrap_or_default();
+        eprintln!("{id}: {protocol}");
+        if id == "neo4j" {
+            assert!(
+                protocol.contains("Bolt 5.8") || protocol.contains("Bolt 6."),
+                "{protocol}"
+            );
+            // A notification (a cartesian product) from the GQL statuses.
+            let out = run(&mut s, "EXPLAIN MATCH (a), (b) RETURN count(*)").await;
+            assert!(
+                out.log.iter().any(|m| m
+                    .code
+                    .as_deref()
+                    .is_some_and(|c| c.contains("CartesianProduct"))),
+                "{:?}",
+                out.log
+            );
+        } else {
+            assert!(protocol.contains("Bolt "), "{protocol}");
+        }
+        // A failure keeps its code.
+        let mut out = QueryOutcome::default();
+        let e = match s.execute("RETURN 1 +", 10, &mut out).await {
+            Err(e) => format!("{e:?}"),
+            Ok(()) => format!("{:?} {:?}", out.error, out.errors),
+        };
+        if id == "neo4j" {
+            assert!(e.contains("Neo.ClientError.Statement.SyntaxError"), "{e}");
+        } else {
+            assert!(!e.is_empty());
+        }
+    }
+}
+
 async fn both_ways(id: &'static str, url: String) {
     let (d, mut s) = open(id, &url).await;
     cleanup(id, &mut s).await;
@@ -164,9 +221,16 @@ async fn scenario(id: &str, d: &dyn Driver, s: &mut Box<dyn Session>) {
         opts.extend([
             ("vector.dimensions", "3"),
             ("vector.similarity_function", "COSINE"),
+            ("vector.hnsw.m", "24"),
+            ("vector.quantization.enabled", "false"),
         ]);
     } else {
-        opts.extend([("dimension", "3"), ("metric", "cos"), ("capacity", "100")]);
+        opts.extend([
+            ("dimension", "3"),
+            ("metric", "cos"),
+            ("capacity", "100"),
+            ("resize_coefficient", "3"),
+        ]);
     }
     let designed = TableSchema {
         kind: kinds::INDEX.into(),
@@ -190,7 +254,33 @@ async fn scenario(id: &str, d: &dyn Driver, s: &mut Box<dyn Session>) {
             },
         )
         .unwrap();
+    // The designer's quantization (Neo4j) and growth (Memgraph) go in, and
+    // the server takes them.
+    assert!(
+        ddl.contains(if neo {
+            "`vector.quantization.enabled`: false"
+        } else {
+            "\"resize_coefficient\": 3"
+        }),
+        "{ddl}"
+    );
     run(s, &ddl).await;
+    // Settings the server would refuse are refused before anything runs.
+    let mut bad = designed.clone();
+    bad.options.insert(
+        if neo { "vector.hnsw.m" } else { "dimension" }.into(),
+        "0".into(),
+    );
+    let e = d
+        .table_ddl(
+            &bad,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("no sirve"), "{e}");
     // And one from a label's IndexDef with only vector settings (what a
     // conversion from another engine gives), on another property.
     let mut vi = VectorIndex {
@@ -293,6 +383,18 @@ async fn scenario(id: &str, d: &dyn Driver, s: &mut Box<dyn Session>) {
         .unwrap();
     let got = ix.vector.as_ref().expect("vector index");
     assert_eq!(got.metric.as_deref(), Some("cosine"), "{ix:?}");
+    if neo {
+        assert_eq!(
+            got.params.get("m").map(String::as_str),
+            Some("24"),
+            "{ix:?}"
+        );
+        assert_eq!(
+            got.params.get("quantization").map(String::as_str),
+            Some("none"),
+            "{ix:?}"
+        );
+    }
     assert_eq!(
         got.params.get("dimensions").map(String::as_str),
         Some("3"),

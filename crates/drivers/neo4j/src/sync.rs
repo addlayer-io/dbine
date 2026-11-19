@@ -28,12 +28,24 @@ fn same(a: &IndexSpec, b: &IndexSpec) -> bool {
             .map(|p| p.to_lowercase())
             .collect::<Vec<_>>()
     };
+    // Memgraph doesn't report a vector index's capacity or growth back
+    // (SHOW VECTOR INDEX INFO): a designed one isn't different for them.
+    let options = |s: &IndexSpec| {
+        s.options
+            .iter()
+            .filter(|(k, _)| !UNREPORTED.contains(&k.as_str()))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
     a.kind.eq_ignore_ascii_case(&b.kind)
         && a.relationship == b.relationship
         && a.target == b.target
         && props(a) == props(b)
-        && a.options == b.options
+        && options(a) == options(b)
 }
+
+/// Settings the server takes but doesn't list back.
+const UNREPORTED: &[&str] = &["capacity", "resize_coefficient"];
 
 /// Neo4j matches indexes by name; Memgraph's have none (its TEXT ones do),
 /// so there they match by what they index.
@@ -272,5 +284,41 @@ mod tests {
             sync_script(Flavor::Neptune, &[]),
             Err(Error::Unsupported(_))
         ));
+    }
+
+    /// A Memgraph vector index as designed (capacity, growth) and as the
+    /// server lists it back (without them): the same index.
+    #[test]
+    fn memgraph_vector_settings_it_doesnt_list() {
+        let vx = |opts: &[(&str, &str)]| IndexDef {
+            name: "v".into(),
+            columns: vec!["emb".into()],
+            kind: Some("VECTOR".into()),
+            options: opts
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            ..Default::default()
+        };
+        let old = label(vec![vx(&[("dimension", "3"), ("metric", "cos")])]);
+        let new = label(vec![vx(&[
+            ("dimension", "3"),
+            ("metric", "cos"),
+            ("capacity", "100"),
+            ("resize_coefficient", "3"),
+        ])]);
+        let s = sync_script(
+            Flavor::Memgraph,
+            &[TableChange::Alter {
+                old: old.clone(),
+                new,
+            }],
+        )
+        .unwrap();
+        assert!(s.statements.is_empty(), "{:?}", s.statements);
+        // A changed metric is a change.
+        let new = label(vec![vx(&[("dimension", "3"), ("metric", "ip")])]);
+        let s = sync_script(Flavor::Memgraph, &[TableChange::Alter { old, new }]).unwrap();
+        assert_eq!(s.statements.len(), 2, "{:?}", s.statements);
     }
 }

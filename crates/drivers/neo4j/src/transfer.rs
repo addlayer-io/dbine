@@ -146,7 +146,7 @@ impl GraphSession {
             HashMap::new()
         } else {
             // Bolt types of a sample: the first value that isn't null.
-            let mut seen: Vec<Option<&'static str>> = vec![None; names.len()];
+            let mut seen: Vec<Option<String>> = vec![None; names.len()];
             self.bolt_run(
                 &format!("MATCH {pat} WITH n LIMIT 100 RETURN {list}"),
                 Bolt::Map(Vec::new()),
@@ -163,7 +163,7 @@ impl GraphSession {
                 .iter()
                 .cloned()
                 .zip(seen)
-                .filter_map(|(n, t)| Some((n, t?.to_string())))
+                .filter_map(|(n, t)| Some((n, t?)))
                 .collect()
         };
         let cols: Vec<TransferColumn> = names
@@ -439,21 +439,34 @@ fn bolt_size(v: &Bolt) -> usize {
 // ---- vectors ----
 
 /// Whether a source column's type holds vectors (embeddings) or lists of
-/// floats, by its spelling: `vector(3)` (pgvector, MySQL, SQL Server),
+/// floats, by its spelling: `vector(3)` (pgvector, MySQL, SQL Server,
+/// Cassandra's `vector<float, 3>`, Neo4j 2025's `VECTOR<FLOAT32>(3)`),
 /// `VECTOR(3, FLOAT32)` (Oracle), `VECTOR(FLOAT, 3)` (Snowflake),
 /// `halfvec(3)`, `ARRAY<FLOAT32>(vector_length=>3)` and `ARRAY<FLOAT64>`
 /// (Spanner, BigQuery), `Array(Float32)` (ClickHouse), `FLOAT[3]` (DuckDB),
-/// `float_vector`, `F32_BLOB(3)` (libSQL), Arrow's `FixedSizeList`, and
-/// Neo4j's own `LIST<FLOAT>`. A sparse vector isn't (it isn't a list).
+/// `float_vector` (CrateDB), `F32_BLOB(3)` (libSQL), `dense_vector`
+/// (Elasticsearch), `knn_vector` (OpenSearch, Solr), `REAL_VECTOR` /
+/// `HALF_VECTOR` (HANA), Arrow's `FixedSizeList`, a document field's
+/// `array|vector(3)`, and Neo4j's own `LIST<FLOAT>`. A sparse vector isn't
+/// (it isn't a list).
 pub(crate) fn vector_type(t: &str) -> bool {
     let t = t.trim().to_ascii_lowercase().replace(' ', "");
     if t.starts_with("sparsevec") || t.contains("sparse") {
         return false;
     }
+    // A field of documents with several types: any of them.
+    if t.contains('|') {
+        return t.split('|').any(vector_type);
+    }
     t.starts_with("vector")
         || t.starts_with("halfvec")
         || t.contains("vector_length")
         || t.starts_with("float_vector")
+        || t.starts_with("dense_vector")
+        || t.starts_with("knn_vector")
+        || t.starts_with("real_vector")
+        || t.starts_with("half_vector")
+        || t.starts_with("frozen<vector")
         || ["f32_blob", "f64_blob", "f16_blob", "fb16_blob", "f8_blob"]
             .iter()
             .any(|p| t.starts_with(p))
@@ -500,10 +513,12 @@ fn float_list_text(l: &[Bolt], f32_storage: bool) -> Option<String> {
     if l.is_empty() {
         return None;
     }
+    // NaN and ±∞ have no vector text (it'd be `null`, a null element):
+    // such a list keeps its plain form.
     let v = l
         .iter()
         .map(|x| match x {
-            Bolt::Float(f) => Some(*f),
+            Bolt::Float(f) if f.is_finite() => Some(*f),
             _ => None,
         })
         .collect::<Option<Vec<f64>>>()?;
@@ -524,6 +539,12 @@ fn flavor_cell(f: Flavor, v: Bolt) -> Cell {
 // ---- Bolt → cell ----
 
 pub(crate) fn bolt_cell(v: Bolt) -> Cell {
+    // A Neo4j 2025 VECTOR (Bolt 6): its vector text.
+    if let Bolt::Struct(tag::VECTOR, f) = &v {
+        if let Some(t) = value::NativeVector::decode(f).and_then(|n| n.text()) {
+            return Cell::Json(t);
+        }
+    }
     match v {
         Bolt::List(ref l) if float_list_text(l, false).is_some() => {
             Cell::Json(float_list_text(l, false).unwrap_or_default())
@@ -576,34 +597,42 @@ pub(crate) fn bolt_cell(v: Bolt) -> Cell {
 }
 
 /// A value's type as Cypher names it (`None` for null).
-fn bolt_type(v: &Bolt) -> Option<&'static str> {
-    Some(match v {
-        Bolt::Null => return None,
-        Bolt::Bool(_) => "BOOLEAN",
-        Bolt::Int(_) => "INTEGER",
-        Bolt::Float(_) => "FLOAT",
-        Bolt::Bytes(_) => "BYTES",
-        Bolt::String(_) => "STRING",
-        Bolt::List(l) if float_list_text(l, false).is_some() => "LIST<FLOAT>",
-        Bolt::List(_) => "LIST",
-        Bolt::Map(_) => "MAP",
-        Bolt::Struct(t, _) => match *t {
-            tag::DATE => "DATE",
-            tag::LOCAL_TIME => "LOCAL TIME",
-            tag::TIME => "ZONED TIME",
-            tag::LOCAL_DATE_TIME => "LOCAL DATETIME",
-            tag::DATE_TIME
-            | tag::LEGACY_DATE_TIME
-            | tag::DATE_TIME_ZONE_ID
-            | tag::LEGACY_DATE_TIME_ZONE_ID => "ZONED DATETIME",
-            tag::DURATION => "DURATION",
-            tag::POINT_2D | tag::POINT_3D => "POINT",
-            tag::NODE => "NODE",
-            tag::RELATIONSHIP | tag::UNBOUND_RELATIONSHIP => "RELATIONSHIP",
-            tag::PATH => "PATH",
-            _ => "ANY",
-        },
-    })
+fn bolt_type(v: &Bolt) -> Option<String> {
+    if let Bolt::Struct(tag::VECTOR, f) = v {
+        if let Some(n) = value::NativeVector::decode(f) {
+            return Some(n.type_name());
+        }
+    }
+    Some(
+        match v {
+            Bolt::Null => return None,
+            Bolt::Bool(_) => "BOOLEAN",
+            Bolt::Int(_) => "INTEGER",
+            Bolt::Float(_) => "FLOAT",
+            Bolt::Bytes(_) => "BYTES",
+            Bolt::String(_) => "STRING",
+            Bolt::List(l) if float_list_text(l, false).is_some() => "LIST<FLOAT>",
+            Bolt::List(_) => "LIST",
+            Bolt::Map(_) => "MAP",
+            Bolt::Struct(t, _) => match *t {
+                tag::DATE => "DATE",
+                tag::LOCAL_TIME => "LOCAL TIME",
+                tag::TIME => "ZONED TIME",
+                tag::LOCAL_DATE_TIME => "LOCAL DATETIME",
+                tag::DATE_TIME
+                | tag::LEGACY_DATE_TIME
+                | tag::DATE_TIME_ZONE_ID
+                | tag::LEGACY_DATE_TIME_ZONE_ID => "ZONED DATETIME",
+                tag::DURATION => "DURATION",
+                tag::POINT_2D | tag::POINT_3D => "POINT",
+                tag::NODE => "NODE",
+                tag::RELATIONSHIP | tag::UNBOUND_RELATIONSHIP => "RELATIONSHIP",
+                tag::PATH => "PATH",
+                _ => "ANY",
+            },
+        }
+        .to_string(),
+    )
 }
 
 /// A Neptune (JSON) value.
@@ -1003,9 +1032,20 @@ mod tests {
             "F32_BLOB(3)",
             "FixedSizeList<Float32>(3)",
             "LIST<FLOAT>",
+            "VECTOR<FLOAT32>(3)",
+            "vector<float, 3>",
+            "frozen<vector<float, 3>>",
+            "float_vector(3)",
+            "dense_vector(3, float)",
+            "dense_vector",
+            "knn_vector(3)",
+            "REAL_VECTOR(3)",
+            "HALF_VECTOR(3)",
+            "array|vector(3)|null",
         ] {
             assert!(vector_type(t), "{t}");
         }
+        assert!(!vector_type("string|integer"));
         for t in ["sparsevec(5)", "integer", "LIST", "text[]", "jsonb", ""] {
             assert!(!vector_type(t), "{t}");
         }
@@ -1022,11 +1062,27 @@ mod tests {
         assert_eq!(vector_list(&Cell::Int(1)), None);
         // Read back: the vector text, typed LIST<FLOAT>.
         let l = Bolt::List(vec![Bolt::Float(0.5), Bolt::Float(2.0)]);
-        assert_eq!(bolt_type(&l), Some("LIST<FLOAT>"));
+        assert_eq!(bolt_type(&l).as_deref(), Some("LIST<FLOAT>"));
         assert_eq!(bolt_cell(l), Cell::Json("[0.5,2]".into()));
         let ints = Bolt::List(vec![Bolt::Int(1), Bolt::Int(2)]);
-        assert_eq!(bolt_type(&ints), Some("LIST"));
+        assert_eq!(bolt_type(&ints).as_deref(), Some("LIST"));
         assert_eq!(bolt_cell(ints), Cell::Json("[1,2]".into()));
+        // NaN or ±∞: no vector text (it'd load back as a null element).
+        let odd = Bolt::List(vec![Bolt::Float(0.5), Bolt::Float(f64::NAN)]);
+        assert_eq!(float_list_text(odd.as_list(), false), None);
+        assert_ne!(bolt_cell(odd), Cell::Json("[0.5,null]".into()));
+        // A Neo4j 2025 VECTOR (Bolt 6): typed as Neo4j spells it, read as
+        // its vector text.
+        let data: Vec<u8> = [0.25f32, -1.0]
+            .iter()
+            .flat_map(|x| x.to_be_bytes())
+            .collect();
+        let v = Bolt::Struct(
+            tag::VECTOR,
+            vec![Bolt::Bytes(vec![0xC6]), Bolt::Bytes(data)],
+        );
+        assert_eq!(bolt_type(&v).as_deref(), Some("VECTOR<FLOAT32>(2)"));
+        assert_eq!(bolt_cell(v), Cell::Json("[0.25,-1]".into()));
     }
 
     #[test]

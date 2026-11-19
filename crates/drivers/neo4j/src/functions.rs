@@ -219,6 +219,22 @@ mod tests {
             neo4j_static(Some("Neo4j 4.4.40 enterprise")),
             "toLower"
         ));
+        // The VECTOR functions of Neo4j 2025.10 (Cypher 25).
+        for f in [
+            "vector",
+            "vector_distance",
+            "vector_norm",
+            "vector_dimension_count",
+        ] {
+            assert!(
+                has(neo4j_static(Some("Neo4j 2025.10.1 enterprise")), f),
+                "{f}"
+            );
+            assert!(
+                !has(neo4j_static(Some("Neo4j 5.26.31 community")), f),
+                "{f}"
+            );
+        }
         // Memgraph's release notes date them: nullIf 3.14, elementId 3.11,
         // username 3.8.
         let mg = |v| memgraph_static(Some(v));

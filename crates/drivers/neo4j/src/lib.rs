@@ -1105,16 +1105,48 @@ fn scan_query(rel: bool) -> &'static str {
 
 /// Whether a result column holds vectors: every value that isn't null is
 /// a list of floats, all of the same length (an embedding property, or
-/// what a query built from one). Cypher results carry no types.
+/// what a query built from one; Cypher results carry no types), or every
+/// one is a Neo4j 2025 VECTOR of one dimension and coordinate type.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum VectorShape {
     Unseen,
     Dims(usize),
+    /// VECTOR values (Bolt 6): their dimension and coordinate type.
+    Native(usize, &'static str),
     No,
 }
 
+/// Cypher's coordinate types, as `value::NativeVector` names them.
+const COORDINATES: &[&str] = &[
+    "FLOAT32",
+    "FLOAT64",
+    "INTEGER8",
+    "INTEGER16",
+    "INTEGER32",
+    "INTEGER64",
+];
+
 impl VectorShape {
     fn see(&mut self, v: &Value) {
+        if let Some((coordinate, numbers)) = value::native_vector_json(v) {
+            let coordinate = COORDINATES.iter().find(|c| **c == coordinate);
+            *self = match (*self, coordinate) {
+                (VectorShape::Unseen, Some(c)) if numbers.iter().all(Value::is_number) => {
+                    VectorShape::Native(numbers.len(), c)
+                }
+                (VectorShape::Native(n, c), Some(c2))
+                    if n == numbers.len() && c == *c2 && numbers.iter().all(Value::is_number) =>
+                {
+                    VectorShape::Native(n, c)
+                }
+                _ => VectorShape::No,
+            };
+            return;
+        }
+        if matches!(self, VectorShape::Native(..)) && !v.is_null() {
+            *self = VectorShape::No;
+            return;
+        }
         let len = match v {
             Value::Null => return,
             Value::Array(a)
@@ -1140,6 +1172,10 @@ impl VectorShape {
 /// 32-bit floats, at that precision when the numbers are such floats).
 fn mark_vectors(r: &mut dbine_driver::StatementResult, shapes: &[VectorShape], f32_storage: bool) {
     for (i, s) in shapes.iter().enumerate() {
+        if let VectorShape::Native(n, coordinate) = *s {
+            mark_native(r, i, n, coordinate);
+            continue;
+        }
         let VectorShape::Dims(n) = *s else { continue };
         let Some(c) = r.columns.get_mut(i) else {
             continue;
@@ -1161,6 +1197,35 @@ fn mark_vectors(r: &mut dbine_driver::StatementResult, shapes: &[VectorShape], f
             } else {
                 dbine_driver::VectorElement::F64
             },
+        ));
+    }
+}
+
+/// A column of Neo4j 2025 VECTOR values: typed `VECTOR<FLOAT32>(3)`, its
+/// cells the vector text (FLOAT32 at its own precision).
+fn mark_native(r: &mut dbine_driver::StatementResult, i: usize, n: usize, coordinate: &str) {
+    for row in r.rows.iter_mut() {
+        let Some(cell) = row.get_mut(i) else { continue };
+        let numbers = cell
+            .as_str()
+            .and_then(|t| serde_json::from_str::<Value>(t).ok())
+            .and_then(|j| {
+                value::native_vector_json(&j)
+                    .map(|(_, v)| v.iter().filter_map(Value::as_f64).collect::<Vec<f64>>())
+            });
+        if let Some(v) = numbers {
+            *cell = Value::String(if coordinate == "FLOAT32" {
+                dbine_driver::vector::text(v.iter().map(|&x| x as f32))
+            } else {
+                dbine_driver::vector::text(v)
+            });
+        }
+    }
+    if let Some(c) = r.columns.get_mut(i) {
+        c.type_name = format!("VECTOR<{coordinate}>({n})");
+        c.vector = Some(dbine_driver::VectorMeta::dense(
+            u32::try_from(n).ok(),
+            value::coordinate_element(coordinate),
         ));
     }
 }
@@ -2542,7 +2607,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// Every flavor cuts the editor's script as `execute` numbers it.
     #[test]
     fn float_list_columns_are_vectors() {
         let mut shapes = vec![VectorShape::Unseen; 4];
@@ -2592,6 +2656,73 @@ mod tests {
         assert_eq!(caps, [true, true, false]);
     }
 
+    /// Neo4j 2025 VECTOR values (Bolt 6), as `value::to_json` gives them: a
+    /// column of one dimension and coordinate type is a vector, typed as
+    /// Neo4j spells it; a mix with lists or other dimensions isn't.
+    #[test]
+    fn native_vector_columns_are_vectors() {
+        let v = |n: Vec<serde_json::Value>, c: &str| json!({"~vector": n, "~coordinateType": c});
+        let rows = [
+            vec![
+                v(vec![json!(0.1), json!(2.0), json!(-3.5)], "FLOAT32"),
+                v(vec![json!(1), json!(-2)], "INTEGER8"),
+                v(vec![json!(1.0)], "FLOAT64"),
+            ],
+            vec![
+                json!(null),
+                v(vec![json!(3), json!(4)], "INTEGER8"),
+                json!([0.5]),
+            ],
+            vec![
+                v(vec![json!(1.5), json!(0.25), json!(1e-7)], "FLOAT32"),
+                v(vec![json!(5), json!(6)], "INTEGER8"),
+                json!(null),
+            ],
+        ];
+        let mut shapes = vec![VectorShape::Unseen; 3];
+        for r in &rows {
+            for (s, x) in shapes.iter_mut().zip(r) {
+                s.see(x);
+            }
+        }
+        assert_eq!(
+            shapes,
+            [
+                VectorShape::Native(3, "FLOAT32"),
+                VectorShape::Native(2, "INTEGER8"),
+                VectorShape::No
+            ]
+        );
+        let mut r = dbine_driver::StatementResult {
+            columns: columns(&["e".into(), "i".into(), "m".into()]),
+            rows: rows
+                .iter()
+                .map(|r| r.iter().map(value::cell).collect())
+                .collect(),
+            ..Default::default()
+        };
+        mark_vectors(&mut r, &shapes, false);
+        assert_eq!(r.columns[0].type_name, "VECTOR<FLOAT32>(3)");
+        assert_eq!(
+            r.columns[0].vector,
+            Some(dbine_driver::VectorMeta::dense(
+                Some(3),
+                dbine_driver::VectorElement::F32
+            ))
+        );
+        assert_eq!(r.rows[0][0], json!("[0.1,2,-3.5]"));
+        assert_eq!(r.rows[1][0], json!(null));
+        assert_eq!(r.rows[2][0], json!("[1.5,0.25,0.0000001]"));
+        assert_eq!(r.columns[1].type_name, "VECTOR<INTEGER8>(2)");
+        assert_eq!(
+            r.columns[1].vector.as_ref().unwrap().element,
+            dbine_driver::VectorElement::I8
+        );
+        assert_eq!(r.rows[1][1], json!("[3,4]"));
+        assert_eq!(r.columns[2].vector, None);
+    }
+
+    /// Every flavor cuts the editor's script as `execute` numbers it.
     #[test]
     fn split_script_is_cypher_shells() {
         let s = ":use neo4j\nMATCH (n) RETURN n;\n:param x => 1\nRETURN $x;";

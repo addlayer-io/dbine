@@ -1,7 +1,14 @@
-//! A small Bolt client (protocol 4.2–5.4): handshake, HELLO / LOGON,
-//! RUN + PULL with the result metadata (fields, plans, profiles, counters,
-//! notifications) and RESET after a failure. Neo4j, Memgraph and other
-//! Bolt servers speak it; one [`Conn`] is one socket, no pooling.
+//! A small Bolt client (protocol 4.2–6.0): handshake (with the version
+//! manifest of 5.7+ servers), HELLO / LOGON, RUN + PULL with the result
+//! metadata (fields, plans, profiles, counters, notifications) and RESET
+//! after a failure. Neo4j, Memgraph and other Bolt servers speak it; one
+//! [`Conn`] is one socket, no pooling.
+//!
+//! Bolt 6.0 (Neo4j 2025.10+) is what carries the VECTOR type (an older
+//! protocol gets a placeholder map instead of the vector). From 5.6 on the
+//! server reports GQL statuses instead of notifications and, from 5.7,
+//! `neo4j_code` instead of `code` in failures: [`gql_compat`] puts them
+//! back in the 5.4 shape the rest of the driver reads.
 
 use crate::packstream::{encode, encoded_len, map, Decoder, Value};
 use dbine_driver::{ConnectionConfig, Error, Field, Result, TlsLevel};
@@ -28,6 +35,104 @@ const FAILURE: u8 = 0x7F;
 
 /// Rows asked for per PULL.
 const BATCH: i64 = 1000;
+
+/// The versions this client speaks, most wanted first: 6.0 (VECTOR),
+/// 5.8–5.6 (GQL statuses and errors, see [`gql_compat`]), 5.4–5.0 and
+/// 4.4–4.2. No server ever negotiates 5.5.
+const SUPPORTED: &[(u8, u8)] = &[
+    (6, 0),
+    (5, 8),
+    (5, 7),
+    (5, 6),
+    (5, 4),
+    (5, 3),
+    (5, 2),
+    (5, 1),
+    (5, 0),
+    (4, 4),
+    (4, 3),
+    (4, 2),
+];
+
+/// Magic, then four proposals: the version manifest (v1, Bolt 5.7+
+/// servers answer it with every version they speak), 5.4 down to 5.0 and
+/// 4.4 down to 4.2 for servers without it.
+const HANDSHAKE: [u8; 20] = [
+    0x60, 0x60, 0xB0, 0x17, 0, 0, 1, 0xFF, 0, 4, 4, 5, 0, 2, 4, 4, 0, 0, 0, 0,
+];
+
+/// The manifest's answer to a proposal.
+const MANIFEST_V1: [u8; 4] = [0, 0, 1, 0xFF];
+
+/// The version to use from a manifest's offer (entries `[_, range, minor,
+/// major]`: `minor` and the `range` minors below it).
+fn pick(offered: &[[u8; 4]]) -> Option<(u8, u8)> {
+    SUPPORTED.iter().copied().find(|&(major, minor)| {
+        offered.iter().any(|&[_, range, top, m]| {
+            m == major && minor <= top && minor >= top.saturating_sub(range)
+        })
+    })
+}
+
+/// A message's metadata from a 5.6+ server in the 5.4 shape: a SUCCESS'
+/// GQL `statuses` that carry a Neo4j code become `notifications` (code,
+/// title, description, severity, category, position), and a FAILURE's
+/// `neo4j_code` (5.7+) is its `code`.
+pub(crate) fn gql_compat(tag: u8, meta: Value) -> Value {
+    let Value::Map(mut m) = meta else {
+        return meta;
+    };
+    let has = |m: &[(String, Value)], k: &str| m.iter().any(|(x, _)| x == k);
+    if tag == FAILURE && !has(&m, "code") {
+        if let Some(code) = m
+            .iter()
+            .find(|(k, _)| k == "neo4j_code")
+            .map(|(_, v)| v.clone())
+        {
+            m.push(("code".into(), code));
+        }
+    }
+    if tag == SUCCESS && !has(&m, "notifications") {
+        let statuses = m
+            .iter()
+            .find(|(k, _)| k == "statuses")
+            .map(|(_, v)| v.as_list().to_vec());
+        if let Some(statuses) = statuses {
+            let notes: Vec<Value> = statuses
+                .iter()
+                .filter(|s| s.get("neo4j_code").is_some())
+                .map(|s| {
+                    let mut n: Vec<(String, Value)> = Vec::new();
+                    for (to, from) in [
+                        ("code", "neo4j_code"),
+                        ("title", "title"),
+                        ("description", "description"),
+                    ] {
+                        if let Some(v) = s.get(from) {
+                            n.push((to.into(), v.clone()));
+                        }
+                    }
+                    if let Some(d) = s.get("diagnostic_record") {
+                        for (to, from) in [
+                            ("severity", "_severity"),
+                            ("category", "_classification"),
+                            ("position", "_position"),
+                        ] {
+                            if let Some(v) = d.get(from) {
+                                n.push((to.into(), v.clone()));
+                            }
+                        }
+                    }
+                    Value::Map(n)
+                })
+                .collect();
+            if !notes.is_empty() {
+                m.push(("notifications".into(), Value::List(notes)));
+            }
+        }
+    }
+    Value::Map(m)
+}
 
 trait Io: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Io for T {}
@@ -285,11 +390,7 @@ impl Conn {
     }
 
     async fn handshake(&mut self) -> Result<()> {
-        // Magic, then four proposals: 5.4 down to 5.0, 4.4 down to 4.2.
-        let hs = [
-            0x60, 0x60, 0xB0, 0x17, 0, 4, 4, 5, 0, 2, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
-        self.io.write_all(&hs).await.map_err(io_err)?;
+        self.io.write_all(&HANDSHAKE).await.map_err(io_err)?;
         let mut v = [0u8; 4];
         self.io.read_exact(&mut v).await.map_err(|e| {
             Error::Connect(format!("el servidor no respondió al saludo Bolt (¿es el puerto Bolt? Si el servidor solo acepta TLS, elegí bolt+s en scheme): {e}"))
@@ -301,11 +402,56 @@ impl Conn {
         }
         if v == [0, 0, 0, 0] {
             return Err(Error::Connect(
-                "el servidor no acepta ninguna versión de Bolt entre 4.2 y 5.4".into(),
+                "el servidor no acepta ninguna versión de Bolt entre 4.2 y 6.0".into(),
             ));
+        }
+        if v == MANIFEST_V1 {
+            return self.manifest().await;
         }
         self.version = (v[3], v[2]);
         Ok(())
+    }
+
+    /// The manifest (v1): the versions the server speaks and its
+    /// capabilities; the client answers with the version it picked and no
+    /// capabilities (the server sends nothing back).
+    async fn manifest(&mut self) -> Result<()> {
+        let n = self.varint().await?;
+        let mut offered = Vec::new();
+        for _ in 0..n.min(256) {
+            let mut e = [0u8; 4];
+            self.io.read_exact(&mut e).await.map_err(io_err)?;
+            offered.push(e);
+        }
+        let _capabilities = self.varint().await?;
+        let Some((major, minor)) = pick(&offered) else {
+            let _ = self.io.write_all(&[0, 0, 0, 0, 0]).await;
+            return Err(Error::Connect(
+                "el servidor no acepta ninguna versión de Bolt entre 4.2 y 6.0".into(),
+            ));
+        };
+        self.io
+            .write_all(&[0, 0, minor, major, 0])
+            .await
+            .map_err(io_err)?;
+        self.version = (major, minor);
+        Ok(())
+    }
+
+    /// A handshake VarInt: 7 bits a byte, the lowest first.
+    async fn varint(&mut self) -> Result<u64> {
+        let mut out = 0u64;
+        for shift in (0..64).step_by(7) {
+            let mut b = [0u8; 1];
+            self.io.read_exact(&mut b).await.map_err(io_err)?;
+            out |= u64::from(b[0] & 0x7F) << shift;
+            if b[0] & 0x80 == 0 {
+                return Ok(out);
+            }
+        }
+        Err(Error::Connect(
+            "saludo Bolt inválido (número demasiado largo)".into(),
+        ))
     }
 
     async fn hello(&mut self, t: &Target, user_agent: &str) -> Result<()> {
@@ -399,14 +545,21 @@ impl Conn {
                 .map_err(io_err)?;
         }
         match Decoder::new(&msg).value().map_err(Error::Connect)? {
-            Value::Struct(tag, mut fields) => Ok((
-                tag,
-                if fields.is_empty() {
+            Value::Struct(tag, mut fields) => {
+                let first = if fields.is_empty() {
                     Value::Null
                 } else {
                     fields.swap_remove(0)
-                },
-            )),
+                };
+                Ok((
+                    tag,
+                    if self.version >= (5, 6) {
+                        gql_compat(tag, first)
+                    } else {
+                        first
+                    },
+                ))
+            }
             other => Err(Error::Connect(format!(
                 "mensaje Bolt inesperado: {other:?}"
             ))),
@@ -739,6 +892,104 @@ mod tests {
         c.options.clear();
         c.host = "neo4j+s://abc.databases.neo4j.io:7687".into();
         assert_eq!(target(&c, 7687).server_name, "abc.databases.neo4j.io");
+    }
+
+    #[test]
+    fn versions_from_the_manifest() {
+        // The Bolt docs' example: 5.8–5.6 and 4.4–4.0.
+        assert_eq!(pick(&[[0, 2, 8, 5], [0, 4, 4, 4]]), Some((5, 8)));
+        // Neo4j 2025.10+: 6.0 first.
+        assert_eq!(
+            pick(&[[0, 0, 0, 6], [0, 8, 8, 5], [0, 4, 4, 4]]),
+            Some((6, 0))
+        );
+        // A future 6.1 server that still speaks 6.0.
+        assert_eq!(pick(&[[0, 1, 1, 6]]), Some((6, 0)));
+        // Only 5.5 (never used) and 3.0: nothing.
+        assert_eq!(pick(&[[0, 0, 5, 5], [0, 0, 0, 3]]), None);
+        assert_eq!(pick(&[[0, 0, 2, 4]]), Some((4, 2)));
+        // The manifest goes first, the classic proposals after it.
+        assert_eq!(&HANDSHAKE[4..8], &MANIFEST_V1);
+        assert_eq!(&HANDSHAKE[8..12], &[0, 4, 4, 5]);
+    }
+
+    #[test]
+    fn gql_statuses_read_as_notifications() {
+        let status = |code: Option<&str>, sev: &str| {
+            let mut s = vec![
+                ("gql_status", Value::from("01N00")),
+                (
+                    "status_description",
+                    Value::from("warn: feature deprecated"),
+                ),
+            ];
+            if let Some(c) = code {
+                s.push(("neo4j_code", Value::from(c)));
+                s.push(("title", Value::from("Deprecated")));
+                s.push(("description", Value::from("Use the other one")));
+            }
+            s.push((
+                "diagnostic_record",
+                map([
+                    ("_severity", Value::from(sev)),
+                    ("_classification", Value::from("DEPRECATION")),
+                    (
+                        "_position",
+                        map([
+                            ("offset", Value::Int(7)),
+                            ("line", Value::Int(1)),
+                            ("column", Value::Int(8)),
+                        ]),
+                    ),
+                ]),
+            ));
+            Value::Map(s.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+        };
+        let meta = map([
+            ("t_last", Value::Int(1)),
+            (
+                "statuses",
+                Value::List(vec![
+                    status(None, "INFORMATION"),
+                    status(
+                        Some("Neo.ClientNotification.Statement.FeatureDeprecationWarning"),
+                        "WARNING",
+                    ),
+                ]),
+            ),
+        ]);
+        let got = gql_compat(SUCCESS, meta);
+        let notes = got.get("notifications").unwrap().as_list();
+        assert_eq!(notes.len(), 1);
+        let n = &notes[0];
+        assert_eq!(
+            n.get("code").and_then(Value::as_str),
+            Some("Neo.ClientNotification.Statement.FeatureDeprecationWarning")
+        );
+        assert_eq!(n.get("severity").and_then(Value::as_str), Some("WARNING"));
+        assert_eq!(n.get("title").and_then(Value::as_str), Some("Deprecated"));
+        assert_eq!(
+            n.get("position").and_then(|p| p.get("line")),
+            Some(&Value::Int(1))
+        );
+        // Failures: neo4j_code is the code.
+        let f = gql_compat(
+            FAILURE,
+            map([
+                ("gql_status", Value::from("42001")),
+                ("message", Value::from("x")),
+                (
+                    "neo4j_code",
+                    Value::from("Neo.ClientError.Statement.SyntaxError"),
+                ),
+            ]),
+        );
+        assert!(
+            matches!(failure(&f), Error::Query(t) if t == "x (Neo.ClientError.Statement.SyntaxError)")
+        );
+        // A 5.4 reply is left as it is.
+        let old = map([("code", Value::from("c")), ("message", Value::from("m"))]);
+        assert_eq!(gql_compat(FAILURE, old.clone()), old);
     }
 
     #[test]

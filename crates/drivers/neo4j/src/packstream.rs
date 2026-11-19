@@ -301,6 +301,10 @@ impl<'a> Decoder<'a> {
 
 /// Struct tags of the graph and temporal types.
 pub mod tag {
+    /// Bolt 6.0.
+    pub const VECTOR: u8 = 0x56;
+    /// Bolt 6.0: a value of a type the negotiated version can't carry.
+    pub const UNSUPPORTED: u8 = 0x3F;
     pub const NODE: u8 = 0x4E;
     pub const RELATIONSHIP: u8 = 0x52;
     pub const UNBOUND_RELATIONSHIP: u8 = 0x72;
