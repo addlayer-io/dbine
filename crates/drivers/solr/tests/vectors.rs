@@ -7,9 +7,10 @@
 //!
 //! The test creates its `dbine_vec*` collections through the driver's own
 //! DDL (a designer `TableSchema` with vector columns and a vector index),
-//! fills them with `insert_script`, reads them back as results and as the
+//! fills them with `insert_script_typed` (BYTE vectors written as integers,
+//! one Solr would truncate refused), reads them back as results and as the
 //! schema (a vector of a dynamic field too), searches with `{!knn}`, edits
-//! a vector with `update_script`, copies the collection with
+//! vectors with `update_script` and `update_script_typed`, copies the collection with
 //! `read_batches` / `bulk_load`, drops a vector index by schema sync, and
 //! drops what it made first, and last through a guard that also runs when
 //! it fails partway. On Solr 9.5+ a column has 1536 dimensions.
@@ -23,7 +24,7 @@
 use dbine_driver::transfer::{BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch};
 use dbine_driver::{
     async_trait, ColumnDef, ConnectionConfig, DdlParts, IndexDef, ObjectRef, QueryOutcome,
-    RowChange, Session, TableSchema, VectorElement, VectorIndex, VectorMeta,
+    ResultColumn, RowChange, Session, TableSchema, VectorElement, VectorIndex, VectorMeta,
 };
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
@@ -269,20 +270,34 @@ async fn exercise(url: &str) {
     println!("{ddl}");
     run(&mut s, &ddl).await;
 
-    // 2. Rows with arrays.
+    // 2. Rows with arrays (bytes as a float source gives them), typed as a
+    // describe gives the columns: the script writes the bytes as integers,
+    // and refuses one Solr would truncate without a word.
     let names: Vec<String> = ["id", "title", "emb", "b"].map(String::from).to_vec();
+    let described = s.columns(&obj(COLL)).await.unwrap();
+    let typed: Vec<ResultColumn> = names
+        .iter()
+        .map(|n| {
+            let ty = described
+                .iter()
+                .find(|c| &c.name == n)
+                .map(|c| c.data_type.clone())
+                .unwrap_or_default();
+            ResultColumn::new(n.clone(), ty)
+        })
+        .collect();
     let rows = vec![
         vec![
             json!("1"),
             json!("uno"),
             json!([1.0, 0.0, 0.0]),
-            json!([1, 2, 3, 4]),
+            json!([1.0, 2.0, 3.0, 4.0]),
         ],
         vec![
             json!("2"),
             json!("dos"),
             json!([0.0, 1.0, 0.0]),
-            json!([-1, -2, -3, -128]),
+            json!([-1.0, -2.0, -3.0, -128.0]),
         ],
         vec![
             json!("3"),
@@ -291,7 +306,18 @@ async fn exercise(url: &str) {
             json!([0, 0, 0, 127]),
         ],
     ];
-    run(&mut s, &d.insert_script(&obj(COLL), &names, &rows).unwrap()).await;
+    let insert = d.insert_script_typed(&obj(COLL), &typed, &rows).unwrap();
+    assert!(insert.contains(r#""b":[1,2,3,4]"#), "{insert}");
+    run(&mut s, &insert).await;
+    let truncated = vec![vec![
+        json!("9"),
+        json!("x"),
+        json!([1.0, 0.0, 0.0]),
+        json!([1.5, 0, 0, 0]),
+    ]];
+    assert!(d
+        .insert_script_typed(&obj(COLL), &typed, &truncated)
+        .is_err());
     // 1536 dimensions, set on document 1 as an edit.
     let big_vector: Vec<f64> = (0..1536).map(|i| f64::from(i % 7) - 3.0).collect();
     if big {
@@ -447,6 +473,22 @@ async fn exercise(url: &str) {
     run(&mut s, &update).await;
     let out = run(&mut s, &browse).await;
     assert_eq!(cells(&out, "emb")[1].1, json!("[0.25,0.5,-1]"));
+    // A byte vector edited, typed.
+    let update = d
+        .update_script_typed(
+            &obj(COLL),
+            &[RowChange {
+                key: vec![("id".into(), json!("2"))],
+                set: vec![("b".into(), json!([5.0, -6.0, 7.0, -8.0]))],
+                ..Default::default()
+            }],
+            &typed,
+        )
+        .unwrap();
+    assert!(update.contains("[5,-6,7,-8]"), "{update}");
+    run(&mut s, &update).await;
+    let out = run(&mut s, &browse).await;
+    assert_eq!(cells(&out, "b")[1].1, json!("[5,-6,7,-8]"));
 
     // 8. A transfer into a clone made from the schema read back.
     let mut copy = got.clone();

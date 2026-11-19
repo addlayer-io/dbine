@@ -172,6 +172,43 @@ pub fn column_type(c: &ColumnDef) -> Result<Option<VectorType>> {
     VectorType::parse(&c.data_type).transpose()
 }
 
+/// Whether a script's column is a BYTE vector, by its type
+/// (`knn_vector(3, BYTE)`, as a result or a describe names it) or its
+/// [`dbine_driver::VectorMeta`].
+pub fn script_bytes(c: &dbine_driver::ResultColumn) -> bool {
+    match VectorType::parse(&c.type_name) {
+        Some(Ok(t)) => t.byte,
+        _ => c
+            .vector
+            .as_ref()
+            .is_some_and(|m| !m.sparse && m.element == dbine_driver::VectorElement::I8),
+    }
+}
+
+/// A BYTE vector's value in an insert or update script, as integers. Solr
+/// truncates a fraction and wraps a number past -128..127 without a word,
+/// so such a value is an error. `None`: not a vector (a null), as it is.
+pub fn script_bytes_value(
+    column: &str,
+    val: &serde_json::Value,
+) -> Result<Option<serde_json::Value>> {
+    let Some(nums) = dbine_driver::vector::parse_value(val) else {
+        return Ok(None);
+    };
+    nums.into_iter()
+        .map(|x| {
+            if x.fract() == 0.0 && (-128.0..=127.0).contains(&x) {
+                Ok(serde_json::Value::from(x as i64))
+            } else {
+                Err(Error::Query(format!(
+                    "«{column}» es un vector BYTE: toma enteros de -128 a 127, no {x} (Solr lo cambiaría sin avisar)."
+                )))
+            }
+        })
+        .collect::<Result<Vec<_>>>()
+        .map(|v| Some(serde_json::Value::Array(v)))
+}
+
 fn metric_from(native: &str) -> String {
     match native.trim().to_ascii_lowercase().as_str() {
         "euclidean" => metric::L2.into(),
