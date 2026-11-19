@@ -23,11 +23,12 @@ const MAX_DECIMAL: u32 = 38;
 /// TIMESTAMP keeps 100 ns.
 const TIMESTAMP_PRECISION: u8 = 7;
 
-/// Most dimensions of a `REAL_VECTOR`.
+/// Most dimensions of a `REAL_VECTOR` or `HALF_VECTOR`.
 const MAX_VECTOR_DIMS: u32 = 65000;
 
-/// `REAL_VECTOR(n)` (HANA Cloud), any dimension when none is given; a
-/// sparse vector takes the fallback.
+/// `REAL_VECTOR(n)` (HANA Cloud), any dimension when none is given, or
+/// `HALF_VECTOR(n)` for half-precision values (HANA Cloud QRC 2/2025 and
+/// later); a sparse vector takes the fallback.
 fn render_vector(d: &dyn Dialect, t: &L) -> Rendered {
     use dbine_driver::VectorElement as E;
     use IssueCode::*;
@@ -40,13 +41,23 @@ fn render_vector(d: &dyn Dialect, t: &L) -> Rendered {
     else {
         return super::vector_fallback(d, t);
     };
+    let kind = if *element == E::F16 {
+        "HALF_VECTOR"
+    } else {
+        "REAL_VECTOR"
+    };
     let ty = match dims {
-        Some(n) if *n <= MAX_VECTOR_DIMS => format!("REAL_VECTOR({n})"),
-        _ => "REAL_VECTOR".to_string(),
+        Some(n) if *n <= MAX_VECTOR_DIMS => format!("{kind}({n})"),
+        _ => kind.to_string(),
     };
     let r = Rendered::exact(ty);
     let r = match element {
         E::F32 => r,
+        E::F16 => r.with(
+            Info,
+            TypeChanged,
+            "HALF_VECTOR es de SAP HANA Cloud QRC 2/2025 en adelante; en una versión anterior, cambialo a REAL_VECTOR.",
+        ),
         E::F64 => r.with(
             Loss,
             PrecisionLoss,
@@ -62,9 +73,7 @@ fn render_vector(d: &dyn Dialect, t: &L) -> Rendered {
         r.with(
             Warning,
             TypeApproximated,
-            format!(
-                "REAL_VECTOR admite hasta {MAX_VECTOR_DIMS} dimensiones: queda sin dimensión fija."
-            ),
+            format!("{kind} admite hasta {MAX_VECTOR_DIMS} dimensiones: queda sin dimensión fija."),
         )
     } else {
         r
@@ -146,10 +155,16 @@ impl Dialect for Hana {
                 precision: Some(TIMESTAMP_PRECISION),
                 tz: false,
             },
-            // HANA Cloud's vector engine: `REAL_VECTOR(n)` (float32).
+            // HANA Cloud's vector engine: `REAL_VECTOR(n)` (float32) and
+            // `HALF_VECTOR(n)` (half precision, QRC 2/2025).
             "real_vector" => L::Vector {
                 dims: p(0),
                 element: dbine_driver::VectorElement::F32,
+                sparse: false,
+            },
+            "half_vector" => L::Vector {
+                dims: p(0),
+                element: dbine_driver::VectorElement::F16,
                 sparse: false,
             },
             "st_geometry" | "st_point" => L::Geometry {
@@ -282,8 +297,8 @@ impl Dialect for Hana {
 
     /// `CREATE HNSW VECTOR INDEX … SIMILARITY FUNCTION COSINE_SIMILARITY |
     /// L2DISTANCE`: another family's graph or list index becomes HNSW. Its
-    /// column must be a `REAL_VECTOR` here: a sparse vector, which goes as
-    /// JSON text, can't be indexed.
+    /// column must be a `REAL_VECTOR` or `HALF_VECTOR` here: a sparse
+    /// vector, which goes as JSON text, can't be indexed.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
@@ -291,9 +306,10 @@ impl Dialect for Hana {
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
         if let Some(c @ L::Vector { .. }) = column {
-            if !render_vector(self, c).native.starts_with("REAL_VECTOR") {
+            let native = render_vector(self, c).native;
+            if !native.starts_with("REAL_VECTOR") && !native.starts_with("HALF_VECTOR") {
                 return Err(
-                    "su columna no es un REAL_VECTOR en HANA (HANA no tiene vectores dispersos)"
+                    "su columna no es un REAL_VECTOR ni un HALF_VECTOR en HANA (HANA no tiene vectores dispersos)"
                         .into(),
                 );
             }
@@ -767,14 +783,22 @@ mod tests {
             "REAL_VECTOR(1536)"
         );
         assert_eq!(Hana.render_type(&v(None, E::F32)).native, "REAL_VECTOR");
-        // pgvector's vector(3) and halfvec(3).
+        // pgvector's vector(3) and halfvec(3), with a note on the release.
         assert_eq!(
             Hana.render_type(&v(Some(3), E::F32)).native,
             "REAL_VECTOR(3)"
         );
         let half = Hana.render_type(&v(Some(3), E::F16));
-        assert_eq!(half.native, "REAL_VECTOR(3)");
+        assert_eq!(half.native, "HALF_VECTOR(3)");
         assert!(!half.notes.is_empty());
+        assert_eq!(ty("HALF_VECTOR(3)"), v(Some(3), E::F16));
+        assert_eq!(ty("HALF_VECTOR"), v(None, E::F16));
+        assert_eq!(Hana.render_type(&ty("HALF_VECTOR")).native, "HALF_VECTOR");
+        // Other elements as float32.
+        assert_eq!(
+            Hana.render_type(&v(Some(3), E::Bf16)).native,
+            "REAL_VECTOR(3)"
+        );
         let sparse = L::Vector {
             dims: Some(5),
             element: E::F32,
@@ -805,6 +829,7 @@ mod tests {
             sparse,
         };
         assert!(Hana.vector_index(&hnsw, Some(&col(false))).is_ok());
+        assert!(Hana.vector_index(&hnsw, Some(&v(Some(3), E::F16))).is_ok());
         let e = Hana.vector_index(&hnsw, Some(&col(true))).unwrap_err();
         assert!(e.contains("REAL_VECTOR"), "{e}");
     }

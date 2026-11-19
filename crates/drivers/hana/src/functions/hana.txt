@@ -228,6 +228,7 @@ s L2DISTANCE(vector1, vector2) -> DOUBLE since=4.0
 s L2NORM(vector) -> DOUBLE since=4.0
 s L2NORMALIZE(vector) -> REAL_VECTOR since=4.0
 s SUBVECTOR(vector, start, length) -> REAL_VECTOR since=4.0
+s TO_HALF_VECTOR(expression) -> HALF_VECTOR since=4.0
 s TO_REAL_VECTOR(expression [, dimension]) -> REAL_VECTOR since=4.0
 s VECTOR_EMBEDDING(text, 'DOCUMENT' | 'QUERY', model_id) -> REAL_VECTOR since=4.0
 

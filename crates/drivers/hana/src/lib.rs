@@ -181,14 +181,15 @@ fn literal(v: &Value) -> String {
 }
 
 /// A value for a column whose type the caller knows (a result's or a
-/// describe's): a `REAL_VECTOR` column's through `TO_REAL_VECTOR`, from its
-/// numbers or its text (HANA doesn't convert a string to a vector by
-/// itself); any other column's as the plain literal, an array as its own
-/// JSON text. A column without a type as [`literal`].
+/// describe's): a `REAL_VECTOR` column's through `TO_REAL_VECTOR` and a
+/// `HALF_VECTOR` one's through `TO_HALF_VECTOR`, from its numbers or its
+/// text (HANA doesn't convert a string to a vector by itself); any other
+/// column's as the plain literal, an array as its own JSON text. A column
+/// without a type as [`literal`].
 fn typed_literal(c: Option<&ResultColumn>, v: &Value) -> String {
-    match c {
-        Some(c) if vector::is_column(c) => vector::literal(v).unwrap_or_else(|| literal(v)),
-        Some(c) if !c.type_name.trim().is_empty() => {
+    match c.map(|c| (c, vector::column_kind(c))) {
+        Some((_, Some(kind))) => vector::typed_literal(kind, v).unwrap_or_else(|| literal(v)),
+        Some((c, None)) if !c.type_name.trim().is_empty() => {
             dbine_driver::ddl::sql_literal(&schema::flavor(), v)
         }
         _ => literal(v),
@@ -529,8 +530,8 @@ impl Driver for HanaDriver {
             // The same scheduler jobs, created, changed and dropped from the
             // designer (see `scheduler`).
             scheduler: true,
-            // REAL_VECTOR (HANA Cloud): describes, DDL, literals,
-            // transfers and HNSW vector indexes (see `vector`).
+            // REAL_VECTOR and HALF_VECTOR (HANA Cloud): describes, DDL,
+            // literals, transfers and HNSW vector indexes (see `vector`).
             vectors: true,
         }
     }
@@ -849,7 +850,7 @@ impl HanaSession {
     async fn browse_vectors_as_text(
         &self,
         sql: &str,
-    ) -> Option<(String, Vec<(String, Option<i64>)>)> {
+    ) -> Option<(String, Vec<(String, vector::Declared)>)> {
         let (schema, table, rest) = vector::browsed_table(sql)?;
         let rows = self
             .conn
@@ -871,10 +872,9 @@ impl HanaSession {
                 Some((name, ty, len))
             })
             .collect();
-        let known: Vec<(String, Option<i64>)> = cols
+        let known: Vec<(String, vector::Declared)> = cols
             .iter()
-            .filter(|(_, ty, _)| vector::is_vector(ty))
-            .map(|(n, _, d)| (n.clone(), *d))
+            .filter_map(|(n, ty, d)| Some((n.clone(), vector::Declared::new(ty, *d)?)))
             .collect();
         if known.is_empty() {
             return None;
@@ -1574,14 +1574,14 @@ impl Session for HanaSession {
 // ------------------------------------------------------------- execution
 
 /// `known`: result columns (by name) that hold a vector's text, with their
-/// dimension (a browse read again with `TO_NVARCHAR`, see
+/// declared type (a browse read again with `TO_NVARCHAR`, see
 /// [`HanaSession::browse_vectors_as_text`]).
 async fn push_response(
     conn: &Connection,
     response: HdbResponse,
     max_rows: usize,
     out: &mut QueryOutcome,
-    known: &[(String, Option<i64>)],
+    known: &[(String, vector::Declared)],
 ) -> Result<()> {
     for rv in response {
         match rv {
@@ -1620,28 +1620,23 @@ async fn push_result_set(
     mut rs: ResultSet,
     max_rows: usize,
     out: &mut QueryOutcome,
-    known: &[(String, Option<i64>)],
+    known: &[(String, vector::Declared)],
 ) -> Result<()> {
     let md = rs.metadata();
-    let mut dims = vector_columns(conn, &md).await;
+    let mut vectors = vector_columns(conn, &md).await;
     // Vectors read as text: marked by name, their cells made canonical.
-    let mut texts = vec![false; dims.len()];
+    let mut texts = vec![false; vectors.len()];
     for (i, f) in md.iter().enumerate() {
         if let Some((_, d)) = known.iter().find(|(n, _)| n == f.displayname()) {
-            dims[i] = Some(*d);
+            vectors[i] = Some(*d);
             texts[i] = true;
         }
     }
     out.begin_result(
         md.iter()
-            .zip(&dims)
+            .zip(&vectors)
             .map(|(f, d)| match d {
-                Some(n) => ResultColumn::new(f.displayname(), vector::type_name(*n)).with_vector(
-                    dbine_driver::VectorMeta::dense(
-                        n.and_then(|n| u32::try_from(n).ok()),
-                        dbine_driver::VectorElement::F32,
-                    ),
-                ),
+                Some(d) => ResultColumn::new(f.displayname(), d.type_name()).with_vector(d.meta()),
                 None => ResultColumn::new(f.displayname(), format!("{:?}", f.type_id())),
             })
             .collect(),
@@ -1654,7 +1649,7 @@ async fn push_result_set(
                     Value::String(t) => vector::canonical(&t).into(),
                     other => other,
                 }
-            } else if matches!(dims.get(i), Some(Some(_))) {
+            } else if matches!(vectors.get(i), Some(Some(_))) {
                 vector_cell(v).await
             } else {
                 cell(v).await
@@ -1665,16 +1660,16 @@ async fn push_result_set(
     Ok(())
 }
 
-/// For each result column, `Some(dimension)` when it's a table's
-/// `REAL_VECTOR` column the server sent as binary (see [`vector`]): the
-/// catalog of the tables the binary columns come from says which. A
-/// catalog that can't be read marks nothing.
+/// For each result column, its declared type when it's a table's
+/// `REAL_VECTOR` or `HALF_VECTOR` column the server sent as binary (see
+/// [`vector`]): the catalog of the tables the binary columns come from
+/// says which. A catalog that can't be read marks nothing.
 async fn vector_columns(
     conn: &Connection,
     md: &hdbconnect_async::ResultSetMetadata,
-) -> Vec<Option<Option<i64>>> {
-    // (schema, table) → its vector columns and their dimensions.
-    type Columns = Vec<(String, Option<i64>)>;
+) -> Vec<Option<vector::Declared>> {
+    // (schema, table) → its vector columns and their types.
+    type Columns = Vec<(String, vector::Declared)>;
     let mut found: std::collections::HashMap<(String, String), Columns> =
         std::collections::HashMap::new();
     for f in md.iter().filter(|f| vector::may_be_vector(f.type_id())) {
@@ -1691,11 +1686,12 @@ async fn vector_columns(
             .flatten()
             .filter_map(|mut r| {
                 let name = text(&r.next_value()?)?;
+                let ty = text(&r.next_value()?)?;
                 let dims = r
                     .next_value()
                     .and_then(|v| text(&v))
                     .and_then(|n| n.parse().ok());
-                Some((name, dims))
+                Some((name, vector::Declared::new(&ty, dims)?))
             })
             .collect();
         found.insert(key, cols);
@@ -1817,7 +1813,7 @@ fn format_type(ty: &str, len: Option<i64>, scale: Option<i64>) -> String {
             _ => "DECIMAL".to_string(),
         },
         // LENGTH is the dimension (0: any).
-        vector::TYPE => vector::type_name(len),
+        vector::TYPE | vector::HALF => vector::type_name(ty, len),
         _ => ty.to_string(),
     }
 }
@@ -1885,6 +1881,9 @@ mod tests {
             ResultColumn::new("EMB", "REAL_VECTOR(3)"),
             ResultColumn::new("V2", "").with_vector(VectorMeta::dense(Some(2), VectorElement::F32)),
             ResultColumn::new("DOC", "NCLOB"),
+            // HALF_VECTOR, by its type or by a half meta.
+            ResultColumn::new("H", "HALF_VECTOR(2)"),
+            ResultColumn::new("H2", "").with_vector(VectorMeta::dense(Some(2), VectorElement::F16)),
         ];
         let ins = d
             .insert_script_typed(
@@ -1896,12 +1895,26 @@ mod tests {
                     serde_json::json!("[0.5,1,-2]"),
                     serde_json::json!([1.0, 2]),
                     serde_json::json!([1.0, 2]),
+                    serde_json::json!(" [0.5, 1] "),
+                    serde_json::json!([0.25, 2]),
                 ]],
             )
             .unwrap();
         assert_eq!(
             ins,
-            "INSERT INTO \"APP\".\"DOCS\" (\"ID\", \"EMB\", \"V2\", \"DOC\") VALUES (1, TO_REAL_VECTOR('[0.5,1,-2]'), TO_REAL_VECTOR('[1,2]'), '[1.0,2]');"
+            "INSERT INTO \"APP\".\"DOCS\" (\"ID\", \"EMB\", \"V2\", \"DOC\", \"H\", \"H2\") VALUES (1, TO_REAL_VECTOR('[0.5,1,-2]'), TO_REAL_VECTOR('[1,2]'), '[1.0,2]', TO_HALF_VECTOR('[0.5,1]'), TO_HALF_VECTOR('[0.25,2]'));"
+        );
+        // Text that isn't a vector stays a plain literal.
+        let ins = d
+            .insert_script_typed(
+                &t,
+                &cols[4..5],
+                &[vec![serde_json::json!("x'); DROP TABLE DOCS; --")]],
+            )
+            .unwrap();
+        assert_eq!(
+            ins,
+            "INSERT INTO \"APP\".\"DOCS\" (\"H\") VALUES ('x''); DROP TABLE DOCS; --');"
         );
         let up = d
             .update_script_typed(

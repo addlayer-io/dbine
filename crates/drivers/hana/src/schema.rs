@@ -559,6 +559,7 @@ pub fn designer() -> DesignerSpec {
         "TIMESTAMP",
         "SECONDDATE",
         "REAL_VECTOR(1536)",
+        "HALF_VECTOR(1536)",
     ]);
     d.comments = true;
     d.vector_indexes = Some(crate::vector::spec());
@@ -957,6 +958,7 @@ mod tests {
         assert!(text.contains("SIMILARITY FUNCTION L2DISTANCE"), "{text}");
         let d = designer();
         assert!(d.data_types.contains(&"REAL_VECTOR(1536)"));
+        assert!(d.data_types.contains(&"HALF_VECTOR(1536)"));
         assert_eq!(d.vector_indexes.unwrap().algorithms, ["hnsw"]);
     }
 }
