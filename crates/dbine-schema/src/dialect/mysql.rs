@@ -19,6 +19,29 @@ use dbine_driver::{IndexDef, TableSchema};
 
 pub struct MySql;
 
+/// A vector of `dims` (`None`: any) of the element `e` names (SingleStore's
+/// `F32`, `F16`, `I8`…; float32 when not given).
+fn vector_type(dims: Option<u32>, e: Option<&str>) -> L {
+    use dbine_driver::VectorElement as E;
+    let element = match e.map(|e| e.trim().to_ascii_lowercase()).as_deref() {
+        None | Some("") | Some("f32") | Some("float") | Some("float32") => E::F32,
+        Some("f64") | Some("double") | Some("float64") => E::F64,
+        Some("f16") | Some("float16") => E::F16,
+        Some("i8") | Some("int8") => E::I8,
+        _ => E::Other,
+    };
+    L::Vector {
+        dims,
+        element,
+        sparse: false,
+    }
+}
+
+/// The distances some engine of the family indexes (MariaDB: euclidean,
+/// cosine; TiDB: cosine, L2; OceanBase: L2, inner product, cosine;
+/// SingleStore: dot product, euclidean).
+const VECTOR_METRICS: &[&str] = &["cosine", "l2", "ip"];
+
 /// Longest `varchar(n)` in utf8mb4 (65 535 bytes per row / 4 bytes per char).
 const MAX_VARCHAR: u32 = 16_383;
 /// Row size limit, not counting TEXT/BLOB contents.
@@ -121,6 +144,13 @@ impl Dialect for MySql {
                 srid: None,
                 geography: false,
             },
+            // MySQL 9, MariaDB 11.7, OceanBase: `vector(n)`; TiDB also bare
+            // `vector` and `vector<float>`; SingleStore `vector(n, F16)`…
+            "vector" => vector_type(t.arg_u32(0), t.args.get(1).map(String::as_str)),
+            n if n.starts_with("vector<") => {
+                let e = n.trim_start_matches("vector<").trim_end_matches('>');
+                vector_type(t.arg_u32(0), Some(e))
+            }
             _ => L::Other {
                 native: t.raw.clone(),
             },
@@ -131,7 +161,31 @@ impl Dialect for MySql {
         use IssueCode::*;
         use Severity::*;
         match t {
-            L::Vector { .. } => super::vector_fallback(self, t),
+            L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
+            L::Vector { dims, element, .. } => {
+                use dbine_driver::VectorElement as E;
+                let r = Rendered::exact(match dims {
+                    Some(n) => format!("vector({n})"),
+                    None => "vector".into(),
+                });
+                let r = if dims.is_none() {
+                    r.with(
+                        Warning,
+                        TypeApproximated,
+                        "Vector sin dimensión: queda «vector» (MySQL toma 2048 dimensiones; MariaDB y OceanBase exigen una).",
+                    )
+                } else {
+                    r
+                };
+                match element {
+                    E::F32 => r,
+                    _ => r.with(
+                        Warning,
+                        TypeApproximated,
+                        format!("{}: se guarda como float32.", t.describe()),
+                    ),
+                }
+            }
             L::Bool => Rendered::exact("tinyint(1)"),
             L::Int { bytes, unsigned } => {
                 let u = if *unsigned { " unsigned" } else { "" };
@@ -346,6 +400,44 @@ impl Dialect for MySql {
         } else {
             v
         })
+    }
+
+    /// The family's vector indexes (MariaDB, TiDB, OceanBase, SingleStore;
+    /// MySQL Community has none, and its DDL says so): the standard metric
+    /// and the standard build parameters, each engine's DDL writing them in
+    /// its own terms.
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        if let Some(m) = v.metric.as_deref() {
+            if !VECTOR_METRICS.contains(&m) {
+                return Err(format!(
+                    "la distancia «{m}» no está en los índices vectoriales de MySQL, MariaDB, TiDB, OceanBase ni SingleStore"
+                ));
+            }
+        }
+        let params = v
+            .params
+            .iter()
+            .filter(|(k, _)| {
+                [
+                    dbine_driver::vector::param::M,
+                    dbine_driver::vector::param::EF_CONSTRUCTION,
+                    dbine_driver::vector::param::LISTS,
+                ]
+                .contains(&k.as_str())
+            })
+            .map(|(k, val)| (k.clone(), val.clone()))
+            .collect();
+        Ok((
+            Some("VECTOR".into()),
+            dbine_driver::VectorIndex {
+                algorithm: v.algorithm.clone(),
+                metric: v.metric.clone(),
+                params,
+            },
+        ))
     }
 
     fn caps(&self) -> Caps {
@@ -608,10 +700,181 @@ fn row_bytes(l: &L) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dbine_driver::{ColumnDef, KeyDef};
+    use dbine_driver::{ColumnDef, IndexDef, KeyDef};
 
     fn ty(s: &str) -> L {
         MySql.parse_type(&parse(s))
+    }
+
+    #[test]
+    fn vectors_parse_render_and_index() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        let v3 = L::Vector {
+            dims: Some(3),
+            element: E::F32,
+            sparse: false,
+        };
+        assert_eq!(ty("vector(3)"), v3);
+        assert_eq!(ty("VECTOR(3)"), v3);
+        assert_eq!(ty("vector<float>(3)"), v3);
+        assert_eq!(
+            ty("vector"),
+            L::Vector {
+                dims: None,
+                element: E::F32,
+                sparse: false
+            }
+        );
+        assert_eq!(
+            ty("vector(8, F16)"),
+            L::Vector {
+                dims: Some(8),
+                element: E::F16,
+                sparse: false
+            }
+        );
+        assert_eq!(MySql.render_type(&v3), Rendered::exact("vector(3)"));
+        // Round trip.
+        assert_eq!(ty(&MySql.render_type(&v3).native), v3);
+        let half = MySql.render_type(&L::Vector {
+            dims: Some(4),
+            element: E::F16,
+            sparse: false,
+        });
+        assert_eq!(half.native, "vector(4)");
+        assert_eq!(half.notes.len(), 1);
+        // Sparse vectors: no type for them, a list with a warning.
+        let sparse = MySql.render_type(&L::Vector {
+            dims: Some(9),
+            element: E::F32,
+            sparse: true,
+        });
+        assert_eq!(sparse.notes[0].code, IssueCode::TypeApproximated);
+        // A pgvector HNSW index (cosine, m, ef_construction) in this family's terms.
+        let pg = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("cosine".into()),
+            params: [("m", "16"), ("ef_construction", "64"), ("ef_search", "40")]
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        };
+        let (kind, v) = MySql.vector_index(&pg).unwrap();
+        assert_eq!(kind.as_deref(), Some("VECTOR"));
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        assert_eq!(v.params.len(), 2);
+        assert!(MySql
+            .vector_index(&VectorIndex {
+                metric: Some("hamming".into()),
+                ..Default::default()
+            })
+            .is_err());
+    }
+
+    /// A table with a vector column and a vector index, as the MySQL family
+    /// describes it.
+    fn vector_table() -> TableSchema {
+        TableSchema {
+            name: "items".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "int".into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "v".into(),
+                    data_type: "vector(3)".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![IndexDef {
+                name: "iv".into(),
+                columns: vec!["v".into()],
+                kind: Some("VECTOR".into()),
+                vector: Some(dbine_driver::VectorIndex {
+                    algorithm: None,
+                    metric: Some("l2".into()),
+                    params: [("m".to_string(), "8".to_string())].into(),
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn vectors_cross_into_the_family_engines() {
+        use crate::convert::{convert, Options};
+        let conv =
+            |to: &str| convert(&[vector_table()], "mariadb", to, &Options::default()).unwrap();
+        let ix_of = |t: &TableSchema| t.indexes.iter().find(|i| i.vector.is_some()).cloned();
+        // GreptimeDB and Databend: VECTOR(3) and their vector index.
+        for to in ["greptimedb", "databend"] {
+            let c = conv(to);
+            let t = &c.tables[0];
+            let v = t.columns.iter().find(|c| c.name == "v").unwrap();
+            assert_eq!(v.data_type, "VECTOR(3)", "{to}");
+            let ix = ix_of(t).unwrap_or_else(|| panic!("{to}: {:?}", c.issues));
+            assert_eq!(ix.vector.unwrap().metric.as_deref(), Some("l2"), "{to}");
+        }
+        // StarRocks and Doris: ARRAY<FLOAT> NOT NULL, the dimension in the index.
+        for to in ["starrocks", "doris"] {
+            let c = conv(to);
+            let t = &c.tables[0];
+            let v = t.columns.iter().find(|c| c.name == "v").unwrap();
+            assert_eq!(v.data_type, "ARRAY<FLOAT>", "{to}");
+            assert!(!v.nullable, "{to}");
+            let ix = ix_of(t).unwrap_or_else(|| panic!("{to}: {:?}", c.issues));
+            let vi = ix.vector.unwrap();
+            assert_eq!(vi.params.get("dim").map(String::as_str), Some("3"), "{to}");
+            assert_eq!(vi.algorithm.as_deref(), Some("hnsw"));
+        }
+        // Manticore: float_vector with its KNN settings, named after the column.
+        let c = conv("manticore");
+        let t = &c.tables[0];
+        assert_eq!(
+            t.columns.iter().find(|c| c.name == "v").unwrap().data_type,
+            "float_vector"
+        );
+        let ix = ix_of(t).unwrap();
+        assert_eq!(ix.name, "v");
+        assert_eq!(
+            ix.vector
+                .unwrap()
+                .params
+                .get("knn_dims")
+                .map(String::as_str),
+            Some("3")
+        );
+        // And back: GreptimeDB's vector into MySQL's family.
+        let back = convert(
+            &conv("greptimedb").tables,
+            "greptimedb",
+            "tidb",
+            &Options::default(),
+        )
+        .unwrap();
+        let t = &back.tables[0];
+        assert_eq!(
+            t.columns.iter().find(|c| c.name == "v").unwrap().data_type,
+            "vector(3)"
+        );
+        let ix = ix_of(t).unwrap();
+        assert_eq!(ix.kind.as_deref(), Some("VECTOR"));
+        assert_eq!(ix.vector.unwrap().metric.as_deref(), Some("l2"));
+        // A distance none of them has is said and left out.
+        let mut odd = vector_table();
+        odd.indexes[0].vector.as_mut().unwrap().metric = Some("hamming".into());
+        let c = convert(&[odd], "mariadb", "greptimedb", &Options::default()).unwrap();
+        assert!(c.tables[0].indexes.is_empty());
+        assert!(c.issues.iter().any(|i| i.code == IssueCode::IndexDropped));
     }
 
     #[test]

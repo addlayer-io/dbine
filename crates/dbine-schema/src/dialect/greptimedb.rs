@@ -120,6 +120,11 @@ impl Dialect for GreptimeDb {
             },
             _ if n.starts_with("interval") => L::Interval,
             "json" => L::Json { binary: true },
+            "vector" => L::Vector {
+                dims: p(0),
+                element: dbine_driver::VectorElement::F32,
+                sparse: false,
+            },
             _ => L::Other {
                 native: t.raw.clone(),
             },
@@ -131,6 +136,23 @@ impl Dialect for GreptimeDb {
         use Severity::*;
         let text = |why: String| Rendered::exact("STRING").with(Warning, TypeApproximated, why);
         match t {
+            // VECTOR(n): float32, the dimension required.
+            L::Vector {
+                dims: Some(n),
+                element,
+                sparse: false,
+            } => {
+                let r = Rendered::exact(format!("VECTOR({n})"));
+                if *element == dbine_driver::VectorElement::F32 {
+                    r
+                } else {
+                    r.with(
+                        Warning,
+                        TypeApproximated,
+                        format!("{}: se guarda como float32.", t.describe()),
+                    )
+                }
+            }
             L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
@@ -204,12 +226,46 @@ impl Dialect for GreptimeDb {
         })
     }
 
+    /// GreptimeDB's column VECTOR INDEX (usearch HNSW): L2 (squared),
+    /// cosine, inner product; `m` (connectivity), `ef_construction`
+    /// (expansion_add), `ef_search`.
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        use dbine_driver::vector::{metric, param};
+        if let Some(m) = v
+            .metric
+            .as_deref()
+            .filter(|m| ![metric::L2, metric::COSINE, metric::IP].contains(m))
+        {
+            return Err(format!(
+                "GreptimeDB no tiene la distancia «{m}» en sus índices vectoriales (tiene l2, cosine, ip)"
+            ));
+        }
+        let params = v
+            .params
+            .iter()
+            .filter(|(k, _)| [param::M, param::EF_CONSTRUCTION, "ef_search"].contains(&k.as_str()))
+            .map(|(k, val)| (k.clone(), val.clone()))
+            .collect();
+        Ok((
+            Some("VECTOR".into()),
+            dbine_driver::VectorIndex {
+                algorithm: None,
+                metric: v.metric.clone(),
+                params,
+            },
+        ))
+    }
+
     fn caps(&self) -> Caps {
         Caps {
             foreign_keys: false,
             on_delete: &[],
             on_update: &[],
-            indexes: false,
+            // Its vector indexes and its own column indexes (see finalize).
+            indexes: true,
             partial_indexes: false,
             supports_include: false,
             auto_increment: false,
@@ -227,6 +283,12 @@ impl Dialect for GreptimeDb {
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         use IssueCode::*;
         use Severity::*;
+        super::starrocks::keep_vector_indexes(
+            t,
+            report,
+            &["INVERTED", "FULLTEXT", "SKIPPING"],
+            "dim",
+        );
         let table = t.name.clone();
         let ts_col = match t.options.get("time_index").filter(|c| !c.trim().is_empty()) {
             Some(c) => c.clone(),
@@ -368,7 +430,15 @@ mod tests {
                 tz: false
             }
         );
-        assert!(matches!(p("vector(3)"), L::Other { .. }));
+        assert_eq!(
+            p("vector(3)"),
+            L::Vector {
+                dims: Some(3),
+                element: dbine_driver::VectorElement::F32,
+                sparse: false
+            }
+        );
+        assert_eq!(GreptimeDb.render_type(&p("VECTOR(3)")).native, "VECTOR(3)");
     }
 
     #[test]

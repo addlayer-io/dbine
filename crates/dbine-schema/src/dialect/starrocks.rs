@@ -66,6 +66,75 @@ pub(crate) fn angle(raw: &str) -> Option<(String, Vec<String>)> {
     Some((name, out))
 }
 
+/// A vector's dimension rides in the rendered type as `/* dim=N */` until
+/// [`Dialect::finalize`] moves it into the column's vector index (the
+/// engine keeps it there) and takes it off the type.
+pub(crate) fn with_dim(native: &str, dims: Option<u32>) -> String {
+    match dims {
+        Some(n) => format!("{native} /* dim={n} */"),
+        None => native.to_string(),
+    }
+}
+
+/// The type without its `/* dim=N */`, and N.
+pub(crate) fn take_dim(ty: &str) -> (String, Option<u32>) {
+    match ty.find(" /* dim=") {
+        Some(at) => {
+            let n = ty[at + 8..].split(' ').next().and_then(|n| n.parse().ok());
+            (ty[..at].to_string(), n)
+        }
+        None => (ty.to_string(), None),
+    }
+}
+
+/// The indexes `finalize` keeps on an engine whose only secondary indexes
+/// are its vector ones (and `own` kinds): a vector index gets the
+/// dimension its column's type carried, under `dim_key`; the others are
+/// dropped and said.
+pub(crate) fn keep_vector_indexes(
+    t: &mut TableSchema,
+    report: &mut crate::issue::Report,
+    own: &[&str],
+    dim_key: &str,
+) {
+    use crate::issue::{IssueCode, Severity};
+    let mut dims = std::collections::HashMap::new();
+    for c in &mut t.columns {
+        let (ty, n) = take_dim(&c.data_type);
+        if let Some(n) = n {
+            c.data_type = ty;
+            dims.insert(c.name.clone(), n);
+        }
+    }
+    let table = t.name.clone();
+    let mut kept = Vec::new();
+    for mut ix in std::mem::take(&mut t.indexes) {
+        if let Some(v) = ix.vector.as_mut() {
+            if let Some(n) = ix.columns.first().and_then(|c| dims.get(c)) {
+                v.params
+                    .entry(dim_key.to_string())
+                    .or_insert_with(|| n.to_string());
+            }
+            kept.push(ix);
+        } else if ix
+            .kind
+            .as_deref()
+            .is_some_and(|k| own.iter().any(|o| o.eq_ignore_ascii_case(k)))
+        {
+            kept.push(ix);
+        } else {
+            report.push(
+                Severity::Dropped,
+                IssueCode::IndexDropped,
+                &table,
+                Some(&ix.name),
+                "El destino no tiene índices secundarios.",
+            );
+        }
+    }
+    t.indexes = kept;
+}
+
 /// A nested type spelling (an array element, a map value) in dialect `d`.
 pub(crate) fn nested(d: &dyn Dialect, native: &str) -> L {
     crate::convert::logical_of(d, &parse::parse(native))
@@ -286,7 +355,21 @@ impl Dialect for Olap {
         use Severity::*;
         let engine = self.name();
         match t {
-            L::Vector { .. } => super::vector_fallback(self, t),
+            L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
+            // The vector index's column: ARRAY<FLOAT>, its dimension in
+            // the index (`dim`).
+            L::Vector { dims, element, .. } => {
+                let r = Rendered::exact(with_dim("ARRAY<FLOAT>", *dims));
+                if *element == dbine_driver::VectorElement::F32 {
+                    r
+                } else {
+                    r.with(
+                        Warning,
+                        TypeApproximated,
+                        format!("{}: se guarda como float32.", t.describe()),
+                    )
+                }
+            }
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
                 let b = L::signed_bytes_for(*bytes, *unsigned);
@@ -463,6 +546,54 @@ impl Dialect for Olap {
         })
     }
 
+    /// Doris' ANN index (hnsw / ivf; L2 and inner product) and StarRocks'
+    /// vector index (hnsw / ivfpq; L2 and cosine). The dimension (`dim`)
+    /// comes from the column's type in [`Dialect::finalize`].
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        use dbine_driver::vector::{metric, param};
+        let engine = self.name();
+        let metrics: &[&str] = if self.doris {
+            &[metric::L2, metric::IP]
+        } else {
+            &[metric::L2, metric::COSINE]
+        };
+        let m = v.metric.as_deref().unwrap_or(metric::L2);
+        if !metrics.contains(&m) {
+            return Err(format!(
+                "{engine} no tiene la distancia «{m}» en sus índices vectoriales (tiene {})",
+                metrics.join(", ")
+            ));
+        }
+        let ivf = v
+            .algorithm
+            .as_deref()
+            .is_some_and(|a| a.to_ascii_lowercase().starts_with("ivf"));
+        let algorithm = match (ivf, self.doris) {
+            (false, _) => "hnsw",
+            (true, true) => "ivf",
+            (true, false) => "ivfpq",
+        };
+        let params = v
+            .params
+            .iter()
+            .filter(|(k, _)| {
+                [param::M, param::EF_CONSTRUCTION, param::LISTS, "dim"].contains(&k.as_str())
+            })
+            .map(|(k, val)| (k.clone(), val.clone()))
+            .collect();
+        Ok((
+            Some(if self.doris { "ANN" } else { "VECTOR" }.into()),
+            dbine_driver::VectorIndex {
+                algorithm: Some(algorithm.into()),
+                metric: Some(m.into()),
+                params,
+            },
+        ))
+    }
+
     fn caps(&self) -> Caps {
         Caps {
             foreign_keys: false,
@@ -588,10 +719,49 @@ impl Dialect for Olap {
             );
         }
 
-        // One-column, non-unique indexes on scalar columns only.
+        // A vector index's dimension, from its column's type; the column
+        // can't be NULL.
+        let mut dims = std::collections::HashMap::new();
+        for c in &mut t.columns {
+            let (ty, n) = take_dim(&c.data_type);
+            if let Some(n) = n {
+                c.data_type = ty;
+                dims.insert(c.name.clone(), n);
+            }
+        }
+        for ix in t.indexes.iter_mut() {
+            let Some(v) = ix.vector.as_mut() else {
+                continue;
+            };
+            let Some(col) = ix.columns.first().cloned() else {
+                continue;
+            };
+            if let Some(n) = dims.get(&col) {
+                v.params
+                    .entry("dim".into())
+                    .or_insert_with(|| n.to_string());
+            }
+            if let Some(c) = t.columns.iter_mut().find(|c| c.name == col && c.nullable) {
+                c.nullable = false;
+                report.push(
+                    Info,
+                    NullabilityChanged,
+                    &table,
+                    Some(&col),
+                    format!("{engine} indexa vectores de una columna NOT NULL: la columna queda NOT NULL."),
+                );
+            }
+        }
+
+        // One-column, non-unique indexes on scalar columns only (and the
+        // vector indexes, on their ARRAY<FLOAT> column, with their dim).
         let mut kept = Vec::new();
         for ix in std::mem::take(&mut t.indexes) {
-            let why = if ix.unique {
+            let why = if ix.vector.is_some() {
+                (!ix.vector.as_ref().is_some_and(|v| v.params.contains_key("dim"))).then(|| {
+                    format!("{engine} necesita la dimensión del vector en el índice («dim») y no se conoce.")
+                })
+            } else if ix.unique {
                 Some(format!("{engine} no tiene índices únicos: la unicidad solo la da la clave de la tabla."))
             } else if ix.columns.len() != 1 {
                 Some(format!("Los índices de {engine} son de una sola columna."))
@@ -630,6 +800,78 @@ fn indexable(s: &TypeSpec) -> bool {
 mod tests {
     use super::*;
     use crate::parse::parse;
+
+    #[test]
+    fn vectors_take_an_ann_or_vector_index_with_their_dimension() {
+        use dbine_driver::{ColumnDef, IndexDef, VectorElement, VectorIndex};
+        let v3 = L::Vector {
+            dims: Some(3),
+            element: VectorElement::F32,
+            sparse: false,
+        };
+        assert_eq!(doris().render_type(&v3).native, "ARRAY<FLOAT> /* dim=3 */");
+        // A pgvector HNSW cosine index: StarRocks has cosine, Doris doesn't.
+        let pg = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("cosine".into()),
+            params: [("m".to_string(), "16".to_string())].into(),
+        };
+        let (k, v) = sr().vector_index(&pg).unwrap();
+        assert_eq!(k.as_deref(), Some("VECTOR"));
+        assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
+        assert!(doris().vector_index(&pg).is_err());
+        let l2 = VectorIndex {
+            metric: Some("l2".into()),
+            algorithm: Some("ivfflat".into()),
+            ..pg.clone()
+        };
+        let (k, v) = doris().vector_index(&l2).unwrap();
+        assert_eq!(
+            (k.as_deref(), v.algorithm.as_deref()),
+            (Some("ANN"), Some("ivf"))
+        );
+        // finalize: the dim goes into the index, the column NOT NULL.
+        let mut t = TableSchema {
+            name: "items".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "INT".into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "v".into(),
+                    data_type: "ARRAY<FLOAT> /* dim=3 */".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            indexes: vec![IndexDef {
+                name: "iv".into(),
+                columns: vec!["v".into()],
+                kind: k,
+                vector: Some(v),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut report = Report::default();
+        doris().finalize(&mut t, &mut report);
+        assert_eq!(t.columns[1].data_type, "ARRAY<FLOAT>");
+        assert!(!t.columns[1].nullable);
+        assert_eq!(t.indexes.len(), 1);
+        assert_eq!(
+            t.indexes[0]
+                .vector
+                .as_ref()
+                .unwrap()
+                .params
+                .get("dim")
+                .map(String::as_str),
+            Some("3")
+        );
+    }
 
     fn sr() -> &'static dyn Dialect {
         lookup("starrocks").unwrap()

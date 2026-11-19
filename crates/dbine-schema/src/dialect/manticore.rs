@@ -54,8 +54,11 @@ impl Dialect for Manticore {
             "mva64" | "multi64" => L::Array {
                 of: Box::new(L::int(8)),
             },
-            "float_vector" => L::Array {
-                of: Box::new(L::Float { bytes: 4 }),
+            // Its dimension is a KNN setting, not the type's.
+            "float_vector" => L::Vector {
+                dims: None,
+                element: dbine_driver::VectorElement::F32,
+                sparse: false,
             },
             _ => L::Other {
                 native: t.raw.clone(),
@@ -69,7 +72,16 @@ impl Dialect for Manticore {
         let string =
             |why: &str| Rendered::exact("string").with(Warning, TypeApproximated, why.to_string());
         match t {
-            L::Vector { .. } => super::vector_fallback(self, t),
+            L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
+            // float_vector; the dimension goes to the KNN settings (finalize).
+            L::Vector { dims, element, .. } => {
+                let r = Rendered::exact(super::starrocks::with_dim("float_vector", *dims));
+                if *element == dbine_driver::VectorElement::F32 {
+                    r
+                } else {
+                    r.with(Warning, TypeApproximated, format!("{}: se guarda como float32.", t.describe()))
+                }
+            }
             L::Bool => Rendered::exact("bool"),
             // `integer` is unsigned 32-bit; signed values need bigint.
             L::Int { bytes, unsigned: true } if *bytes <= 4 => Rendered::exact("integer"),
@@ -135,12 +147,43 @@ impl Dialect for Manticore {
         None
     }
 
+    /// A float_vector's KNN settings (HNSW; L2, inner product, cosine),
+    /// kept as its vector index; `knn_dims` comes from the column's type in
+    /// finalize.
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        use dbine_driver::vector::{metric, param};
+        let m = v.metric.as_deref().unwrap_or(metric::L2);
+        if ![metric::L2, metric::IP, metric::COSINE].contains(&m) {
+            return Err(format!(
+                "Manticore no tiene la distancia «{m}» en sus índices KNN (tiene l2, ip, cosine)"
+            ));
+        }
+        let params = v
+            .params
+            .iter()
+            .filter(|(k, _)| [param::M, param::EF_CONSTRUCTION, "knn_dims"].contains(&k.as_str()))
+            .map(|(k, val)| (k.clone(), val.clone()))
+            .collect();
+        Ok((
+            Some("KNN".into()),
+            dbine_driver::VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some(m.into()),
+                params,
+            },
+        ))
+    }
+
     fn caps(&self) -> Caps {
         Caps {
             foreign_keys: false,
             on_delete: &[],
             on_update: &[],
-            indexes: false,
+            // Only a float_vector's KNN settings (see finalize).
+            indexes: true,
             partial_indexes: false,
             supports_include: false,
             auto_increment: false,
@@ -158,6 +201,13 @@ impl Dialect for Manticore {
     /// kept.
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         use IssueCode::*;
+        super::starrocks::keep_vector_indexes(t, report, &[], "knn_dims");
+        // A KNN index is named after its column.
+        for ix in t.indexes.iter_mut() {
+            if let Some(c) = ix.columns.first() {
+                ix.name = c.clone();
+            }
+        }
         use Severity::*;
         let table = t.name.clone();
         let pk = t.primary_key.take().map(|k| k.columns).unwrap_or_default();
@@ -246,11 +296,22 @@ mod tests {
                 of: Box::new(L::int(8))
             }
         );
+        // A vector: its dimension is the column's KNN setting.
+        let v = L::Vector {
+            dims: None,
+            element: dbine_driver::VectorElement::F32,
+            sparse: false,
+        };
+        assert_eq!(p("float_vector"), v);
+        let r = |t: L| Manticore.render_type(&t).native;
+        assert_eq!(r(v), "float_vector");
         assert_eq!(
-            p("float_vector"),
-            L::Array {
-                of: Box::new(L::Float { bytes: 4 })
-            }
+            r(L::Vector {
+                dims: Some(3),
+                element: dbine_driver::VectorElement::F32,
+                sparse: false
+            }),
+            "float_vector /* dim=3 */"
         );
         assert!(matches!(p("tokencount"), L::Other { .. }));
     }

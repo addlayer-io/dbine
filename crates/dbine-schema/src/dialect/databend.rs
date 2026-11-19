@@ -107,6 +107,11 @@ impl Dialect for Databend {
                 srid: None,
                 geography: true,
             },
+            "vector" => L::Vector {
+                dims: p(0),
+                element: dbine_driver::VectorElement::F32,
+                sparse: false,
+            },
             _ => L::Other {
                 native: t.raw.clone(),
             },
@@ -119,6 +124,18 @@ impl Dialect for Databend {
         let text =
             |why: &str| Rendered::exact("VARCHAR").with(Warning, TypeApproximated, why.to_string());
         match t {
+            L::Vector {
+                dims: Some(n),
+                element,
+                sparse: false,
+            } => {
+                let r = Rendered::exact(format!("VECTOR({n})"));
+                if *element == dbine_driver::VectorElement::F32 {
+                    r
+                } else {
+                    r.with(Warning, TypeApproximated, format!("{}: se guarda como float32.", t.describe()))
+                }
+            }
             L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
@@ -195,12 +212,41 @@ impl Dialect for Databend {
         })
     }
 
+    /// Databend's VECTOR INDEX (HNSW; cosine, l2, l1; `m`, `ef_construction`).
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        use dbine_driver::vector::{metric, param};
+        let m = v.metric.as_deref().unwrap_or(metric::COSINE);
+        if ![metric::COSINE, metric::L2, metric::L1].contains(&m) {
+            return Err(format!(
+                "Databend no tiene la distancia «{m}» en sus índices vectoriales (tiene cosine, l2, l1)"
+            ));
+        }
+        let params = v
+            .params
+            .iter()
+            .filter(|(k, _)| [param::M, param::EF_CONSTRUCTION].contains(&k.as_str()))
+            .map(|(k, val)| (k.clone(), val.clone()))
+            .collect();
+        Ok((
+            Some("VECTOR".into()),
+            dbine_driver::VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some(m.into()),
+                params,
+            },
+        ))
+    }
+
     fn caps(&self) -> Caps {
         Caps {
             foreign_keys: false,
             on_delete: &[],
             on_update: &[],
-            indexes: false,
+            // Its vector indexes (see finalize).
+            indexes: true,
             partial_indexes: false,
             supports_include: false,
             auto_increment: false,
@@ -214,6 +260,7 @@ impl Dialect for Databend {
     }
 
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
+        super::starrocks::keep_vector_indexes(t, report, &["INVERTED", "NGRAM"], "dim");
         if let Some(k) = t.primary_key.take() {
             report.push(
                 Severity::Warning,
@@ -266,6 +313,13 @@ mod tests {
         assert_eq!(p("VARCHAR"), L::Text { unicode: true });
         assert_eq!(p("String"), L::Text { unicode: true });
         assert_eq!(p("BINARY"), L::Blob);
+        let v3 = L::Vector {
+            dims: Some(3),
+            element: dbine_driver::VectorElement::F32,
+            sparse: false,
+        };
+        assert_eq!(p("VECTOR(3)"), v3);
+        assert_eq!(Databend.render_type(&v3).native, "VECTOR(3)");
         assert_eq!(p("DATE"), L::Date);
         assert_eq!(
             p("TIMESTAMP"),
