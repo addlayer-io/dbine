@@ -1,9 +1,14 @@
 //! SAP HANA Cloud's `REAL_VECTOR(n)` and its HNSW vector indexes.
 //!
-//! The client (`hdbconnect_async` 0.32) has no `REAL_VECTOR` type: a
-//! result with one fails to decode ("Illegal type code 96"), which
-//! [`explain`] turns into what to do. DBine reads vectors as text itself
-//! (`TO_NVARCHAR`, in transfers) and writes them with `TO_REAL_VECTOR`.
+//! The client (`hdbconnect_async` 0.32) has no `REAL_VECTOR` type and
+//! asks for data format version 8, older than the type. A server that
+//! answers such a client in the old protocol sends a vector as
+//! `VARBINARY`, its binary form (the dimension as a little-endian 32-bit
+//! integer, then the float32 values): results take the columns the catalog
+//! says are `REAL_VECTOR` and decode them ([`decode`]). A server that sends
+//! the vector type itself makes the client fail ("Illegal type code 96"),
+//! which [`explain`] turns into what to do. Transfers read vectors as text
+//! (`TO_NVARCHAR`) and write them with `TO_REAL_VECTOR`.
 //! The catalog (`SYS.TABLE_COLUMNS.LENGTH`) gives the dimension, and
 //! `SYS.VECTOR_INDEXES` the indexes' settings. Without a HANA Cloud
 //! server at hand these follow SAP's SQL reference and are covered by unit
@@ -38,6 +43,36 @@ pub(crate) fn is_vector(data_type: &str) -> bool {
         .is_some_and(|h| h.eq_ignore_ascii_case(TYPE))
 }
 
+/// A vector's binary form (`fvecs`: the dimension as a little-endian u32,
+/// then the float32 values) as its JSON-array text; `None` when the bytes
+/// aren't one.
+pub(crate) fn decode(b: &[u8]) -> Option<String> {
+    let (head, body) = b.split_at_checked(4)?;
+    let n = u32::from_le_bytes(head.try_into().ok()?) as usize;
+    if n == 0 || body.len() != n.checked_mul(4)? {
+        return None;
+    }
+    Some(vector::text(vector::from_f32_le(body)?))
+}
+
+/// The catalog query of a table's `REAL_VECTOR` columns and dimensions.
+pub(crate) fn columns_sql(schema: &str, table: &str) -> String {
+    let s = |x: &str| format!("'{}'", x.replace('\'', "''"));
+    format!(
+        "SELECT COLUMN_NAME, TO_NVARCHAR(LENGTH) FROM SYS.TABLE_COLUMNS \
+         WHERE SCHEMA_NAME = {} AND TABLE_NAME = {} AND DATA_TYPE_NAME = '{TYPE}'",
+        s(schema),
+        s(table)
+    )
+}
+
+/// Whether a result column of this type may hold a vector sent the old
+/// way (see the module's docs).
+pub(crate) fn may_be_vector(type_id: hdbconnect_async::TypeId) -> bool {
+    use hdbconnect_async::TypeId as T;
+    matches!(type_id, T::VARBINARY | T::BINARY | T::BSTRING | T::BLOB)
+}
+
 /// The select-list item that reads a vector column as its text.
 pub(crate) fn read_expr(quoted: &str) -> String {
     format!("TO_NVARCHAR({quoted}) AS {quoted}")
@@ -55,7 +90,8 @@ pub(crate) fn literal(v: &serde_json::Value) -> Option<String> {
     vector::value_text(v).map(|t| format!("TO_REAL_VECTOR('{t}')"))
 }
 
-/// What to do when the client can't decode a `REAL_VECTOR` result.
+/// What to do when the client can't decode a `REAL_VECTOR` result (a
+/// server that sends the type itself to this client).
 pub(crate) fn explain(message: &str) -> Option<&'static str> {
     message.contains("Illegal type code 96").then_some(
         "El resultado tiene una columna REAL_VECTOR y el cliente de HANA que usa DBine no lee ese tipo: \
@@ -206,6 +242,25 @@ mod tests {
         );
         assert!(explain("impl error: Illegal type code 96").is_some());
         assert!(explain("something else").is_none());
+    }
+
+    #[test]
+    fn binary_vectors_decode() {
+        let mut b = 3u32.to_le_bytes().to_vec();
+        for x in [1.0f32, 2.5, -0.1] {
+            b.extend_from_slice(&x.to_le_bytes());
+        }
+        assert_eq!(decode(&b).as_deref(), Some("[1,2.5,-0.1]"));
+        assert_eq!(decode(&b[..b.len() - 1]), None, "short");
+        assert_eq!(decode(&[0, 0, 0, 0]), None, "no dimensions");
+        assert_eq!(decode(&[1, 2]), None);
+        assert_eq!(
+            columns_sql("A'S", "T"),
+            "SELECT COLUMN_NAME, TO_NVARCHAR(LENGTH) FROM SYS.TABLE_COLUMNS \
+             WHERE SCHEMA_NAME = 'A''S' AND TABLE_NAME = 'T' AND DATA_TYPE_NAME = 'REAL_VECTOR'"
+        );
+        assert!(may_be_vector(hdbconnect_async::TypeId::VARBINARY));
+        assert!(!may_be_vector(hdbconnect_async::TypeId::NVARCHAR));
     }
 
     #[test]

@@ -739,7 +739,7 @@ impl HanaSession {
         self.warnings(out).await;
         let response = response.map_err(|e| stmt_err(e, stmt, 0))?;
         let before = out.results.len();
-        push_response(response, max_rows, out).await?;
+        push_response(&self.conn, response, max_rows, out).await?;
         let reads = out.results[before..].iter().all(|r| !r.columns.is_empty());
         match leading_keyword(stmt, &ScriptDialect::generic()).as_deref() {
             Some("commit" | "rollback") => self.dirty = false,
@@ -1387,13 +1387,14 @@ impl Session for HanaSession {
 // ------------------------------------------------------------- execution
 
 async fn push_response(
+    conn: &Connection,
     response: HdbResponse,
     max_rows: usize,
     out: &mut QueryOutcome,
 ) -> Result<()> {
     for rv in response {
         match rv {
-            HdbReturnValue::ResultSet(rs) => push_result_set(rs, max_rows, out).await?,
+            HdbReturnValue::ResultSet(rs) => push_result_set(conn, rs, max_rows, out).await?,
             HdbReturnValue::AffectedRows(v) => out.push_affected(v.iter().map(|n| *n as u64).sum()),
             HdbReturnValue::OutputParameters(op) => {
                 let (descriptors, values) = op.into_descriptors_and_values();
@@ -1421,25 +1422,105 @@ async fn push_response(
     Ok(())
 }
 
-async fn push_result_set(mut rs: ResultSet, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+async fn push_result_set(
+    conn: &Connection,
+    mut rs: ResultSet,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+) -> Result<()> {
     let md = rs.metadata();
+    let dims = vector_columns(conn, &md).await;
     out.begin_result(
         md.iter()
-            .map(|f| ResultColumn {
-                name: f.displayname().to_string(),
-                type_name: format!("{:?}", f.type_id()),
-                vector: None,
+            .zip(&dims)
+            .map(|(f, d)| match d {
+                Some(n) => ResultColumn::new(f.displayname(), vector::type_name(*n)).with_vector(
+                    dbine_driver::VectorMeta::dense(
+                        n.and_then(|n| u32::try_from(n).ok()),
+                        dbine_driver::VectorElement::F32,
+                    ),
+                ),
+                None => ResultColumn::new(f.displayname(), format!("{:?}", f.type_id())),
             })
             .collect(),
     );
     while let Some(row) = rs.next_row().await.map_err(err)? {
         let mut cells = Vec::with_capacity(row.len());
-        for v in row {
-            cells.push(cell(v).await);
+        for (i, v) in row.into_iter().enumerate() {
+            cells.push(if matches!(dims.get(i), Some(Some(_))) {
+                vector_cell(v).await
+            } else {
+                cell(v).await
+            });
         }
         out.push_row(cells, max_rows);
     }
     Ok(())
+}
+
+/// For each result column, `Some(dimension)` when it's a table's
+/// `REAL_VECTOR` column the server sent as binary (see [`vector`]): the
+/// catalog of the tables the binary columns come from says which. A
+/// catalog that can't be read marks nothing.
+async fn vector_columns(
+    conn: &Connection,
+    md: &hdbconnect_async::ResultSetMetadata,
+) -> Vec<Option<Option<i64>>> {
+    // (schema, table) → its vector columns and their dimensions.
+    type Columns = Vec<(String, Option<i64>)>;
+    let mut found: std::collections::HashMap<(String, String), Columns> =
+        std::collections::HashMap::new();
+    for f in md.iter().filter(|f| vector::may_be_vector(f.type_id())) {
+        let key = (f.schemaname().to_string(), f.tablename().to_string());
+        if key.0.is_empty() || key.1.is_empty() || found.contains_key(&key) {
+            continue;
+        }
+        let rows = match conn.query(&vector::columns_sql(&key.0, &key.1)).await {
+            Ok(rs) => rs.into_rows().await.ok(),
+            Err(_) => None,
+        };
+        let cols = rows
+            .into_iter()
+            .flatten()
+            .filter_map(|mut r| {
+                let name = text(&r.next_value()?)?;
+                let dims = r
+                    .next_value()
+                    .and_then(|v| text(&v))
+                    .and_then(|n| n.parse().ok());
+                Some((name, dims))
+            })
+            .collect();
+        found.insert(key, cols);
+    }
+    md.iter()
+        .map(|f| {
+            if !vector::may_be_vector(f.type_id()) {
+                return None;
+            }
+            found
+                .get(&(f.schemaname().to_string(), f.tablename().to_string()))?
+                .iter()
+                .find(|(c, _)| c == f.columnname())
+                .map(|(_, d)| *d)
+        })
+        .collect()
+}
+
+/// A vector cell the server sent as binary: its JSON-array text.
+async fn vector_cell(v: HdbValue<'static>) -> Value {
+    let bytes = match v {
+        HdbValue::BINARY(b) => b,
+        HdbValue::ASYNC_BLOB(mut b) => match b.read_slice(0, BLOB_CAP).await {
+            Ok(bytes) => bytes,
+            Err(e) => return format!("<{}>", message(&e)).into(),
+        },
+        other => return cell(other).await,
+    };
+    match vector::decode(&bytes) {
+        Some(t) => t.into(),
+        None => json_bytes(&bytes),
+    }
 }
 
 /// A cell as JSON.
