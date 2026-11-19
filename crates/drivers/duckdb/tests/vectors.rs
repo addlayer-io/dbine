@@ -218,7 +218,7 @@ async fn vectors_end_to_end() {
         && psql_in(&pg_db, "CREATE EXTENSION vector").is_some();
 
     let body = {
-        let (path, pg_db) = (path.clone(), pg_db.clone());
+        let (path, pg_db, vss_before) = (path.clone(), pg_db.clone(), vss_before.clone());
         tokio::spawn(async move {
             let psql = |sql: &str| psql_in(&pg_db, sql);
             let d = driver();
@@ -431,14 +431,54 @@ async fn vectors_end_to_end() {
             }
             // The file again, in a new instance: vss loads by itself, so
             // the table with the HNSW index still takes writes.
-            let mut s = open(&path).await;
-            run(&mut s, "INSERT INTO t VALUES (4, [0, 0, 1], [1, 1])").await;
-            let out = run(
-                &mut s,
-                "SELECT id FROM t ORDER BY array_cosine_distance(emb, [0, 0, 1]::FLOAT[3]) LIMIT 1",
-            )
-            .await;
-            assert_eq!(out.results[0].rows[0][0], json!(4));
+            {
+                let mut s = open(&path).await;
+                run(&mut s, "INSERT INTO t VALUES (4, [0, 0, 1], [1, 1])").await;
+                let out = run(
+                    &mut s,
+                    "SELECT id FROM t ORDER BY array_cosine_distance(emb, [0, 0, 1]::FLOAT[3]) LIMIT 1",
+                )
+                .await;
+                assert_eq!(out.results[0].rows[0][0], json!(4));
+            }
+            // Read-only, it loads nothing, and reads work.
+            {
+                let cfg = ConnectionConfig {
+                    driver: "duckdb".into(),
+                    host: path.clone(),
+                    read_only: true,
+                    ..Default::default()
+                };
+                let mut s = driver().connect(&cfg, None).await.unwrap();
+                let out = run(
+                    &mut s,
+                    "SELECT count(*) FROM duckdb_extensions() WHERE extension_name = 'vss' AND loaded",
+                )
+                .await;
+                assert_eq!(out.results[0].rows[0][0], json!(0));
+                let out = run(&mut s, "SELECT count(*) FROM t").await;
+                assert_eq!(out.results[0].rows[0][0], json!(4));
+            }
+            // Without vss on the machine (it wasn't before this test), the
+            // file opens and reads, nothing is downloaded, and a write says
+            // how to get vss.
+            if vss_before.is_none() {
+                if let Some(p) = vss_installed().await {
+                    let _ = std::fs::remove_file(&p);
+                    let _ = std::fs::remove_file(format!("{p}.info"));
+                }
+                let mut s = open(&path).await;
+                let out = run(&mut s, "SELECT count(*) FROM t").await;
+                assert_eq!(out.results[0].rows[0][0], json!(4));
+                let mut out = QueryOutcome::default();
+                let e = s
+                    .execute("INSERT INTO t VALUES (5, [1, 1, 1], [1, 1])", 10, &mut out)
+                    .await
+                    .expect_err("vss isn't there")
+                    .to_string();
+                assert!(e.contains("INSTALL vss; LOAD vss;"), "{e}");
+                assert!(vss_installed().await.is_none(), "nothing was downloaded");
+            }
         })
     };
     let r = body.await;

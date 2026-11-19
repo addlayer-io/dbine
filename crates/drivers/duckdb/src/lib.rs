@@ -414,7 +414,7 @@ impl Driver for DuckDbDriver {
             let catalog: String = conn
                 .query_row("SELECT current_database()", [], |r| r.get(0))
                 .map_err(Error::query)?;
-            load_vss_for_hnsw(&conn);
+            load_vss_for_hnsw(&conn, read_only);
             Ok((db, conn, catalog))
         })
         .await?;
@@ -438,13 +438,17 @@ fn script_literal(v: &serde_json::Value) -> String {
 
 /// A database with HNSW indexes (the vss extension's) needs vss loaded to
 /// change its tables: without it DuckDB keeps such an index unbound and
-/// refuses every write to the table ("unknown index type 'HNSW'"), and the
-/// DDL that recreates one (sync, clone) fails. So it's loaded (installed
-/// first if needed: DuckDB downloads its signed extension once), with
+/// refuses every write to the table, and the DDL that recreates one (sync,
+/// clone) fails. So a writable connection loads vss when it's installed on
+/// this machine (DBine's HNSW DDL installs it, and DuckDB keeps it), with
 /// HNSW's experimental persistence on, which a file with such an index
-/// already uses. Best effort: without the network the database still opens,
-/// reads work and a write says what's missing.
-fn load_vss_for_hnsw(conn: &Connection) {
+/// already uses. Nothing is downloaded here, and a read-only connection,
+/// whose reads work without vss, loads nothing: a write that needs vss
+/// says how to get it ([`VSS_MISSING`]).
+fn load_vss_for_hnsw(conn: &Connection, read_only: bool) {
+    if read_only {
+        return;
+    }
     let has: bool = conn
         .query_row(
             "SELECT count(*) > 0 FROM duckdb_indexes() WHERE sql ILIKE '%USING HNSW%'",
@@ -455,14 +459,28 @@ fn load_vss_for_hnsw(conn: &Connection) {
     if !has {
         return;
     }
-    let loaded = conn
-        .execute_batch("LOAD vss")
-        .or_else(|_| conn.execute_batch("INSTALL vss; LOAD vss"));
-    match loaded {
+    match conn.execute_batch("LOAD vss") {
         Ok(()) => {
             let _ = conn.execute_batch(schema::HNSW_PERSISTENCE);
         }
-        Err(e) => tracing::warn!("duckdb: the database has HNSW indexes but vss didn't load: {e}"),
+        Err(e) => {
+            tracing::info!("duckdb: the database has HNSW indexes and vss isn't installed: {e}")
+        }
+    }
+}
+
+/// What a write to a table with an HNSW index (or HNSW DDL) needs when vss
+/// isn't loaded.
+pub const VSS_MISSING: &str = "La tabla tiene un índice HNSW, de la extensión vss de DuckDB, que no está cargada: ejecutá INSTALL vss; LOAD vss; (la primera vez descarga la extensión) y volvé a intentarlo.";
+
+/// DuckDB's error for an HNSW index without vss loaded, with
+/// [`VSS_MISSING`] after it.
+fn with_vss_hint(msg: String) -> String {
+    let low = msg.to_ascii_lowercase();
+    if low.contains("hnsw") && low.contains("index type") && !msg.contains(VSS_MISSING) {
+        format!("{msg}\n{VSS_MISSING}")
+    } else {
+        msg
     }
 }
 
@@ -1519,7 +1537,7 @@ fn duck_error(e: duckdb::Error) -> Error {
     if msg.contains("INTERRUPT") || msg.contains("Interrupted") {
         Error::Cancelled
     } else {
-        Error::Query(msg)
+        Error::Query(with_vss_hint(msg))
     }
 }
 

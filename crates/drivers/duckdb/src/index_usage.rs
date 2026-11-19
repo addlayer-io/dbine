@@ -3,18 +3,19 @@
 //! - The indexes, the primary key and the foreign keys come from the same
 //!   catalog read as the schema compare (`duckdb_constraints()`,
 //!   `duckdb_indexes()`), so an index has the same name here as in the drop
-//!   script "Eliminar índice" generates. Every one is an ART index: the
-//!   primary key's, a UNIQUE constraint's and each `CREATE INDEX`.
+//!   script "Eliminar índice" generates. The primary key's, a UNIQUE
+//!   constraint's and a plain `CREATE INDEX` are ART indexes; an extension's
+//!   keep their kind (vss's `HNSW` vector index, spatial's `RTREE`).
 //! - DuckDB counts nothing per index (and doesn't report an index's size),
 //!   so `stats_available` is false and the note says so. Most of its reads
 //!   go through zonemaps, not indexes; the plan shows when one is used
-//!   (`INDEX_SCAN`).
+//!   (`INDEX_SCAN`; an HNSW one as `HNSW Index Scan`).
 //!
 //! The files preset has no indexes (its tables are views over files).
 
 use dbine_driver::{IndexUsage, IndexUsageReport, TableSchema};
 
-pub const NOTE: &str = "DuckDB no registra cuántas veces se usa cada índice ni su tamaño: se listan los índices ART con sus columnas, sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución (INDEX_SCAN).";
+pub const NOTE: &str = "DuckDB no registra cuántas veces se usa cada índice ni su tamaño: se listan los índices (ART, y los de extensiones como el HNSW vectorial de vss) con sus columnas, sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución (INDEX_SCAN; uno vectorial aparece como HNSW Index Scan).";
 
 /// The report for `t` (`None`: the table isn't there): the primary key
 /// first, then the indexes in the schema's order.
