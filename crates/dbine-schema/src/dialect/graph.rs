@@ -219,6 +219,8 @@ impl Cypher {
         use Severity::*;
         match t {
             L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
+            // Neptune has no vector indexes to give it its dimension.
+            L::Vector { .. } if self.flavor == Flavor::Neptune => super::vector_fallback(self, t),
             // What vector indexes index: a list of floats (the native VECTOR
             // of Neo4j 2025 needs Bolt 6). The dimension is the index's.
             L::Vector { dims, .. } => Rendered::exact("LIST<FLOAT>").with(

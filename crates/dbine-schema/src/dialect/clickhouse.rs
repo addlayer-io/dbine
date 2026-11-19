@@ -654,7 +654,8 @@ impl Dialect for ClickHouse {
             comments: true,
             max_identifier: 255,
             case: IdentCase::Preserve,
-            vector_indexes: true,
+            // Timeplus stores arrays of floats but has no vector indexes.
+            vector_indexes: !self.timeplus,
             vectors: true,
         }
     }

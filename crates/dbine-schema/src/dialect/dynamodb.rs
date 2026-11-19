@@ -149,7 +149,7 @@ impl Dialect for DynamoDb {
             comments: false,
             max_identifier: 255,
             case: IdentCase::Preserve,
-            vector_indexes: true,
+            vector_indexes: false,
             vectors: false,
         }
     }

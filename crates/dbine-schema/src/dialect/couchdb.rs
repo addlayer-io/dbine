@@ -303,8 +303,11 @@ impl Dialect for CouchDb {
         None
     }
 
+    /// No vector type nor vector indexes (Couchbase and Cosmos DB, which
+    /// share `json_caps`, have both).
     fn caps(&self) -> Caps {
         Caps {
+            vector_indexes: false,
             vectors: false,
             ..json_caps(238)
         }
