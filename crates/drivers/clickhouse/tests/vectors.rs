@@ -400,7 +400,24 @@ async fn vectors_end_to_end() {
                 .iter()
                 .map(|r| r[0].as_str().unwrap_or("").to_string())
                 .collect();
-            assert!(plan.iter().any(|l| l.contains("emb_ix")), "{plan:#?}");
+            // (ClickHouse 25.8 plans these three rows without the index;
+            // 26.9 uses it.)
+            let version = s.server_version().await.unwrap();
+            let release: Vec<u32> = version
+                .split_whitespace()
+                .last()
+                .unwrap_or("")
+                .split('.')
+                .take(2)
+                .filter_map(|n| n.parse().ok())
+                .collect();
+            let at_least = |major: u32, minor: u32| {
+                release.len() < 2 || (release[0], release[1]) >= (major, minor)
+            };
+            assert!(
+                !at_least(26, 9) || plan.iter().any(|l| l.contains("emb_ix")),
+                "{version}: {plan:#?}"
+            );
             let out = run(
                 &mut s,
                 &format!("SELECT id FROM `{db}`.t ORDER BY L2Distance(wide, [3., 3.]) LIMIT 1"),
@@ -409,7 +426,8 @@ async fn vectors_end_to_end() {
             assert_eq!(ids(&out), [json!(3)]);
 
             // The inner product (dotProduct, ClickHouse 26.4 and later) is
-            // a distance the index takes.
+            // a distance the index takes (an older server's refusal is
+            // vector_versions.rs').
             let ip = TableSchema {
                 indexes: vec![IndexDef {
                     name: "ip_ix".into(),
@@ -436,12 +454,14 @@ async fn vectors_end_to_end() {
                 add.contains("TYPE vector_similarity('hnsw', 'dotProduct', 3)"),
                 "{add}"
             );
-            run(&mut s, &add).await;
-            let all = sd.database_schema().await.unwrap();
-            let t_ip = all.iter().find(|t| t.name == "t").unwrap();
-            let i = t_ip.indexes.iter().find(|i| i.name == "ip_ix").unwrap();
-            assert_eq!(i.vector.as_ref().unwrap().metric.as_deref(), Some("ip"));
-            run(&mut s, &format!("ALTER TABLE `{db}`.t DROP INDEX ip_ix")).await;
+            if at_least(26, 4) {
+                run(&mut s, &add).await;
+                let all = sd.database_schema().await.unwrap();
+                let t_ip = all.iter().find(|t| t.name == "t").unwrap();
+                let i = t_ip.indexes.iter().find(|i| i.name == "ip_ix").unwrap();
+                assert_eq!(i.vector.as_ref().unwrap().metric.as_deref(), Some("ip"));
+                run(&mut s, &format!("ALTER TABLE `{db}`.t DROP INDEX ip_ix")).await;
+            }
 
             // 7. An edit (a mutation; waited for).
             let up = d

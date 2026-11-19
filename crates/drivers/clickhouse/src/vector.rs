@@ -49,6 +49,13 @@ pub fn version_hint(stmt: &str, code: u32, message: &str) -> Option<&'static str
     let low = stmt.to_ascii_lowercase();
     // INCORRECT_QUERY, INCORRECT_DATA, BAD_ARGUMENTS, SYNTAX_ERROR,
     // UNKNOWN_SETTING, SUPPORT_IS_DISABLED.
+    // 25.8 and later, given a 24.8–25.7 index (no dimension), written back
+    // in its own form: it's the dimension that's missing.
+    if low.contains(KIND) && code == 80 && message.contains("three or six arguments") {
+        return Some(
+            "Desde ClickHouse 25.8 el índice vector_similarity lleva la dimensión del vector, y este índice (de ClickHouse 24.8 a 25.7) no la tiene: indicala en el parámetro «dimensions» del índice.",
+        );
+    }
     if low.contains(KIND) && [80, 117, 36, 62, 115, 344].contains(&code) {
         return Some(
             "Los índices vector_similarity, tal como los escribe DBine (con la dimensión del vector), son de ClickHouse 25.8 o posterior, y la distancia dotProduct (producto interno) de 26.4 o posterior; antes de 25.8 el índice era experimental y no llevaba dimensión.",
@@ -437,6 +444,15 @@ mod tests {
         )
         .unwrap()
         .contains("25.1"));
+        // 25.8, given an index of 25.3 (no dimension): the dimension.
+        let old = "SET allow_experimental_vector_similarity_index = 1;\nCREATE TABLE t (v Array(Float32), INDEX i v TYPE vector_similarity('hnsw', 'L2Distance') GRANULARITY 100000000) ENGINE = MergeTree ORDER BY tuple()";
+        assert!(version_hint(
+            old,
+            80,
+            "Code: 80. DB::Exception: Vector similarity index must have three or six arguments. (INCORRECT_QUERY)"
+        )
+        .unwrap()
+        .contains("«dimensions»"));
         // Anything else says nothing more.
         assert!(version_hint(ix, 60, "Unknown table").is_none());
         assert!(version_hint("SELECT 1", 80, "x").is_none());

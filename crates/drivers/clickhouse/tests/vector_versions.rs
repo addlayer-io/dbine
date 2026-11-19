@@ -303,8 +303,9 @@ async fn clickhouse_25_3_experimental_indexes() {
 }
 
 /// 25.8: the designer's index (with the dimension) and BFloat16 vectors
-/// work; inner product (`dotProduct`, 26.4) is refused and the error says
-/// which version it needs.
+/// work; inner product (`dotProduct`, 26.4) and an index of 24.8–25.7
+/// (without the dimension) are refused, and the error says what each
+/// needs.
 #[tokio::test]
 #[ignore]
 async fn clickhouse_25_8_dimension_form() {
@@ -339,6 +340,22 @@ async fn clickhouse_25_8_dimension_form() {
             )
             .await;
             assert!(e.contains("26.4"), "{e}");
+            // An index of 24.8–25.7 (no dimension, its type in the options),
+            // written back in its form: 25.8 refuses it, and the error says
+            // to give it its dimension.
+            let mut old = designed(&db, "old", "Array(Float32)", "l2");
+            old.indexes[0].vector.as_mut().unwrap().params.clear();
+            old.indexes[0].options.insert(
+                "type".into(),
+                "vector_similarity('hnsw', 'L2Distance')".into(),
+            );
+            let sql = create(&d, &old);
+            assert!(
+                sql.starts_with("SET allow_experimental_vector_similarity_index = 1;"),
+                "{sql}"
+            );
+            let e = fails(&mut s, &sql).await;
+            assert!(e.contains("«dimensions»"), "{e}");
         })
     };
     let r = r.await;
