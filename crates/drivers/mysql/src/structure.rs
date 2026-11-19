@@ -531,16 +531,15 @@ pub(crate) fn databend_index(
         .into_iter()
         .map(|c| unquote(&c))
         .collect();
-    Some((
-        table,
-        IndexDef {
-            name: name.to_string(),
-            columns,
-            kind: Some(kind),
-            options: manticore_settings(definition),
-            ..Default::default()
-        },
-    ))
+    let mut ix = IndexDef {
+        name: name.to_string(),
+        columns,
+        kind: Some(kind),
+        options: manticore_settings(definition),
+        ..Default::default()
+    };
+    crate::vectors::from_databend(&mut ix);
+    Some((table, ix))
 }
 
 /// OceanBase's sequence (oceanbase.DBA_OB_SEQUENCE_OBJECTS) as CREATE SEQUENCE.
@@ -807,6 +806,25 @@ mod tests {
             ("agg", "SELECT MIN(a), MAX(c) FROM agg", 0)
         );
         assert!(databend_index("db", "x", "INVERTED", "", "other.t(a)").is_none());
+        let (t, ix) = databend_index(
+            "db",
+            "iv",
+            "VECTOR",
+            "",
+            "items(embedding)distance='cosine,l2' m='16' ef_construct='100'",
+        )
+        .unwrap();
+        assert_eq!(
+            (t.as_str(), ix.columns.as_slice()),
+            ("items", &["embedding".to_string()][..])
+        );
+        let vi = ix.vector.unwrap();
+        assert_eq!(vi.metric.as_deref(), Some("cosine"));
+        assert_eq!(vi.params.get("m").map(String::as_str), Some("16"));
+        assert_eq!(
+            vi.params.get("ef_construction").map(String::as_str),
+            Some("100")
+        );
         assert_eq!(
             databend_sequence("s", Some("10"), Some("2"), Some("it's")),
             "CREATE SEQUENCE `s` START = 10 INCREMENT = 2 COMMENT = 'it''s'"

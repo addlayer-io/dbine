@@ -104,6 +104,12 @@ pub(crate) enum Kind {
     Bit,
     Bytes,
     Text,
+    /// A vector column: its elements, stored bytes (`binary`) or the
+    /// engine's text; the cell is the canonical JSON-array text.
+    Vector {
+        element: dbine_driver::VectorElement,
+        binary: bool,
+    },
 }
 
 pub(crate) fn kind(col: &Column, utc: bool) -> Kind {
@@ -243,6 +249,14 @@ fn f32_value(f: f64) -> f64 {
 /// A value the server sent as bytes (every value in the text protocol).
 fn bytes_cell(kind: Kind, b: Vec<u8>) -> Cell {
     let text = |b: Vec<u8>| String::from_utf8(b).map_err(|e| e.into_bytes());
+    if let Kind::Vector { element, binary } = kind {
+        let meta = dbine_driver::VectorMeta::dense(None, element);
+        return match crate::vectors::cell(&meta, &b, binary) {
+            Some(t) => Cell::Text(t),
+            None if binary => Cell::Bytes(b),
+            None => bytes_cell(Kind::Text, b),
+        };
+    }
     match kind {
         Kind::Bytes => Cell::Bytes(b),
         Kind::Bit => {
@@ -288,6 +302,7 @@ struct Reader {
     utc: bool,
     /// Catalog types (name, type, nullable) for the columns' descriptions.
     catalog: Vec<(String, String, bool)>,
+    variant: Variant,
     /// Manticore's cursor column, when read only to page.
     cursor: Option<Cursor>,
     last_id: Option<i64>,
@@ -314,7 +329,20 @@ impl Reader {
                     .iter()
                     .find(|(n, _, _)| n.eq_ignore_ascii_case(&name))
                     .map(|(_, t, _)| t.as_str());
-                refine(kind(c, self.utc), catalog)
+                let binary = c.character_set() == BINARY_CHARSET;
+                if c.column_type() == ColumnType::MYSQL_TYPE_VECTOR {
+                    return Kind::Vector {
+                        element: dbine_driver::VectorElement::F32,
+                        binary,
+                    };
+                }
+                match catalog.and_then(|t| crate::vectors::meta(self.variant, t)) {
+                    Some(m) => Kind::Vector {
+                        element: m.element,
+                        binary,
+                    },
+                    None => refine(kind(c, self.utc), catalog),
+                }
             })
             .collect();
         let hidden = self.cursor.filter(|c| c.hidden).map(|c| c.index);
@@ -409,6 +437,7 @@ pub(crate) async fn read_batches(
         began: false,
         utc: zone.is_some(),
         catalog,
+        variant: v,
         cursor: None,
         last_id: None,
     };
@@ -533,6 +562,19 @@ pub(crate) enum Mode {
     Bit,
     /// Escaped text, a double brought into the `f32` range (`FLOAT`).
     Float,
+    /// A vector's JSON-array text, through the engine's conversion
+    /// (`STRING_TO_VECTOR(@v)` on MySQL, `VEC_FromText(@v)` on MariaDB).
+    Vector(&'static str),
+}
+
+/// The function a vector column's text goes through, on the engines whose
+/// `VECTOR` doesn't take text as it is (the rest cast `'[…]'` themselves).
+fn vector_function(v: Variant) -> Option<&'static str> {
+    match v.base() {
+        Variant::MySql => Some("STRING_TO_VECTOR"),
+        Variant::MariaDb => Some("VEC_FromText"),
+        _ => None,
+    }
 }
 
 pub(crate) fn mode_of(data_type: &str) -> Mode {
@@ -903,7 +945,7 @@ pub(crate) async fn bulk_load(
     if p == Path::TextInserts {
         return load_text(&mut s.conn, &table, spec, &window, source, progress).await;
     }
-    let modes = target_modes(&mut s.conn, spec).await?;
+    let modes = target_modes(&mut s.conn, v, spec).await?;
     let saved = prepare_session(&mut s.conn, v, spec, &table).await?;
     let r = if v.base() == Variant::TiDb {
         // TiDB's LOAD DATA commits by itself (autocommit off or not, and the
@@ -937,7 +979,7 @@ pub(crate) async fn bulk_load(
 }
 
 /// Each load column's mode, from the target's catalog.
-async fn target_modes(conn: &mut Conn, spec: &LoadSpec) -> Result<Vec<Mode>> {
+async fn target_modes(conn: &mut Conn, v: Variant, spec: &LoadSpec) -> Result<Vec<Mode>> {
     let schema = spec
         .table
         .schema()
@@ -955,10 +997,15 @@ async fn target_modes(conn: &mut Conn, spec: &LoadSpec) -> Result<Vec<Mode>> {
                 .and_then(value_text)
                 .unwrap_or_default()
                 .to_ascii_lowercase();
+            let data_type = r.as_ref(1).and_then(value_text)?;
             let mode = if extra.contains("auto_increment") {
                 Mode::Auto
+            } else if let Some(f) =
+                vector_function(v).filter(|_| crate::vectors::meta(v, &data_type).is_some())
+            {
+                Mode::Vector(f)
             } else {
-                mode_of(&r.as_ref(1).and_then(value_text)?)
+                mode_of(&data_type)
             };
             Some((r.as_ref(0).and_then(value_text)?, mode))
         })
@@ -1263,7 +1310,9 @@ async fn load_local(
     // With a SET clause, MariaDB ignores NO_AUTO_VALUE_ON_ZERO for an
     // AUTO_INCREMENT column read directly (a 0 becomes the next value); set
     // from a variable, it keeps the 0.
-    let any_set = modes.iter().any(|m| matches!(m, Mode::Hex | Mode::Bit));
+    let any_set = modes
+        .iter()
+        .any(|m| matches!(m, Mode::Hex | Mode::Bit | Mode::Vector(_)));
     for (i, (c, m)) in spec.columns.iter().zip(modes).enumerate() {
         let q = quote_ident(Quote::Backtick, c);
         match m {
@@ -1279,6 +1328,10 @@ async fn load_local(
             Mode::Bit => {
                 targets.push(format!("@c{i}"));
                 sets.push(format!("{q} = CAST(@c{i} AS UNSIGNED)"));
+            }
+            Mode::Vector(f) => {
+                targets.push(format!("@c{i}"));
+                sets.push(format!("{q} = {f}(@c{i})"));
             }
         }
     }
@@ -1407,7 +1460,17 @@ async fn load_prepared(
             .collect::<Vec<_>>()
             .join(", ")
     );
-    let one = format!("({})", vec!["?"; ncols].join(", "));
+    // A vector column's text goes through the engine's conversion.
+    let one = format!(
+        "({})",
+        (0..ncols)
+            .map(|i| match modes.get(i) {
+                Some(Mode::Vector(f)) => format!("{f}(?)"),
+                _ => "?".to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     let statement = |n: usize| {
         let mut s = String::with_capacity(head.len() + n * (one.len() + 2));
         s.push_str(&head);

@@ -33,6 +33,7 @@ mod session;
 mod stats;
 mod structure;
 mod transfer;
+mod vectors;
 
 use dbine_driver::{
     async_trait, Capabilities, ConnectionConfig, CreateTemplate, DdlParts, DesignerSpec, Driver,
