@@ -1073,7 +1073,8 @@ async fn check_warnings(conn: &mut Conn, loaded: &[String]) -> Result<()> {
                 .unwrap_or_else(|| level.clone());
             let computed = warned_column(&message)
                 .is_some_and(|c| !loaded.iter().any(|l| l.eq_ignore_ascii_case(&c)));
-            (!level.eq_ignore_ascii_case("note") && !computed).then_some(message)
+            (!level.eq_ignore_ascii_case("note") && !computed && !plan_cache_note(&message))
+                .then_some(message)
         })
         .take(5)
         .collect();
@@ -1099,10 +1100,19 @@ fn warned_column(message: &str) -> Option<String> {
     )
 }
 
+/// TiDB's word that a prepared statement isn't cached (`skip prepared
+/// plan-cache: too many values in the insert statement`, a Warning since
+/// 8.x): about its plan cache, not the rows.
+fn plan_cache_note(message: &str) -> bool {
+    let m = message.trim_start().to_ascii_lowercase();
+    m.starts_with("skip prepared plan-cache") || m.starts_with("skip plan-cache")
+}
+
 /// `LOAD DATA` answered that local files are off (MySQL's 3948,
-/// MariaDB's 1148) or doesn't know the statement (1064, 1235).
+/// MariaDB's 1148 and, since 10.5, 4166) or doesn't know the statement
+/// (1064, 1235).
 fn local_infile_refused(e: &mysql_async::Error) -> bool {
-    matches!(e, mysql_async::Error::Server(s) if matches!(s.code, 3948 | 1148 | 1064 | 1235))
+    matches!(e, mysql_async::Error::Server(s) if matches!(s.code, 3948 | 1148 | 4166 | 1064 | 1235))
 }
 
 /// The item type of [`InfileData`] (`bytes::Bytes`), named without a
@@ -1530,6 +1540,31 @@ async fn load_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tidb_plan_cache_warnings_are_not_rejected_rows() {
+        assert!(plan_cache_note(
+            "skip prepared plan-cache: too many values in the insert statement"
+        ));
+        assert!(plan_cache_note("skip plan-cache: query has 'now' function"));
+        assert!(!plan_cache_note("Data truncated for column 'a' at row 1"));
+    }
+
+    #[test]
+    fn a_server_without_local_files_is_loaded_with_inserts() {
+        let refused = |code| {
+            local_infile_refused(&mysql_async::Error::Server(mysql_async::ServerError {
+                code,
+                message: String::new(),
+                state: "HY000".into(),
+            }))
+        };
+        // MariaDB 10.5+ answers 4166 (ER_LOAD_INFILE_CAPABILITY_DISABLED).
+        for code in [3948, 1148, 4166, 1064, 1235] {
+            assert!(refused(code), "{code}");
+        }
+        assert!(!refused(1062));
+    }
 
     #[test]
     fn the_column_a_warning_names() {
