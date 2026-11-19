@@ -29,6 +29,7 @@ mod spatial;
 mod stats;
 mod structure;
 mod transfer;
+mod vector;
 
 use dbine_driver::sql::{select_top, Limit, Quote};
 use dbine_driver::{
@@ -700,7 +701,9 @@ impl Driver for OracleDriver {
             jobs: true,
             // The whole Scheduler in the designer, see `scheduler`.
             scheduler: true,
-            vectors: false,
+            // VECTOR (23ai): results, describes, literals, transfers and
+            // HNSW / IVF vector indexes (see `vector`).
+            vectors: true,
         }
     }
 
@@ -734,13 +737,14 @@ impl Driver for OracleDriver {
         columns: &[String],
         rows: &[Vec<Value>],
     ) -> Result<String> {
-        Ok(dbine_driver::ddl::insert_script(
+        Ok(dbine_driver::ddl::insert_script_with(
             &ddl::FLAVOR,
             target.schema(),
             &target.name,
             columns,
             rows,
             1,
+            &literal,
         ))
     }
 
@@ -750,21 +754,23 @@ impl Driver for OracleDriver {
         target: &ObjectRef,
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
-        Ok(dbine_driver::ddl::update_script(
-            &ddl::FLAVOR,
+        Ok(dbine_driver::ddl::update_script_with(
+            ddl::FLAVOR.quote,
             target.schema(),
             &target.name,
             changes,
+            &literal,
         ))
     }
 
     /// `DELETE … WHERE <key>` per row key, with the INSERTs' literals.
     fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
-        Ok(dbine_driver::ddl::delete_script(
-            &ddl::FLAVOR,
+        Ok(dbine_driver::ddl::delete_script_with(
+            ddl::FLAVOR.quote,
             target.schema(),
             &target.name,
             keys,
+            &literal,
         ))
     }
 
@@ -805,6 +811,7 @@ impl Driver for OracleDriver {
                 ids: Mutex::new(ids),
                 killed: AtomicBool::new(false),
                 serveroutput: AtomicBool::new(true),
+                vector_info: std::sync::atomic::AtomicU8::new(0),
             }),
             config,
             schema,
@@ -863,6 +870,8 @@ struct Shared {
     /// SET SERVEROUTPUT: DBMS_OUTPUT lines are fetched after each statement
     /// (on by default, as the editor wants them); kept across a reconnect.
     serveroutput: AtomicBool,
+    /// Whether the dictionary has `VECTOR_INFO` ([`vector::info_column`]).
+    vector_info: std::sync::atomic::AtomicU8,
 }
 
 struct OracleSession {
@@ -1056,7 +1065,7 @@ const COLUMNS: &str = "SELECT c.column_name, c.data_type, c.char_length, c.data_
             JOIN all_cons_columns kc ON kc.owner = k.owner AND kc.constraint_name = k.constraint_name
            WHERE k.owner = c.owner AND k.table_name = c.table_name
              AND k.constraint_type = 'P' AND kc.column_name = c.column_name
-        ) THEN 1 ELSE 0 END, c.char_used
+        ) THEN 1 ELSE 0 END, c.char_used, {vector_info}
    FROM all_tab_columns c
   WHERE c.owner = :1 AND c.table_name = :2
   ORDER BY c.column_id";
@@ -1142,9 +1151,14 @@ impl Session for OracleSession {
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let owner = self.owner(obj);
         let name = obj.name.clone();
+        let shared = self.shared.clone();
         self.run(move |c| {
             let mut out = Vec::new();
-            for row in c.query(COLUMNS, &[&owner, &name]).map_err(err)? {
+            let sql = COLUMNS.replace(
+                "{vector_info}",
+                vector::info_expr(vector::info_column(c, &shared.vector_info)),
+            );
+            for row in c.query(&sql, &[&owner, &name]).map_err(err)? {
                 let row = row.map_err(err)?;
                 let ty: String = row.get(1).map_err(err)?;
                 let len: Option<i64> = row.get(2).map_err(err)?;
@@ -1156,13 +1170,18 @@ impl Session for OracleSession {
                 let identity: Option<String> = row.get(8).map_err(err)?;
                 let pk: i64 = row.get(9).map_err(err)?;
                 let char_used: Option<String> = row.get(10).map_err(err)?;
+                let info: Option<String> = row.get(11).map_err(err)?;
                 out.push(ColumnInfo {
                     name: row.get(0).map_err(err)?,
-                    data_type: char_semantics(
-                        format_type(&ty, len, data_len, precision, scale),
-                        &ty,
-                        char_used.as_deref(),
-                    ),
+                    data_type: if ty == "VECTOR" {
+                        vector::declared(info.as_deref())
+                    } else {
+                        char_semantics(
+                            format_type(&ty, len, data_len, precision, scale),
+                            &ty,
+                            char_used.as_deref(),
+                        )
+                    },
                     nullable: nullable.as_deref() != Some("N"),
                     primary_key: pk == 1,
                     auto_increment: identity.as_deref() == Some("YES"),
@@ -1243,7 +1262,12 @@ impl Session for OracleSession {
 
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
         let owner = self.schema.clone();
-        self.run(move |c| ddl::load_schema(c, &owner)).await
+        let shared = self.shared.clone();
+        self.run(move |c| {
+            let info = vector::info_column(c, &shared.vector_info);
+            ddl::load_schema(c, &owner, info)
+        })
+        .await
     }
 
     /// A schema-only account with quota on the default tablespace. Simple
@@ -2573,14 +2597,16 @@ fn fetch(
             .columns()
             .iter()
             .zip(&geo)
-            .map(|(m, g)| ResultColumn {
-                name: m.name().to_string(),
-                type_name: if *g {
-                    spatial::TYPE_NAME.into()
+            .map(|(m, g)| {
+                if *g {
+                    ResultColumn::new(m.name(), spatial::TYPE_NAME)
+                } else if m.db_type().name() == "DB_TYPE_VECTOR" {
+                    // `VECTOR(3, FLOAT32)`, its cells JSON arrays.
+                    let shape = vector::column_shape(&m.data_type(), m.is_sparse_vector());
+                    ResultColumn::new(m.name(), shape.ddl()).with_vector(shape.meta())
                 } else {
-                    m.data_type()
-                },
-                vector: None,
+                    ResultColumn::new(m.name(), m.data_type())
+                }
             })
             .collect(),
     );
@@ -3210,22 +3236,19 @@ fn json_value(j: &oracledb::JsonValue) -> Value {
     }
 }
 
+/// A vector's cell text (see [`vector::text`]).
 fn vector(v: &oracledb::Vector) -> String {
-    use oracledb::VectorData as D;
-    fn list<T: ToString>(xs: &[T]) -> String {
-        format!(
-            "[{}]",
-            xs.iter().map(T::to_string).collect::<Vec<_>>().join(", ")
-        )
-    }
+    vector::text(v)
+}
+
+/// A value as an Oracle literal: a vector as its text (the server converts
+/// it to the column's type), the rest as the generic SQL literals.
+fn literal(v: &Value) -> String {
     match v {
-        oracledb::Vector::Dense(d) => match d {
-            D::Float32(x) => list(x),
-            D::Float64(x) => list(x),
-            D::Int8(x) => list(x),
-            D::Binary(x) => list(x),
-        },
-        oracledb::Vector::Sparse(s) => format!("{s:?}"),
+        Value::Array(_) => {
+            vector::literal(v).unwrap_or_else(|| dbine_driver::ddl::sql_literal(&ddl::FLAVOR, v))
+        }
+        _ => dbine_driver::ddl::sql_literal(&ddl::FLAVOR, v),
     }
 }
 

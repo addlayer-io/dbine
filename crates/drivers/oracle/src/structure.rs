@@ -238,7 +238,94 @@ pub(crate) fn complete(c: &Connection, owner: &str, tables: &mut [TableSchema]) 
             }
         }
     }
+    vector_indexes(c, owner, tables);
     Ok(())
+}
+
+/// Vector indexes (23ai): their algorithm (`ALL_INDEXES.INDEX_SUBTYPE`),
+/// and distance, target accuracy and parameters from
+/// `VECSYS.VECTOR$INDEX` (DBA / GSMUSER_ROLE), else distance and accuracy
+/// from `V$VECTOR_INDEX` (SELECT_CATALOG_ROLE), else the algorithm alone.
+const VECTOR_SUBTYPES: &str = "SELECT index_name, index_subtype FROM all_indexes
+  WHERE table_owner = :1 AND index_type = 'VECTOR'";
+const VECTOR_PARAMS: &str =
+    "SELECT x.idx_name, JSON_SERIALIZE(x.idx_params RETURNING VARCHAR2(4000))
+   FROM vecsys.vector$index x JOIN all_users u ON u.user_id = x.idx_owner#
+  WHERE u.username = :1";
+const VECTOR_STATS: &str =
+    "SELECT index_name, distance_type, TO_CHAR(default_accuracy), index_organization
+   FROM v$vector_index WHERE owner = :1";
+
+fn vector_indexes(c: &Connection, owner: &str, tables: &mut [TableSchema]) {
+    use crate::vector::{algorithm_of, index, Details, KIND};
+    let is_vector = |ix: &IndexDef| ix.kind.as_deref() == Some(KIND);
+    if !tables.iter().any(|t| t.indexes.iter().any(is_vector)) {
+        return;
+    }
+    // A query this login can't run (no privilege, an older release) gives
+    // nothing.
+    let rows = |sql: &str, width: usize| -> Vec<Vec<Option<String>>> {
+        let Ok(rows) = c.query(sql, &[&owner]) else {
+            return Vec::new();
+        };
+        rows.filter_map(|r| r.ok())
+            .map(|r| (0..width).map(|i| text(&r, i).ok().flatten()).collect())
+            .collect()
+    };
+    let mut algorithm: HashMap<String, &'static str> = HashMap::new();
+    for r in rows(VECTOR_SUBTYPES, 2) {
+        if let (Some(n), Some(a)) = (r[0].clone(), r.get(1).cloned().flatten()) {
+            if let Some(a) = algorithm_of(&a) {
+                algorithm.insert(n, a);
+            }
+        }
+    }
+    let mut details: HashMap<String, Details> = HashMap::new();
+    for r in rows(VECTOR_PARAMS, 2) {
+        if let (Some(n), Some(p)) = (r[0].clone(), r.get(1).cloned().flatten()) {
+            let d = Details::from_params(&p);
+            if let Some(a) = p
+                .to_ascii_uppercase()
+                .contains("\"HNSW\"")
+                .then_some("hnsw")
+            {
+                algorithm.entry(n.clone()).or_insert(a);
+            }
+            details.insert(n, d);
+        }
+    }
+    if details.is_empty() {
+        for r in rows(VECTOR_STATS, 4) {
+            let Some(n) = r[0].clone() else { continue };
+            if let Some(a) = r
+                .get(3)
+                .cloned()
+                .flatten()
+                .as_deref()
+                .and_then(algorithm_of)
+            {
+                algorithm.entry(n.clone()).or_insert(a);
+            }
+            details.insert(
+                n,
+                Details {
+                    distance: r.get(1).cloned().flatten(),
+                    accuracy: r
+                        .get(2)
+                        .cloned()
+                        .flatten()
+                        .and_then(|a| a.trim().parse().ok()),
+                    ..Default::default()
+                },
+            );
+        }
+    }
+    for t in tables.iter_mut() {
+        for ix in t.indexes.iter_mut().filter(|ix| is_vector(ix)) {
+            let d = details.get(&ix.name).cloned().unwrap_or_default();
+            ix.vector = Some(index(algorithm.get(&ix.name).copied(), &d));
+        }
+    }
 }
 
 // ---------------------------------------------------------------- DDL
