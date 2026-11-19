@@ -388,6 +388,35 @@ fn assert_vector_index(ix: &IndexDef, alg: &str, m: &str, params: &[(&str, &str)
 
 /// The sync of a table with itself changes nothing; with one vector
 /// index's metric changed, it makes that index again with the new one.
+/// Index usage lists every vector index of `read` with the `VectorIndex`
+/// its describe has (algorithm, distance, build parameters).
+async fn usage_matches(s: &mut Box<dyn Session>, target: &ObjectRef, read: &TableSchema) {
+    let usage = s
+        .index_usage(target)
+        .await
+        .expect("index usage")
+        .expect("an index usage report");
+    let mut seen = 0;
+    for ix in read.indexes.iter().filter(|i| i.vector.is_some()) {
+        let u = usage
+            .indexes
+            .iter()
+            .find(|u| u.name == ix.name)
+            .unwrap_or_else(|| panic!("{} not in the usage report", ix.name));
+        assert_eq!(u.vector, ix.vector, "{}", ix.name);
+        seen += 1;
+    }
+    assert!(seen > 0, "no vector index to check");
+    assert!(usage
+        .indexes
+        .iter()
+        .filter(|u| u.vector.is_none())
+        .all(|u| read
+            .indexes
+            .iter()
+            .all(|i| i.name != u.name || i.vector.is_none())));
+}
+
 async fn sync_round_trip(
     d: &dyn Driver,
     s: &mut Box<dyn Session>,
@@ -635,6 +664,8 @@ async fn round_trip(id: &str, env: &str, extra: Option<(IndexDef, &str, &str)>, 
             assert_eq!(got.vector.as_ref().unwrap().metric, want.metric);
             assert_eq!(got.vector.as_ref().unwrap().params, want.params);
         }
+        // Index usage says the same of each vector index.
+        usage_matches(&mut s, &target, &read).await;
         // The read table's DDL makes the same indexes.
         let again = d
             .table_ddl(
@@ -699,6 +730,62 @@ async fn round_trip(id: &str, env: &str, extra: Option<(IndexDef, &str, &str)>, 
         run(
             &mut s,
             &d.delete_script(&target, &[vec![("id".into(), json!(3))]])
+                .unwrap(),
+        )
+        .await;
+        // Typed by the result's columns: a dense vector into sparsevec and
+        // zeros and ones into bit(n), also sent as text.
+        let types = grid.columns.clone();
+        let change = RowChange {
+            key: vec![("id".into(), json!(1))],
+            set: vec![
+                ("s".into(), json!([0, 0, 4, 0, 0])),
+                ("b".into(), json!("[0,0,1,1]")),
+            ],
+            row: Vec::new(),
+        };
+        run(
+            &mut s,
+            &d.update_script_typed(&target, &[change], &types).unwrap(),
+        )
+        .await;
+        let got = cells(
+            &mut s,
+            "SELECT s::text, b::text FROM public.items WHERE id = 1",
+        )
+        .await;
+        assert_eq!(got, [[Some("{3:4}/5".into()), Some("0011".into())]]);
+        let ins = d
+            .insert_script_typed(
+                &target,
+                &types,
+                &[vec![
+                    json!(4),
+                    json!("[1,1,1]"),
+                    json!([0.5, 0.5, 0.5]),
+                    json!("[1.5,0,0,0,2]"),
+                    json!([1, 1, 1, 1]),
+                ]],
+            )
+            .unwrap();
+        run(&mut s, &ins).await;
+        let got = cells(
+            &mut s,
+            "SELECT v::text, h::text, s::text, b::text FROM public.items WHERE id = 4",
+        )
+        .await;
+        assert_eq!(
+            got,
+            [[
+                Some("[1,1,1]".into()),
+                Some("[0.5,0.5,0.5]".into()),
+                Some("{1:1.5,5:2}/5".into()),
+                Some("1111".into())
+            ]]
+        );
+        run(
+            &mut s,
+            &d.delete_script_typed(&target, &[vec![("id".into(), json!(4))]], &types)
                 .unwrap(),
         )
         .await;
@@ -889,6 +976,7 @@ async fn cockroach_vectors() {
         );
         assert_eq!(vu.columns, ["v", "uid"]);
         assert_vector_index(index(&read, "ix_h"), "cspann", metric::IP, &[]);
+        usage_matches(&mut s, &target, &read).await;
         let again = d
             .table_ddl(
                 &read,
@@ -1082,6 +1170,42 @@ async fn cratedb_vectors() {
         run(&mut s, &format!("REFRESH TABLE {DB}.items")).await;
         let out = run(&mut s, &format!("SELECT v FROM {DB}.items WHERE id = 2")).await;
         assert_eq!(out.results[0].rows[0][0], json!("[9,8,7.5]"));
+        // Typed: a vector sent as text (as another family's source sends
+        // it) goes into FLOAT_VECTOR as an array, by the describe's type
+        // or by another engine's vector column.
+        let types = vec![
+            ResultColumn::new("id", "INTEGER"),
+            ResultColumn::new("v", "FLOAT_VECTOR(3)"),
+        ];
+        let ins = d
+            .insert_script_typed(&target, &types, &[vec![json!(4), json!("[0.5,0.25,1]")]])
+            .unwrap();
+        run(&mut s, &ins).await;
+        let other = vec![
+            ResultColumn::new("id", "NUMBER"),
+            ResultColumn::new("v", "VECTOR(3, FLOAT32)")
+                .with_vector(VectorMeta::dense(Some(3), VectorElement::F32)),
+        ];
+        let change = RowChange {
+            key: vec![("id".into(), json!(4))],
+            set: vec![("v".into(), json!("[2,4,8]"))],
+            row: Vec::new(),
+        };
+        run(
+            &mut s,
+            &d.update_script_typed(&target, &[change], &other).unwrap(),
+        )
+        .await;
+        run(&mut s, &format!("REFRESH TABLE {DB}.items")).await;
+        let out = run(&mut s, &format!("SELECT v FROM {DB}.items WHERE id = 4")).await;
+        assert_eq!(out.results[0].rows[0][0], json!("[2,4,8]"));
+        run(
+            &mut s,
+            &d.delete_script_typed(&target, &[vec![("id".into(), json!(4))]], &types)
+                .unwrap(),
+        )
+        .await;
+        run(&mut s, &format!("REFRESH TABLE {DB}.items")).await;
         // 8. A transfer to a copy (no bulk load: INSERTs with array literals).
         let mut copy = t.clone();
         copy.name = "items_copy".into();
@@ -1465,6 +1589,7 @@ async fn risingwave_vectors() {
         // 5. The indexes.
         assert_vector_index(index(&read, "ix_v"), "hnsw", metric::COSINE, &[("m", "16")]);
         assert_vector_index(index(&read, "ix_f"), "flat", metric::IP, &[]);
+        usage_matches(&mut s, &target, &read).await;
         sync_round_trip(
             &*d,
             &mut s,
