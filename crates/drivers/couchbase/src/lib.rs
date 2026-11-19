@@ -818,6 +818,31 @@ fn uses_search(stmt: &str) -> bool {
     false
 }
 
+/// The name of the function a `CREATE [OR REPLACE] FUNCTION
+/// [ns:][b.s.]name(…)` makes.
+fn created_function(stmt: &str) -> Option<String> {
+    let rest = vector::take_words(stmt, "CREATE")?;
+    let rest = vector::take_words(rest, "OR REPLACE").unwrap_or(rest);
+    let rest = vector::take_words(rest, "FUNCTION")?;
+    // The name ends at its parameters' `(` outside backquotes.
+    let mut quoted = false;
+    let end = rest.char_indices().find_map(|(i, c)| match c {
+        '`' => {
+            quoted = !quoted;
+            None
+        }
+        '(' if !quoted => Some(i),
+        _ => None,
+    })?;
+    let name = rest[..end].trim();
+    // A namespace prefix (`default:`) outside backquotes.
+    let name = match name.find(':') {
+        Some(i) if !name[..i].contains('`') => &name[i + 1..],
+        _ => name,
+    };
+    vector::keyspace_parts(name).pop().filter(|n| !n.is_empty())
+}
+
 /// The `(bucket, scope)` a `CREATE SCOPE [IF NOT EXISTS] b.s` makes (the
 /// session's bucket for a bare scope name).
 fn created_scope(stmt: &str, bucket: Option<&str>) -> Option<(String, String)> {
@@ -1219,6 +1244,21 @@ impl CbSession {
             "SELECT RAW 1 FROM system:scopes AS s WHERE s.`bucket` = {} AND s.name = {}",
             lit(bucket),
             lit(scope)
+        );
+        for _ in 0..40 {
+            if self.results(&stmt).await.is_ok_and(|r| !r.is_empty()) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    }
+
+    /// Waits (up to 10 s) until `system:functions` lists a function named
+    /// `name`.
+    async fn wait_function(&self, name: &str) {
+        let stmt = format!(
+            "SELECT RAW 1 FROM system:functions AS f WHERE f.identity.name = {}",
+            serde_json::to_string(name).unwrap_or_default()
         );
         for _ in 0..40 {
             if self.results(&stmt).await.is_ok_and(|r| !r.is_empty()) {
@@ -1672,6 +1712,10 @@ impl Session for CbSession {
                 // service a moment later: a collection made in it right
                 // after would fail with "Scope not found".
                 self.wait_scope(&b, &sc).await;
+            } else if let Some(f) = created_function(&u.text) {
+                // Likewise a new function to `system:functions` (8.0): the
+                // explorer's listing right after would miss it.
+                self.wait_function(&f).await;
             }
         }
         Ok(())
@@ -2508,6 +2552,20 @@ mod tests {
             Some(("app".into(), "s".into()))
         );
         assert_eq!(created_scope("CREATE SCOPE s", None), None);
+        assert_eq!(
+            created_function("CREATE OR REPLACE FUNCTION `tpl_fn`(precio, iva) { precio }"),
+            Some("tpl_fn".into())
+        );
+        assert_eq!(
+            created_function("create function default:`b`.`s`.`f(x)`(a) { a }"),
+            Some("f(x)".into())
+        );
+        assert_eq!(
+            created_function("CREATE FUNCTION b.s.g (a) LANGUAGE JAVASCRIPT AS \"g\" AT \"lib\""),
+            Some("g".into())
+        );
+        assert_eq!(created_function("CREATE INDEX ix ON k(a)"), None);
+        assert_eq!(created_function("EXECUTE FUNCTION f(1)"), None);
         assert_eq!(created_scope("CREATE COLLECTION b.s.c", None), None);
     }
 
