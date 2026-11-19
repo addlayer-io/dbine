@@ -1557,6 +1557,35 @@ pub fn aggregate_table(
     t
 }
 
+/// `FT.HYBRID`'s reply (Redis 8.4: `total_results`, `results`,
+/// `warnings`, `execution_time`): its results as [`aggregate_table`]'s
+/// rows (`__key`, `__score` and what `LOAD` brings, a vector field of
+/// `index` decoded and its column marked), the count and any warning as the
+/// message.
+pub fn hybrid_table(
+    args: &[Vec<u8>],
+    reply: &Value,
+    index: Option<&FtIndex>,
+) -> crate::shape::Table {
+    let (pairs, _) = pairs(reply, false);
+    let total = get(&pairs, "total_results").map(text_of);
+    let results: Vec<Value> = get(&pairs, "results")
+        .map(|r| items(r).into_iter().cloned().collect())
+        .unwrap_or_default();
+    let rows = Value::Array(std::iter::once(Value::Int(0)).chain(results).collect());
+    let mut t = aggregate_table(args, &rows, index);
+    let mut message = vec![format!(
+        "{}: {} documentos coinciden",
+        String::from_utf8_lossy(&args[0]).to_ascii_uppercase(),
+        total.unwrap_or_else(|| t.rows.len().to_string())
+    )];
+    if let Some(w) = get(&pairs, "warnings") {
+        message.extend(items(w).into_iter().map(text_of).filter(|w| !w.is_empty()));
+    }
+    t.message = Some(message.join("; "));
+    t
+}
+
 /// The command that shows a search index's first `limit` documents: all
 /// of them (`*`), a JSON index's attributes returned (so its vectors come
 /// as columns of their own). valkey-search has no `*`: a range over a
@@ -2367,5 +2396,67 @@ mod tests {
         assert!(k
             .index_for("docs", &Types::of(&[C::new("emb", "halfvec(3)")]))
             .is_err());
+    }
+
+    /// FT.HYBRID's results (Redis 8.4) as a table: the key, the score and
+    /// what LOAD brings, a vector decoded by the index's type.
+    #[test]
+    fn hybrid_results() {
+        let ix = FtIndex::from_info("docs", &redis8_info()).unwrap();
+        let blob = Value::BulkString(VType::F32.encode(&[1.0, 0.0, 0.5]));
+        let reply = arr(vec![
+            b("total_results"),
+            Value::Int(2),
+            b("results"),
+            arr(vec![
+                arr(vec![b("__key"), b("doc:1"), b("emb"), blob]),
+                arr(vec![b("__key"), b("doc:2")]),
+            ]),
+            b("warnings"),
+            arr(vec![]),
+            b("execution_time"),
+            b("0.5"),
+        ]);
+        let args: Vec<Vec<u8>> = [
+            "FT.HYBRID",
+            "docs",
+            "SEARCH",
+            "x",
+            "LOAD",
+            "2",
+            "@__key",
+            "@emb",
+        ]
+        .iter()
+        .map(|a| a.as_bytes().to_vec())
+        .collect();
+        let t = hybrid_table(&args, &reply, Some(&ix));
+        assert_eq!(t.columns, ["__key", "emb"]);
+        assert_eq!(
+            t.rows[0],
+            [serde_json::json!("doc:1"), serde_json::json!("[1,0,0.5]")]
+        );
+        assert_eq!(t.rows[1][1], serde_json::Value::Null);
+        assert_eq!(t.types[1], "VECTOR(3, FLOAT32)");
+        assert!(t.vectors[1].is_some());
+        assert_eq!(
+            t.message.as_deref(),
+            Some("FT.HYBRID: 2 documentos coinciden")
+        );
+        // A warning goes with the count.
+        let warned = arr(vec![
+            b("total_results"),
+            Value::Int(0),
+            b("results"),
+            arr(vec![]),
+            b("warnings"),
+            arr(vec![b("Timeout limit was reached")]),
+        ]);
+        let t = hybrid_table(&args, &warned, None);
+        assert!(t.rows.is_empty());
+        assert_eq!(
+            t.message.as_deref(),
+            Some("FT.HYBRID: 0 documentos coinciden; Timeout limit was reached")
+        );
     }
 }

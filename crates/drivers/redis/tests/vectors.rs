@@ -451,6 +451,26 @@ async fn body(id: &str, url: &str) {
         })
         .unwrap();
     assert_eq!(nearest[0], json!("dbvec:doc:1"), "{:?}", r.rows);
+    // Redis 8.4's hybrid search: text and vector, its results a table
+    // whose vectors are decoded and marked.
+    if id == "redis" {
+        let hybrid = format!(
+            "FT.HYBRID dbvec_docs SEARCH \"@lang:{{es}}\" VSIM @emb $q LOAD 2 @__key @emb PARAMS 2 q {}",
+            blob_arg(&q)
+        );
+        let out = run(&mut s, &hybrid).await;
+        let r = &out.results[0];
+        println!("{:?} {:?}", r.columns, r.rows);
+        let key = r.columns.iter().position(|c| c.name == "__key").unwrap();
+        let emb = r.columns.iter().position(|c| c.name == "emb").unwrap();
+        assert!(r.columns[emb].vector.is_some(), "{:?}", r.columns);
+        let one = r
+            .rows
+            .iter()
+            .find(|row| row[key] == json!("dbvec:doc:1"))
+            .unwrap_or_else(|| panic!("{:?}", r.rows));
+        assert_eq!(one[emb], json!("[0.5,0.25,1]"));
+    }
 
     // 7. Edits: a search result's vector, and a hash field typed as text.
     let upd = d
