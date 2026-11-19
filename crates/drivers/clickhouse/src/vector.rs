@@ -11,6 +11,15 @@
 //! the result, knows it). A ClickHouse array has no fixed length: the
 //! dimension is the index's.
 //!
+//! The index as DBine writes it, `vector_similarity('hnsw', 'cosineDistance',
+//! 3[, quantization, m, ef_construction])`, is ClickHouse 25.8's (when it
+//! left beta) and later's; the `dotProduct` distance came in 26.4, and
+//! `BFloat16` in 25.1. From 24.8 to 25.7 the index was experimental, took
+//! no dimension (`vector_similarity('hnsw', 'L2Distance'[, quantization, m,
+//! ef_construction])`) and needed `allow_experimental_vector_similarity_index`:
+//! such an index is read, and written back in its own form, with that
+//! setting first ([`LEGACY_SET`]); a new one needs 25.8.
+//!
 //! Timeplus Proton (3.0) has `array(float32)` and the distances
 //! (`cosine_distance`, `l2_distance`…) but neither `bfloat16` nor a vector
 //! index.
@@ -26,7 +35,13 @@ pub const DEFAULT_GRANULARITY: &str = "100000000";
 /// The index's dimension, which ClickHouse requires, as a parameter.
 pub const DIMENSIONS: &str = "dimensions";
 
-/// ClickHouse's distance functions for the index and the standard names.
+/// What an index of ClickHouse 24.8–25.7 (experimental, no dimension) needs
+/// to be created; an obsolete setting from 25.8 on, which servers still
+/// take.
+pub const LEGACY_SET: &str = "SET allow_experimental_vector_similarity_index = 1;";
+
+/// ClickHouse's distance functions for the index and the standard names
+/// (`dotProduct` from 26.4).
 const METRICS: [(&str, &str); 3] = [
     ("cosineDistance", metric::COSINE),
     ("L2Distance", metric::L2),
@@ -97,9 +112,30 @@ fn args(type_full: &str) -> Option<Vec<String>> {
 /// index type as its [`VectorIndex`]: the dimension as `dimensions`, the
 /// quantization, `m` (`hnsw_max_connections_per_layer`) and
 /// `ef_construction` (`hnsw_candidate_list_size_for_construction`); a 0
-/// (ClickHouse's default) is left out.
+/// (ClickHouse's default) is left out. The form of 24.8–25.7, without the
+/// dimension (`vector_similarity('hnsw', 'L2Distance'[, 'bf16', 32, 128])`,
+/// and 24.8's six arguments with `ef_search` last), reads the same way,
+/// without `dimensions`.
 pub fn parse_index(type_full: &str) -> Option<VectorIndex> {
     let a = args(type_full)?;
+    // The third argument is the dimension (a number) from 25.8 on, the
+    // quantization (a name) before.
+    let legacy = a.get(2).is_some_and(|x| x.parse::<u64>().is_err());
+    let at: &[(usize, &str)] = if legacy {
+        &[
+            (2, param::QUANTIZATION),
+            (3, param::M),
+            (4, param::EF_CONSTRUCTION),
+            (5, "ef_search"),
+        ]
+    } else {
+        &[
+            (2, DIMENSIONS),
+            (3, param::QUANTIZATION),
+            (4, param::M),
+            (5, param::EF_CONSTRUCTION),
+        ]
+    };
     let mut v = VectorIndex {
         algorithm: a.first().map(|x| x.to_ascii_lowercase()),
         metric: a.get(1).map(|m| {
@@ -110,12 +146,7 @@ pub fn parse_index(type_full: &str) -> Option<VectorIndex> {
         }),
         ..Default::default()
     };
-    for (i, key) in [
-        (2, DIMENSIONS),
-        (3, param::QUANTIZATION),
-        (4, param::M),
-        (5, param::EF_CONSTRUCTION),
-    ] {
+    for &(i, key) in at {
         if let Some(x) = a.get(i).filter(|x| !x.is_empty() && x.as_str() != "0") {
             v.params.insert(key.to_string(), x.clone());
         }
@@ -236,6 +267,21 @@ mod tests {
             "vector_similarity('hnsw', 'dotProduct', 3, 'i8', 0, 0)"
         );
         assert!(parse_index("bloom_filter(0.01)").is_none());
+        // 24.8–25.7: no dimension; the quantization third.
+        let v = parse_index("vector_similarity('hnsw', 'L2Distance')").unwrap();
+        assert_eq!((v.metric.as_deref(), v.params.len()), (Some("l2"), 0));
+        let v = parse_index("vector_similarity('hnsw', 'cosineDistance', 'f32', 16, 64)").unwrap();
+        assert_eq!(
+            v.params
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>(),
+            ["ef_construction=64", "m=16", "quantization=f32"]
+        );
+        let v =
+            parse_index("vector_similarity('hnsw', 'L2Distance', 'bf16', 32, 128, 256)").unwrap();
+        assert_eq!(v.params["ef_search"], "256");
+        assert!(!v.params.contains_key(DIMENSIONS));
         assert!(index_type(&VectorIndex::default())
             .unwrap_err()
             .contains("dimensions"));

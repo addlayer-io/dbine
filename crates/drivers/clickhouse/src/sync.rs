@@ -377,6 +377,9 @@ fn alter(flavor: Flavor, old: &TableSchema, new: &TableSchema, p: &mut Plan) {
             })
         });
         if same.is_none_or(|o| !ix_same(o, n)) || on_dropped {
+            if crate::schema::legacy_vector_type(n).is_some() {
+                p.post.push(crate::vector::LEGACY_SET.into());
+            }
             p.post.push(format!("{head} ADD {};", index_clause(n)));
             p.post.push(format!(
                 "{head} MATERIALIZE {} {};",

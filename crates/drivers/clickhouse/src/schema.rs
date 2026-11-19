@@ -581,11 +581,33 @@ pub(crate) fn vector_granularity(ix: &IndexDef) -> Option<String> {
     (!g.is_empty() && g != crate::vector::DEFAULT_GRANULARITY).then_some(g)
 }
 
+/// Index option: a vector index's whole type as the server reports it
+/// (`vector_similarity('hnsw', 'cosineDistance', 3)`). The schema compare
+/// reads it (it compares an index's columns, kind and options, not its
+/// vector settings), and an index of ClickHouse 24.8–25.7, which has no
+/// dimension, is written back from it ([`legacy_vector_type`]).
+pub const TYPE_OPTION: &str = "type";
+
+/// The type of a vector index read from a ClickHouse of 24.8–25.7 (no
+/// dimension), to write it again as that server takes it: when the index's
+/// settings are still the ones read with it.
+pub(crate) fn legacy_vector_type(ix: &IndexDef) -> Option<&str> {
+    let v = ix.vector.as_ref()?;
+    if v.params.contains_key(crate::vector::DIMENSIONS) {
+        return None;
+    }
+    let t = ix.options.get(TYPE_OPTION)?;
+    (crate::vector::parse_index(t).as_ref() == Some(v)).then_some(t.as_str())
+}
+
 /// A vector index without the dimension ClickHouse requires, as the error
 /// the DDL gives instead of a statement the server refuses.
 pub fn check_vector_indexes(t: &TableSchema) -> dbine_driver::Result<()> {
     for ix in &t.indexes {
         if let Some(v) = &ix.vector {
+            if legacy_vector_type(ix).is_some() {
+                continue;
+            }
             crate::vector::index_type(v).map_err(|why| {
                 dbine_driver::Error::Query(format!("El índice vectorial «{}»: {why}.", ix.name))
             })?;
@@ -601,7 +623,11 @@ pub(crate) fn index_clause(ix: &IndexDef) -> String {
     if let Some(v) = &ix.vector {
         // Without a dimension there's no valid type ([`check_vector_indexes`]
         // says so first); the server's error names what's missing.
-        let ty = crate::vector::index_type(v).unwrap_or_else(|_| crate::vector::KIND.into());
+        let ty = crate::vector::index_type(v).unwrap_or_else(|_| {
+            legacy_vector_type(ix)
+                .unwrap_or(crate::vector::KIND)
+                .to_string()
+        });
         let mut s = format!("INDEX {} {} TYPE {ty}", q(&ix.name), key_expr(&ix.columns));
         if let Some(g) = vector_granularity(ix) {
             s.push_str(&format!(" GRANULARITY {g}"));
@@ -784,6 +810,11 @@ pub fn table_ddl(flavor: Flavor, t: &TableSchema, parts: DdlParts) -> String {
         }
         s.push(';');
         out.push(s);
+    }
+    // An index of ClickHouse 24.8–25.7 needs its setting first.
+    if parts.indexes && t.indexes.iter().any(|ix| legacy_vector_type(ix).is_some()) {
+        let at = usize::from(parts.drop);
+        out.insert(at, crate::vector::LEGACY_SET.to_string());
     }
     if parts.indexes && !inline_indexes {
         for ix in &t.indexes {
@@ -1142,9 +1173,12 @@ pub fn assemble(flavor: Flavor, database: &str, cat: Catalog) -> Vec<TableSchema
         }
         let gran = s(r, 4);
         let mut kind = s(r, 2);
-        // A vector index: its settings apart, its kind the index type's name.
+        // A vector index: its settings apart, its kind the index type's
+        // name, the whole type in the options (see TYPE_OPTION).
         let vector = crate::vector::parse_index(&kind);
+        let mut options = BTreeMap::new();
         let default_gran = if vector.is_some() {
+            options.insert(TYPE_OPTION.to_string(), kind.trim().to_string());
             kind = crate::vector::KIND.into();
             crate::vector::DEFAULT_GRANULARITY
         } else {
@@ -1160,6 +1194,7 @@ pub fn assemble(flavor: Flavor, database: &str, cat: Catalog) -> Vec<TableSchema
                 name: s(r, 1),
                 columns: key_parts(&s(r, 3)),
                 kind: Some(kind),
+                options,
                 vector,
                 ..Default::default()
             },
@@ -1336,12 +1371,30 @@ mod tests {
                     "vector_similarity('hnsw', 'L2Distance', 3, 'i8', 16, 0)",
                     "2",
                 ),
+                // ClickHouse 24.8–25.7: no dimension.
+                row(
+                    "vo",
+                    "vector_similarity('hnsw', 'cosineDistance', 'f32', 16, 64)",
+                    "100000000",
+                ),
             ],
         };
         let t = assemble(Flavor::ClickHouse, "db", cat).remove(0);
         assert_eq!(t.columns[1].data_type, "Array(Float32)");
-        let (vi, vq) = (&t.indexes[0], &t.indexes[1]);
+        let (vi, vq, vo) = (&t.indexes[0], &t.indexes[1], &t.indexes[2]);
         assert_eq!(vi.kind.as_deref(), Some("vector_similarity"));
+        // The whole type in the options too: the schema compare reads them.
+        assert_eq!(
+            vi.options.get(TYPE_OPTION).map(String::as_str),
+            Some("vector_similarity('hnsw', 'cosineDistance', 3)")
+        );
+        assert_eq!(vo.vector.as_ref().unwrap().params["m"], "16");
+        assert_eq!(
+            legacy_vector_type(vo),
+            Some("vector_similarity('hnsw', 'cosineDistance', 'f32', 16, 64)")
+        );
+        assert_eq!(legacy_vector_type(vi), None);
+        check_vector_indexes(&t).unwrap();
         let v = vi.vector.as_ref().unwrap();
         assert_eq!(
             (v.algorithm.as_deref(), v.metric.as_deref()),
@@ -1364,9 +1417,38 @@ mod tests {
             "{ddl}"
         );
         assert!(
-            ddl.contains("    INDEX `vq` v TYPE vector_similarity('hnsw', 'L2Distance', 3, 'i8', 16, 0) GRANULARITY 2\n"),
+            ddl.contains("    INDEX `vq` v TYPE vector_similarity('hnsw', 'L2Distance', 3, 'i8', 16, 0) GRANULARITY 2,\n"),
             "{ddl}"
         );
+        // The old server's index goes back in its own form, its setting first.
+        assert!(
+            ddl.starts_with("SET allow_experimental_vector_similarity_index = 1;\nCREATE TABLE")
+                && ddl.contains("    INDEX `vo` v TYPE vector_similarity('hnsw', 'cosineDistance', 'f32', 16, 64)\n"),
+            "{ddl}"
+        );
+        // Its settings changed: no longer the old server's index; a new one
+        // needs the dimension.
+        let mut changed = t.clone();
+        changed.indexes[2].vector.as_mut().unwrap().metric = Some("l2".into());
+        assert!(legacy_vector_type(&changed.indexes[2]).is_none());
+        assert!(check_vector_indexes(&changed).is_err());
+        let sync = crate::sync::sync_script(
+            Flavor::ClickHouse,
+            &[dbine_driver::TableChange::Alter {
+                old: TableSchema {
+                    indexes: vec![vi.clone()],
+                    ..t.clone()
+                },
+                new: t.clone(),
+            }],
+        )
+        .unwrap();
+        let all = sync.statements.join("\n");
+        assert!(
+            all.contains("SET allow_experimental_vector_similarity_index = 1;\nALTER TABLE `db`.`emb` ADD INDEX `vo` v TYPE vector_similarity('hnsw', 'cosineDistance', 'f32', 16, 64);"),
+            "{all}"
+        );
+        assert_eq!(all.matches("SET allow_experimental").count(), 1, "{all}");
         // The designer's index: no kind, a vector, ClickHouse's granularity.
         let mut d = t.clone();
         d.indexes = vec![IndexDef {
