@@ -1439,6 +1439,16 @@ impl Endpoints for MigrationEndpoints {
         let (s, t) = (self.source_driver.info().id, self.target_driver.info().id);
         same_package(s, t) && self.source_driver.supports_native_copy(t)
     }
+    /// The target's described columns with the vector each type is on its
+    /// engine: the insert-script path writes each value as its column takes it.
+    fn column_types(&self, columns: &[TransferColumn]) -> Vec<dbine_driver::ResultColumn> {
+        crate::commands::typed_scripts::of_describe(
+            self.target_driver.info().id,
+            columns
+                .iter()
+                .map(|c| (c.name.as_str(), c.type_name.as_str())),
+        )
+    }
 }
 
 // -- the jobs ---------------------------------------------------------------------------------------

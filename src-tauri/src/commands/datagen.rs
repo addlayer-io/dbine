@@ -14,7 +14,7 @@ use crate::commands::vectors;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use chrono::{Duration as Days, NaiveDate};
-use dbine_driver::{ColumnInfo, ObjectRef, QueryOutcome, VectorElement, VectorMeta};
+use dbine_driver::{ColumnInfo, ObjectRef, QueryOutcome, ResultColumn, VectorElement, VectorMeta};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -822,6 +822,9 @@ pub(crate) fn fake(id: &str, rng: &mut Rng, row: u64, len: Option<usize>) -> Opt
 /// Resolved generators, in column order, with the columns that go in the INSERT.
 struct Plan {
     columns: Vec<String>,
+    /// `columns` with their types (the table's describe, and the vector it
+    /// holds): the insert script writes each value as its column takes it.
+    types: Vec<ResultColumn>,
     gens: Vec<(Gen, Option<usize>, u8, bool)>,
     /// What "auto" picked per column (all columns), for the dialog.
     auto: BTreeMap<String, String>,
@@ -830,6 +833,7 @@ struct Plan {
 fn plan(metas: &[Meta], specs: &[ColumnGen], rng: &mut Rng) -> CommandResult<Plan> {
     let mut out = Plan {
         columns: Vec::new(),
+        types: Vec::new(),
         gens: Vec::new(),
         auto: BTreeMap::new(),
     };
@@ -872,6 +876,11 @@ fn plan(metas: &[Meta], specs: &[ColumnGen], rng: &mut Rng) -> CommandResult<Pla
             None
         };
         out.columns.push(m.info.name.clone());
+        out.types.push(ResultColumn {
+            name: m.info.name.clone(),
+            type_name: m.info.data_type.clone(),
+            vector: m.vector.clone(),
+        });
         out.gens.push((g, len, nulls, m.unique));
     }
     if out.columns.is_empty() {
@@ -1157,7 +1166,7 @@ pub(crate) async fn run_generation(
             }
             let n = batch.min(args.rows - done);
             let chunk = rows(&mut p, &mut rng, done + 1, n, &mut seen);
-            let script = driver.insert_script(&args.table, &p.columns, &chunk)?;
+            let script = driver.insert_script_typed(&args.table, &p.types, &chunk)?;
             let mut out = QueryOutcome::default();
             let r = tokio::select! {
                 r = s.execute(&script, 1, &mut out) => r.map_err(CommandError::from),
@@ -1404,6 +1413,38 @@ mod tests {
         let plain = meta("name", "varchar(10)", false);
         assert!(!offered(std::slice::from_ref(&plain)).contains(&"vector"));
         assert!(offered(&[plain, m]).contains(&"vector"));
+    }
+
+    /// The insert script knows each column's type from the describe: a
+    /// vector column's carries its vector (a `halfvec` is written as one).
+    #[test]
+    fn the_plan_types_its_columns() {
+        let mut rng = Rng::new(Some(5));
+        let mut v = meta("embedding", "halfvec(4)", false);
+        v.vector = Some(VectorMeta::dense(Some(4), VectorElement::F16));
+        let p = plan(&[meta("id", "integer", true), v], &[], &mut rng).unwrap();
+        assert_eq!(p.columns, ["id", "embedding"]);
+        let types: Vec<(&str, &str)> = p
+            .types
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_name.as_str()))
+            .collect();
+        assert_eq!(types, [("id", "integer"), ("embedding", "halfvec(4)")]);
+        assert!(p.types[0].vector.is_none());
+        assert_eq!(
+            p.types[1].vector,
+            Some(VectorMeta::dense(Some(4), VectorElement::F16))
+        );
+        // The script is the driver's typed one: PostgreSQL writes the vector.
+        let pg = dbine_drivers::find("postgres").unwrap();
+        let table = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "t".into(),
+        };
+        let rows = vec![vec![json!(1), json!([0.5, 0.5, 0.5, 0.5])]];
+        let script = pg.insert_script_typed(&table, &p.types, &rows).unwrap();
+        assert!(script.contains("0.5"), "{script}");
     }
 
     /// A sparse vector column gets sparse vectors in its engine's text

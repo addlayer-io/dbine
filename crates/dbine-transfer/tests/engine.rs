@@ -908,3 +908,64 @@ async fn vectors_pass_through_bulk_loads_and_reach_insert_scripts_as_arrays() {
         }
     }
 }
+
+/// The insert-script path writes with the target columns' types the
+/// endpoints give (`job_types`, by name, in the load's order): a vector
+/// column carries its vector, so the driver writes its engine's literal
+/// for that column's element. Without types (the default endpoints and no
+/// `expected_columns`), the untyped script, as before; a bulk load never
+/// asks.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_insert_script_path_is_typed_by_the_endpoints() {
+    use dbine_driver::{ResultColumn, VectorElement, VectorMeta};
+    let half = VectorMeta::dense(Some(3), VectorElement::F16);
+    for (bulk, typed) in [(false, true), (false, false), (true, true)] {
+        let fake = Arc::new(Fake {
+            bulk,
+            ..Default::default()
+        });
+        fake.table("emb", 0);
+        fake.source.lock().unwrap().insert(
+            "emb".into(),
+            vec![vec![Cell::Int(1), Cell::Text("[0.5,-1,2]".into())]],
+        );
+        if typed {
+            *fake.job_types.lock().unwrap() = vec![
+                ResultColumn::new("NAME", "halfvec(3)").with_vector(half.clone()),
+                ResultColumn::new("id", "integer"),
+            ];
+        }
+        let (st, _) = store(&format!("vec-typed-{bulk}-{typed}"));
+        let report = Engine::new(st, "r")
+            .run(
+                vec![job("emb", Some(1))],
+                opts(1),
+                FakeEndpoints::new(fake.clone()),
+                |_| {},
+            )
+            .await
+            .unwrap();
+        assert_eq!(report.summary.status, RunStatus::Finished);
+        let calls = fake.typed_inserts.lock().unwrap().clone();
+        if bulk || !typed {
+            assert!(calls.is_empty(), "bulk {bulk}, typed {typed}: {calls:?}");
+            continue;
+        }
+        assert_eq!(calls.len(), 1);
+        let cols: Vec<(&str, &str)> = calls[0]
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_name.as_str()))
+            .collect();
+        assert_eq!(cols, [("id", "integer"), ("name", "halfvec(3)")]);
+        assert_eq!(calls[0][1].vector, Some(half.clone()));
+        // A column the types mark as a vector goes as an array.
+        let got = fake.target_rows("emb");
+        assert_eq!(
+            got,
+            vec![vec![
+                Cell::Int(1),
+                Cell::Json(serde_json::json!([0.5, -1.0, 2.0]).to_string())
+            ]]
+        );
+    }
+}

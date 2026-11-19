@@ -1545,8 +1545,14 @@ async fn query_vectors_compare_by_value_at_the_lower_precision() {
                 .get(&out.result.id)
                 .cloned()
                 .unwrap();
-            assert_eq!(d.left_vectors, [false, true, true]);
-            assert_eq!(d.right_vectors, [false, true, false]);
+            let marked = |v: &[Option<dbine_driver::VectorMeta>]| {
+                v.iter().map(Option::is_some).collect::<Vec<_>>()
+            };
+            assert_eq!(marked(&d.left_vectors), [false, true, true]);
+            assert_eq!(marked(&d.right_vectors), [false, true, false]);
+            // The screen gets each column's vectors: the left's, else the right's.
+            assert_eq!(marked(&out.result.vectors), [false, true, true]);
+            assert_eq!(out.result.vectors[1], d.left_vectors[1]);
         }
     }
     assert_eq!(leftovers(&root.0), Vec::<String>::new());

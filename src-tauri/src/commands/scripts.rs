@@ -3,7 +3,7 @@
 //! See docs/api-commands.md.
 
 use crate::commands::schema::driver_of;
-use crate::commands::vectors;
+use crate::commands::{typed_scripts, vectors};
 use crate::error::{CommandError, CommandResult};
 use crate::state::{AppState, SessionEntry};
 use dbine_driver::{
@@ -110,6 +110,13 @@ struct InsertSink {
     /// Which of `columns` hold vectors: their cells go to the script as
     /// arrays.
     vectors: Vec<bool>,
+    /// The target table's columns with their types (its describe, by its
+    /// names), and the vector each holds.
+    target_types: Vec<ResultColumn>,
+    /// `columns` with their types: the target table's, else (same engine)
+    /// the source result's; the script writes each value as its column
+    /// takes it.
+    types: Vec<ResultColumn>,
     buf: Vec<Vec<Value>>,
     out: Arc<Mutex<Out>>,
     rows: u64,
@@ -121,10 +128,9 @@ impl InsertSink {
             return Ok(());
         }
         let rows = vectors::script_rows(&self.vectors, std::mem::take(&mut self.buf));
-        let text = self
-            .driver
-            .insert_script(&self.target, &self.columns, &rows)
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        let text =
+            typed_scripts::insert_columns(self.driver.as_ref(), &self.target, &self.types, &rows)
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
         let mut out = self.out.lock().expect("script output");
         out.write(&text)?;
         out.write("\n")
@@ -151,6 +157,27 @@ impl RowSink for InsertSink {
                         || self
                             .same_engine
                             .is_some_and(|id| vectors::of_column(id, c).is_some_and(|m| !m.sparse))
+                })
+                .collect();
+            self.types = columns
+                .iter()
+                .zip(&self.columns)
+                .map(|(c, name)| {
+                    let table =
+                        typed_scripts::for_names(std::slice::from_ref(name), &self.target_types)
+                            .remove(0);
+                    let mut t = match self.same_engine {
+                        // The same engine: the source's result says it too.
+                        Some(_) if table.type_name.is_empty() => ResultColumn {
+                            name: name.clone(),
+                            ..c.clone()
+                        },
+                        _ => table,
+                    };
+                    if t.vector.is_none() {
+                        t.vector = self.same_engine.and_then(|id| vectors::of_column(id, c));
+                    }
+                    t
                 })
                 .collect();
         }
@@ -689,6 +716,18 @@ pub(crate) async fn generate(
                 },
                 _ => (*obj).clone(),
             };
+            // The target's columns with their types, as its engine spells
+            // them.
+            let target_types = table_schema(obj)
+                .map(|t| {
+                    typed_scripts::of_describe(
+                        w.info().id,
+                        t.columns
+                            .iter()
+                            .map(|c| (c.name.as_str(), c.data_type.as_str())),
+                    )
+                })
+                .unwrap_or_default();
             // The target's vector columns, as its engine spells them.
             let vector_columns: HashSet<String> = table_schema(obj)
                 .map(|t| {
@@ -709,6 +748,8 @@ pub(crate) async fn generate(
                 vector_columns,
                 same_engine: other_engine.is_none().then_some(src_id),
                 vectors: Vec::new(),
+                target_types,
+                types: Vec::new(),
                 buf: Vec::new(),
                 out: out.clone(),
                 rows: 0,
@@ -959,6 +1000,8 @@ mod tests {
             vector_columns: vector_columns.iter().map(|c| c.to_string()).collect(),
             same_engine,
             vectors: Vec::new(),
+            target_types: Vec::new(),
+            types: Vec::new(),
             buf: Vec::new(),
             out: Arc::new(Mutex::new(Out::Mem(String::new()))),
             rows: 0,
@@ -969,14 +1012,44 @@ mod tests {
                 .with_vector(VectorMeta::dense(Some(2), VectorElement::F32)),
             ResultColumn::new("note", "text"),
         ];
+        let typed = |s: &InsertSink| -> Vec<(String, String, Option<VectorMeta>)> {
+            s.types
+                .iter()
+                .map(|c| (c.name.clone(), c.type_name.clone(), c.vector.clone()))
+                .collect()
+        };
         let mut same = sink(&[], Some("postgres"));
         same.begin(0, &cols).unwrap();
         assert_eq!(same.columns, ["id", "embedding", "note"]);
         assert_eq!(same.vectors, [false, true, false]);
-        // Another engine: only what the target's table says.
+        // The same engine with no table at hand: the result's types, renamed.
+        let f32_2 = Some(VectorMeta::dense(Some(2), VectorElement::F32));
+        assert_eq!(
+            typed(&same),
+            [
+                ("id".into(), "int4".into(), None),
+                ("embedding".into(), "vector".into(), f32_2.clone()),
+                ("note".into(), "text".into(), None),
+            ]
+        );
+        // Another engine: only what the target's table says, types too.
         let mut other = sink(&["embedding"], None);
+        let f16_2 = Some(VectorMeta::dense(Some(2), VectorElement::F16));
+        other.target_types = vec![
+            ResultColumn::new("ID", "integer"),
+            ResultColumn::new("embedding", "halfvec(2)")
+                .with_vector(VectorMeta::dense(Some(2), VectorElement::F16)),
+        ];
         other.begin(0, &cols).unwrap();
         assert_eq!(other.vectors, [false, true, false]);
+        assert_eq!(
+            typed(&other),
+            [
+                ("id".into(), "integer".into(), None),
+                ("embedding".into(), "halfvec(2)".into(), f16_2),
+                ("note".into(), String::new(), None),
+            ]
+        );
         let mut none = sink(&[], None);
         none.begin(0, &cols).unwrap();
         assert_eq!(none.vectors, [false, false, false]);

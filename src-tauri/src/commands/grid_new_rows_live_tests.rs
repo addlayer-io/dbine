@@ -174,6 +174,7 @@ async fn sql_scenario(c: &SqlCase, d: &dyn Driver, s: &mut dyn Session) -> Res<(
         &[],
         &identity,
         &["id".into(), "nombre".into(), "estado".into()],
+        &[],
     )
     .map_err(|e| format!("probe: {e:?}"))?;
     ensure!(probe.is_empty(), "probe returned {probe:?}");
@@ -183,8 +184,8 @@ async fn sql_scenario(c: &SqlCase, d: &dyn Driver, s: &mut dyn Session) -> Res<(
         row(&[("nombre", json!("Ana"))]),
         row(&[("nombre", json!("Luis"))]),
     ];
-    let parts =
-        new_rows_parts(d, &target, &new, &identity, &[]).map_err(|e| format!("parts: {e:?}"))?;
+    let parts = new_rows_parts(d, &target, &new, &identity, &[], &[])
+        .map_err(|e| format!("parts: {e:?}"))?;
     let script = join(d, &parts);
     eprintln!("[{}] (a) script:\n{script}", c.engine);
     apply(d, s, &script).await?;
@@ -208,14 +209,14 @@ async fn sql_scenario(c: &SqlCase, d: &dyn Driver, s: &mut dyn Session) -> Res<(
     // (b) one row with an explicit id, then another without one.
     if c.explicit_id {
         let new = vec![row(&[("id", json!(100)), ("nombre", json!("Eva"))])];
-        let parts = new_rows_parts(d, &target, &new, &identity, &[])
+        let parts = new_rows_parts(d, &target, &new, &identity, &[], &[])
             .map_err(|e| format!("parts b: {e:?}"))?;
         ensure!(parts.len() >= 2, "explicit id should be wrapped: {parts:?}");
         let script = join(d, &parts);
         eprintln!("[{}] (b) script:\n{script}", c.engine);
         apply(d, s, &script).await?;
         let new = vec![row(&[("nombre", json!("Zoe"))])];
-        let parts = new_rows_parts(d, &target, &new, &identity, &[])
+        let parts = new_rows_parts(d, &target, &new, &identity, &[], &[])
             .map_err(|e| format!("parts c: {e:?}"))?;
         apply(d, s, &join(d, &parts)).await?;
         let got = rows(s, c.select).await?;
@@ -403,9 +404,10 @@ async fn mongo_scenario(d: &dyn Driver, s: &mut dyn Session, engine: &str) -> Re
         schema: None,
         name: NAME.into(),
     };
-    let probe = new_rows_parts(d, &target, &[], &[], &[]).map_err(|e| format!("probe: {e:?}"))?;
+    let probe =
+        new_rows_parts(d, &target, &[], &[], &[], &[]).map_err(|e| format!("probe: {e:?}"))?;
     ensure!(probe.is_empty(), "probe returned {probe:?}");
-    let parts = new_rows_parts(d, &target, &[nested_doc()], &[], &[])
+    let parts = new_rows_parts(d, &target, &[nested_doc()], &[], &[], &[])
         .map_err(|e| format!("parts: {e:?}"))?;
     let script = join(d, &parts);
     eprintln!("[{engine}] script:\n{script}");
@@ -486,9 +488,10 @@ async fn couch_scenario(d: &dyn Driver, s: &mut dyn Session) -> Res<()> {
         schema: None,
         name: NAME.into(),
     };
-    let probe = new_rows_parts(d, &target, &[], &[], &[]).map_err(|e| format!("probe: {e:?}"))?;
+    let probe =
+        new_rows_parts(d, &target, &[], &[], &[], &[]).map_err(|e| format!("probe: {e:?}"))?;
     ensure!(probe.is_empty(), "probe returned {probe:?}");
-    let parts = new_rows_parts(d, &target, &[nested_doc()], &[], &[])
+    let parts = new_rows_parts(d, &target, &[nested_doc()], &[], &[], &[])
         .map_err(|e| format!("parts: {e:?}"))?;
     let script = join(d, &parts);
     eprintln!("[couchdb] script:\n{script}");
@@ -554,6 +557,7 @@ async fn grid_new_rows_redis() {
             &[],
             &[],
             &["key".into(), "value".into()],
+            &[],
         )
         .map_err(|e| format!("probe: {e:?}"))?;
         ensure!(probe.is_empty(), "probe returned {probe:?}");
@@ -569,7 +573,7 @@ async fn grid_new_rows_redis() {
                 ("estado", json!("nuevo")),
             ]),
         ];
-        let parts = new_rows_parts(d.as_ref(), &target, &new, &[], &[])
+        let parts = new_rows_parts(d.as_ref(), &target, &new, &[], &[], &[])
             .map_err(|e| format!("parts: {e:?}"))?;
         let script = join(d.as_ref(), &parts);
         eprintln!("[redis] script:\n{script}");
@@ -616,6 +620,7 @@ async fn grid_new_rows_elasticsearch() {
             &[],
             &[],
             &["_id".into(), "nombre".into()],
+            &[],
         )
         .map_err(|e| format!("probe: {e:?}"))?;
         ensure!(probe.is_empty(), "probe returned {probe:?}");
@@ -628,7 +633,7 @@ async fn grid_new_rows_elasticsearch() {
             ]),
             row(&[("nombre", json!("Luis"))]),
         ];
-        let parts = new_rows_parts(d.as_ref(), &target, &new, &[], &[])
+        let parts = new_rows_parts(d.as_ref(), &target, &new, &[], &[], &[])
             .map_err(|e| format!("parts: {e:?}"))?;
         let script = join(d.as_ref(), &parts);
         eprintln!("[elasticsearch] script:\n{script}");

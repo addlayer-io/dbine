@@ -88,6 +88,17 @@ impl Endpoints for AppEndpoints {
             crate::commands::vectors::of_type(self.driver.info().id, t)
         })
     }
+    fn column_types(
+        &self,
+        columns: &[dbine_driver::TransferColumn],
+    ) -> Vec<dbine_driver::ResultColumn> {
+        crate::commands::typed_scripts::of_describe(
+            self.driver.info().id,
+            columns
+                .iter()
+                .map(|c| (c.name.as_str(), c.type_name.as_str())),
+        )
+    }
 }
 
 /// `table`'s columns that hold dense vectors by `of` (their type on the

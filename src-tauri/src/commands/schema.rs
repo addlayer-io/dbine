@@ -1,9 +1,10 @@
 //! Database structure, DDL, and database-level operations
 //! (docs/api-commands.md).
 
+use crate::commands::typed_scripts;
 use crate::error::{CommandError, CommandResult};
 use crate::state::{meta_key, AppState};
-use dbine_driver::{DdlParts, Driver, ObjectRef, RowChange, TableSchema};
+use dbine_driver::{DdlParts, Driver, ObjectRef, ResultColumn, RowChange, TableSchema};
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
@@ -71,6 +72,11 @@ pub struct InsertScriptArgs {
     pub target: ObjectRef,
     pub columns: Vec<String>,
     pub rows: Vec<Vec<Value>>,
+    /// The columns' types as the result gives them (`type_name`, `vector`),
+    /// matched to `columns` by name: the driver writes each value as its
+    /// column takes it. Empty (older callers): untyped.
+    #[serde(default)]
+    pub types: Vec<ResultColumn>,
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -78,9 +84,11 @@ pub async fn insert_script(
     state: State<'_, AppState>,
     args: InsertScriptArgs,
 ) -> CommandResult<String> {
-    Ok(driver_of(&state, &args.connection_id)?.insert_script(
+    Ok(typed_scripts::insert(
+        driver_of(&state, &args.connection_id)?.as_ref(),
         &args.target,
         &args.columns,
+        &args.types,
         &args.rows,
     )?)
 }
@@ -106,6 +114,11 @@ pub struct UpdateScriptArgs {
     /// engine writes new rows there.
     #[serde(default)]
     pub columns: Vec<String>,
+    /// The result's columns with their types (`type_name`, `vector`): the
+    /// updates, deletes and inserts are written for them (by name). Empty
+    /// (older callers): untyped.
+    #[serde(default)]
+    pub types: Vec<ResultColumn>,
 }
 
 /// Cells edited (and rows marked for deletion) in the results grid as code
@@ -124,15 +137,31 @@ pub async fn update_script(
     args: UpdateScriptArgs,
 ) -> CommandResult<String> {
     let driver = driver_of(&state, &args.connection_id)?;
+    let types = &args.types;
     if args.deletes.is_none() && args.inserts.is_none() {
-        return Ok(driver.update_script(&args.target, &args.changes)?);
+        return Ok(typed_scripts::update(
+            driver.as_ref(),
+            &args.target,
+            &args.changes,
+            types,
+        )?);
     }
     let mut parts = Vec::new();
     if let Some(deletes) = &args.deletes {
-        parts.push(driver.delete_script(&args.target, deletes)?);
+        parts.push(typed_scripts::delete(
+            driver.as_ref(),
+            &args.target,
+            deletes,
+            types,
+        )?);
     }
     if !args.changes.is_empty() {
-        parts.push(driver.update_script(&args.target, &args.changes)?);
+        parts.push(typed_scripts::update(
+            driver.as_ref(),
+            &args.target,
+            &args.changes,
+            types,
+        )?);
     }
     if let Some(inserts) = &args.inserts {
         parts.extend(super::data_compare::new_rows_parts(
@@ -141,6 +170,7 @@ pub async fn update_script(
             inserts,
             &args.identity,
             &args.columns,
+            types,
         )?);
     }
     let sep = driver.script_separator();

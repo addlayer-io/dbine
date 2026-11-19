@@ -27,12 +27,12 @@ mod mask;
 
 use crate::commands::migration::{create_schema, default_schema, default_schema_rename};
 use crate::commands::schema::driver_of;
-use crate::commands::vectors;
+use crate::commands::{typed_scripts, vectors};
 use crate::error::{CommandError, CommandResult};
 use crate::state::{AppState, SessionEntry};
 use dbine_driver::{
     ColumnDef, ColumnFilter, DdlParts, Driver, FilterOp, KeyDef, ObjectRef, QueryOutcome,
-    RowChange, Session, TableSchema,
+    ResultColumn, RowChange, Session, TableSchema,
 };
 use graph::{Edge, Role, Scope};
 use mask::{MaskRule, Masker, Shape};
@@ -1059,6 +1059,8 @@ struct Deferred {
     t: usize,
     /// (key, set, whole row) in target column names, masked.
     changes: Vec<RowChange>,
+    /// The target's columns with their types, for the update script.
+    types: Vec<ResultColumn>,
 }
 
 impl Writer<'_> {
@@ -1088,6 +1090,9 @@ impl Writer<'_> {
             nullable: bool,
             /// A vector column: its values go to the script as arrays.
             vector: bool,
+            /// Its type on the target: the script writes its values as the
+            /// column takes them.
+            typed: ResultColumn,
         }
         let mut cols: Vec<Col> = Vec::new();
         for (at, name) in d.columns.iter().enumerate() {
@@ -1114,6 +1119,11 @@ impl Writer<'_> {
                 Some(t) if !t.is_empty() => vectors::of_type(p.tgt_driver.info().id, t),
                 _ => src_col.and_then(|c| vectors::of_type(p.src_driver.info().id, &c.data_type)),
             };
+            let typed = ResultColumn {
+                name: target.to_string(),
+                type_name: tgt_col.map(|c| c.data_type.clone()).unwrap_or_default(),
+                vector: meta.clone(),
+            };
             cols.push(Col {
                 at,
                 name: target.to_string(),
@@ -1121,6 +1131,7 @@ impl Writer<'_> {
                 shape: Shape::of_column(ty, meta.as_ref()),
                 nullable: tgt_col.is_none_or(|c| c.nullable),
                 vector: meta.is_some_and(|m| !m.sparse),
+                typed,
             });
         }
         if cols.is_empty() {
@@ -1129,6 +1140,7 @@ impl Writer<'_> {
             ));
         }
         let names: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
+        let types: Vec<ResultColumn> = cols.iter().map(|c| c.typed.clone()).collect();
         let row_of = |r: &[Value]| -> Vec<Value> {
             cols.iter()
                 .map(|c| {
@@ -1205,6 +1217,7 @@ impl Writer<'_> {
         let mut deferred = Deferred {
             t,
             changes: Vec::new(),
+            types: types.clone(),
         };
         let mut last = Instant::now();
         (self.emit)("insert", &table.name, 0, total);
@@ -1234,7 +1247,8 @@ impl Writer<'_> {
                 }
                 batch.push(row);
             }
-            let script = p.tgt_driver.insert_script(&tg.obj, &names, &batch)?;
+            let script =
+                typed_scripts::insert_columns(p.tgt_driver.as_ref(), &tg.obj, &types, &batch)?;
             self.run(&script).await.map_err(|e| match e {
                 CommandError::Sql(m) => CommandError::Sql(format!(
                     "filas {}–{}: {m}",
@@ -1359,7 +1373,7 @@ async fn write(
         let tg = &p.targets[&d.t];
         emit("cycles", &p.tables[d.t].name, 0, d.changes.len() as u64);
         for chunk in d.changes.chunks(200) {
-            let res = match p.tgt_driver.update_script(&tg.obj, chunk) {
+            let res = match typed_scripts::update(p.tgt_driver.as_ref(), &tg.obj, chunk, &d.types) {
                 Ok(sql) => w.run(&sql).await,
                 Err(e) => Err(e.into()),
             };

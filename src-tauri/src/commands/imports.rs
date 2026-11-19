@@ -3,7 +3,7 @@
 //! `insertMany`, `_bulk`…) run in batches, so every engine imports the same way.
 
 use crate::commands::schema::driver_of;
-use crate::commands::vectors;
+use crate::commands::{typed_scripts, vectors};
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_core::import::{self, ImportFormat, ImportOptions, Preview};
@@ -337,6 +337,10 @@ pub(crate) async fn import_with(
         let vector_at = vector_targets(&columns, &types, |t| {
             vectors::of_type(id, t).is_some_and(|m| !m.sparse)
         });
+        // The target's columns with their types: the insert script writes
+        // each value as its column takes it.
+        let typed =
+            typed_scripts::of_describe(id, types.iter().map(|(n, t)| (n.as_str(), t.as_str())));
 
         let mut rows = 0u64;
         let mut last_emit = Instant::now();
@@ -370,7 +374,8 @@ pub(crate) async fn import_with(
             }
             let n = chunk.len() as u64;
             let chunk = vectors::script_rows(&vector_at, chunk);
-            let script = driver.insert_script(&args.target, &columns, &chunk)?;
+            let script =
+                typed_scripts::insert(driver.as_ref(), &args.target, &columns, &typed, &chunk)?;
             exec(script)
                 .await
                 .map_err(|e| CommandError::Sql(format!("filas {}–{}: {e}", rows + 1, rows + n)))?;

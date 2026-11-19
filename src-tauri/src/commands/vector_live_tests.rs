@@ -250,7 +250,7 @@ async fn vector_live_similarity_search_reads_without_approval() {
 
 use crate::commands::data_compare::{self, whole, ChangedRow, Counts, Diff, Side};
 use crate::commands::vectors;
-use dbine_driver::{ObjectRef, RowChange, VectorElement};
+use dbine_driver::{ObjectRef, RowChange, VectorElement, VectorMeta};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -403,8 +403,8 @@ async fn vector_live_data_compare_pgvector_against_duckdb_and_sync() {
                 equal: Vec::new(),
                 left_types: p.columns.iter().map(|c| type_of(&lcols, &c.0)).collect(),
                 right_types: p.columns.iter().map(|c| type_of(&rcols, &c.1)).collect(),
-                left_vectors: p.columns.iter().map(|c| vector_of("postgres", &type_of(&lcols, &c.0)).is_some()).collect(),
-                right_vectors: p.columns.iter().map(|c| vector_of("duckdb", &type_of(&rcols, &c.1)).is_some()).collect(),
+                left_vectors: p.columns.iter().map(|c| vector_of("postgres", &type_of(&lcols, &c.0)).map(|e| VectorMeta::dense(None, e))).collect(),
+                right_vectors: p.columns.iter().map(|c| vector_of("duckdb", &type_of(&rcols, &c.1)).map(|e| VectorMeta::dense(None, e))).collect(),
                 partial: false,
                 diff_truncated: false,
                 counts: Counts::default(),
@@ -600,6 +600,17 @@ impl dbine_transfer::Endpoints for Ends {
     }
     fn native_copy_allowed(&self) -> bool {
         false
+    }
+    fn column_types(
+        &self,
+        columns: &[dbine_driver::TransferColumn],
+    ) -> Vec<dbine_driver::ResultColumn> {
+        crate::commands::typed_scripts::of_describe(
+            &self.target.driver,
+            columns
+                .iter()
+                .map(|c| (c.name.as_str(), c.type_name.as_str())),
+        )
     }
 }
 
@@ -1288,6 +1299,17 @@ impl dbine_transfer::Endpoints for CloneEnds {
     }
     fn vector_columns(&self, table: &dbine_driver::TableSchema) -> Vec<String> {
         crate::commands::clone_table::vector_columns(table, |t| vectors::of_type(&self.0.driver, t))
+    }
+    fn column_types(
+        &self,
+        columns: &[dbine_driver::TransferColumn],
+    ) -> Vec<dbine_driver::ResultColumn> {
+        crate::commands::typed_scripts::of_describe(
+            &self.0.driver,
+            columns
+                .iter()
+                .map(|c| (c.name.as_str(), c.type_name.as_str())),
+        )
     }
 }
 

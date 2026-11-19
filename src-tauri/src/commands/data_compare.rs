@@ -6,11 +6,11 @@
 //! `update_script`, `delete_script`), so it's in the target's language; the
 //! UI shows it and runs it only when the user says so.
 
-use crate::commands::vectors;
+use crate::commands::{typed_scripts, vectors};
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_driver::filter::{ColumnFilter, FilterOp};
-use dbine_driver::{ColumnInfo, ObjectRef, RowChange, SortKey};
+use dbine_driver::{ColumnInfo, ObjectRef, ResultColumn, RowChange, SortKey, VectorMeta};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -132,6 +132,10 @@ pub struct DataCompareResult {
     /// Rows of each kind in the lists the screen filters and the script
     /// syncs: `counts` unless `diff_truncated`.
     pub listed: Listed,
+    /// Each compared column's vectors (dims, element, sparse), `None` where
+    /// it holds none: the left side's, else the right's (by each table's
+    /// catalog, or a query's result marks). The screen shows them by it.
+    pub vectors: Vec<Option<VectorMeta>>,
 }
 
 #[derive(Serialize, Clone, Default)]
@@ -165,10 +169,12 @@ pub(crate) struct Diff {
     /// writes a value the way its target column takes it.
     pub(crate) left_types: Vec<String>,
     pub(crate) right_types: Vec<String>,
-    /// Each side's compared columns that hold dense vectors (by its
-    /// catalog): a script writes their values as arrays.
-    pub(crate) left_vectors: Vec<bool>,
-    pub(crate) right_vectors: Vec<bool>,
+    /// Each side's compared columns that hold vectors (by its catalog, or a
+    /// query's result marks), dense or sparse; `None` where one doesn't. A
+    /// script writes dense ones' values as arrays, and types its columns
+    /// with them.
+    pub(crate) left_vectors: Vec<Option<VectorMeta>>,
+    pub(crate) right_vectors: Vec<Option<VectorMeta>>,
     /// A side had more rows than were read: a row seen on one side may exist
     /// on the other past what was read, so it's never inserted or deleted.
     /// Whole tables are compared now, so it's false; it stays for the
@@ -190,6 +196,49 @@ pub(crate) struct Diff {
 pub(crate) fn diffs() -> &'static Mutex<HashMap<String, Arc<Diff>>> {
     static D: OnceLock<Mutex<HashMap<String, Arc<Diff>>>> = OnceLock::new();
     D.get_or_init(Default::default)
+}
+
+/// Whether compared column `i` holds dense vectors, by a side's marks.
+pub(crate) fn dense_at(vectors: &[Option<VectorMeta>], i: usize) -> bool {
+    vectors
+        .get(i)
+        .and_then(Option::as_ref)
+        .is_some_and(|m| !m.sparse)
+}
+
+impl Diff {
+    /// Each compared column's vectors as the screen shows them: the left
+    /// side's, else the right's.
+    pub(crate) fn shown_vectors(&self) -> Vec<Option<VectorMeta>> {
+        (0..self.columns.len())
+            .map(|i| {
+                self.left_vectors
+                    .get(i)
+                    .cloned()
+                    .flatten()
+                    .or_else(|| self.right_vectors.get(i).cloned().flatten())
+            })
+            .collect()
+    }
+
+    /// The side `to_right` says, as a script's types: each compared
+    /// column's name there, its type ("" when not known) and its vectors.
+    pub(crate) fn script_types(&self, to_right: bool) -> Vec<ResultColumn> {
+        let (types, vectors) = if to_right {
+            (&self.right_types, &self.right_vectors)
+        } else {
+            (&self.left_types, &self.left_vectors)
+        };
+        self.columns
+            .iter()
+            .enumerate()
+            .map(|(i, (l, r))| ResultColumn {
+                name: if to_right { r.clone() } else { l.clone() },
+                type_name: types.get(i).cloned().unwrap_or_default(),
+                vector: vectors.get(i).cloned().flatten(),
+            })
+            .collect()
+    }
 }
 
 /// Whether a column holds booleans. PostgreSQL and its family answer them as
@@ -579,21 +628,25 @@ pub async fn data_compare_cancel(args: DataCompareCancelArgs) -> CommandResult<(
     Ok(())
 }
 
-/// A table's dense vector columns (lower-case names) and their numbers'
-/// type, by its catalog's types on `driver`'s engine.
-fn vector_columns(
-    driver: Option<&str>,
-    cols: &[ColumnInfo],
-) -> HashMap<String, dbine_driver::VectorElement> {
+/// A table's vector columns (lower-case names), dense or sparse, by its
+/// catalog's types on `driver`'s engine.
+fn vector_metas(driver: Option<&str>, cols: &[ColumnInfo]) -> HashMap<String, VectorMeta> {
     let Some(driver) = driver else {
         return HashMap::new();
     };
     cols.iter()
-        .filter_map(|c| {
-            vectors::of_type(driver, &c.data_type)
-                .filter(|m| !m.sparse)
-                .map(|m| (c.name.to_lowercase(), m.element))
-        })
+        .filter_map(|c| vectors::of_type(driver, &c.data_type).map(|m| (c.name.to_lowercase(), m)))
+        .collect()
+}
+
+/// The dense ones of `metas` and their numbers' type: they compare by value.
+fn dense_elements(
+    metas: &HashMap<String, VectorMeta>,
+) -> HashMap<String, dbine_driver::VectorElement> {
+    metas
+        .iter()
+        .filter(|(_, m)| !m.sparse)
+        .map(|(n, m)| (n.clone(), m.element))
         .collect()
 }
 
@@ -659,10 +712,11 @@ pub(crate) async fn compare_sides(
             .flatten()
             .map(|c| c.config.driver)
     };
-    let (lvec, rvec) = (
-        vector_columns(driver_of(&args.left).as_deref(), &lcols),
-        vector_columns(driver_of(&args.right).as_deref(), &rcols),
+    let (lmeta, rmeta) = (
+        vector_metas(driver_of(&args.left).as_deref(), &lcols),
+        vector_metas(driver_of(&args.right).as_deref(), &rcols),
     );
+    let (lvec, rvec) = (dense_elements(&lmeta), dense_elements(&rmeta));
     // No key given: the left table's primary key (never a vector column).
     let key: Vec<String> = if args.key.is_empty() {
         lcols
@@ -723,15 +777,20 @@ pub(crate) async fn compare_sides(
     let p = &c.projection;
     let left_types: Vec<String> = p.columns.iter().map(|x| type_of(&lcols, &x.0)).collect();
     let right_types: Vec<String> = p.columns.iter().map(|x| type_of(&rcols, &x.1)).collect();
-    let left_vectors: Vec<bool> = p
+    let left_vectors: Vec<Option<VectorMeta>> = p
         .columns
         .iter()
-        .map(|x| lvec.contains_key(&x.0.to_lowercase()))
+        .map(|x| lmeta.get(&x.0.to_lowercase()).cloned())
         .collect();
-    let right_vectors: Vec<bool> = p
+    let right_vectors: Vec<Option<VectorMeta>> = p
         .columns
         .iter()
-        .map(|x| rvec.contains_key(&x.1.to_lowercase()))
+        .map(|x| rmeta.get(&x.1.to_lowercase()).cloned())
+        .collect();
+    let shown_vectors: Vec<Option<VectorMeta>> = left_vectors
+        .iter()
+        .zip(&right_vectors)
+        .map(|(l, r)| l.clone().or_else(|| r.clone()))
         .collect();
     let id = uuid::Uuid::new_v4().to_string();
     let result = DataCompareResult {
@@ -759,6 +818,7 @@ pub(crate) async fn compare_sides(
             only_right: c.only_right.len() as u64,
             equal: c.equal.len() as u64,
         },
+        vectors: shown_vectors,
     };
     let mut all = diffs().lock().unwrap();
     // Keep the last few comparisons only.
@@ -835,6 +895,8 @@ pub struct DataRows {
     pub total: usize,
     /// With a filter, every row that passes: "all" marks those.
     pub indices: Vec<usize>,
+    /// Each compared column's vectors, as in [`DataCompareResult::vectors`].
+    pub vectors: Vec<Option<VectorMeta>>,
 }
 
 /// A value to sort by: numbers by value, the rest as text without case, and
@@ -1077,6 +1139,7 @@ fn rows_of(d: &Diff, args: &DataRowsArgs) -> DataRows {
         rows,
         total,
         indices,
+        vectors: d.shown_vectors(),
     }
 }
 
@@ -1125,12 +1188,14 @@ pub(crate) fn export_list(
     labels: &ExportLabels,
     sink: &mut dyn dbine_driver::RowSink,
 ) -> std::io::Result<()> {
-    use dbine_driver::{ResultColumn, VectorMeta};
-    // A vector column says so: JSON writes its values as arrays.
-    let column = |name: String, type_name: Option<&String>, vector: Option<&bool>| ResultColumn {
-        name,
-        type_name: type_name.cloned().unwrap_or_default(),
-        vector: vector.copied().unwrap_or(false).then(VectorMeta::default),
+    // A dense vector column says so: JSON writes its values as arrays
+    // (sparse ones keep their engine's text).
+    let column = |name: String, type_name: Option<&String>, vector: Option<&Option<VectorMeta>>| {
+        ResultColumn {
+            name,
+            type_name: type_name.cloned().unwrap_or_default(),
+            vector: vector.cloned().flatten().filter(|m| !m.sparse),
+        }
     };
     let (rows, _) = passing(d, args);
     if args.kind != RowKind::Changed {
@@ -1140,9 +1205,11 @@ pub(crate) fn export_list(
             .enumerate()
             .map(|(i, (l, _))| {
                 // The rows are either side's.
-                let vector = d.left_vectors.get(i).copied().unwrap_or(false)
-                    || d.right_vectors.get(i).copied().unwrap_or(false);
-                column(l.clone(), d.left_types.get(i), Some(&vector))
+                let vector = [&d.left_vectors, &d.right_vectors]
+                    .into_iter()
+                    .find(|v| dense_at(v, i))
+                    .and_then(|v| v.get(i));
+                column(l.clone(), d.left_types.get(i), vector)
             })
             .collect();
         sink.begin(0, &columns)?;
@@ -1425,10 +1492,18 @@ fn side_script(
             .zip(typed_row(&r[..nk]))
             .collect()
     };
+    // The target's columns with their types: the driver writes each value
+    // as its column takes it (a vector as its element and storage form).
+    let types = d.script_types(to_right);
     let mut parts = Vec::new();
     if !plan.delete.is_empty() {
         let keys: Vec<Vec<(String, Value)>> = plan.delete.iter().map(|r| key_of(r)).collect();
-        parts.push(driver.delete_script(&target.object, &keys)?);
+        parts.push(typed_scripts::delete(
+            driver.as_ref(),
+            &target.object,
+            &keys,
+            &types,
+        )?);
     }
     if !plan.update.is_empty() {
         let changes: Vec<RowChange> = plan
@@ -1443,7 +1518,12 @@ fn side_script(
                 row: names.iter().cloned().zip(typed_row(dst)).collect(),
             })
             .collect();
-        parts.push(driver.update_script(&target.object, &changes)?);
+        parts.push(typed_scripts::update(
+            driver.as_ref(),
+            &target.object,
+            &changes,
+            &types,
+        )?);
     }
     if !plan.insert.is_empty() {
         let identity = if to_right {
@@ -1455,6 +1535,7 @@ fn side_script(
             driver.as_ref(),
             &target.object,
             &names,
+            &types,
             identity,
             &plan.insert.iter().map(|r| typed_row(r)).collect::<Vec<_>>(),
         )?);
@@ -1498,7 +1579,7 @@ pub(crate) fn script_value(d: &Diff, to_right: bool, i: usize, v: &Value) -> Val
     fn ty(t: &[String], i: usize) -> &str {
         t.get(i).map_or("", String::as_str)
     }
-    let at = |v: &Vec<bool>| v.get(i).copied().unwrap_or(false);
+    let at = |v: &Vec<Option<VectorMeta>>| dense_at(v, i);
     let target = ty(target_types, i).trim().to_ascii_lowercase();
     let takes_arrays = matches!(target.as_str(), "" | "null")
         || target.contains("json")
@@ -1522,10 +1603,11 @@ fn insert_parts(
     driver: &dyn dbine_driver::Driver,
     target: &ObjectRef,
     names: &[String],
+    types: &[ResultColumn],
     identity: &[String],
     rows: &[Vec<Value>],
 ) -> CommandResult<Vec<String>> {
-    let inserts = driver.insert_script(target, names, rows)?;
+    let inserts = typed_scripts::insert(driver, target, names, types, rows)?;
     let (before, after) = if names
         .iter()
         .any(|n| identity.iter().any(|i| i.eq_ignore_ascii_case(n)))
@@ -1546,13 +1628,15 @@ fn insert_parts(
 /// that sets an identity column gets the engine's wrap. No rows: it only
 /// asks whether the engine writes inserts (with the result's `columns`, as
 /// a row of NULLs: IoTDB needs its Time column), and only its
-/// `Unsupported` is the reason the UI shows.
+/// `Unsupported` is the reason the UI shows. `types`: the result's columns
+/// with their types (by name; empty: untyped).
 pub(crate) fn new_rows_parts(
     driver: &dyn dbine_driver::Driver,
     target: &ObjectRef,
     rows: &[Vec<(String, Value)>],
     identity: &[String],
     columns: &[String],
+    types: &[ResultColumn],
 ) -> CommandResult<Vec<String>> {
     if rows.is_empty() {
         let probe: Vec<Vec<Value>> = if columns.is_empty() {
@@ -1560,7 +1644,7 @@ pub(crate) fn new_rows_parts(
         } else {
             vec![vec![Value::Null; columns.len()]]
         };
-        return match driver.insert_script(target, columns, &probe) {
+        return match typed_scripts::insert(driver, target, columns, types, &probe) {
             Err(e @ dbine_driver::Error::Unsupported(_)) => Err(e.into()),
             _ => Ok(Vec::new()),
         };
@@ -1575,7 +1659,9 @@ pub(crate) fn new_rows_parts(
             batch.push(rows[i].iter().map(|(_, v)| v.clone()).collect());
             i += 1;
         }
-        parts.extend(insert_parts(driver, target, &names, identity, &batch)?);
+        parts.extend(insert_parts(
+            driver, target, &names, types, identity, &batch,
+        )?);
     }
     Ok(parts)
 }
@@ -1617,7 +1703,7 @@ mod tests {
     };
     use dbine_driver::filter::{ColumnFilter, FilterOp};
     use dbine_driver::SortKey;
-    use dbine_driver::{ObjectRef, RowChange};
+    use dbine_driver::{ObjectRef, RowChange, VectorElement, VectorMeta};
 
     /// The statement count a sync run reports against: joining the parts
     /// neither merges nor adds statements, on every SQL engine.
@@ -1631,14 +1717,15 @@ mod tests {
         let names = vec!["id".to_string(), "codigo".to_string()];
         let rows = vec![vec![json!(5), json!("a")]];
         let mssql = dbine_drivers::find("sqlserver").unwrap();
-        let parts = insert_parts(mssql.as_ref(), &target, &names, &["id".into()], &rows).unwrap();
+        let parts =
+            insert_parts(mssql.as_ref(), &target, &names, &[], &["id".into()], &rows).unwrap();
         assert_eq!(parts.len(), 3, "{parts:?}");
         assert_eq!(parts[0], "SET IDENTITY_INSERT [dbo].[destino] ON;");
         assert!(parts[1].starts_with("INSERT INTO [dbo].[destino]"));
         assert_eq!(parts[2], "SET IDENTITY_INSERT [dbo].[destino] OFF;");
         // No identity column among the inserted ones: nothing to wrap.
         assert_eq!(
-            insert_parts(mssql.as_ref(), &target, &names, &[], &rows)
+            insert_parts(mssql.as_ref(), &target, &names, &[], &[], &rows)
                 .unwrap()
                 .len(),
             1
@@ -1646,7 +1733,7 @@ mod tests {
         // PostgreSQL takes the values as they come, then moves the sequence
         // past them, so the next insert doesn't collide with a copied id.
         let pg = dbine_drivers::find("postgres").unwrap();
-        let parts = insert_parts(pg.as_ref(), &target, &names, &["id".into()], &rows).unwrap();
+        let parts = insert_parts(pg.as_ref(), &target, &names, &[], &["id".into()], &rows).unwrap();
         assert_eq!(parts.len(), 2, "{parts:?}");
         assert!(
             parts[0].starts_with("INSERT INTO")
@@ -1672,7 +1759,8 @@ mod tests {
             ],
             vec![],
         ];
-        let parts = new_rows_parts(mssql.as_ref(), &target, &rows, &["id".into()], &[]).unwrap();
+        let parts =
+            new_rows_parts(mssql.as_ref(), &target, &rows, &["id".into()], &[], &[]).unwrap();
         // The first two share their columns (one INSERT batch, no identity);
         // the third sets the identity column: wrapped.
         assert_eq!(parts.len(), 4, "{parts:?}");
@@ -1697,17 +1785,17 @@ mod tests {
             ("cliente".to_string(), json!({"nombre": "Ana"})),
             ("items".to_string(), json!([1, 2])),
         ]];
-        let parts = new_rows_parts(mongo.as_ref(), &coll, &doc, &[], &[]).unwrap();
+        let parts = new_rows_parts(mongo.as_ref(), &coll, &doc, &[], &[], &[]).unwrap();
         assert_eq!(parts.len(), 1, "{parts:?}");
         assert!(
             parts[0].contains("pedidos") && parts[0].contains("\"nombre\""),
             "{parts:?}"
         );
         // No rows: only whether the engine writes inserts.
-        assert!(new_rows_parts(mssql.as_ref(), &target, &[], &[], &[])
+        assert!(new_rows_parts(mssql.as_ref(), &target, &[], &[], &[], &[])
             .unwrap()
             .is_empty());
-        assert!(new_rows_parts(mongo.as_ref(), &coll, &[], &[], &[])
+        assert!(new_rows_parts(mongo.as_ref(), &coll, &[], &[], &[], &[])
             .unwrap()
             .is_empty());
     }
@@ -1740,19 +1828,19 @@ mod tests {
                 schema,
                 name: "clientes".into(),
             };
-            match new_rows_parts(d.as_ref(), &target, &[], &[], &columns) {
+            match new_rows_parts(d.as_ref(), &target, &[], &[], &columns, &[]) {
                 Ok(p) => assert!(p.is_empty(), "{id}: {p:?}"),
                 Err(e) => {
                     unsupported.push(id);
                     // An engine that can't insert says so for real rows too.
                     assert!(
-                        new_rows_parts(d.as_ref(), &target, &row, &[], &[]).is_err(),
+                        new_rows_parts(d.as_ref(), &target, &row, &[], &[], &[]).is_err(),
                         "{id}: probe failed ({e:?}) but rows worked"
                     );
                     continue;
                 }
             }
-            match new_rows_parts(d.as_ref(), &target, &row, &[], &[]) {
+            match new_rows_parts(d.as_ref(), &target, &row, &[], &[], &[]) {
                 Ok(parts) => assert!(parts.iter().any(|p| p.contains("Ana")), "{id}: {parts:?}"),
                 Err(e) => failed.push(format!("{id}: {e:?}")),
             }
@@ -1882,8 +1970,12 @@ mod tests {
         d.columns.push(("v".into(), "v".into()));
         d.left_types.push("vector(2)".into());
         d.right_types.push(String::new());
-        d.left_vectors = vec![false, false, true];
-        d.right_vectors = vec![false, false, false];
+        d.left_vectors = vec![
+            None,
+            None,
+            Some(VectorMeta::dense(Some(2), VectorElement::F32)),
+        ];
+        d.right_vectors = vec![None, None, None];
         let v = json!("[1,2.5]");
         // Into the left: its column holds vectors.
         assert_eq!(script_value(&d, false, 2, &v), json!([1.0, 2.5]));
@@ -1916,6 +2008,56 @@ mod tests {
             .unwrap();
         assert!(script.contains("[1"), "{script}");
         assert!(script.contains("2.5"), "{script}");
+    }
+
+    /// The sync script's types are its target side's columns (names, types
+    /// and vectors), and the screen's vectors are the left's, else the
+    /// right's.
+    #[test]
+    fn a_sync_is_typed_by_its_targets_columns() {
+        let mut d = diff(false);
+        d.columns.push(("v".into(), "V".into()));
+        d.left_types.push("vector(2)".into());
+        d.right_types.push("halfvec(2)".into());
+        let (f32_2, f16_2) = (
+            VectorMeta::dense(Some(2), VectorElement::F32),
+            VectorMeta::dense(Some(2), VectorElement::F16),
+        );
+        d.left_vectors = vec![None, None, Some(f32_2.clone())];
+        d.right_vectors = vec![None, None, Some(f16_2.clone())];
+        let right = d.script_types(true);
+        let named: Vec<(&str, &str)> = right
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_name.as_str()))
+            .collect();
+        assert_eq!(named, [("id", "int"), ("a", "text"), ("V", "halfvec(2)")]);
+        assert_eq!(right[2].vector, Some(f16_2.clone()));
+        assert_eq!(d.script_types(false)[2].vector, Some(f32_2.clone()));
+        assert_eq!(d.shown_vectors(), vec![None, None, Some(f32_2)]);
+        d.left_vectors = vec![];
+        assert_eq!(d.shown_vectors(), vec![None, None, Some(f16_2)]);
+
+        // New rows and a sync's inserts go to the driver typed, each column
+        // with its own type; without types, untyped as before.
+        let rec = crate::commands::typed_scripts::tests::Recorder::default();
+        let target = crate::commands::typed_scripts::tests::table("t");
+        let rows = vec![vec![("V".to_string(), json!([1.0, 2.0]))]];
+        new_rows_parts(&rec, &target, &rows, &[], &[], &right).unwrap();
+        insert_parts(
+            &rec,
+            &target,
+            &["id".into()],
+            &right,
+            &[],
+            &[vec![json!(1)]],
+        )
+        .unwrap();
+        new_rows_parts(&rec, &target, &rows, &[], &[], &[]).unwrap();
+        let calls = rec.take();
+        let kinds: Vec<&str> = calls.iter().map(|c| c.0.as_str()).collect();
+        assert_eq!(kinds, ["insert_typed", "insert_typed", "insert"]);
+        assert_eq!(calls[0].1[0].type_name, "halfvec(2)");
+        assert_eq!(calls[1].1[0].type_name, "int");
     }
 
     fn pick(dir: Dir) -> Pick {
