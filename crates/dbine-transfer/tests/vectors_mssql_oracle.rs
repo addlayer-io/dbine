@@ -610,7 +610,12 @@ async fn sparse_and_bits(pg: &mut dyn Session, ora: &mut dyn Session) {
     let packed = rows(ora, "SELECT FROM_VECTOR(B) FROM XFAM_SB WHERE ID = 1").await;
     assert_eq!(packed[0][0], Value::from("[201,15]"));
 
-    // Oracle → pgvector: the BINARY vectors.
+    // Oracle → pgvector: the BINARY vectors. The SPARSE column stays out:
+    // pgvector's `sparsevec` load (the postgres driver's
+    // `vectors::sparse_text`) turns a dense array into `{i:v}/n` but passes
+    // Oracle's `[n,[indices],[values]]` on as it is, which pgvector
+    // refuses. That's the pg family's to add; then this column goes back
+    // too.
     run(ora, "ALTER TABLE XFAM_SB DROP COLUMN SP").await;
     let n = move_rows(
         ora,
