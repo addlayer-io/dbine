@@ -836,16 +836,7 @@ impl FlightSession {
         let schema = info.clone().try_decode_schema().ok();
         let mut started = false;
         if let Some(s) = &schema {
-            out.begin_result(
-                s.fields()
-                    .iter()
-                    .map(|f| ResultColumn {
-                        name: f.name().clone(),
-                        type_name: f.data_type().to_string(),
-                        vector: None,
-                    })
-                    .collect(),
-            );
+            out.begin_result(s.fields().iter().map(|f| result_column(f)).collect());
             started = true;
         }
         let r = self
@@ -855,11 +846,7 @@ impl FlightSession {
                         b.schema()
                             .fields()
                             .iter()
-                            .map(|f| ResultColumn {
-                                name: f.name().clone(),
-                                type_name: f.data_type().to_string(),
-                                vector: None,
-                            })
+                            .map(|f| result_column(f))
                             .collect(),
                     );
                     started = true;
@@ -1040,6 +1027,15 @@ impl FlightSession {
             p.root.op = "PLAN".into();
         }
         Ok(p)
+    }
+}
+
+/// A result column: its Arrow type, and whether it holds vectors.
+fn result_column(f: &arrow_schema::Field) -> ResultColumn {
+    let c = ResultColumn::new(f.name().clone(), f.data_type().to_string());
+    match cells::vector_meta(f.data_type()) {
+        Some(v) => c.with_vector(v),
+        None => c,
     }
 }
 

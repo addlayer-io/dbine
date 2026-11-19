@@ -1331,6 +1331,12 @@ pub(crate) fn to_cell(a: &dyn Array, row: usize, uuid: bool) -> std::result::Res
             };
             timestamp_cell(v, unit, tz.as_deref())
         }
+        // A list of floats (a vector): its text, each number at its precision.
+        DataType::List(_) | DataType::LargeList(_) | DataType::FixedSizeList(..)
+            if cells::float_list_text(a, row).is_some() =>
+        {
+            Cell::Json(cells::float_list_text(a, row).unwrap_or_default())
+        }
         DataType::List(_)
         | DataType::LargeList(_)
         | DataType::FixedSizeList(..)
