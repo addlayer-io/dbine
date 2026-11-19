@@ -1663,8 +1663,9 @@ enum Token {
     },
     Dot,
     Comma,
-    /// A parenthesized group, skipped whole.
-    Group,
+    /// A parenthesized group, skipped whole (its text, for
+    /// [`SelectNames`], which looks inside).
+    Group(String),
     Other,
 }
 
@@ -1758,7 +1759,7 @@ fn tokens(sql: &str) -> Option<Vec<Token>> {
                     quoted: false,
                 });
             }
-            out.push(Token::Group);
+            out.push(Token::Group(inner));
         } else if c.is_alphanumeric() || c == '_' || c == '$' {
             let mut text = String::new();
             while i < chars.len()
@@ -1856,6 +1857,397 @@ pub(crate) fn from_tables(sql: &str) -> Option<Vec<(Option<String>, String)>> {
         i += 1;
     }
     (!out.is_empty() && !expect).then_some(out)
+}
+
+/// What a statement says about the result columns MariaDB's wire doesn't
+/// place (probed on 11.8):
+/// - an aliased expression has no table: `VEC_FromText('[…]') AS x` is a
+///   vector only by its alias;
+/// - a derived table or a CTE MariaDB doesn't merge (`FROM (SELECT v AS w
+///   FROM t LIMIT 1) d`) sends its columns with the base table but no
+///   schema, named by the alias (`w`); one it merges, with the schema but
+///   the derived table's name as the table (`d`).
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct SelectNames {
+    /// Names (lower case) given to a `VEC_FromText(…)`.
+    vectors: std::collections::HashSet<String>,
+    /// Alias → the column it renames (`v AS w`: `w` → `v`), lower case.
+    aliases: std::collections::HashMap<String, String>,
+    /// Names (lower case) of the derived tables and CTEs.
+    derived: std::collections::HashSet<String>,
+    /// The tables the statement names, at any depth (`[schema.]table`).
+    tables: Vec<(Option<String>, String)>,
+}
+
+/// Words that end a select list.
+const LIST_END: &[&str] = &[
+    "from",
+    "into",
+    "union",
+    "where",
+    "group",
+    "order",
+    "limit",
+    "having",
+    "window",
+    "for",
+    "lock",
+    "except",
+    "intersect",
+];
+
+/// Words that may follow an expression or a table without being its alias.
+const NOT_ALIAS: &[&str] = &[
+    "from",
+    "where",
+    "group",
+    "order",
+    "limit",
+    "having",
+    "union",
+    "into",
+    "for",
+    "window",
+    "join",
+    "straight_join",
+    "inner",
+    "left",
+    "right",
+    "cross",
+    "natural",
+    "outer",
+    "full",
+    "on",
+    "using",
+    "and",
+    "or",
+    "xor",
+    "not",
+    "is",
+    "in",
+    "like",
+    "between",
+    "regexp",
+    "rlike",
+    "div",
+    "mod",
+    "collate",
+    "over",
+    "then",
+    "else",
+    "end",
+    "when",
+    "asc",
+    "desc",
+    "lock",
+    "offset",
+    "except",
+    "intersect",
+    "returning",
+    "select",
+    "as",
+    "with",
+    "partition",
+    "use",
+    "force",
+    "ignore",
+    "escape",
+    "values",
+    "set",
+    "procedure",
+];
+
+/// Select-list modifiers before the first item.
+const MODIFIERS: &[&str] = &[
+    "all",
+    "distinct",
+    "distinctrow",
+    "high_priority",
+    "straight_join",
+    "sql_small_result",
+    "sql_big_result",
+    "sql_buffer_result",
+    "sql_cache",
+    "sql_no_cache",
+    "sql_calc_found_rows",
+];
+
+fn bare_word(t: Option<&Token>) -> Option<String> {
+    match t {
+        Some(Token::Word {
+            text,
+            quoted: false,
+        }) => Some(text.to_ascii_lowercase()),
+        _ => None,
+    }
+}
+
+/// A name that can be an alias: quoted, or a word that isn't a keyword
+/// following an expression.
+fn alias_word(t: Option<&Token>) -> Option<String> {
+    match t {
+        Some(Token::Word { text, quoted: true }) => Some(text.to_ascii_lowercase()),
+        Some(Token::Word {
+            text,
+            quoted: false,
+        }) if !NOT_ALIAS.contains(&text.to_ascii_lowercase().as_str()) => {
+            Some(text.to_ascii_lowercase())
+        }
+        _ => None,
+    }
+}
+
+fn is_subquery(inner: &str) -> bool {
+    tokens(inner).is_some_and(|t| {
+        t.iter()
+            .any(|x| bare_word(Some(x)).is_some_and(|w| w == "select"))
+    })
+}
+
+impl SelectNames {
+    pub(crate) fn of(sql: &str) -> Self {
+        let mut out = SelectNames::default();
+        if let Some(t) = tokens(sql) {
+            out.walk(&t, 0);
+        }
+        out
+    }
+
+    fn walk(&mut self, t: &[Token], depth: usize) {
+        if depth > 32 {
+            return;
+        }
+        for i in 0..t.len() {
+            if let Token::Group(inner) = &t[i] {
+                if let Some(sub) = tokens(inner) {
+                    self.walk(&sub, depth + 1);
+                }
+                continue;
+            }
+            match bare_word(t.get(i)).as_deref() {
+                Some("from" | "join" | "straight_join") => self.table_refs(t, i + 1),
+                Some("with") => self.ctes(t, i + 1),
+                // `tokens` puts a `select` before a subquery's group: the
+                // group's own list is read inside it.
+                Some("select") if !matches!(t.get(i + 1), Some(Token::Group(g)) if is_subquery(g)) =>
+                {
+                    let end = (i + 1..t.len())
+                        .find(|&k| {
+                            bare_word(t.get(k)).is_some_and(|w| LIST_END.contains(&w.as_str()))
+                        })
+                        .unwrap_or(t.len());
+                    for item in t[i + 1..end].split(|x| matches!(x, Token::Comma)) {
+                        self.item(item);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// A FROM / JOIN list from `k`: tables, and derived tables' aliases.
+    fn table_refs(&mut self, t: &[Token], mut k: usize) {
+        loop {
+            let derived = match t.get(k) {
+                Some(Token::Word { text, .. }) if alias_word(t.get(k)).is_some() => {
+                    if matches!(t.get(k + 1), Some(Token::Dot)) {
+                        let Some(Token::Word { text: table, .. }) = t.get(k + 2) else {
+                            return;
+                        };
+                        self.tables.push((Some(text.clone()), table.clone()));
+                        k += 3;
+                    } else {
+                        self.tables.push((None, text.clone()));
+                        k += 1;
+                    }
+                    false
+                }
+                // `tokens`' `select` before a subquery's group.
+                Some(Token::Word { .. }) if matches!(t.get(k + 1), Some(Token::Group(_))) => {
+                    k += 2;
+                    true
+                }
+                Some(Token::Group(g)) => {
+                    k += 1;
+                    is_subquery(g)
+                }
+                _ => return,
+            };
+            if bare_word(t.get(k)).as_deref() == Some("as") {
+                k += 1;
+            }
+            if let Some(alias) = alias_word(t.get(k)) {
+                if derived {
+                    self.derived.insert(alias);
+                }
+                k += 1;
+            }
+            if !matches!(t.get(k), Some(Token::Comma)) {
+                return;
+            }
+            k += 1;
+        }
+    }
+
+    /// `WITH [RECURSIVE] c [(cols)] AS (…), …` from `k`: the CTEs' names.
+    fn ctes(&mut self, t: &[Token], mut k: usize) {
+        if bare_word(t.get(k)).as_deref() == Some("recursive") {
+            k += 1;
+        }
+        while let Some(name) = alias_word(t.get(k)) {
+            self.derived.insert(name);
+            k += 1;
+            if matches!(t.get(k), Some(Token::Group(_))) {
+                k += 1;
+            }
+            if bare_word(t.get(k)).as_deref() != Some("as") {
+                return;
+            }
+            k += 1;
+            // `tokens`' `select`, then the CTE's group.
+            if bare_word(t.get(k)).as_deref() == Some("select") {
+                k += 1;
+            }
+            if !matches!(t.get(k), Some(Token::Group(_))) {
+                return;
+            }
+            k += 1;
+            if !matches!(t.get(k), Some(Token::Comma)) {
+                return;
+            }
+            k += 1;
+        }
+    }
+
+    /// One select-list item: `VEC_FromText(…) [AS] x` or `[t.]v [AS] w`.
+    fn item(&mut self, mut item: &[Token]) {
+        while let Some(w) = bare_word(item.first()) {
+            if !MODIFIERS.contains(&w.as_str()) {
+                break;
+            }
+            item = &item[1..];
+        }
+        let n = item.len();
+        let (expr, alias) = if n >= 3 && bare_word(item.get(n - 2)).as_deref() == Some("as") {
+            match alias_word(item.last()).or_else(|| match item.last() {
+                Some(Token::Word { text, .. }) => Some(text.to_ascii_lowercase()),
+                _ => None,
+            }) {
+                Some(a) => (&item[..n - 2], a),
+                None => return,
+            }
+        } else if n >= 2
+            && matches!(item[n - 2], Token::Word { .. } | Token::Group(_))
+            && alias_word(item.last()).is_some()
+        {
+            (&item[..n - 1], alias_word(item.last()).unwrap_or_default())
+        } else {
+            return;
+        };
+        match expr {
+            [Token::Word {
+                text,
+                quoted: false,
+            }, Token::Group(_)]
+                if text.eq_ignore_ascii_case("vec_fromtext") =>
+            {
+                self.vectors.insert(alias);
+            }
+            [.., Token::Word { text, .. }]
+                if expr.len() % 2 == 1
+                    && expr.iter().enumerate().all(|(i, x)| {
+                        matches!((i % 2, x), (0, Token::Word { .. }) | (1, Token::Dot))
+                    })
+                    && expr.len() <= 5 =>
+            {
+                let column = text.to_ascii_lowercase();
+                if column != alias {
+                    self.aliases.insert(alias, column);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// A result column with no table named `name` (or `org_name`) holds
+    /// vectors made by `VEC_FromText`.
+    pub(crate) fn names_vector(&self, name: &str, org_name: &str) -> Option<VectorMeta> {
+        [name, org_name]
+            .iter()
+            .any(|n| !n.is_empty() && self.vectors.contains(&n.to_ascii_lowercase()))
+            .then(|| VectorMeta::dense(None, VectorElement::F32))
+    }
+
+    /// Where a result column the wire names by a derived table is looked
+    /// up: `schema` empty, or `table` a derived table or CTE of the
+    /// statement. The statement's tables (those named `table` when some
+    /// are; the unqualified in `schema`, else in `current`), and the column
+    /// the alias `column` renames. `None` for any other column.
+    pub(crate) fn derived_place(
+        &self,
+        schema: &str,
+        table: &str,
+        column: &str,
+        current: Option<&str>,
+    ) -> Option<(Vec<(String, String)>, String)> {
+        if table.is_empty()
+            || (!schema.is_empty() && !self.derived.contains(&table.to_ascii_lowercase()))
+        {
+            return None;
+        }
+        let mut tables: Vec<(String, String)> = Vec::new();
+        for (s, t) in &self.tables {
+            if self.derived.contains(&t.to_ascii_lowercase()) && s.is_none() {
+                continue;
+            }
+            let s = match s {
+                Some(s) => s.clone(),
+                None if !schema.is_empty() => schema.to_string(),
+                None => match current {
+                    Some(c) => c.to_string(),
+                    None => continue,
+                },
+            };
+            if !tables
+                .iter()
+                .any(|(a, b)| *a == s && b.eq_ignore_ascii_case(t))
+            {
+                tables.push((s, t.clone()));
+            }
+        }
+        let own: Vec<(String, String)> = tables
+            .iter()
+            .filter(|(_, t)| t.eq_ignore_ascii_case(table))
+            .cloned()
+            .collect();
+        let tables = if own.is_empty() { tables } else { own };
+        if tables.is_empty() {
+            return None;
+        }
+        let column = self
+            .aliases
+            .get(&column.to_ascii_lowercase())
+            .cloned()
+            .unwrap_or_else(|| column.to_string());
+        Some((tables, column))
+    }
+
+    /// The statement has derived tables or CTEs.
+    pub(crate) fn has_derived(&self) -> bool {
+        !self.derived.is_empty()
+    }
+
+    /// The tables the statement names (any depth), the unqualified in
+    /// `current`; derived tables and CTEs left out.
+    pub(crate) fn tables_in(&self, current: Option<&str>) -> Vec<(String, String)> {
+        self.tables
+            .iter()
+            .filter(|(s, t)| s.is_some() || !self.derived.contains(&t.to_ascii_lowercase()))
+            .filter_map(|(s, t)| {
+                Some((s.clone().or_else(|| current.map(String::from))?, t.clone()))
+            })
+            .collect()
+    }
 }
 
 /// The catalog query for every column of some tables of a schema (table,
@@ -2650,6 +3042,90 @@ mod tests {
         assert!(by_query_tables(Variant::StarRocks) && by_query_tables(Variant::VeloDb));
         assert!(by_query_tables(Variant::Databend));
         assert!(!by_query_tables(Variant::MariaDb));
+    }
+
+    /// MariaDB's wire leaves an aliased expression with no table and names
+    /// a derived table's columns by their alias (no schema, or the derived
+    /// table as the table): the statement says where they come from.
+    #[test]
+    fn select_names_place_what_mariadbs_wire_doesnt() {
+        let db = Some("db");
+        let tv = |s: &str| vec![(s.to_string(), "t".to_string())];
+        // Aliased expressions, with and without AS.
+        let n = SelectNames::of(
+            "SELECT VEC_FromText('[1,2]') AS x, vec_fromtext(@a) `Y`, VEC_ToText(v) AS txt, \
+             v AS w, t.v z, 'from' AS s FROM vprobe.t",
+        );
+        assert!(n.names_vector("x", "").is_some());
+        assert!(n.names_vector("y", "").is_some());
+        assert!(n.names_vector("q", "x").is_some());
+        assert!(n.names_vector("txt", "").is_none());
+        assert!(n.names_vector("w", "").is_none());
+        assert_eq!(n.tables, [(Some("vprobe".into()), "t".into())]);
+        // The wire places these (schema and a real table): nothing to do.
+        assert_eq!(n.derived_place("vprobe", "t", "w", db), None);
+        // No schema: a derived table's; the alias names `v`.
+        assert_eq!(
+            n.derived_place("", "t", "w", None),
+            Some((tv("vprobe"), "v".into()))
+        );
+        assert_eq!(
+            n.derived_place("", "t", "z", None),
+            Some((tv("vprobe"), "v".into()))
+        );
+        // A derived table MariaDB doesn't merge: base table, no schema.
+        let n = SelectNames::of("SELECT w, d.id FROM (SELECT t.v AS w, id FROM t LIMIT 1) d");
+        assert_eq!(
+            n.derived_place("", "t", "w", db),
+            Some((tv("db"), "v".into()))
+        );
+        assert_eq!(
+            n.derived_place("", "t", "id", db),
+            Some((tv("db"), "id".into()))
+        );
+        assert_eq!(n.derived_place("", "t", "w", None), None);
+        // One it merges: the schema, and the derived table as the table.
+        let n = SelectNames::of("SELECT v FROM (SELECT v FROM t) AS d");
+        assert_eq!(
+            n.derived_place("vprobe", "d", "v", db),
+            Some((tv("vprobe"), "v".into()))
+        );
+        // A CTE: its own name isn't a table.
+        let n = SelectNames::of("WITH c AS (SELECT v FROM t LIMIT 1) SELECT v FROM c");
+        assert!(n.has_derived());
+        assert_eq!(
+            n.derived_place("", "t", "v", db),
+            Some((tv("db"), "v".into()))
+        );
+        assert_eq!(n.tables_in(db), tv("db"));
+        // A derived table of an aliased expression: no table at all.
+        let n = SelectNames::of("SELECT x FROM (SELECT VEC_FromText('[1,2]') AS x LIMIT 1) d");
+        assert!(n.names_vector("x", "x").is_some());
+        // Joins with a derived table: every named table, the derived one's
+        // own when the wire says it.
+        let n = SelectNames::of(
+            "SELECT a.v, b.w FROM s1.t1 a JOIN (SELECT v AS w FROM t2 GROUP BY v) b ON a.id = b.id",
+        );
+        assert_eq!(
+            n.tables,
+            [(Some("s1".into()), "t1".into()), (None, "t2".into())]
+        );
+        assert_eq!(
+            n.derived_place("", "t2", "w", db),
+            Some((vec![("db".into(), "t2".into())], "v".into()))
+        );
+        assert_eq!(
+            n.derived_place("db", "b", "w", db).map(|(t, _)| t.len()),
+            Some(2)
+        );
+        // Keywords and modifiers aren't aliases.
+        let n =
+            SelectNames::of("SELECT DISTINCT v FROM t WHERE v IS NOT NULL ORDER BY v DESC LIMIT 1");
+        assert!(n.aliases.is_empty() && n.vectors.is_empty() && !n.has_derived());
+        let n = SelectNames::of("SELECT CASE WHEN a THEN b END x, (SELECT 1) AS y FROM t");
+        assert!(n.aliases.is_empty() && n.vectors.is_empty());
+        // Unreadable text: nothing.
+        assert_eq!(SelectNames::of("SELECT 'x"), SelectNames::default());
     }
 
     #[test]

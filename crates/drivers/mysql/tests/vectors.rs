@@ -164,6 +164,22 @@ impl dbine_driver::RowSink for Rows {
     }
 }
 
+/// A query exported (rows to a sink, none kept): its header and rows.
+async fn export(
+    s: &mut Box<dyn Session>,
+    sql: &str,
+) -> (Vec<dbine_driver::ResultColumn>, Vec<Vec<Value>>) {
+    let sink = Arc::new(Mutex::new(Rows::default()));
+    let mut out = QueryOutcome {
+        sink: Some(dbine_driver::RowSinkRef(sink.clone())),
+        ..Default::default()
+    };
+    s.execute(sql, 100, &mut out).await.expect("export");
+    assert!(out.error.is_none(), "{sql}: {:?}", out.error);
+    let got = std::mem::take(&mut *sink.lock().unwrap());
+    (got.columns, got.rows)
+}
+
 struct Source(VecDeque<RowBatch>);
 
 #[dbine_driver::async_trait]
@@ -626,6 +642,27 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
             let r = &out.results[0];
             assert!(r.columns[0].vector.is_some(), "{:?}", r.columns[0]);
             assert_eq!(r.rows[0][0], json!("[1,2.5,-3]"));
+            // What the wire doesn't place: an aliased expression (no
+            // table), a derived table it doesn't merge (base table, no
+            // schema, the alias as the column), one it merges (the derived
+            // table as the table), a CTE; also exported (rows to a sink).
+            for sql in [
+                "SELECT VEC_FromText('[1,0,0]') AS x",
+                "SELECT x FROM (SELECT VEC_FromText('[1,0,0]') AS x LIMIT 1) d",
+                "SELECT w FROM (SELECT `v` AS w FROM `vec_items` ORDER BY `id` LIMIT 1) d",
+                "SELECT d.v FROM (SELECT `v`, `id` FROM `vec_items`) AS d ORDER BY d.id LIMIT 1",
+                "WITH c AS (SELECT `id`, `v` FROM `vec_items` ORDER BY `id` LIMIT 1) SELECT v FROM c",
+            ] {
+                let mut fresh = d.connect(&cfg, db).await.expect("connect");
+                let out = must(&mut fresh, sql).await;
+                let r = &out.results[0];
+                assert!(r.columns[0].vector.is_some(), "{sql}: {:?}", r.columns[0]);
+                assert_eq!(r.rows[0][0], json!("[1,0,0]"), "{sql}");
+                let mut fresh = d.connect(&cfg, db).await.expect("connect");
+                let (cols, rows) = export(&mut fresh, sql).await;
+                assert!(cols[0].vector.is_some(), "export {sql}: {:?}", cols[0]);
+                assert_eq!(rows[0][0], json!("[1,0,0]"), "export {sql}");
+            }
         }
     }
 

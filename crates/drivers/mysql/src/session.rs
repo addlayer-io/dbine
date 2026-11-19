@@ -286,7 +286,8 @@ impl MySqlSession {
 
     async fn run(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         let from = self.query_tables(sql);
-        let hints = VectorHints::new(&self.vector_columns, self.variant, from);
+        let names = self.select_names(sql);
+        let hints = VectorHints::new(&self.vector_columns, self.variant, from, names);
         let result = self
             .conn
             .query_iter(sql)
@@ -476,6 +477,13 @@ impl MySqlSession {
         )
     }
 
+    /// MariaDB: what a statement says of the result columns its wire
+    /// doesn't place ([`crate::vectors::SelectNames`]).
+    fn select_names(&self, sql: &str) -> Option<(crate::vectors::SelectNames, Option<String>)> {
+        (self.variant.base() == Variant::MariaDb)
+            .then(|| (crate::vectors::SelectNames::of(sql), self.database.clone()))
+    }
+
     /// Before a run whose rows go to a sink (an export), which keeps none
     /// to settle later: the vector columns of what it reads, looked up.
     async fn look_up_before(&mut self, sql: &str) {
@@ -500,12 +508,22 @@ impl MySqlSession {
                 .into_iter()
                 .filter_map(|(schema, _)| schema.or_else(|| current.clone()))
                 .collect(),
-            None => current.into_iter().collect(),
+            None => current.iter().cloned().collect(),
         };
         for schema in schemas {
             if !self.vector_columns.fresh(&schema) {
                 self.look_up_vectors(&schema).await;
             }
+        }
+        // MariaDB's derived tables: their columns are looked up in the
+        // tables the statement names.
+        if let Some((names, _)) = self.select_names(sql).filter(|(n, _)| n.has_derived()) {
+            let stale: Vec<(String, String)> = names
+                .tables_in(current.as_deref())
+                .into_iter()
+                .filter(|(s, t)| !self.vector_columns.table_fresh(s, t))
+                .collect();
+            self.look_up_tables(&stale).await;
         }
     }
 
@@ -691,7 +709,8 @@ impl MySqlSession {
             .await
             .map_err(|e| stmt_err(statement, e))?;
         let from = self.query_tables(statement);
-        let hints = VectorHints::new(&self.vector_columns, self.variant, from);
+        let names = self.select_names(statement);
+        let hints = VectorHints::new(&self.vector_columns, self.variant, from, names);
         let read = match self.conn.exec_iter(&stmt, ()).await {
             Ok(result) => read_results(result, statement, max_rows, out, &hints).await,
             Err(e) => Err(stmt_err(statement, e)),
@@ -747,6 +766,10 @@ pub(crate) struct VectorHints<'a> {
     /// The (schema, table)s the query reads, for the engines whose result
     /// columns don't say their table (GreptimeDB, Manticore).
     from: Option<Vec<(String, String)>>,
+    /// MariaDB: what the statement says of the columns its wire doesn't
+    /// place (aliased expressions, derived tables), and the session's
+    /// database for its unqualified tables.
+    names: Option<(crate::vectors::SelectNames, Option<String>)>,
 }
 
 impl<'a> VectorHints<'a> {
@@ -756,13 +779,33 @@ impl<'a> VectorHints<'a> {
         seen: &'a crate::vectors::SeenColumns,
         variant: Variant,
         from: Option<Vec<(String, String)>>,
+        names: Option<(crate::vectors::SelectNames, Option<String>)>,
     ) -> Self {
         VectorHints {
             seen,
             lookup: crate::vectors::looked_up(variant),
             variant,
             from,
+            names,
         }
+    }
+
+    /// A column the wire names by a derived table: where it's looked up.
+    fn derived(&self, c: &mysql_async::Column) -> Option<Place> {
+        let (names, current) = self.names.as_ref()?;
+        let (tables, column) = names.derived_place(
+            &c.schema_str(),
+            &c.org_table_str(),
+            &c.org_name_str(),
+            current.as_deref(),
+        )?;
+        Some(Place::Query { tables, column })
+    }
+
+    /// A column with no table made by `VEC_FromText(…) AS x`.
+    fn named_vector(&self, c: &mysql_async::Column) -> Option<dbine_driver::VectorMeta> {
+        let (names, _) = self.names.as_ref()?;
+        names.names_vector(&c.name_str(), &c.org_name_str())
     }
 
     fn variant(&self) -> Variant {
@@ -820,7 +863,11 @@ async fn read_results<P: mysql_async::prelude::Protocol>(
                 let mut header = Vec::with_capacity(cols.len());
                 for (i, c) in cols.iter().enumerate() {
                     let mut rc = result_column(c);
-                    let place = if !c.org_table_str().is_empty() && !c.schema_str().is_empty() {
+                    // MariaDB's derived tables first: a merged one's columns
+                    // name the derived table as their table.
+                    let place = if let Some(p) = hints.derived(c) {
+                        Some(p)
+                    } else if !c.org_table_str().is_empty() && !c.schema_str().is_empty() {
                         Some(Place::Column {
                             schema: c.schema_str().into_owned(),
                             table: c.org_table_str().into_owned(),
@@ -839,10 +886,12 @@ async fn read_results<P: mysql_async::prelude::Protocol>(
                             }
                         })
                     };
-                    // MariaDB's VEC_FromText(…) column: an expression, no table.
+                    // MariaDB's VEC_FromText(…) column: an expression, no
+                    // table (named after it, or by its alias).
                     if let (None, true, None) = (&rc.vector, is_binary(c), &place) {
                         if let Some(m) =
                             crate::vectors::expression_vector(hints.variant(), &c.name_str())
+                                .or_else(|| hints.named_vector(c))
                         {
                             rc = rc.with_vector(m);
                             rc.type_name = "vector".into();
@@ -2392,7 +2441,8 @@ impl Session for MySqlSession {
                 .await
                 .map_err(|e| stmt_err(&sql, e))?;
             let from = self.query_tables(&sql);
-            let hints = VectorHints::new(&self.vector_columns, self.variant, from);
+            let names = self.select_names(&sql);
+            let hints = VectorHints::new(&self.vector_columns, self.variant, from, names);
             let read = match self.conn.exec_iter(&stmt, params).await {
                 Ok(result) => read_results(result, &sql, max_rows, out, &hints).await,
                 Err(e) => Err(stmt_err(&sql, e)),
