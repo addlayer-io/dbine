@@ -45,6 +45,7 @@ import { tagColor } from '../composables/tags';
 import { dropZone, planDrop, type DragItem, type DropOn, type DropZone } from '../composables/explorerDrop';
 import { badgeClass, foreignKeyColumns, indexTag, indexUsageEntry, loadIndexUsage, usageBadge, type UsageBadge } from '../composables/indexUsage';
 import { indexVector, vectorLine, vectorTag } from '../composables/indexVectors';
+import { otherKindFolders, revealSeparator } from '../composables/keyKinds';
 import DropIndexDialog from './DropIndexDialog.vue';
 import { dropIndexItem, toggleIndexItem, type DropIndexTarget } from '../composables/dropIndex';
 import { databaseRenameItem, renameItem, type RenameDialogTarget } from '../composables/rename';
@@ -209,9 +210,23 @@ function databaseChildren(c: SavedConnection, d: DriverInfo, db: string, parentI
       count: b?.items.length, hint: b?.total != null && b.total !== b.items.length ? t('explorer:tree.ofTotal', { total: num(b.total) }) : undefined,
       children: keyChildren(c, db, d.key_search, b, fid, kind?.has_columns ?? false),
     });
-    // Its other kinds (Redis' search indexes): listed, not searched.
-    const others = conns.otherKinds[k];
-    if (others?.length) out.push(...kindFolders(c, d, db, others, undefined, 'hint', new Map()));
+    // Its other kinds (Redis' search indexes): listed, not searched. Their
+    // folder shows with none yet (its menu has the kind's templates), and
+    // says so when they couldn't be read.
+    for (const f of otherKindFolders(d.object_kinds, conns.otherKinds[k])) {
+      const id = `f:${c.id}:${db}:${f.kind.id}`;
+      const create = d.create_templates.some((x) => x.kind === f.kind.id);
+      out.push({
+        id, label: tb(f.kind.label), type: 'folder', connectionId: c.id, database: db, kindId: f.kind.id, count: f.count,
+        children: f.status === 'loading'
+          ? [status(id, 'loading', t('common:loading'))]
+          : f.status === 'error'
+            ? [status(id, 'error', f.error ?? t('common:error'))]
+            : f.status === 'empty'
+              ? [status(id, 'empty', create ? t('explorer:tree.noObjectsCreate') : t('explorer:tree.noSchemaObjects'))]
+              : f.items.map((o) => objectNode(c, db, o, f.kind.has_columns)),
+      });
+    }
     return out;
   }
   // Flat mode ignores the listed schemas: only those with objects count.
@@ -1322,7 +1337,7 @@ watch(() => ui.reveal?.seq, async () => {
       keys.push(`f:${c.id}:${r.database}:${kind}`);
     }
     // Keys only: another kind (a search index) isn't nested by the separator.
-    const sep = r.object.kind === d?.object_kinds[0]?.id ? d?.key_search?.separator : undefined;
+    const sep = revealSeparator(d, r.object.kind);
     if (sep) {
       // The namespace folders down to the key (those that exist are opened).
       const parts = r.object.name.split(sep);

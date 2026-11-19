@@ -1,9 +1,12 @@
-// view=keys[&indexes=0]: the explorer on a mocked Redis database of a few
-// thousand keys, to see the key search (pattern, type, pages, namespaces)
-// without a server, and its search indexes (the driver's other kind) next to
-// it, as Redis 8 reports them (`database_schema`, an index's columns and its
-// FT.CREATE); &indexes=0: a server without any. `window.__keysCalls`: the
-// commands the backend got.
+// view=keys[&indexes=0|err][&schemams=N]: the explorer on a mocked Redis
+// database of a few thousand keys, to see the key search (pattern, type,
+// pages, namespaces) without a server, and its search indexes (the driver's
+// other kind) next to it, as Redis 8 reports them (`database_schema`, an
+// index's columns and its FT.CREATE); &indexes=0: a server without any;
+// &indexes=err: their read fails as a schema read held too long does;
+// &schemams: how long that read takes (80 ms). `window.__keysCalls`: the
+// commands the backend got; `window.__keysIndexes(0|err|all)` changes what
+// the next read answers.
 
 import type { ColumnInfo, DriverInfo, KeyEntry, KeyPage, KeyScan } from '../api/types';
 import type { TableSchema } from '../api/schema-types';
@@ -110,7 +113,10 @@ export function installKeysPreview() {
   conns.live.c1 = { status: 'connected', serverVersion: 'Redis 7.4.1', databases: ['db0', 'db1'], defaultDatabase: 'db0', error: null };
   const open = new URLSearchParams(location.search).get('open')?.split(',').map((p) => `kn:c1:db0:${p}`) ?? [];
   const params0 = new URLSearchParams(location.search);
-  const indexes = params0.get('indexes') === '0' ? [] : INDEXES;
+  let answer = params0.get('indexes') ?? 'all';
+  (window as unknown as Record<string, unknown>).__keysIndexes = (a: string) => { answer = a; };
+  const indexesNow = () => (answer === '0' ? [] : INDEXES);
+  const schemaMs = Number(params0.get('schemams') ?? 80);
   // &openix=1: the indexes' folder and the first index open too.
   const openIx = params0.get('openix') === '1' ? ['f:c1:db0:index', 'o:c1:db0:index::idx:docs'] : [];
   try { localStorage.setItem('dbine.openFolders', JSON.stringify(['c:c1', 'd:c1:db0', 'f:c1:db0:key', ...open, ...openIx])); } catch { /* preview */ }
@@ -123,10 +129,14 @@ export function installKeysPreview() {
         return scan(a!.args!.scan!);
       }
       if (cmd === 'database_schema') {
-        await new Promise((r) => setTimeout(r, 80));
-        return indexes.map((x) => x.schema);
+        const now = answer;
+        await new Promise((r) => setTimeout(r, schemaMs));
+        if (now === 'err') {
+          throw { kind: 'busy', message: 'la conexión sigue ocupada leyendo la estructura (por ejemplo, una comparación de esquemas en curso); volvé a intentar en un momento.' };
+        }
+        return (now === '0' ? [] : INDEXES).map((x) => x.schema);
       }
-      const ix = indexes.find((x) => x.schema.name === a?.args?.object?.name);
+      const ix = indexesNow().find((x) => x.schema.name === a?.args?.object?.name);
       if (cmd === 'get_columns' && ix) return ix.columns;
       if (cmd === 'get_definition' && ix) return ix.definition;
       if (cmd === 'get_cached') return null;
