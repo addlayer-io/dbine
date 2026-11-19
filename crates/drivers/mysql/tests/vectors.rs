@@ -11,12 +11,25 @@
 //! end, also when it fails half-way.
 //!
 //! ```sh
-//! docker start dbine-test-mysql9 dbine-test-mariadb dbine-test-tidb8
+//! docker start dbine-test-mysql9 dbine-test-mariadb dbine-test-tidb8 \
+//!   dbine-test-greptimedb dbine-test-manticore
 //! DBINE_TEST_MYSQL9_URL=mysql://root:pw@127.0.0.1:27201 \
 //! DBINE_TEST_MARIADB_URL=mysql://root:pw@127.0.0.1:25012 \
 //! DBINE_TEST_TIDB8_URL=mysql://root@127.0.0.1:25044 \
+//! DBINE_TEST_GREPTIMEDB_URL=mysql://127.0.0.1:25017 \
+//! DBINE_TEST_MANTICORE_URL=mysql://127.0.0.1:25016 \
 //!   cargo test -p dbine-driver-mysql --test vectors -- --ignored --nocapture
 //! ```
+//!
+//! The heavy servers, one at a time (`docker start dbine-test-oceanbase`,
+//! then `dbine-test-doris`, then `dbine-test-starrocks`; their ports with
+//! `docker port`): `DBINE_TEST_OCEANBASE_URL=mysql://root@127.0.0.1:25035`,
+//! `DBINE_TEST_DORIS_URL=mysql://root@127.0.0.1:<9030's port>`,
+//! `DBINE_TEST_STARROCKS_URL=mysql://root@127.0.0.1:25030` (its FE needs
+//! `ADMIN SET FRONTEND CONFIG ("enable_experimental_vector" = "true")`,
+//! which the test sets), `DBINE_TEST_DATABEND_URL=mysql://root@127.0.0.1:<3307's port>`.
+//! TiDB's vector index needs TiFlash: `DBINE_TEST_TIDB_TIFLASH_URL` points at
+//! a cluster with one (`tiup playground`), the test adds the replica.
 
 use dbine_driver::transfer::{
     BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch, TransferColumn,
@@ -69,6 +82,37 @@ async fn run(s: &mut Box<dyn Session>, sql: &str) -> Result<QueryOutcome, String
 
 async fn must(s: &mut Box<dyn Session>, sql: &str) -> QueryOutcome {
     run(s, sql).await.unwrap_or_else(|e| panic!("{sql}: {e}"))
+}
+
+/// A script's statements, without the notes (`-- …` lines) the DDL says
+/// before or between them.
+fn statements(script: &str) -> Vec<String> {
+    script
+        .split(";\n")
+        .map(|st| {
+            st.lines()
+                .filter(|l| !l.trim_start().starts_with("--"))
+                .collect::<Vec<_>>()
+                .join("\n")
+                .trim()
+                .trim_end_matches(';')
+                .to_string()
+        })
+        .filter(|st| !st.is_empty())
+        .collect()
+}
+
+/// The notes of a script that say something was left out.
+fn refusals(script: &str) -> Vec<&str> {
+    script
+        .lines()
+        .filter(|l| {
+            l.trim_start().starts_with("--")
+                && ["no tiene", "pide", "necesita la dimensión", "no se puede"]
+                    .iter()
+                    .any(|w| l.contains(w))
+        })
+        .collect()
 }
 
 fn table(name: &str) -> ObjectRef {
@@ -198,6 +242,11 @@ struct Case {
     /// A schema sync that changes the vector index to this metric (the
     /// engines that rebuild an index with ALTER / CREATE INDEX).
     sync_metric: Option<&'static str>,
+    /// Run before the vector index is made (TiDB's TiFlash replica), with
+    /// a query that returns 1 once it's ready.
+    before_index: Option<(&'static str, &'static str)>,
+    /// Run on the server first (a setting the engine's vector indexes need).
+    setup: Option<&'static str>,
 }
 
 fn vindex(
@@ -321,6 +370,9 @@ async fn exercise(case: Case) {
         case.id,
         admin.server_version().await.unwrap_or_default()
     );
+    if let Some(setup) = case.setup {
+        must(&mut admin, setup).await;
+    }
     cleanup(&mut admin, None, &case).await;
     if let Some(db) = case.db {
         must(&mut admin, &format!("CREATE DATABASE {db}")).await;
@@ -353,6 +405,7 @@ struct CaseData {
     update: bool,
     transfer: bool,
     sync_metric: Option<String>,
+    before_index: Option<(String, String)>,
 }
 
 impl From<&Case> for CaseData {
@@ -368,6 +421,7 @@ impl From<&Case> for CaseData {
             update: c.update,
             transfer: c.transfer,
             sync_metric: c.sync_metric.map(Into::into),
+            before_index: c.before_index.map(|(a, b)| (a.into(), b.into())),
         }
     }
 }
@@ -389,11 +443,27 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         !ddl.contains("CREATE INDEX `iv` ON `vec_items` (`v`);"),
         "{ddl}"
     );
-    for stmt in ddl.split(";\n") {
-        let stmt = stmt.trim().trim_end_matches(';');
-        if !stmt.is_empty() && !stmt.starts_with("--") {
-            must(&mut s, stmt).await;
+    assert!(refusals(&ddl).is_empty(), "{ddl}");
+    let mut prepared = c.before_index.is_none();
+    for stmt in statements(&ddl) {
+        if !prepared && stmt.contains("VECTOR INDEX") {
+            let (sql, ready) = c.before_index.as_ref().unwrap();
+            must(&mut s, sql).await;
+            for _ in 0..120 {
+                let out = must(&mut s, ready).await;
+                if out.results[0]
+                    .rows
+                    .first()
+                    .map(|r| r[0].to_string().trim_matches('"').to_string())
+                    == Some("1".into())
+                {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+            prepared = true;
         }
+        must(&mut s, &stmt).await;
     }
 
     // 2. Rows from insert_script, vectors as JSON arrays.
@@ -416,11 +486,8 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         .insert_script(&table("vec_items"), &columns, &rows)
         .expect("insert_script");
     eprintln!("{id}: {ins}");
-    for stmt in ins.split(";\n") {
-        let stmt = stmt.trim().trim_end_matches(';');
-        if !stmt.is_empty() {
-            must(&mut s, stmt).await;
-        }
+    for stmt in statements(&ins) {
+        must(&mut s, &stmt).await;
     }
     if matches!(id, "doris" | "starrocks") {
         // Inserts land asynchronously on the OLAP engines' visibility.
@@ -569,11 +636,21 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
             .find(|i| i.vector.is_some())
             .unwrap_or_else(|| panic!("no vector index read back: {:?}", t.indexes));
         assert_eq!(ix.columns, ["v"]);
-        assert_eq!(ix.vector.as_ref(), Some(back), "{ix:?}");
+        // Its settings: the ones given, and the engine's defaults it may
+        // write out.
+        let got = ix.vector.as_ref().unwrap();
+        assert_eq!(
+            (got.algorithm.as_deref(), got.metric.as_deref()),
+            (back.algorithm.as_deref(), back.metric.as_deref()),
+            "{ix:?}"
+        );
+        for (k, val) in &back.params {
+            assert_eq!(got.params.get(k), Some(val), "{k}: {ix:?}");
+        }
         // The DDL made from what was read is the same index again.
         let again = d.table_ddl(t, all).unwrap();
         assert!(again.contains(&c.marker), "{again}");
-        assert!(!again.contains("\n-- "), "{again}");
+        assert!(refusals(&again).is_empty(), "{again}");
     }
 
     // 4b. A schema sync that changes the index's distance: the old one
@@ -592,11 +669,8 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
             .expect("sync_script");
         eprintln!("{id}: sync {:?}", script.statements);
         for stmt in &script.statements {
-            for one in stmt.split(";\n") {
-                let one = one.trim().trim_end_matches(';');
-                if !one.is_empty() {
-                    must(&mut s, one).await;
-                }
+            for one in statements(stmt) {
+                must(&mut s, &one).await;
             }
         }
         if matches!(id, "doris" | "starrocks") {
@@ -689,11 +763,8 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
                 },
             )
             .unwrap();
-        for stmt in ddl.split(";\n") {
-            let stmt = stmt.trim().trim_end_matches(';');
-            if !stmt.is_empty() {
-                must(&mut s, stmt).await;
-            }
+        for stmt in statements(&ddl) {
+            must(&mut s, &stmt).await;
         }
         load(&mut s, "vec_copy", &cols, rows.clone()).await;
         if matches!(id, "doris" | "starrocks") {
@@ -702,6 +773,8 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         let (_, back) = read_cells(&mut s, "vec_copy").await;
         assert_eq!(back, rows);
         // Another family's source: pgvector's text, with its spacing.
+        // (A whole-table delete: Doris' DUPLICATE KEY tables take simple
+        // predicates only.)
         must(&mut s, "DELETE FROM vec_copy WHERE id > 0").await;
         if matches!(id, "doris" | "starrocks") {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -767,6 +840,8 @@ async fn mysql9_vectors() {
         update: true,
         transfer: true,
         sync_metric: None,
+        before_index: None,
+        setup: None,
     })
     .await;
 }
@@ -789,6 +864,8 @@ async fn mariadb_vectors() {
         update: true,
         transfer: true,
         sync_metric: Some("l2"),
+        before_index: None,
+        setup: None,
     })
     .await;
 }
@@ -813,6 +890,8 @@ async fn tidb_vectors() {
         update: true,
         transfer: true,
         sync_metric: None,
+        before_index: None,
+        setup: None,
     })
     .await;
 }
@@ -841,6 +920,8 @@ async fn greptimedb_vectors() {
         update: false,
         transfer: true,
         sync_metric: None,
+        before_index: None,
+        setup: None,
     })
     .await;
 }
@@ -864,6 +945,145 @@ async fn manticore_vectors() {
         // Its load writes INSERTs with its vectors as (…).
         transfer: true,
         sync_metric: None,
+        before_index: None,
+        setup: None,
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn tidb_tiflash_vector_index() {
+    // A cluster with TiFlash (the vector index lives there).
+    exercise(Case {
+        id: "tidb",
+        env: "DBINE_TEST_TIDB_TIFLASH_URL",
+        db: Some("dbine_vec"),
+        column_type: "vector(3)",
+        described: "vector(3)",
+        index: Some(vindex("iv", Some("hnsw"), Some("cosine"), &[])),
+        index_back: Some(vi(Some("hnsw"), Some("cosine"), &[])),
+        marker: "CREATE VECTOR INDEX `iv` ON `vec_items` ((VEC_COSINE_DISTANCE(`v`))) USING HNSW;",
+        similarity: "SELECT id FROM vec_items ORDER BY VEC_COSINE_DISTANCE(v, '[1,0,0]') LIMIT 3",
+        header: "vector(3)",
+        options: vec![],
+        update: true,
+        transfer: true,
+        sync_metric: Some("l2"),
+        before_index: Some((
+            "ALTER TABLE vec_items SET TIFLASH REPLICA 1",
+            "SELECT AVAILABLE FROM information_schema.TIFLASH_REPLICA WHERE TABLE_SCHEMA = 'dbine_vec' AND TABLE_NAME = 'vec_items'",
+        )),
+        setup: None,
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn oceanbase_vectors() {
+    exercise(Case {
+        id: "oceanbase",
+        env: "DBINE_TEST_OCEANBASE_URL",
+        db: Some("dbine_vec"),
+        column_type: "vector(3)",
+        described: "vector(3)",
+        index: Some(vindex("iv", Some("hnsw"), Some("l2"), &[("m", "16")])),
+        index_back: Some(vi(Some("hnsw"), Some("l2"), &[("m", "16")])),
+        marker:
+            "CREATE VECTOR INDEX `iv` ON `vec_items` (`v`) WITH (distance=L2, type=hnsw, lib=vsag",
+        similarity: "SELECT id FROM vec_items ORDER BY l2_distance(v, '[1,0,0]') LIMIT 3",
+        header: "vector(3)",
+        options: vec![],
+        update: true,
+        transfer: true,
+        sync_metric: Some("cosine"),
+        before_index: None,
+        setup: None,
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn doris_vectors() {
+    exercise(Case {
+        id: "doris",
+        env: "DBINE_TEST_DORIS_URL",
+        db: Some("dbine_vec"),
+        column_type: "ARRAY<FLOAT>",
+        described: "array<float>",
+        index: Some(vindex(
+            "iv",
+            Some("hnsw"),
+            Some("l2"),
+            &[("dim", "3"), ("m", "32")],
+        )),
+        index_back: Some(vi(Some("hnsw"), Some("l2"), &[("dim", "3"), ("m", "32")])),
+        marker: "USING ANN PROPERTIES(\"index_type\" = \"hnsw\", \"metric_type\" = \"l2_distance\", \"dim\" = \"3\"",
+        similarity: "SELECT id FROM vec_items ORDER BY l2_distance(v, [1,0,0]) LIMIT 3",
+        header: "array<float>",
+        // ANN indexes are on DUPLICATE KEY tables, which take no UPDATE.
+        options: vec![("key_model", "duplicate"), ("replication_num", "1"), ("buckets", "1")],
+        update: false,
+        transfer: true,
+        sync_metric: Some("ip"),
+        before_index: None,
+        setup: None,
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn starrocks_vectors() {
+    exercise(Case {
+        id: "starrocks",
+        env: "DBINE_TEST_STARROCKS_URL",
+        db: Some("dbine_vec"),
+        column_type: "ARRAY<FLOAT>",
+        described: "array<float>",
+        index: Some(vindex(
+            "iv",
+            Some("hnsw"),
+            Some("l2"),
+            &[("dim", "3"), ("m", "16")],
+        )),
+        index_back: Some(vi(Some("hnsw"), Some("l2"), &[("dim", "3"), ("m", "16")])),
+        marker: "USING VECTOR (\"index_type\" = \"hnsw\", \"metric_type\" = \"l2_distance\", \"dim\" = \"3\"",
+        similarity: "SELECT id FROM vec_items ORDER BY approx_l2_distance([1,0,0], v) LIMIT 3",
+        header: "array<float>",
+        options: vec![("key_model", "duplicate"), ("replication_num", "1"), ("buckets", "1")],
+        update: false,
+        transfer: true,
+        sync_metric: Some("cosine"),
+        before_index: None,
+        // Its vector indexes are experimental: the FE has to allow them.
+        setup: Some("ADMIN SET FRONTEND CONFIG (\"enable_experimental_vector\" = \"true\")"),
+    })
+    .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn databend_vectors() {
+    exercise(Case {
+        id: "databend",
+        env: "DBINE_TEST_DATABEND_URL",
+        db: Some("dbine_vec"),
+        column_type: "VECTOR(3)",
+        described: "vector(3)",
+        index: Some(vindex("iv", Some("hnsw"), Some("l2"), &[("m", "16")])),
+        index_back: Some(vi(Some("hnsw"), Some("l2"), &[("m", "16")])),
+        marker: "CREATE VECTOR INDEX `iv` ON `vec_items`(`v`)",
+        similarity: "SELECT id FROM vec_items ORDER BY l2_distance(v, [1,0,0]::VECTOR(3)) LIMIT 3",
+        header: "vector(3)",
+        options: vec![],
+        update: true,
+        transfer: true,
+        sync_metric: Some("cosine"),
+        before_index: None,
+        setup: None,
     })
     .await;
 }

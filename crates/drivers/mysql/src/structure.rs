@@ -324,6 +324,20 @@ pub(crate) fn olap_index_type(t: &str) -> (Option<String>, BTreeMap<String, Stri
     }
 }
 
+/// A StarRocks / Doris `SHOW INDEX` row's index kind and properties: from
+/// its `Index_type` (StarRocks: `NGRAMBF("gram_num" = "4")`, `VECTOR(…)`)
+/// and its `Properties` (Doris shows them apart: `("dim" = "3", …)`).
+pub(crate) fn olap_show_index(
+    index_type: &str,
+    properties: Option<&str>,
+) -> (Option<String>, BTreeMap<String, String>) {
+    let (kind, mut options) = olap_index_type(index_type);
+    if let Some(p) = properties.filter(|p| p.contains('=')) {
+        options.extend(key_values(p));
+    }
+    (kind, options)
+}
+
 /// `PROPERTIES (…)` of a StarRocks / Doris `SHOW CREATE TABLE`.
 pub(crate) fn olap_properties(create: &str) -> BTreeMap<String, String> {
     match create

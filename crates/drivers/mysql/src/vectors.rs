@@ -2180,24 +2180,48 @@ mod tests {
             &vix("iv", "v", None, Some("cosine"), &[("dim", "3")])
         )
         .is_err());
-        // Read back from SHOW INDEX.
-        let mut read = IndexDef {
-            name: "iv".into(),
-            columns: vec!["v".into()],
-            kind: Some("ANN".into()),
-            options: [
-                ("index_type", "hnsw"),
-                ("metric_type", "l2_distance"),
-                ("dim", "3"),
-                ("max_degree", "32"),
-            ]
-            .iter()
-            .map(|(a, b)| (a.to_string(), b.to_string()))
-            .collect(),
-            ..Default::default()
+        // Read back from SHOW INDEX rows, through the session's parsing:
+        // Doris shows the properties in their own column, StarRocks after
+        // the index type (the engines' documented output; no live server
+        // here to capture one).
+        let show = |v: Variant, index_type: &str, properties: Option<&str>| {
+            let (kind, options) = crate::structure::olap_show_index(index_type, properties);
+            let mut ix = IndexDef {
+                name: "iv".into(),
+                columns: vec!["v".into()],
+                kind,
+                options,
+                ..Default::default()
+            };
+            from_olap(v, &mut ix);
+            ix
         };
-        from_olap(Variant::Doris, &mut read);
+        let read = show(
+            Variant::Doris,
+            "ANN",
+            Some(
+                r#"("dim" = "3", "index_type" = "hnsw", "max_degree" = "32", "metric_type" = "l2_distance")"#,
+            ),
+        );
+        assert_eq!(read.kind.as_deref(), Some("ANN"));
         assert_eq!(read.vector, ix.vector);
+        let read = show(
+            Variant::StarRocks,
+            r#"VECTOR("dim" = "3", "index_type" = "hnsw", "is_vector_normed" = "false", "M" = "16", "metric_type" = "cosine_similarity")"#,
+            Some(""),
+        );
+        assert_eq!(read.kind.as_deref(), Some("VECTOR"));
+        let vi = read.vector.unwrap();
+        assert_eq!(vi.metric.as_deref(), Some("cosine"));
+        assert_eq!(vi.algorithm.as_deref(), Some("hnsw"));
+        assert_eq!(vi.params.get("m").map(String::as_str), Some("16"));
+        assert_eq!(vi.params.get("dim").map(String::as_str), Some("3"));
+        // A bloom filter index isn't a vector one.
+        assert!(
+            show(Variant::StarRocks, r#"NGRAMBF("gram_num" = "4")"#, None)
+                .vector
+                .is_none()
+        );
     }
 
     #[test]

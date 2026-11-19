@@ -1532,15 +1532,11 @@ impl MySqlSession {
             let key = (table.clone(), name.clone());
             let entry = idx.entry(key.clone()).or_insert_with(|| {
                 let (kind, mut options) = match ty.clone() {
-                    Some(t) if olap => crate::structure::olap_index_type(&t),
+                    Some(t) if olap => {
+                        crate::structure::olap_show_index(&t, named(r, &["Properties"]).as_deref())
+                    }
                     t => (t, BTreeMap::new()),
                 };
-                if olap {
-                    // Doris shows the properties apart.
-                    if let Some(p) = named(r, &["Properties"]).filter(|p| p.contains('=')) {
-                        options.extend(crate::structure::key_values(&p));
-                    }
-                }
                 let comment = if olap {
                     named(r, &["Index_comment", "Comment"])
                 } else {
