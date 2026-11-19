@@ -412,7 +412,6 @@ pub fn cell(v: &Json) -> Json {
     }
 }
 
-/// Type name of a property value as Cypher calls it.
 /// [`type_name`], with a Neo4j 2025 VECTOR (its JSON form) as its own
 /// type: `VECTOR<FLOAT32>(3)`.
 pub fn type_text(v: &Json) -> String {
@@ -424,6 +423,7 @@ pub fn type_text(v: &Json) -> String {
     }
 }
 
+/// Type name of a property value as Cypher calls it.
 pub fn type_name(v: &Json) -> &'static str {
     match v {
         Json::Null => "NULL",
