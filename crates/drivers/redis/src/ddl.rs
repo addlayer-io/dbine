@@ -81,11 +81,12 @@ pub fn designer(driver_id: &str) -> DesignerSpec {
             .required()
             .default_value("string")
             .help(if server == Server::Redis {
-                // One line each: the message extractor (scripts/i18n) reads
-                // a literal whole only without line continuations.
-                "Las columnas son las entradas: hash y stream = campo (nombre) y valor (valor por defecto); list y set = elemento; sorted set = miembro (nombre) y score (valor por defecto); vector set = elemento (nombre) y su vector (valor por defecto, p. ej. [0.1, 0.2, 0.3])."
+                // One line each, and at most one «;»: the message extractor
+                // (scripts/i18n) takes a literal whole only without line
+                // continuations, and one with more «;» for code.
+                "Las columnas son las entradas. Hash y stream: campo (nombre) y valor (valor por defecto). List y set: elemento. Sorted set: miembro (nombre) y score (valor por defecto). Vector set: elemento (nombre) y su vector (valor por defecto, p. ej. [0.1, 0.2, 0.3])."
             } else {
-                "Las columnas son las entradas: hash y stream = campo (nombre) y valor (valor por defecto); list y set = elemento; sorted set = miembro (nombre) y score (valor por defecto)."
+                "Las columnas son las entradas. Hash y stream: campo (nombre) y valor (valor por defecto). List y set: elemento. Sorted set: miembro (nombre) y score (valor por defecto)."
             }),
         Field::new("ttl", "TTL (segundos)", FieldKind::Number)
             .placeholder("(sin vencimiento)")
@@ -95,7 +96,7 @@ pub fn designer(driver_id: &str) -> DesignerSpec {
         Field::new("index_prefix", "Prefijo de los índices", FieldKind::Text)
             .placeholder("(el nombre de la key hasta su último «:»)")
             .help(if server == Server::Redis {
-                "Los índices de búsqueda (FT.CREATE … PREFIX) cubren las keys que empiezan así: hashes o documentos JSON. Los vectores FLOAT16 y BFLOAT16 piden Redis Stack 7.4 o Redis 8; INT8 y UINT8, Redis 8.0; el algoritmo SVS-VAMANA, Redis 8.2, y solo con FLOAT32 o FLOAT16."
+                "Los índices de búsqueda (FT.CREATE … PREFIX) cubren las keys que empiezan así: hashes o documentos JSON. Los vectores FLOAT16 y BFLOAT16 piden Redis Stack 7.4 o Redis 8, los INT8 y UINT8 piden Redis 8.0, y el algoritmo SVS-VAMANA pide Redis 8.2 y solo toma FLOAT32 o FLOAT16."
             } else {
                 "Los índices de búsqueda (FT.CREATE … PREFIX) cubren las keys que empiezan así: hashes o documentos JSON."
             }),
