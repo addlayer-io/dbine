@@ -1769,6 +1769,70 @@ mod tests {
         }
     }
 
+    fn session(version: &str, opensearch: bool) -> EsSession {
+        EsSession {
+            tls_pin: None,
+            client: reqwest::Client::new(),
+            base: "http://localhost:9200".into(),
+            read_only: false,
+            show_system: false,
+            opensearch,
+            opendistro: false,
+            version: version.into(),
+            opaque_id: "t".into(),
+            profiler: None,
+            interrupted: Arc::default(),
+            vector_fields: Default::default(),
+        }
+    }
+
+    /// Elasticsearch 9.2+ leaves vectors out of `_source`: the browse asks
+    /// for them, and only there (older servers refuse the option).
+    #[test]
+    fn the_browse_asks_for_vectors_where_they_are_left_out() {
+        let o = ObjectRef {
+            kind: kinds::INDEX.into(),
+            schema: None,
+            name: "docs".into(),
+        };
+        let asks = |v: &str, os: bool| {
+            session(v, os)
+                .browse_query(&o, 10)
+                .contains("exclude_vectors")
+        };
+        assert!(asks("Elasticsearch 9.2.0", false));
+        assert!(asks("Elasticsearch 10.0.1", false));
+        assert!(!asks("Elasticsearch 9.1.5", false));
+        assert!(!asks("Elasticsearch 8.15.3", false));
+        assert!(!asks("OpenSearch 3.2.0", true));
+        assert!(!asks("Elasticsearch", false));
+        let q = session("Elasticsearch 9.2.0", false).browse_query(&o, 10);
+        let (head, body) = q.split_once('\n').unwrap();
+        assert_eq!(head, "GET /docs/_search");
+        let body: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(
+            body["_source"],
+            serde_json::json!({"exclude_vectors": false})
+        );
+        // The grid's filters and sorts keep it.
+        let sorted = ddl::sorted_browse(
+            &q,
+            &[dbine_driver::SortKey {
+                column: "n".into(),
+                descending: false,
+            }],
+            false,
+        )
+        .unwrap();
+        assert!(sorted.contains("exclude_vectors"));
+    }
+
+    #[test]
+    fn hits_name_their_indices() {
+        let r = J::parse(r#"{"responses":[{"hits":{"hits":[{"_index":"a"},{"_index":"b"},{"_index":"a"}]}}],"docs":[{"_index":"c"}]}"#).unwrap();
+        assert_eq!(hit_indices(&r), ["c", "a", "b"]);
+    }
+
     #[test]
     fn sql_error_positions() {
         let m = "verification_exception: Found 1 problem\nline 2:8: Unknown column [nope]";
