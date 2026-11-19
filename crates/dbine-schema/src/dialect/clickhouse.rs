@@ -573,7 +573,7 @@ impl Dialect for ClickHouse {
         let column_dims = match column {
             Some(L::Vector { sparse: true, .. }) => {
                 return Err(
-                    "ClickHouse no indexa vectores dispersos, que quedan como texto JSON".into(),
+                    "ClickHouse no indexa vectores dispersos, que quedan como texto".into(),
                 )
             }
             Some(L::Vector { dims, .. }) => *dims,
@@ -1091,7 +1091,7 @@ pub(super) mod tests {
         assert!(issues
             .iter()
             .any(|i| i.code == IssueCode::IndexDropped && i.message.contains("no es un vector")));
-        // pgvector's vector(3) and halfvec(2), a sparsevec(5) (JSON text).
+        // pgvector's vector(3) and halfvec(2), a sparsevec(5) (text).
         let (t, _) = one(vector_table("vector(3)", Some("hnsw"), &[]), "postgres");
         assert_eq!(
             t.indexes[0].vector.as_ref().unwrap().params["dimensions"],
