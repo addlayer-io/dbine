@@ -945,7 +945,12 @@ impl Known {
     /// [`Known::index`] for a script that knows its columns' types: when
     /// the open servers have different indexes `name`, the one whose vector
     /// fields are of those types (Redis' own spelling) is the script's.
-    /// When none is, as [`Known::index`].
+    /// When none is, as [`Known::index`]; the script then still writes each
+    /// vector in the column's own type (see `document_vector` in `ddl`),
+    /// and takes only the keys' prefix and the fields' paths from the
+    /// index. Indexes whose vector fields agree but that differ in
+    /// something else (a prefix, a text field) are still told apart only
+    /// by the server: the script is refused.
     pub fn index_for(&self, name: &str, types: &Types) -> Result<Option<&FtIndex>, String> {
         let named = || self.all_indexes().filter(move |i| i.name == name);
         let agrees = |ix: &FtIndex| {
@@ -1473,12 +1478,18 @@ pub fn search_table(
         }
         t.rows.push(row);
     }
-    t.message = Some(format!(
-        "{}: {} documentos coinciden",
-        String::from_utf8_lossy(&args[0]).to_ascii_uppercase(),
-        text_of(total)
-    ));
+    t.message = Some(matched(&args[0], &text_of(total)));
     t
+}
+
+/// `FT.SEARCH: 3 documentos coinciden` (one document in the singular).
+fn matched(command: &[u8], total: &str) -> String {
+    let command = String::from_utf8_lossy(command).to_ascii_uppercase();
+    if total.trim() == "1" {
+        format!("{command}: 1 documento coincide")
+    } else {
+        format!("{command}: {total} documentos coinciden")
+    }
 }
 
 /// A JSON vector as RediSearch returns it (`[1.5,2]`, or `[[1.5,2]]` with
@@ -1574,10 +1585,9 @@ pub fn hybrid_table(
         .unwrap_or_default();
     let rows = Value::Array(std::iter::once(Value::Int(0)).chain(results).collect());
     let mut t = aggregate_table(args, &rows, index);
-    let mut message = vec![format!(
-        "{}: {} documentos coinciden",
-        String::from_utf8_lossy(&args[0]).to_ascii_uppercase(),
-        total.unwrap_or_else(|| t.rows.len().to_string())
+    let mut message = vec![matched(
+        &args[0],
+        &total.unwrap_or_else(|| t.rows.len().to_string()),
     )];
     if let Some(w) = get(&pairs, "warnings") {
         message.extend(items(w).into_iter().map(text_of).filter(|w| !w.is_empty()));
@@ -2457,6 +2467,15 @@ mod tests {
         assert_eq!(
             t.message.as_deref(),
             Some("FT.HYBRID: 0 documentos coinciden; Timeout limit was reached")
+        );
+        // One document, in the singular.
+        assert_eq!(
+            matched(b"ft.search", "1"),
+            "FT.SEARCH: 1 documento coincide"
+        );
+        assert_eq!(
+            matched(b"FT.HYBRID", "12"),
+            "FT.HYBRID: 12 documentos coinciden"
         );
     }
 }

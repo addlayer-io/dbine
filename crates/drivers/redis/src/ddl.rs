@@ -1005,14 +1005,14 @@ fn simple_path(path: &str) -> Option<Vec<&str>> {
 /// A cell as the JSON a document holds: a vector field's numbers as an
 /// array (checked against its dimension), a `NUMERIC` field's text as a
 /// number, text that is a JSON array or object as that JSON.
-fn json_value(field: Option<&FtField>, v: &Value, what: &str) -> Result<Value> {
-    if let Some(vf) = field.and_then(|f| f.vector.as_ref()) {
+fn json_value(field: Option<&FtField>, v: &Value, what: &str, own: Option<Typed>) -> Result<Value> {
+    if let Some((_, dims)) = document_vector(field, own) {
         let nums = dbine_driver::vector::parse_value(v).ok_or_else(|| {
             Error::Query(format!(
                 "El valor de {what} no es un vector: escribilo como [0.1, 0.2, 0.3]."
             ))
         })?;
-        check_dims(nums.len(), Some(vf.dims), what)?;
+        check_dims(nums.len(), dims, what)?;
         // The canonical text's numbers (`1`, not `1.0`).
         return Ok(serde_json::from_str(&dbine_driver::vector::text(nums)).unwrap_or(Value::Null));
     }
@@ -1029,11 +1029,25 @@ fn json_value(field: Option<&FtField>, v: &Value, what: &str) -> Result<Value> {
     })
 }
 
+/// The type and dimension a vector cell takes in a search index's
+/// document: the column's own type when the caller gives it as Redis
+/// spells it (`VECTOR(3, FLOAT16)`: the target's field, which wins as it
+/// does for a hash, see [`hash_vector_type`]), else that of the index's
+/// field. `None`: not a vector field.
+fn document_vector(field: Option<&FtField>, own: Option<Typed>) -> Option<(VType, Option<u32>)> {
+    own.map(|t| (t.ty, t.dims)).or_else(|| {
+        field
+            .and_then(|f| f.vector.as_ref())
+            .map(|v| (v.ty, Some(v.dims)))
+    })
+}
+
 /// A new JSON document from its cells (column, value, the index field it
 /// is): each at its field's path (`$.a.b`, plain names) or at `$.<column>`,
-/// as [`json_value`] writes it.
+/// as [`json_value`] writes it (`types`: as in [`insert_script`]).
 pub(crate) fn json_document<'a>(
     cells: impl Iterator<Item = (&'a str, &'a Value, Option<&'a FtField>)>,
+    types: &Types,
 ) -> Result<Value> {
     let mut doc = serde_json::Map::new();
     for (c, v, field) in cells {
@@ -1043,7 +1057,7 @@ pub(crate) fn json_document<'a>(
                 "el campo {c} está en una ruta JSON compuesta ({path}): escribí ese documento con JSON.SET a mano"
             ))
         })?;
-        let value = json_value(field, v, c)?;
+        let value = json_value(field, v, c, types.own(c))?;
         let (last, parents) = parts.split_last().expect("one part at least");
         let mut at = &mut doc;
         for p in parents {
@@ -1100,7 +1114,7 @@ fn index_inserts(
             .filter(|(c, v)| *c != "id" && !v.is_null())
             .map(|(c, v)| (c.as_str(), v, index.fields.iter().find(|f| f.is(c))));
         if index.on_json {
-            let doc = json_document(cells)?;
+            let doc = json_document(cells, types)?;
             out.push(line(&["JSON.SET", &id, "$", &doc.to_string()]));
             continue;
         }
@@ -1109,14 +1123,14 @@ fn index_inserts(
         for (c, v, field) in cells {
             let hash_field = field.map_or(c, |f| f.identifier.as_str());
             args.push(hash_field.into());
-            match field.and_then(|f| f.vector.as_ref()) {
-                Some(vf) => {
-                    let blob = packed_checked(v, vf.ty, Some(vf.dims), c)?.ok_or_else(|| {
+            match document_vector(field, types.own(c)) {
+                Some((ty, dims)) => {
+                    let blob = packed_checked(v, ty, dims, c)?.ok_or_else(|| {
                         Error::Query(format!(
                             "El valor de {c} no es un vector: escribilo como [0.1, 0.2, 0.3]."
                         ))
                     })?;
-                    if let Some((_, note)) = vector_arg(v, vf.ty, hash_field) {
+                    if let Some((_, note)) = vector_arg(v, ty, hash_field) {
                         notes.push(note);
                     }
                     args.push(Arg::Blob(blob));
@@ -1238,9 +1252,11 @@ redis.call('ZREM', KEYS[1], ARGV[1]) return redis.call('ZADD', KEYS[1], s, ARGV[
 /// Renaming a field or member without its value/score keeps the stored one
 /// (also with `EVAL`). Stream entries can't be changed.
 /// Edits of the documents of a search index's results (`FT.SEARCH`):
-/// `HSET` / `HDEL` on a hash (a vector field as the blob of its type),
-/// `JSON.SET` / `JSON.DEL` on a JSON document, by the document's key (`id`).
-fn index_edits(index: &FtIndex, changes: &[RowChange]) -> Result<Vec<String>> {
+/// `HSET` / `HDEL` on a hash (a vector field as the blob of its type: the
+/// column's own `VECTOR(n, TYPE)` when `types` has it, else the index
+/// field's, see [`document_vector`]), `JSON.SET` / `JSON.DEL` on a JSON
+/// document, by the document's key (`id`).
+fn index_edits(index: &FtIndex, changes: &[RowChange], types: &Types) -> Result<Vec<String>> {
     let mut out = Vec::new();
     for ch in changes.iter().filter(|c| !c.set.is_empty()) {
         let id = ch
@@ -1269,7 +1285,7 @@ fn index_edits(index: &FtIndex, changes: &[RowChange]) -> Result<Vec<String>> {
                 // A vector as an array of numbers (of the index's
                 // dimension), any other value as JSON; text that is JSON
                 // goes as that JSON.
-                let json = json_value(field, v, col)?;
+                let json = json_value(field, v, col, types.own(col))?;
                 out.push(line(&["JSON.SET", &id, &path, &json.to_string()]));
                 continue;
             }
@@ -1278,15 +1294,15 @@ fn index_edits(index: &FtIndex, changes: &[RowChange]) -> Result<Vec<String>> {
                 out.push(line(&["HDEL", &id, name]));
                 continue;
             }
-            match field.and_then(|f| f.vector.as_ref()) {
-                Some(vf) => {
-                    let (arg, note) = vector_arg(v, vf.ty, name).ok_or_else(|| {
+            match document_vector(field, types.own(col)) {
+                Some((ty, dims)) => {
+                    let (arg, note) = vector_arg(v, ty, name).ok_or_else(|| {
                         Error::Query(format!(
                             "El valor de {col} no es un vector: escribilo como [0.1, 0.2, 0.3]."
                         ))
                     })?;
                     if let Some(nums) = dbine_driver::vector::parse_value(v) {
-                        check_dims(nums.len(), Some(vf.dims), col)?;
+                        check_dims(nums.len(), dims, col)?;
                     }
                     out.push(blob_line(
                         &["HSET".into(), id.clone().into(), name.into(), arg],
@@ -1374,7 +1390,7 @@ pub fn update_script(
                 "DBine no leyó todavía el índice {key}: abrilo de nuevo para que lea sus campos"
             ))
             })?;
-        return index_edits(index, changes).map(finish);
+        return index_edits(index, changes, types).map(finish);
     }
     if changes
         .iter()
@@ -2741,5 +2757,104 @@ mod tests {
         // Types that match neither: as without types.
         let other = Types::of(&typed(&[("embedding", "VECTOR(4, INT8)")]));
         assert!(super::insert_script(&idx, &cols, &[row], &known, &other).is_err());
+    }
+
+    /// The only index DBine read (of another server, say: the types came
+    /// from a cached describe) contradicts the columns' own types: the
+    /// column's `VECTOR(n, TYPE)` still decides the blob and the dimension,
+    /// as it does for a hash key; the index gives only the key and the
+    /// fields' names.
+    #[test]
+    fn typed_scripts_keep_their_types_against_the_one_known_index() {
+        let idx = ObjectRef {
+            kind: kinds::INDEX.into(),
+            schema: None,
+            name: "docs".into(),
+        };
+        let mut known = Known::default();
+        let mut other_server = redis_index();
+        other_server.fields[1].vector.as_mut().unwrap().ty = VType::F32;
+        known.put_index("b:2", 0, &other_server);
+        let cols = vec!["id".to_string(), "title".into(), "embedding".into()];
+        let row = vec![
+            Value::from("doc:9"),
+            Value::from("Hola"),
+            serde_json::json!([1, 0, 0, 0.5]),
+        ];
+        let own = Types::of(&typed(&[("embedding", "VECTOR(4, FLOAT16)")]));
+        let s =
+            super::insert_script(&idx, &cols, std::slice::from_ref(&row), &known, &own).unwrap();
+        let p = parse_script(&s).unwrap();
+        assert_eq!(p[0][4], b"emb".to_vec());
+        assert_eq!(p[0][5], VType::F16.encode(&[1.0, 0.0, 0.0, 0.5]));
+        let ch = RowChange {
+            key: vec![("id".into(), Value::from("doc:9"))],
+            set: vec![("embedding".into(), serde_json::json!([0, 1, 0, 0]))],
+            ..Default::default()
+        };
+        let s = super::update_script(&idx, std::slice::from_ref(&ch), &known, &own).unwrap();
+        assert_eq!(
+            parse_script(&s).unwrap()[0][3],
+            VType::F16.encode(&[0.0, 1.0, 0.0, 0.0])
+        );
+        // Without types, the index's.
+        let s = super::insert_script(
+            &idx,
+            &cols,
+            std::slice::from_ref(&row),
+            &known,
+            &Types::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            parse_script(&s).unwrap()[0][5],
+            VType::F32.encode(&[1.0, 0.0, 0.0, 0.5])
+        );
+        // The column's dimension, not the index's.
+        let three = Types::of(&typed(&[("embedding", "VECTOR(3, FLOAT16)")]));
+        let e = super::insert_script(&idx, &cols, std::slice::from_ref(&row), &known, &three)
+            .unwrap_err();
+        assert!(e.to_string().contains("4 dimensiones"), "{e}");
+        let e = super::update_script(&idx, std::slice::from_ref(&ch), &known, &three).unwrap_err();
+        assert!(e.to_string().contains("4 dimensiones"), "{e}");
+        // A JSON index: the vector's array, of the column's dimension.
+        let mut json = redis_index();
+        json.on_json = true;
+        json.fields[0].identifier = "$.title".into();
+        json.fields[1].identifier = "$.emb".into();
+        let mut known = Known::default();
+        known.put_index("b:2", 0, &json);
+        let short = vec![
+            Value::from("doc:9"),
+            Value::from("Hola"),
+            serde_json::json!([1, 0, 0]),
+        ];
+        let s = super::insert_script(&idx, &cols, std::slice::from_ref(&short), &known, &three)
+            .unwrap();
+        let doc: Value = serde_json::from_slice(&parse_script(&s).unwrap()[0][3]).unwrap();
+        assert_eq!(doc["emb"], serde_json::json!([1, 0, 0]), "{s}");
+        assert!(super::insert_script(
+            &idx,
+            &cols,
+            std::slice::from_ref(&short),
+            &known,
+            &Types::default()
+        )
+        .is_err());
+        let ch = RowChange {
+            key: vec![("id".into(), Value::from("doc:9"))],
+            set: vec![("embedding".into(), serde_json::json!([0, 1, 0]))],
+            ..Default::default()
+        };
+        let s = super::update_script(&idx, &[ch], &known, &three).unwrap();
+        assert_eq!(
+            parse_script(&s).unwrap()[0],
+            [
+                b"JSON.SET".to_vec(),
+                b"doc:9".to_vec(),
+                b"$.emb".to_vec(),
+                b"[0,1,0]".to_vec()
+            ]
+        );
     }
 }
