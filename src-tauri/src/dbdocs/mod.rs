@@ -793,7 +793,6 @@ impl Anchors {
     }
 }
 
-/// `schema.name`, or the name alone.
 /// A vector index's settings as one line: its algorithm, its distance and
 /// its build parameters (`hnsw · cosine · ef_construction=64, m=16`), the
 /// engine's names as the driver gives them. Empty for an ordinary index.
@@ -823,6 +822,7 @@ pub fn has_vector_index(t: &TableSchema) -> bool {
     t.indexes.iter().any(|ix| ix.vector.is_some())
 }
 
+/// `schema.name`, or the name alone.
 pub fn qualified(schema: Option<&str>, name: &str) -> String {
     shown(schema, name)
 }
