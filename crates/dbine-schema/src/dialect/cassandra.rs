@@ -26,7 +26,11 @@
 //! one. Vector indexes are SAI on Cassandra and `vector_index` on
 //! ScyllaDB, with cosine, Euclidean or dot product distance; only ScyllaDB takes
 //! the graph settings from another engine (Cassandra needs a server flag
-//! for them). Keyspaces has no vectors.
+//! for them). Keyspaces has no vectors. A move among the three keeps the
+//! source's types and indexes, so finishing the table checks each flavor's
+//! limits again: ScyllaDB's 16000 dimensions, Cassandra's refusal of the
+//! cosine distance on one dimension, and Keyspaces' lists for vectors.
+//! ScyllaDB creates vector indexes only in keyspaces with tablets: said.
 
 use super::{Caps, Dialect, IdentCase, Rendered};
 use crate::default::DefaultValue;
@@ -72,6 +76,22 @@ pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
 /// ScyllaDB's longest vector (`vector<float, 16000>`); Cassandra takes
 /// longer ones.
 const SCYLLA_MAX_DIMS: u32 = 16000;
+
+/// What a vector of `n` dimensions becomes on ScyllaDB (`list`), said.
+fn scylla_too_long(n: u32, list: &str) -> String {
+    format!("ScyllaDB tiene vectores de hasta {SCYLLA_MAX_DIMS} dimensiones: uno de {n} queda como {list}.")
+}
+
+/// `frozen<inner>` → (`inner`, true); anything else as it is.
+fn strip_frozen(s: &str) -> (&str, bool) {
+    let t = s.trim();
+    match t.get(..7) {
+        Some(head) if head.eq_ignore_ascii_case("frozen<") && t.ends_with('>') => {
+            (t[7..t.len() - 1].trim(), true)
+        }
+        _ => (t, false),
+    }
+}
 
 /// A vector's element type as CQL spells it inside `vector<…, n>`: the
 /// numbers an embedding is made of.
@@ -239,9 +259,7 @@ impl Cql {
             return Rendered::exact("list<float>").with(
                 Warning,
                 TypeApproximated,
-                format!(
-                    "ScyllaDB tiene vectores de hasta {SCYLLA_MAX_DIMS} dimensiones: uno de {n} queda como list<float>."
-                ),
+                scylla_too_long(*n, "list<float>"),
             );
         }
         let float = Rendered::exact(format!("vector<float, {n}>"));
@@ -416,6 +434,125 @@ const SCYLLA_PARAMS: &[&str] = &[
 ];
 
 impl Cql {
+    /// Why this flavor can't index `column` as a vector with `metric`
+    /// (none: the default, cosine): one without a dimension becomes a list
+    /// and a sparse one text, which CQL doesn't index as vectors; ScyllaDB's
+    /// vectors stop at 16000 dimensions; and Cassandra refuses the cosine
+    /// distance on vectors of one dimension.
+    fn vector_refusal(&self, column: Option<&L>, metric: Option<&str>) -> Option<String> {
+        let metric = metric.map(str::trim).filter(|m| !m.is_empty());
+        match column {
+            Some(L::Vector { sparse: true, .. }) => {
+                Some("su columna es un vector disperso, que en CQL queda como texto".into())
+            }
+            Some(L::Vector { dims: None, .. }) => Some(
+                "su columna no dice su dimensión, así que en CQL queda como lista y no como vector<float, n>"
+                    .into(),
+            ),
+            Some(L::Vector { dims: Some(n), .. }) if self.scylla && *n > SCYLLA_MAX_DIMS => {
+                Some(format!(
+                    "ScyllaDB tiene vectores de hasta {SCYLLA_MAX_DIMS} dimensiones, y su columna tiene {n}"
+                ))
+            }
+            Some(L::Vector { dims: Some(1), .. })
+                if !self.scylla && metric.is_none_or(|m| m.eq_ignore_ascii_case(metric::COSINE)) =>
+            {
+                Some("Cassandra no mide la distancia coseno en vectores de una dimensión".into())
+            }
+            _ => None,
+        }
+    }
+
+    /// The vector indexes this flavor can't create on their column, left
+    /// out with the reason. A move within CQL keeps the source's types and
+    /// indexes as they are (the converter doesn't call
+    /// [`Dialect::vector_index`] then), so the same checks run here: a
+    /// Cassandra vector longer than ScyllaDB's, or a ScyllaDB cosine index
+    /// on one dimension going to Cassandra.
+    fn refuse_vector_indexes(&self, t: &mut TableSchema, report: &mut Report) {
+        let types: std::collections::HashMap<&str, L> = t
+            .columns
+            .iter()
+            .map(|c| (c.name.as_str(), cql_type(&c.data_type)))
+            .collect();
+        let mut kept = Vec::new();
+        for ix in std::mem::take(&mut t.indexes) {
+            let kind = ix.kind.as_deref().unwrap_or("");
+            if ix.vector.is_none() && !kind.eq_ignore_ascii_case("vector_index") {
+                kept.push(ix);
+                continue;
+            }
+            let why = match ix.columns.first().and_then(|c| types.get(c.as_str())) {
+                Some(col @ L::Vector { .. }) => self.vector_refusal(
+                    Some(col),
+                    ix.vector.as_ref().and_then(|v| v.metric.as_deref()),
+                ),
+                Some(_) => Some("su columna no es un vector".to_string()),
+                None => None,
+            };
+            match why {
+                Some(why) => report.push(
+                    Severity::Dropped,
+                    IssueCode::IndexDropped,
+                    &t.name,
+                    Some(&ix.name),
+                    format!("El índice vectorial «{}» no se crea: {why}.", ix.name),
+                ),
+                None => kept.push(ix),
+            }
+        }
+        t.indexes = kept;
+    }
+
+    /// Vector columns this flavor can't hold, as a list of their element,
+    /// said: Keyspaces has no vectors, and ScyllaDB's stop at 16000
+    /// dimensions. From another family the type is rendered so already;
+    /// within CQL it comes as the source had it.
+    fn vector_columns(&self, t: &mut TableSchema, report: &mut Report) {
+        if self.vectors && !self.scylla {
+            return;
+        }
+        let name = t.name.clone();
+        for c in &mut t.columns {
+            let (inner, was_frozen) = strip_frozen(&c.data_type);
+            let Some((head, args)) = generic(inner) else {
+                continue;
+            };
+            let parts = split_top(args);
+            let (true, [elem, n]) = (head.eq_ignore_ascii_case("vector"), parts.as_slice()) else {
+                continue;
+            };
+            let Ok(n) = n.parse::<u32>() else {
+                continue;
+            };
+            if self.vectors && n <= SCYLLA_MAX_DIMS {
+                continue;
+            }
+            let list = format!("list<{}>", frozen(elem.to_string()));
+            let list = if was_frozen {
+                format!("frozen<{list}>")
+            } else {
+                list
+            };
+            let message = if self.vectors {
+                scylla_too_long(n, &list)
+            } else {
+                format!(
+                    "Amazon Keyspaces no tiene vectores: {} pasa de {} a {list}, sin la dimensión.",
+                    c.name, c.data_type
+                )
+            };
+            report.push(
+                Severity::Warning,
+                IssueCode::TypeApproximated,
+                &name,
+                Some(&c.name),
+                message,
+            );
+            c.data_type = list;
+        }
+    }
+
     /// Each vector index in this flavor's terms, every change reported.
     /// On Cassandra, an SAI index that takes only the distance (and
     /// DataStax's `source_model`): its graph settings (`m`,
@@ -572,6 +709,18 @@ impl Cql {
                 ix.columns.truncate(1);
             }
             ix.kind = Some(if self.scylla { "vector_index" } else { "sai" }.to_string());
+            if self.scylla {
+                report.push(
+                    Severity::Info,
+                    IssueCode::IndexChanged,
+                    &name,
+                    Some(&ix.name),
+                    format!(
+                        "El índice vectorial «{}» pide un keyspace con tablets: ScyllaDB no crea índices vectoriales en uno sin ellos, y los tablets de un keyspace no se cambian después de crearlo.",
+                        ix.name
+                    ),
+                );
+            }
             if let Some(c) = ix.columns.first() {
                 float_columns.push(c.clone());
             }
@@ -665,26 +814,9 @@ impl Dialect for Cql {
         if !self.vectors {
             return Err("Amazon Keyspaces no tiene índices vectoriales".into());
         }
-        let dims = match column {
-            Some(L::Vector { sparse: true, .. }) => {
-                return Err(
-                    "su columna es un vector disperso, que en CQL queda como texto".into(),
-                )
-            }
-            Some(L::Vector { dims: None, .. }) => {
-                return Err(
-                    "su columna no dice su dimensión, así que en CQL queda como lista y no como vector<float, n>"
-                        .into(),
-                )
-            }
-            Some(L::Vector { dims: Some(n), .. }) if self.scylla && *n > SCYLLA_MAX_DIMS => {
-                return Err(format!(
-                    "ScyllaDB tiene vectores de hasta {SCYLLA_MAX_DIMS} dimensiones, y su columna tiene {n}"
-                ))
-            }
-            Some(L::Vector { dims, .. }) => *dims,
-            _ => None,
-        };
+        if let Some(why) = self.vector_refusal(column, v.metric.as_deref()) {
+            return Err(why);
+        }
         let metric = match v.metric.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
             None => None,
             Some(m) => Some(
@@ -703,12 +835,6 @@ impl Dialect for Cql {
                 })?,
             ),
         };
-        if dims == Some(1) && !self.scylla && metric.as_deref().is_none_or(|m| m == metric::COSINE)
-        {
-            return Err(
-                "Cassandra no mide la distancia coseno en vectores de una dimensión".into(),
-            );
-        }
         let kind = if self.scylla { "vector_index" } else { "sai" };
         Ok((
             Some(kind.to_string()),
@@ -723,7 +849,11 @@ impl Dialect for Cql {
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
         // Read from a CQL server: the key is already in the column options.
         let same_family = t.columns.iter().any(|c| is_true(c, "partition_key"));
+        if self.vectors {
+            self.refuse_vector_indexes(t, report);
+        }
         self.vector_indexes(t, report, same_family);
+        self.vector_columns(t, report);
         if same_family {
             return;
         }
@@ -1340,7 +1470,9 @@ mod tests {
         );
         assert_eq!(t.indexes[0].vector.as_ref().unwrap().params.len(), 3);
         assert_eq!(t.indexes[0].options["pk"], "id");
-        assert!(r.issues.is_empty(), "{:?}", r.issues);
+        // Only that ScyllaDB's vector indexes need a keyspace with tablets.
+        assert_eq!(r.issues.len(), 1, "{:?}", r.issues);
+        assert!(says(&r, IssueCode::IndexChanged, &["docs_emb", "tablets"]));
         // Cassandra's SAI with graph settings and a source model.
         let sai = dbine_driver::IndexDef {
             name: "docs_emb".into(),
@@ -1643,5 +1775,131 @@ mod tests {
             "keyspaces",
         );
         assert!(t.indexes.is_empty());
+    }
+
+    /// Cassandra, ScyllaDB and Keyspaces share the dialect, so a move among
+    /// them keeps the source's types and indexes as they are: each flavor's
+    /// limits are checked when the table is finished. A Cassandra vector
+    /// longer than ScyllaDB's becomes a list there and its index is left
+    /// out; a ScyllaDB cosine index on one dimension is left out on
+    /// Cassandra; and Keyspaces gets a list for any vector.
+    #[test]
+    fn vector_moves_within_cql_keep_to_each_flavor() {
+        use crate::convert::{convert, Options};
+        use crate::issue::Issue;
+        use dbine_driver::IndexDef;
+        let source = |ty: &str, kind: &str, metric: Option<&str>| {
+            vector_table(
+                ty,
+                IndexDef {
+                    name: "docs_emb".into(),
+                    columns: vec!["emb".into()],
+                    kind: Some(kind.into()),
+                    vector: Some(VectorIndex {
+                        metric: metric.map(Into::into),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                true,
+            )
+        };
+        let one = |t: TableSchema, from: &str, to: &str| {
+            let r = convert(&[t], from, to, &Options::default()).unwrap();
+            (r.tables[0].clone(), r.issues)
+        };
+        let has = |issues: &[Issue], code: IssueCode, words: &[&str]| {
+            issues
+                .iter()
+                .any(|i| i.code == code && words.iter().all(|w| i.message.contains(w)))
+        };
+        // Cassandra's 20000 dimensions, with an SAI index, into ScyllaDB.
+        let (t, issues) = one(
+            source("vector<float, 20000>", "sai", Some("cosine")),
+            "cassandra",
+            "scylladb",
+        );
+        assert_eq!(t.columns[1].data_type, "list<float>");
+        assert!(t.indexes.is_empty(), "{:?}", t.indexes);
+        assert!(
+            has(
+                &issues,
+                IssueCode::IndexDropped,
+                &["docs_emb", "16000", "20000"]
+            ),
+            "{issues:?}"
+        );
+        assert!(
+            has(
+                &issues,
+                IssueCode::TypeApproximated,
+                &["16000", "list<float>"]
+            ),
+            "{issues:?}"
+        );
+        // ScyllaDB's longest is kept, index and all.
+        let (t, _) = one(
+            source("vector<float, 16000>", "sai", Some("cosine")),
+            "cassandra",
+            "scylladb",
+        );
+        assert_eq!(t.columns[1].data_type, "vector<float, 16000>");
+        assert_eq!(t.indexes[0].kind.as_deref(), Some("vector_index"));
+        // Into Cassandra, the same vector stays as it is.
+        let (t, issues) = one(
+            source("vector<float, 20000>", "sai", Some("cosine")),
+            "cassandra",
+            "cassandra",
+        );
+        assert_eq!(t.columns[1].data_type, "vector<float, 20000>");
+        assert_eq!(t.indexes.len(), 1, "{issues:?}");
+        // ScyllaDB's cosine index on one dimension (the default distance
+        // too) into Cassandra, which refuses it; Euclidean goes.
+        for metric in [Some("cosine"), None] {
+            let (t, issues) = one(
+                source("vector<float, 1>", "vector_index", metric),
+                "scylladb",
+                "cassandra",
+            );
+            assert_eq!(t.columns[1].data_type, "vector<float, 1>");
+            assert!(t.indexes.is_empty(), "{metric:?}: {:?}", t.indexes);
+            assert!(
+                has(&issues, IssueCode::IndexDropped, &["docs_emb", "coseno"]),
+                "{issues:?}"
+            );
+        }
+        let (t, _) = one(
+            source("vector<float, 1>", "vector_index", Some("l2")),
+            "scylladb",
+            "cassandra",
+        );
+        assert_eq!(t.indexes[0].kind.as_deref(), Some("sai"));
+        let (t, _) = one(
+            source("vector<float, 1>", "vector_index", Some("cosine")),
+            "scylladb",
+            "scylladb",
+        );
+        assert_eq!(t.indexes.len(), 1);
+        // Keyspaces has no vectors: a list, said, and no index.
+        let (t, issues) = one(
+            source("vector<float, 3>", "sai", Some("cosine")),
+            "cassandra",
+            "keyspaces",
+        );
+        assert_eq!(t.columns[1].data_type, "list<float>");
+        assert!(t.indexes.is_empty());
+        assert!(
+            has(
+                &issues,
+                IssueCode::TypeApproximated,
+                &["Keyspaces", "emb", "vector<float, 3>"]
+            ),
+            "{issues:?}"
+        );
+        // A frozen vector in a key stays frozen as a list.
+        let mut t = source("frozen<vector<double, 20000>>", "sai", None);
+        t.indexes.clear();
+        let (t, _) = finalized("scylladb", t);
+        assert_eq!(t.columns[1].data_type, "frozen<list<double>>");
     }
 }
