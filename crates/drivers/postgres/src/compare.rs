@@ -31,6 +31,7 @@ pub(crate) const NULLS_NOT_DISTINCT: &str = "nulls_not_distinct";
 pub(crate) const DISTRIBUTED_BY: &str = "distributed_by";
 const STRUCTURAL: &[&str] = &[
     KEYS,
+    crate::vectors::VECTOR_OPTION,
     CONSTRAINT,
     NULLS_NOT_DISTINCT,
     DISTRIBUTED_BY,
@@ -1312,7 +1313,9 @@ pub(crate) fn crate_create_indexes(create: &str, indexes: &[IndexDef]) -> String
     };
     let mut out = create.to_string();
     let mut lines = Vec::new();
-    for ix in indexes {
+    // A FLOAT_VECTOR column is indexed (HNSW) by being declared: a vector
+    // index has nothing to add.
+    for ix in indexes.iter().filter(|ix| ix.vector.is_none()) {
         let kind = ix.kind.as_deref().unwrap_or(FULLTEXT);
         if ix.options.contains_key(COLUMN_INDEX) {
             let Some(col) = ix.columns.first() else {

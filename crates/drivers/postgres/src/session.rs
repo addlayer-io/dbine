@@ -857,8 +857,12 @@ impl PgSession {
             if stmt.columns().len() == r.columns.len() {
                 for (c, t) in r.columns.iter_mut().zip(stmt.columns()) {
                     c.type_name = t.type_().name().to_string();
+                    crate::vectors::mark_column(v, c, t.type_().name(), t.type_modifier());
                 }
                 crate::composite::name_fields(r, stmt.columns());
+                if v == Variant::CrateDb {
+                    crate_vectors(&self.client, r, stmt.columns()).await;
+                }
             }
         }
         res
@@ -2070,11 +2074,91 @@ async fn read_only_statement(
         if prepared.columns().len() == r.columns.len() {
             for (c, t) in r.columns.iter_mut().zip(prepared.columns()) {
                 c.type_name = t.type_().name().to_string();
+                crate::vectors::mark_column(v, c, t.type_().name(), t.type_modifier());
             }
             crate::composite::name_fields(r, prepared.columns());
+            if v == Variant::CrateDb {
+                crate_vectors(client, r, prepared.columns()).await;
+            }
         }
     }
     res
+}
+
+/// CrateDB sends a `FLOAT_VECTOR` as `real[]` (`{"1.0","2.5"}`): columns of
+/// a table that are vectors there (by the table and column the statement
+/// described) get their metadata, and their cells the JSON array.
+async fn crate_vectors(
+    client: &Client,
+    r: &mut StatementResult,
+    described: &[tokio_postgres::Column],
+) {
+    // (result position, table oid, column number)
+    let wanted: Vec<(usize, u32, i16)> = described
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.type_().oid() == 1021)
+        .filter_map(|(i, c)| Some((i, c.table_oid()?, c.column_id()?)))
+        .filter(|(_, t, n)| *t != 0 && *n > 0)
+        .collect();
+    if wanted.is_empty() {
+        return;
+    }
+    let mut tables: Vec<u32> = wanted.iter().map(|w| w.1).collect();
+    tables.sort_unstable();
+    tables.dedup();
+    let list = tables
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT c.oid, col.ordinal_position, col.character_maximum_length
+         FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+         JOIN information_schema.columns col ON col.table_schema = n.nspname AND col.table_name = c.relname
+         WHERE c.oid IN ({list}) AND col.data_type = 'float_vector'"
+    );
+    let rows = match client.simple_query(&sql).await {
+        Ok(m) => crate::catalog::rows(m),
+        Err(e) => {
+            tracing::debug!("cratedb: vector columns unknown: {e}");
+            return;
+        }
+    };
+    let found: Vec<(u32, i64, Option<u32>)> = rows
+        .iter()
+        .filter_map(|row| {
+            Some((
+                row.get(0)?.parse().ok()?,
+                row.get(1)?.parse().ok()?,
+                row.get(2).and_then(|d| d.parse().ok()),
+            ))
+        })
+        .collect();
+    for (i, table, col) in wanted {
+        let Some((_, _, dims)) = found
+            .iter()
+            .find(|(t, n, _)| *t == table && *n == i64::from(col))
+        else {
+            continue;
+        };
+        let c = &mut r.columns[i];
+        c.type_name = match dims {
+            Some(d) => format!("float_vector({d})"),
+            None => "float_vector".into(),
+        };
+        c.vector = Some(dbine_driver::VectorMeta::dense(
+            *dims,
+            dbine_driver::VectorElement::F32,
+        ));
+        for row in r.rows.iter_mut() {
+            if let Some(serde_json::Value::String(text)) = row.get(i) {
+                if let Some(json) = crate::vectors::crate_text(text) {
+                    row[i] = serde_json::Value::String(json);
+                }
+            }
+        }
+    }
 }
 
 /// Run `sql` as one simple query. Notices go to `out` as they arrive, in

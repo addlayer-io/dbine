@@ -374,6 +374,28 @@ impl PgSession {
                     if let Some(list) = compare::decorated_keys(&def, &keys) {
                         ix.options.insert(compare::KEYS.into(), list);
                     }
+                    // A vector index: its algorithm, distance and build
+                    // parameters (CockroachDB's pg_am says `prefix`; its
+                    // definition, `USING cspann`).
+                    let relopts: Vec<(String, String)> = ix
+                        .options
+                        .iter()
+                        .filter(|(k, _)| {
+                            ![compare::KEYS, compare::NULLS_NOT_DISTINCT].contains(&k.as_str())
+                        })
+                        .map(|(k, val)| (k.clone(), val.clone()))
+                        .collect();
+                    if let Some(vi) = crate::vectors::from_catalog(
+                        ix.kind.as_deref().unwrap_or_default(),
+                        &def,
+                        &relopts,
+                    ) {
+                        ix.kind = vi.algorithm.clone();
+                        ix.vector = Some(vi);
+                    }
+                }
+                for t in map.values_mut() {
+                    crate::vectors::finish_read(v, t);
                 }
             }
             Err(e) => tracing::debug!("{v:?}: indexes unavailable: {e}"),

@@ -56,6 +56,26 @@ pub fn sync_script(
     let f = flavor(v);
     let cd = |t: &TableSchema, c: &dbine_driver::ColumnDef| column_def(v, &f, t, c);
     let dd = |t: &TableSchema, p: DdlParts| Ok(table_ddl(v, t, p));
+    // Vector indexes compare by their DDL (a changed metric or parameter
+    // makes them again), whatever each side's options say.
+    let changes: Vec<dbine_driver::TableChange> = changes
+        .iter()
+        .cloned()
+        .map(|mut ch| {
+            use dbine_driver::TableChange as T;
+            match &mut ch {
+                T::Alter { old, new } => {
+                    crate::vectors::canonical_options(v, old);
+                    crate::vectors::canonical_options(v, new);
+                }
+                T::Create { table } | T::Drop { table } => {
+                    crate::vectors::canonical_options(v, table)
+                }
+            }
+            ch
+        })
+        .collect();
+    let changes = changes.as_slice();
     let mut script =
         dbine_driver::alter::sync_script(&AlterStyle::from_flavor(&f, column, &cd, &dd), changes)?;
     crate::compare::fix_drops(v, &mut script.statements, changes);
@@ -235,6 +255,7 @@ pub fn capabilities(v: Variant) -> Capabilities {
         database_properties: crate::properties::supported(v),
         jobs: crate::jobs::supported(v),
         scheduler: crate::scheduler::supported(v),
+        vectors: crate::vectors::supported(v),
         ..engine_capabilities(v)
     }
 }
@@ -431,18 +452,21 @@ const REDSHIFT_TYPES: &[&str] = &[
 ];
 
 pub fn designer(v: Variant) -> Option<DesignerSpec> {
+    let mut types = match v {
+        Variant::Cockroach => COCKROACH_TYPES.to_vec(),
+        Variant::Redshift => REDSHIFT_TYPES.to_vec(),
+        Variant::RisingWave => RISINGWAVE_TYPES.to_vec(),
+        Variant::Materialize => MATERIALIZE_TYPES.to_vec(),
+        Variant::CrateDb => CRATE_TYPES.to_vec(),
+        Variant::H2 => H2_TYPES.to_vec(),
+        _ => PG_TYPES.to_vec(),
+    };
+    types.extend_from_slice(crate::vectors::data_types(v));
     let mut d = DesignerSpec {
         schemas: true,
         comments: true,
-        ..DesignerSpec::sql_table(match v {
-            Variant::Cockroach => COCKROACH_TYPES.to_vec(),
-            Variant::Redshift => REDSHIFT_TYPES.to_vec(),
-            Variant::RisingWave => RISINGWAVE_TYPES.to_vec(),
-            Variant::Materialize => MATERIALIZE_TYPES.to_vec(),
-            Variant::CrateDb => CRATE_TYPES.to_vec(),
-            Variant::H2 => H2_TYPES.to_vec(),
-            _ => PG_TYPES.to_vec(),
-        })
+        vector_indexes: crate::vectors::designer_spec(v),
+        ..DesignerSpec::sql_table(types)
     };
     match v {
         Variant::Denodo => return None,
@@ -674,13 +698,16 @@ pub fn table_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> String {
     }
     if parts.indexes && !matches!(v, Variant::Redshift | Variant::Denodo | Variant::CrateDb) {
         for ix in &t.indexes {
-            out.push(crate::compare::index_ddl(
-                v,
-                &name,
-                ix,
-                using(v, ix.kind.as_deref()).as_deref(),
-                parts.if_exists,
-            ));
+            out.push(match &ix.vector {
+                Some(vi) => crate::vectors::index_ddl(v, &name, t, ix, vi, parts.if_exists),
+                None => crate::compare::index_ddl(
+                    v,
+                    &name,
+                    ix,
+                    using(v, ix.kind.as_deref()).as_deref(),
+                    parts.if_exists,
+                ),
+            });
         }
     }
     if parts.foreign_keys && capabilities(v).foreign_keys {
@@ -780,8 +807,12 @@ pub fn delete_script(
 
 /// A value as a literal of the variant: text goes through
 /// [`crate::catalog::lit`] (backslashes can be escapes); NULL, booleans and
-/// numbers as [`ddl::sql_literal`] writes them.
+/// numbers as [`ddl::sql_literal`] writes them; an array of numbers (a
+/// vector) as the variant's vector literal ([`crate::vectors::literal`]).
 fn literal(v: Variant, f: &ddl::SqlFlavor, c: &Value) -> String {
+    if let Some(vector) = crate::vectors::literal(v, c) {
+        return vector;
+    }
     match c {
         Value::String(s) => crate::catalog::lit(v, s),
         Value::Array(_) | Value::Object(_) => crate::catalog::lit(v, &c.to_string()),
