@@ -9,15 +9,14 @@ use super::bigquery::nested;
 use super::postgres::precision_loss;
 use super::{standard_default, Caps, Dialect, IdentCase, Rendered};
 use crate::default::{quote, DefaultValue};
-use crate::issue::{IssueCode, Report, Severity};
+use crate::issue::{IssueCode, Severity};
 use crate::logical::LogicalType as L;
 use crate::parse::TypeSpec;
-use dbine_driver::TableSchema;
 
 pub struct DuckDb;
 
-/// What a vector without a dimension becomes ([`Dialect::finalize`] takes
-/// it back when its index gives the column one).
+/// What a vector without a dimension becomes (a source index that states
+/// one gives it to the column before it's rendered).
 const NO_DIMS: &str = "El vector no tiene dimensión fija: queda como lista; las distancias array_* y los índices HNSW de DuckDB piden un FLOAT[n].";
 
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
@@ -354,15 +353,34 @@ impl Dialect for DuckDb {
 
     /// vss's HNSW: L2 (`l2sq`, its default), cosine or inner product; `m`
     /// and `ef_construction` carry over (HNSW's own), the rest is another
-    /// algorithm's and doesn't. The index needs a `FLOAT[n]` column: a
-    /// dimension the source index carries (ClickHouse's) stays for
-    /// [`Dialect::finalize`], which gives it to the column.
+    /// algorithm's and doesn't. The index only takes a `FLOAT[n]` column
+    /// (DuckDB refuses it on `DOUBLE[n]` and on lists): a vector of any
+    /// narrower element becomes one, while a double vector keeps
+    /// `DOUBLE[n]`, so as not to lose precision, and a vector that has no
+    /// dimension (not even its index's, which the converter gives the
+    /// column) stays a list: both lose the index, with why.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&L>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
+        use dbine_driver::VectorElement as E;
+        match column {
+            Some(L::Vector { sparse: true, .. }) => {
+                return Err("vss solo indexa columnas FLOAT[n], y un vector disperso no lo es".into())
+            }
+            Some(L::Vector { dims: None, .. }) => {
+                return Err("vss solo indexa columnas FLOAT[n] de dimensión fija, y la columna queda como lista sin dimensión".into())
+            }
+            Some(L::Vector {
+                element: E::F64, ..
+            }) => {
+                return Err("vss solo indexa columnas FLOAT[n], y la columna queda DOUBLE[n] para no perder precisión".into())
+            }
+            Some(L::Vector { .. }) | None => {}
+            Some(_) => return Err("vss solo indexa columnas FLOAT[n]".into()),
+        }
         let metric = match v.metric.as_deref() {
             None => None,
             Some(m) if [metric::L2, metric::COSINE, metric::IP].contains(&m) => {
@@ -374,7 +392,7 @@ impl Dialect for DuckDb {
                 ))
             }
         };
-        let mut params: std::collections::BTreeMap<String, String> = v
+        let params: std::collections::BTreeMap<String, String> = v
             .params
             .iter()
             .filter(|(k, val)| {
@@ -383,9 +401,6 @@ impl Dialect for DuckDb {
             })
             .map(|(k, val)| (k.clone(), val.trim().to_string()))
             .collect();
-        if let Some(n) = super::clickhouse::index_dimensions(&v.params) {
-            params.insert(super::clickhouse::DIMENSIONS.into(), n.to_string());
-        }
         Ok((
             Some("HNSW".into()),
             dbine_driver::VectorIndex {
@@ -394,78 +409,6 @@ impl Dialect for DuckDb {
                 params,
             },
         ))
-    }
-
-    /// vss's HNSW index only takes a `FLOAT[n]` column. A `FLOAT[]` list
-    /// (a ClickHouse `Array(Float32)`) whose index says its dimension
-    /// becomes `FLOAT[n]`; a `DOUBLE` one (libSQL's `F64_BLOB`, ClickHouse's
-    /// `Array(Float64)`) keeps its precision and loses the index; any other
-    /// column loses it too. Each with why.
-    fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
-        use dbine_driver::VectorElement as E;
-        let mut kept = Vec::new();
-        for mut ix in std::mem::take(&mut t.indexes) {
-            let Some(v) = ix.vector.as_mut() else {
-                kept.push(ix);
-                continue;
-            };
-            let dims = super::clickhouse::index_dimensions(&v.params);
-            v.params
-                .retain(|k, _| !super::clickhouse::is_dimension_key(k));
-            let col = ix
-                .columns
-                .first()
-                .and_then(|k| t.columns.iter_mut().find(|c| &c.name == k));
-            let why = match col {
-                None => Some("su clave no es una columna de la tabla".to_string()),
-                Some(c) => {
-                    let ty = crate::parse::parse(&c.data_type);
-                    let float = |of: &L, bytes| matches!(of, L::Float { bytes: b } if *b == bytes);
-                    match (crate::convert::logical_of(self, &ty), dims) {
-                        (L::Vector { element: E::F32, sparse: false, .. }, _) => None,
-                        (L::Array { of }, Some(n)) if float(&of, 4) || float(&of, 8) => {
-                            let of = if float(&of, 4) { "FLOAT" } else { "DOUBLE" };
-                            report.push(
-                                Severity::Info,
-                                IssueCode::TypeChanged,
-                                &t.name,
-                                Some(&c.name),
-                                format!("La columna toma la dimensión de su índice vectorial: {of}[{n}]."),
-                            );
-                            c.data_type = format!("{of}[{n}]");
-                            super::clickhouse::withdraw_note(report, c, NO_DIMS);
-                            (of == "DOUBLE").then(|| format!(
-                                "vss solo indexa columnas FLOAT[n], y «{}» queda {} para no perder precisión",
-                                c.name, c.data_type
-                            ))
-                        }
-                        (L::Vector { element: E::F64, .. }, _) => Some(format!(
-                            "vss solo indexa columnas FLOAT[n], y «{}» queda {} para no perder precisión",
-                            c.name, c.data_type
-                        )),
-                        (L::Array { .. }, None) => Some(format!(
-                            "vss solo indexa columnas FLOAT[n] de dimensión fija, y «{}» es una lista sin dimensión ({})",
-                            c.name, c.data_type
-                        )),
-                        _ => Some(format!(
-                            "vss solo indexa columnas FLOAT[n], y «{}» es {}",
-                            c.name, c.data_type
-                        )),
-                    }
-                }
-            };
-            match why {
-                Some(why) => report.push(
-                    Severity::Dropped,
-                    IssueCode::IndexDropped,
-                    &t.name,
-                    Some(&ix.name),
-                    format!("El índice vectorial «{}» no se crea: {why}.", ix.name),
-                ),
-                None => kept.push(ix),
-            }
-        }
-        t.indexes = kept;
     }
 
     fn caps(&self) -> Caps {
@@ -564,6 +507,28 @@ mod tests {
             )
             .unwrap_err();
         assert!(e.contains("hamming"), "{e}");
+        // The column it searches decides: FLOAT[n] takes it (any element
+        // narrower than a double becomes FLOAT), the rest don't.
+        use dbine_driver::VectorElement as E;
+        let vec = |dims, element, sparse| L::Vector {
+            dims,
+            element,
+            sparse,
+        };
+        for e in [E::F32, E::F16, E::Bf16, E::I8, E::Bit] {
+            assert!(DuckDb
+                .vector_index(&v, Some(&vec(Some(3), e, false)))
+                .is_ok());
+        }
+        for (col, why) in [
+            (vec(Some(3), E::F64, false), "DOUBLE[n]"),
+            (vec(None, E::F32, false), "sin dimensión"),
+            (vec(Some(3), E::F32, true), "disperso"),
+            (L::Text { unicode: true }, "FLOAT[n]"),
+        ] {
+            let e = DuckDb.vector_index(&v, Some(&col)).unwrap_err();
+            assert!(e.contains(why), "{e}");
+        }
     }
 
     /// Into DuckDB, vss's HNSW needs a `FLOAT[n]` column: a ClickHouse
