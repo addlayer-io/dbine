@@ -245,6 +245,85 @@ async fn vector_live_similarity_search_reads_without_approval() {
     .await;
 }
 
+/// The assistant's describe_object and index_usage on pgvector give an HNSW
+/// index's algorithm, metric and parameters, so it can pick the distance
+/// operator that uses the index. index_usage gives them once the driver
+/// fills `IndexUsage.vector` (the PostgreSQL family's own round), and its
+/// index line is there either way.
+#[tokio::test]
+#[ignore = "needs dbine-test-pgvector"]
+async fn vector_live_assistant_sees_vector_index_settings() {
+    let name = "dbine_e2e_vecapp_ix";
+    with_pgvector_db(name, |cfg| async move {
+        let mut s = open(&cfg).await?;
+        exec(
+            s.as_mut(),
+            "CREATE TABLE items (id int PRIMARY KEY, embedding vector(3)); \
+             CREATE INDEX items_hnsw ON items USING hnsw (embedding vector_cosine_ops) \
+             WITH (m = 8, ef_construction = 32)",
+        )
+        .await?;
+        let usage = s
+            .index_usage(&table(Some("public"), "items"))
+            .await
+            .map_err(|e| e.to_string())?;
+        drop(s);
+        let driver_fills_usage = usage
+            .iter()
+            .flat_map(|r| &r.indexes)
+            .any(|i| i.vector.is_some());
+        let t = test_state("ix", &cfg)?;
+        let rt = crate::mcp::McpRuntime::with_log(
+            t.state.clone(),
+            crate::mcp::activity::ActivityLog::in_memory(),
+        );
+        let conn = t
+            .state
+            .store
+            .get_connection("c")
+            .map_err(|e| e.to_string())?
+            .ok_or("no connection")?;
+        let call = |tool: &'static str| {
+            let (rt, conn) = (&rt, &conn);
+            async move {
+                crate::mcp::tools::assistant_call(
+                    &rt.inner,
+                    conn,
+                    tool,
+                    &json!({ "database": name, "object": "items" }),
+                    false,
+                )
+                .await
+            }
+        };
+        let (described, failed) = call("describe_object").await;
+        check!(!failed, "{described}");
+        let line = described
+            .lines()
+            .find(|l| l.contains("items_hnsw"))
+            .ok_or_else(|| format!("no index line: {described}"))?;
+        for want in [
+            "[vector index: algorithm hnsw, metric cosine",
+            "ef_construction=32",
+            "m=8",
+        ] {
+            check!(line.contains(want), "{want} not in {line}");
+        }
+        let (used, failed) = call("index_usage").await;
+        check!(!failed, "{used}");
+        let line = used
+            .lines()
+            .find(|l| l.contains("items_hnsw"))
+            .ok_or_else(|| format!("no index line: {used}"))?;
+        check!(
+            line.contains("[vector index: algorithm hnsw, metric cosine") == driver_fills_usage,
+            "driver fills IndexUsage.vector: {driver_fills_usage}; {line}"
+        );
+        Ok(())
+    })
+    .await;
+}
+
 // ---------------------------------------------------------------------------
 // Data compare, sync scripts, data scripts, imports and transfers
 
