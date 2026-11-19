@@ -735,12 +735,15 @@ impl EsSession {
                 .map(|i| ddl::path_segment(i))
                 .collect::<Vec<_>>()
                 .join(",");
-            if let Ok(m) = self.get_json(&format!("/{path}/_mapping")).await {
+            // Unreadable (no privilege): nothing to mark, and not asked again
+            // until the cache is cleared.
+            let m = self.get_json(&format!("/{path}/_mapping")).await.ok();
+            {
                 let mut cache = self.vector_fields.lock().unwrap_or_else(|e| e.into_inner());
                 for i in &missing {
                     cache.insert((*i).clone(), Vec::new());
                 }
-                for (name, idx) in m.as_obj().into_iter().flatten() {
+                for (name, idx) in m.as_ref().and_then(J::as_obj).into_iter().flatten() {
                     let fields = vectors::mapping_vectors(idx.get("mappings").unwrap_or(&J::Null))
                         .into_iter()
                         .filter(|(n, _)| !n.contains('.'))

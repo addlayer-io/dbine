@@ -479,15 +479,17 @@ impl SolrSession {
             return v.clone();
         }
         let c = transfer::seg(core);
-        let (Ok(fields), Ok(types)) = (
+        // Unreadable (no privilege, not a core): nothing to mark, and not
+        // asked again until the cache is cleared.
+        let found = match (
             self.get_json(&format!("/solr/{c}/schema/fields?wt=json"))
                 .await,
             self.get_json(&format!("/solr/{c}/schema/fieldtypes?wt=json"))
                 .await,
-        ) else {
-            return Vec::new();
+        ) {
+            (Ok(fields), Ok(types)) => vector_fields(&fields, &types),
+            _ => Vec::new(),
         };
-        let found = vector_fields(&fields, &types);
         self.vector_fields
             .lock()
             .unwrap_or_else(|e| e.into_inner())
