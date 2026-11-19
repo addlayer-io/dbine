@@ -393,7 +393,10 @@ mod tests {
             let label = chars.next().is_some_and(char::is_uppercase)
                 && s.chars().count() >= 3
                 && chars.all(char::is_lowercase);
-            !s.contains(char::is_whitespace) && !spanish && !label
+            // A PEM header (`-----BEGIN PRIVATE KEY-----`) is code too; it
+            // isn't listed as is, where secret scanners take it for a key.
+            let pem = s.starts_with("-----") && s.ends_with("-----");
+            pem || (!s.contains(char::is_whitespace) && !spanish && !label)
         };
         let mut texts: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
         for d in dbine_drivers::all() {

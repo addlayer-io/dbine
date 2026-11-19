@@ -43,7 +43,6 @@ Strict (TDS 8.0)
 Teradata Database ODBC Driver 17.20
 
 # Examples and values
------BEGIN PRIVATE KEY-----
 1 (TCP)
 6 (SSL)
 GizmoSQL: 31337; Dremio: 32010; InfluxDB 3: 8181.
