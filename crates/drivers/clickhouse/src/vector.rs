@@ -40,6 +40,29 @@ pub const DIMENSIONS: &str = "dimensions";
 /// take.
 pub const LEGACY_SET: &str = "SET allow_experimental_vector_similarity_index = 1;";
 
+/// What a server error on a statement that makes a vector index or a
+/// `BFloat16` column is likely to mean: a server older than what the
+/// statement needs (DBine writes the index as ClickHouse 25.8 does, with
+/// the dimension; `dotProduct` came in 26.4, `BFloat16` in 25.1). `code`
+/// is the error's ClickHouse code.
+pub fn version_hint(stmt: &str, code: u32, message: &str) -> Option<&'static str> {
+    let low = stmt.to_ascii_lowercase();
+    // INCORRECT_QUERY, INCORRECT_DATA, BAD_ARGUMENTS, SYNTAX_ERROR,
+    // UNKNOWN_SETTING, SUPPORT_IS_DISABLED.
+    if low.contains(KIND) && [80, 117, 36, 62, 115, 344].contains(&code) {
+        return Some(
+            "Los índices vector_similarity, tal como los escribe DBine (con la dimensión del vector), son de ClickHouse 25.8 o posterior, y la distancia dotProduct (producto interno) de 26.4 o posterior; antes de 25.8 el índice era experimental y no llevaba dimensión.",
+        );
+    }
+    // UNKNOWN_TYPE
+    if code == 50 && low.contains("bfloat16") && message.contains("BFloat16") {
+        return Some(
+            "El tipo BFloat16 es de ClickHouse 25.1 o posterior (experimental desde 24.11).",
+        );
+    }
+    None
+}
+
 /// ClickHouse's distance functions for the index and the standard names
 /// (`dotProduct` from 26.4).
 const METRICS: [(&str, &str); 3] = [
@@ -231,6 +254,35 @@ mod tests {
         assert_eq!(cell_text("[nan,1]"), None);
         assert_eq!(literal(&json!([1.0, 2.5])).as_deref(), Some("[1,2.5]"));
         assert_eq!(literal(&json!("[1]")), None);
+    }
+
+    #[test]
+    fn old_servers_say_what_they_lack() {
+        // 22.8, 26.9 and 22.8, as they answer.
+        let ix = "CREATE TABLE t (v Array(Float32), INDEX i v TYPE vector_similarity('hnsw', 'cosineDistance', 3) GRANULARITY 100000000) ENGINE = MergeTree ORDER BY tuple()";
+        let hint = version_hint(
+            ix,
+            80,
+            "Code: 80. DB::Exception: Unknown Index type 'vector_similarity'. (INCORRECT_QUERY)",
+        )
+        .unwrap();
+        assert!(hint.contains("25.8") && hint.contains("26.4"), "{hint}");
+        assert!(version_hint(
+            ix,
+            117,
+            "Second argument (distance function) of vector similarity index is not supported"
+        )
+        .is_some());
+        assert!(version_hint(
+            "CREATE TABLE t (v Array(BFloat16)) ENGINE = Memory",
+            50,
+            "Code: 50. DB::Exception: Unknown data type family: BFloat16. (UNKNOWN_TYPE)"
+        )
+        .unwrap()
+        .contains("25.1"));
+        // Anything else says nothing more.
+        assert!(version_hint(ix, 60, "Unknown table").is_none());
+        assert!(version_hint("SELECT 1", 80, "x").is_none());
     }
 
     #[test]

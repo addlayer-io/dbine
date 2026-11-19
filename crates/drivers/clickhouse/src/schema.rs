@@ -628,11 +628,15 @@ pub(crate) fn index_clause(ix: &IndexDef) -> String {
                 .unwrap_or(crate::vector::KIND)
                 .to_string()
         });
-        let mut s = format!("INDEX {} {} TYPE {ty}", q(&ix.name), key_expr(&ix.columns));
-        if let Some(g) = vector_granularity(ix) {
-            s.push_str(&format!(" GRANULARITY {g}"));
-        }
-        return s;
+        // The granularity always said: before 23.x ClickHouse required it,
+        // and older servers' default isn't the one vector indexes take.
+        let g = vector_granularity(ix);
+        return format!(
+            "INDEX {} {} TYPE {ty} GRANULARITY {}",
+            q(&ix.name),
+            key_expr(&ix.columns),
+            g.as_deref().unwrap_or(crate::vector::DEFAULT_GRANULARITY)
+        );
     }
     let kind = ix
         .kind
@@ -1413,7 +1417,7 @@ mod tests {
             },
         );
         assert!(
-            ddl.contains("    INDEX `vi` v TYPE vector_similarity('hnsw', 'cosineDistance', 3),\n"),
+            ddl.contains("    INDEX `vi` v TYPE vector_similarity('hnsw', 'cosineDistance', 3) GRANULARITY 100000000,\n"),
             "{ddl}"
         );
         assert!(
@@ -1423,7 +1427,7 @@ mod tests {
         // The old server's index goes back in its own form, its setting first.
         assert!(
             ddl.starts_with("SET allow_experimental_vector_similarity_index = 1;\nCREATE TABLE")
-                && ddl.contains("    INDEX `vo` v TYPE vector_similarity('hnsw', 'cosineDistance', 'f32', 16, 64)\n"),
+                && ddl.contains("    INDEX `vo` v TYPE vector_similarity('hnsw', 'cosineDistance', 'f32', 16, 64) GRANULARITY 100000000\n"),
             "{ddl}"
         );
         // Its settings changed: no longer the old server's index; a new one
@@ -1445,7 +1449,7 @@ mod tests {
         .unwrap();
         let all = sync.statements.join("\n");
         assert!(
-            all.contains("SET allow_experimental_vector_similarity_index = 1;\nALTER TABLE `db`.`emb` ADD INDEX `vo` v TYPE vector_similarity('hnsw', 'cosineDistance', 'f32', 16, 64);"),
+            all.contains("SET allow_experimental_vector_similarity_index = 1;\nALTER TABLE `db`.`emb` ADD INDEX `vo` v TYPE vector_similarity('hnsw', 'cosineDistance', 'f32', 16, 64) GRANULARITY 100000000;"),
             "{all}"
         );
         assert_eq!(all.matches("SET allow_experimental").count(), 1, "{all}");
@@ -1471,7 +1475,7 @@ mod tests {
         );
         assert_eq!(
             ddl,
-            "ALTER TABLE `db`.`emb` ADD INDEX `nuevo` v TYPE vector_similarity('hnsw', 'dotProduct', 3);"
+            "ALTER TABLE `db`.`emb` ADD INDEX `nuevo` v TYPE vector_similarity('hnsw', 'dotProduct', 3) GRANULARITY 100000000;"
         );
         d.indexes[0].vector.as_mut().unwrap().params.clear();
         let e = check_vector_indexes(&d).unwrap_err().to_string();

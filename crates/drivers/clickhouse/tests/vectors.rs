@@ -237,7 +237,7 @@ async fn vectors_end_to_end() {
                 )
                 .unwrap();
             assert!(
-                ddl.contains("INDEX `emb_ix` emb TYPE vector_similarity('hnsw', 'cosineDistance', 3),")
+                ddl.contains("INDEX `emb_ix` emb TYPE vector_similarity('hnsw', 'cosineDistance', 3) GRANULARITY 100000000,")
                     && ddl.contains("INDEX `wide_ix` wide TYPE vector_similarity('hnsw', 'L2Distance', 2, 'f32', 16, 0)"),
                 "{ddl}"
             );
@@ -335,6 +335,11 @@ async fn vectors_end_to_end() {
             );
             assert_eq!(e.vector, schema(&db, "t").indexes[0].vector);
             assert_eq!(ix("wide_ix").vector, schema(&db, "t").indexes[1].vector);
+            // The whole type in the options too, for the schema compare.
+            assert_eq!(
+                e.options.get("type").map(String::as_str),
+                Some("vector_similarity('hnsw', 'cosineDistance', 3)")
+            );
             // The DDL from the catalog makes the same indexes (clone, compare).
             let again = d
                 .table_ddl(
@@ -347,7 +352,7 @@ async fn vectors_end_to_end() {
                 .unwrap();
             assert!(
                 again.contains(
-                    "ADD INDEX `emb_ix` emb TYPE vector_similarity('hnsw', 'cosineDistance', 3);"
+                    "ADD INDEX `emb_ix` emb TYPE vector_similarity('hnsw', 'cosineDistance', 3) GRANULARITY 100000000;"
                 ),
                 "{again}"
             );
@@ -369,6 +374,41 @@ async fn vectors_end_to_end() {
             )
             .await;
             assert_eq!(ids(&out), [json!(3)]);
+
+            // The inner product (dotProduct, ClickHouse 26.4 and later) is
+            // a distance the index takes.
+            let ip = TableSchema {
+                indexes: vec![IndexDef {
+                    name: "ip_ix".into(),
+                    columns: vec!["emb".into()],
+                    vector: Some(VectorIndex {
+                        algorithm: Some("hnsw".into()),
+                        metric: Some("ip".into()),
+                        params: [("dimensions".to_string(), "3".to_string())].into(),
+                    }),
+                    ..Default::default()
+                }],
+                ..t.clone()
+            };
+            let add = d
+                .table_ddl(
+                    &ip,
+                    DdlParts {
+                        indexes: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            assert!(
+                add.contains("TYPE vector_similarity('hnsw', 'dotProduct', 3)"),
+                "{add}"
+            );
+            run(&mut s, &add).await;
+            let all = sd.database_schema().await.unwrap();
+            let t_ip = all.iter().find(|t| t.name == "t").unwrap();
+            let i = t_ip.indexes.iter().find(|i| i.name == "ip_ix").unwrap();
+            assert_eq!(i.vector.as_ref().unwrap().metric.as_deref(), Some("ip"));
+            run(&mut s, &format!("ALTER TABLE `{db}`.t DROP INDEX ip_ix")).await;
 
             // 7. An edit (a mutation; waited for).
             let up = d

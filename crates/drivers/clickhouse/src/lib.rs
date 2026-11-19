@@ -862,6 +862,16 @@ fn stmt_err(e: Error, script: &str, start: usize) -> Error {
     se.into()
 }
 
+/// A statement's error with what the server's version lacks, when that's
+/// the likely reason (a vector index or `BFloat16` on an older server).
+fn with_version_hint(e: Error, stmt: &str) -> Error {
+    let Error::Query(msg) = e else { return e };
+    match exception_code(&msg).and_then(|c| vector::version_hint(stmt, c, &msg)) {
+        Some(hint) => Error::Query(format!("{msg}\n{hint}")),
+        None => Error::Query(msg),
+    }
+}
+
 /// `Code: 516. DB::Exception: …` → the right error kind.
 fn server_error(status: u16, text: &str) -> Error {
     let code = exception_code(text);
@@ -1541,7 +1551,8 @@ impl Session for ClickHouseSession {
                     }
                     Ok::<(), Error>(())
                 };
-                one.await.map_err(|e| stmt_err(e, text, start))?;
+                one.await
+                    .map_err(|e| stmt_err(with_version_hint(e, &stmt), text, start))?;
                 self.done();
                 // Requests carry `database=`, which would undo the USE on
                 // the next one: the session follows it instead, and so
