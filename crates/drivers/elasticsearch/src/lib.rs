@@ -630,9 +630,9 @@ struct EsSession {
     /// ordinary HTTP error, so `execute` turns it into a cancel and runs
     /// nothing more, even on a run that continues on errors.
     interrupted: Arc<AtomicBool>,
-    /// The top-level vector fields of each index whose mapping was read to
-    /// mark the vector columns of search hits; cleared by any request that
-    /// may change a mapping.
+    /// The vector fields (dotted paths) of each index whose mapping was
+    /// read to mark the vector columns of search hits or to pack the bit
+    /// vectors of a write; cleared by any request that may change a mapping.
     vector_fields: std::sync::Mutex<HashMap<String, Vec<(String, vectors::VecType)>>>,
 }
 
@@ -659,6 +659,73 @@ fn hit_indices(resp: &J) -> Vec<String> {
         }
     }
     out
+}
+
+/// The fields of each index in `asked` from a `_mapping` reply (keyed by
+/// concrete index): a name asked alone that isn't a key (an alias, a data
+/// stream) gets the fields of every index the reply has. The reply's own
+/// indices are listed too.
+fn mapping_fields_of(m: &J, asked: &[String]) -> Vec<(String, Vec<(String, vectors::VecType)>)> {
+    let mut out: Vec<(String, Vec<(String, vectors::VecType)>)> = Vec::new();
+    for (name, idx) in m.as_obj().into_iter().flatten() {
+        out.push((
+            name.clone(),
+            vectors::mapping_vectors(idx.get("mappings").unwrap_or(&J::Null)),
+        ));
+    }
+    for a in asked {
+        if out.iter().any(|(n, _)| n == a) {
+            continue;
+        }
+        let mut fields: Vec<(String, vectors::VecType)> = Vec::new();
+        if asked.len() == 1 {
+            for (_, f) in &out {
+                for (n, t) in f {
+                    if !fields.iter().any(|(x, _)| x == n) {
+                        fields.push((n.clone(), t.clone()));
+                    }
+                }
+            }
+        }
+        out.push((a.clone(), fields));
+    }
+    out
+}
+
+/// Whether a search filters `_source` itself (`"_source": false`, a list,
+/// includes / excludes, `_source*` URL parameters): vectors missing from
+/// its hits are then its own choice.
+fn source_filtered(body: Option<&J>, path: &str) -> bool {
+    let in_url = path
+        .split_once('?')
+        .is_some_and(|(_, q)| q.split('&').any(|kv| kv.starts_with("_source")));
+    in_url
+        || !matches!(
+            body.and_then(|b| b.get("_source")),
+            None | Some(J::Bool(true))
+        )
+}
+
+/// A single document read by id: `GET /<index>/_doc/<id>` (its `_index`,
+/// `_id` and source fields) or `GET /<index>/_source/<id>` (its source),
+/// with the index whose mapping types it.
+fn single_doc(req: &Request, resp: &J) -> Option<(String, json::Obj)> {
+    if req.method != "GET" {
+        return None;
+    }
+    let segs = req.segments();
+    match segs.as_slice() {
+        [_, "_doc", _] if resp.get("found").and_then(J::as_bool) == Some(true) => {
+            let index = resp.get("_index")?.as_str()?.to_string();
+            let mut doc = flatten::hit_doc(resp);
+            doc.retain(|(k, v)| k != "_score" || !matches!(v, J::Null));
+            Some((index, doc))
+        }
+        [index, "_source", _] if !index.starts_with('_') => {
+            Some((index.to_string(), resp.as_obj()?.clone()))
+        }
+        _ => None,
+    }
 }
 
 fn rcol(name: &str, ty: &str) -> ResultColumn {
@@ -717,48 +784,77 @@ impl EsSession {
             && dbine_driver::functions::version_at_least(&self.version, "9.2")
     }
 
-    /// The top-level vector fields of the indices `resp`'s hits come from,
-    /// from their mappings (read once, until a request may change them). A
-    /// mapping that can't be read marks nothing.
-    async fn hit_vectors(&self, resp: &J) -> Vec<(String, vectors::VecType)> {
-        let indices = hit_indices(resp);
-        if indices.is_empty() {
-            return Vec::new();
-        }
-        let missing: Vec<&String> = {
+    /// Elasticsearch 7, whose `dense_vector` has no `index` parameter.
+    fn before_8(&self) -> bool {
+        self.flavor() == Flavor::Elastic
+            && self.version.chars().any(|c| c.is_ascii_digit())
+            && !dbine_driver::functions::version_at_least(&self.version, "8.0")
+    }
+
+    /// The vector fields of each of `indices`, from their mappings (read
+    /// once, until a request may change them). One `_mapping` request for
+    /// all of them, and one per index when it fails, so an index that
+    /// can't be read (no privilege) marks nothing only for itself. A name
+    /// asked alone that isn't an index (an alias, a data stream) gets the
+    /// fields of the indices it reaches.
+    async fn index_vectors(&self, indices: &[String]) -> Vec<Vec<(String, vectors::VecType)>> {
+        let missing: Vec<String> = {
             let cache = self.vector_fields.lock().unwrap_or_else(|e| e.into_inner());
-            indices.iter().filter(|i| !cache.contains_key(*i)).collect()
+            indices
+                .iter()
+                .filter(|i| !cache.contains_key(*i))
+                .cloned()
+                .collect()
         };
         if !missing.is_empty() {
+            let mut found: Vec<(String, Vec<(String, vectors::VecType)>)> = Vec::new();
             let path = missing
                 .iter()
                 .map(|i| ddl::path_segment(i))
                 .collect::<Vec<_>>()
                 .join(",");
-            // Unreadable (no privilege): nothing to mark, and not asked again
-            // until the cache is cleared.
-            let m = self.get_json(&format!("/{path}/_mapping")).await.ok();
+            match self
+                .get_json(&format!("/{path}/_mapping?ignore_unavailable=true"))
+                .await
             {
-                let mut cache = self.vector_fields.lock().unwrap_or_else(|e| e.into_inner());
-                for i in &missing {
-                    cache.insert((*i).clone(), Vec::new());
+                Ok(m) => found.extend(mapping_fields_of(&m, &missing)),
+                Err(_) if missing.len() > 1 => {
+                    for i in &missing {
+                        let asked = std::slice::from_ref(i);
+                        match self
+                            .get_json(&format!("/{}/_mapping", ddl::path_segment(i)))
+                            .await
+                        {
+                            Ok(m) => found.extend(mapping_fields_of(&m, asked)),
+                            Err(_) => found.push((i.clone(), Vec::new())),
+                        }
+                    }
                 }
-                for (name, idx) in m.as_ref().and_then(J::as_obj).into_iter().flatten() {
-                    let fields = vectors::mapping_vectors(idx.get("mappings").unwrap_or(&J::Null))
-                        .into_iter()
-                        .filter(|(n, _)| !n.contains('.'))
-                        .collect();
-                    cache.insert(name.clone(), fields);
-                }
+                // Unreadable: nothing to mark, and not asked again until
+                // the cache is cleared.
+                Err(_) => found.push((missing[0].clone(), Vec::new())),
+            }
+            let mut cache = self.vector_fields.lock().unwrap_or_else(|e| e.into_inner());
+            for (name, fields) in found {
+                cache.insert(name, fields);
             }
         }
         let cache = self.vector_fields.lock().unwrap_or_else(|e| e.into_inner());
+        indices
+            .iter()
+            .map(|i| cache.get(i).cloned().unwrap_or_default())
+            .collect()
+    }
+
+    /// The top-level vector fields of `indices` (the columns of their
+    /// documents), merged: indices that disagree on a field's dimension
+    /// give a vector of no fixed length.
+    async fn doc_vectors(&self, indices: &[String]) -> Vec<(String, vectors::VecType)> {
         let mut out: Vec<(String, vectors::VecType)> = Vec::new();
-        for i in &indices {
-            for (n, t) in cache.get(i).into_iter().flatten() {
-                match out.iter_mut().find(|(o, _)| o == n) {
-                    None => out.push((n.clone(), t.clone())),
-                    // Indices that disagree: a vector of no fixed length.
+        for fields in self.index_vectors(indices).await {
+            for (n, t) in fields.into_iter().filter(|(n, _)| !n.contains('.')) {
+                match out.iter_mut().find(|(o, _)| *o == n) {
+                    None => out.push((n, t)),
                     Some((_, o)) if o.dims != t.dims => {
                         o.dims = None;
                         o.type_name = o.spelling();
@@ -770,15 +866,26 @@ impl EsSession {
         out
     }
 
+    /// The top-level vector fields of the indices `resp`'s hits come from.
+    async fn hit_vectors(&self, resp: &J) -> Vec<(String, vectors::VecType)> {
+        let indices = hit_indices(resp);
+        if indices.is_empty() {
+            return Vec::new();
+        }
+        self.doc_vectors(&indices).await
+    }
+
     /// Hits without the vector fields their mapping has, on a server that
-    /// leaves them out of `_source`: say how to ask for them.
+    /// leaves them out of `_source`: say how to ask for them, unless the
+    /// search filters `_source` itself (`filtered`).
     fn vectors_left_out(
         &self,
         resp: &J,
         vectors: &[(String, vectors::VecType)],
+        filtered: bool,
         out: &mut QueryOutcome,
     ) {
-        if vectors.is_empty() || !self.excludes_vectors() {
+        if vectors.is_empty() || filtered || !self.excludes_vectors() {
             return;
         }
         let hits = resp
@@ -796,6 +903,62 @@ impl EsSession {
                 "Elasticsearch deja los vectores ({}) fuera de _source: para verlos, agregá \"_source\": {{\"exclude_vectors\": false}} a la búsqueda.",
                 vectors.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", ")
             ));
+        }
+    }
+
+    /// A write's body with what the server needs that DBine writes another
+    /// way: bit (binary) vectors given one 0 / 1 per dimension, as results
+    /// and scripts show them, packed into their bytes from the target's
+    /// mapping; and, on Elasticsearch 7, the `"index": false` of vectors
+    /// without a vector index (it has no such parameter). `None`: as it is.
+    async fn adapted_body(&self, req: &Request) -> Option<String> {
+        let body = req.body.as_deref()?;
+        if !matches!(req.method.as_str(), "PUT" | "POST") {
+            return None;
+        }
+        let segs = req.segments();
+        let index = segs.first().copied().filter(|s| !s.starts_with('_'));
+        let op = segs.iter().copied().find(|s| s.starts_with('_'));
+        if self.before_8() && body.contains("dense_vector") {
+            return vectors::strip_unindexed(body);
+        }
+        // Only a body with arrays can hold a vector.
+        if !body.contains('[') {
+            return None;
+        }
+        let has_bits =
+            |f: &[(String, vectors::VecType)]| f.iter().any(|(_, t)| t.elem == vectors::Elem::Bit);
+        match op? {
+            "_bulk" => {
+                let indices = vectors::bulk_indices(body, index);
+                if indices.is_empty() {
+                    return None;
+                }
+                let fields: HashMap<String, Vec<(String, vectors::VecType)>> = indices
+                    .iter()
+                    .cloned()
+                    .zip(self.index_vectors(&indices).await)
+                    .filter(|(_, f)| has_bits(f))
+                    .collect();
+                if fields.is_empty() {
+                    return None;
+                }
+                vectors::pack_bulk(body, index, &|i| fields.get(i).cloned())
+            }
+            op @ ("_doc" | "_create" | "_update" | "_update_by_query") => {
+                let fields = self.index_vectors(&[index?.to_string()]).await.pop()?;
+                if !has_bits(&fields) {
+                    return None;
+                }
+                let mut doc = J::parse(body).ok()?;
+                let changed = if matches!(op, "_doc" | "_create") {
+                    vectors::pack_bits(&mut doc, &fields)
+                } else {
+                    vectors::pack_partial(&mut doc, &fields)
+                };
+                changed.then(|| doc.compact())
+            }
+            _ => None,
         }
     }
 
@@ -827,7 +990,8 @@ impl EsSession {
             path.push_str("format=json");
         }
         let mut rb = self.request(&req.method, &path);
-        if let Some(body) = &req.body {
+        let adapted = self.adapted_body(req).await;
+        if let Some(body) = adapted.as_ref().or(req.body.as_ref()) {
             let ndjson = req.is_ndjson() || segs.iter().any(|s| matches!(*s, "_bulk" | "_msearch"));
             rb = if ndjson {
                 let mut b = body.clone();
@@ -861,6 +1025,17 @@ impl EsSession {
         }
         let vectors = self.hit_vectors(&resp).await;
         if let Some(responses) = resp.get("responses").and_then(J::as_arr) {
+            // `_msearch`: a header line, then each search's body.
+            let bodies: Vec<Option<J>> = req
+                .body
+                .as_deref()
+                .unwrap_or("")
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .skip(1)
+                .step_by(2)
+                .map(|l| J::parse(l).ok())
+                .collect();
             for (i, r) in responses.iter().enumerate() {
                 match r.get("error") {
                     Some(_) => out.warning(format!(
@@ -870,13 +1045,20 @@ impl EsSession {
                     )),
                     None => {
                         flatten::push_search_typed(out, r, max_rows, &vectors);
-                        self.vectors_left_out(r, &vectors, out);
+                        let body = bodies.get(i).and_then(Option::as_ref);
+                        let filtered = source_filtered(body, &req.path);
+                        self.vectors_left_out(r, &vectors, filtered, out);
                     }
                 }
             }
         } else if resp.at(&["hits", "hits"]).is_some() {
             flatten::push_search_typed(out, &resp, max_rows, &vectors);
-            self.vectors_left_out(&resp, &vectors, out);
+            let body = req.body.as_deref().and_then(|b| J::parse(b).ok());
+            let filtered = source_filtered(body.as_ref(), &req.path);
+            self.vectors_left_out(&resp, &vectors, filtered, out);
+        } else if let Some((index, doc)) = single_doc(req, &resp) {
+            let vectors = self.doc_vectors(&[index]).await;
+            flatten::push_docs_typed(out, [doc], max_rows, &vectors);
         } else if let (Some(docs), true) = (
             resp.get("docs").and_then(J::as_arr),
             segs.contains(&"_mget"),
@@ -1747,6 +1929,73 @@ async fn cancel_tasks(client: &reqwest::Client, base: &str, opaque_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn single_documents_by_id() {
+        let get = |path: &str| req("GET", path);
+        let resp = J::parse(
+            r#"{"_index":"docs-1","_id":"7","_version":1,"found":true,"_source":{"t":"x","v":[1,2]}}"#,
+        )
+        .unwrap();
+        let (index, doc) = single_doc(&get("/docs/_doc/7"), &resp).unwrap();
+        assert_eq!(index, "docs-1");
+        assert_eq!(
+            doc.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
+            ["_index", "_id", "t", "v"]
+        );
+        let missing = J::parse(r#"{"_index":"docs","_id":"8","found":false}"#).unwrap();
+        assert!(single_doc(&get("/docs/_doc/8"), &missing).is_none());
+        let src = J::parse(r#"{"t":"x","v":[1,2]}"#).unwrap();
+        let (index, doc) = single_doc(&get("/docs/_source/7"), &src).unwrap();
+        assert_eq!((index.as_str(), doc.len()), ("docs", 2));
+        assert!(single_doc(&get("/docs/_search"), &src).is_none());
+    }
+
+    #[test]
+    fn a_search_that_filters_its_source_gets_no_vector_hint() {
+        let b = |s: &str| J::parse(s).unwrap();
+        assert!(!source_filtered(None, "/x/_search"));
+        assert!(!source_filtered(Some(&b(r#"{"query":{}}"#)), "/x/_search"));
+        assert!(!source_filtered(
+            Some(&b(r#"{"_source":true}"#)),
+            "/x/_search"
+        ));
+        for f in [
+            r#"{"_source":false}"#,
+            r#"{"_source":["title"]}"#,
+            r#"{"_source":"title"}"#,
+            r#"{"_source":{"includes":["title"]}}"#,
+        ] {
+            assert!(source_filtered(Some(&b(f)), "/x/_search"), "{f}");
+        }
+        assert!(source_filtered(None, "/x/_search?_source_includes=title"));
+        assert!(source_filtered(None, "/x/_search?q=a&_source=false"));
+    }
+
+    #[test]
+    fn mappings_mark_each_index_and_aliases() {
+        let m = J::parse(
+            r#"{"a":{"mappings":{"properties":{"v":{"type":"dense_vector","dims":3}}}},"b":{"mappings":{"properties":{"w":{"type":"knn_vector","dimension":2}}}}}"#,
+        )
+        .unwrap();
+        let got = mapping_fields_of(&m, &["a".into(), "b".into()]);
+        let names = |n: &str| -> Vec<String> {
+            got.iter()
+                .find(|(i, _)| i == n)
+                .map(|(_, f)| f.iter().map(|(x, _)| x.clone()).collect())
+                .unwrap()
+        };
+        assert_eq!(
+            (names("a"), names("b")),
+            (vec!["v".to_string()], vec!["w".to_string()])
+        );
+        // An alias asked alone: the fields of every index it reaches.
+        let got = mapping_fields_of(&m, &["alias".into()]);
+        assert_eq!(got.iter().find(|(i, _)| i == "alias").unwrap().1.len(), 2);
+        // Asked with others, a name the reply lacks gets nothing.
+        let got = mapping_fields_of(&m, &["a".into(), "gone".into()]);
+        assert!(got.iter().find(|(i, _)| i == "gone").unwrap().1.is_empty());
+    }
 
     /// Every flavor cuts a console script into its requests, where
     /// `execute` numbers them.
