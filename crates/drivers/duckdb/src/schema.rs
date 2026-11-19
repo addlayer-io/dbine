@@ -309,8 +309,45 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
 }
 
 /// Index option: the `WITH (…)` of an index of an extension's kind
-/// (`RTREE`…), as written.
+/// (`RTREE`…), as written; an HNSW index's settings, as the DDL writes
+/// them (for the schema compare, which reads the options).
 pub const WITH: &str = "with";
+
+/// Is `ty` a `FLOAT[n]` (a fixed-size array of 32-bit floats), the only
+/// column vss's HNSW indexes?
+fn is_float_array(ty: &str) -> bool {
+    let t = ty.trim().to_ascii_uppercase();
+    let Some((base, rest)) = t.split_once('[') else {
+        return false;
+    };
+    let Some(n) = rest.strip_suffix(']') else {
+        return false;
+    };
+    matches!(base.trim(), "FLOAT" | "REAL" | "FLOAT4")
+        && !n.trim().is_empty()
+        && n.trim().chars().all(|c| c.is_ascii_digit())
+}
+
+/// Every vector index of `t` on a `FLOAT[n]` column; `Err` says which one
+/// isn't and why (DuckDB's own error is an English binder error).
+pub fn check_hnsw_columns(t: &TableSchema) -> Result<(), String> {
+    for ix in t.indexes.iter().filter(|ix| index_kind(ix) == HNSW) {
+        let Some(c) = ix
+            .columns
+            .first()
+            .and_then(|k| t.columns.iter().find(|c| &c.name == k))
+        else {
+            continue;
+        };
+        if !is_float_array(&c.data_type) {
+            return Err(format!(
+                "El índice vectorial «{}»: vss (el índice HNSW de DuckDB) solo indexa columnas FLOAT[n] de dimensión fija, y «{}» es {}.",
+                ix.name, c.name, c.data_type
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// An index's kind: `HNSW` for a vector index, the catalog's (`ART`,
 /// `RTREE`…) otherwise; DuckDB's own `ART` when it says none.
@@ -890,7 +927,15 @@ pub fn assemble(cat: Catalog) -> Vec<TableSchema> {
             ..Default::default()
         };
         if kind.eq_ignore_ascii_case(HNSW) {
-            ix.vector = Some(hnsw_vector(with.as_deref()));
+            let v = hnsw_vector(with.as_deref());
+            // Its settings in the options too, as the DDL writes them: the
+            // schema compare reads an index's options, not its vector
+            // settings.
+            let w = hnsw_with(&v);
+            if let Some(w) = w.strip_prefix(" WITH (").and_then(|w| w.strip_suffix(')')) {
+                ix.options.insert(WITH.into(), w.to_string());
+            }
+            ix.vector = Some(v);
         } else if let Some(w) = with.filter(|w| !w.is_empty()) {
             ix.options.insert(WITH.into(), w);
         }
@@ -992,8 +1037,15 @@ mod tests {
                 .collect::<Vec<_>>(),
             ["ef_construction=64", "ef_search=32", "m=8", "m0=16"]
         );
+        // The settings in the options too, in one order whatever the
+        // stored order: the schema compare reads them.
+        assert_eq!(
+            ix.options.get(WITH).map(String::as_str),
+            Some("metric = 'cosine', ef_construction = 64, ef_search = 32, M = 8, M0 = 16")
+        );
         // No metric: vss's default (l2sq), left unsaid.
         assert_eq!(t.indexes[1].vector.as_ref().unwrap().metric, None);
+        assert!(t.indexes[1].options.is_empty());
         // Another extension's index keeps its kind and options.
         assert_eq!(t.indexes[2].kind.as_deref(), Some("RTREE"));
         assert!(t.indexes[2].vector.is_none());
@@ -1060,6 +1112,22 @@ mod tests {
             ddl.ends_with("CREATE INDEX IF NOT EXISTS \"i\" ON \"main\".\"t\" USING HNSW (\"v\") WITH (metric = 'l2sq', M = 12);"),
             "{ddl}"
         );
+        // vss indexes FLOAT[n] only: anything else is refused with why.
+        let with_col = |ty: &str| TableSchema {
+            columns: vec![ColumnDef {
+                name: "v".into(),
+                data_type: ty.into(),
+                ..Default::default()
+            }],
+            ..one.clone()
+        };
+        for ok in ["FLOAT[3]", "float4[1536]", "REAL[2]"] {
+            check_hnsw_columns(&with_col(ok)).unwrap();
+        }
+        for no in ["DOUBLE[3]", "FLOAT[]", "FLOAT[3][2]", "FLOAT", "VARCHAR"] {
+            let e = check_hnsw_columns(&with_col(no)).unwrap_err();
+            assert!(e.contains("«i»") && e.contains(no), "{e}");
+        }
         let d = designer();
         assert!(d.data_types.contains(&"FLOAT[1536]"));
         let vi = d.vector_indexes.unwrap();

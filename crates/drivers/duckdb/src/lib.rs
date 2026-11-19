@@ -245,7 +245,12 @@ impl Driver for DuckDbDriver {
         schema::templates()
     }
 
+    /// A vector index on a column vss can't index (only `FLOAT[n]`) is
+    /// refused here, with why, instead of DuckDB's binder error.
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
+        if parts.indexes {
+            schema::check_hnsw_columns(table).map_err(Error::Query)?;
+        }
         Ok(schema::table_ddl(table, parts))
     }
 
@@ -278,6 +283,13 @@ impl Driver for DuckDbDriver {
         &self,
         changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
+        for ch in changes {
+            if let dbine_driver::TableChange::Create { table: t }
+            | dbine_driver::TableChange::Alter { new: t, .. } = ch
+            {
+                schema::check_hnsw_columns(t).map_err(Error::Query)?;
+            }
+        }
         schema::sync_script(changes)
     }
 
