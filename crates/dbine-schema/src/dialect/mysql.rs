@@ -1006,6 +1006,67 @@ mod tests {
         }
     }
 
+    /// A Manticore table as its driver describes it converts to another
+    /// family with its vectors' dimension (`float_vector` doesn't say it;
+    /// the KNN index does). Live: `DBINE_TEST_MANTICORE_URL`
+    /// (`mysql://127.0.0.1:port`), skipped without it; the table is dropped
+    /// first and at the end.
+    #[tokio::test]
+    #[ignore]
+    async fn manticore_described_converts_with_its_dimension() {
+        use crate::convert::{convert, Options};
+        let Ok(url) = std::env::var("DBINE_TEST_MANTICORE_URL") else {
+            eprintln!("DBINE_TEST_MANTICORE_URL not set; skipping");
+            return;
+        };
+        let rest = url.split_once("://").map_or(url.as_str(), |(_, r)| r);
+        let (host, port) = rest.rsplit_once(':').expect("host:port");
+        let cfg = dbine_driver::ConnectionConfig {
+            driver: "manticore".into(),
+            host: host.into(),
+            port: port.parse().expect("port"),
+            ..Default::default()
+        };
+        let d = dbine_drivers::find("manticore").expect("manticore driver");
+        let mut s = d.connect(&cfg, None).await.expect("connect");
+        let drop = "DROP TABLE IF EXISTS dbine_conv_items";
+        let mut out = dbine_driver::QueryOutcome::default();
+        let _ = s.execute(drop, 10, &mut out).await;
+        let mut out = dbine_driver::QueryOutcome::default();
+        s.execute(
+            "CREATE TABLE dbine_conv_items (title text, v float_vector knn_type='hnsw' knn_dims='3' hnsw_similarity='L2')",
+            10,
+            &mut out,
+        )
+        .await
+        .expect("create");
+        let described = s.database_schema().await;
+        let mut out = dbine_driver::QueryOutcome::default();
+        let _ = s.execute(drop, 10, &mut out).await;
+        let t = described
+            .expect("database_schema")
+            .into_iter()
+            .find(|t| t.name == "dbine_conv_items")
+            .expect("described");
+        for (to, want) in [("postgres", "vector(3)"), ("clickhouse", "Array(Float32)")] {
+            let c = convert(
+                std::slice::from_ref(&t),
+                "manticore",
+                to,
+                &Options::default(),
+            )
+            .unwrap();
+            let t = &c.tables[0];
+            let v = t.columns.iter().find(|c| c.name == "v").unwrap();
+            assert_eq!(v.data_type, want, "{to}: {:?}", c.issues);
+            assert!(
+                t.indexes.iter().any(|i| i.vector.is_some()),
+                "{to}: {:?}",
+                c.issues
+            );
+        }
+    }
+
     #[test]
     fn vector_indexes_on_columns_that_arent_vectors_are_left_out() {
         use crate::convert::{convert, Options};
