@@ -333,6 +333,9 @@ impl Driver for SpannerDriver {
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
+        if parts.indexes {
+            structure::check_vectors(table)?;
+        }
         Ok(table_ddl(table, parts))
     }
 
@@ -826,20 +829,16 @@ pub(crate) fn vector_element(t: &Json) -> Option<VectorElement> {
 }
 
 /// A float array (as the API sends it) as the vector text: `[0.1,2]`,
-/// FLOAT32 at its own precision; NaN, ±∞ and NULL elements are `null`.
-/// `None` when it isn't a list of numbers.
+/// FLOAT32 at its own precision. `None` when it isn't a list of finite
+/// numbers: a NULL, NaN or ±∞ element (`"NaN"`, `"Infinity"` in the API)
+/// has no vector text (it would be `null`, and load back as a NULL), so
+/// such an array keeps its plain JSON text, NaN included.
 pub(crate) fn vector_text(v: &Json, element: VectorElement) -> Option<String> {
     let vals = v
         .as_array()?
         .iter()
         .map(|e| match e {
-            Json::Number(n) => n.as_f64(),
-            Json::Null => Some(f64::NAN),
-            Json::String(s) => Some(match s.as_str() {
-                "Infinity" => f64::INFINITY,
-                "-Infinity" => f64::NEG_INFINITY,
-                _ => f64::NAN,
-            }),
+            Json::Number(n) => n.as_f64().filter(|x| x.is_finite()),
             _ => None,
         })
         .collect::<Option<Vec<f64>>>()?;
@@ -851,8 +850,13 @@ pub(crate) fn vector_text(v: &Json, element: VectorElement) -> Option<String> {
 }
 
 /// A vector of an edit or insert as a GoogleSQL literal. The element type
-/// has to be written (an untyped `[1, 2]` is ARRAY<INT64>, which no float
-/// column takes); FLOAT32 is Spanner's usual embedding type.
+/// has to be written: an untyped `[1, 2]` is ARRAY<INT64>, and even
+/// `[1.0, 2.0]` (ARRAY<FLOAT64>) is refused by a FLOAT32 column, as
+/// `ARRAY<FLOAT32>[…]` is by a FLOAT64 one (no array coercion either way;
+/// checked on the emulator). Scripts don't receive the column's type, so
+/// this writes FLOAT32, the type of Spanner's vector index examples; a
+/// FLOAT64 vector column needs `ARRAY<FLOAT64>` written by hand (a
+/// contract request).
 fn vector_literal(v: &[f64]) -> String {
     let items: Vec<String> = v
         .iter()
@@ -2070,9 +2074,16 @@ mod tests {
             json!("[0.1,2,-3.5]")
         );
         assert_eq!(
-            cell(&json!([0.1, 1e-7, "NaN", null]), &f64t),
-            json!("[0.1,0.0000001,null,null]")
+            cell(&json!([0.1, 1e-7, -2]), &f64t),
+            json!("[0.1,0.0000001,-2]")
         );
+        // NaN, ±∞ or a NULL element: no vector text (it would read back as
+        // NULL), the array's plain JSON as before.
+        assert_eq!(vector_text(&json!([0.1, "NaN"]), VectorElement::F64), None);
+        assert_eq!(vector_text(&json!([0.1, null]), VectorElement::F64), None);
+        assert_eq!(vector_text(&json!(["-Infinity"]), VectorElement::F32), None);
+        let odd = cell(&json!([0.1, 1e-7, "NaN", null]), &f64t);
+        assert!(odd.as_str().unwrap().contains("NaN"), "{odd}");
         assert_eq!(cell(&json!(["1", "2"]), &ints), json!("[1,2]"));
         let mut out = QueryOutcome::default();
         push_rows(

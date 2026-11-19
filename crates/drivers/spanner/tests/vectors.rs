@@ -397,5 +397,86 @@ async fn scenario(url: &str) {
             json!("[1,2,3]")
         ]
     );
+
+    // 9. A float array with NaN or ±∞ has no vector text: it moves as it
+    // was (NaN stays NaN, not NULL).
+    run(
+        &mut s,
+        "CREATE TABLE odd (id INT64 NOT NULL, f ARRAY<FLOAT64>) PRIMARY KEY (id)",
+    )
+    .await;
+    run(
+        &mut s,
+        "CREATE TABLE odd_copy (id INT64 NOT NULL, f ARRAY<FLOAT64>) PRIMARY KEY (id)",
+    )
+    .await;
+    run(
+        &mut s,
+        "INSERT INTO odd (id, f) VALUES (1, [CAST('NaN' AS FLOAT64), 1.5, CAST('inf' AS FLOAT64)])",
+    )
+    .await;
+    let sink = Arc::new(Mutex::new(Collect::default()));
+    s.read_batches(
+        &ReadSpec {
+            table: table("odd"),
+            columns: None,
+            filter: None,
+        },
+        sink.clone(),
+    )
+    .await
+    .unwrap();
+    let got = std::mem::take(&mut *sink.lock().unwrap());
+    let Cell::Json(t) = &got.rows[0][1] else {
+        panic!("{:?}", got.rows[0][1])
+    };
+    assert!(t.contains("NaN") && !t.contains("null"), "{t}");
+    let n = s
+        .bulk_load(
+            &LoadSpec {
+                table: table("odd_copy"),
+                columns: vec!["id".into(), "f".into()],
+                table_lock: false,
+                keep_identity: false,
+                commit_rows: LoadSpec::DEFAULT_COMMIT_ROWS,
+                commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
+            },
+            &got.columns,
+            &mut Once(Some(got.rows.clone())),
+            &|_| {},
+        )
+        .await
+        .unwrap();
+    assert_eq!(n, 1);
+    let out = run(
+        &mut s,
+        "SELECT IS_NAN(f[OFFSET(0)]), f[OFFSET(1)], IS_INF(f[OFFSET(2)]) FROM odd_copy",
+    )
+    .await;
+    assert_eq!(
+        out.results[0].rows[0],
+        vec![json!(true), json!(1.5), json!(true)]
+    );
+
+    // 10. Settings Spanner refuses are refused before anything runs.
+    let mut bad = docs.clone();
+    bad.name = "docs_bad".into();
+    bad.indexes[0]
+        .vector
+        .as_mut()
+        .unwrap()
+        .params
+        .insert("tree_depth".into(), "4".into());
+    let e = d
+        .table_ddl(
+            &bad,
+            DdlParts {
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+    assert!(e.to_string().contains("tree_depth"), "{e}");
     eprintln!("spanner vectors: table, index, scripts, query and transfer checked");
 }

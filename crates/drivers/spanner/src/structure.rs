@@ -130,6 +130,49 @@ pub fn effective_options(ix: &IndexDef) -> BTreeMap<String, String> {
     o
 }
 
+/// A vector index's settings, checked before anything runs (Spanner says
+/// the same, but only after the script started): `tree_depth` 2 or 3,
+/// whole numbers above zero for the tree's sizes, and a
+/// `leaf_scatter_factor` from 0 to 32.
+pub fn check_vectors(t: &TableSchema) -> dbine_driver::Result<()> {
+    for ix in t.indexes.iter().filter(|ix| is_vector(ix)) {
+        for (k, v) in effective_options(ix) {
+            if k == "distance_type" || !VECTOR_OPTIONS.contains(&k.as_str()) {
+                continue;
+            }
+            let n = unquoted(&v).parse::<i64>().ok();
+            let ok = match k.as_str() {
+                "tree_depth" => matches!(n, Some(2 | 3)),
+                "leaf_scatter_factor" => n.is_some_and(|n| (0..=32).contains(&n)),
+                _ => n.is_some_and(|n| n > 0),
+            };
+            if !ok {
+                let why = match k.as_str() {
+                    "tree_depth" => "la profundidad del árbol es 2 o 3",
+                    "leaf_scatter_factor" => "va de 0 a 32",
+                    _ => "es un número entero mayor que cero",
+                };
+                return Err(dbine_driver::Error::Unsupported(format!(
+                    "Índice vectorial {}: {} = {} no sirve ({why}).",
+                    ix.name,
+                    spanner_label(&k),
+                    v.trim()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A tree setting as the designer shows it (`num_leaves` is its lists).
+fn spanner_label(k: &str) -> &str {
+    if k == "num_leaves" {
+        "num_leaves (listas)"
+    } else {
+        k
+    }
+}
+
 /// A vector index as Spanner writes it: one key column (the vector; the
 /// designer's filter columns are `STORING`), a vector kind, its options from
 /// its settings, and, on a nullable column, the `IS NOT NULL` filter
@@ -718,5 +761,59 @@ mod tests {
             check_clause("p", &new.checks[2]),
             "CONSTRAINT `ck_a` CHECK (a > 0)"
         );
+    }
+
+    /// Settings Spanner refuses are refused before the script runs, with
+    /// the same limits the emulator applies.
+    #[test]
+    fn vector_settings_are_checked() {
+        let mk = |params: &[(&str, &str)]| {
+            let mut v = VectorIndex {
+                metric: Some(metric::COSINE.into()),
+                ..Default::default()
+            };
+            for (k, val) in params {
+                v.params.insert(k.to_string(), val.to_string());
+            }
+            TableSchema {
+                name: "v".into(),
+                indexes: vec![IndexDef {
+                    name: "vx".into(),
+                    columns: vec!["e".into()],
+                    vector: Some(v),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }
+        };
+        assert!(check_vectors(&mk(&[("tree_depth", "2"), ("lists", "1000")])).is_ok());
+        assert!(check_vectors(&mk(&[
+            ("tree_depth", "3"),
+            ("num_branches", "10"),
+            ("leaf_scatter_factor", "0"),
+            ("min_leaf_splits", "")
+        ]))
+        .is_ok());
+        for bad in [
+            ("tree_depth", "4"),
+            ("lists", "0"),
+            ("lists", "mil"),
+            ("num_branches", "-1"),
+            ("leaf_scatter_factor", "40"),
+        ] {
+            let e = check_vectors(&mk(&[bad])).unwrap_err().to_string();
+            assert!(e.contains("vx") && e.contains("no sirve"), "{bad:?}: {e}");
+        }
+        // Through the driver's own entry points.
+        let t = mk(&[("tree_depth", "5")]);
+        assert!(crate::sync::sync_script(&[TableChange::Create { table: t.clone() }]).is_err());
+        assert!(crate::sync::sync_script(&[TableChange::Alter {
+            old: TableSchema {
+                indexes: vec![],
+                ..t.clone()
+            },
+            new: t
+        }])
+        .is_err());
     }
 }
