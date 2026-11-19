@@ -28,6 +28,8 @@ const REDSHIFT: &str = include_str!("functions/redshift.txt");
 const RISINGWAVE: &str = include_str!("functions/risingwave.txt");
 const H2: &str = include_str!("functions/h2.txt");
 const DENODO: &str = include_str!("functions/denodo.txt");
+/// pgvector's functions, by the extension's version.
+const PGVECTOR: &str = include_str!("functions/pgvector.txt");
 
 /// Window functions the catalogs that don't say so (Materialize's) list as
 /// plain functions.
@@ -117,7 +119,30 @@ async fn pg(s: &PgSession) -> Vec<FunctionInfo> {
             Err(e) => tracing::debug!("{:?}: pg_proc unavailable: {e}", s.variant),
         }
     }
-    pg_functions::fallback(s.version)
+    let mut out = pg_functions::fallback(s.version);
+    out.extend(pgvector_fallback(s).await);
+    out
+}
+
+/// pgvector's functions for its installed version, when `pg_proc` can't
+/// say (none if the extension isn't there or the catalog can't be read).
+async fn pgvector_fallback(s: &PgSession) -> Vec<FunctionInfo> {
+    if !crate::vectors::pgvector(s.variant) {
+        return Vec::new();
+    }
+    match s
+        .text("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
+        .await
+    {
+        Ok(rows) => match rows.first().map(|r| cell(r, 0).to_string()) {
+            Some(version) => parse_catalog(PGVECTOR, Some(&version)),
+            None => Vec::new(),
+        },
+        Err(e) => {
+            tracing::debug!("{:?}: pgvector's version unknown: {e}", s.variant);
+            Vec::new()
+        }
+    }
 }
 
 /// A variant's static catalog for its `version` plus the user's functions
@@ -474,6 +499,7 @@ mod tests {
             ("risingwave", RISINGWAVE, 200),
             ("h2", H2, 200),
             ("denodo", DENODO, 100),
+            ("pgvector", PGVECTOR, 35),
         ] {
             let mut entries = 0;
             for line in text.lines() {
@@ -490,6 +516,23 @@ mod tests {
             }
             assert!(entries >= min, "{engine}: {entries}");
         }
+    }
+
+    #[test]
+    fn pgvector_functions_follow_the_extension_version() {
+        let names = |v: &str| -> Vec<String> {
+            parse_catalog(PGVECTOR, Some(v))
+                .into_iter()
+                .map(|f| f.name)
+                .collect()
+        };
+        let old = names("0.4.1");
+        assert!(old.contains(&"cosine_distance".to_string()));
+        assert!(!old.contains(&"l1_distance".to_string()));
+        assert!(!old.contains(&"binary_quantize".to_string()));
+        let new = names("0.8.0");
+        assert!(new.contains(&"binary_quantize".to_string()));
+        assert!(new.contains(&"<=>".to_string()));
     }
 
     #[test]
