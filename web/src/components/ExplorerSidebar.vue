@@ -44,6 +44,7 @@ import { KIND_ICONS } from '../composables/kindIcons';
 import { tagColor } from '../composables/tags';
 import { dropZone, planDrop, type DragItem, type DropOn, type DropZone } from '../composables/explorerDrop';
 import { badgeClass, foreignKeyColumns, indexTag, indexUsageEntry, loadIndexUsage, usageBadge, type UsageBadge } from '../composables/indexUsage';
+import { indexVector, vectorLine, vectorTag } from '../composables/indexVectors';
 import DropIndexDialog from './DropIndexDialog.vue';
 import { dropIndexItem, toggleIndexItem, type DropIndexTarget } from '../composables/dropIndex';
 import { databaseRenameItem, renameItem, type RenameDialogTarget } from '../composables/rename';
@@ -96,6 +97,8 @@ interface TNode {
   /** A saved migration's state (its status icon). */
   state?: SavedMigrationState;
   hint?: string;
+  /** The hint's tooltip (a vector index's whole line). */
+  hintTitle?: string;
   icon?: string;
   count?: number;
   status?: 'loading' | 'error' | 'empty';
@@ -464,10 +467,15 @@ function indexesNode(c: SavedConnection, db: string, o: DbObject, parentId: stri
       : usage.status === 'error'
         ? [status(id, 'error', usage.error ?? t('common:error'))]
         : list.length
-          ? list.map((i) => ({
-            id: `ix:${id}:${i.name}`, label: i.name, type: 'index' as const, connectionId: c.id, database: db, object: o,
-            hint: indexTag(i), badge: usageBadge(i, usage?.report),
-          }))
+          ? list.map((i) => {
+            // A vector index: its kind with its distance (`HNSW · Coseno`), the rest on hover.
+            const v = indexVector(c.id, db, o, i);
+            return {
+              id: `ix:${id}:${i.name}`, label: i.name, type: 'index' as const, connectionId: c.id, database: db, object: o,
+              hint: vectorTag(indexTag(i), v), badge: usageBadge(i, usage?.report),
+              hintTitle: v ? t('vectors:index.summary', { text: vectorLine(v) || '—' }) : undefined,
+            };
+          })
           : [status(id, 'empty', t('explorer:indexes.none'))],
   };
 }
@@ -1624,7 +1632,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
               :title="n.badge.disabled ? n.badge.healthTip! : n.badge.unused ? $t('explorer:indexes.unusedTitle') : [$t('explorer:indexes.shareTitle'), n.badge.healthTip].filter(Boolean).join('\n')"
             >{{ n.badge.text }}</span>
             <span v-if="n.changes" class="ex-changes" :title="$t('explorer:tree.projectChanges', { count: n.changes })">{{ n.changes }}</span>
-            <span v-if="n.hint" class="ex-hint">{{ n.hint }}</span>
+            <span v-if="n.hint" class="ex-hint" :title="n.hintTitle">{{ n.hint }}</span>
             <span v-if="n.type === 'connerr'" class="ex-connerr-actions">
               <button class="ex-connerr-btn" :disabled="conns.live[n.connectionId]?.status === 'connecting'" @click.stop="retryConnect(n.connectionId!)">{{ $t('explorer:tree.retry') }}</button>
               <button class="ex-connerr-btn" @click.stop="explainError(n.connectionId!)">{{ $t('explorer:tree.whatsWrong') }}</button>
