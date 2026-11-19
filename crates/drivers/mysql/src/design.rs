@@ -363,6 +363,27 @@ pub(crate) fn sync_script(
         .cloned()
         .map(|mut c| {
             if let dbine_driver::TableChange::Alter { old, new } = &mut c {
+                // The same build (an algorithm named or not, a default
+                // written out or not) is the same index: the generic
+                // planner also compares the vector settings as given.
+                for nix in new.indexes.iter_mut() {
+                    let same =
+                        old.indexes
+                            .iter()
+                            .find(|o| o.name == nix.name)
+                            .and_then(|o| match (&o.vector, &nix.vector) {
+                                (Some(ov), Some(nv))
+                                    if crate::vectors::settings_key(v, ov)
+                                        == crate::vectors::settings_key(v, nv) =>
+                                {
+                                    Some(ov.clone())
+                                }
+                                _ => None,
+                            });
+                    if let Some(ov) = same {
+                        nix.vector = Some(ov);
+                    }
+                }
                 for ix in old.indexes.iter_mut().chain(new.indexes.iter_mut()) {
                     crate::vectors::for_sync(v, ix);
                 }
@@ -1898,7 +1919,9 @@ pub(crate) fn manticore_value(v: &Value) -> String {
         Value::Bool(b) => (if *b { "1" } else { "0" }).to_string(),
         Value::Number(n) => n.to_string(),
         Value::String(s) => text(s),
-        Value::Array(a) if a.iter().all(Value::is_number) => {
+        // Integers (multi-values) as they are, exactly; floats (a vector)
+        // the shortest way that reads back the same.
+        Value::Array(a) if a.iter().all(|n| n.is_i64() || n.is_u64()) => {
             format!(
                 "({})",
                 a.iter()
@@ -1906,6 +1929,10 @@ pub(crate) fn manticore_value(v: &Value) -> String {
                     .collect::<Vec<_>>()
                     .join(",")
             )
+        }
+        Value::Array(a) if a.iter().all(Value::is_number) => {
+            let values: Vec<f64> = a.iter().filter_map(Value::as_f64).collect();
+            crate::vectors::literal(crate::Variant::Manticore, &values)
         }
         other => text(&other.to_string()),
     }
@@ -2682,7 +2709,7 @@ mod tests {
         assert!(ins(Variant::MariaDb).contains("(1, VEC_FromText('[1,2.5,-3]'))"));
         assert!(ins(Variant::TiDb).contains("(1, '[1,2.5,-3]')"));
         assert!(ins(Variant::Doris).contains("(1, [1,2.5,-3])"));
-        assert!(ins(Variant::Manticore).contains("VALUES (1, (1.0,2.5,-3))"));
+        assert!(ins(Variant::Manticore).contains("VALUES (1, (1,2.5,-3))"));
         let changes = vec![RowChange {
             key: vec![("id".into(), json!(1))],
             set: vec![("v".into(), json!([0.5, 4]))],

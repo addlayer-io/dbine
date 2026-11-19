@@ -197,6 +197,97 @@ pub(crate) fn edit_value(v: &serde_json::Value) -> Option<Vec<f64>> {
     }
 }
 
+/// What a target column's type says about a JSON array written into it,
+/// for the typed scripts (`Driver::*_script_typed`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Slot {
+    /// A vector column: an array of numbers, or text holding one (a
+    /// result's cell, Manticore's `0.1,0.2`), as the engine's vector literal.
+    Vector,
+    /// The engine's own list type (Doris / StarRocks / Databend `ARRAY`,
+    /// Manticore's multi-values): its array literal, as without types.
+    List,
+    /// JSON or text: an array is its JSON text, never a vector literal.
+    Text,
+    /// Nothing the type tells (no type, a binary or wire type that a
+    /// vector may come as): as without types.
+    Unknown,
+}
+
+/// The slot of a target column, from its type as a result or a describe
+/// gives it (`type_name`, `vector`).
+pub(crate) fn slot(v: Variant, c: &dbine_driver::ResultColumn) -> Slot {
+    if c.vector.as_ref().is_some_and(|m| !m.sparse) || meta(v, &c.type_name).is_some() {
+        return Slot::Vector;
+    }
+    let t = c.type_name.trim().to_ascii_lowercase();
+    let base = t
+        .split(|ch: char| ch == '(' || ch == '<' || ch.is_whitespace())
+        .next()
+        .unwrap_or("");
+    let olap = matches!(
+        v.base(),
+        Variant::Doris | Variant::StarRocks | Variant::Databend | Variant::GreptimeDb
+    );
+    match (v.base(), base) {
+        (_, "json" | "jsonb") => Slot::Text,
+        (Variant::Doris | Variant::StarRocks | Variant::Databend, "array") => Slot::List,
+        (Variant::Manticore, "mva" | "mva64" | "multi" | "multi64") => Slot::List,
+        // Manticore sends its multi-values and strings alike over the wire.
+        (Variant::Manticore, _) => Slot::Unknown,
+        (_, "variant" | "string") if olap => Slot::Text,
+        // Catalog spellings only: the wire's `var_string` / `blob` also
+        // carry MariaDB's and SingleStore's vectors.
+        (
+            _,
+            "char" | "varchar" | "tinytext" | "text" | "mediumtext" | "longtext" | "enum" | "set",
+        ) => Slot::Text,
+        _ => Slot::Unknown,
+    }
+}
+
+/// A value for a column of `slot`: a vector's text as an array of numbers
+/// (the engine's vector literal follows), an array for a JSON or text
+/// column as its JSON text; anything else as it is.
+pub(crate) fn typed_value(slot: Slot, x: &serde_json::Value) -> serde_json::Value {
+    match (slot, x) {
+        (Slot::Vector, serde_json::Value::String(s)) => match parse_text(s) {
+            Some(values) => {
+                serde_json::Value::Array(values.into_iter().map(dbine_driver::json_f64).collect())
+            }
+            None => x.clone(),
+        },
+        (Slot::Text, serde_json::Value::Array(_)) => serde_json::Value::String(x.to_string()),
+        _ => x.clone(),
+    }
+}
+
+/// The slots of `types` by column name (any case), for the update and
+/// delete scripts, whose columns come by name.
+pub(crate) fn slots_by_name(
+    v: Variant,
+    types: &[dbine_driver::ResultColumn],
+) -> impl Fn(&str) -> Slot + '_ {
+    move |name: &str| {
+        types
+            .iter()
+            .find(|c| c.name == name)
+            .or_else(|| types.iter().find(|c| c.name.eq_ignore_ascii_case(name)))
+            .map_or(Slot::Unknown, |c| slot(v, c))
+    }
+}
+
+/// `(column, value)` pairs with each value made for its column's slot.
+pub(crate) fn typed_pairs(
+    pairs: &[(String, serde_json::Value)],
+    slot_of: &dyn Fn(&str) -> Slot,
+) -> Vec<(String, serde_json::Value)> {
+    pairs
+        .iter()
+        .map(|(k, x)| (k.clone(), typed_value(slot_of(k), x)))
+        .collect()
+}
+
 // ------------------------------------------------------------- metrics
 
 /// (standard, native) metric names per engine.
@@ -1848,6 +1939,47 @@ mod tests {
         assert_eq!(edit_value(&json!([1, 2.5])), Some(vec![1.0, 2.5]));
         assert_eq!(edit_value(&json!("[1,2]")), None);
         assert_eq!(edit_value(&json!(["a"])), None);
+    }
+
+    #[test]
+    fn typed_values_follow_their_columns_slot() {
+        use dbine_driver::ResultColumn;
+        let s = |v, ty: &str| slot(v, &ResultColumn::new("c", ty));
+        assert_eq!(s(Variant::MySql, "vector(3)"), Slot::Vector);
+        assert_eq!(s(Variant::MySql, "JSON"), Slot::Text);
+        assert_eq!(s(Variant::MariaDb, "longtext"), Slot::Text);
+        assert_eq!(s(Variant::MariaDb, "var_string"), Slot::Unknown);
+        assert_eq!(s(Variant::MariaDb, "blob"), Slot::Unknown);
+        assert_eq!(s(Variant::MariaDb, ""), Slot::Unknown);
+        assert_eq!(s(Variant::TiDb, "vector"), Slot::Vector);
+        assert_eq!(s(Variant::TiDb, "varchar(20)"), Slot::Text);
+        assert_eq!(s(Variant::Doris, "ARRAY<FLOAT>"), Slot::Vector);
+        assert_eq!(s(Variant::Doris, "ARRAY<INT>"), Slot::List);
+        assert_eq!(s(Variant::Doris, "VARIANT"), Slot::Text);
+        assert_eq!(s(Variant::Databend, "Array(Float32)"), Slot::List);
+        assert_eq!(s(Variant::GreptimeDb, "String"), Slot::Text);
+        assert_eq!(s(Variant::Manticore, "float_vector"), Slot::Vector);
+        assert_eq!(s(Variant::Manticore, "mva64"), Slot::List);
+        assert_eq!(s(Variant::Manticore, "json"), Slot::Text);
+        assert_eq!(s(Variant::Manticore, "string"), Slot::Unknown);
+        // A sparse vector keeps its engine's text.
+        let sparse =
+            ResultColumn::new("c", "").with_vector(VectorMeta::sparse(Some(3), VectorElement::F32));
+        assert_eq!(slot(Variant::MySql, &sparse), Slot::Unknown);
+
+        assert_eq!(
+            typed_value(Slot::Vector, &json!("[1, 2.50]")),
+            json!([1.0, 2.5])
+        );
+        assert_eq!(
+            typed_value(Slot::Vector, &json!("0.5,0.25")),
+            json!([0.5, 0.25])
+        );
+        assert_eq!(typed_value(Slot::Vector, &json!("hello")), json!("hello"));
+        assert_eq!(typed_value(Slot::Text, &json!([1, 2])), json!("[1,2]"));
+        assert_eq!(typed_value(Slot::Text, &json!("[1,2]")), json!("[1,2]"));
+        assert_eq!(typed_value(Slot::List, &json!([1, 2])), json!([1, 2]));
+        assert_eq!(typed_value(Slot::Unknown, &json!("[1]")), json!("[1]"));
     }
 
     #[test]
