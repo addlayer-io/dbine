@@ -261,6 +261,47 @@ fn index_column(c: &str) -> String {
     }
 }
 
+/// Every libSQL vector index of `t` on a column libSQL can index the way
+/// it says; `Err` says which one can't and why, instead of libSQL's
+/// English error or, for an L2 index on a 1-bit column (which libSQL
+/// accepts, and then can't rank: it has no L2 distance for 1-bit
+/// vectors), wrong search results.
+pub fn check_vector_columns(t: &TableSchema) -> Result<(), String> {
+    use crate::vector::{column_type, Kind};
+    for ix in &t.indexes {
+        let (Some(v), Some(key)) = (&ix.vector, ix.columns.first()) else {
+            continue;
+        };
+        let Some(c) = t.columns.iter().find(|c| &c.name == key) else {
+            continue;
+        };
+        let l2 = v.metric.as_deref() == Some(metric::L2);
+        let why = match column_type(&c.data_type) {
+            Some((_, None)) | None => Some(format!(
+                "libSQL solo indexa columnas vectoriales con dimensión (F32_BLOB(n), F64_BLOB(n)…), y «{}» es {}",
+                c.name, c.data_type
+            )),
+            Some((Kind::Bit, _)) if l2 => Some(format!(
+                "libSQL mide los vectores de 1 bit («{}» es {}) solo con distancia coseno",
+                c.name, c.data_type
+            )),
+            _ if l2
+                && v
+                    .params
+                    .get(param::QUANTIZATION)
+                    .is_some_and(|q| q.trim().eq_ignore_ascii_case("float1bit")) =>
+            {
+                Some("la compresión de 1 bit (compress_neighbors=float1bit) solo va con distancia coseno".to_string())
+            }
+            _ => None,
+        };
+        if let Some(why) = why {
+            return Err(format!("El índice vectorial «{}»: {why}.", ix.name));
+        }
+    }
+    Ok(())
+}
+
 /// Why SQLite leaves a libSQL vector index out (a file libSQL wrote, or a
 /// table converted from another engine's vectors): its key calls
 /// `libsql_vector_idx`, which only libSQL has.
@@ -388,24 +429,6 @@ fn same_checks(a: &[CheckDef], b: &[CheckDef]) -> bool {
     key(a) == key(b)
 }
 
-/// `old` with each index whose vector settings `new` changes marked as
-/// changed (a filter no index has): the contract's planner compares
-/// indexes without them, and the index has to be made again.
-pub fn mark_vector_changes(old: &TableSchema, new: &TableSchema) -> TableSchema {
-    let mut old = old.clone();
-    for o in &mut old.indexes {
-        let changed = new
-            .indexes
-            .iter()
-            .find(|n| n.name.eq_ignore_ascii_case(&o.name))
-            .is_some_and(|n| n.vector != o.vector);
-        if changed {
-            o.filter = Some("\u{0}vector".into());
-        }
-    }
-    old
-}
-
 /// libSQL's sync script: its vector indexes included.
 pub fn sync_script(
     changes: &[dbine_driver::TableChange],
@@ -441,10 +464,6 @@ pub fn sync_script_for(
                     new: new.clone(),
                 }
             }
-            TableChange::Alter { old, new } => TableChange::Alter {
-                old: mark_vector_changes(old, new),
-                new: new.clone(),
-            },
             other => other.clone(),
         })
         .collect();
@@ -1188,6 +1207,45 @@ mod tests {
         }])
         .unwrap();
         assert!(same.statements.is_empty(), "{:?}", same.statements);
+        // libSQL's own refusals, said in Spanish before it runs: an index on
+        // a column without a dimension or not a vector, L2 on 1-bit
+        // vectors (which libSQL takes and can't rank) or with 1-bit
+        // compression.
+        let with = |ty: &str, metric: &str, q: Option<&str>| {
+            let mut x = t.clone();
+            x.columns[0].data_type = ty.into();
+            let v = x.indexes[0].vector.as_mut().unwrap();
+            v.metric = Some(metric.into());
+            if let Some(q) = q {
+                v.params.insert("quantization".into(), q.into());
+            }
+            check_vector_columns(&x)
+        };
+        for (ty, metric, q) in [
+            ("F32_BLOB(3)", "l2", None),
+            ("F1BIT_BLOB(8)", "cosine", None),
+            ("FLOAT64(3)", "l2", Some("float8")),
+            ("F64_BLOB(3)", "cosine", Some("float1bit")),
+        ] {
+            with(ty, metric, q).unwrap();
+        }
+        for (ty, metric, q, why) in [
+            ("F32_BLOB", "l2", None, "con dimensión"),
+            ("TEXT", "cosine", None, "con dimensión"),
+            ("F1BIT_BLOB(8)", "l2", None, "1 bit"),
+            (
+                "F32_BLOB(3)",
+                "l2",
+                Some("float1bit"),
+                "compresión de 1 bit",
+            ),
+        ] {
+            let e = with(ty, metric, q).unwrap_err();
+            assert!(
+                e.starts_with("El índice vectorial «docs_emb»") && e.contains(why),
+                "{e}"
+            );
+        }
         // SQLite's designer has no vectors; libSQL's has its types and index.
         assert!(designer().vector_indexes.is_none());
         let d = libsql_designer();

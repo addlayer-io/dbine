@@ -211,6 +211,38 @@ impl Driver for SqliteDriver {
         Ok(vector::scripts::delete(target, keys))
     }
 
+    /// With the target's types, a vector goes straight in its column's
+    /// format (`F64_BLOB` gets the F64 blob); a column whose type
+    /// isn't libSQL's still reads it from the catalog. Deletes keep the
+    /// contract's default: vectors are never in a key.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[dbine_driver::ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        Ok(vector::scripts::insert_typed(
+            vector::Engine::Sqlite,
+            target,
+            columns,
+            rows,
+        ))
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[dbine_driver::ResultColumn],
+    ) -> Result<String> {
+        Ok(vector::scripts::update_typed(
+            vector::Engine::Sqlite,
+            target,
+            changes,
+            types,
+        ))
+    }
+
     fn create_templates(&self) -> Vec<CreateTemplate> {
         schema::create_templates()
     }

@@ -13,6 +13,10 @@
 //!   build doesn't have it, the size stays empty.
 //! - The counters: SQLite keeps none (no engine counts how often an index is
 //!   read), so `stats_available` is false and the note says so.
+//! - A libSQL vector index (`libsql_vector_idx`, DiskANN) is listed as
+//!   `DISKANN` with its settings ([`IndexUsage::vector`]); its graph lives
+//!   in its shadow table (`<index>_shadow` and that table's index), whose
+//!   size it reports.
 
 use crate::schema::{self, Rows, DESC};
 use dbine_driver::{IndexUsage, IndexUsageReport, TableSchema};
@@ -83,6 +87,9 @@ pub fn report_with<E>(
     // Catalog names of the B-trees whose size each entry reports.
     let mut btrees: Vec<String> = list.iter().map(|(n, _)| n.clone()).collect();
     btrees.push(table.to_string());
+    for ix in t.indexes.iter().filter(|ix| ix.vector.is_some()) {
+        btrees.extend(vector_shadow(&ix.name));
+    }
     let sizes: HashMap<String, u64> = q(&sizes_sql(&btrees))
         .map(|rows| {
             rows.iter()
@@ -91,6 +98,12 @@ pub fn report_with<E>(
         })
         .unwrap_or_default();
     Ok(assemble(&t, &list, without_rowid, &sizes))
+}
+
+/// The B-trees a libSQL vector index keeps its graph in: its shadow table
+/// and that table's index.
+fn vector_shadow(index: &str) -> [String; 2] {
+    [format!("{index}_shadow"), format!("{index}_shadow_idx")]
 }
 
 /// The entries: the primary key first, then the indexes in the schema's
@@ -143,9 +156,26 @@ pub fn assemble(
         } else {
             ix.name.as_str()
         };
+        let (kind, size_kb) = match &ix.vector {
+            Some(v) => {
+                let parts: Vec<u64> = std::iter::once(catalog_name.to_string())
+                    .chain(vector_shadow(&ix.name))
+                    .filter_map(|n| sizes.get(&n).copied())
+                    .collect();
+                (
+                    v.algorithm
+                        .as_deref()
+                        .filter(|a| !a.is_empty())
+                        .unwrap_or("diskann")
+                        .to_uppercase(),
+                    (!parts.is_empty()).then(|| parts.iter().sum::<u64>().div_ceil(1024)),
+                )
+            }
+            None => ("B-TREE".to_string(), kb(catalog_name)),
+        };
         indexes.push(IndexUsage {
             name: ix.name.clone(),
-            kind: "B-TREE".into(),
+            kind,
             unique: ix.unique,
             key_columns: ix
                 .columns
@@ -159,7 +189,8 @@ pub fn assemble(
                 })
                 .collect(),
             filter: ix.filter.clone(),
-            size_kb: kb(catalog_name),
+            size_kb,
+            vector: ix.vector.clone(),
             ..Default::default()
         });
     }
@@ -253,6 +284,70 @@ mod tests {
         assert_eq!(r.indexes.len(), 1);
 
         assert!(report(&c, "missing").indexes.is_empty());
+    }
+
+    /// A libSQL vector index: DiskANN, its settings, and the size of the
+    /// shadow table that holds its graph (with that table's index).
+    #[test]
+    fn vector_indexes_carry_their_settings() {
+        let v = dbine_driver::VectorIndex {
+            algorithm: None,
+            metric: Some("cosine".into()),
+            params: [("m".to_string(), "16".to_string())].into(),
+        };
+        let t = TableSchema {
+            name: "docs".into(),
+            indexes: vec![
+                dbine_driver::IndexDef {
+                    name: "docs_emb".into(),
+                    columns: vec!["emb".into()],
+                    vector: Some(v.clone()),
+                    ..Default::default()
+                },
+                dbine_driver::IndexDef {
+                    name: "docs_k".into(),
+                    columns: vec!["k".into()],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let list = [
+            ("docs_emb".to_string(), "c".to_string()),
+            ("docs_k".to_string(), "c".to_string()),
+        ];
+        let sizes: HashMap<String, u64> = [
+            ("docs_emb", 4096),
+            ("docs_emb_shadow", 8192),
+            ("docs_emb_shadow_idx", 4096),
+            ("docs_k", 2048),
+        ]
+        .into_iter()
+        .map(|(n, b)| (n.to_string(), b))
+        .collect();
+        let r = assemble(&t, &list, false, &sizes);
+        let got: Vec<(&str, &str, Option<u64>, Option<&dbine_driver::VectorIndex>)> = r
+            .indexes
+            .iter()
+            .map(|i| {
+                (
+                    i.name.as_str(),
+                    i.kind.as_str(),
+                    i.size_kb,
+                    i.vector.as_ref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("docs_emb", "DISKANN", Some(16), Some(&v)),
+                ("docs_k", "B-TREE", Some(2), None)
+            ]
+        );
+        // Without dbstat: no size.
+        let r = assemble(&t, &list, false, &HashMap::new());
+        assert_eq!(r.indexes[0].size_kb, None);
     }
 
     #[test]

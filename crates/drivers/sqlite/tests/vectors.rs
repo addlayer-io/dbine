@@ -223,6 +223,102 @@ async fn libsql_vector_columns_in_a_file() {
     }
 }
 
+/// Typed scripts (the target's types from describe, as the app passes
+/// them): each vector goes in as its column's own blob, with no catalog
+/// lookup in the statement, and reads back as written.
+#[tokio::test]
+async fn typed_scripts_write_each_format_in_a_file() {
+    let path =
+        std::env::temp_dir().join(format!("dbine-sqlite-vec-typed-{}.db", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let d: Arc<dyn Driver> = dbine_driver_sqlite::drivers().pop().unwrap();
+    let cfg = ConnectionConfig {
+        driver: "sqlite".into(),
+        host: path.to_string_lossy().into(),
+        ..Default::default()
+    };
+    let r = {
+        let (d, cfg) = (d.clone(), cfg.clone());
+        tokio::spawn(async move {
+            let mut s = d.connect(&cfg, None).await.unwrap();
+            run(
+                &mut s,
+                "CREATE TABLE t (id INTEGER PRIMARY KEY, a F32_BLOB(2), b F64_BLOB(2), c F16_BLOB(2), \
+                 d FB16_BLOB(2), e F8_BLOB(2), f F1BIT_BLOB(2), g FLOAT64(2), s TEXT)",
+            )
+            .await;
+            let types: Vec<dbine_driver::ResultColumn> = s
+                .columns(&table("t"))
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|c| dbine_driver::ResultColumn::new(c.name, c.data_type))
+                .collect();
+            let v = json!([0.5, -2]);
+            let row: Vec<serde_json::Value> = std::iter::once(json!(1))
+                .chain(std::iter::repeat_n(v.clone(), 7))
+                .chain(std::iter::once(json!("x")))
+                .collect();
+            let ins = d.insert_script_typed(&table("t"), &types, &[row]).unwrap();
+            assert!(!ins.contains("pragma_table_info"), "{ins}");
+            assert!(
+                ins.contains("X'0000003F000000C0'")
+                    && ins.contains("X'000000000000E03F00000000000000C002'"),
+                "{ins}"
+            );
+            run(&mut s, &ins).await;
+            let out = run(&mut s, "SELECT a, b, c, d, f, g, s, length(e) FROM t").await;
+            assert_eq!(
+                out.results[0].rows[0],
+                vec![
+                    json!("[0.5,-2]"),
+                    json!("[0.5,-2]"),
+                    json!("[0.5,-2]"),
+                    json!("[0.5,-2]"),
+                    json!("[1,-1]"),
+                    json!("[0.5,-2]"),
+                    json!("x"),
+                    // 2 bytes, 2 of padding, alpha, shift and 3 more.
+                    json!(15),
+                ]
+            );
+            // An edit with the types (the column named in another case),
+            // and one with a column the types don't list: the catalog.
+            let up = d
+                .update_script_typed(
+                    &table("t"),
+                    &[RowChange {
+                        key: vec![("id".into(), json!(1))],
+                        set: vec![("B".into(), json!([3, 4.25])), ("a".into(), json!([1, 2]))],
+                        row: Vec::new(),
+                    }],
+                    &types[2..],
+                )
+                .unwrap();
+            assert!(
+                up.contains("\"B\" = X'0000000000000840000000000000114002'")
+                    && up.contains("\"a\" = (SELECT CASE"),
+                "{up}"
+            );
+            run(&mut s, &up).await;
+            let out = run(&mut s, "SELECT a, b, hex(b) FROM t").await;
+            assert_eq!(
+                out.results[0].rows[0],
+                vec![
+                    json!("[1,2]"),
+                    json!("[3,4.25]"),
+                    json!("0000000000000840000000000000114002")
+                ]
+            );
+        })
+    };
+    let r = r.await;
+    let _ = std::fs::remove_file(&path);
+    if let Err(e) = r {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}
+
 /// A table with a libSQL vector index (a pgvector table converted for
 /// SQLite, or one a libSQL file has): SQLite's DDL and sync scripts leave
 /// the index out, saying why, and run on a real file.

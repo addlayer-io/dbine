@@ -242,7 +242,8 @@ impl Dialect for Sqlite {
     /// its formats (`F32_BLOB(n)` to `F1BIT_BLOB(n)`, checked on sqld):
     /// the converter gives the column the dimension its source index
     /// states (a ClickHouse array), so a vector that still has none, or a
-    /// sparse one (kept as text), can't be indexed.
+    /// sparse one (kept as text), can't be indexed. A 1-bit vector is
+    /// measured by cosine only (libSQL has no L2 distance for them).
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
@@ -254,6 +255,12 @@ impl Dialect for Sqlite {
             }
             Some(L::Vector { dims: None, .. }) => {
                 return Err("libSQL no indexa una columna vectorial sin dimensión, y ni el índice ni la columna del origen la dan".into())
+            }
+            Some(L::Vector {
+                element: dbine_driver::VectorElement::Bit,
+                ..
+            }) if v.metric.as_deref() == Some(dbine_driver::vector::metric::L2) => {
+                return Err("libSQL mide los vectores de 1 bit solo con distancia coseno, y el índice usa L2".into())
             }
             Some(L::Vector { .. }) | None => {}
             Some(_) => {
@@ -391,7 +398,13 @@ fn libsql_vector_index(
             }
             param::QUANTIZATION => {
                 let q = match val.trim().to_ascii_lowercase().as_str() {
-                    "binary" | "bit" | "b1" | "float1bit" => Some("float1bit"),
+                    // 1-bit compression only goes with the cosine distance
+                    // (libSQL's default).
+                    "binary" | "bit" | "b1" | "float1bit"
+                        if metric.as_deref() != Some(metric::L2) =>
+                    {
+                        Some("float1bit")
+                    }
                     "int8" | "i8" | "float8" => Some("float8"),
                     "f16" | "half" | "halfvec" | "float16" => Some("float16"),
                     "bf16" | "floatb16" => Some("floatb16"),
@@ -549,7 +562,7 @@ mod tests {
             element,
             sparse,
         };
-        for e in [E::F32, E::F64, E::F16, E::Bf16, E::I8, E::Bit] {
+        for e in [E::F32, E::F64, E::F16, E::Bf16, E::I8, E::Other] {
             assert!(Sqlite
                 .vector_index(&v, Some(&vec(Some(4), e, false)))
                 .is_ok());
@@ -559,10 +572,19 @@ mod tests {
             (vec(None, E::F32, false), "sin dimensión"),
             (vec(Some(4), E::F32, true), "dispersos"),
             (L::Text { unicode: true }, "columnas vectoriales"),
+            // libSQL has no L2 distance for 1-bit vectors.
+            (vec(Some(4), E::Bit, false), "1 bit"),
         ] {
             let e = Sqlite.vector_index(&v, Some(&col)).unwrap_err();
             assert!(e.contains(why), "{e}");
         }
+        let cosine = VectorIndex {
+            metric: Some("cosine".into()),
+            ..Default::default()
+        };
+        assert!(Sqlite
+            .vector_index(&cosine, Some(&vec(Some(4), E::Bit, false)))
+            .is_ok());
     }
 
     #[test]
@@ -601,6 +623,15 @@ mod tests {
         assert_eq!(v.params["quantization"], "float8");
         let e = Sqlite.vector_index(&ix("ip", &[]), None).unwrap_err();
         assert!(e.contains("coseno o L2"), "{e}");
+        // 1-bit compression only with cosine.
+        let (_, v) = Sqlite
+            .vector_index(&ix("cosine", &[("quantization", "binary")]), None)
+            .unwrap();
+        assert_eq!(v.params["quantization"], "float1bit");
+        let (_, v) = Sqlite
+            .vector_index(&ix("l2", &[("quantization", "binary")]), None)
+            .unwrap();
+        assert!(v.params.is_empty(), "{v:?}");
     }
 
     #[test]

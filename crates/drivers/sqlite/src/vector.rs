@@ -289,9 +289,9 @@ fn quoted(s: &str) -> String {
 }
 
 /// The SQL that writes a vector value of an edit or insert script into
-/// `column` of `table`. The scripts don't know the column's type, so the
-/// statement reads it (`pragma_table_info`) and makes the vector in that
-/// column's format: `F64_BLOB` gets `vector64('[…]')` (SQLite: the F64
+/// `column` of `table` when the script doesn't know the column's type (an
+/// untyped script, or a type that isn't libSQL's): the statement reads it
+/// (`pragma_table_info`) and makes the vector in that column's format: `F64_BLOB` gets `vector64('[…]')` (SQLite: the F64
 /// blob), and so on; a column that isn't a vector column gets the array's
 /// text; one the catalog doesn't show, the usual `F32`. `None`: not a
 /// vector value.
@@ -339,13 +339,43 @@ pub fn literal(
     ))
 }
 
+/// The vector format of a column whose type a typed script gives
+/// (`ResultColumn::type_name`: `F64_BLOB(3)`, `FLOAT16(2)`…); `None` when
+/// that type isn't one of libSQL's vector types, or isn't given.
+pub fn kind_of(c: &dbine_driver::ResultColumn) -> Option<Kind> {
+    column_type(&c.type_name).map(|(k, _)| k)
+}
+
+/// The SQL that writes a vector value into a column of format `kind`, known
+/// from the script's types: `vector64('[…]')` on libSQL, the format's blob
+/// (`X'…'`) on SQLite. `None`: not a vector value.
+pub fn typed_literal(engine: Engine, kind: Kind, value: &serde_json::Value) -> Option<String> {
+    let values = script_vector(value)?;
+    Some(match engine {
+        Engine::Libsql => format!(
+            "{}({})",
+            kind.function(),
+            quoted(&v::text(values.iter().copied()))
+        ),
+        Engine::Sqlite => {
+            let hex: String = encode(kind, &values)
+                .iter()
+                .map(|b| format!("{b:02X}"))
+                .collect();
+            format!("X'{hex}'")
+        }
+    })
+}
+
 /// Insert, update and delete scripts as the driver contract's defaults
-/// write them for SQLite, with vectors as [`literal`] writes them.
+/// write them for SQLite, with vectors as [`typed_literal`] writes them
+/// where the script knows the column's format, and as [`literal`] (which
+/// reads it from the catalog when the statement runs) where it doesn't.
 pub mod scripts {
-    use super::{literal, Engine};
+    use super::{kind_of, literal, typed_literal, Engine, Kind};
     use dbine_driver::ddl::{self, SqlFlavor};
     use dbine_driver::sql::{qualified_name, quote_ident, Quote};
-    use dbine_driver::{ObjectRef, RowChange};
+    use dbine_driver::{ObjectRef, ResultColumn, RowChange};
     use serde_json::Value;
 
     const FLAVOR: SqlFlavor = SqlFlavor {
@@ -353,8 +383,18 @@ pub mod scripts {
         ..SqlFlavor::ansi()
     };
 
-    fn lit(engine: Engine, target: &ObjectRef, column: &str, v: &Value) -> String {
-        literal(engine, target, column, v).unwrap_or_else(|| ddl::sql_literal(&FLAVOR, v))
+    fn lit(
+        engine: Engine,
+        target: &ObjectRef,
+        column: &str,
+        kind: Option<Kind>,
+        v: &Value,
+    ) -> String {
+        match kind {
+            Some(k) => typed_literal(engine, k, v),
+            None => literal(engine, target, column, v),
+        }
+        .unwrap_or_else(|| ddl::sql_literal(&FLAVOR, v))
     }
 
     /// `INSERT … VALUES` 100 rows a statement, as the contract's.
@@ -362,6 +402,28 @@ pub mod scripts {
         engine: Engine,
         target: &ObjectRef,
         columns: &[String],
+        rows: &[Vec<Value>],
+    ) -> String {
+        insert_with(engine, target, columns, &vec![None; columns.len()], rows)
+    }
+
+    /// [`insert`] knowing the target columns' types, in the rows' order.
+    pub fn insert_typed(
+        engine: Engine,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<Value>],
+    ) -> String {
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        let kinds: Vec<Option<Kind>> = columns.iter().map(kind_of).collect();
+        insert_with(engine, target, &names, &kinds, rows)
+    }
+
+    fn insert_with(
+        engine: Engine,
+        target: &ObjectRef,
+        columns: &[String],
+        kinds: &[Option<Kind>],
         rows: &[Vec<Value>],
     ) -> String {
         let name = qualified_name(
@@ -383,7 +445,9 @@ pub mod scripts {
                             .iter()
                             .enumerate()
                             .map(|(i, v)| match columns.get(i) {
-                                Some(c) => lit(engine, target, c, v),
+                                Some(c) => {
+                                    lit(engine, target, c, kinds.get(i).copied().flatten(), v)
+                                }
                                 None => ddl::sql_literal(&FLAVOR, v),
                             })
                             .collect();
@@ -399,6 +463,23 @@ pub mod scripts {
     /// `UPDATE … SET … WHERE …;` per changed row, as the contract's (vector
     /// columns are never in the key).
     pub fn update(engine: Engine, target: &ObjectRef, changes: &[RowChange]) -> String {
+        update_typed(engine, target, changes, &[])
+    }
+
+    /// [`update`] knowing the target's column types, by name (SQLite's
+    /// names ignore case); a column not listed is untyped.
+    pub fn update_typed(
+        engine: Engine,
+        target: &ObjectRef,
+        changes: &[RowChange],
+        types: &[ResultColumn],
+    ) -> String {
+        let kind = |c: &str| {
+            types
+                .iter()
+                .find(|t| t.name.eq_ignore_ascii_case(c))
+                .and_then(kind_of)
+        };
         let name = qualified_name(
             FLAVOR.quote,
             target.schema().filter(|s| !s.is_empty()),
@@ -412,7 +493,7 @@ pub mod scripts {
                 let set: Vec<String> = c
                     .set
                     .iter()
-                    .map(|(k, v)| format!("{} = {}", q(k), lit(engine, target, k, v)))
+                    .map(|(k, v)| format!("{} = {}", q(k), lit(engine, target, k, kind(k), v)))
                     .collect();
                 let wh: Vec<String> = c
                     .key
@@ -647,5 +728,89 @@ mod tests {
             Some("[1,2.5]")
         );
         assert_eq!(cell_text(None, Some("hola")), None);
+    }
+
+    /// With the target's types, each vector goes straight in its column's
+    /// format (no catalog lookup); a column whose type isn't libSQL's, or
+    /// that isn't listed, still reads it from the catalog. The blobs are
+    /// sqld 0.24's `hex(vector64('[1,2.5]'))` and friends (its 8-bit one
+    /// pads with whatever was in memory: only the start is compared).
+    #[test]
+    fn typed_script_literals() {
+        use dbine_driver::ResultColumn;
+        let t = dbine_driver::ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "docs".into(),
+        };
+        let val = serde_json::json!([1, 2.5]);
+        for (ty, lib, lite) in [
+            ("F32_BLOB(2)", "vector32('[1,2.5]')", "X'0000803F00002040'"),
+            (
+                "F64_BLOB(2)",
+                "vector64('[1,2.5]')",
+                "X'000000000000F03F000000000000044002'",
+            ),
+            ("f16_blob(2)", "vector16('[1,2.5]')", "X'003C004105'"),
+            ("FB16_BLOB(2)", "vectorb16('[1,2.5]')", "X'803F204006'"),
+            ("FLOAT8(2)", "vector8('[1,2.5]')", "X'00FF0000"),
+            ("F1BIT_BLOB(2)", "vector1bit('[1,2.5]')", "X'030E03'"),
+        ] {
+            let c = ResultColumn::new("emb", ty);
+            let k = kind_of(&c).unwrap();
+            assert_eq!(
+                typed_literal(Engine::Libsql, k, &val).as_deref(),
+                Some(lib),
+                "{ty}"
+            );
+            let got = typed_literal(Engine::Sqlite, k, &val).unwrap();
+            assert!(got.starts_with(lite), "{ty}: {got}");
+            // The blob is what libSQL itself writes, so it reads back.
+            let hex = got.trim_start_matches("X'").trim_end_matches('\'');
+            let back = text(&unhex(hex)).unwrap();
+            let n = v::parse(&back).unwrap();
+            assert_eq!(n.len(), 2, "{ty}: {back}");
+        }
+        // Not a vector value, or a type that isn't libSQL's: no typed literal.
+        assert_eq!(
+            typed_literal(Engine::Libsql, Kind::F64, &serde_json::json!("[1]")),
+            None
+        );
+        assert_eq!(kind_of(&ResultColumn::new("emb", "vector(2)")), None);
+        assert_eq!(kind_of(&ResultColumn::new("emb", "TEXT")), None);
+
+        let cols = vec![
+            ResultColumn::new("id", "INTEGER"),
+            ResultColumn::new("emb", "F64_BLOB(2)"),
+            // pgvector's type: the catalog decides.
+            ResultColumn::new("other", "vector(2)"),
+        ];
+        let rows = vec![vec![serde_json::json!(1), val.clone(), val.clone()]];
+        let ins = scripts::insert_typed(Engine::Libsql, &t, &cols, &rows);
+        let runtime = literal(Engine::Libsql, &t, "other", &val).unwrap();
+        assert_eq!(
+            ins,
+            format!("INSERT INTO \"docs\" (\"id\", \"emb\", \"other\") VALUES\n  (1, vector64('[1,2.5]'), {runtime});")
+        );
+        let change = dbine_driver::RowChange {
+            key: vec![("id".into(), serde_json::json!(1))],
+            set: vec![
+                ("EMB".into(), serde_json::json!([0.5, 1])),
+                ("other".into(), serde_json::json!([0.5, 1])),
+            ],
+            row: Vec::new(),
+        };
+        let up = scripts::update_typed(Engine::Sqlite, &t, std::slice::from_ref(&change), &cols);
+        assert!(
+            up.starts_with(
+                "UPDATE \"docs\" SET \"EMB\" = X'000000000000E03F000000000000F03F02', \"other\" = (SELECT CASE"
+            ) && up.ends_with(" WHERE \"id\" = 1;"),
+            "{up}"
+        );
+        // Untyped: the catalog decides for every column.
+        assert_eq!(
+            scripts::update(Engine::Sqlite, &t, std::slice::from_ref(&change)),
+            scripts::update_typed(Engine::Sqlite, &t, &[change], &[])
+        );
     }
 }

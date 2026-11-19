@@ -68,6 +68,27 @@ struct LibsqlDriver {
 
 /// SQLite's, minus `PRAGMA legacy_alter_table`: the libSQL server refuses it
 /// ("unsupported statement"). The foreign-keys PRAGMAs around a rebuild stay.
+/// `new` with only the indexes a sync makes or changes: one the table
+/// already has, on a column of the same type, stays as the server has it.
+fn changed_indexes(old: &TableSchema, new: &TableSchema) -> TableSchema {
+    let ty = |t: &TableSchema, ix: &dbine_driver::IndexDef| {
+        ix.columns
+            .first()
+            .and_then(|k| t.columns.iter().find(|c| &c.name == k))
+            .map(|c| c.data_type.to_ascii_lowercase())
+    };
+    let mut t = new.clone();
+    t.indexes.retain(|n| {
+        !old.indexes.iter().any(|o| {
+            o.name.eq_ignore_ascii_case(&n.name)
+                && o.columns == n.columns
+                && dbine_driver::vector::same_index(&o.vector, &n.vector)
+                && ty(old, o) == ty(new, n)
+        })
+    });
+    t
+}
+
 fn sync_script(changes: &[dbine_driver::TableChange]) -> Result<dbine_driver::SyncScript> {
     let mut script = schema::sync_script(changes)?;
     for st in &mut script.statements {
@@ -149,7 +170,9 @@ impl Driver for LibsqlDriver {
         Some(schema::libsql_designer())
     }
 
-    /// The contract's scripts, with a vector as `vector32('[…]')`.
+    /// The contract's scripts, with a vector made in its column's format
+    /// (`vector32('[…]')`, `vector64('[…]')`…), which the statement reads
+    /// from the catalog.
     fn insert_script(
         &self,
         target: &ObjectRef,
@@ -180,11 +203,48 @@ impl Driver for LibsqlDriver {
         Ok(vector::scripts::delete(target, keys))
     }
 
+    /// With the target's types, a vector goes straight in its column's
+    /// format (`F64_BLOB` gets vector64('[…]')); a column whose type
+    /// isn't libSQL's still reads it from the catalog. Deletes keep the
+    /// contract's default: vectors are never in a key.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[dbine_driver::ResultColumn],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
+        Ok(vector::scripts::insert_typed(
+            vector::Engine::Libsql,
+            target,
+            columns,
+            rows,
+        ))
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[dbine_driver::ResultColumn],
+    ) -> Result<String> {
+        Ok(vector::scripts::update_typed(
+            vector::Engine::Libsql,
+            target,
+            changes,
+            types,
+        ))
+    }
+
     fn create_templates(&self) -> Vec<CreateTemplate> {
         schema::create_templates()
     }
 
+    /// A vector index libSQL can't make on its column (one without a
+    /// dimension, L2 on a 1-bit one) is refused here, with why.
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
+        if parts.indexes {
+            schema::check_vector_columns(table).map_err(Error::Query)?;
+        }
         Ok(schema::table_ddl(table, parts))
     }
 
@@ -215,6 +275,17 @@ impl Driver for LibsqlDriver {
         &self,
         changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
+        use dbine_driver::TableChange;
+        for ch in changes {
+            match ch {
+                TableChange::Create { table } => schema::check_vector_columns(table),
+                TableChange::Alter { old, new } => {
+                    schema::check_vector_columns(&changed_indexes(old, new))
+                }
+                _ => Ok(()),
+            }
+            .map_err(Error::Query)?;
+        }
         sync_script(changes)
     }
 

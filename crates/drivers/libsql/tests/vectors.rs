@@ -660,3 +660,174 @@ async fn vectors_end_to_end() {
         std::panic::resume_unwind(e.into_panic());
     }
 }
+
+/// Typed scripts against sqld, in every vector format, each column with a
+/// vector index of its own (which refuses a vector of another format): the
+/// script writes each format's function with no catalog lookup, the rows
+/// read back, an edit lands and is found through the index, and the
+/// Índices view lists the index as DiskANN with its settings.
+#[tokio::test]
+#[ignore]
+async fn typed_scripts_in_every_format() {
+    let pid = std::process::id();
+    let formats = [
+        ("F32_BLOB", "vector32"),
+        ("F64_BLOB", "vector64"),
+        ("F16_BLOB", "vector16"),
+        ("FB16_BLOB", "vectorb16"),
+        ("F8_BLOB", "vector8"),
+        ("F1BIT_BLOB", "vector1bit"),
+    ];
+    let names: Vec<String> = formats
+        .iter()
+        .map(|(f, _)| format!("vec_ty_{pid}_{}", f.to_ascii_lowercase()))
+        .collect();
+    let meta_was_there = {
+        let mut s = open().await;
+        let r = run(
+            &mut s,
+            "SELECT count(*) FROM sqlite_master WHERE name = 'libsql_vector_meta_shadow'",
+        )
+        .await;
+        r.results[0].rows[0][0] == json!(1)
+    };
+    drop_all(&names, true).await;
+    let body = {
+        let names = names.clone();
+        tokio::spawn(async move {
+            let d = driver();
+            let mut s = open().await;
+            for ((format, function), name) in formats.iter().zip(&names) {
+                let mut t = schema(name);
+                t.columns = vec![
+                    col("id", "INTEGER", false),
+                    col("emb", &format!("{format}(4)"), true),
+                ];
+                // libSQL has no L2 distance for 1-bit vectors: the DDL
+                // refuses such an index (libSQL would take it, and then
+                // rank wrong); cosine for them.
+                t.indexes[0].vector.as_mut().unwrap().metric = Some("l2".into());
+                if *format == "F1BIT_BLOB" {
+                    let e = d
+                        .table_ddl(
+                            &t,
+                            DdlParts {
+                                create: true,
+                                indexes: true,
+                                ..Default::default()
+                            },
+                        )
+                        .unwrap_err();
+                    assert!(e.to_string().contains("1 bit"), "{e}");
+                    t.indexes[0].vector.as_mut().unwrap().metric = Some("cosine".into());
+                }
+                let ddl = d
+                    .table_ddl(
+                        &t,
+                        DdlParts {
+                            create: true,
+                            indexes: true,
+                            ..Default::default()
+                        },
+                    )
+                    .unwrap();
+                run(&mut s, &ddl).await;
+                // The types as the app gets them from describe.
+                let types: Vec<dbine_driver::ResultColumn> = s
+                    .columns(&table(name))
+                    .await
+                    .unwrap()
+                    .into_iter()
+                    .map(|c| dbine_driver::ResultColumn::new(c.name, c.data_type))
+                    .collect();
+                assert_eq!(types[1].type_name, format!("{format}(4)"));
+                let ins = d
+                    .insert_script_typed(
+                        &table(name),
+                        &types,
+                        &[
+                            vec![json!(1), json!([1, 2, 3, 4])],
+                            vec![json!(2), json!([-1, 0.5, -2, 3])],
+                        ],
+                    )
+                    .unwrap();
+                assert!(
+                    ins.contains(&format!("{function}('[1,2,3,4]')"))
+                        && !ins.contains("pragma_table_info"),
+                    "{ins}"
+                );
+                run(&mut s, &ins).await;
+                let out = run(
+                    &mut s,
+                    &format!("SELECT id, emb FROM \"{name}\" ORDER BY id"),
+                )
+                .await;
+                let r = &out.results[0];
+                assert!(r.columns[1].vector.is_some(), "{format}");
+                let first = r.rows[0][1].as_str().unwrap().to_string();
+                let want = match *format {
+                    "F1BIT_BLOB" => "[1,1,1,1]",
+                    _ => "[1,2,3,4]",
+                };
+                if *format == "F8_BLOB" {
+                    // Scaled bytes: close, not exact.
+                    let n = dbine_driver::vector::parse(&first).unwrap();
+                    assert!(
+                        n.iter()
+                            .zip([1.0, 2.0, 3.0, 4.0])
+                            .all(|(a, b)| (a - b).abs() < 0.05),
+                        "{first}"
+                    );
+                } else {
+                    assert_eq!(first, want, "{format}");
+                }
+                // An edit with the types, found through the index.
+                let up = d
+                    .update_script_typed(
+                        &table(name),
+                        &[RowChange {
+                            key: vec![("id".into(), json!(2))],
+                            set: vec![("emb".into(), json!([4, -3, 2, -1]))],
+                            row: Vec::new(),
+                        }],
+                        &types,
+                    )
+                    .unwrap();
+                assert!(up.contains(&format!("{function}('[4,-3,2,-1]')")), "{up}");
+                run(&mut s, &up).await;
+                let out = run(
+                    &mut s,
+                    &format!(
+                        "SELECT t.id FROM vector_top_k('{name}_emb', {function}('[4,-3,2,-1]'), 1) k JOIN \"{name}\" t ON t.rowid = k.id"
+                    ),
+                )
+                .await;
+                assert_eq!(out.results[0].rows[0][0], json!(2), "{format}");
+                // The Índices view: DiskANN, the index's settings, a size.
+                let usage = s.index_usage(&table(name)).await.unwrap().unwrap();
+                let ix = usage
+                    .indexes
+                    .iter()
+                    .find(|i| i.name == format!("{name}_emb"))
+                    .unwrap_or_else(|| panic!("{usage:?}"));
+                assert_eq!(ix.kind, "DISKANN");
+                assert_eq!(ix.key_columns, ["emb"]);
+                assert_eq!(
+                    ix.vector.as_ref().and_then(|v| v.metric.as_deref()),
+                    Some(if *format == "F1BIT_BLOB" {
+                        "cosine"
+                    } else {
+                        "l2"
+                    })
+                );
+                assert_eq!(ix.vector.as_ref().unwrap().params["m"], "16");
+                assert!(ix.size_kb.is_some_and(|k| k > 0), "{ix:?}");
+            }
+        })
+    };
+    let r = body.await;
+    drop_all(&names, meta_was_there).await;
+    if let Err(e) = r {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}
