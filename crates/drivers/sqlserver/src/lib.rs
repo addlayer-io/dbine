@@ -336,7 +336,13 @@ impl Driver for SqlServerDriver {
         Some(if self.variant == Variant::Fabric {
             schema::fabric_designer()
         } else {
-            schema::designer()
+            let mut d = schema::designer();
+            // Babelfish has no vector type.
+            if !vectors(self.variant) {
+                d.data_types.retain(|t| !t.starts_with("vector"));
+                d.vector_indexes = None;
+            }
+            d
         })
     }
 
@@ -2229,6 +2235,23 @@ mod tests {
         }
         for v in [Variant::Fabric, Variant::Babelfish] {
             assert_eq!(catalog_sql(v, q), q);
+        }
+    }
+
+    /// Vectors where the engine has them: SQL Server 2025 and Azure SQL.
+    #[test]
+    fn vectors_where_the_engine_has_them() {
+        for d in crate::drivers() {
+            let v = matches!(d.info().id, "sqlserver" | "azuresql");
+            assert_eq!(d.capabilities().vectors, v, "{}", d.info().id);
+            let spec = d.designer().unwrap();
+            assert_eq!(spec.vector_indexes.is_some(), v, "{}", d.info().id);
+            assert_eq!(
+                spec.data_types.iter().any(|t| t.starts_with("vector")),
+                v,
+                "{}",
+                d.info().id
+            );
         }
     }
 
