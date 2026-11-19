@@ -29,7 +29,9 @@ use crate::parse::TypeSpec;
 use dbine_driver::vector::param;
 use dbine_driver::{KeyDef, TableSchema, VectorElement, VectorIndex};
 
-/// Solr's largest vector (Lucene's HNSW limit).
+/// The largest vector Solr takes with its default codec (Lucene's HNSW
+/// limit); past it, from Solr 9.4, the collection's `solrconfig.xml` needs
+/// `SchemaCodecFactory` (SOLR-17045).
 const MAX_DIMS: u32 = 1024;
 
 pub struct Solr;
@@ -127,14 +129,20 @@ impl Dialect for Solr {
             L::Vector { dims, element, sparse } => match (dims, sparse) {
                 (_, true) => super::vector_fallback(self, t),
                 (None, _) => super::vector_fallback(self, t).with(Warning, TypeApproximated, "Solr necesita la dimensión del vector."),
-                (Some(n), _) if *n > MAX_DIMS => super::vector_fallback(self, t).with(Warning, TypeApproximated, format!("Solr admite vectores de hasta {MAX_DIMS} dimensiones.")),
-                (Some(n), _) => match element {
+                (Some(n), _) => {
+                    let r = match element {
                     VectorElement::I8 => Rendered::exact(format!("knn_vector({n}, BYTE)")),
                     VectorElement::F32 | VectorElement::Other => Rendered::exact(format!("knn_vector({n})")),
                     VectorElement::F64 => Rendered::exact(format!("knn_vector({n})")).with(Loss, PrecisionLoss, "Solr guarda los vectores en float de 32 bits: los de 64 bits pierden precisión."),
                     VectorElement::F16 | VectorElement::Bf16 => Rendered::exact(format!("knn_vector({n})")).with(Info, TypeChanged, "Vector de media precisión como float de 32 bits."),
                     VectorElement::U8 | VectorElement::Bit => Rendered::exact(format!("knn_vector({n})")).with(Warning, TypeApproximated, "Vector de bytes sin signo o de bits como números float: Solr solo tiene bytes con signo."),
-                },
+                    };
+                    if *n > MAX_DIMS {
+                        r.with(Warning, TypeChanged, format!("Más de {MAX_DIMS} dimensiones: desde Solr 9.4 la colección necesita SchemaCodecFactory en su solrconfig.xml."))
+                    } else {
+                        r
+                    }
+                }
             },
             L::Bool => Rendered::exact("boolean"),
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {
@@ -528,7 +536,11 @@ mod tests {
             "knn_vector(8)"
         );
         assert_eq!(Solr.render_type(&v(None, E::F32)).native, "pfloat[]");
-        assert_eq!(Solr.render_type(&v(Some(1536), E::F32)).native, "pfloat[]");
+        let long = Solr.render_type(&v(Some(1536), E::F32));
+        assert_eq!(
+            (long.native.as_str(), long.notes.len()),
+            ("knn_vector(1536)", 1)
+        );
         let pg = VectorIndex {
             algorithm: Some("hnsw".into()),
             metric: Some("ip".into()),
