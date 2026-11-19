@@ -16,10 +16,22 @@
     "copyJson": "Copy as JSON"
   },
   "edit": {
-    "format": "“{{column}}” is a vector column: write the value as a JSON array of numbers, for example [0.12, -0.03, 0.88]. To leave it NULL, use “Set NULL”.",
+    "format": "“{{column}}” is a vector column: write the value as a JSON array of numbers, for example [0.12, -0.03, 0.88]. To leave it NULL, use “$t(results:grid.setNull)”.",
     "dims": "“{{column}}” holds vectors of {{expected}} dimensions and the value has {{got}}.",
     "range": "“{{column}}” takes integers from {{min}} to {{max}}: number {{position}} of the vector is {{value}}.",
+    "overflow": "“{{column}}” stores {{element}} numbers, up to ±{{max}}: number {{position}} of the vector is {{value}}.",
+    "empty": "“{{column}}” doesn't take an empty vector: write its numbers, for example [0.12, -0.03, 0.88].",
     "skippedColumns": "The vector columns ({{columns}}) are left out of the WHERE."
+  },
+  "filter": {
+    "onlyNull": "“{{column}}” is a vector column: filter it by NULL or NOT NULL, or with an SQL condition from the filter's menu."
+  },
+  "sort": {
+    "local": "vector columns aren't sorted on the server"
+  },
+  "compare": {
+    "from": "from #{{position}}",
+    "firstDiff": "{{side}}: they differ from number {{position}} of {{dims}}. Double-click to see the whole vector."
   },
   "metric": {
     "cosine": "Cosine",
@@ -47,9 +59,11 @@
     "paramPlaceholder": "Engine default",
     "vectorType": "vector",
     "notVectorColumn": "Index “{{label}}” is a vector index and “{{column}}” isn't a vector column.",
-    "noFilterColumns": "Index “{{label}}” is a vector index: on this engine it takes only the vector column."
+    "noFilterColumns": "Index “{{label}}” is a vector index: on this engine it takes only the vector column.",
+    "rebuilt": "Vector index “{{label}}” changes: it's dropped and created again, and rebuilding it can take a while on large tables."
   },
   "index": {
-    "summary": "Vector: {{text}}"
+    "summary": "Vector: {{text}}",
+    "column": "Vector index"
   }
 }

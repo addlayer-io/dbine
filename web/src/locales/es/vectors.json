@@ -17,10 +17,22 @@
     "copyJson": "Copiar como JSON"
   },
   "edit": {
-    "format": "«{{column}}» es una columna vectorial: el valor se escribe como un arreglo JSON de números, por ejemplo [0.12, -0.03, 0.88]. Para dejarla en NULL usá «Establecer NULL».",
+    "format": "«{{column}}» es una columna vectorial: el valor se escribe como un arreglo JSON de números, por ejemplo [0.12, -0.03, 0.88]. Para dejarla en NULL usá «$t(results:grid.setNull)».",
     "dims": "«{{column}}» tiene vectores de {{expected}} dimensiones y el valor tiene {{got}}.",
     "range": "«{{column}}» lleva enteros de {{min}} a {{max}}: el número {{position}} del vector es {{value}}.",
+    "overflow": "«{{column}}» guarda números {{element}}, de hasta ±{{max}}: el número {{position}} del vector es {{value}}.",
+    "empty": "«{{column}}» no admite un vector vacío: escribí sus números, por ejemplo [0.12, -0.03, 0.88].",
     "skippedColumns": "Las columnas vectoriales ({{columns}}) quedan fuera del WHERE."
+  },
+  "filter": {
+    "onlyNull": "«{{column}}» es una columna vectorial: se filtra por NULL o NOT NULL, o con una condición SQL desde el menú del filtro."
+  },
+  "sort": {
+    "local": "las columnas vectoriales no se ordenan en el servidor"
+  },
+  "compare": {
+    "from": "desde el n.º {{position}}",
+    "firstDiff": "{{side}}: difieren desde el número {{position}} de {{dims}}. Doble clic para ver el vector entero."
   },
   "metric": {
     "cosine": "Coseno",
@@ -48,9 +60,11 @@
     "paramPlaceholder": "Predeterminado del motor",
     "vectorType": "vectorial",
     "notVectorColumn": "El índice «{{label}}» es vectorial y «{{column}}» no es una columna vectorial.",
-    "noFilterColumns": "El índice «{{label}}» es vectorial: en este motor lleva solo la columna vectorial."
+    "noFilterColumns": "El índice «{{label}}» es vectorial: en este motor lleva solo la columna vectorial.",
+    "rebuilt": "El índice vectorial «{{label}}» cambia: se elimina y se vuelve a crear, y la reconstrucción puede tardar en tablas grandes."
   },
   "index": {
-    "summary": "Vectorial: {{text}}"
+    "summary": "Vectorial: {{text}}",
+    "column": "Índice vectorial"
   }
 }

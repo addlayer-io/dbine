@@ -1,6 +1,6 @@
 import { t } from '../i18n';
 import type { VectorIndex } from '../api/schema-types';
-import { isStandardMetric, isStandardParam, vectorIndexText, type VectorProblem } from './vector';
+import { ELEMENT_NAMES, isStandardMetric, isStandardParam, shortNumber, vectorIndexText, type VectorProblem } from './vector';
 
 // The texts of vectors (composables/vector.ts) in the interface language:
 // the standard metric and parameter names translated, any other as the
@@ -22,5 +22,9 @@ export function vectorProblemText(p: VectorProblem, column: string): string {
     const [min, max] = p.element === 'i8' ? [-128, 127] : p.element === 'u8' ? [0, 255] : [0, 1];
     return t('vectors:edit.range', { column, min, max, position: p.position + 1, value: p.value });
   }
+  if (p.kind === 'overflow') {
+    return t('vectors:edit.overflow', { column, element: ELEMENT_NAMES[p.element], max: shortNumber(p.max), position: p.position + 1, value: p.value });
+  }
+  if (p.kind === 'empty') return t('vectors:edit.empty', { column });
   return t('vectors:edit.format', { column });
 }

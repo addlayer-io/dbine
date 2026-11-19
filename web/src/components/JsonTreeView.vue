@@ -3,7 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus';
 import { t } from '../i18n';
 import type { Cell, ResultColumn, VectorMeta } from '../api/types';
-import { isDense, vectorMeta, vectorPreview } from '../composables/vector';
+import { isDense, vectorMeta, vectorPreview, vectorValueProblem } from '../composables/vector';
+import { vectorProblemText } from '../composables/vectorLabels';
 import type { Edits } from '../composables/gridEdit';
 import { columnKind, parseFilter, type FilterState } from '../composables/gridFilter';
 import { isSaveShortcut } from '../composables/shortcuts';
@@ -469,15 +470,18 @@ function explainNoEdit(n: TreeNode) {
 }
 /** Sets (or removes) the value at the node's path: a top-level scalar goes as
  *  is; anything else rewrites its top-level field as JSON text, the way the
- *  driver sends nested values. Back to the server's value: the edit goes. */
-function change(n: TreeNode, op: { set: unknown } | { remove: true }) {
+ *  driver sends nested values. Back to the server's value: the edit goes.
+ *  A vector column's field must stay a vector it holds (or NULL): an edit
+ *  that leaves anything else (a removed or wrong number, another type) is
+ *  refused with the reason, and the result is the message (null: done). */
+function change(n: TreeNode, op: { set: unknown } | { remove: true }): string | null {
   const [field, ...rest] = n.path;
   const c = colIndex(field);
-  if (c < 0) return;
+  if (c < 0) return null;
   const r = n.row;
   let next: unknown;
   if (!rest.length) {
-    if ('remove' in op) return;
+    if ('remove' in op) return null;
     next = op.set;
   } else {
     const root = structuredClone(rowObject(r)[field as string]);
@@ -490,9 +494,16 @@ function change(n: TreeNode, op: { set: unknown } | { remove: true }) {
     } else (parent as Record<string, unknown>)[last as string] = op.set;
     next = root;
   }
+  const problem = vectorValueProblem(next, vectorMeta(props.columns[c]));
+  if (problem) {
+    const message = vectorProblemText(problem, props.columns[c].name);
+    ElMessage.warning({ message, duration: 5000 });
+    return message;
+  }
   const cell: Cell = next !== null && typeof next === 'object' ? JSON.stringify(next) : (next as Cell);
-  if (r < base.value && same(parseCell(cell), originalField(r, c))) { emit('edit', r, c, undefined); return; }
+  if (r < base.value && same(parseCell(cell), originalField(r, c))) { emit('edit', r, c, undefined); return null; }
   emit('edit', r, c, cell);
+  return null;
 }
 
 const editing = ref<{ id: string; text: string } | null>(null);
@@ -524,7 +535,9 @@ function typed(n: TreeNode, text: string): unknown {
     default: return text;
   }
 }
-function commitEdit(move = 0) {
+/** `keep`: a refused value (a vector's number that isn't one) leaves the
+ *  editor open (Enter, Tab) instead of dropping the text (leaving it). */
+function commitEdit(move = 0, keep = false) {
   const e = editing.value;
   if (!e) return;
   editing.value = null;
@@ -532,7 +545,11 @@ function commitEdit(move = 0) {
   const n = flat.value[i];
   if (n) {
     const v = typed(n, e.text);
-    if (!same(v, n.value)) change(n, { set: v });
+    if (!same(v, n.value) && change(n, { set: v }) && keep) {
+      editing.value = e;
+      nextTick(() => (Array.isArray(editInput.value) ? editInput.value[0] : editInput.value)?.focus());
+      return;
+    }
     if (move) nextTick(() => select(Math.max(0, Math.min(flat.value.length - 1, i + move))));
   }
   scroller.value?.focus();
@@ -542,8 +559,8 @@ function cancelEdit() {
   scroller.value?.focus();
 }
 function onEditKey(ev: KeyboardEvent) {
-  if (ev.key === 'Enter') { ev.preventDefault(); commitEdit(1); }
-  else if (ev.key === 'Tab') { ev.preventDefault(); commitEdit(ev.shiftKey ? -1 : 1); }
+  if (ev.key === 'Enter') { ev.preventDefault(); commitEdit(1, true); }
+  else if (ev.key === 'Tab') { ev.preventDefault(); commitEdit(ev.shiftKey ? -1 : 1, true); }
   else if (ev.key === 'Escape') { ev.preventDefault(); cancelEdit(); }
   // ⌘S keeps the value and goes on to the pane, which saves.
   else if (isSaveShortcut(ev)) { commitEdit(); return; }
@@ -565,8 +582,10 @@ function saveJson() {
     j.error = t('results:addDocument.invalidJson', { error: e instanceof Error ? e.message : String(e) });
     return;
   }
+  // A vector it doesn't hold: the dialog stays, saying why.
+  const problem = same(v, j.node.value) ? null : change(j.node, { set: v });
+  if (problem) { j.error = problem; return; }
   jsonEdit.value = null;
-  if (!same(v, j.node.value)) change(j.node, { set: v });
 }
 function toggleDelete(n: TreeNode) {
   if (n.row >= base.value) { emit('delete', [n.row], true); return; }

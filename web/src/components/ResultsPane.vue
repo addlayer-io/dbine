@@ -1150,6 +1150,7 @@ const liveText = computed(() => {
       :open="docOpen"
       :documents="editSource?.language === 'json'"
       :fields="current?.columns.map((c) => c.name) ?? []"
+      :columns="current?.columns ?? []"
       @close="docOpen = false"
       @add="addDocuments"
     />
