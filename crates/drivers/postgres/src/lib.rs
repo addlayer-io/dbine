@@ -803,6 +803,10 @@ impl Driver for PgDriver {
                 "Denodo no crea tablas por SQL: las vistas base se definen en Denodo".into(),
             ));
         }
+        if let Some(why) = vectors::table_refusal(self.variant, table, parts.create, parts.indexes)
+        {
+            return Err(Error::Unsupported(why));
+        }
         Ok(design::table_ddl(self.variant, table, parts))
     }
 

@@ -82,6 +82,17 @@ pub fn sync_script(
             ch
         })
         .collect();
+    // A vector type or vector index the variant can't make: said plainly,
+    // before the server refuses it.
+    for ch in &changes {
+        use dbine_driver::TableChange as T;
+        let (T::Create { table: t } | T::Alter { new: t, .. }) = ch else {
+            continue;
+        };
+        if let Some(why) = crate::vectors::table_refusal(v, t, true, true) {
+            return Err(dbine_driver::Error::Unsupported(why));
+        }
+    }
     let changes = changes.as_slice();
     let mut script =
         dbine_driver::alter::sync_script(&AlterStyle::from_flavor(&f, column, &cd, &dd), changes)?;

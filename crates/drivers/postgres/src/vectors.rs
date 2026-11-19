@@ -353,7 +353,11 @@ fn algorithms(v: Variant) -> &'static [&'static str] {
         Variant::Cockroach => &["cspann"],
         Variant::Yugabyte => &["ybhnsw"],
         Variant::Timescale => &["hnsw", "diskann", "ivfflat"],
-        Variant::AlloyDb => &["hnsw", "scann", "ivfflat"],
+        // AlloyDB's own ScaNN and IVF (pgvector's IVFFlat with a quantizer).
+        Variant::AlloyDb => &["hnsw", "scann", "ivfflat", "ivf"],
+        // DiskANN where pgvectorscale (any PostgreSQL) or Azure's
+        // pg_diskann is installed.
+        Variant::Postgres => &["hnsw", "ivfflat", "diskann"],
         // DataVec, built in since 7.0.
         Variant::OpenGauss => &["hnsw", "ivfflat", "diskann"],
         Variant::RisingWave => &["hnsw", "flat"],
@@ -366,7 +370,7 @@ fn algorithms(v: Variant) -> &'static [&'static str] {
 /// `cosine`, `l1`, `hamming`, `jaccard`; ScaNN's `dot_product` for `ip`.
 fn metric_word(alg: &str, m: &str) -> String {
     match (alg, m) {
-        ("scann" | "ivf", metric::IP) => "dot_product".into(),
+        ("scann", metric::IP) => "dot_product".into(),
         _ => m.to_string(),
     }
 }
@@ -437,10 +441,11 @@ fn key_type(key: &str, columns: &[ColumnDef]) -> &'static str {
     }
 }
 
-/// The operator class for a key of type `prefix` in an `alg` index.
+/// The operator class for a key of type `prefix` in an `alg` index
+/// (AlloyDB's ScaNN names the distance alone; its IVF takes pgvector's).
 fn opclass(alg: &str, prefix: &str, m: &str) -> String {
     match alg {
-        "scann" | "ivf" => metric_word(alg, m),
+        "scann" => metric_word(alg, m),
         _ if metric::ALL.contains(&m) => format!("{prefix}_{}_ops", metric_word(alg, m)),
         // An engine's own operator class, as it was read.
         _ => m.to_string(),
@@ -463,8 +468,17 @@ fn params_of(alg: &str) -> &'static [&'static str] {
             "max_neighbors",
             "l_value_ib",
             "product_quantized",
+            "pq_param_num_chunks",
+            "pq_param_training_samples",
         ],
-        "scann" => &["num_leaves", "quantizer", "max_num_levels"],
+        "scann" => &[
+            "num_leaves",
+            "quantizer",
+            "max_num_levels",
+            "mode",
+            "optimization",
+            "auto_maintenance",
+        ],
         "ivf" => &[param::LISTS, "quantizer"],
         "cspann" => &[
             "min_partition_size",
@@ -473,6 +487,180 @@ fn params_of(alg: &str) -> &'static [&'static str] {
         ],
         _ => &[],
     }
+}
+
+/// Build parameters whose value is a number.
+const NUMERIC_PARAMS: &[&str] = &[
+    param::M,
+    param::EF_CONSTRUCTION,
+    param::LISTS,
+    "num_neighbors",
+    "search_list_size",
+    "max_alpha",
+    "num_dimensions",
+    "num_bits_per_dimension",
+    "max_neighbors",
+    "l_value_ib",
+    "pq_param_num_chunks",
+    "pq_param_training_samples",
+    "num_leaves",
+    "max_num_levels",
+    "min_partition_size",
+    "max_partition_size",
+    "build_beam_size",
+];
+
+/// What an algorithm indexes for a key of one type.
+enum Takes {
+    /// These distances.
+    Metrics(&'static [&'static str]),
+    /// Not that type at all.
+    NotType,
+    /// An algorithm this build doesn't know: whatever the server says.
+    Unknown,
+}
+
+/// The distances `alg` has for a key of type `prefix` (`vector`, `halfvec`,
+/// `sparsevec`, `bit`), as each engine's operator classes say: pgvector's
+/// HNSW (L2, inner product, cosine, L1; Hamming and Jaccard for `bit`) and
+/// IVFFlat (no L1 nor `sparsevec`; Hamming for `bit`), pgvectorscale's and
+/// openGauss' DiskANN (`vector` only), AlloyDB's ScaNN and IVF, YugabyteDB's
+/// ybhnsw, CockroachDB's C-SPANN, RisingWave's HNSW and FLAT.
+fn takes(alg: &str, prefix: &str) -> Takes {
+    use metric::{COSINE, HAMMING, IP, JACCARD, L1, L2};
+    const FOUR: &[&str] = &[L2, IP, COSINE, L1];
+    const THREE: &[&str] = &[L2, IP, COSINE];
+    match (alg, prefix) {
+        ("hnsw", "bit") => Takes::Metrics(&[HAMMING, JACCARD]),
+        ("hnsw" | "flat", _) => Takes::Metrics(FOUR),
+        ("ivfflat", "bit") => Takes::Metrics(&[HAMMING]),
+        ("ivfflat", "sparsevec") => Takes::NotType,
+        ("ivfflat", _) => Takes::Metrics(THREE),
+        ("diskann" | "ybhnsw", "vector") => Takes::Metrics(THREE),
+        ("diskann" | "ybhnsw", _) => Takes::NotType,
+        ("scann" | "ivf", "sparsevec" | "bit") => Takes::NotType,
+        ("scann" | "ivf" | "cspann", _) => Takes::Metrics(THREE),
+        _ => Takes::Unknown,
+    }
+}
+
+/// An algorithm's name as its engine writes it in prose.
+fn algorithm_label(alg: &str) -> String {
+    match alg {
+        "hnsw" | "flat" => alg.to_ascii_uppercase(),
+        "ivfflat" => "IVFFlat".into(),
+        "diskann" => "DiskANN".into(),
+        "scann" => "ScaNN".into(),
+        "ivf" => "IVF".into(),
+        "cspann" => "C-SPANN".into(),
+        other => other.into(),
+    }
+}
+
+/// Why this variant can't make the vector index `ix` of `t` as asked (an
+/// algorithm without that distance for the key's type, a parameter that
+/// must be a number), in Spanish; `None` when it can. The server would
+/// refuse it anyway, with a less clear message.
+pub(crate) fn refusal(
+    v: Variant,
+    t: &TableSchema,
+    ix: &IndexDef,
+    vi: &VectorIndex,
+) -> Option<String> {
+    if !supported(v) {
+        return Some(format!(
+            "{} no tiene índices vectoriales: el índice «{}» no se puede crear.",
+            v.info().name,
+            ix.name
+        ));
+    }
+    // A FLOAT_VECTOR column is indexed by being declared.
+    if v == Variant::CrateDb {
+        return None;
+    }
+    let first = ix.columns.first()?;
+    let (alg, _) = algorithm_for(v, vi, ix.kind.as_deref());
+    let prefix = key_type(first, &t.columns);
+    let m = vi
+        .metric
+        .as_deref()
+        .map(|m| m.trim().to_ascii_lowercase())
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| default_metric(&alg, prefix).to_string());
+    let label = algorithm_label(&alg);
+    match takes(&alg, prefix) {
+        Takes::NotType => {
+            return Some(format!(
+                "El índice «{}»: {label} no indexa columnas {prefix}.",
+                ix.name
+            ))
+        }
+        // A standard distance it doesn't have; an engine's own operator
+        // class goes as it was read.
+        Takes::Metrics(ok) if metric::ALL.contains(&m.as_str()) && !ok.contains(&m.as_str()) => {
+            return Some(format!(
+                "El índice «{}»: {label} no tiene la distancia {m} para {prefix} (tiene {}).",
+                ix.name,
+                ok.join(", ")
+            ))
+        }
+        _ => {}
+    }
+    vi.params
+        .iter()
+        .filter(|(k, val)| NUMERIC_PARAMS.contains(&k.as_str()) && !val.trim().is_empty())
+        .find(|(_, val)| val.trim().parse::<f64>().is_err())
+        .map(|(k, val)| {
+            format!(
+                "El índice «{}»: el parámetro {k} tiene que ser un número, no «{}».",
+                ix.name,
+                val.trim()
+            )
+        })
+}
+
+/// The first vector column (`columns`) or vector index (`indexes`) of `t`
+/// this variant can't make, as its reason: a vector type it doesn't have
+/// (any, on a variant without vectors: a table that came from pgvector
+/// within the family; `sparsevec` on CockroachDB), or [`refusal`].
+pub(crate) fn table_refusal(
+    v: Variant,
+    t: &TableSchema,
+    columns: bool,
+    indexes: bool,
+) -> Option<String> {
+    let name = v.info().name;
+    if columns {
+        for c in t.columns.iter().filter(|c| is_vector_type(&c.data_type)) {
+            if !supported(v) {
+                return Some(format!(
+                    "{name} no tiene vectores: la columna «{}» es {}. Cambiá su tipo (por ejemplo, a una lista de números) antes de crearla.",
+                    c.name, c.data_type
+                ));
+            }
+            if meta_of_type(v, &c.data_type).is_none() && sibling_type(v, &c.data_type).is_none() {
+                return Some(format!(
+                    "{name} no tiene el tipo de vector {} (o le falta la dimensión): la columna «{}» no se puede crear así.",
+                    c.data_type, c.name
+                ));
+            }
+        }
+    }
+    if !indexes {
+        return None;
+    }
+    t.indexes
+        .iter()
+        .find_map(|ix| refusal(v, t, ix, ix.vector.as_ref()?))
+}
+
+/// A vector type of any engine of the family (`vector(3)`, `halfvec`,
+/// `sparsevec(5)`, `VECTOR(3)`, `FLOAT_VECTOR(3)`, schema-qualified too).
+fn is_vector_type(data_type: &str) -> bool {
+    let t = data_type.trim().to_ascii_lowercase();
+    let name = t.split('(').next().unwrap_or("").trim();
+    let name = name.rsplit('.').next().unwrap_or(name).trim_matches('"');
+    matches!(name, "vector" | "halfvec" | "sparsevec" | "float_vector")
 }
 
 /// The algorithm this variant writes for `vi`'s: its own when it has it,
@@ -889,7 +1077,15 @@ pub(crate) fn designer_spec(v: Variant) -> Option<VectorIndexSpec> {
         _ => {
             params.push(p(param::M, vec!["hnsw"], "16"));
             params.push(p(param::EF_CONSTRUCTION, vec!["hnsw"], "64"));
-            params.push(p(param::LISTS, vec!["ivfflat"], "100"));
+            params.push(p(
+                param::LISTS,
+                if algs.contains(&"ivf") {
+                    vec!["ivfflat", "ivf"]
+                } else {
+                    vec!["ivfflat"]
+                },
+                "100",
+            ));
             // pgvectorscale's (openGauss' DiskANN takes its defaults).
             if v == Variant::Timescale {
                 params.push(p("num_neighbors", vec!["diskann"], "50"));
@@ -897,9 +1093,26 @@ pub(crate) fn designer_spec(v: Variant) -> Option<VectorIndexSpec> {
                 params.push(p("max_alpha", vec!["diskann"], "1.2"));
                 params.push(p("storage_layout", vec!["diskann"], "memory_optimized"));
             }
+            // pgvectorscale's or Azure's pg_diskann's, whichever the server
+            // has: none set by default.
+            if v == Variant::Postgres {
+                for key in [
+                    "num_neighbors",
+                    "search_list_size",
+                    "max_alpha",
+                    "storage_layout",
+                    "max_neighbors",
+                    "l_value_ib",
+                    "product_quantized",
+                ] {
+                    params.push(p(key, vec!["diskann"], ""));
+                }
+            }
             if algs.contains(&"scann") {
                 params.push(p("num_leaves", vec!["scann"], ""));
-                params.push(p("quantizer", vec!["scann"], "SQ8"));
+                params.push(p("max_num_levels", vec!["scann"], ""));
+                params.push(p("mode", vec!["scann"], ""));
+                params.push(p("quantizer", vec!["scann", "ivf"], "SQ8"));
             }
             vec![
                 metric::COSINE,
@@ -1147,6 +1360,8 @@ mod tests {
         assert_eq!(opclass("hnsw", "bit", "jaccard"), "bit_jaccard_ops");
         assert_eq!(opclass("scann", "vector", "ip"), "dot_product");
         assert_eq!(opclass("scann", "vector", "cosine"), "cosine");
+        // AlloyDB's IVF takes pgvector's operator classes.
+        assert_eq!(opclass("ivf", "vector", "ip"), "vector_ip_ops");
         assert_eq!(opclass("hnsw", "vector", "my_ops"), "my_ops");
     }
 
@@ -1517,10 +1732,31 @@ mod tests {
     #[test]
     fn designer_choices() {
         let pg = designer_spec(Variant::Postgres).unwrap();
-        assert_eq!(pg.algorithms, ["hnsw", "ivfflat"]);
+        // DiskANN: pgvectorscale's or Azure's pg_diskann, nothing preset.
+        assert_eq!(pg.algorithms, ["hnsw", "ivfflat", "diskann"]);
         assert_eq!(pg.metrics[0], metric::COSINE);
         assert!(pg.params.iter().any(|p| p.key == "m" && p.default == "16"));
+        assert!(pg
+            .params
+            .iter()
+            .filter(|p| p.algorithms == ["diskann"])
+            .all(|p| p.default.is_empty()));
+        assert!(pg.params.iter().any(|p| p.key == "max_neighbors"));
         assert!(!pg.filter_columns);
+        assert_eq!(
+            designer_spec(Variant::CloudSql).unwrap().algorithms,
+            ["hnsw", "ivfflat"]
+        );
+        let alloy = designer_spec(Variant::AlloyDb).unwrap();
+        assert_eq!(alloy.algorithms, ["hnsw", "scann", "ivfflat", "ivf"]);
+        assert!(alloy
+            .params
+            .iter()
+            .any(|p| p.key == "lists" && p.algorithms.contains(&"ivf")));
+        assert!(alloy
+            .params
+            .iter()
+            .any(|p| p.key == "quantizer" && p.algorithms == ["scann", "ivf"]));
         assert!(designer_spec(Variant::Timescale)
             .unwrap()
             .algorithms
@@ -1543,5 +1779,152 @@ mod tests {
         assert!(designer_spec(Variant::Redshift).is_none());
         assert!(data_types(Variant::Postgres).contains(&"halfvec(1536)"));
         assert!(data_types(Variant::H2).is_empty());
+    }
+
+    /// What the designer can ask that no server makes: a distance the
+    /// algorithm lacks for the key's type, a type it doesn't index, a
+    /// parameter that isn't a number. Everything the engines have passes.
+    #[test]
+    fn impossible_vector_indexes_are_refused() {
+        let t = table();
+        let refused = |v, cols: &[&str], alg, m, params: &[(&str, &str)]| {
+            refusal(
+                v,
+                &t,
+                &ix("i", cols, vix(alg, m, params)),
+                &vix(alg, m, params),
+            )
+        };
+        let pg = Variant::Postgres;
+        for (cols, alg, m) in [
+            (&["v"][..], Some("hnsw"), Some("hamming")),
+            (&["v"], Some("ivfflat"), Some("l1")),
+            (&["s"], Some("ivfflat"), Some("l2")),
+            (&["b"], Some("ivfflat"), Some("jaccard")),
+            (&["h"], Some("diskann"), Some("cosine")),
+            (&["v"], Some("diskann"), Some("l1")),
+            (&["b"], Some("hnsw"), Some("l2")),
+        ] {
+            assert!(
+                refused(pg, cols, alg, m, &[]).is_some(),
+                "{cols:?} {alg:?} {m:?}"
+            );
+        }
+        let why = refused(pg, &["v"], Some("hnsw"), Some("hamming"), &[]).unwrap();
+        assert!(why.contains("«i»") && why.contains("hamming"), "{why}");
+        let why = refused(pg, &["v"], Some("hnsw"), Some("cosine"), &[("m", "abc")]).unwrap();
+        assert!(why.contains("m") && why.contains("«abc»"), "{why}");
+        assert!(refused(Variant::AlloyDb, &["v"], Some("scann"), Some("l1"), &[]).is_some());
+        assert!(refused(Variant::AlloyDb, &["s"], Some("ivf"), Some("l2"), &[]).is_some());
+        assert!(refused(Variant::Yugabyte, &["h"], Some("hnsw"), Some("l2"), &[]).is_some());
+        assert!(refused(Variant::Yugabyte, &["v"], None, Some("l1"), &[]).is_some());
+        assert!(refused(Variant::Cockroach, &["v"], None, Some("l1"), &[]).is_some());
+        assert!(refused(Variant::OpenGauss, &["s"], Some("diskann"), Some("l2"), &[]).is_some());
+
+        for (v, cols, alg, m, params) in [
+            (pg, &["v"][..], Some("hnsw"), Some("l1"), &[("m", "16")][..]),
+            (pg, &["h"], Some("ivfflat"), Some("ip"), &[("lists", "100")]),
+            (pg, &["s"], Some("hnsw"), Some("cosine"), &[]),
+            (pg, &["b"], Some("hnsw"), Some("jaccard"), &[]),
+            (pg, &["b"], Some("ivfflat"), Some("hamming"), &[]),
+            (
+                pg,
+                &["v"],
+                Some("diskann"),
+                Some("cosine"),
+                &[("max_alpha", "1.2")],
+            ),
+            (
+                pg,
+                &["v"],
+                Some("diskann"),
+                None,
+                &[("storage_layout", "plain")],
+            ),
+            (Variant::Timescale, &["v"], Some("diskann"), Some("ip"), &[]),
+            (
+                Variant::AlloyDb,
+                &["v"],
+                Some("scann"),
+                Some("ip"),
+                &[("quantizer", "SQ8")],
+            ),
+            (
+                Variant::AlloyDb,
+                &["v"],
+                Some("ivf"),
+                Some("cosine"),
+                &[("lists", "10")],
+            ),
+            (Variant::Yugabyte, &["v"], None, Some("ip"), &[("m", "16")]),
+            (Variant::Cockroach, &["v", "uid"], None, Some("cosine"), &[]),
+            (Variant::RisingWave, &["v"], Some("flat"), Some("l1"), &[]),
+            (Variant::OpenGauss, &["v"], Some("diskann"), Some("l2"), &[]),
+            // An engine's own operator class, as it was read.
+            (pg, &["v"], Some("hnsw"), Some("vector_custom_ops"), &[]),
+            (Variant::CrateDb, &["v"], Some("hnsw"), Some("hamming"), &[]),
+        ] {
+            assert_eq!(
+                refused(v, cols, alg, m, params),
+                None,
+                "{v:?} {cols:?} {alg:?} {m:?}"
+            );
+        }
+    }
+
+    /// A table from pgvector on a variant without vectors (a conversion
+    /// within the family keeps its types) is refused with the reason, not
+    /// scripted with pgvector's syntax; a vector type the variant lacks too.
+    #[test]
+    fn variants_without_the_type_refuse_the_table() {
+        let mut t = table();
+        t.indexes
+            .push(ix("i", &["v"], vix(Some("hnsw"), Some("cosine"), &[])));
+        for v in [
+            Variant::Materialize,
+            Variant::H2,
+            Variant::Yellowbrick,
+            Variant::Redshift,
+        ] {
+            let why = table_refusal(v, &t, true, true).unwrap();
+            assert!(
+                why.contains("no tiene vectores") && why.contains("«v»"),
+                "{v:?}: {why}"
+            );
+            let only_index = TableSchema {
+                columns: vec![col("v", "real[]")],
+                ..t.clone()
+            };
+            let why = table_refusal(v, &only_index, true, true).unwrap();
+            assert!(why.contains("índices vectoriales"), "{v:?}: {why}");
+        }
+        assert!(table_refusal(Variant::Postgres, &t, true, true).is_none());
+        // CockroachDB has no sparse vectors; CrateDB's need their dimension.
+        let why = table_refusal(Variant::Cockroach, &t, true, false).unwrap();
+        assert!(why.contains("sparsevec(5)"), "{why}");
+        let crate_t = TableSchema {
+            columns: vec![col("id", "integer"), col("v", "vector")],
+            ..Default::default()
+        };
+        assert!(table_refusal(Variant::CrateDb, &crate_t, true, false).is_some());
+        // The driver's DDL says it.
+        let d = crate::drivers()
+            .into_iter()
+            .find(|d| d.info().id == "materialize")
+            .unwrap();
+        let e = d
+            .table_ddl(
+                &t,
+                dbine_driver::DdlParts {
+                    create: true,
+                    indexes: true,
+                    ..Default::default()
+                },
+            )
+            .unwrap_err();
+        assert!(
+            e.to_string().contains("Materialize no tiene vectores"),
+            "{e}"
+        );
     }
 }
