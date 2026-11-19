@@ -632,22 +632,41 @@ impl Dialect for Cql {
             comments: false,
             max_identifier: 48,
             case: IdentCase::Lower,
-            vector_indexes: true,
+            vector_indexes: self.vectors,
         }
     }
 
     /// SAI on Cassandra, `vector_index` on ScyllaDB, with the distances
     /// CQL has. The settings go on as they came (with the source's
     /// algorithm): [`Dialect::finalize`] keeps those the flavor takes and
-    /// reports the rest (see `Cql::vector_indexes`).
+    /// reports the rest (see `Cql::vector_indexes`). The column has to
+    /// become a `vector<…, n>`: one without a dimension becomes a list and
+    /// a sparse one text, which CQL doesn't index as vectors. And Cassandra
+    /// refuses the cosine distance (its default) on vectors of one
+    /// dimension.
     fn vector_index(
         &self,
         v: &VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, VectorIndex), String> {
         if !self.vectors {
             return Err("Amazon Keyspaces no tiene índices vectoriales".into());
         }
+        let dims = match column {
+            Some(L::Vector { sparse: true, .. }) => {
+                return Err(
+                    "su columna es un vector disperso, que en CQL queda como texto".into(),
+                )
+            }
+            Some(L::Vector { dims: None, .. }) => {
+                return Err(
+                    "su columna no dice su dimensión, así que en CQL queda como lista y no como vector<float, n>"
+                        .into(),
+                )
+            }
+            Some(L::Vector { dims, .. }) => *dims,
+            _ => None,
+        };
         let metric = match v.metric.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
             None => None,
             Some(m) => Some(
@@ -666,6 +685,12 @@ impl Dialect for Cql {
                 })?,
             ),
         };
+        if dims == Some(1) && !self.scylla && metric.as_deref().is_none_or(|m| m == metric::COSINE)
+        {
+            return Err(
+                "Cassandra no mide la distancia coseno en vectores de una dimensión".into(),
+            );
+        }
         let kind = if self.scylla { "vector_index" } else { "sai" };
         Ok((
             Some(kind.to_string()),
@@ -1397,5 +1422,183 @@ mod tests {
             .issues
             .iter()
             .any(|i| i.code == IssueCode::IndexChanged && i.message.contains("lang")));
+    }
+
+    /// The column a vector index searches decides whether CQL can index
+    /// it: a vector without a dimension (a list in CQL) or a sparse one
+    /// (text) can't, and Cassandra measures no cosine on one dimension.
+    #[test]
+    fn vector_indexes_look_at_their_column() {
+        let cosine = VectorIndex {
+            metric: Some("cosine".into()),
+            ..Default::default()
+        };
+        let l2 = VectorIndex {
+            metric: Some("l2".into()),
+            ..Default::default()
+        };
+        let col = |dims: Option<u32>, sparse: bool| L::Vector {
+            dims,
+            element: VectorElement::F32,
+            sparse,
+        };
+        for id in ["cassandra", "scylladb"] {
+            let d = lookup(id).unwrap();
+            assert!(d.vector_index(&cosine, Some(&col(Some(3), false))).is_ok());
+            let e = d
+                .vector_index(&cosine, Some(&col(None, false)))
+                .unwrap_err();
+            assert!(e.contains("dimensión"), "{e}");
+            let e = d
+                .vector_index(&cosine, Some(&col(Some(30), true)))
+                .unwrap_err();
+            assert!(e.contains("disperso"), "{e}");
+        }
+        let c = lookup("cassandra").unwrap();
+        let one = col(Some(1), false);
+        assert!(c.vector_index(&cosine, Some(&one)).is_err());
+        assert!(c.vector_index(&VectorIndex::default(), Some(&one)).is_err());
+        assert!(c.vector_index(&l2, Some(&one)).is_ok());
+        assert!(!lookup("keyspaces").unwrap().caps().vector_indexes);
+        assert!(c.caps().vector_indexes);
+    }
+
+    /// Whole conversions into CQL: a searched float array with a stated
+    /// dimension arrives as a vector with its index; a list without one,
+    /// a vector without a dimension or a sparse one leaves the index out.
+    #[test]
+    fn vector_indexes_converted_into_cql() {
+        use crate::convert::{convert, Options};
+        use dbine_driver::{ColumnDef, IndexDef};
+        let source = |id_type: &str, ty: &str, kind: &str, v: VectorIndex| TableSchema {
+            name: "docs".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: id_type.into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "emb".into(),
+                    data_type: ty.into(),
+                    ..Default::default()
+                },
+            ],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![IndexDef {
+                name: "docs_emb".into(),
+                columns: vec!["emb".into()],
+                kind: Some(kind.into()),
+                vector: Some(v),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let one = |t: TableSchema, from: &str, to: &str| {
+            let r = convert(&[t], from, to, &Options::default()).unwrap();
+            (r.tables[0].clone(), r.issues)
+        };
+        let dropped = |issues: &[crate::issue::Issue], word: &str| {
+            issues
+                .iter()
+                .any(|i| i.code == IssueCode::IndexDropped && i.message.contains(word))
+        };
+        // ClickHouse: Array(Float32) searched by an index of 3 dimensions.
+        let ch = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("l2".into()),
+            params: params(&[("dimensions", "3")]),
+        };
+        for to in ["cassandra", "scylladb"] {
+            let (t, _) = one(
+                source("Int32", "Array(Float32)", "vector_similarity", ch.clone()),
+                "clickhouse",
+                to,
+            );
+            assert_eq!(t.columns[1].data_type, "vector<float, 3>", "{to}");
+            let ix = &t.indexes[0];
+            assert_eq!(
+                ix.kind.as_deref(),
+                Some(if to == "scylladb" {
+                    "vector_index"
+                } else {
+                    "sai"
+                })
+            );
+            assert_eq!(ix.vector.as_ref().unwrap().metric.as_deref(), Some("l2"));
+        }
+        // Without a stated dimension ClickHouse's array is a vector of no
+        // dimension: a list in CQL, which no vector index takes.
+        let mut no_dims = ch.clone();
+        no_dims.params.clear();
+        let (t, issues) = one(
+            source("Int32", "Array(Float32)", "vector_similarity", no_dims),
+            "clickhouse",
+            "cassandra",
+        );
+        assert!(
+            t.indexes.is_empty() && dropped(&issues, "dimensión"),
+            "{issues:?}"
+        );
+        // A column that isn't a vector at all: the converter says so.
+        let (t, issues) = one(
+            source("Int32", "String", "vector_similarity", ch.clone()),
+            "clickhouse",
+            "cassandra",
+        );
+        assert!(
+            t.indexes.is_empty() && dropped(&issues, "no es un vector"),
+            "{issues:?}"
+        );
+        // pgvector: a vector of no dimension, a sparse one, one dimension.
+        let hnsw = |metric: &str| VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some(metric.into()),
+            ..Default::default()
+        };
+        let (t, issues) = one(
+            source("integer", "vector", "hnsw", hnsw("cosine")),
+            "postgres",
+            "cassandra",
+        );
+        assert!(
+            t.indexes.is_empty() && dropped(&issues, "dimensión"),
+            "{issues:?}"
+        );
+        let (t, issues) = one(
+            source("integer", "sparsevec(30)", "hnsw", hnsw("ip")),
+            "postgres",
+            "scylladb",
+        );
+        assert!(
+            t.indexes.is_empty() && dropped(&issues, "disperso"),
+            "{issues:?}"
+        );
+        let (t, issues) = one(
+            source("integer", "vector(1)", "hnsw", hnsw("cosine")),
+            "postgres",
+            "cassandra",
+        );
+        assert_eq!(t.columns[1].data_type, "vector<float, 1>");
+        assert!(
+            t.indexes.is_empty() && dropped(&issues, "coseno"),
+            "{issues:?}"
+        );
+        let (t, _) = one(
+            source("integer", "vector(1)", "hnsw", hnsw("l2")),
+            "postgres",
+            "cassandra",
+        );
+        assert_eq!(t.indexes.len(), 1);
+        // Keyspaces: no vector indexes (nor any secondary index).
+        let (t, _) = one(
+            source("integer", "vector(3)", "hnsw", hnsw("cosine")),
+            "postgres",
+            "keyspaces",
+        );
+        assert!(t.indexes.is_empty());
     }
 }
