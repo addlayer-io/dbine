@@ -1198,6 +1198,33 @@ pub fn strip_unindexed(body: &str) -> Option<String> {
     walk(&mut j).then(|| j.pretty())
 }
 
+/// The `dense_vector` fields a mapping body asks to index (`index: true`),
+/// by name: what Elasticsearch 7 takes without effect (it has no ANN
+/// index), so the user is told.
+pub fn indexed_vectors(body: &str) -> Vec<String> {
+    fn walk(j: &J, out: &mut Vec<String>) {
+        match j {
+            J::Obj(o) => {
+                for (k, v) in o {
+                    let indexed = v.get("type").and_then(J::as_str) == Some("dense_vector")
+                        && is_true(v.get("index"));
+                    if indexed && !out.contains(k) {
+                        out.push(k.clone());
+                    }
+                    walk(v, out);
+                }
+            }
+            J::Arr(a) => a.iter().for_each(|v| walk(v, out)),
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    if let Ok(j) = J::parse(body) {
+        walk(&j, &mut out);
+    }
+    out
+}
+
 // -- what the designer offers ------------------------------------------------------------------
 
 /// The vector indexes the designer creates on `flavor`.
@@ -1822,10 +1849,17 @@ mod tests {
         assert!(
             strip_unindexed(r#"{"properties":{"v":{"type":"dense_vector","dims":3}}}"#).is_none()
         );
-        // A vector index asked for stays (and the server says it can't).
+        // A vector index asked for stays (7.17 takes it without effect,
+        // older 7.x refuse it): the fields are named in a warning.
         assert!(
             strip_unindexed(r#"{"properties":{"v":{"type":"dense_vector","index":true}}}"#)
                 .is_none()
+        );
+        assert_eq!(
+            indexed_vectors(
+                r#"{"mappings":{"properties":{"v":{"type":"dense_vector","index":true},"w":{"type":"dense_vector","index":false},"o":{"properties":{"x":{"type":"dense_vector","dims":2,"index":true}}}}}}"#
+            ),
+            ["v", "x"]
         );
     }
 

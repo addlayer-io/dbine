@@ -1009,6 +1009,15 @@ impl EsSession {
         }
         let mut rb = self.request(&req.method, &path);
         let adapted = self.adapted_body(req).await;
+        if self.before_8() && matches!(req.method.as_str(), "PUT" | "POST") {
+            let fields = vectors::indexed_vectors(req.body.as_deref().unwrap_or(""));
+            if !fields.is_empty() {
+                out.warning(format!(
+                    "Elasticsearch 7 no tiene índices vectoriales (ANN): el de {} no tiene efecto; se busca con script_score.",
+                    fields.join(", ")
+                ));
+            }
+        }
         if let Some(body) = adapted.as_ref().or(req.body.as_ref()) {
             let ndjson = req.is_ndjson() || segs.iter().any(|s| matches!(*s, "_bulk" | "_msearch"));
             rb = if ndjson {

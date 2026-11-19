@@ -885,7 +885,9 @@ async fn elasticsearch7_vectors() {
         (c.data_type.as_str(), got.indexes.is_empty()),
         ("dense_vector(3)", true)
     );
-    // A vector index: Elasticsearch 7 has none, and says so.
+    // A vector index: Elasticsearch 7 has none. 7.17 takes the mapping
+    // without effect (older 7.x refuse it): either way DBine says so, and
+    // describe lists none.
     table.indexes.push(IndexDef {
         name: "emb_idx".into(),
         columns: vec!["emb".into()],
@@ -896,7 +898,18 @@ async fn elasticsearch7_vectors() {
     let e = s
         .execute(&d.table_ddl(&table, parts).unwrap(), 10, &mut out)
         .await;
-    assert!(e.is_err() || out.error.is_some(), "{out:?}");
+    assert!(
+        out.messages
+            .iter()
+            .any(|m| m.contains("emb") && m.contains("ANN")),
+        "{e:?} {:?}",
+        out.messages
+    );
+    if e.is_ok() && out.error.is_none() {
+        let schema = s.database_schema().await.unwrap();
+        let got = schema.iter().find(|t| t.name == INDEX).unwrap();
+        assert!(got.indexes.is_empty(), "{:?}", got.indexes);
+    }
     cleanup(&mut s).await;
 }
 
