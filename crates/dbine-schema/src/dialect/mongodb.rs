@@ -34,13 +34,54 @@ use dbine_driver::{IndexDef, TableSchema};
 pub struct Mongo {
     /// `$jsonSchema` validators are enforced (not by FerretDB).
     validators: bool,
+    /// The server, for what its vector indexes take.
+    vectors: VectorTarget,
+}
+
+/// What a server's vector index takes from another engine's.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct VectorTarget {
+    pub family: &'static str,
+    /// Most dimensions its index takes from another engine (the driver's
+    /// kind for it): Atlas Vector Search 8192, DocumentDB's `vector` index
+    /// 2000, FerretDB's `cosmosSearch` (`vector-hnsw` / `vector-ivf`, on
+    /// pgvector) 2000.
+    pub max_dims: u32,
+    /// Its vector index searches BinData vectors (Atlas). DocumentDB's and
+    /// FerretDB's (`cosmosSearch`) search arrays of numbers only (a BinData
+    /// vector is left out, seen on FerretDB 2): int8 and bit vectors go
+    /// there as numbers.
+    pub binary: bool,
 }
 
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
-    static MONGO: Mongo = Mongo { validators: true };
-    static FERRET: Mongo = Mongo { validators: false };
+    static MONGO: Mongo = Mongo {
+        validators: true,
+        vectors: VectorTarget {
+            family: "MongoDB",
+            max_dims: 8192,
+            binary: true,
+        },
+    };
+    static DOCDB: Mongo = Mongo {
+        validators: true,
+        vectors: VectorTarget {
+            family: "Amazon DocumentDB",
+            max_dims: 2000,
+            binary: false,
+        },
+    };
+    static FERRET: Mongo = Mongo {
+        validators: false,
+        vectors: VectorTarget {
+            family: "FerretDB",
+            max_dims: 2000,
+            binary: false,
+        },
+    };
     match driver_id {
-        "mongodb" | "documentdb" => Some(&MONGO),
+        "mongodb" => Some(&MONGO),
+        "documentdb" => Some(&DOCDB),
         "ferretdb" => Some(&FERRET),
         _ => None,
     }
@@ -153,12 +194,40 @@ pub(crate) fn vector_type(t: &str) -> Option<L> {
 /// A vector index in the MongoDB family's terms: `cosine`, `l2`
 /// (`euclidean`) and `ip` (`dotProduct`); the algorithm (Atlas has one,
 /// DocumentDB `hnsw` / `ivfflat`, FerretDB `hnsw` / `ivf`) and the kind
-/// are the driver's choice for the server it writes to.
+/// are the driver's choice for the server it writes to. `column`: the
+/// vector it searches. Every kind needs its dimension (`numDimensions`,
+/// `dimensions`), up to the target's most; on bits, `hamming` goes on
+/// for the driver to write as euclidean (`vector::for_flavor`), which
+/// ranks 0/1 vectors as hamming does and every kind of the family has
+/// (Atlas searches bits by no other).
 pub(crate) fn vector_index(
     v: &dbine_driver::VectorIndex,
-    family: &str,
+    column: Option<&L>,
+    target: VectorTarget,
 ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
     use dbine_driver::vector::{metric, param};
+    let family = target.family;
+    let bits = matches!(
+        column,
+        Some(L::Vector {
+            element: dbine_driver::VectorElement::Bit,
+            ..
+        })
+    );
+    match column {
+        Some(L::Vector { dims: None, .. }) => {
+            return Err(format!(
+                "su columna vectorial no tiene dimensión, y {family} la necesita"
+            ))
+        }
+        Some(L::Vector { dims: Some(n), .. }) if *n > target.max_dims => {
+            return Err(format!(
+                "{family} indexa vectores de hasta {} dimensiones, y su columna tiene {n}",
+                target.max_dims
+            ))
+        }
+        _ => {}
+    }
     let mut out = dbine_driver::VectorIndex::default();
     if let Some(m) = v.metric.as_deref() {
         out.metric = Some(match m.to_ascii_lowercase().as_str() {
@@ -166,6 +235,8 @@ pub(crate) fn vector_index(
             // The same nearest neighbors as l2: the driver writes l2 and
             // says so (`vector::for_flavor`).
             "l2_squared" | "euclidean_squared" => "l2_squared".into(),
+            // On bits, the same order as euclidean (`vector::for_flavor`).
+            metric::HAMMING if bits => metric::HAMMING.into(),
             _ => {
                 return Err(format!(
                     "{family} no tiene la distancia «{m}» (cosine, l2 o ip)"
@@ -249,6 +320,23 @@ impl Dialect for Mongo {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector {
+                dims,
+                element: dbine_driver::VectorElement::I8 | dbine_driver::VectorElement::Bit,
+                sparse: false,
+            } if !self.vectors.binary => Rendered::exact(match dims {
+                Some(n) => format!("vector({n})"),
+                None => "vector".into(),
+            })
+            .with(
+                Info,
+                TypeChanged,
+                format!(
+                    "{}: {} busca solo vectores guardados como arreglos de números (no BinData): sus valores van como números.",
+                    t.describe(),
+                    self.vectors.family
+                ),
+            ),
             L::Vector { .. } => render_vector(t).unwrap_or_else(|| super::vector_fallback(self, t)),
             L::Bool => Rendered::exact("bool"),
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {
@@ -310,9 +398,9 @@ impl Dialect for Mongo {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
-        vector_index(v, "MongoDB")
+        vector_index(v, column, self.vectors)
     }
 
     fn caps(&self) -> Caps {
@@ -641,6 +729,122 @@ mod tests {
         assert_eq!(
             mongo.vector_index(&sq, None).unwrap().1.metric.as_deref(),
             Some("l2_squared")
+        );
+        // The column it searches: every kind needs the dimension, and
+        // hamming goes on only over bits.
+        let col = |dims, element| L::Vector {
+            dims,
+            element,
+            sparse: false,
+        };
+        let no_dims = col(None, E::F32);
+        let why = mongo.vector_index(&hnsw, Some(&no_dims)).unwrap_err();
+        assert!(why.contains("no tiene dimensión"), "{why}");
+        let hamming = VectorIndex {
+            metric: Some("hamming".into()),
+            ..Default::default()
+        };
+        let bits = col(Some(8), E::Bit);
+        assert_eq!(
+            mongo
+                .vector_index(&hamming, Some(&bits))
+                .unwrap()
+                .1
+                .metric
+                .as_deref(),
+            Some("hamming")
+        );
+        assert!(mongo.vector_index(&hamming, Some(&lt)).is_err());
+        assert!(mongo.vector_index(&hamming, None).is_err());
+        let jaccard = VectorIndex {
+            metric: Some("jaccard".into()),
+            ..Default::default()
+        };
+        assert!(mongo.vector_index(&jaccard, Some(&bits)).is_err());
+        // Int8 and bit vectors: BinData on MongoDB (Atlas searches them),
+        // arrays of numbers where only arrays are searched.
+        for (id, want) in [
+            ("mongodb", "vector(8, bit)"),
+            ("documentdb", "vector(8)"),
+            ("ferretdb", "vector(8)"),
+        ] {
+            let r = lookup(id).unwrap().render_type(&col(Some(8), E::Bit));
+            assert_eq!(r.native, want, "{id}");
+            assert_eq!(r.notes.is_empty(), id == "mongodb", "{id}");
+        }
+        assert_eq!(
+            lookup("ferretdb")
+                .unwrap()
+                .render_type(&col(Some(3), E::I8))
+                .native,
+            "vector(3)"
+        );
+        // Each target's most dimensions: wider is dropped with the reason.
+        for (id, max) in [("mongodb", 8192), ("documentdb", 2000), ("ferretdb", 2000)] {
+            let d = lookup(id).unwrap();
+            assert!(d.vector_index(&hnsw, Some(&col(Some(max), E::F32))).is_ok());
+            let why = d
+                .vector_index(&hnsw, Some(&col(Some(max + 1), E::F32)))
+                .unwrap_err();
+            assert!(
+                why.contains(&format!("hasta {max} dimensiones")),
+                "{id}: {why}"
+            );
+            assert_eq!(d.id(), "mongodb");
+        }
+    }
+
+    #[test]
+    fn oracle_binary_vectors_and_their_hamming_index_become_mongodb_ones() {
+        use dbine_driver::{ColumnDef, IndexDef, TableSchema, VectorIndex};
+        let table = |data_type: &str| TableSchema {
+            name: "DOCS".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "ID".into(),
+                    data_type: "NUMBER(10)".into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "EMB".into(),
+                    data_type: data_type.into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            indexes: vec![IndexDef {
+                name: "EMB_VIX".into(),
+                columns: vec!["EMB".into()],
+                vector: Some(VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some("hamming".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let opts = crate::convert::Options::default();
+        let c = crate::convert::convert(&[table("VECTOR(16, BINARY)")], "oracle", "mongodb", &opts)
+            .unwrap();
+        let t = &c.tables[0];
+        assert_eq!(t.columns[1].data_type, "vector(16, bit)");
+        let ix = &t.indexes[0];
+        assert_eq!(
+            ix.vector.as_ref().unwrap().metric.as_deref(),
+            Some("hamming")
+        );
+        // A vector of any dimension: the index can't say its dimension.
+        let c = crate::convert::convert(&[table("VECTOR(*, FLOAT32)")], "oracle", "mongodb", &opts)
+            .unwrap();
+        assert!(c.tables[0].indexes.is_empty(), "{:?}", c.tables[0].indexes);
+        assert!(
+            c.issues
+                .iter()
+                .any(|i| i.code == crate::issue::IssueCode::IndexDropped
+                    && i.message.contains("no tiene dimensión")),
+            "{:?}",
+            c.issues
         );
     }
 

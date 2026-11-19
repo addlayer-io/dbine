@@ -159,15 +159,22 @@ async fn create_grant_and_drop_scopes() {
     )
     .await
     .unwrap();
+    // The cell is the roles' JSON text (a nested value comes as text).
     let roles = info.results[0]
         .rows
         .first()
-        .map(|r| r[0].to_string())
+        .map(|r| match &r[0] {
+            serde_json::Value::String(t) => t.clone(),
+            other => other.to_string(),
+        })
         .unwrap_or_default();
     let ee = enterprise.is_ok();
     match enterprise {
+        // The query service names the role by its short name (`select`)
+        // on 8.0.
         Ok(_) => assert!(
-            roles.contains("query_select") && roles.contains("\"scope_name\":\"ventas\""),
+            (roles.contains("query_select") || roles.contains("\"role\":\"select\""))
+                && roles.contains("\"scope_name\":\"ventas\""),
             "{roles}"
         ),
         Err(e) => {
@@ -181,6 +188,11 @@ async fn create_grant_and_drop_scopes() {
             .iter()
             .any(|g| g.object.as_deref() == Some(full.as_str())
                 && g.object_kind.as_deref() == Some("schema")));
+        // As GRANT names it, so a revoke from the list works.
+        assert!(
+            grants.iter().any(|g| g.privilege == "query_select"),
+            "{grants:?}"
+        );
     }
 
     // Without "con su contenido" nothing is written; with it the scope and its collection go.

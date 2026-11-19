@@ -33,6 +33,10 @@ pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
 
 const PARTITION_KEY: &str = "partition_key";
 
+/// Most dimensions a vector index takes (`quantizedFlat`, `diskANN`; the
+/// driver writes a `flat` one over 505 as `quantizedFlat`).
+const MAX_DIMS: u32 = 4096;
+
 /// The vector element types of Cosmos DB's embedding policy, besides
 /// float32.
 const VECTOR_ELEMENTS: &[(&str, dbine_driver::VectorElement)] = &[
@@ -74,21 +78,43 @@ impl Dialect for CosmosDb {
     }
 
     /// `flat`, `quantizedFlat` or `diskANN`, with the embedding's distance
-    /// (`cosine`, `euclidean` = `l2`, `dotproduct` = `ip`).
+    /// (`cosine`, `euclidean` = `l2`, `dotproduct` = `ip`). The embedding
+    /// policy states the vector's dimension: a column without one can't
+    /// have it, nor one wider than [`MAX_DIMS`].
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::metric;
+        match column {
+            Some(L::Vector { dims: None, .. }) => {
+                return Err(
+                    "su columna vectorial no tiene dimensión, y Cosmos DB la necesita".into(),
+                )
+            }
+            Some(L::Vector { dims: Some(n), .. }) if *n > MAX_DIMS => {
+                return Err(format!(
+                "Cosmos DB indexa vectores de hasta {MAX_DIMS} dimensiones, y su columna tiene {n}"
+            ))
+            }
+            _ => {}
+        }
+        let bits = matches!(
+            column,
+            Some(L::Vector {
+                element: dbine_driver::VectorElement::Bit,
+                ..
+            })
+        );
         // The squared euclidean distance (Couchbase's `l2_squared`) has the
-        // same nearest neighbors as euclidean: it goes on, and the driver
-        // writes euclidean and says so.
+        // same nearest neighbors as euclidean, and so has hamming over bits
+        // (stored as 0 and 1): they go on, and the driver writes euclidean
+        // and says so.
         let squared = v.metric.as_deref().is_some_and(|m| {
-            matches!(
-                m.to_ascii_lowercase().as_str(),
-                "l2_squared" | "euclidean_squared"
-            )
+            let m = m.to_ascii_lowercase();
+            matches!(m.as_str(), "l2_squared" | "euclidean_squared")
+                || (bits && m == metric::HAMMING)
         });
         let mut asked = v.clone();
         if squared {
@@ -102,7 +128,7 @@ impl Dialect for CosmosDb {
             &[],
         )?;
         if squared {
-            out.metric = Some("l2_squared".into());
+            out.metric = v.metric.as_deref().map(str::to_ascii_lowercase);
         }
         Ok((kind, out))
     }
@@ -167,7 +193,24 @@ impl Dialect for CosmosDb {
         }
         let mut kept = Vec::new();
         for mut ix in std::mem::take(&mut t.indexes) {
-            if ix.unique {
+            if ix.vector.is_some() {
+                // A vector index: the container's vector policy, one path
+                // each (no filter fields).
+                if ix.columns.len() > 1 {
+                    report.push(
+                        Severity::Info,
+                        IssueCode::IndexChanged,
+                        &name,
+                        Some(&ix.name),
+                        format!(
+                            "Los índices vectoriales de Cosmos DB no tienen campos de filtro: quedan fuera {}.",
+                            ix.columns[1..].join(", ")
+                        ),
+                    );
+                    ix.columns.truncate(1);
+                }
+                kept.push(ix);
+            } else if ix.unique {
                 report.push(
                     Severity::Warning,
                     IssueCode::IndexChanged,
@@ -272,6 +315,27 @@ mod tests {
             ..Default::default()
         };
         assert!(d.vector_index(&hamming, None).is_err());
+        // Over bits (0 and 1 here) hamming goes on, for the driver to
+        // write as euclidean, which ranks them the same.
+        let bit_col = |dims| L::Vector {
+            dims,
+            element: dbine_driver::VectorElement::Bit,
+            sparse: false,
+        };
+        assert_eq!(
+            d.vector_index(&hamming, Some(&bit_col(Some(8))))
+                .unwrap()
+                .1
+                .metric
+                .as_deref(),
+            Some("hamming")
+        );
+        let f32_col = L::Vector {
+            dims: Some(8),
+            element: dbine_driver::VectorElement::F32,
+            sparse: false,
+        };
+        assert!(d.vector_index(&hamming, Some(&f32_col)).is_err());
         // Couchbase's squared euclidean goes on (the driver writes
         // euclidean and says so).
         let sq = VectorIndex {
@@ -284,5 +348,72 @@ mod tests {
             (out.algorithm.as_deref(), out.metric.as_deref()),
             (Some("diskANN"), Some("l2_squared"))
         );
+        // The column it searches: the embedding policy needs its dimension.
+        let col = |dims| L::Vector {
+            dims,
+            element: dbine_driver::VectorElement::F32,
+            sparse: false,
+        };
+        assert!(d.vector_index(&disk, Some(&col(Some(1536)))).is_ok());
+        let why = d.vector_index(&disk, Some(&col(None))).unwrap_err();
+        assert!(why.contains("no tiene dimensión"), "{why}");
+        // Up to 4096 dimensions (an Oracle VECTOR(8192) is dropped).
+        assert!(d.vector_index(&disk, Some(&col(Some(4096)))).is_ok());
+        let why = d.vector_index(&disk, Some(&col(Some(8192)))).unwrap_err();
+        assert!(why.contains("hasta 4096 dimensiones"), "{why}");
+    }
+
+    #[test]
+    fn vector_indexes_survive_the_conversion() {
+        use dbine_driver::{ColumnDef, IndexDef, KeyDef, VectorIndex};
+        // A pgvector table: a vector searched by an HNSW index, and one
+        // with a filter column (as MongoDB's take).
+        let col = |n: &str, t: &str| ColumnDef {
+            name: n.into(),
+            data_type: t.into(),
+            nullable: n != "id",
+            ..Default::default()
+        };
+        let vix = |n: &str, cols: &[&str]| IndexDef {
+            name: n.into(),
+            columns: cols.iter().map(|c| c.to_string()).collect(),
+            kind: Some("hnsw".into()),
+            vector: Some(VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("l2".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let t = TableSchema {
+            schema: Some("public".into()),
+            name: "docs".into(),
+            columns: vec![
+                col("id", "integer"),
+                col("cat", "text"),
+                col("emb", "vector(3)"),
+                col("e2", "vector(3)"),
+            ],
+            primary_key: Some(KeyDef {
+                columns: vec!["id".into()],
+                ..Default::default()
+            }),
+            indexes: vec![vix("emb_l2", &["emb"]), vix("e2_l2", &["e2", "cat"])],
+            ..Default::default()
+        };
+        let c = crate::convert::convert(&[t], "postgres", "cosmosdb", &Default::default()).unwrap();
+        let out = &c.tables[0];
+        // Kept as vector indexes (not dropped as single-field ones, not
+        // made composite), one path each.
+        assert_eq!(out.indexes.len(), 2, "{:?}", c.issues);
+        for ix in &out.indexes {
+            assert_eq!(ix.columns.len(), 1, "{ix:?}");
+            assert_ne!(ix.kind.as_deref(), Some("composite"), "{ix:?}");
+            assert_eq!(ix.vector.as_ref().unwrap().metric.as_deref(), Some("l2"));
+        }
+        assert!(c
+            .issues
+            .iter()
+            .any(|i| i.code == IssueCode::IndexChanged && i.message.contains("quedan fuera cat")));
     }
 }

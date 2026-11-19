@@ -625,11 +625,13 @@ fn vector_value(v: &Value) -> Option<Vec<f64>> {
 /// form the document stores it in: the update is a pipeline whose `$set`
 /// writes a BinData vector where the field holds one and the array
 /// elsewhere (see [`crate::vector::keep_form_expr`]); the other values go
-/// as `$literal`.
+/// as `$literal`. `elements`: the BinData element of the fields whose type
+/// names one (see [`crate::vector::typed_form`]).
 pub fn update_script(
     target: &ObjectRef,
     changes: &[RowChange],
     keep_binary: bool,
+    elements: &std::collections::HashMap<String, dbine_driver::VectorElement>,
 ) -> Result<String> {
     let coll = format!("db.getCollection({})", q(&target.name));
     let mut out = Vec::new();
@@ -654,7 +656,12 @@ pub fn update_script(
                                             other => vector_value(other),
                                         },
                                     );
-                                crate::vector::keep_form_expr(c, &n, old.as_deref())
+                                crate::vector::keep_form_expr(
+                                    c,
+                                    &n,
+                                    old.as_deref(),
+                                    elements.get(c.as_str()).copied(),
+                                )
                             }
                             None => format!("{{ $literal: {} }}", shell_value(c, v)),
                         };
@@ -1941,7 +1948,7 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let text = update_script(&target, &changes, true).unwrap();
+        let text = update_script(&target, &changes, true, &Default::default()).unwrap();
         assert_eq!(
             text,
             "db.getCollection(\"users\").updateOne({ \"_id\": ObjectId(\"65a1b2c3d4e5f60718293a00\") }, { $set: { \"name\": \"O'Brien \\\"Bob\\\"\", \"age\": null } })\n\

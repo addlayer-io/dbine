@@ -22,6 +22,10 @@ use dbine_driver::TableSchema;
 
 pub struct Couchbase;
 
+/// Most dimensions a vector index takes: GSI's `dimension` and a Search
+/// vector field's `dims` (7.6.2 and later).
+const MAX_DIMS: u32 = 4096;
+
 pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
     static D: Couchbase = Couchbase;
     (driver_id == "couchbase").then_some(&D as &dyn Dialect)
@@ -32,9 +36,13 @@ impl Dialect for Couchbase {
         "couchbase"
     }
 
-    /// A vector index's field is `vector(N)` (float32 arrays).
+    /// A vector index's field is `vector(N)` (float32 arrays), or
+    /// `vector(N, base64)` (float32s as base64 text: the driver reads and
+    /// writes them as numbers, so it moves as any float32 vector; another
+    /// engine gets an array).
     fn parse_type(&self, t: &TypeSpec) -> L {
-        parse_vector_field(&t.raw, &[]).unwrap_or_else(|| parse_json_type(t))
+        parse_vector_field(&t.raw, &[("base64", dbine_driver::VectorElement::F32)])
+            .unwrap_or_else(|| parse_json_type(t))
     }
 
     fn render_type(&self, t: &L) -> Rendered {
@@ -51,20 +59,42 @@ impl Dialect for Couchbase {
     }
 
     /// GSI vector indexes (hyperscale by default): `cosine`, `l2`,
-    /// `l2_squared`, `ip` (DOT); the number of IVF lists carries over.
+    /// `l2_squared`, `ip` (DOT); the number of IVF lists carries over. The
+    /// index states its vector's `dimension`: a column without one can't
+    /// have it, nor one wider than [`MAX_DIMS`]. Over bits (stored here as
+    /// 0 and 1) `hamming` goes on, for the driver to write as
+    /// `L2_SQUARED`, which on 0/1 vectors is the same distance.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
-        map_vector_index(
-            v,
-            "Couchbase",
-            &[metric::COSINE, metric::L2, "l2_squared", metric::IP],
-            &[],
-            &[param::LISTS],
-        )
+        match column {
+            Some(L::Vector { dims: None, .. }) => {
+                return Err(
+                    "su columna vectorial no tiene dimensión, y Couchbase la necesita".into(),
+                )
+            }
+            Some(L::Vector { dims: Some(n), .. }) if *n > MAX_DIMS => {
+                return Err(format!(
+                "Couchbase indexa vectores de hasta {MAX_DIMS} dimensiones, y su columna tiene {n}"
+            ))
+            }
+            _ => {}
+        }
+        let bits = matches!(
+            column,
+            Some(L::Vector {
+                element: dbine_driver::VectorElement::Bit,
+                ..
+            })
+        );
+        let mut metrics = vec![metric::COSINE, metric::L2, "l2_squared", metric::IP];
+        if bits {
+            metrics.push(metric::HAMMING);
+        }
+        map_vector_index(v, "Couchbase", &metrics, &[], &[param::LISTS])
     }
 
     fn render_default(&self, _d: &DefaultValue, _ty: &L) -> Option<String> {
@@ -140,6 +170,12 @@ mod tests {
             v(Some(3), E::F32)
         );
         assert_eq!(d.parse_type(&parse("array")), L::Json { binary: true });
+        // Base64 text of float32s: a float32 vector (an array elsewhere).
+        assert_eq!(
+            d.parse_type(&parse("vector(3, base64)")),
+            v(Some(3), E::F32)
+        );
+        assert_eq!(d.parse_type(&parse("vector(base64)")), v(None, E::F32));
         // pgvector's `vector(3)` (the logical vector) and back.
         let r = d.render_type(&v(Some(3), E::F32));
         assert_eq!((r.native.as_str(), r.notes.len()), ("vector(3)", 0));
@@ -164,5 +200,91 @@ mod tests {
             ..Default::default()
         };
         assert!(d.vector_index(&jaccard, None).is_err());
+        // The column it searches: the index needs its dimension.
+        let col = |dims| L::Vector {
+            dims,
+            element: E::F32,
+            sparse: false,
+        };
+        assert!(d.vector_index(&ivf, Some(&col(Some(3)))).is_ok());
+        let why = d.vector_index(&ivf, Some(&col(None))).unwrap_err();
+        assert!(why.contains("no tiene dimensión"), "{why}");
+        // Up to 4096 dimensions (an Oracle VECTOR(8192) is dropped).
+        assert!(d.vector_index(&ivf, Some(&col(Some(4096)))).is_ok());
+        let why = d.vector_index(&ivf, Some(&col(Some(8192)))).unwrap_err();
+        assert!(why.contains("hasta 4096 dimensiones"), "{why}");
+        // Hamming over bits goes on (the driver writes L2_SQUARED), over
+        // anything else it doesn't.
+        let hamming = VectorIndex {
+            metric: Some("hamming".into()),
+            ..Default::default()
+        };
+        let bits = L::Vector {
+            dims: Some(8),
+            element: E::Bit,
+            sparse: false,
+        };
+        assert_eq!(
+            d.vector_index(&hamming, Some(&bits))
+                .unwrap()
+                .1
+                .metric
+                .as_deref(),
+            Some("hamming")
+        );
+        assert!(d.vector_index(&hamming, Some(&col(Some(8)))).is_err());
+        assert!(d.vector_index(&hamming, None).is_err());
+    }
+
+    #[test]
+    fn base64_fields_move_as_vectors() {
+        use dbine_driver::{ColumnDef, IndexDef, VectorIndex};
+        // A Search `vector_base64` field as the driver describes it.
+        let t = TableSchema {
+            kind: dbine_driver::kinds::COLLECTION.into(),
+            schema: Some("b.s".into()),
+            name: "docs".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "_id".into(),
+                    data_type: "string".into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "e".into(),
+                    data_type: "vector(3, base64)".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            primary_key: Some(dbine_driver::KeyDef {
+                columns: vec!["_id".into()],
+                ..Default::default()
+            }),
+            indexes: vec![IndexDef {
+                name: "evs".into(),
+                columns: vec!["e".into()],
+                kind: Some("SEARCH".into()),
+                vector: Some(VectorIndex {
+                    metric: Some("l2".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let opts = crate::convert::Options::default();
+        let c = crate::convert::convert(std::slice::from_ref(&t), "couchbase", "postgres", &opts)
+            .unwrap();
+        let pg = &c.tables[0];
+        assert_eq!(pg.columns[1].data_type, "vector(3)");
+        assert_eq!(pg.indexes.len(), 1, "{:?}", c.issues);
+        assert_eq!(
+            pg.indexes[0].vector.as_ref().unwrap().metric.as_deref(),
+            Some("l2")
+        );
+        // Couchbase to Couchbase keeps the form.
+        let c = crate::convert::convert(&[t], "couchbase", "couchbase", &opts).unwrap();
+        assert_eq!(c.tables[0].columns[1].data_type, "vector(3, base64)");
     }
 }

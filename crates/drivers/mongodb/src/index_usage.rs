@@ -163,6 +163,9 @@ pub(crate) fn index_of(spec: &Document) -> Option<IndexUsage> {
         key_columns: columns,
         filter,
         disabled: spec.get_bool("hidden").unwrap_or(false),
+        // A DocumentDB (`vector`) or FerretDB / vCore (`cosmosSearch`)
+        // vector index: its settings, as the schema reads them.
+        vector: crate::vector::plain_index_def(spec).and_then(|d| d.vector),
         ..Default::default()
     })
 }

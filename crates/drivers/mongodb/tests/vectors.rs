@@ -349,6 +349,8 @@ async fn atlas_vector_search() {
         .find(|i| i.name == "emb_vix")
         .expect("listed");
     assert!(u.kind.starts_with("VECTOR SEARCH"), "{}", u.kind);
+    // The explorer's index carries the schema's settings.
+    assert_eq!(u.vector.as_ref(), ix.vector.as_ref());
     // The table's own DDL gives the same index back.
     let again = d
         .table_ddl(
@@ -641,6 +643,85 @@ async fn atlas_vector_search() {
     cleanup(&mut s, &[t1, t2, t3]).await;
 }
 
+/// Atlas: a vector index on bits (the designer asked cosine) is made with
+/// the euclidean distance and found by a bit query; the explorer lists it
+/// with its settings; typed scripts keep each field's form.
+#[tokio::test]
+#[ignore]
+async fn atlas_bits_and_typed_scripts() {
+    let Some(c) = cfg("DBINE_TEST_ATLAS_URL", "mongodb") else {
+        return;
+    };
+    let url = c.options["connection_string"].clone();
+    let d = dbine_driver_mongodb::drivers().remove(0);
+    let mut s = d.connect(&c, None).await.expect("connect");
+    let t = "vec_bits";
+    cleanup(&mut s, &[t]).await;
+
+    let mut table = designed(
+        t,
+        vector_index(
+            "bix",
+            &["emb"],
+            VectorIndex {
+                metric: Some("cosine".into()),
+                ..Default::default()
+            },
+        ),
+    );
+    table.columns[2].data_type = "vector(16, bit)".into();
+    let ddl = d.table_ddl(&table, ALL).unwrap();
+    assert!(
+        ddl.contains("en lugar de cosine") && ddl.contains("\"similarity\":\"euclidean\""),
+        "{ddl}"
+    );
+    run(&mut s, &ddl).await;
+    let bits = |b: &[u8]| -> Value {
+        json!(b
+            .iter()
+            .flat_map(|x| (0..8).rev().map(move |i| f64::from((x >> i) & 1)))
+            .collect::<Vec<f64>>())
+    };
+    let cols = [
+        dbine_driver::ResultColumn::new("_id", "int"),
+        dbine_driver::ResultColumn::new("emb", "vector(16, bit)"),
+    ];
+    let rows = vec![
+        vec![json!(1), bits(&[0b1010_0000, 0b1111_0000])],
+        vec![json!(2), bits(&[0b1111_0000, 0b0000_1111])],
+        vec![json!(3), bits(&[0, 0])],
+    ];
+    run(
+        &mut s,
+        &d.insert_script_typed(&coll(t), &cols, &rows).unwrap(),
+    )
+    .await;
+    let got = docs(&raw(&url).await, t).await;
+    assert_eq!(stored(&got[0], "emb").0, Some(0x10));
+
+    ready(&mut s, t, "bix").await;
+    // The query: the first document's bits, packed (0x10 0x00 0xA0 0xF0).
+    let out = run(
+        &mut s,
+        &format!("db.getCollection(\"{t}\").aggregate([{{ $vectorSearch: {{ index: \"bix\", path: \"emb\", queryVector: BinData(9, \"EACg8A==\"), numCandidates: 10, limit: 3 }} }}, {{ $project: {{ _id: 1 }} }}])"),
+    )
+    .await;
+    let ids: Vec<&Value> = out.results[0].rows.iter().map(|r| &r[0]).collect();
+    // Hamming 0, 6 and 10.
+    assert_eq!(ids, [&json!(1), &json!(3), &json!(2)]);
+
+    let schema = s.database_schema().await.unwrap();
+    let tb = schema.iter().find(|x| x.name == t).unwrap();
+    let ix = tb.indexes.iter().find(|i| i.name == "bix").unwrap();
+    assert_eq!(ix.vector.as_ref().unwrap().metric.as_deref(), Some("l2"));
+    let usage = s.index_usage(&coll(t)).await.unwrap().unwrap();
+    let u = usage.indexes.iter().find(|i| i.name == "bix").unwrap();
+    assert_eq!(u.vector, ix.vector);
+    cleanup(&mut s, &[t]).await;
+
+    typed_scripts(&*d, &mut s, &url, "vec_typed_atlas").await;
+}
+
 async fn docs_by(db: &mongodb::Database, name: &str, key: &str) -> Vec<Document> {
     use futures::TryStreamExt;
     db.collection::<Document>(name)
@@ -675,16 +756,19 @@ async fn mongo7_without_search() {
     assert!(tb.indexes.is_empty());
     // No search here: nothing to warn about.
     assert!(tb.warnings.is_empty(), "{:?}", tb.warnings);
+    // BinData float32 vectors say their element (`vector(3)` is an array).
     assert_eq!(
         tb.columns
             .iter()
             .find(|c| c.name == "emb")
             .unwrap()
             .data_type,
-        "vector(3)"
+        "vector(3, float32)"
     );
+    assert_eq!(r.columns[1].type_name, "vector(3, float32)");
     let usage = s.index_usage(&coll(t)).await.unwrap().unwrap();
     assert_eq!(usage.indexes.len(), 1, "only _id_");
+    assert!(usage.indexes[0].vector.is_none());
     let ddl = d
         .table_ddl(
             &designed(t, vector_index("v", &["emb"], VectorIndex::default())),
@@ -698,6 +782,202 @@ async fn mongo7_without_search() {
     let e = s.execute(&ddl, 10, &mut out).await.unwrap_err();
     assert!(!e.to_string().is_empty());
     cleanup(&mut s, &[t]).await;
+    typed_scripts(&*d, &mut s, &c.options["connection_string"], "vec_typed7").await;
+}
+
+/// The stored vector of `field`: its BinData element byte and numbers, or
+/// `None` and the array's numbers.
+fn stored(d: &Document, field: &str) -> (Option<u8>, Vec<f64>) {
+    match d.get(field) {
+        Some(Bson::Binary(b)) => {
+            assert_eq!(b.subtype, BinarySubtype::Vector, "{field}");
+            let nums: Vec<f32> = match b.bytes[0] {
+                0x03 => vector::from_i8(&b.bytes[2..]),
+                0x10 => {
+                    let n = (b.bytes.len() - 2) * 8 - b.bytes[1] as usize;
+                    vector::from_bits(&b.bytes[2..], Some(n))
+                        .into_iter()
+                        .map(f32::from)
+                        .collect()
+                }
+                _ => vector::from_f32_le(&b.bytes[2..]).unwrap(),
+            };
+            let nums = nums.into_iter().map(f64::from).collect();
+            (Some(b.bytes[0]), nums)
+        }
+        Some(Bson::Array(a)) => (
+            None,
+            a.iter()
+                .map(|x| match x {
+                    Bson::Double(f) => *f,
+                    Bson::Int32(i) => *i as f64,
+                    Bson::Int64(i) => *i as f64,
+                    other => panic!("{other:?}"),
+                })
+                .collect(),
+        ),
+        other => panic!("{field}: {other:?}"),
+    }
+}
+
+/// Typed scripts (the app knows the columns' types): an insert writes
+/// each vector in the form its type names, a result's and a describe's
+/// types say that form back, and an update without the grid's row keeps
+/// the element its type names.
+async fn typed_scripts(d: &dyn dbine_driver::Driver, s: &mut Box<dyn Session>, url: &str, t: &str) {
+    use dbine_driver::ResultColumn;
+    cleanup(s, &[t]).await;
+    let cols = [
+        ResultColumn::new("_id", "int"),
+        ResultColumn::new("q", "vector(3, int8)"),
+        ResultColumn::new("b", "vector(9, bit)"),
+        ResultColumn::new("f", "vector(3, float32)"),
+        ResultColumn::new("a", "vector(3)"),
+    ];
+    let rows = vec![vec![
+        json!(1),
+        json!([1.0, -2.0, 3.0]),
+        json!([1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0]),
+        json!([0.5, 0.25, 1.0]),
+        json!([1.0, 2.0, 3.0]),
+    ]];
+    let ins = d
+        .insert_script_typed(&coll(t), &cols, &rows)
+        .expect("insert_script_typed");
+    run(s, &ins).await;
+    let db = raw(url).await;
+    let got = docs(&db, t).await;
+    assert_eq!(stored(&got[0], "q"), (Some(0x03), vec![1.0, -2.0, 3.0]));
+    assert_eq!(
+        stored(&got[0], "b"),
+        (
+            Some(0x10),
+            vec![1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0]
+        )
+    );
+    assert_eq!(stored(&got[0], "f"), (Some(0x27), vec![0.5, 0.25, 1.0]));
+    assert_eq!(stored(&got[0], "a"), (None, vec![1.0, 2.0, 3.0]));
+
+    // A result names each BinData field's form.
+    let out = run(s, &format!("db.getCollection(\"{t}\").find({{}})")).await;
+    let r = &out.results[0];
+    let col = |n: &str| r.columns.iter().find(|c| c.name == n).unwrap();
+    assert_eq!(col("q").type_name, "vector(3, int8)");
+    assert_eq!(col("b").type_name, "vector(9, bit)");
+    assert_eq!(col("f").type_name, "vector(3, float32)");
+    assert_eq!(
+        col("f").vector,
+        Some(VectorMeta::dense(Some(3), VectorElement::F32))
+    );
+    let at = r.columns.iter().position(|c| c.name == "b").unwrap();
+    assert_eq!(r.rows[0][at], json!("[1,0,1,1,0,0,0,1,1]"));
+
+    // An update with the result's types and no grid row (a data sync):
+    // each field keeps its element.
+    let upd = d
+        .update_script_typed(
+            &coll(t),
+            &[RowChange {
+                key: vec![("_id".into(), json!(1))],
+                set: vec![
+                    ("q".into(), json!([4.0, 5.0, 6.0])),
+                    ("f".into(), json!([0.125, 2.0, 3.0])),
+                    (
+                        "b".into(),
+                        json!([0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]),
+                    ),
+                    ("a".into(), json!([7.0, 8.0, 9.0])),
+                ],
+                ..Default::default()
+            }],
+            &r.columns,
+        )
+        .expect("update_script_typed");
+    run(s, &upd).await;
+    let got = docs(&db, t).await;
+    assert_eq!(stored(&got[0], "q"), (Some(0x03), vec![4.0, 5.0, 6.0]));
+    assert_eq!(stored(&got[0], "f"), (Some(0x27), vec![0.125, 2.0, 3.0]));
+    assert_eq!(
+        stored(&got[0], "b"),
+        (
+            Some(0x10),
+            vec![0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+        )
+    );
+    assert_eq!(stored(&got[0], "a"), (None, vec![7.0, 8.0, 9.0]));
+
+    // A describe's types say the same; an insert with them writes the
+    // same forms.
+    let schema = s.database_schema().await.unwrap();
+    let tb = schema.iter().find(|x| x.name == t).expect("described");
+    let ty = |n: &str| {
+        tb.columns
+            .iter()
+            .find(|c| c.name == n)
+            .unwrap()
+            .data_type
+            .clone()
+    };
+    assert_eq!(ty("q"), "vector(3, int8)");
+    assert_eq!(ty("b"), "vector(9, bit)");
+    assert_eq!(ty("f"), "vector(3, float32)");
+    let described: Vec<ResultColumn> = ["_id", "q", "b", "f", "a"]
+        .iter()
+        .map(|n| match tb.columns.iter().find(|c| c.name == *n) {
+            Some(c) => ResultColumn::new(c.name.clone(), c.data_type.clone()),
+            None => ResultColumn::new(*n, ""),
+        })
+        .collect();
+    let mut row = rows[0].clone();
+    row[0] = json!(2);
+    let ins = d.insert_script_typed(&coll(t), &described, &[row]).unwrap();
+    run(s, &ins).await;
+    let got = docs(&db, t).await;
+    assert_eq!(stored(&got[1], "q").0, Some(0x03));
+    assert_eq!(stored(&got[1], "b").0, Some(0x10));
+    assert_eq!(stored(&got[1], "f").0, Some(0x27));
+    assert_eq!(stored(&got[1], "a").0, None);
+
+    // A field that mixes BinData int8 with arrays is `vector(3)` in a
+    // result, so a typed insert with the result's types writes an array.
+    run(
+        s,
+        &format!("db.getCollection(\"{t}\").insertOne({{ _id: 3, q: [7, 8, 9] }})"),
+    )
+    .await;
+    let out = run(
+        s,
+        &format!("db.getCollection(\"{t}\").find({{}}).sort({{ _id: 1 }})"),
+    )
+    .await;
+    let r = &out.results[0];
+    let q = r.columns.iter().find(|c| c.name == "q").unwrap().clone();
+    assert_eq!(q.type_name, "vector(3)");
+    assert!(q.vector.is_some());
+    // Results of this collection noted `b` as BinData bits (a hint kept by
+    // the collection's name only): a typed insert whose column for it says
+    // nothing writes an array all the same.
+    let ins = d
+        .insert_script_typed(
+            &coll(t),
+            &[
+                ResultColumn::new("_id", "int"),
+                q,
+                ResultColumn::new("b", ""),
+            ],
+            &[vec![
+                json!(4),
+                json!([1.0, 2.0, 3.0]),
+                json!([1.0, 0.0, 1.0]),
+            ]],
+        )
+        .unwrap();
+    run(s, &ins).await;
+    let got = docs(&db, t).await;
+    assert_eq!(got[3].get_i32("_id"), Ok(4));
+    assert_eq!(stored(&got[3], "q"), (None, vec![1.0, 2.0, 3.0]));
+    assert_eq!(stored(&got[3], "b"), (None, vec![1.0, 0.0, 1.0]));
+    cleanup(s, &[t]).await;
 }
 
 /// FerretDB 2: `cosmosSearch` vector indexes (hnsw / ivf), `$search` with
@@ -780,6 +1060,14 @@ async fn ferretdb_vectors() {
     let v = ix.vector.as_ref().unwrap();
     assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
     assert_eq!(v.metric.as_deref(), Some("cosine"));
+    // The explorer lists it with the same settings.
+    let usage = s.index_usage(&coll(t1)).await.unwrap().unwrap();
+    let u = usage
+        .indexes
+        .iter()
+        .find(|i| i.name == "emb_vix")
+        .expect("listed");
+    assert_eq!(u.vector.as_ref(), Some(v));
     let same = d
         .sync_script(&[TableChange::Alter {
             old: t.clone(),
@@ -920,6 +1208,7 @@ async fn ferretdb_vectors() {
     );
 
     cleanup(&mut s, &[t1, t2]).await;
+    typed_scripts(&*d, &mut s, &url, "vec_typed_ferret").await;
 }
 
 /// Amazon DocumentDB has no container: its scripts, checked offline.

@@ -121,13 +121,13 @@ pub fn type_name(b: &Bson) -> &'static str {
     }
 }
 
-/// A field's type for the schema: the BSON type, or `vector(N)` (with
-/// `int8` / `bit`) for a BinData vector.
+/// A field's type for the schema: the BSON type, or `vector(N, float32 |
+/// int8 | bit)` for a BinData vector (an array of numbers is `array`).
 pub fn field_type(b: &Bson) -> std::borrow::Cow<'static, str> {
     match b {
         Bson::Binary(bin) if bin.subtype == BinarySubtype::Vector => {
             match crate::vector::decode(&bin.bytes) {
-                Some((_, el, n)) => crate::vector::type_name(Some(n as u32), el).into(),
+                Some((_, el, n)) => crate::vector::binary_type_name(Some(n as u32), el).into(),
                 None => "binData".into(),
             }
         }
@@ -242,7 +242,9 @@ mod tests {
             doc! { "_id": 2, "v": v, "q": i8v },
         ];
         let cols = infer_columns(&docs);
-        assert_eq!(cols[1].data_type, "vector(3)");
+        // BinData vectors say their element: float32 too (`vector(3)` is an
+        // array of numbers).
+        assert_eq!(cols[1].data_type, "vector(3, float32)");
         assert_eq!(cols[2].data_type, "vector(2, int8)");
     }
 }

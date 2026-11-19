@@ -203,6 +203,14 @@ async fn cosmos_vectors() {
     assert_eq!(ix.columns, ["emb"]);
     let v = ix.vector.as_ref().unwrap();
     assert_eq!(v.algorithm.as_deref(), Some("diskANN"));
+    // The explorer lists it with the same settings.
+    let usage = s.index_usage(&coll("docs")).await.unwrap().unwrap();
+    let u = usage
+        .indexes
+        .iter()
+        .find(|i| i.vector.is_some())
+        .expect("vector index listed");
+    assert_eq!(u.vector.as_ref(), Some(v));
     // The emulator doesn't report the embedding policy (Azure does): the
     // distance is unknown there and the dimension comes from the items.
     let reported = s

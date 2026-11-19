@@ -169,6 +169,10 @@ pub(crate) async fn read_batches(
         })
         .collect();
     let binary = binary_vectors(&coll, &filter, &binary_candidates, &s.tag).await?;
+    // A field with BinData vectors says their element: a load by rows
+    // writes its text cells (BinData here) as BinData of it, and its JSON
+    // cells (arrays here) as arrays, so a field that holds both keeps each
+    // document's form.
     let vectors: HashMap<String, String> = names
         .iter()
         .filter_map(|n| {
@@ -184,7 +188,7 @@ pub(crate) async fn read_batches(
                         None => format!("vector({el})"),
                     }
                 }
-                (None, Some(m)) => crate::vector::type_name(m.dims, m.element),
+                (None, Some(m)) => crate::vector::type_name(m.dims),
                 (None, None) => return None,
             };
             Some((n.clone(), t))
@@ -897,12 +901,10 @@ enum VectorForm {
 fn vector_form(part: &str, mongo: bool) -> Option<VectorForm> {
     let p = part.trim().to_ascii_lowercase();
     if mongo {
-        let (_, el) = crate::vector::parse_type(&p)?;
-        let binary = el != dbine_driver::VectorElement::F32 || p.contains("float32");
-        return Some(if binary {
-            VectorForm::Binary(el)
-        } else {
-            VectorForm::Array
+        crate::vector::parse_type(&p)?;
+        return Some(match crate::vector::binary_element(&p) {
+            Some(el) => VectorForm::Binary(el),
+            None => VectorForm::Array,
         });
     }
     is_vector_type(&p).then_some(VectorForm::Array)

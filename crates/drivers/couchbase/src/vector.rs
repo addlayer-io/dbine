@@ -23,6 +23,19 @@
 //! On a collection without documents a vector index can't train: the
 //! session creates it deferred and says so ([`deferred`]).
 //!
+//! **Base64 vectors.** A field can keep its vectors as base64 text of
+//! little-endian float32s: what Search's `vector_base64` fields index and
+//! a GSI key `DECODE_VECTOR(field, false) VECTOR` decodes (8.0's
+//! `ENCODE_VECTOR(v, false)` writes it). Its type says so,
+//! `vector(N, base64)` ([`BASE64`]): results and transfer reads show its
+//! numbers as the JSON array every vector is, typed scripts and transfer
+//! loads write them back as base64, and the index made for it is
+//! `vector_base64` (Search) or `DECODE_VECTOR` (GSI). The read-back index
+//! carries the form in the option [`FORM`], which [`describe`] moves into
+//! the field's type and [`with_dims`] back for the statement, as it does
+//! with the dimension. A `DECODE_VECTOR(field, true)` key (big-endian)
+//! stays an expression key.
+//!
 //! **Search** (FTS) vector indexes live in the Search service, outside
 //! SQL++ (kind [`SEARCH`]): read from `GET /api/index` into the indexes of
 //! the collections they map ([`fts_indexes`]), with the first vector
@@ -47,22 +60,68 @@ pub const COMPOSITE: &str = "COMPOSITE";
 pub const POSITION: &str = "vector_position";
 /// Option: the dimension, when the field isn't a column.
 pub const DIMENSION: &str = "dimension";
+/// Option: how the vector field keeps its vectors, [`BASE64`] or
+/// [`ARRAY`] (see the module docs).
+pub const FORM: &str = "vector_form";
+/// Base64 text of little-endian float32s (`vector(N, base64)`).
+pub const BASE64: &str = "base64";
+/// An array of numbers (`vector(N)`).
+pub const ARRAY: &str = "array";
 
 /// `` `emb` VECTOR `` → `emb` (`` `a`.`b` VECTOR `` → `a.b`); `None` for a
 /// key that isn't a vector one.
 pub fn vector_key(key: &str) -> Option<String> {
+    key_form(key).map(|(f, _)| f)
+}
+
+/// A vector key's field and whether it keeps base64 vectors:
+/// `` decode_vector(`emb`, false) VECTOR `` → (`emb`, true).
+pub fn key_form(key: &str) -> Option<(String, bool)> {
     let k = key.trim();
     let upper = k.to_ascii_uppercase();
     let field = upper
         .strip_suffix(" VECTOR")
         .map(|_| k[..k.len() - " VECTOR".len()].trim())?;
-    Some(
+    if let Some(f) = decoded_field(field) {
+        return Some((f, true));
+    }
+    Some((
         field
             .split('.')
             .map(|p| p.trim().trim_matches('`').replace("``", "`"))
             .collect::<Vec<_>>()
             .join("."),
-    )
+        false,
+    ))
+}
+
+/// The field of `DECODE_VECTOR(field, false)` (little-endian base64, the
+/// form Search's `vector_base64` takes); `None` for any other expression.
+fn decoded_field(expr: &str) -> Option<String> {
+    let e = expr.trim();
+    let head = e.get(.."decode_vector".len())?;
+    if !head.eq_ignore_ascii_case("decode_vector") {
+        return None;
+    }
+    let args = e["decode_vector".len()..]
+        .trim_start()
+        .strip_prefix('(')?
+        .strip_suffix(')')?;
+    let (field, big_endian) = args.rsplit_once(',')?;
+    if !big_endian.trim().eq_ignore_ascii_case("false") {
+        return None;
+    }
+    let mut field = field.trim();
+    while let Some(inner) = field.strip_prefix('(').and_then(|f| f.strip_suffix(')')) {
+        field = inner.trim();
+    }
+    let name = plain_key(field);
+    is_path(&name).then_some(name)
+}
+
+/// A field's name (`emb`, `a.b`), not an expression the server wrote.
+fn is_path(f: &str) -> bool {
+    !f.is_empty() && !f.contains(['`', '(', ')', ' ', ',', '[', '"', '\''])
 }
 
 /// A field type `vector(N)`: its dimension (`Some(None)`: no dimension).
@@ -78,7 +137,7 @@ pub fn parse_type(t: &str) -> Option<Option<u32>> {
         for p in inner.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             match p.parse::<u32>() {
                 Ok(n) => dims = Some(n),
-                Err(_) if matches!(p, "float32" | "float") => {}
+                Err(_) if matches!(p, "float32" | "float" | BASE64) => {}
                 Err(_) => return None,
             }
         }
@@ -91,6 +150,65 @@ pub fn type_name(dims: Option<u32>) -> String {
         Some(n) => format!("vector({n})"),
         None => "vector".into(),
     }
+}
+
+/// `vector(N, base64)`: a field of base64 vectors (see the module docs).
+pub fn base64_type_name(dims: Option<u32>) -> String {
+    match dims {
+        Some(n) => format!("vector({n}, {BASE64})"),
+        None => format!("vector({BASE64})"),
+    }
+}
+
+/// A field type that keeps base64 vectors (`vector(N, base64)`, alone or
+/// among `|` types).
+pub fn is_base64(t: &str) -> bool {
+    t.split('|').any(|p| {
+        let p = p.trim().to_ascii_lowercase();
+        parse_type(&p).is_some() && p.contains(BASE64)
+    })
+}
+
+/// A base64 vector's numbers (little-endian float32s); `None` when the
+/// text isn't one.
+pub fn decode_base64(s: &str) -> Option<Vec<f32>> {
+    use base64::Engine;
+    let b = base64::engine::general_purpose::STANDARD
+        .decode(s.trim())
+        .ok()?;
+    if b.is_empty() {
+        return None;
+    }
+    dbine_driver::vector::from_f32_le(&b)
+}
+
+/// A base64 vector as its result / transfer text (`[1,2,3]`).
+pub fn base64_text(s: &str) -> Option<String> {
+    decode_base64(s).map(dbine_driver::vector::text)
+}
+
+/// Numbers as a base64 vector (what `ENCODE_VECTOR(v, false)` writes).
+pub fn encode_base64(values: &[f64]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(dbine_driver::vector::to_f32_le(values))
+}
+
+/// A vector value of an edit or a load (a JSON array, or text holding
+/// one) as base64 text; anything else as it is.
+pub fn base64_value(v: &Value) -> Value {
+    match dbine_driver::vector::parse_value(v) {
+        Some(n) if !n.is_empty() => Value::String(encode_base64(&n)),
+        _ => v.clone(),
+    }
+}
+
+/// The columns whose type (a result's or a describe's) says base64.
+pub fn base64_columns(columns: &[dbine_driver::ResultColumn]) -> Vec<String> {
+    columns
+        .iter()
+        .filter(|c| is_base64(&c.type_name))
+        .map(|c| c.name.clone())
+        .collect()
 }
 
 fn metric_of(similarity: &str) -> String {
@@ -108,12 +226,36 @@ fn similarity_of(m: &str) -> Result<&'static str> {
         metric::COSINE => "COSINE",
         metric::L2 | "euclidean" => "L2",
         metric::IP | "dot" => "DOT",
-        "l2_squared" | "euclidean_squared" => "L2_SQUARED",
+        // Over 0/1 vectors (a bit vector from another engine, which the
+        // schema conversion lets through only over bits) the squared
+        // euclidean distance is hamming's.
+        "l2_squared" | "euclidean_squared" | metric::HAMMING => "L2_SQUARED",
         other => {
             return Err(Error::Query(format!(
                 "Couchbase no tiene la distancia «{other}» (cosine, l2, l2_squared o dot)."
             )))
         }
+    })
+}
+
+/// What a vector index writes otherwise than its metric says (hamming,
+/// which Couchbase hasn't, from a bit vector of another engine), for the
+/// script.
+pub fn metric_note(ix: &IndexDef) -> Option<String> {
+    let m = ix.vector.as_ref()?.metric.as_deref()?;
+    if !m.eq_ignore_ascii_case(metric::HAMMING) {
+        return None;
+    }
+    Some(if is_search(ix) {
+        format!(
+            "{}: la distancia hamming queda l2_norm (el servicio Search no tiene hamming; sobre vectores de 0 y 1 los vecinos más cercanos son los mismos).",
+            ix.name
+        )
+    } else {
+        format!(
+            "{}: la distancia hamming queda L2_SQUARED (Couchbase no tiene hamming; sobre vectores de 0 y 1 es la misma distancia).",
+            ix.name
+        )
     })
 }
 
@@ -234,7 +376,10 @@ pub fn from_row(r: &Value, ix: &mut IndexDef) -> bool {
     let Some(pos) = ix.columns.iter().position(|c| vector_key(c).is_some()) else {
         return false;
     };
-    let field = vector_key(&ix.columns[pos]).unwrap_or_default();
+    let (field, base64) = key_form(&ix.columns[pos]).unwrap_or_default();
+    if base64 {
+        ix.options.insert(FORM.into(), BASE64.into());
+    }
     let definition = r
         .get("definition")
         .or_else(|| r.get("metadata").and_then(|m| m.get("definition")))
@@ -348,39 +493,57 @@ pub fn is_vector(ix: &IndexDef) -> bool {
         })
 }
 
-/// `ix` with its dimension from the vector field's type in `t` (when the
-/// field is a column of type `vector(N)`).
+/// `ix` with its dimension and form ([`FORM`]) from the vector field's
+/// type in `t` (when the field is a column of type `vector(N)` or
+/// `vector(N, base64)`).
 pub fn with_dims(t: &TableSchema, ix: &IndexDef) -> IndexDef {
     let mut out = ix.clone();
     if !is_vector(ix) {
         return out;
     }
-    if let Some(n) = ix
+    let ty = ix
         .columns
         .first()
         .and_then(|f| t.columns.iter().find(|c| c.name == *f))
-        .and_then(|c| parse_type(&c.data_type))
-        .flatten()
-    {
-        out.options.insert(DIMENSION.into(), n.to_string());
+        .map(|c| c.data_type.as_str())
+        .filter(|t| parse_type(t).is_some());
+    if let Some(ty) = ty {
+        if let Some(n) = parse_type(ty).flatten() {
+            out.options.insert(DIMENSION.into(), n.to_string());
+        }
+        let form = if is_base64(ty) { BASE64 } else { ARRAY };
+        out.options.insert(FORM.into(), form.into());
     }
     out
+}
+
+/// The index keeps base64 vectors ([`FORM`]).
+fn base64_form(ix: &IndexDef) -> bool {
+    ix.options.get(FORM).is_some_and(|f| f == BASE64)
 }
 
 /// The read-back collection: each vector index's field gets its
 /// `vector(N)` type (added when no sampled document has it), and the
 /// dimension leaves the index's options.
+/// A base64 field ([`FORM`]) is `vector(N, base64)`, and the form leaves
+/// the options too. An expression key (`DECODE_VECTOR(f, true)`) isn't a
+/// field: it adds no column and keeps its options.
 pub fn describe(t: &mut TableSchema) {
     for ix in t.indexes.iter_mut().filter(|i| i.vector.is_some()) {
-        let Some(field) = ix.columns.first().cloned() else {
+        let Some(field) = ix.columns.first().cloned().filter(|f| is_path(f)) else {
             continue;
         };
         let dims = ix.options.get(DIMENSION).and_then(|n| n.parse().ok());
+        let ty = if base64_form(ix) {
+            base64_type_name(dims)
+        } else {
+            type_name(dims)
+        };
         match t.columns.iter_mut().find(|c| c.name == field) {
-            Some(c) => c.data_type = type_name(dims),
+            Some(c) => c.data_type = ty,
             None => t.columns.push(ColumnDef {
                 name: field,
-                data_type: type_name(dims),
+                data_type: ty,
                 nullable: true,
                 ..Default::default()
             }),
@@ -388,6 +551,7 @@ pub fn describe(t: &mut TableSchema) {
         if dims.is_some() {
             ix.options.remove(DIMENSION);
         }
+        ix.options.remove(FORM);
     }
 }
 
@@ -436,7 +600,11 @@ pub fn ddl(
         .kind
         .as_deref()
         .is_some_and(|k| k.eq_ignore_ascii_case(COMPOSITE));
-    let vkey = format!("{} VECTOR", field(vector_field));
+    let vkey = if base64_form(ix) {
+        format!("DECODE_VECTOR({}, false) VECTOR", field(vector_field))
+    } else {
+        format!("{} VECTOR", field(vector_field))
+    };
     let rest: Vec<String> = ix.columns[1..].iter().map(|c| field(c)).collect();
     let name = if ix.name.trim().is_empty() {
         String::new()
@@ -473,7 +641,7 @@ pub fn ddl(
         format!("\"description\": \"IVF{lists},{quant}\""),
     ];
     for (k, x) in &ix.options {
-        if matches!(k.as_str(), "partition" | POSITION | DIMENSION) {
+        if matches!(k.as_str(), "partition" | POSITION | DIMENSION | FORM) {
             continue;
         }
         with.push(format!(
@@ -501,25 +669,30 @@ pub fn designer_spec() -> VectorIndexSpec {
     }
 }
 
+/// A vector field of results: its vector, and whether it keeps base64
+/// text (see the module docs).
+pub type ResultField = (VectorMeta, bool);
+
 /// Vector fields the bucket's vector indexes declare: field → vector.
-pub fn fields(rows: &[Value]) -> std::collections::HashMap<String, VectorMeta> {
+pub fn fields(rows: &[Value]) -> std::collections::HashMap<String, ResultField> {
     let mut out = std::collections::HashMap::new();
     for r in rows {
-        let keys: Vec<String> = r
+        let keys: Vec<(String, bool)> = r
             .get("index_key")
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
             .filter_map(Value::as_str)
-            .filter_map(vector_key)
+            .filter_map(key_form)
+            .filter(|(f, _)| is_path(f))
             .collect();
         let dims = r
             .get("with")
             .and_then(|w| w.get("dimension"))
             .and_then(Value::as_u64)
             .map(|n| n as u32);
-        for k in keys {
-            out.insert(k, VectorMeta::dense(dims, VectorElement::F32));
+        for (k, base64) in keys {
+            out.insert(k, (VectorMeta::dense(dims, VectorElement::F32), base64));
         }
     }
     out
@@ -540,31 +713,19 @@ pub fn fts_usages(body: &Value, bucket: &str, scope: &str, collection: &str) -> 
         if def.get("sourceName").and_then(Value::as_str) != Some(bucket) {
             continue;
         }
-        let mapping = &def["params"]["mapping"];
-        let mut fields = Vec::new();
-        let types = mapping["types"].as_object();
-        for (tname, t) in types.into_iter().flatten() {
-            let ours = mapped_collection(tname) == (scope.to_string(), collection.to_string());
-            if ours && t["enabled"].as_bool() != Some(false) {
-                fts_fields(&t["properties"], "", &mut fields);
-            }
-        }
-        if mapping["default_mapping"]["enabled"].as_bool() == Some(true)
-            && scope == "_default"
-            && collection == "_default"
-        {
-            fts_fields(&mapping["default_mapping"]["properties"], "", &mut fields);
-        }
-        if !fields.is_empty() {
+        let fields = mapped_fields(def, scope, collection);
+        if let Some(first) = fields.first() {
             out.push(IndexUsage {
                 name: short_name(def["name"].as_str().unwrap_or(name), bucket),
                 kind: "SEARCH VECTOR".into(),
+                vector: Some(fts_vector(first)),
                 key_columns: fields
                     .iter()
                     .map(|f| {
                         format!(
-                            "{} (vector {}, {})",
+                            "{} ({} {}, {})",
                             f.path,
+                            if f.base64 { "vector_base64" } else { "vector" },
                             f.dims.map(|n| n.to_string()).unwrap_or("?".into()),
                             f.similarity.as_deref().unwrap_or("?")
                         )
@@ -603,6 +764,45 @@ pub struct FtsField {
     pub base64: bool,
 }
 
+/// The vector fields a Search index definition maps for one collection
+/// (its type mapping `scope.collection[.type]`, or the default mapping
+/// for `_default._default`).
+fn mapped_fields(def: &Value, scope: &str, collection: &str) -> Vec<FtsField> {
+    let mapping = &def["params"]["mapping"];
+    let mut fields = Vec::new();
+    for (tname, t) in mapping["types"].as_object().into_iter().flatten() {
+        let ours = mapped_collection(tname) == (scope.to_string(), collection.to_string());
+        if ours && t["enabled"].as_bool() != Some(false) {
+            fts_fields(&t["properties"], "", &mut fields);
+        }
+    }
+    if mapping["default_mapping"]["enabled"].as_bool() == Some(true)
+        && scope == "_default"
+        && collection == "_default"
+    {
+        fts_fields(&mapping["default_mapping"]["properties"], "", &mut fields);
+    }
+    fields
+}
+
+/// The vector fields the bucket's Search indexes map for one collection
+/// (all of them, not only each index's first), for a transfer.
+pub fn fts_collection_fields(
+    body: &Value,
+    bucket: &str,
+    scope: &str,
+    collection: &str,
+) -> Vec<FtsField> {
+    body.get("indexDefs")
+        .and_then(|d| d.get("indexDefs"))
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter(|(_, def)| def.get("sourceName").and_then(Value::as_str) == Some(bucket))
+        .flat_map(|(_, def)| mapped_fields(def, scope, collection))
+        .collect()
+}
+
 /// The vector fields of a Search mapping's `properties`, nested ones
 /// (`meta.e2`) included.
 pub fn fts_fields(props: &Value, prefix: &str, out: &mut Vec<FtsField>) {
@@ -628,6 +828,21 @@ pub fn fts_fields(props: &Value, prefix: &str, out: &mut Vec<FtsField>) {
     }
 }
 
+/// A Search index's vector settings, from its first vector field: the
+/// similarity as the metric, `vector_index_optimized_for` as the parameter
+/// `optimized_for`.
+fn fts_vector(first: &FtsField) -> VectorIndex {
+    let mut params = std::collections::BTreeMap::new();
+    if let Some(o) = &first.optimized_for {
+        params.insert("optimized_for".to_string(), o.clone());
+    }
+    VectorIndex {
+        algorithm: None,
+        metric: first.similarity.as_deref().map(fts_metric),
+        params,
+    }
+}
+
 /// A Search similarity as a metric, and back.
 fn fts_metric(s: &str) -> String {
     match s.to_ascii_lowercase().as_str() {
@@ -641,7 +856,12 @@ fn fts_metric(s: &str) -> String {
 fn fts_similarity(m: &str) -> Result<&'static str> {
     Ok(match m.to_ascii_lowercase().as_str() {
         metric::IP | "dot_product" | "dot" => "dot_product",
-        metric::L2 | "l2_norm" | "euclidean" | "l2_squared" | "euclidean_squared" => "l2_norm",
+        metric::L2
+        | "l2_norm"
+        | "euclidean"
+        | "l2_squared"
+        | "euclidean_squared"
+        | metric::HAMMING => "l2_norm",
         metric::COSINE => "cosine",
         other => {
             return Err(Error::Query(format!(
@@ -729,13 +949,12 @@ pub fn fts_indexes(body: &Value, bucket: &str) -> Vec<(String, String, IndexDef)
             {
                 types.retain(|k, _| Some(k) == tname.as_ref());
             }
-            let mut params = std::collections::BTreeMap::new();
-            if let Some(o) = &first.optimized_for {
-                params.insert("optimized_for".to_string(), o.clone());
-            }
             let mut options = std::collections::BTreeMap::new();
             if let Some(n) = first.dims {
                 options.insert(DIMENSION.to_string(), n.to_string());
+            }
+            if first.base64 {
+                options.insert(FORM.to_string(), BASE64.to_string());
             }
             options.insert("definition".to_string(), canonical(&d).to_string());
             let here = format!("{scope}.{coll}");
@@ -758,11 +977,7 @@ pub fn fts_indexes(body: &Value, bucket: &str) -> Vec<(String, String, IndexDef)
                     columns: vec![first.path.clone()],
                     kind: Some(SEARCH.into()),
                     options,
-                    vector: Some(VectorIndex {
-                        algorithm: None,
-                        metric: first.similarity.as_deref().map(fts_metric),
-                        params,
-                    }),
+                    vector: Some(fts_vector(first)),
                     ..Default::default()
                 },
             ));
@@ -936,6 +1151,13 @@ pub fn fts_ddl(keyspace: &str, ix: &IndexDef, if_not_exists: bool) -> Result<Str
         }
     };
     let f = &mut fields[at];
+    // The field's form, when its type says it (else as the definition has
+    // it; a new field is an array one).
+    match ix.options.get(FORM).map(String::as_str) {
+        Some(BASE64) => f["type"] = "vector_base64".into(),
+        Some(_) => f["type"] = "vector".into(),
+        None => {}
+    }
     match ix
         .options
         .get(DIMENSION)
@@ -1139,11 +1361,11 @@ pub fn fts_body(definition: &Value, name: &str, bucket: &str) -> Value {
 }
 
 /// The vector fields of the bucket's Search indexes, for results: field →
-/// vector (array fields only: a `vector_base64` field keeps its text).
+/// vector, and whether it's a `vector_base64` one.
 pub fn fts_result_fields(
     body: &Value,
     bucket: &str,
-) -> std::collections::HashMap<String, VectorMeta> {
+) -> std::collections::HashMap<String, ResultField> {
     let mut out = std::collections::HashMap::new();
     for (_, _, ix) in fts_indexes(body, bucket) {
         let def: Value = ix
@@ -1157,10 +1379,13 @@ pub fn fts_result_fields(
             fts_fields(&t["properties"], "", &mut fields);
         }
         fts_fields(&mapping["default_mapping"]["properties"], "", &mut fields);
-        for f in fields.into_iter().filter(|f| !f.base64) {
+        for f in fields {
             out.insert(
                 f.path,
-                VectorMeta::dense(f.dims.map(|n| n as u32), VectorElement::F32),
+                (
+                    VectorMeta::dense(f.dims.map(|n| n as u32), VectorElement::F32),
+                    f.base64,
+                ),
             );
         }
     }
@@ -1280,7 +1505,7 @@ mod tests {
         );
         let bad = IndexDef {
             vector: Some(VectorIndex {
-                metric: Some("hamming".into()),
+                metric: Some("jaccard".into()),
                 ..Default::default()
             }),
             ..d.clone()
@@ -1289,7 +1514,7 @@ mod tests {
         let rows = [json!({ "index_key": ["`cat`", "`emb` VECTOR"], "with": { "dimension": 3 } })];
         assert_eq!(
             fields(&rows).get("emb"),
-            Some(&VectorMeta::dense(Some(3), VectorElement::F32))
+            Some(&(VectorMeta::dense(Some(3), VectorElement::F32), false))
         );
     }
 
@@ -1312,9 +1537,24 @@ mod tests {
         assert_eq!(u[0].kind, "SEARCH VECTOR");
         assert_eq!(
             u[0].key_columns,
-            ["emb (vector 3, dot_product)", "meta.e2 (vector 8, l2_norm)"]
+            [
+                "emb (vector 3, dot_product)",
+                "meta.e2 (vector_base64 8, l2_norm)"
+            ]
         );
         assert!(fts_usages(&body, "b", "inv", "other").is_empty());
+        // The explorer's index has the schema's settings.
+        let defs = fts_indexes(&body, "b");
+        let ix = defs
+            .iter()
+            .find(|(s, c, _)| s == "inv" && c == "docs")
+            .map(|(_, _, i)| i)
+            .unwrap();
+        assert_eq!(u[0].vector, ix.vector);
+        assert_eq!(
+            u[0].vector.as_ref().unwrap().metric.as_deref(),
+            Some(metric::IP)
+        );
     }
 
     #[test]
@@ -1439,13 +1679,176 @@ mod tests {
         };
         describe(&mut t);
         assert_eq!(t.columns[0].data_type, "vector(3)");
-        // Results mark the array field, not the base64 one.
+        // A base64 field: its type says it, and the form leaves the
+        // options.
+        assert_eq!(all[1].2.options.get(FORM).map(String::as_str), Some(BASE64));
+        let mut t = TableSchema {
+            name: "other".into(),
+            indexes: vec![all[1].2.clone()],
+            ..Default::default()
+        };
+        describe(&mut t);
+        assert_eq!(t.columns[0].data_type, "vector(2, base64)");
+        assert!(!t.indexes[0].options.contains_key(FORM));
+        // Results mark both, each with its form.
         let f = fts_result_fields(&fts_body_sample(), "b");
         assert_eq!(
             f.get("emb"),
-            Some(&VectorMeta::dense(Some(3), VectorElement::F32))
+            Some(&(VectorMeta::dense(Some(3), VectorElement::F32), false))
         );
-        assert!(!f.contains_key("e"));
+        assert_eq!(
+            f.get("e"),
+            Some(&(VectorMeta::dense(Some(2), VectorElement::F32), true))
+        );
+        // A transfer sees every vector field of its collection.
+        let f = fts_collection_fields(&fts_body_sample(), "b", "inv", "other");
+        assert_eq!(
+            f.iter()
+                .map(|f| (f.path.as_str(), f.base64))
+                .collect::<Vec<_>>(),
+            [("e", true)]
+        );
+        assert!(fts_collection_fields(&fts_body_sample(), "b", "inv", "none").is_empty());
+    }
+
+    #[test]
+    fn base64_vectors_read_and_write_back() {
+        // What `ENCODE_VECTOR([1,2,3], false)` gives on Couchbase 8.0.
+        assert_eq!(encode_base64(&[1.0, 2.0, 3.0]), "AACAPwAAAEAAAEBA");
+        assert_eq!(base64_text("AACAPwAAAEAAAEBA").as_deref(), Some("[1,2,3]"));
+        assert_eq!(
+            base64_text(&encode_base64(&[0.1, -2.5])).as_deref(),
+            Some("[0.1,-2.5]")
+        );
+        // Not a vector: not base64, or not whole float32s.
+        assert_eq!(decode_base64("not base64!"), None);
+        assert_eq!(decode_base64("AAEC"), None);
+        assert_eq!(decode_base64(""), None);
+        assert_eq!(base64_value(&json!([1, 2, 3])), json!("AACAPwAAAEAAAEBA"));
+        assert_eq!(base64_value(&json!("[1,2,3]")), json!("AACAPwAAAEAAAEBA"));
+        assert_eq!(base64_value(&json!("x")), json!("x"));
+        assert_eq!(base64_value(&Value::Null), Value::Null);
+        // The type.
+        assert_eq!(base64_type_name(Some(3)), "vector(3, base64)");
+        assert_eq!(base64_type_name(None), "vector(base64)");
+        assert_eq!(parse_type("vector(3, base64)"), Some(Some(3)));
+        assert!(is_base64("vector(3, base64)") && is_base64("string|vector(base64)"));
+        assert!(!is_base64("vector(3)") && !is_base64("base64"));
+        let cols = [
+            dbine_driver::ResultColumn::new("e", "vector(3, base64)"),
+            dbine_driver::ResultColumn::new("a", "vector(3)"),
+        ];
+        assert_eq!(base64_columns(&cols), ["e"]);
+    }
+
+    #[test]
+    fn base64_gsi_keys_read_and_write_back() {
+        // As Couchbase 8.0 lists a hyperscale index on DECODE_VECTOR.
+        let row = json!({
+            "name": "b64v", "index_key": ["decode_vector(`e`, false) VECTOR"],
+            "with": { "description": "IVF1,SQ8", "dimension": 3, "num_partition": 1, "num_replica": 0,
+                      "retain_deleted_xattr": false, "scan_nprobes": 1, "similarity": "l2" },
+            "definition": "CREATE VECTOR INDEX `b64v` on `b`(decode_vector(`e`, false) VECTOR) WITH {  \"dimension\":3, \"similarity\":\"L2\", \"description\":\"IVF1,SQ8\" }"
+        });
+        let i = ix(&row);
+        assert_eq!(i.columns, ["e"]);
+        assert_eq!(i.options.get(FORM).map(String::as_str), Some(BASE64));
+        assert_eq!(
+            fields(std::slice::from_ref(&row)).get("e"),
+            Some(&(VectorMeta::dense(Some(3), VectorElement::F32), true))
+        );
+        let stmt = "CREATE VECTOR INDEX `b64v` ON `b`(DECODE_VECTOR(`e`, false) VECTOR) WITH {\"dimension\": 3, \"similarity\": \"L2\", \"description\": \"IVF1,SQ8\"};";
+        assert_eq!(ddl("`b`", &i, false, q).unwrap(), stmt);
+        // Describe types the field `vector(3, base64)`; the table's type
+        // gives the form back for the statement.
+        let mut t = TableSchema {
+            name: "c".into(),
+            indexes: vec![i.clone()],
+            ..Default::default()
+        };
+        describe(&mut t);
+        assert_eq!(t.columns[0].data_type, "vector(3, base64)");
+        assert!(t.indexes[0].options.is_empty() || !t.indexes[0].options.contains_key(FORM));
+        let back = with_dims(&t, &t.indexes[0]);
+        assert_eq!(ddl("`b`", &back, false, q).unwrap(), stmt);
+        // The field changed to arrays: a plain vector key.
+        t.columns[0].data_type = "vector(3)".into();
+        let arr = with_dims(&t, &t.indexes[0]);
+        assert!(ddl("`b`", &arr, false, q)
+            .unwrap()
+            .contains("ON `b`(`e` VECTOR)"));
+        // Big-endian base64 is an expression key: no field, no column.
+        assert_eq!(
+            key_form("decode_vector(`e`, true) VECTOR").map(|k| k.1),
+            Some(false)
+        );
+        let be = json!({ "name": "be", "index_key": ["decode_vector(`e`, true) VECTOR"],
+                         "with": { "dimension": 3, "similarity": "l2" } });
+        let mut t = TableSchema {
+            name: "c".into(),
+            indexes: vec![ix(&be)],
+            ..Default::default()
+        };
+        describe(&mut t);
+        assert!(t.columns.is_empty());
+        assert!(fields(&[be]).is_empty());
+        assert_eq!(
+            key_form("DECODE_VECTOR((`a`.`b`), FALSE) VECTOR"),
+            Some(("a.b".into(), true))
+        );
+    }
+
+    #[test]
+    fn search_base64_fields_are_scripted_by_their_type() {
+        let all = fts_indexes(&fts_body_sample(), "b");
+        let (_, _, i) = &all[1];
+        let t = |ty: &str| TableSchema {
+            name: "other".into(),
+            columns: vec![ColumnDef {
+                name: "e".into(),
+                data_type: ty.into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let field_type = |ix: &IndexDef| {
+            let s = fts_ddl("`b`.`inv`.`other`", ix, false).unwrap();
+            let def: Value = serde_json::from_str(
+                s.lines()
+                    .last()
+                    .unwrap()
+                    .split_once(" WITH ")
+                    .unwrap()
+                    .1
+                    .trim_end_matches(';'),
+            )
+            .unwrap();
+            def["params"]["mapping"]["types"]["inv.other"]["properties"]["e"]["fields"][0]["type"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        // Read back: base64 as it was.
+        assert_eq!(field_type(i), "vector_base64");
+        // The field's type decides.
+        assert_eq!(
+            field_type(&with_dims(&t("vector(2, base64)"), i)),
+            "vector_base64"
+        );
+        assert_eq!(field_type(&with_dims(&t("vector(2)"), i)), "vector");
+        // A new index from the designer on a base64 field.
+        let new = IndexDef {
+            name: "n".into(),
+            columns: vec!["e".into()],
+            kind: Some(SEARCH.into()),
+            vector: Some(VectorIndex::default()),
+            ..Default::default()
+        };
+        assert_eq!(
+            field_type(&with_dims(&t("vector(2, base64)"), &new)),
+            "vector_base64"
+        );
+        assert_eq!(field_type(&with_dims(&t("vector(2)"), &new)), "vector");
     }
 
     #[test]
@@ -1535,9 +1938,9 @@ mod tests {
         let mut nodims = d.clone();
         nodims.options.clear();
         assert!(fts_ddl("`b`.`s`.`c`", &nodims, false).is_err());
-        let mut ham = d.clone();
-        ham.vector.as_mut().unwrap().metric = Some("hamming".into());
-        assert!(fts_ddl("`b`.`s`.`c`", &ham, false).is_err());
+        let mut jac = d.clone();
+        jac.vector.as_mut().unwrap().metric = Some("jaccard".into());
+        assert!(fts_ddl("`b`.`s`.`c`", &jac, false).is_err());
         assert_eq!(
             fts_drop("`b`.`s`.`c`", "n"),
             "DROP SEARCH INDEX `n` ON `b`.`s`.`c`;"

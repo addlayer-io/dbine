@@ -683,7 +683,50 @@ impl Driver for MongoDriver {
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
         // DocumentDB indexes arrays only (no BinData vectors).
-        ddl::update_script(target, changes, self.flavor != Flavor::DocumentDb)
+        ddl::update_script(
+            target,
+            changes,
+            self.flavor != Flavor::DocumentDb,
+            &Default::default(),
+        )
+    }
+
+    /// Vectors in the form the columns' types name (`vector(N, float32 |
+    /// int8 | bit)`: BinData, `vector(N)`: an array); a column whose type
+    /// doesn't say is an array. Only the caller's types decide: the hint
+    /// recent results leave (kept by collection name only) is for callers
+    /// without types.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        let binary = if self.flavor == Flavor::DocumentDb {
+            Default::default()
+        } else {
+            vector::typed_binary_fields(columns)
+        };
+        ddl::insert_script(target, &names, rows, &binary)
+    }
+
+    /// Each document keeps its vector's form; a BinData gets the element
+    /// its column's type names.
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        if self.flavor == Flavor::DocumentDb {
+            return ddl::update_script(target, changes, false, &Default::default());
+        }
+        let elements = types
+            .iter()
+            .filter_map(|c| Some((c.name.clone(), vector::typed_form(c)??)))
+            .collect();
+        ddl::update_script(target, changes, true, &elements)
     }
 
     fn delete_script(
@@ -1096,14 +1139,13 @@ fn push_docs_with(
     out: &mut QueryOutcome,
     docs: &[Document],
     max_rows: usize,
-    vectors: &std::collections::HashMap<String, dbine_driver::VectorMeta>,
+    vectors: &std::collections::HashMap<String, ResultColumn>,
 ) {
     let keys = convert::union_keys(docs);
     out.begin_result(
         keys.iter()
             .map(|k| match vectors.get(k) {
-                Some(m) => ResultColumn::new(k.clone(), vector::type_name(m.dims, m.element))
-                    .with_vector(m.clone()),
+                Some(c) => c.clone(),
                 None => ResultColumn::new(k.clone(), ""),
             })
             .collect(),
@@ -1778,6 +1820,90 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn typed_scripts_write_the_columns_form() {
+        use base64::Engine;
+        let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
+        let target = ObjectRef {
+            kind: "collection".into(),
+            schema: None,
+            name: "typed_forms_test".into(),
+        };
+        let d = &drivers()[0];
+        let rows = vec![vec![
+            serde_json::json!(1),
+            serde_json::json!([1.0, -2.0, 3.0]),
+            serde_json::json!([1.0, 0.0, 1.0]),
+            serde_json::json!([0.5, 0.25, 1.0]),
+            serde_json::json!([1.0, 2.0, 3.0]),
+        ]];
+        let cols = [
+            ResultColumn::new("_id", "int"),
+            ResultColumn::new("q", "vector(3, int8)"),
+            ResultColumn::new("b", "vector(3, bit)"),
+            ResultColumn::new("f", "vector(3, float32)"),
+            ResultColumn::new("a", "vector(3)"),
+        ];
+        // A recent result said `a` holds int8 BinData: its type wins.
+        vector::note_binary_fields(
+            "typed_forms_test",
+            &[("a".into(), dbine_driver::VectorElement::I8)],
+        );
+        let ins = d.insert_script_typed(&target, &cols, &rows).unwrap();
+        let lit = |v: &[f64], el| format!("BinData(9, \"{}\")", b64(&vector::encode(v, el).bytes));
+        use dbine_driver::VectorElement as E;
+        assert!(
+            ins.contains(&format!("\"q\": {}", lit(&[1.0, -2.0, 3.0], E::I8))),
+            "{ins}"
+        );
+        assert!(
+            ins.contains(&format!("\"b\": {}", lit(&[1.0, 0.0, 1.0], E::Bit))),
+            "{ins}"
+        );
+        assert!(
+            ins.contains(&format!("\"f\": {}", lit(&[0.5, 0.25, 1.0], E::F32))),
+            "{ins}"
+        );
+        assert!(ins.contains("\"a\": [1.0,2.0,3.0]"), "{ins}");
+        // It runs as the shell reads it.
+        let st = crate::shell::parse_script(&ins).unwrap();
+        assert_eq!(st.len(), 1);
+        // Untyped: as before, recent results decide.
+        let names: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
+        let old = d.insert_script(&target, &names, &rows).unwrap();
+        assert!(old.contains("\"q\": [1.0,-2.0,3.0]"), "{old}");
+        assert!(
+            old.contains(&format!("\"a\": {}", lit(&[1.0, 2.0, 3.0], E::I8))),
+            "{old}"
+        );
+        // DocumentDB indexes arrays only.
+        let docdb = &drivers()[2];
+        let ins = docdb.insert_script_typed(&target, &cols, &rows).unwrap();
+        assert!(!ins.contains("BinData"), "{ins}");
+
+        // An update without the grid's row: the type says the element.
+        let change = dbine_driver::RowChange {
+            key: vec![("_id".into(), serde_json::json!(1))],
+            set: vec![("q".into(), serde_json::json!([4.0, 5.0]))],
+            row: Vec::new(),
+        };
+        let upd = d
+            .update_script_typed(&target, std::slice::from_ref(&change), &cols)
+            .unwrap();
+        assert!(!upd.contains("$switch"), "{upd}");
+        assert!(upd.contains(&lit(&[4.0, 5.0], E::I8)), "{upd}");
+        let untyped = d
+            .update_script(&target, std::slice::from_ref(&change))
+            .unwrap();
+        assert!(untyped.contains("$switch"), "{untyped}");
+        let st = crate::shell::parse_script(&upd).unwrap();
+        assert!(st[0].cmd.get_array("updates").is_ok());
+        let upd = docdb
+            .update_script_typed(&target, std::slice::from_ref(&change), &cols)
+            .unwrap();
+        assert!(!upd.contains("BinData"), "{upd}");
     }
 
     #[test]

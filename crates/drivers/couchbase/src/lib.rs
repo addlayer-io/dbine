@@ -299,6 +299,63 @@ impl Driver for CouchbaseDriver {
         ddl::delete_script(target, keys)
     }
 
+    /// A field whose type says base64 (`vector(N, base64)`) gets its
+    /// vectors as base64 text; every other vector is an array.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        let base64 = vector::base64_columns(columns);
+        let rows: Vec<Vec<Value>> = rows
+            .iter()
+            .map(|r| {
+                r.iter()
+                    .zip(&names)
+                    .map(|(v, n)| {
+                        if base64.contains(n) {
+                            vector::base64_value(v)
+                        } else {
+                            v.clone()
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+        ddl::insert_script(target, &names, &rows)
+    }
+
+    /// As [`Self::insert_script_typed`], for the fields an update sets.
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        let base64 = vector::base64_columns(types);
+        let changes: Vec<dbine_driver::RowChange> = changes
+            .iter()
+            .map(|ch| dbine_driver::RowChange {
+                set: ch
+                    .set
+                    .iter()
+                    .map(|(c, v)| {
+                        let v = if base64.contains(c) {
+                            vector::base64_value(v)
+                        } else {
+                            v.clone()
+                        };
+                        (c.clone(), v)
+                    })
+                    .collect(),
+                ..ch.clone()
+            })
+            .collect();
+        ddl::update_script(target, &changes)
+    }
+
     fn security(&self) -> Option<dbine_driver::SecuritySpec> {
         Some(security::spec())
     }
@@ -533,6 +590,18 @@ fn tx_gone(e: &Error) -> bool {
     }
 }
 
+/// A keyspace (or its scope) the query service doesn't know yet: 12003
+/// "Keyspace not found", 12021 "Scope not found".
+fn not_found_yet(e: &Error) -> bool {
+    match e {
+        Error::Statement(se) => {
+            matches!(se.code.as_deref(), Some("12003" | "12021"))
+                || se.message.to_ascii_lowercase().contains("not found")
+        }
+        _ => false,
+    }
+}
+
 /// What a statement does to the transaction.
 #[derive(Debug, PartialEq, Eq)]
 enum TxEffect {
@@ -674,10 +743,7 @@ pub struct CbSession {
     /// Manual transactions: the first read or DML opens one.
     manual: bool,
     /// The bucket's vector index fields, for a while (results mark them).
-    vectors: Option<(
-        std::time::Instant,
-        HashMap<String, dbine_driver::VectorMeta>,
-    )>,
+    vectors: Option<(std::time::Instant, HashMap<String, vector::ResultField>)>,
 }
 
 static SEQ: AtomicU64 = AtomicU64::new(0);
@@ -755,6 +821,79 @@ fn tabulate(results: &[Value], signature: Option<&Value>) -> (Vec<String>, Vec<V
     (cols, rows)
 }
 
+/// How a result column's values (nulls left out) can hold vectors: all
+/// arrays of numbers, or all base64 text of float32s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Candidate {
+    Arrays,
+    Base64,
+}
+
+/// The result columns that could be a vector index's field, by position.
+fn vector_candidates(rows: &[Vec<Value>], n: usize) -> Vec<(usize, Candidate)> {
+    (0..n)
+        .filter_map(|i| {
+            let vals: Vec<&str> = rows
+                .iter()
+                .map(|r| &r[i])
+                .filter(|v| !v.is_null())
+                .map(|v| v.as_str())
+                .collect::<Option<_>>()?;
+            if vals.is_empty() {
+                None
+            } else if vals
+                .iter()
+                .all(|v| dbine_driver::vector::parse(v).is_some())
+            {
+                Some((i, Candidate::Arrays))
+            } else if vals.iter().all(|v| vector::decode_base64(v).is_some()) {
+                Some((i, Candidate::Base64))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// The columns of a result, the vector ones marked (a vector index's field
+/// whose values are of its form), with their cells as the canonical text
+/// of the numbers (a base64 field's too).
+fn mark_vectors(
+    cols: &[String],
+    rows: &mut [Vec<Value>],
+    candidates: &[(usize, Candidate)],
+    fields: &HashMap<String, vector::ResultField>,
+) -> Vec<ResultColumn> {
+    let mut columns: Vec<ResultColumn> = cols
+        .iter()
+        .map(|n| ResultColumn::new(n.clone(), ""))
+        .collect();
+    for &(i, form) in candidates {
+        let Some((m, base64)) = fields.get(&cols[i]) else {
+            continue;
+        };
+        if *base64 != (form == Candidate::Base64) {
+            continue;
+        }
+        for r in rows.iter_mut() {
+            let t = r[i].as_str().and_then(|v| match form {
+                Candidate::Arrays => dbine_driver::vector::parse(v).map(dbine_driver::vector::text),
+                Candidate::Base64 => vector::base64_text(v),
+            });
+            if let Some(t) = t {
+                r[i] = Value::String(t);
+            }
+        }
+        let ty = if *base64 {
+            vector::base64_type_name(m.dims)
+        } else {
+            vector::type_name(m.dims)
+        };
+        columns[i] = ResultColumn::new(cols[i].clone(), ty).with_vector(m.clone());
+    }
+    columns
+}
+
 fn first_word(stmt: &str) -> String {
     stmt.trim_start()
         .chars()
@@ -816,6 +955,31 @@ fn uses_search(stmt: &str) -> bool {
         i += 1;
     }
     false
+}
+
+/// The name of the function a `CREATE [OR REPLACE] FUNCTION
+/// [ns:][b.s.]name(…)` makes.
+fn created_function(stmt: &str) -> Option<String> {
+    let rest = vector::take_words(stmt, "CREATE")?;
+    let rest = vector::take_words(rest, "OR REPLACE").unwrap_or(rest);
+    let rest = vector::take_words(rest, "FUNCTION")?;
+    // The name ends at its parameters' `(` outside backquotes.
+    let mut quoted = false;
+    let end = rest.char_indices().find_map(|(i, c)| match c {
+        '`' => {
+            quoted = !quoted;
+            None
+        }
+        '(' if !quoted => Some(i),
+        _ => None,
+    })?;
+    let name = rest[..end].trim();
+    // A namespace prefix (`default:`) outside backquotes.
+    let name = match name.find(':') {
+        Some(i) if !name[..i].contains('`') => &name[i + 1..],
+        _ => name,
+    };
+    vector::keyspace_parts(name).pop().filter(|n| !n.is_empty())
 }
 
 /// The `(bucket, scope)` a `CREATE SCOPE [IF NOT EXISTS] b.s` makes (the
@@ -893,7 +1057,7 @@ impl CbSession {
 
     /// The fields of the bucket's vector indexes (cached for 30 s,
     /// forgotten when a statement other than a read runs).
-    async fn vector_fields(&mut self) -> HashMap<String, dbine_driver::VectorMeta> {
+    async fn vector_fields(&mut self) -> HashMap<String, vector::ResultField> {
         if let Some((at, f)) = &self.vectors {
             if at.elapsed() < std::time::Duration::from_secs(30) {
                 return f.clone();
@@ -969,45 +1133,13 @@ impl CbSession {
             out.push_affected(mutations.unwrap_or(0));
         } else {
             let (cols, mut rows) = tabulate(&results, signature);
-            // Columns of a vector index's field whose values are all
-            // arrays of numbers: vectors, their text canonical.
-            let arrays: Vec<usize> = (0..cols.len())
-                .filter(|&i| {
-                    rows.iter().any(|r| !r[i].is_null())
-                        && rows.iter().all(|r| {
-                            r[i].is_null()
-                                || r[i]
-                                    .as_str()
-                                    .and_then(dbine_driver::vector::parse)
-                                    .is_some()
-                        })
-                })
-                .collect();
-            let fields = if arrays.is_empty() {
+            let candidates = vector_candidates(&rows, cols.len());
+            let fields = if candidates.is_empty() {
                 HashMap::new()
             } else {
                 self.vector_fields().await
             };
-            let mut columns: Vec<ResultColumn> = cols
-                .iter()
-                .map(|n| ResultColumn::new(n.clone(), ""))
-                .collect();
-            for i in arrays {
-                let Some(m) = fields.get(&cols[i]) else {
-                    continue;
-                };
-                for r in rows.iter_mut() {
-                    if let Some(t) = r[i]
-                        .as_str()
-                        .and_then(dbine_driver::vector::parse)
-                        .map(dbine_driver::vector::text)
-                    {
-                        r[i] = Value::String(t);
-                    }
-                }
-                columns[i] = ResultColumn::new(cols[i].clone(), vector::type_name(m.dims))
-                    .with_vector(m.clone());
-            }
+            let columns = mark_vectors(&cols, &mut rows, &candidates, &fields);
             out.begin_result(columns);
             for r in rows {
                 out.push_row(r, max_rows);
@@ -1199,14 +1331,17 @@ impl CbSession {
 
     /// A new collection takes a moment to reach the query service; the
     /// next statement of the script (an index, an insert) needs it.
+    /// Only "not found" is worth waiting out: another error (a login
+    /// without SELECT on it) stops at once.
     async fn wait_for(&self, keyspace: &str) {
         for _ in 0..40 {
-            if self
+            match self
                 .query(&format!("SELECT RAW 1 FROM {keyspace} LIMIT 1"), None)
                 .await
-                .is_ok()
             {
-                return;
+                Ok(_) => return,
+                Err(e) if !not_found_yet(&e) => return,
+                Err(_) => {}
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
@@ -1220,9 +1355,28 @@ impl CbSession {
             lit(bucket),
             lit(scope)
         );
+        self.wait_listed(&stmt).await;
+    }
+
+    /// Waits (up to 10 s) until `system:functions` lists a function named
+    /// `name`.
+    async fn wait_function(&self, name: &str) {
+        let stmt = format!(
+            "SELECT RAW 1 FROM system:functions AS f WHERE f.identity.name = {}",
+            serde_json::to_string(name).unwrap_or_default()
+        );
+        self.wait_listed(&stmt).await;
+    }
+
+    /// Polls a catalog query (up to 10 s) until it returns a row. A query
+    /// that fails (a login that can't read the catalog) won't do better:
+    /// it stops at once.
+    async fn wait_listed(&self, stmt: &str) {
         for _ in 0..40 {
-            if self.results(&stmt).await.is_ok_and(|r| !r.is_empty()) {
-                return;
+            match self.results(stmt).await {
+                Ok(r) if !r.is_empty() => return,
+                Ok(_) => {}
+                Err(_) => return,
             }
             tokio::time::sleep(Duration::from_millis(250)).await;
         }
@@ -1664,7 +1818,13 @@ impl Session for CbSession {
         {
             let step = Step::start(out, own, i, u.start, u.line);
             let r = self.run_stmt(&u.text, max_rows, out).await;
+            // Only what a statement made is waited for: a failed one (the
+            // script goes on after errors) made nothing.
+            let made = r.is_ok();
             step.end(out, r)?;
+            if !made {
+                continue;
+            }
             if let Some(ks) = created_collection(&u.text) {
                 self.wait_for(&ks).await;
             } else if let Some((b, sc)) = created_scope(&u.text, self.bucket.as_deref()) {
@@ -1672,6 +1832,10 @@ impl Session for CbSession {
                 // service a moment later: a collection made in it right
                 // after would fail with "Scope not found".
                 self.wait_scope(&b, &sc).await;
+            } else if let Some(f) = created_function(&u.text) {
+                // Likewise a new function to `system:functions` (8.0): the
+                // explorer's listing right after would miss it.
+                self.wait_function(&f).await;
             }
         }
         Ok(())
@@ -2482,6 +2646,99 @@ mod tests {
     use super::*;
 
     #[test]
+    fn base64_vector_results_are_marked_and_typed_scripts_write_base64() {
+        use dbine_driver::{VectorElement, VectorMeta};
+        let cols = vec!["_id".to_string(), "e".into(), "a".into(), "s".into()];
+        let mut rows = vec![
+            vec![
+                json!("d1"),
+                json!("AACAPwAAAEAAAEBA"),
+                json!("[1,2,3]"),
+                json!("AACAPwAAAEAAAEBA"),
+            ],
+            vec![json!("d2"), Value::Null, json!("[3,2,1]"), json!("plain")],
+        ];
+        let candidates = vector_candidates(&rows, cols.len());
+        assert_eq!(candidates, [(1, Candidate::Base64), (2, Candidate::Arrays)]);
+        let meta = VectorMeta::dense(Some(3), VectorElement::F32);
+        let fields: HashMap<String, vector::ResultField> = [
+            ("e".to_string(), (meta.clone(), true)),
+            ("a".to_string(), (meta.clone(), false)),
+            ("s".to_string(), (meta.clone(), true)),
+        ]
+        .into();
+        let columns = mark_vectors(&cols, &mut rows, &candidates, &fields);
+        assert_eq!(columns[1].type_name, "vector(3, base64)");
+        assert_eq!(columns[1].vector, Some(meta.clone()));
+        assert_eq!(rows[0][1], json!("[1,2,3]"));
+        assert_eq!(columns[2].type_name, "vector(3)");
+        // A text field (not all base64) isn't marked, whatever the index.
+        assert_eq!(columns[3].vector, None);
+        assert_eq!(rows[0][3], json!("AACAPwAAAEAAAEBA"));
+        // A base64 field whose values are arrays isn't marked as base64.
+        let mut arr = vec![vec![json!("[1,2,3]")]];
+        let c = vector_candidates(&arr, 1);
+        let only = [("x".to_string(), (meta.clone(), true))].into();
+        assert_eq!(
+            mark_vectors(&["x".into()], &mut arr, &c, &only)[0].vector,
+            None
+        );
+
+        // Typed scripts write the base64 field's vectors as base64, and
+        // the others as arrays.
+        let d = drivers().remove(0);
+        let target = ObjectRef {
+            kind: kinds::COLLECTION.into(),
+            schema: Some("b.s".into()),
+            name: "c".into(),
+        };
+        let s = d
+            .insert_script_typed(
+                &target,
+                &columns[..3],
+                &[vec![json!("d1"), json!([1, 2, 3]), json!([3, 2, 1])]],
+            )
+            .unwrap();
+        assert!(
+            s.contains("\"e\":\"AACAPwAAAEAAAEBA\"") && s.contains("\"a\":[3,2,1]"),
+            "{s}"
+        );
+        // Untyped: arrays.
+        let s = d
+            .insert_script(
+                &target,
+                &cols[..3],
+                &[vec![json!("d1"), json!([1, 2, 3]), json!([3, 2, 1])]],
+            )
+            .unwrap();
+        assert!(s.contains("\"e\":[1,2,3]"), "{s}");
+        let ch = dbine_driver::RowChange {
+            key: vec![("_id".into(), json!("d1"))],
+            set: vec![
+                ("e".into(), json!([1, 2, 3])),
+                ("a".into(), json!([1, 1, 1])),
+            ],
+            row: Vec::new(),
+        };
+        let s = d
+            .update_script_typed(&target, std::slice::from_ref(&ch), &columns[..3])
+            .unwrap();
+        assert!(
+            s.contains("`e` = \"AACAPwAAAEAAAEBA\"") && s.contains("`a` = [1,1,1]"),
+            "{s}"
+        );
+        // A describe's types (`vector(3, base64)`) do the same.
+        let s = d
+            .update_script_typed(
+                &target,
+                &[ch],
+                &[ResultColumn::new("e", "vector(3, base64)")],
+            )
+            .unwrap();
+        assert!(s.contains("`e` = \"AACAPwAAAEAAAEBA\""), "{s}");
+    }
+
+    #[test]
     fn search_queries_go_without_request_plus() {
         assert!(uses_search(
             "SELECT META(d).id FROM ks AS d WHERE SEARCH(d, {\"knn\": []})"
@@ -2508,6 +2765,20 @@ mod tests {
             Some(("app".into(), "s".into()))
         );
         assert_eq!(created_scope("CREATE SCOPE s", None), None);
+        assert_eq!(
+            created_function("CREATE OR REPLACE FUNCTION `tpl_fn`(precio, iva) { precio }"),
+            Some("tpl_fn".into())
+        );
+        assert_eq!(
+            created_function("create function default:`b`.`s`.`f(x)`(a) { a }"),
+            Some("f(x)".into())
+        );
+        assert_eq!(
+            created_function("CREATE FUNCTION b.s.g (a) LANGUAGE JAVASCRIPT AS \"g\" AT \"lib\""),
+            Some("g".into())
+        );
+        assert_eq!(created_function("CREATE INDEX ix ON k(a)"), None);
+        assert_eq!(created_function("EXECUTE FUNCTION f(1)"), None);
         assert_eq!(created_scope("CREATE COLLECTION b.s.c", None), None);
     }
 
@@ -2635,6 +2906,20 @@ mod tests {
             &[json!({"code": 17004, "msg": "transaction (x) is not present"})],
             None
         )));
+        // A new keyspace is waited out only while it isn't found.
+        let found = |code: i64, msg: &str| {
+            not_found_yet(&query_error(&[json!({"code": code, "msg": msg})], None))
+        };
+        assert!(found(
+            12003,
+            "Keyspace not found in CB datastore: default:b.s.c"
+        ));
+        assert!(found(12021, "Scope not found in CB datastore default:b.s"));
+        assert!(!found(
+            13014,
+            "User does not have credentials to run SELECT queries"
+        ));
+        assert!(!found(3000, "syntax error"));
         assert_eq!(tx_effect("begin work"), TxEffect::Begin);
         assert_eq!(
             tx_effect("START TRANSACTION ISOLATION LEVEL READ COMMITTED"),
