@@ -722,7 +722,8 @@ fn create_plan(
     let opts = dbine_schema::Options {
         target_schema: t.schema.clone(),
         ..Default::default()
-    };
+    }
+    .for_target(driver);
     let conv = dbine_schema::convert(&[table], "duckdb", driver.info().id, &opts)
         .map_err(|e| CommandError::BadRequest(e.to_string()))?;
     let made = conv

@@ -697,3 +697,43 @@ fn unreadable_definitions_are_issues_not_empty_ddl() {
     assert!(unreadable.iter().any(|i| i.message.contains("CK_y")));
     assert!(unreadable.iter().any(|i| i.message.contains("CK_x")));
 }
+
+/// The IDE converts with the target driver's caps (`Options::for_target`):
+/// what an engine of the family lacks is left out and said, by its
+/// designer.
+#[test]
+fn conversions_take_the_target_driver_s_caps() {
+    use dbine_schema::dialect::target_caps;
+    let driver = |id: &str| &**dbine_drivers::find(id).unwrap();
+    let opts = |id: &str| Options::default().for_target(driver(id));
+    // CrateDB speaks PostgreSQL without foreign keys, secondary indexes or
+    // comments.
+    let r = convert(&pg_pedidos(), "postgres", "cratedb", &opts("cratedb")).unwrap();
+    assert!(r.tables[1].foreign_keys.is_empty());
+    assert!(r.tables[1].indexes.is_empty());
+    for code in [IssueCode::ForeignKeyDropped, IssueCode::IndexDropped] {
+        assert!(
+            r.issues.iter().any(|i| i.code == code),
+            "{code:?}: {:?}",
+            r.issues
+        );
+    }
+    // Without the driver, the family's caps: PostgreSQL's.
+    let r = convert(&pg_pedidos(), "postgres", "cratedb", &Options::default()).unwrap();
+    assert_eq!(r.tables[1].foreign_keys.len(), 1);
+    // Neo4j's and Memgraph's designer creates one index on a label: it
+    // doesn't take away a label's indexes. GreptimeDB's lists no ordinary
+    // indexes but has vector ones.
+    for id in ["neo4j", "memgraph", "greptimedb"] {
+        let caps = target_caps(driver(id)).unwrap();
+        assert!(caps.indexes && caps.vector_indexes, "{id}");
+    }
+    assert!(target_caps(driver("neo4j")).unwrap().foreign_keys);
+    // A family's engine without vector indexes.
+    for id in ["sqlite", "h2", "yellowbrick", "babelfish", "mysql"] {
+        assert!(!target_caps(driver(id)).unwrap().vector_indexes, "{id}");
+    }
+    for id in ["libsql", "postgres", "mariadb", "sqlserver"] {
+        assert!(target_caps(driver(id)).unwrap().vector_indexes, "{id}");
+    }
+}

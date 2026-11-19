@@ -226,10 +226,13 @@ pub async fn schema_compare_convert(args: ConvertArgs) -> CommandResult<Converte
             warnings: Vec::new(),
         });
     }
-    let opts = dbine_schema::Options {
+    let mut opts = dbine_schema::Options {
         target_schema: args.target_schema,
         ..Default::default()
     };
+    if let Some(d) = dbine_drivers::find(&args.to_driver) {
+        opts = opts.for_target(&**d);
+    }
     let c = dbine_schema::convert(&args.tables, &args.from_driver, &args.to_driver, &opts)
         .map_err(|e| CommandError::BadRequest(format!("{e:?}")))?;
     let warnings = c

@@ -135,16 +135,37 @@ pub const ALL_ACTIONS: &[&str] = &[
 
 impl Caps {
     /// Switch off what the driver's designer says the engine lacks.
+    ///
+    /// A designer of one index (Neo4j's and Memgraph's "Nuevo índice" on a
+    /// label: kind `index`, no index list) says nothing about what a label
+    /// holds: only its vector indexes narrow. A designer with vector
+    /// indexes has indexes, even when it lists no ordinary ones (GreptimeDB
+    /// sets those per column).
     pub fn narrow(mut self, spec: &dbine_driver::DesignerSpec) -> Self {
+        self.vector_indexes &= spec.vector_indexes.is_some();
+        if spec.kind == dbine_driver::kinds::INDEX && !spec.indexes {
+            return self;
+        }
         self.foreign_keys &= spec.foreign_keys;
-        self.indexes &= spec.indexes;
+        self.indexes &= spec.indexes || spec.vector_indexes.is_some();
         self.auto_increment &= spec.auto_increment;
         self.defaults &= spec.defaults;
         self.nullability &= spec.nullability;
         self.comments &= spec.comments;
-        self.vector_indexes &= spec.vector_indexes.is_some();
         self
     }
+}
+
+/// What the engine behind `driver` holds as a conversion target: its
+/// family's caps ([`for_driver`]) narrowed by the driver's designer
+/// ([`Caps::narrow`]). `None` when no dialect serves it. Every conversion
+/// the IDE runs passes these ([`crate::Options::for_target`]).
+pub fn target_caps(driver: &dyn dbine_driver::Driver) -> Option<Caps> {
+    let caps = for_driver(driver.info().id)?.caps();
+    Some(match driver.designer() {
+        Some(spec) => caps.narrow(&spec),
+        None => caps,
+    })
 }
 
 pub trait Dialect: Send + Sync {

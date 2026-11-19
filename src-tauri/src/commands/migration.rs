@@ -430,7 +430,8 @@ async fn prepare(state: &AppState, args: &PlanArgs) -> CommandResult<Prepared> {
         rename_schemas: default_schema_rename(source.info().dialect, target.info().dialect),
         target_schema: single_schema,
         ..Options::default()
-    };
+    }
+    .for_target(&**target);
     let conv = dbine_schema::convert(&chosen, source.info().id, &args.target_driver, &opts)
         .map_err(|e| CommandError::BadRequest(e.to_string()))?;
     let o = &args.options;

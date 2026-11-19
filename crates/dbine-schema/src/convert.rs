@@ -46,6 +46,18 @@ impl Default for Options {
     }
 }
 
+impl Options {
+    /// These options for a conversion into `driver`'s engine: its caps
+    /// narrowed by what the driver says the engine has
+    /// ([`dialect::target_caps`]), so the report says what an engine of
+    /// the family lacks (Redshift's indexes, SQLite's vector indexes)
+    /// instead of its DDL failing or leaving it out.
+    pub fn for_target(mut self, driver: &dyn dbine_driver::Driver) -> Self {
+        self.target_caps = dialect::target_caps(driver);
+        self
+    }
+}
+
 /// One column's journey, for the review table.
 #[derive(Debug, Clone, Serialize)]
 pub struct ColumnMapping {

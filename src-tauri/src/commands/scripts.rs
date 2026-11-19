@@ -460,7 +460,8 @@ pub(crate) async fn generate(
                     w.info().dialect,
                 ),
                 ..dbine_schema::Options::default()
-            };
+            }
+            .for_target(&**w);
             let conv = dbine_schema::convert(&sel, src_id, t, &opts)
                 .map_err(|e| CommandError::BadRequest(e.to_string()))?;
             for i in &conv.issues {

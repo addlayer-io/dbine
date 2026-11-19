@@ -470,7 +470,8 @@ async fn prepare(
     let opts = dbine_schema::Options {
         rename_schemas: default_schema_rename(src_info.dialect, tgt_info.dialect),
         ..Default::default()
-    };
+    }
+    .for_target(&**tgt_driver);
     let conv = dbine_schema::convert(&in_order, src_info.id, tgt_info.id, &opts);
     let existing = tgt.list_objects().await.unwrap_or_default();
     let dflt = default_schema(tgt_info.dialect);
