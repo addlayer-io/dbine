@@ -1125,11 +1125,12 @@ pub(crate) fn export_list(
     labels: &ExportLabels,
     sink: &mut dyn dbine_driver::RowSink,
 ) -> std::io::Result<()> {
-    use dbine_driver::ResultColumn;
-    let column = |name: String, type_name: Option<&String>| ResultColumn {
+    use dbine_driver::{ResultColumn, VectorMeta};
+    // A vector column says so: JSON writes its values as arrays.
+    let column = |name: String, type_name: Option<&String>, vector: Option<&bool>| ResultColumn {
         name,
         type_name: type_name.cloned().unwrap_or_default(),
-        vector: None,
+        vector: vector.copied().unwrap_or(false).then(VectorMeta::default),
     };
     let (rows, _) = passing(d, args);
     if args.kind != RowKind::Changed {
@@ -1137,7 +1138,12 @@ pub(crate) fn export_list(
             .columns
             .iter()
             .enumerate()
-            .map(|(i, (l, _))| column(l.clone(), d.left_types.get(i)))
+            .map(|(i, (l, _))| {
+                // The rows are either side's.
+                let vector = d.left_vectors.get(i).copied().unwrap_or(false)
+                    || d.right_vectors.get(i).copied().unwrap_or(false);
+                column(l.clone(), d.left_types.get(i), Some(&vector))
+            })
             .collect();
         sink.begin(0, &columns)?;
         for (_, left, _, _) in rows {
@@ -1147,19 +1153,21 @@ pub(crate) fn export_list(
     }
     let nk = d.key.len().min(d.columns.len());
     let mut columns: Vec<ResultColumn> = (0..nk)
-        .map(|i| column(d.columns[i].0.clone(), d.left_types.get(i)))
+        .map(|i| column(d.columns[i].0.clone(), d.left_types.get(i), None))
         .collect();
     for (i, (l, r)) in d.columns.iter().enumerate().skip(nk) {
         columns.push(column(
             format!("{l} ({})", labels.left),
             d.left_types.get(i),
+            d.left_vectors.get(i),
         ));
         columns.push(column(
             format!("{r} ({})", labels.right),
             d.right_types.get(i),
+            d.right_vectors.get(i),
         ));
     }
-    columns.push(column(labels.differs.clone(), None));
+    columns.push(column(labels.differs.clone(), None, None));
     sink.begin(0, &columns)?;
     let cell = |r: &[Value], i: usize| r.get(i).cloned().unwrap_or(Value::Null);
     let mut out = Vec::with_capacity(columns.len());
