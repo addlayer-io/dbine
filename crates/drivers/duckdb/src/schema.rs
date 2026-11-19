@@ -475,6 +475,19 @@ pub fn sync_script(
                 Plan::Rebuild => rebuilt.push(ch.clone()),
                 Plan::Alter { rebuild_indexes } => {
                     let mut old = old.clone();
+                    // The contract's planner compares indexes without their
+                    // vector settings: one whose HNSW settings change is made
+                    // again.
+                    for o in &mut old.indexes {
+                        if new
+                            .indexes
+                            .iter()
+                            .find(|n| n.name.eq_ignore_ascii_case(&o.name))
+                            .is_some_and(|n| n.vector != o.vector)
+                        {
+                            o.filter = Some(FORCE.into());
+                        }
+                    }
                     if rebuild_indexes {
                         // A filter that can't match: the planner drops each index and makes it again.
                         for ix in &mut old.indexes {
@@ -1003,6 +1016,21 @@ mod tests {
              CREATE INDEX \"t_hnsw\" ON \"main\".\"t\" USING HNSW (\"v\") WITH (metric = 'cosine', ef_construction = 64, ef_search = 32, M = 8, M0 = 16);\n\
              CREATE INDEX \"t_l2\" ON \"main\".\"t\" USING HNSW (\"v\");\n\
              CREATE INDEX \"t_rt\" ON \"main\".\"t\" USING RTREE (\"g\") WITH (max_node_capacity = 64);"
+        );
+        // A sync that changes only the metric drops and makes the index.
+        let mut changed = t.clone();
+        changed.indexes[1].vector.as_mut().unwrap().metric = Some("ip".into());
+        let s = sync_script(&[dbine_driver::TableChange::Alter {
+            old: t.clone(),
+            new: changed,
+        }])
+        .unwrap()
+        .statements
+        .join("\n");
+        assert!(
+            s.contains("DROP INDEX \"main\".\"t_l2\"")
+                && s.contains("\"t_l2\" ON \"main\".\"t\" USING HNSW (\"v\") WITH (metric = 'ip')"),
+            "{s}"
         );
         // The designer's index (a vector, no kind) and the l2 metric.
         let one = TableSchema {

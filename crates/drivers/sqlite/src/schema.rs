@@ -352,6 +352,24 @@ fn same_checks(a: &[CheckDef], b: &[CheckDef]) -> bool {
     key(a) == key(b)
 }
 
+/// `old` with each index whose vector settings `new` changes marked as
+/// changed (a filter no index has): the contract's planner compares
+/// indexes without them, and the index has to be made again.
+pub fn mark_vector_changes(old: &TableSchema, new: &TableSchema) -> TableSchema {
+    let mut old = old.clone();
+    for o in &mut old.indexes {
+        let changed = new
+            .indexes
+            .iter()
+            .find(|n| n.name.eq_ignore_ascii_case(&o.name))
+            .is_some_and(|n| n.vector != o.vector);
+        if changed {
+            o.filter = Some("\u{0}vector".into());
+        }
+    }
+    old
+}
+
 /// Columns are added in place; any other change rebuilds the table (new
 /// table, copy, drop, rename). SQLite can't add or drop a CHECK with ALTER
 /// TABLE, so a table whose CHECKs change is rebuilt too.
@@ -376,6 +394,10 @@ pub fn sync_script(
                     new: new.clone(),
                 }
             }
+            TableChange::Alter { old, new } => TableChange::Alter {
+                old: mark_vector_changes(old, new),
+                new: new.clone(),
+            },
             other => other.clone(),
         })
         .collect();
@@ -1029,6 +1051,25 @@ mod tests {
         let mut want = t.indexes[0].vector.clone().unwrap();
         want.params.remove("search_l");
         assert_eq!(back, want);
+        // A sync that changes only the metric makes the index again.
+        let mut changed = t.clone();
+        changed.indexes[0].vector.as_mut().unwrap().metric = Some("cosine".into());
+        let s = sync_script(&[dbine_driver::TableChange::Alter {
+            old: t.clone(),
+            new: changed.clone(),
+        }])
+        .unwrap();
+        let all = s.statements.join("\n");
+        assert!(
+            all.contains("DROP INDEX \"docs_emb\"") && all.contains("'metric=cosine'"),
+            "{all}"
+        );
+        let same = sync_script(&[dbine_driver::TableChange::Alter {
+            old: changed.clone(),
+            new: changed,
+        }])
+        .unwrap();
+        assert!(same.statements.is_empty(), "{:?}", same.statements);
         // SQLite's designer has no vectors; libSQL's has its types and index.
         assert!(designer().vector_indexes.is_none());
         let d = libsql_designer();
