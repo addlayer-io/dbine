@@ -355,10 +355,16 @@ impl Dialect for Oracle {
     /// `CREATE VECTOR INDEX … ORGANIZATION INMEMORY NEIGHBOR GRAPH` (HNSW)
     /// or `NEIGHBOR PARTITIONS` (IVF); another family's graph index
     /// (DiskANN, HNSW variants) becomes HNSW, its list index IVF.
+    ///
+    /// The column's format (as [`render_vector`] writes it) decides the
+    /// distances Oracle takes (verified on 23.26): a BINARY vector only
+    /// HAMMING and JACCARD (a distance not given becomes HAMMING: COSINE,
+    /// the default, is refused there), JACCARD only a BINARY one, HAMMING
+    /// only BINARY or INT8.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
         let algorithm = match v
@@ -385,6 +391,29 @@ impl Dialect for Oracle {
             Some("dot" | "inner_product") => Some(metric::IP.into()),
             Some("manhattan") => Some(metric::L1.into()),
             Some(other) => return Err(format!("Oracle no tiene la distancia «{other}»")),
+        };
+        let format = column
+            .filter(|c| matches!(c, L::Vector { .. }))
+            .map(|c| render_vector(c).native);
+        let binary = format.as_deref().is_some_and(|f| f.contains("BINARY"));
+        let int8 = format.as_deref().is_some_and(|f| f.contains("INT8"));
+        let metric = match metric.as_deref() {
+            None if binary => Some(metric::HAMMING.to_string()),
+            Some(metric::HAMMING | metric::JACCARD) if binary => metric,
+            Some(m) if binary => {
+                return Err(format!(
+                    "Oracle compara vectores BINARY solo con las distancias HAMMING y JACCARD, no «{m}»"
+                ))
+            }
+            Some(metric::JACCARD) if format.is_some() => {
+                return Err("Oracle usa la distancia JACCARD solo con vectores BINARY".into())
+            }
+            Some(metric::HAMMING) if format.is_some() && !int8 => {
+                return Err(
+                    "Oracle usa la distancia HAMMING solo con vectores BINARY o INT8".into(),
+                )
+            }
+            _ => metric,
         };
         let keep: &[&str] = if algorithm == "hnsw" {
             &[param::M, param::EF_CONSTRUCTION, "target_accuracy"]
@@ -760,5 +789,116 @@ mod tests {
             ..Default::default()
         };
         assert!(Oracle.vector_index(&odd, None).is_err());
+    }
+
+    /// Moved here from another family: pgvector's sparsevec keeps its
+    /// index (Oracle indexes SPARSE vectors), a searched float array with a
+    /// stated dimension becomes a VECTOR, and a distance the column's
+    /// format can't take leaves the index out with why.
+    #[test]
+    fn vector_indexes_moved_into_oracle() {
+        use super::super::clickhouse::tests::vector_table;
+        use crate::convert::{convert, Options};
+        use crate::issue::IssueCode;
+        let one = |t, from: &str| {
+            let r = convert(&[t], from, "oracle", &Options::default()).unwrap();
+            (r.tables[0].clone(), r.issues)
+        };
+        let (t, _) = one(vector_table("sparsevec(5)", None, &[]), "postgres");
+        assert_eq!(t.columns[1].data_type, "VECTOR(5, FLOAT32, SPARSE)");
+        assert_eq!(t.indexes.len(), 1);
+        let (t, _) = one(
+            vector_table(
+                "Array(Float64)",
+                Some("vector_similarity"),
+                &[("dimensions", "3")],
+            ),
+            "clickhouse",
+        );
+        assert_eq!(t.columns[1].data_type, "VECTOR(3, FLOAT64)");
+        assert_eq!(
+            t.indexes[0].vector.as_ref().unwrap().metric.as_deref(),
+            Some("cosine")
+        );
+        // An Int8 array searched with cosine is INT8 here and keeps it; a
+        // float one searched with hamming (which Oracle refuses there) is
+        // left out.
+        let (t, _) = one(
+            vector_table(
+                "Array(Int8)",
+                Some("vector_similarity"),
+                &[("dimensions", "3")],
+            ),
+            "clickhouse",
+        );
+        assert_eq!(t.columns[1].data_type, "VECTOR(3, INT8)");
+        assert_eq!(t.indexes.len(), 1);
+        let mut hamming = vector_table(
+            "Array(Float32)",
+            Some("vector_similarity"),
+            &[("dimensions", "3")],
+        );
+        hamming.indexes[0].vector.as_mut().unwrap().metric = Some("hamming".into());
+        let (t, issues) = one(hamming, "clickhouse");
+        assert_eq!(t.columns[1].data_type, "VECTOR(3, FLOAT32)");
+        assert!(t.indexes.is_empty());
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.code == IssueCode::IndexDropped && i.message.contains("HAMMING")),
+            "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn vector_index_distances_follow_the_columns_format() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        let v = |dims, element, sparse| L::Vector {
+            dims,
+            element,
+            sparse,
+        };
+        let ix = |metric: Option<&str>| VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: metric.map(str::to_string),
+            ..Default::default()
+        };
+        let metric_on =
+            |m: Option<&str>, c: &L| Oracle.vector_index(&ix(m), Some(c)).map(|(_, v)| v.metric);
+        let bits = v(Some(16), E::Bit, false);
+        // pgvector's bit(16) with bit_hamming_ops / bit_jaccard_ops.
+        assert_eq!(
+            metric_on(Some("hamming"), &bits),
+            Ok(Some("hamming".into()))
+        );
+        assert_eq!(
+            metric_on(Some("jaccard"), &bits),
+            Ok(Some("jaccard".into()))
+        );
+        // No distance: HAMMING, not Oracle's default COSINE.
+        assert_eq!(metric_on(None, &bits), Ok(Some("hamming".into())));
+        assert!(metric_on(Some("cosine"), &bits)
+            .unwrap_err()
+            .contains("BINARY"));
+        // JACCARD needs BINARY; HAMMING BINARY or INT8 (a bit vector whose
+        // dimension isn't a multiple of 8 goes as INT8).
+        let floats = v(Some(3), E::F32, false);
+        assert!(metric_on(Some("jaccard"), &floats).is_err());
+        assert!(metric_on(Some("hamming"), &floats).is_err());
+        assert!(metric_on(Some("hamming"), &v(Some(3), E::F32, true)).is_err());
+        assert_eq!(
+            metric_on(Some("hamming"), &v(Some(4), E::I8, false)),
+            Ok(Some("hamming".into()))
+        );
+        assert_eq!(
+            metric_on(Some("hamming"), &v(Some(12), E::Bit, false)),
+            Ok(Some("hamming".into()))
+        );
+        // Sparse vectors take an index (IVF verified on 23.26).
+        assert_eq!(
+            metric_on(Some("l2"), &v(Some(5), E::F32, true)),
+            Ok(Some("l2".into()))
+        );
+        assert_eq!(metric_on(None, &floats), Ok(None));
     }
 }

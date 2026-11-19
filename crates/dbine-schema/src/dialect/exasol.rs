@@ -217,7 +217,7 @@ impl Dialect for Exasol {
             comments: true,
             max_identifier: 128,
             case: IdentCase::Upper,
-            vector_indexes: true,
+            vector_indexes: false,
         }
     }
 

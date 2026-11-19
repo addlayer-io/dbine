@@ -489,7 +489,7 @@ impl Dialect for Db2 {
                 128
             },
             case: IdentCase::Upper,
-            vector_indexes: true,
+            vector_indexes: false,
         }
     }
 }

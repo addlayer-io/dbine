@@ -281,13 +281,23 @@ impl Dialect for Hana {
     }
 
     /// `CREATE HNSW VECTOR INDEX … SIMILARITY FUNCTION COSINE_SIMILARITY |
-    /// L2DISTANCE`: another family's graph or list index becomes HNSW.
+    /// L2DISTANCE`: another family's graph or list index becomes HNSW. Its
+    /// column must be a `REAL_VECTOR` here: a sparse vector, which goes as
+    /// JSON text, can't be indexed.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric, param};
+        if let Some(c @ L::Vector { .. }) = column {
+            if !render_vector(self, c).native.starts_with("REAL_VECTOR") {
+                return Err(
+                    "su columna no es un REAL_VECTOR en HANA (HANA no tiene vectores dispersos)"
+                        .into(),
+                );
+            }
+        }
         let metric = match v.metric.as_deref().map(str::to_ascii_lowercase).as_deref() {
             None => None,
             Some(metric::COSINE) => Some(metric::COSINE),
@@ -788,5 +798,14 @@ mod tests {
             ..Default::default()
         };
         assert!(Hana.vector_index(&ip, None).is_err());
+        // pgvector's sparsevec isn't a REAL_VECTOR here: no index on it.
+        let col = |sparse| L::Vector {
+            dims: Some(5),
+            element: E::F32,
+            sparse,
+        };
+        assert!(Hana.vector_index(&hnsw, Some(&col(false))).is_ok());
+        let e = Hana.vector_index(&hnsw, Some(&col(true))).unwrap_err();
+        assert!(e.contains("REAL_VECTOR"), "{e}");
     }
 }
