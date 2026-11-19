@@ -538,3 +538,90 @@ async fn cross(pg: &mut dyn Session, ss: &mut dyn Session, ora: &mut dyn Session
     let back = id_and_vector(rows(pg, "SELECT id, emb::text FROM xfam_back ORDER BY id").await);
     assert_eq!(back, want, "back in pgvector");
 }
+
+// ------------------------------------------- sparse and bit vectors, pgvector
+
+/// pgvector's `sparsevec` and `bit` columns into Oracle's SPARSE and BINARY
+/// vectors: Oracle's loads take pgvector's sparse text and bit strings, its
+/// reads give its sparse text and one 0 / 1 per dimension, which pgvector's
+/// `bit` load takes back. (Its `sparsevec` load doesn't read Oracle's
+/// sparse text yet, so the sparse column doesn't make the way back.)
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "needs pgvector and Oracle 23ai: see the top of the file"]
+async fn pgvector_sparse_and_bit_vectors_to_oracle_and_back() {
+    let (Some(pgc), Some(orac)) = (pgvector(), oracle()) else {
+        eprintln!("DBINE_TEST_PGVECTOR_URL or DBINE_TEST_ORACLE_URL not set; skipping");
+        return;
+    };
+    let mut pg = driver("postgres").connect(&pgc, None).await.expect("pg");
+    let mut ora = driver("oracle").connect(&orac, None).await.expect("oracle");
+    sparse_and_bits_drop(&mut *pg, &mut *ora).await;
+    let res = tokio::spawn(async move {
+        let mut pg = driver("postgres").connect(&pgc, None).await.expect("pg");
+        let mut ora = driver("oracle").connect(&orac, None).await.expect("oracle");
+        sparse_and_bits(&mut *pg, &mut *ora).await;
+    })
+    .await;
+    sparse_and_bits_drop(&mut *pg, &mut *ora).await;
+    if let Err(e) = res {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}
+
+async fn sparse_and_bits_drop(pg: &mut dyn Session, ora: &mut dyn Session) {
+    let _ = try_run(pg, "DROP TABLE IF EXISTS xfam_sb, xfam_sb_back").await;
+    let _ = try_run(ora, "DROP TABLE XFAM_SB PURGE").await;
+}
+
+async fn sparse_and_bits(pg: &mut dyn Session, ora: &mut dyn Session) {
+    run(pg, "CREATE EXTENSION IF NOT EXISTS vector").await;
+    run(
+        pg,
+        "CREATE TABLE xfam_sb (id int PRIMARY KEY, sp sparsevec(5), b bit(16)); \
+         CREATE TABLE xfam_sb_back (id int PRIMARY KEY, sp sparsevec(5), b bit(16))",
+    )
+    .await;
+    run(
+        pg,
+        "INSERT INTO xfam_sb VALUES (1, '{1:1.5,4:-2}/5', B'1100100100001111'), (2, '{}/5', B'0000000000000001'), (3, NULL, NULL)",
+    )
+    .await;
+    run(
+        ora,
+        "CREATE TABLE XFAM_SB (ID NUMBER(10) PRIMARY KEY, SP VECTOR(5, FLOAT32, SPARSE), B VECTOR(16, BINARY))",
+    )
+    .await;
+
+    // pgvector → Oracle
+    let n = move_rows(
+        pg,
+        table(Some("public"), "xfam_sb"),
+        ora,
+        table(None, "XFAM_SB"),
+        &["ID", "SP", "B"],
+    )
+    .await;
+    assert_eq!(n, 3);
+    let got = rows(ora, "SELECT ID, SP, B FROM XFAM_SB ORDER BY ID").await;
+    assert_eq!(got[0][1], Value::from("[5,[0,3],[1.5,-2]]"));
+    assert_eq!(got[0][2], Value::from("[1,1,0,0,1,0,0,1,0,0,0,0,1,1,1,1]"));
+    assert_eq!(got[1][1], Value::from("[5,[],[]]"));
+    assert_eq!(got[2][1], Value::Null);
+    let packed = rows(ora, "SELECT FROM_VECTOR(B) FROM XFAM_SB WHERE ID = 1").await;
+    assert_eq!(packed[0][0], Value::from("[201,15]"));
+
+    // Oracle → pgvector: the BINARY vectors.
+    run(ora, "ALTER TABLE XFAM_SB DROP COLUMN SP").await;
+    let n = move_rows(
+        ora,
+        table(None, "XFAM_SB"),
+        pg,
+        table(Some("public"), "xfam_sb_back"),
+        &["id", "b"],
+    )
+    .await;
+    assert_eq!(n, 3);
+    let back = rows(pg, "SELECT id, b::text FROM xfam_sb_back ORDER BY id").await;
+    let src = rows(pg, "SELECT id, b::text FROM xfam_sb ORDER BY id").await;
+    assert_eq!(back, src, "back in pgvector");
+}
