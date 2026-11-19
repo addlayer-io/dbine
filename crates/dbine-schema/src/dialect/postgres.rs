@@ -138,13 +138,27 @@ impl Dialect for Postgres {
 
     /// pgvector's index for another family's: HNSW, or IVFFlat for an IVF
     /// one (with its `lists`), with the standard distances; the build
-    /// parameters pgvector has no use for are left out.
+    /// parameters pgvector has no use for are left out. `column` (the
+    /// vector it searches) says the pgvector type it becomes
+    /// ([`render_vector`]), whose operator classes decide: binary vectors
+    /// (`bit(n)`) take Hamming and Jaccard (L2 and L1 between zeros and
+    /// ones are Hamming), the others not; IVFFlat doesn't index
+    /// `sparsevec`; and HNSW and IVFFlat index up to 2000 dimensions of
+    /// `vector` and 4000 of `halfvec`.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
+        column: Option<&crate::logical::LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
         use dbine_driver::vector::{metric as m, param};
+        let target = column.and_then(|c| match c {
+            L::Vector {
+                dims,
+                element,
+                sparse,
+            } => Some((pgvector_type(*element, *sparse), *dims)),
+            _ => None,
+        });
         let metric = match v.metric.as_deref().map(|x| x.trim().to_ascii_lowercase()) {
             None => None,
             Some(x) => Some(match x.as_str() {
@@ -169,11 +183,47 @@ impl Dialect for Postgres {
                 other => return Err(format!("pgvector no tiene la distancia «{other}»")),
             }),
         };
+        let metric = match (target, metric) {
+            // Between zeros and ones, squared L2 and L1 count the bits that
+            // differ: Hamming, the same nearest.
+            (Some(("bit", _)), Some(x)) if x == m::L2 || x == m::L1 => Some(m::HAMMING.into()),
+            (Some(("bit", _)), Some(x)) if x != m::HAMMING && x != m::JACCARD => {
+                return Err(format!(
+                    "pgvector no tiene la distancia «{x}» para vectores binarios (bit): tiene hamming y jaccard"
+                ))
+            }
+            (Some((ty, _)), Some(x)) if ty != "bit" && (x == m::HAMMING || x == m::JACCARD) => {
+                return Err(format!(
+                    "pgvector tiene la distancia «{x}» solo para vectores binarios (bit), no para {ty}"
+                ))
+            }
+            (_, metric) => metric,
+        };
         let asked = v.algorithm.as_deref().unwrap_or("").to_ascii_lowercase();
-        // IVFFlat has no L1 or Jaccard.
+        // IVFFlat has no L1 or Jaccard, and doesn't index sparsevec.
         let ivf = asked.starts_with("ivf")
-            && !matches!(metric.as_deref(), Some(m::L1) | Some(m::JACCARD));
+            && !matches!(metric.as_deref(), Some(m::L1) | Some(m::JACCARD))
+            && !matches!(target, Some(("sparsevec", _)));
         let algorithm = if ivf { "ivfflat" } else { "hnsw" };
+        let limit = match target {
+            Some(("vector", _)) => Some(MAX_INDEX_DIMS),
+            Some(("halfvec", _)) => Some(2 * MAX_INDEX_DIMS),
+            Some(("bit", _)) => Some(64_000),
+            _ => None,
+        };
+        if let (Some(max), Some((ty, Some(n)))) = (limit, target) {
+            if n > max {
+                return Err(format!(
+                    "pgvector indexa con {} hasta {max} dimensiones de {ty} y la columna tiene {n}{}",
+                    if ivf { "IVFFlat" } else { "HNSW" },
+                    if ty == "vector" && n <= 2 * MAX_INDEX_DIMS {
+                        " (un índice sobre la columna convertida a halfvec llega a 4000)"
+                    } else {
+                        ""
+                    }
+                ));
+            }
+        }
         let keep: &[&str] = if ivf {
             &[param::LISTS]
         } else {
@@ -365,6 +415,23 @@ fn vector_kind(name: &str) -> Option<(dbine_driver::VectorElement, bool)> {
 
 /// Largest dimension of pgvector's `vector` and `halfvec` columns.
 const MAX_VECTOR_DIMS: u32 = 16_000;
+
+/// Largest dimension of a `vector` column that pgvector's HNSW and IVFFlat
+/// index (`halfvec`: twice as many).
+const MAX_INDEX_DIMS: u32 = 2_000;
+
+/// The pgvector type a vector becomes ([`render_vector`]): `sparsevec`,
+/// `bit` for binary vectors, `halfvec` for half and brain floats, else
+/// `vector`.
+fn pgvector_type(element: dbine_driver::VectorElement, sparse: bool) -> &'static str {
+    use dbine_driver::VectorElement as E;
+    match (element, sparse) {
+        (_, true) => "sparsevec",
+        (E::Bit, false) => "bit",
+        (E::F16 | E::Bf16, false) => "halfvec",
+        _ => "vector",
+    }
+}
 
 /// A vector in pgvector's types: `vector(n)` for 32-bit floats, `halfvec(n)`
 /// for half floats, `sparsevec(n)` for sparse ones, `bit(n)` for binary
@@ -806,6 +873,131 @@ mod tests {
             let (_, v) = Postgres.vector_index(&vi("hnsw", from, &[]), None).unwrap();
             assert_eq!(v.metric.as_deref(), Some(to), "{from}");
         }
+    }
+
+    /// The column the index searches decides the pgvector type and so the
+    /// operator classes: binary vectors (`bit(n)`) take Hamming and
+    /// Jaccard, sparse ones no IVFFlat, and HNSW / IVFFlat index up to 2000
+    /// dimensions of `vector` (4000 of `halfvec`).
+    #[test]
+    fn vector_indexes_follow_their_column() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        let vi = |alg: &str, m: &str| VectorIndex {
+            algorithm: Some(alg.into()),
+            metric: Some(m.into()),
+            params: [("lists".to_string(), "10".to_string())].into(),
+        };
+        let col = |dims: u32, element, sparse| L::Vector {
+            dims: Some(dims),
+            element,
+            sparse,
+        };
+        let bits = col(64, E::Bit, false);
+        // Squared L2 and L1 between zeros and ones are Hamming.
+        for m in ["euclidean", "l2", "manhattan"] {
+            let (_, v) = Postgres.vector_index(&vi("hnsw", m), Some(&bits)).unwrap();
+            assert_eq!(v.metric.as_deref(), Some("hamming"), "{m}");
+        }
+        let (kind, v) = Postgres
+            .vector_index(&vi("ivf", "hamming"), Some(&bits))
+            .unwrap();
+        assert_eq!(
+            (kind.as_deref(), v.metric.as_deref()),
+            (Some("ivfflat"), Some("hamming"))
+        );
+        let (_, v) = Postgres
+            .vector_index(&vi("hnsw", "jaccard"), Some(&bits))
+            .unwrap();
+        assert_eq!(v.metric.as_deref(), Some("jaccard"));
+        let why = Postgres
+            .vector_index(&vi("hnsw", "cosine"), Some(&bits))
+            .unwrap_err();
+        assert!(why.contains("bit") && why.contains("hamming"), "{why}");
+        // Hamming on a float vector: none.
+        for c in [
+            col(3, E::F32, false),
+            col(3, E::F16, false),
+            col(3, E::F32, true),
+        ] {
+            assert!(
+                Postgres
+                    .vector_index(&vi("hnsw", "hamming"), Some(&c))
+                    .is_err(),
+                "{c:?}"
+            );
+        }
+        // IVFFlat doesn't index sparsevec: HNSW.
+        let (kind, v) = Postgres
+            .vector_index(&vi("ivf_flat", "ip"), Some(&col(30_000, E::F32, true)))
+            .unwrap();
+        assert_eq!(kind.as_deref(), Some("hnsw"));
+        assert!(v.params.is_empty());
+        // Dimensions past the index's limit: the reason, with halfvec's.
+        let why = Postgres
+            .vector_index(&vi("hnsw", "cosine"), Some(&col(3072, E::F32, false)))
+            .unwrap_err();
+        assert!(
+            why.contains("2000") && why.contains("3072") && why.contains("halfvec"),
+            "{why}"
+        );
+        assert!(Postgres
+            .vector_index(&vi("hnsw", "cosine"), Some(&col(3072, E::F16, false)))
+            .is_ok());
+        assert!(Postgres
+            .vector_index(&vi("hnsw", "cosine"), Some(&col(3072, E::Bf16, false)))
+            .is_ok());
+        assert!(Postgres
+            .vector_index(&vi("ivf", "l2"), Some(&col(4001, E::F16, false)))
+            .is_err());
+        assert!(Postgres
+            .vector_index(&vi("hnsw", "cosine"), Some(&col(2000, E::F64, false)))
+            .is_ok());
+        // Without the column: as before.
+        assert!(Postgres.vector_index(&vi("hnsw", "hamming"), None).is_ok());
+    }
+
+    /// From another family: a binary vector becomes `bit(n)` with a Hamming
+    /// index, a vector too wide for pgvector's index keeps its column and
+    /// loses its index with the reason.
+    #[test]
+    fn vector_indexes_from_oracle_follow_their_column() {
+        let mut t = vector_table();
+        t.columns[1].data_type = "VECTOR(64, BINARY)".into();
+        t.columns.push(dbine_driver::ColumnDef {
+            name: "w".into(),
+            data_type: "VECTOR(3072, FLOAT32)".into(),
+            nullable: true,
+            ..Default::default()
+        });
+        t.indexes[0].kind = None;
+        t.indexes[0].vector = Some(dbine_driver::VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("euclidean".into()),
+            params: Default::default(),
+        });
+        let mut wide = t.indexes[0].clone();
+        wide.name = "ix_w".into();
+        wide.columns = vec!["w".into()];
+        wide.vector.as_mut().unwrap().metric = Some("cosine".into());
+        t.indexes.push(wide);
+        let c = crate::convert::convert(
+            &[t],
+            "oracle",
+            "postgres",
+            &crate::convert::Options::default(),
+        )
+        .unwrap();
+        let out = &c.tables[0];
+        assert_eq!(out.columns[1].data_type, "bit(64)");
+        assert_eq!(out.columns[2].data_type, "vector(3072)");
+        assert_eq!(out.indexes.len(), 1, "{:?}", out.indexes);
+        assert_eq!(
+            out.indexes[0].vector.as_ref().unwrap().metric.as_deref(),
+            Some("hamming")
+        );
+        assert!(c.issues.iter().any(|i| i.code == IssueCode::IndexDropped
+            && i.message.contains("ix_w")
+            && i.message.contains("2000")));
     }
 
     fn vector_table() -> TableSchema {

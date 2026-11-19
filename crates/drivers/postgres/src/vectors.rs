@@ -625,6 +625,26 @@ fn key_type(key: &str, columns: &[ColumnDef]) -> &'static str {
     }
 }
 
+/// The dimension of an index key: its cast's (`(v::halfvec(3072))`), else
+/// its column's type's (`vector(3072)`); `None` when neither says it.
+fn key_dims(key: &str, columns: &[ColumnDef]) -> Option<u32> {
+    let dims_after = |s: &str, at: usize| -> Option<u32> {
+        let rest = &s[at..];
+        let open = rest.find('(')?;
+        let close = rest[open..].find(')')?;
+        rest[open + 1..open + close].trim().parse().ok()
+    };
+    let k = key.to_ascii_lowercase();
+    if k.starts_with('(') {
+        return ["::halfvec", "::vector", "::bit", "::sparsevec"]
+            .iter()
+            .find_map(|cast| k.find(cast).and_then(|at| dims_after(&k, at)));
+    }
+    let col = columns.iter().find(|c| c.name == key)?;
+    let t = col.data_type.to_ascii_lowercase();
+    dims_after(&t, 0)
+}
+
 /// The operator class for a key of type `prefix` in an `alg` index
 /// (AlloyDB's ScaNN names the distance alone; its IVF takes pgvector's).
 fn opclass(alg: &str, prefix: &str, m: &str) -> String {
@@ -789,6 +809,37 @@ pub(crate) fn refusal(
             ))
         }
         _ => {}
+    }
+    // pgvector's HNSW and IVFFlat index up to 2000 dimensions of `vector`,
+    // 4000 of `halfvec` and 64000 of `bit` (openGauss' DataVec and
+    // KingbaseES have their own builds).
+    let limit = match prefix {
+        "vector" => Some(2_000),
+        "halfvec" => Some(4_000),
+        "bit" => Some(64_000),
+        _ => None,
+    };
+    if let (true, Some(max), Some(n)) = (
+        matches!(alg.as_str(), "hnsw" | "ivfflat")
+            && pgvector(v)
+            && !matches!(
+                v,
+                Variant::OpenGauss | Variant::Kingbase | Variant::Yugabyte
+            ),
+        limit,
+        key_dims(first, &t.columns),
+    ) {
+        if n > max {
+            return Some(format!(
+                "El índice «{}»: {label} indexa hasta {max} dimensiones de {prefix} y la columna tiene {n}{}.",
+                ix.name,
+                if prefix == "vector" && n <= 4_000 {
+                    " (un índice sobre la columna convertida a halfvec llega a 4000)"
+                } else {
+                    ""
+                }
+            ));
+        }
     }
     vi.params
         .iter()
@@ -2086,6 +2137,36 @@ mod tests {
                 "{v:?} {cols:?} {alg:?} {m:?}"
             );
         }
+    }
+
+    /// pgvector's HNSW and IVFFlat index up to 2000 dimensions of `vector`
+    /// (4000 of `halfvec`, also as an expression's cast); DiskANN and the
+    /// engines with their own builds go to the server.
+    #[test]
+    fn dimensions_past_the_index_limit_are_refused() {
+        let mut t = table();
+        t.columns.push(col("big", "vector(3072)"));
+        t.columns.push(col("huge", "halfvec(5000)"));
+        let refused = |v, key: &str, alg: Option<&str>| {
+            let vi = vix(alg, Some("cosine"), &[]);
+            refusal(v, &t, &ix("i", &[key], vi.clone()), &vi)
+        };
+        let why = refused(Variant::Postgres, "big", Some("hnsw")).unwrap();
+        assert!(
+            why.contains("«i»")
+                && why.contains("2000")
+                && why.contains("3072")
+                && why.contains("halfvec"),
+            "{why}"
+        );
+        assert!(refused(Variant::Timescale, "big", Some("ivfflat")).is_some());
+        assert!(refused(Variant::Postgres, "huge", Some("hnsw")).is_some());
+        assert!(refused(Variant::Postgres, "(big::halfvec(3072))", Some("hnsw")).is_none());
+        assert!(refused(Variant::Postgres, "(big::halfvec(4001))", Some("hnsw")).is_some());
+        assert!(refused(Variant::Timescale, "big", Some("diskann")).is_none());
+        assert!(refused(Variant::OpenGauss, "big", Some("hnsw")).is_none());
+        assert!(refused(Variant::Cockroach, "big", None).is_none());
+        assert!(refused(Variant::Postgres, "v", Some("hnsw")).is_none());
     }
 
     fn typed(name: &str, ty: &str) -> ResultColumn {
