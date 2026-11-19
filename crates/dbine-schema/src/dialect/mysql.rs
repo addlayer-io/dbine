@@ -1069,6 +1069,18 @@ mod tests {
         for to in ["starrocks", "doris"] {
             let c = conv(to);
             let t = &c.tables[0];
+            // Doris' ANN index takes DUPLICATE KEY tables only: said.
+            if to == "doris" {
+                assert_eq!(
+                    t.options.get("key_model").map(String::as_str),
+                    Some("duplicate")
+                );
+                assert!(c
+                    .issues
+                    .iter()
+                    .any(|i| i.code == IssueCode::PrimaryKeyDropped
+                        && i.message.contains("DUPLICATE KEY")));
+            }
             let v = t.columns.iter().find(|c| c.name == "v").unwrap();
             assert_eq!(v.data_type, "ARRAY<FLOAT>", "{to}");
             assert!(!v.nullable, "{to}");

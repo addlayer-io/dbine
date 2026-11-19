@@ -1087,6 +1087,24 @@ fn is_call(d: &str) -> bool {
         })
 }
 
+/// The key model a StarRocks / Doris table is made with: the designer's
+/// `key_model`, else UNIQUE (Doris) / PRIMARY (StarRocks) with a primary
+/// key, DUPLICATE without one.
+fn olap_model(v: Variant, t: &TableSchema) -> &'static str {
+    let pk = t
+        .primary_key
+        .as_ref()
+        .is_some_and(|k| !k.columns.is_empty());
+    match (opt(t, "key_model").unwrap_or("auto"), v) {
+        ("duplicate", _) => "DUPLICATE",
+        ("primary", Variant::StarRocks) => "PRIMARY",
+        ("unique" | "primary", _) => "UNIQUE",
+        _ if !pk => "DUPLICATE",
+        (_, Variant::StarRocks) => "PRIMARY",
+        _ => "UNIQUE",
+    }
+}
+
 /// StarRocks and Doris: a key model, key columns first, hash distribution.
 fn olap_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<String> {
     let name = q(&t.name);
@@ -1103,14 +1121,7 @@ fn olap_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<String> {
             .as_ref()
             .map(|k| k.columns.clone())
             .unwrap_or_default();
-        let model = match (opt(t, "key_model").unwrap_or("auto"), v) {
-            ("duplicate", _) => "DUPLICATE",
-            ("primary", Variant::StarRocks) => "PRIMARY",
-            ("unique" | "primary", _) => "UNIQUE",
-            _ if pk.is_empty() => "DUPLICATE",
-            (_, Variant::StarRocks) => "PRIMARY",
-            _ => "UNIQUE",
-        };
+        let model = olap_model(v, t);
         let keys: Vec<String> = match opt(t, "key_columns") {
             Some(k) => k
                 .split(',')
@@ -1250,6 +1261,14 @@ fn olap_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<String> {
                         if v == Variant::Doris { "Doris" } else { "StarRocks" },
                         ix.name,
                         c.name
+                    ))))?);
+                    continue;
+                }
+                // Doris builds ANN indexes on DUPLICATE KEY tables only.
+                if v == Variant::Doris && olap_model(v, t) != "DUPLICATE" {
+                    notes.push(vector_index_or_note(Err(Error::Unsupported(format!(
+                        "Doris crea índices ANN solo en tablas DUPLICATE KEY: el índice vectorial «{}» pide el modelo DUPLICATE KEY",
+                        ix.name
                     ))))?);
                     continue;
                 }
@@ -2671,6 +2690,16 @@ mod tests {
             vi(Some("hnsw"), Some("l2"), &[("dim", "3"), ("m", "32")]),
         );
         t.columns[1].data_type = "ARRAY<FLOAT>".into();
+        // Doris builds ANN indexes on DUPLICATE KEY tables only (a primary
+        // key alone makes it UNIQUE KEY): said in the script.
+        let s = table_ddl(Variant::Doris, &t, all).unwrap();
+        assert!(
+            s.contains("UNIQUE KEY(`id`)")
+                && s.contains("-- Doris crea índices ANN solo en tablas DUPLICATE KEY")
+                && !s.contains("USING ANN"),
+            "{s}"
+        );
+        t.options.insert("key_model".into(), "duplicate".into());
         let s = table_ddl(Variant::Doris, &t, all).unwrap();
         assert!(s.contains("CREATE INDEX `iv` ON `items` (`v`) USING ANN PROPERTIES(\"index_type\" = \"hnsw\", \"metric_type\" = \"l2_distance\", \"dim\" = \"3\", \"max_degree\" = \"32\");"), "{s}");
         let s = table_ddl(Variant::StarRocks, &t, all).unwrap();

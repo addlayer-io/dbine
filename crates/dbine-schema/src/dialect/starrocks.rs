@@ -859,6 +859,17 @@ impl Dialect for Olap {
                     ),
                 );
                 ("duplicate", first.into_iter().collect::<Vec<_>>())
+            } else if self.doris
+                && t.indexes.iter().any(|i| i.vector.is_some())
+                && bad_for(false).is_none()
+            {
+                // Doris builds ANN indexes on DUPLICATE KEY tables only.
+                let list = pk.join(", ");
+                report.push(Warning, PrimaryKeyDropped, &table, Some(&list), format!(
+                    "Doris crea índices ANN solo en tablas DUPLICATE KEY: la tabla queda DUPLICATE KEY({list}) y no garantiza la unicidad de su clave primaria."
+                ));
+                t.primary_key = None;
+                ("duplicate", pk.clone())
             } else if !self.doris && bad_for(true).is_none() {
                 ("primary", pk.clone())
             } else if bad_for(false).is_none() {
