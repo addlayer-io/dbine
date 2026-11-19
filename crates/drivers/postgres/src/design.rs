@@ -1341,6 +1341,41 @@ mod tests {
         assert!(insert_script(Variant::Redshift, None, "t", &cols, &rows).contains("'a\\\\b'"));
     }
 
+    /// A JSON array of big integers (a `json` / `jsonb` value, or a load
+    /// whose cell is `Cell::Json`) keeps its exact text in every script of
+    /// every variant: only the vector literal's quoting changes.
+    #[test]
+    fn json_arrays_keep_their_exact_numbers_in_scripts() {
+        let arr = json!([9007199254740993u64, 1.0]);
+        let cols = ["j".to_string()];
+        let change = RowChange {
+            key: vec![("id".into(), json!(1))],
+            set: vec![("j".into(), arr.clone())],
+            row: Vec::new(),
+        };
+        for v in Variant::ALL {
+            let ins = insert_script(v, None, "t", &cols, &[vec![arr.clone()]]);
+            let upd = update_script(v, None, "t", std::slice::from_ref(&change));
+            let del = delete_script(v, None, "t", &[vec![("j".into(), arr.clone())]]);
+            for s in [&ins, &upd, &del] {
+                assert!(s.contains("[9007199254740993,1.0]"), "{v:?}: {s}");
+            }
+        }
+        // Without vectors, the array is the string it was before them.
+        for v in [
+            Variant::Redshift,
+            Variant::Materialize,
+            Variant::H2,
+            Variant::Yellowbrick,
+        ] {
+            let ins = insert_script(v, None, "t", &cols, &[vec![arr.clone()]]);
+            assert!(
+                ins.contains(&crate::catalog::lit(v, "[9007199254740993,1.0]")),
+                "{v:?}: {ins}"
+            );
+        }
+    }
+
     #[test]
     fn every_declared_kind_has_a_template() {
         for v in Variant::ALL {

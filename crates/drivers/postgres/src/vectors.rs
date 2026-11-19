@@ -187,15 +187,20 @@ pub(crate) fn crate_text(s: &str) -> Option<String> {
 
 /// A vector of an edit or a load as this variant's literal: `'[1,2.5]'`
 /// (the server casts the string), CrateDB's array `[1,2.5]`. `None` when
-/// `value` isn't an array of numbers.
+/// `value` isn't an array of numbers or the variant has no vectors.
+///
+/// The array's own JSON text, as it came: the same value may be a `json`
+/// or `jsonb` array (or a CrateDB `ARRAY(BIGINT)`), whose integers past
+/// 2^53 and whose `1.0` must stay as they are, and every vector type reads
+/// that text whole.
 pub(crate) fn literal(v: Variant, value: &serde_json::Value) -> Option<String> {
     let serde_json::Value::Array(items) = value else {
         return None;
     };
-    if items.is_empty() || !items.iter().all(serde_json::Value::is_number) {
+    if !supported(v) || items.is_empty() || !items.iter().all(serde_json::Value::is_number) {
         return None;
     }
-    let text = dbine_driver::vector::value_text(value)?;
+    let text = value.to_string();
     Some(if v == Variant::CrateDb {
         text
     } else {
@@ -1055,7 +1060,7 @@ mod tests {
     fn literals() {
         assert_eq!(
             literal(Variant::Postgres, &json!([1.0, 2.5, -3])).as_deref(),
-            Some("'[1,2.5,-3]'")
+            Some("'[1.0,2.5,-3]'")
         );
         assert_eq!(
             literal(Variant::Cockroach, &json!([1, 2])).as_deref(),
@@ -1068,6 +1073,31 @@ mod tests {
         assert_eq!(literal(Variant::Postgres, &json!(["a"])), None);
         assert_eq!(literal(Variant::Postgres, &json!([])), None);
         assert_eq!(literal(Variant::Postgres, &json!("[1,2]")), None);
+        // Variants without vectors keep their own array literal.
+        for v in [
+            Variant::Redshift,
+            Variant::Materialize,
+            Variant::H2,
+            Variant::Yellowbrick,
+            Variant::Denodo,
+        ] {
+            assert_eq!(literal(v, &json!([1, 2])), None, "{v:?}");
+        }
+    }
+
+    /// The array's text is kept as it came: a `json` / `jsonb` (or CrateDB
+    /// `ARRAY(BIGINT)`) value of big integers or `1.0` is not a vector to
+    /// round through floats.
+    #[test]
+    fn literals_keep_the_exact_numbers() {
+        let big = json!([9007199254740993u64, 1, 1.0, -0.000001]);
+        for v in Variant::ALL.into_iter().filter(|v| supported(*v)) {
+            let lit = literal(v, &big).unwrap();
+            assert!(
+                lit.contains("[9007199254740993,1,1.0,-1e-6]"),
+                "{v:?}: {lit}"
+            );
+        }
     }
 
     #[test]
