@@ -1,0 +1,4573 @@
+{
+  "\"admin\" usa un token DbConnectAdmin; cualquier otro rol, un token DbConnect.": [
+    "dsql"
+  ],
+  "(DESCRIPTION=(ADDRESS=…)(CONNECT_DATA=…)) o MI_ALIAS": [
+    "oracle"
+  ],
+  "(description=(retry_count=20)(address=(protocol=tcps)(port=1522)(host=…))…) o mibase_high": [
+    "oracle_adb"
+  ],
+  "(el catálogo predeterminado)": [
+    "azure_databricks",
+    "databricks"
+  ],
+  "(el predeterminado)": [
+    "flightsql",
+    "odbc"
+  ],
+  "(la de TNS_ADMIN)": [
+    "oracle"
+  ],
+  "(la predeterminada)": [
+    "alloydb",
+    "aurora-mysql",
+    "aurora_postgres",
+    "babelfish",
+    "clickhouse",
+    "cloudberry",
+    "cloudera",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cosmosdb",
+    "couchdb",
+    "cratedb",
+    "databend",
+    "db2i",
+    "denodo",
+    "documentdb",
+    "doris",
+    "edb",
+    "exasol",
+    "ferretdb",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "greptimedb",
+    "h2",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "influxdb1",
+    "kingbase",
+    "kyuubi",
+    "mariadb",
+    "materialize",
+    "memgraph",
+    "mongodb",
+    "mysql",
+    "neo4j",
+    "netezza",
+    "oceanbase",
+    "opengauss",
+    "orientdb",
+    "postgres",
+    "redshift",
+    "risingwave",
+    "singlestore",
+    "snowflake",
+    "spanner",
+    "spark",
+    "sqlanywhere",
+    "sqlserver",
+    "starrocks",
+    "sybase",
+    "tdengine",
+    "teradata",
+    "tidb",
+    "timeplus",
+    "timescaledb",
+    "velodb",
+    "virtuoso",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "(opcional) nombre o ID": [
+    "powerbi"
+  ],
+  "(se detecta sola)": [
+    "access",
+    "altibase",
+    "cache",
+    "cloudera",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "exasol",
+    "gbase8s",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kyuubi",
+    "machbase",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "ocient",
+    "odbc",
+    "openedge",
+    "spark",
+    "sqlanywhere",
+    "sqream",
+    "sybase",
+    "teradata",
+    "vertica",
+    "virtuoso",
+    "zen"
+  ],
+  "00000000-0000-0000-0000-000000000000 o contoso.onmicrosoft.com": [
+    "azuresql",
+    "fabric",
+    "mysql",
+    "postgres",
+    "sqlserver"
+  ],
+  "3<instancia>15 en una base única; 3<instancia>41 (SQL del tenant) o 3<instancia>13 (SYSTEMDB) en contenedores; 443 en SAP HANA Cloud.": [
+    "hana"
+  ],
+  "ADC usa GOOGLE_APPLICATION_CREDENTIALS, `gcloud auth application-default login` o el servidor de metadatos.": [
+    "bigquery",
+    "spanner"
+  ],
+  "API NoSQL. Para la API de MongoDB de Cosmos DB usá el driver MongoDB con la cadena de conexión de la cuenta.": [
+    "cosmosdb"
+  ],
+  "API de consultas": [
+    "powerbi"
+  ],
+  "API key": [
+    "elasticsearch",
+    "opendistro",
+    "opensearch"
+  ],
+  "Abre únicamente el archivo elegido (también un .xlsx), no toda la carpeta.": [
+    "duckdb_files"
+  ],
+  "Access key ID": [
+    "athena",
+    "dsql",
+    "dynamodb",
+    "neptune"
+  ],
+  "Activala si el cluster tiene la autenticación IAM habilitada: firma cada pedido con las credenciales de abajo.": [
+    "neptune"
+  ],
+  "Alias": [
+    "elasticsearch",
+    "opendistro",
+    "opensearch"
+  ],
+  "Allow": [
+    "teradata"
+  ],
+  "Aplicación para iniciar sesión": [
+    "powerbi"
+  ],
+  "Archivo (.accdb / .mdb)": [
+    "access"
+  ],
+  "Archivo PEM con la CA que firmó el certificado del servidor; vacío = las autoridades del sistema.": [
+    "kdb"
+  ],
+  "Archivo PEM con la CA que firmó el certificado del servidor; vacío = las autoridades públicas habituales.": [
+    "dragonfly",
+    "ferretdb",
+    "hana",
+    "mongodb",
+    "redis",
+    "valkey"
+  ],
+  "Archivo PEM de la CA que firmó el certificado del servidor (como curl --cacert).": [
+    "couchdb",
+    "influxdb",
+    "influxdb1",
+    "orientdb",
+    "solr",
+    "tdengine"
+  ],
+  "Archivo de base de datos": [
+    "sqlite"
+  ],
+  "Archivo de la base": [
+    "duckdb"
+  ],
+  "Archivos": [
+    "drill",
+    "duckdb_files"
+  ],
+  "Aristas": [
+    "orientdb"
+  ],
+  "Atributos adicionales": [
+    "access",
+    "altibase",
+    "cache",
+    "cloudera",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "exasol",
+    "gbase8s",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kyuubi",
+    "machbase",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "ocient",
+    "openedge",
+    "spark",
+    "sqlanywhere",
+    "sqream",
+    "sybase",
+    "teradata",
+    "vertica",
+    "virtuoso",
+    "zen"
+  ],
+  "Aurora acepta TLS; para verificar el certificado, indicá el paquete de CA de Amazon RDS (global-bundle.pem).": [
+    "aurora-mysql"
+  ],
+  "Autenticación": [
+    "alloydb",
+    "athena",
+    "aurora-mysql",
+    "aurora_postgres",
+    "azure_databricks",
+    "azuresql",
+    "bigquery",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "databricks",
+    "dsql",
+    "dynamodb",
+    "fabric",
+    "mariadb",
+    "mongodb",
+    "mysql",
+    "neptune",
+    "postgres",
+    "powerbi",
+    "snowflake",
+    "spanner",
+    "sqlserver"
+  ],
+  "Autenticación IAM (SigV4)": [
+    "neptune"
+  ],
+  "Automática": [
+    "powerbi"
+  ],
+  "Automática usa executeDaxQueries donde el modelo lo admite y si no executeQueries, que devuelve como máximo 100.000 filas por consulta.": [
+    "powerbi"
+  ],
+  "Automático": [
+    "alloydb",
+    "aurora_postgres",
+    "cloudberry",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cratedb",
+    "denodo",
+    "edb",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "h2",
+    "kingbase",
+    "materialize",
+    "opengauss",
+    "postgres",
+    "redshift",
+    "risingwave",
+    "timescaledb",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "Automático usa el protocolo extendido y pasa al simple si el servidor no lo acepta. «Solo protocolo simple» es para gateways y proxies que rechazan el extendido.": [
+    "alloydb",
+    "aurora_postgres",
+    "cloudberry",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cratedb",
+    "denodo",
+    "edb",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "h2",
+    "kingbase",
+    "materialize",
+    "opengauss",
+    "postgres",
+    "redshift",
+    "risingwave",
+    "timescaledb",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "Azure SQL no permite cambiar de base en la misma conexión.": [
+    "azuresql"
+  ],
+  "Balanceador (Cluster)": [
+    "sqream"
+  ],
+  "Base de autenticación": [
+    "documentdb",
+    "ferretdb",
+    "mongodb"
+  ],
+  "Base de datos": [
+    "alloydb",
+    "athena",
+    "aurora-mysql",
+    "aurora_postgres",
+    "azure_databricks",
+    "azuresql",
+    "babelfish",
+    "clickhouse",
+    "cloudberry",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cosmosdb",
+    "couchdb",
+    "cratedb",
+    "cubrid",
+    "databend",
+    "databricks",
+    "db2",
+    "denodo",
+    "documentdb",
+    "doris",
+    "dragonfly",
+    "edb",
+    "fabric",
+    "ferretdb",
+    "firebird",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "greptimedb",
+    "h2",
+    "heavydb",
+    "influxdb1",
+    "influxdb3",
+    "informix",
+    "ingres",
+    "iotdb",
+    "kingbase",
+    "mariadb",
+    "materialize",
+    "memgraph",
+    "mimer",
+    "monetdb",
+    "mongodb",
+    "mysql",
+    "neo4j",
+    "netezza",
+    "nuodb",
+    "oceanbase",
+    "ocient",
+    "openedge",
+    "opengauss",
+    "orientdb",
+    "postgres",
+    "redis",
+    "redshift",
+    "risingwave",
+    "singlestore",
+    "snowflake",
+    "spanner",
+    "sqlanywhere",
+    "sqlserver",
+    "sqream",
+    "starrocks",
+    "sybase",
+    "tdengine",
+    "tidb",
+    "timechodb",
+    "timeplus",
+    "timescaledb",
+    "valkey",
+    "velodb",
+    "vertica",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "Base de datos (SERVERDB)": [
+    "maxdb"
+  ],
+  "Base de datos (nombre interno)": [
+    "zen"
+  ],
+  "Base de datos predeterminada": [
+    "cloudera",
+    "hive",
+    "impala",
+    "kyuubi",
+    "spark",
+    "teradata"
+  ],
+  "Base de datos tenant": [
+    "hana"
+  ],
+  "Base inicial; vacía = la de la cadena de conexión o «test».": [
+    "documentdb",
+    "ferretdb",
+    "mongodb"
+  ],
+  "Bases adjuntas": [
+    "duckdb"
+  ],
+  "Bases de datos": [
+    "alloydb",
+    "athena",
+    "aurora-mysql",
+    "aurora_postgres",
+    "azuresql",
+    "babelfish",
+    "clickhouse",
+    "cloudberry",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cosmosdb",
+    "couchdb",
+    "databend",
+    "denodo",
+    "documentdb",
+    "doris",
+    "dragonfly",
+    "edb",
+    "fabric",
+    "ferretdb",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "greptimedb",
+    "influxdb1",
+    "influxdb3",
+    "informix",
+    "iotdb",
+    "kingbase",
+    "mariadb",
+    "materialize",
+    "memgraph",
+    "mongodb",
+    "mysql",
+    "neo4j",
+    "netezza",
+    "oceanbase",
+    "opengauss",
+    "orientdb",
+    "postgres",
+    "redis",
+    "redshift",
+    "risingwave",
+    "singlestore",
+    "snowflake",
+    "spanner",
+    "sqlserver",
+    "starrocks",
+    "sybase",
+    "tdengine",
+    "tidb",
+    "timechodb",
+    "timeplus",
+    "timescaledb",
+    "valkey",
+    "velodb",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "Biblioteca ODBC": [
+    "access",
+    "altibase",
+    "cache",
+    "cloudera",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "exasol",
+    "gbase8s",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kyuubi",
+    "machbase",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "ocient",
+    "odbc",
+    "openedge",
+    "spark",
+    "sqlanywhere",
+    "sqream",
+    "sybase",
+    "teradata",
+    "vertica",
+    "virtuoso",
+    "zen"
+  ],
+  "Biblioteca predeterminada": [
+    "db2i"
+  ],
+  "Bloques separados por GO": [
+    "access",
+    "altibase",
+    "cache",
+    "cloudera",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "exasol",
+    "gbase8s",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kyuubi",
+    "machbase",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "ocient",
+    "odbc",
+    "openedge",
+    "spark",
+    "sqlanywhere",
+    "sqream",
+    "sybase",
+    "teradata",
+    "vertica",
+    "virtuoso",
+    "zen"
+  ],
+  "Bucket": [
+    "couchbase",
+    "influxdb"
+  ],
+  "Buckets": [
+    "couchbase",
+    "influxdb"
+  ],
+  "Cadena de conexión": [
+    "documentdb",
+    "ferretdb",
+    "mongodb",
+    "odbc"
+  ],
+  "Cadena de conexión o alias TNS": [
+    "oracle_adb"
+  ],
+  "Cadena predeterminada de AWS": [
+    "athena",
+    "dsql",
+    "dynamodb",
+    "neptune"
+  ],
+  "Calificador (catálogo)": [
+    "virtuoso"
+  ],
+  "Cambiar validador ($jsonSchema)": [
+    "documentdb",
+    "ferretdb",
+    "mongodb"
+  ],
+  "Carpeta": [
+    "duckdb_files"
+  ],
+  "Carpeta con ewallet.pem (o un archivo de adentro): sus certificados de CA se suman a las autoridades públicas para verificar el servidor. Si trae una clave privada, es el certificado del cliente (mTLS).": [
+    "oracle"
+  ],
+  "Carpeta con los .dbf (o uno de sus archivos)": [
+    "dbase"
+  ],
+  "Carpeta de tnsnames.ora": [
+    "oracle"
+  ],
+  "Catálogo": [
+    "flightsql",
+    "odbc",
+    "presto",
+    "starburst",
+    "trino"
+  ],
+  "Catálogo al que se cambia después de conectar.": [
+    "odbc"
+  ],
+  "Catálogo de datos": [
+    "athena"
+  ],
+  "Catálogos": [
+    "azure_databricks",
+    "databricks",
+    "flightsql",
+    "odbc",
+    "presto",
+    "starburst",
+    "trino",
+    "virtuoso"
+  ],
+  "Catálogos de texto completo": [
+    "azuresql",
+    "sqlserver"
+  ],
+  "Certificado": [
+    "powerbi"
+  ],
+  "Certificados de CA (PEM) en los que confiar además de los del sistema.": [
+    "cassandra",
+    "keyspaces",
+    "memgraph",
+    "neo4j",
+    "scylladb"
+  ],
+  "China (21Vianet)": [
+    "powerbi"
+  ],
+  "Cifra la conexión (obligatorio en SAP HANA Cloud). Por un túnel SSH el certificado se verifica contra 127.0.0.1: el cliente no permite indicar el nombre real del servidor.": [
+    "hana"
+  ],
+  "Cifra la conexión (rediss://) y verifica el certificado del servidor.": [
+    "dragonfly",
+    "redis",
+    "valkey"
+  ],
+  "Cifra la conexión con TLS (:tcps://) y verifica el certificado del servidor.": [
+    "kdb"
+  ],
+  "Cifra la conexión con TLS y verifica el certificado del servidor.": [
+    "flightsql",
+    "ksqldb",
+    "tdengine"
+  ],
+  "Cifra la conexión con TLS y verifica el certificado. Si el servidor es una URL, manda su esquema.": [
+    "influxdb1",
+    "iotdb",
+    "timechodb"
+  ],
+  "Cifra la conexión y verifica el certificado del servidor. Con una cadena de conexión no se aplica: manda la cadena.": [
+    "documentdb",
+    "ferretdb",
+    "mongodb"
+  ],
+  "Clases de documentos": [
+    "orientdb"
+  ],
+  "Clave codificada en Base64 (id:api_key). Si se completa, reemplaza al usuario y la contraseña.": [
+    "elasticsearch",
+    "opendistro",
+    "opensearch"
+  ],
+  "Clave de cuenta de servicio (JSON)": [
+    "bigquery",
+    "spanner"
+  ],
+  "Clave de la cuenta": [
+    "cosmosdb"
+  ],
+  "Clave de la cuenta de servicio": [
+    "bigquery",
+    "spanner"
+  ],
+  "Clave privada (PEM, sin cifrar)": [
+    "snowflake"
+  ],
+  "Claves": [
+    "dragonfly",
+    "etcd",
+    "redis",
+    "valkey"
+  ],
+  "Claves de acceso": [
+    "athena",
+    "dsql",
+    "dynamodb",
+    "neptune"
+  ],
+  "Client ID": [
+    "powerbi"
+  ],
+  "Client ID (service principal)": [
+    "azure_databricks",
+    "databricks"
+  ],
+  "Client ID de la aplicación": [
+    "powerbi"
+  ],
+  "Client secret": [
+    "azure_databricks",
+    "databricks"
+  ],
+  "Cliente de Azure CLI": [
+    "powerbi"
+  ],
+  "Cloud SQL puede exigir TLS; indicá el server-ca.pem de la instancia para verificarlo. Los certificados de cliente no están soportados: usá el Cloud SQL Auth Proxy si la instancia los exige.": [
+    "cloudsql-mysql"
+  ],
+  "Cluster manager (buckets, scopes, métricas): 8091; con TLS, 18091.": [
+    "couchbase"
+  ],
+  "Colecciones": [
+    "couchbase",
+    "documentdb",
+    "ferretdb",
+    "mongodb",
+    "solr"
+  ],
+  "Comprueba que el nombre del servidor figure en su certificado.": [
+    "ksqldb"
+  ],
+  "Con AWS IAM, Google Cloud IAM o Entra ID, DBine pide un token nuevo antes de cada conexión con las credenciales de esta máquina (aws, gcloud o az): no hace falta pegar tokens que vencen. Exigen TLS con el certificado del servidor verificado. El usuario es el de la base (el usuario IAM, la cuenta o el grupo).": [
+    "alloydb",
+    "aurora-mysql",
+    "aurora_postgres",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "mariadb",
+    "mysql",
+    "postgres"
+  ],
+  "Con Entra ID, la cuenta (usuario@dominio): obligatoria con la integrada, opcional con la interactiva.": [
+    "azuresql"
+  ],
+  "Con Entra ID, la cuenta (usuario@dominio): obligatoria con la integrada, opcional con la interactiva. Con Windows, DOMINIO\\usuario.": [
+    "sqlserver"
+  ],
+  "Con Kerberos, el principal (usuario@DOMINIO).": [
+    "mongodb"
+  ],
+  "Con TLS el driver usa el puerto HTTPS del servidor (HTTPS_PORT, 443), no el de TDMST.": [
+    "teradata"
+  ],
+  "Con el wallet: arma el alias de tnsnames.ora (nombre_servicio).": [
+    "oracle_adb"
+  ],
+  "Con permiso de escritura en el modelo trae medidas, relaciones y jerarquías también en áreas de trabajo Pro. Pide el permiso SemanticModel.ReadWrite.All y solo lo usa para leer.": [
+    "powerbi"
+  ],
+  "Conectar por": [
+    "oracle"
+  ],
+  "Confirmar automáticamente (autocommit)": [
+    "firebird",
+    "oracle",
+    "oracle_adb"
+  ],
+  "Consultas por lotes: 8123. El puerto 3218 corre consultas de streaming.": [
+    "timeplus"
+  ],
+  "Contenedores": [
+    "cosmosdb"
+  ],
+  "Contraseña": [
+    "access",
+    "alloydb",
+    "altibase",
+    "aurora-mysql",
+    "aurora_postgres",
+    "avatica",
+    "azuresql",
+    "babelfish",
+    "cache",
+    "cassandra",
+    "clickhouse",
+    "cloudberry",
+    "cloudera",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "couchbase",
+    "couchdb",
+    "cratedb",
+    "cubrid",
+    "dameng",
+    "databend",
+    "db2",
+    "db2i",
+    "db2zos",
+    "denodo",
+    "documentdb",
+    "doris",
+    "dragonfly",
+    "dremio",
+    "drill",
+    "edb",
+    "elasticsearch",
+    "etcd",
+    "exasol",
+    "fabric",
+    "ferretdb",
+    "firebird",
+    "flightsql",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "greptimedb",
+    "h2",
+    "hana",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "influxdb1",
+    "informix",
+    "ingres",
+    "iotdb",
+    "iris",
+    "kdb",
+    "keyspaces",
+    "kingbase",
+    "ksqldb",
+    "kyuubi",
+    "machbase",
+    "manticore",
+    "mariadb",
+    "materialize",
+    "maxdb",
+    "memgraph",
+    "mimer",
+    "monetdb",
+    "mongodb",
+    "mysql",
+    "neo4j",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "oceanbase",
+    "ocient",
+    "odbc",
+    "opendistro",
+    "openedge",
+    "opengauss",
+    "opensearch",
+    "oracle",
+    "oracle_adb",
+    "orientdb",
+    "phoenix",
+    "postgres",
+    "presto",
+    "redis",
+    "redshift",
+    "risingwave",
+    "scylladb",
+    "singlestore",
+    "solr",
+    "spark",
+    "sqlanywhere",
+    "sqlserver",
+    "sqream",
+    "starburst",
+    "starrocks",
+    "sybase",
+    "tdengine",
+    "teradata",
+    "tidb",
+    "timechodb",
+    "timeplus",
+    "timescaledb",
+    "trino",
+    "valkey",
+    "velodb",
+    "vertica",
+    "virtuoso",
+    "yellowbrick",
+    "yugabytedb",
+    "zen"
+  ],
+  "Contraseña de las credenciales específicas del servicio.": [
+    "keyspaces"
+  ],
+  "Contraseña del certificado": [
+    "powerbi"
+  ],
+  "Contraseña del wallet": [
+    "oracle_adb"
+  ],
+  "Contraseña o un token IAM pegado. Para no pegar tokens que vencen, elegí Autenticación → AWS IAM.": [
+    "aurora-mysql"
+  ],
+  "Contraseña o un token de IAM pegado. Para no pegar tokens que vencen, elegí Autenticación → Google Cloud IAM.": [
+    "cloudsql-mysql"
+  ],
+  "Credencial predeterminada (variables de entorno, identidad administrada, Azure CLI)": [
+    "powerbi"
+  ],
+  "Credenciales predeterminadas de la aplicación (ADC)": [
+    "bigquery",
+    "spanner"
+  ],
+  "Cuenta": [
+    "snowflake"
+  ],
+  "Cuenta de Google Cloud": [
+    "alloydb",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "mysql",
+    "postgres"
+  ],
+  "Cómo se manda un script al servidor. Si el motor acepta varias sentencias por pedido, «Todo el texto de una vez» respeta bloques como BEGIN … END.": [
+    "access",
+    "altibase",
+    "cache",
+    "cloudera",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "exasol",
+    "gbase8s",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kyuubi",
+    "machbase",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "ocient",
+    "odbc",
+    "openedge",
+    "spark",
+    "sqlanywhere",
+    "sqream",
+    "sybase",
+    "teradata",
+    "vertica",
+    "virtuoso",
+    "zen"
+  ],
+  "DBine (predeterminada)": [
+    "powerbi"
+  ],
+  "DISABLED (sin TLS)": [
+    "aurora-mysql",
+    "cloudsql-mysql",
+    "databend",
+    "doris",
+    "greptimedb",
+    "manticore",
+    "mysql",
+    "singlestore",
+    "starrocks",
+    "tidb",
+    "velodb"
+  ],
+  "DRIVER={ODBC Driver 18 for SQL Server};SERVER=host,1433;UID=usuario;PWD=…": [
+    "odbc"
+  ],
+  "Data streams": [
+    "elasticsearch",
+    "opensearch"
+  ],
+  "Datacenter local": [
+    "cassandra",
+    "scylladb"
+  ],
+  "Dataset predeterminado": [
+    "bigquery"
+  ],
+  "Datasets": [
+    "bigquery"
+  ],
+  "Descriptor o alias TNS": [
+    "oracle"
+  ],
+  "Desmarcado (SSL_VERIFY_SERVER=NO) no verifica el certificado: DBine acepta el primero que ve y después solo ese.": [
+    "kdb"
+  ],
+  "Diccionarios": [
+    "clickhouse",
+    "timeplus"
+  ],
+  "Disable": [
+    "teradata"
+  ],
+  "Dispositivos": [
+    "iotdb",
+    "timechodb"
+  ],
+  "Documentos": [
+    "couchdb"
+  ],
+  "Dominios": [
+    "firebird",
+    "h2"
+  ],
+  "Driver ODBC": [
+    "access",
+    "altibase",
+    "cache",
+    "cloudera",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "exasol",
+    "gbase8s",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kyuubi",
+    "machbase",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "ocient",
+    "openedge",
+    "spark",
+    "sqlanywhere",
+    "sqream",
+    "sybase",
+    "teradata",
+    "vertica",
+    "virtuoso",
+    "zen"
+  ],
+  "Dónde buscar tnsnames.ora para resolver alias. No hace falta instalar Instant Client.": [
+    "oracle"
+  ],
+  "El Account ID que muestra la página de descarga del driver.": [
+    "netsuite"
+  ],
+  "El Client ID de la entidad de servicio, o el de una identidad administrada asignada por el usuario (vacío: la del sistema).": [
+    "powerbi"
+  ],
+  "El HTTP path del warehouse o solo su ID.": [
+    "azure_databricks",
+    "databricks"
+  ],
+  "El certificado de la CA en PEM (Drill JDBC usa un almacén JKS).": [
+    "drill"
+  ],
+  "El certificado se verifica con el almacén de certificados del sistema.": [
+    "db2i"
+  ],
+  "El endpoint de la región: cassandra.<región>.amazonaws.com.": [
+    "keyspaces"
+  ],
+  "El endpoint del cluster (o una URL completa, p. ej. un túnel https://localhost:8182).": [
+    "neptune"
+  ],
+  "El endpoint del clúster (escritor) o el de lectura.": [
+    "aurora_postgres"
+  ],
+  "El esquema de la sesión (SCHEMA).": [
+    "nuodb"
+  ],
+  "El explorador lista solo las claves que empiezan con este prefijo.": [
+    "etcd"
+  ],
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace (en Azure Databricks, Microsoft Entra ID), con SSO y MFA; necesita libre el puerto 8020 de este equipo.": [
+    "azure_databricks"
+  ],
+  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace, con el SSO de tu organización y MFA; necesita libre el puerto 8020 de este equipo.": [
+    "databricks"
+  ],
+  "El modelo que se abre al conectar: su nombre, o su ID para un modelo compartido con vos sin acceso a su área de trabajo.": [
+    "powerbi"
+  ],
+  "El nombre de la instancia, como en la variable INFORMIXSERVER o en sqlhosts.": [
+    "gbase8s",
+    "informix"
+  ],
+  "El nombre del almacén o del punto de conexión SQL.": [
+    "fabric"
+  ],
+  "El nombre del servicio con el que está registrado el servidor; casi siempre «mongodb».": [
+    "mongodb"
+  ],
+  "El paquete de CA de Amazon RDS/DocumentDB (global-bundle.pem), descargable desde la documentación de AWS.": [
+    "documentdb"
+  ],
+  "El rol con permiso de SuiteAnalytics Connect (Role ID).": [
+    "netsuite"
+  ],
+  "El service principal tiene que estar agregado al workspace.": [
+    "azure_databricks"
+  ],
+  "El servicio (cola de trabajo) de SQream.": [
+    "sqream"
+  ],
+  "El token de acceso personal, o un token de Entra ID (p. ej. az account get-access-token --resource 2ff814a6-3304-4ab8-85cb-cd0e6f879c1d).": [
+    "azure_databricks"
+  ],
+  "El «SQL connection string» del almacén (Configuración → Cadenas de conexión).": [
+    "fabric"
+  ],
+  "Elastic Cloud: si se completa, reemplaza al servidor y al puerto.": [
+    "elasticsearch"
+  ],
+  "En Elastic Cloud es 443 (DBine lo usa solo si queda 9200).": [
+    "elasticsearch",
+    "opendistro",
+    "opensearch"
+  ],
+  "En Keyspaces el datacenter es la región.": [
+    "keyspaces"
+  ],
+  "En lugar de usuario y contraseña (Dremio Software 24 o posterior).": [
+    "dremio"
+  ],
+  "Encabezados": [
+    "flightsql"
+  ],
+  "Encabezados gRPC extra, uno por línea (clave: valor). InfluxDB 3 pide `database`.": [
+    "flightsql"
+  ],
+  "Encrypt": [
+    "azuresql",
+    "babelfish",
+    "sqlserver"
+  ],
+  "Encryption": [
+    "sqlanywhere"
+  ],
+  "Endpoint": [
+    "cosmosdb"
+  ],
+  "Endpoint del clúster": [
+    "dsql"
+  ],
+  "Endpoint personalizado": [
+    "bigquery",
+    "dynamodb",
+    "spanner"
+  ],
+  "Entidad de servicio (Client ID y certificado)": [
+    "powerbi"
+  ],
+  "Entidad de servicio (Client ID y secreto)": [
+    "powerbi"
+  ],
+  "Entidad de servicio: el ID de la aplicación registrada. Identidad administrada (también en la predeterminada): el client ID de una identidad asignada por el usuario; vacío, la del sistema. En los demás casos, opcional.": [
+    "azuresql",
+    "fabric",
+    "sqlserver"
+  ],
+  "Entra ID interactivo abre el navegador y admite MFA; con usuario y contraseña no hay MFA. La integrada usa la sesión de Windows (o el ticket de Kerberos) con el ADFS de la organización. La identidad administrada solo funciona si DBine corre en Azure. La predeterminada prueba, en orden, las variables AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET, la identidad administrada, Azure CLI (az login) y Azure Developer CLI (azd auth login).": [
+    "azuresql",
+    "fabric"
+  ],
+  "Envío de scripts": [
+    "access",
+    "altibase",
+    "cache",
+    "cloudera",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "exasol",
+    "gbase8s",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kyuubi",
+    "machbase",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "ocient",
+    "odbc",
+    "openedge",
+    "spark",
+    "sqlanywhere",
+    "sqream",
+    "sybase",
+    "teradata",
+    "vertica",
+    "virtuoso",
+    "zen"
+  ],
+  "Espacio de nombres (namespace)": [
+    "cache",
+    "iris"
+  ],
+  "Espacio u origen": [
+    "dremio"
+  ],
+  "Espacios y orígenes": [
+    "dremio"
+  ],
+  "Esquema": [
+    "drill",
+    "ignite",
+    "ignite3",
+    "presto",
+    "starburst",
+    "trino"
+  ],
+  "Esquema predeterminado": [
+    "azure_databricks",
+    "databricks",
+    "exasol",
+    "nuodb",
+    "snowflake"
+  ],
+  "Esquemas": [
+    "drill",
+    "hana",
+    "oracle",
+    "oracle_adb"
+  ],
+  "Expresiones": [
+    "powerbi"
+  ],
+  "Fuentes": [
+    "materialize",
+    "risingwave"
+  ],
+  "Funciones": [
+    "alloydb",
+    "altibase",
+    "aurora-mysql",
+    "aurora_postgres",
+    "azure_databricks",
+    "azuresql",
+    "babelfish",
+    "bigquery",
+    "cache",
+    "cassandra",
+    "clickhouse",
+    "cloudberry",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "couchbase",
+    "cubrid",
+    "dameng",
+    "databricks",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dsql",
+    "edb",
+    "exasol",
+    "fabric",
+    "firebird",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "hana",
+    "informix",
+    "iris",
+    "kdb",
+    "kingbase",
+    "mariadb",
+    "mimer",
+    "monetdb",
+    "mysql",
+    "netezza",
+    "nuodb",
+    "oceanbase",
+    "odbc",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "orientdb",
+    "postgres",
+    "powerbi",
+    "redshift",
+    "scylladb",
+    "singlestore",
+    "snowflake",
+    "sqlanywhere",
+    "sqlserver",
+    "sqream",
+    "sybase",
+    "teradata",
+    "timeplus",
+    "timescaledb",
+    "vertica",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "GCC High, DoD y China necesitan una aplicación propia registrada en esa nube (Aplicación para iniciar sesión: Propia).": [
+    "powerbi"
+  ],
+  "Gobierno de EE. UU. (DoD)": [
+    "powerbi"
+  ],
+  "Gobierno de EE. UU. (GCC High)": [
+    "powerbi"
+  ],
+  "Gobierno de EE. UU. (GCC)": [
+    "powerbi"
+  ],
+  "Grupos de cálculo": [
+    "powerbi"
+  ],
+  "HTTP: 8080; con TLS, 8443 o 443.": [
+    "presto",
+    "starburst",
+    "trino"
+  ],
+  "HTTP: 8123; con TLS, 8443.": [
+    "clickhouse"
+  ],
+  "Historial de una clave": [
+    "etcd"
+  ],
+  "ID de cuenta": [
+    "netsuite"
+  ],
+  "ID de la aplicación (client ID)": [
+    "azuresql",
+    "fabric",
+    "sqlserver"
+  ],
+  "ID de rol": [
+    "netsuite"
+  ],
+  "ID del proyecto": [
+    "bigquery",
+    "spanner"
+  ],
+  "Identidad administrada de Azure": [
+    "powerbi"
+  ],
+  "Identificador de la cuenta (org-cuenta o localizador.región), o la URL completa.": [
+    "snowflake"
+  ],
+  "Incluir subcarpetas": [
+    "duckdb_files"
+  ],
+  "Incluye los índices, alias y data streams que empiezan con punto.": [
+    "elasticsearch",
+    "opendistro",
+    "opensearch"
+  ],
+  "Ingres": [
+    "ingres"
+  ],
+  "Inicio de sesión en el navegador (SSO)": [
+    "azure_databricks",
+    "databricks"
+  ],
+  "Inquilino (tenant ID)": [
+    "azuresql",
+    "fabric",
+    "sqlserver"
+  ],
+  "Inquilino (tenant)": [
+    "powerbi"
+  ],
+  "Inquilino de Entra ID (tenant)": [
+    "mysql",
+    "postgres"
+  ],
+  "Inseguro: TLS 1.0 y 1.1 están obsoletos. Solo para servidores que no aceptan TLS 1.2 (SQL Server 2008 R2 o 2012 sin actualizar); la primera vez DBine descarga el componente que lo permite. Mejor actualizá el servidor a TLS 1.2 (SQL Server 2012 SP4 o KB3135244).": [
+    "sqlserver"
+  ],
+  "Instancia": [
+    "spanner"
+  ],
+  "JSON (predeterminada)": [
+    "avatica"
+  ],
+  "Jerarquías": [
+    "powerbi"
+  ],
+  "Juego de caracteres": [
+    "firebird"
+  ],
+  "Kerberos usa el ticket de la sesión (en macOS y Linux, el de kinit usuario@DOMINIO) y requiere MongoDB Enterprise.": [
+    "mongodb"
+  ],
+  "Keyspace": [
+    "cassandra",
+    "keyspaces",
+    "scylladb"
+  ],
+  "Keyspaces": [
+    "cassandra",
+    "keyspaces",
+    "scylladb"
+  ],
+  "La API SQL de Snowflake no acepta contraseña: usá un PAT o un par de claves.": [
+    "snowflake"
+  ],
+  "La CA que firmó el certificado del servidor, en PEM: obligatoria con VERIFY_CA.": [
+    "aurora-mysql",
+    "cloudsql-mysql",
+    "databend",
+    "doris",
+    "greptimedb",
+    "manticore",
+    "mysql",
+    "singlestore",
+    "starrocks",
+    "tidb",
+    "velodb"
+  ],
+  "La CA que firmó el certificado del servidor, en PEM: obligatoria con verify-ca.": [
+    "cloudberry",
+    "cockroachdb",
+    "cratedb",
+    "denodo",
+    "edb",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "kingbase",
+    "materialize",
+    "opengauss",
+    "postgres",
+    "risingwave",
+    "timescaledb",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "La IP de la instancia, o 127.0.0.1 si usás AlloyDB Auth Proxy.": [
+    "alloydb"
+  ],
+  "La IP de la instancia, o 127.0.0.1 si usás Cloud SQL Auth Proxy.": [
+    "cloudsql_postgres"
+  ],
+  "La base de H2: un nombre bajo el directorio base del servidor (-baseDir), como «test».": [
+    "h2"
+  ],
+  "La cadena predeterminada usa variables de entorno, ~/.aws, SSO o el rol de la instancia.": [
+    "athena",
+    "dsql",
+    "dynamodb",
+    "neptune"
+  ],
+  "La carpeta con los archivos (podés elegir cualquier archivo de adentro). Cada .csv, .tsv, .parquet, .json, .jsonl o .ndjson (también comprimidos con .gz) queda como una vista.": [
+    "duckdb_files"
+  ],
+  "La cuenta de Entra ID (usuario@dominio): obligatoria con la integrada, opcional con la interactiva.": [
+    "fabric"
+  ],
+  "La del PFX o la de la clave privada cifrada. Vacía si no tiene.": [
+    "powerbi"
+  ],
+  "La del Query Server (phoenix.queryserver.serialization).": [
+    "phoenix"
+  ],
+  "La del servidor (en Druid, «/druid/v2/sql/avatica-protobuf/» usa protobuf).": [
+    "avatica"
+  ],
+  "La predeterminada de TDengine es taosdata.": [
+    "tdengine"
+  ],
+  "La que se eligió al descargar el wallet (no la del usuario ADMIN).": [
+    "oracle_adb"
+  ],
+  "La ruta HTTP del servidor Avatica: «/» en Calcite y Phoenix, «/druid/v2/sql/avatica/» en Druid.": [
+    "avatica"
+  ],
+  "La ruta del endpoint HiveServer2 por HTTP; en Cloudera Data Warehouse suele ser «cliservice».": [
+    "cloudera"
+  ],
+  "Las consultas DAX nunca cambian el modelo. Desmarcado permite actualizar el modelo, cambiar sus programaciones y sus permisos, renombrarlo y borrarlo.": [
+    "powerbi"
+  ],
+  "Las consultas se filtran con la seguridad por filas de ese usuario. Hace falta permiso de escritura en el modelo (executeQueries) o ser administrador del área de trabajo (executeDaxQueries).": [
+    "powerbi"
+  ],
+  "Las tablas sin calificar de las consultas se buscan en este dataset.": [
+    "bigquery"
+  ],
+  "Las vistas de las subcarpetas se llaman carpeta/archivo.": [
+    "duckdb_files"
+  ],
+  "Leer la definición completa del modelo (API de Fabric)": [
+    "powerbi"
+  ],
+  "Listas de palabras irrelevantes": [
+    "azuresql",
+    "sqlserver"
+  ],
+  "Límite de las consultas push (s)": [
+    "ksqldb"
+  ],
+  "Macros": [
+    "duckdb",
+    "duckdb_files"
+  ],
+  "Mandatory": [
+    "azuresql",
+    "babelfish",
+    "sqlserver"
+  ],
+  "Mandatory cifra toda la conexión y verifica el certificado del servidor (salvo con TrustServerCertificate). Strict es TDS 8.0: SQL Server 2022 o posterior.": [
+    "azuresql",
+    "babelfish",
+    "sqlserver"
+  ],
+  "Master de HBase": [
+    "phoenix"
+  ],
+  "Measurements": [
+    "influxdb",
+    "influxdb1"
+  ],
+  "Medidas": [
+    "powerbi"
+  ],
+  "Microsoft Entra ID (navegador, con MFA)": [
+    "powerbi"
+  ],
+  "Microsoft Entra ID: entidad de servicio": [
+    "azuresql",
+    "fabric",
+    "sqlserver"
+  ],
+  "Microsoft Entra ID: identidad administrada": [
+    "azuresql",
+    "fabric",
+    "sqlserver"
+  ],
+  "Microsoft Entra ID: integrada (Windows)": [
+    "azuresql",
+    "fabric",
+    "sqlserver"
+  ],
+  "Microsoft Entra ID: interactivo (MFA)": [
+    "azuresql",
+    "fabric",
+    "sqlserver"
+  ],
+  "Microsoft Entra ID: predeterminada": [
+    "azuresql",
+    "fabric",
+    "sqlserver"
+  ],
+  "Microsoft Entra ID: token de acceso": [
+    "azuresql",
+    "fabric",
+    "sqlserver"
+  ],
+  "Microsoft Entra ID: usuario y contraseña": [
+    "azuresql",
+    "fabric",
+    "sqlserver"
+  ],
+  "Modelo semántico": [
+    "powerbi"
+  ],
+  "Modelos semánticos": [
+    "powerbi"
+  ],
+  "Mostrar índices del sistema": [
+    "elasticsearch",
+    "opendistro",
+    "opensearch"
+  ],
+  "Necesaria si el workgroup no define una.": [
+    "athena"
+  ],
+  "Necesario para el emulador local (certificado autofirmado).": [
+    "cosmosdb"
+  ],
+  "Neptune solo acepta HTTPS; sin enableSsl la conexión va por http (un proxy o un túnel propio).": [
+    "neptune"
+  ],
+  "No verifica el certificado del servidor (autofirmado, otro nombre): la conexión queda expuesta a una suplantación. Por un túnel SSH el certificado se verifica contra 127.0.0.1, porque el cliente de MongoDB no permite indicar el nombre real del servidor.": [
+    "documentdb",
+    "ferretdb",
+    "mongodb"
+  ],
+  "No verifica el certificado del servidor (autofirmado, otro nombre): la conexión queda expuesta a una suplantación. Por un túnel SSH el certificado se verifica contra 127.0.0.1, porque el cliente de Redis no permite indicar el nombre real del servidor.": [
+    "dragonfly",
+    "redis",
+    "valkey"
+  ],
+  "No verifica el certificado del servidor (como curl --insecure).": [
+    "avatica",
+    "couchdb",
+    "iotdb",
+    "ksqldb",
+    "orientdb",
+    "phoenix",
+    "solr",
+    "tdengine",
+    "timechodb"
+  ],
+  "No verifica el certificado del servidor.": [
+    "influxdb",
+    "influxdb1",
+    "influxdb3"
+  ],
+  "Nodos": [
+    "memgraph",
+    "neo4j",
+    "neptune"
+  ],
+  "Nodos preferidos para las consultas, p. ej. datacenter1.": [
+    "cassandra",
+    "scylladb"
+  ],
+  "Nombre con el que registraste el driver ODBC de Machbase en odbcinst.ini (biblioteca libmachbasecli_dll.so; en Windows, su DLL). Viene con el paquete de Machbase (carpeta lib).": [
+    "machbase"
+  ],
+  "Nombre de la base": [
+    "oracle_adb"
+  ],
+  "Nombre de servicio": [
+    "oracle"
+  ],
+  "Nombre del driver ODBC tal como figura en el Administrador de orígenes de datos ODBC. Viene con Microsoft Access o con el Microsoft Access Database Engine (redistribuible), solo en Windows; la versión de 64 o 32 bits tiene que coincidir con la de DBine.": [
+    "access"
+  ],
+  "Nombre del driver ODBC tal como figura en el Administrador de orígenes de datos ODBC: «Microsoft Access dBASE Driver (*.dbf, *.ndx, *.mdx)» (Access Database Engine) o «Microsoft dBase Driver (*.dbf)» (el de 32 bits de Windows). Solo en Windows.": [
+    "dbase"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini (en Windows, en el Administrador de orígenes de datos ODBC). Se instala con IBM Data Server Driver for ODBC and CLI (clidriver), que se descarga de IBM Fix Central o del sitio de IBM Db2.": [
+    "db2"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini (incluye la versión, por ejemplo «Progress OpenEdge 12.8 Driver»). Es el driver DataDirect que viene con el cliente de OpenEdge (SQL Client Access o el instalador de OpenEdge). El puerto es el del broker SQL de la base (-S).": [
+    "openedge"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini (incluye la versión, por ejemplo «Teradata Database ODBC Driver 17.20»). Se descarga gratis de Teradata Downloads (Teradata Tools and Utilities o el paquete ODBC suelto).": [
+    "teradata"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini (por ejemplo «SQL Anywhere 17»). Viene con SAP SQL Anywhere o con su Client, que se descarga del sitio de SAP.": [
+    "sqlanywhere"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini («Apache Ignite 3»). Se instala con los paquetes de Ignite 3 para Windows y Linux.": [
+    "ignite3"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini («Apache Ignite»). En Windows viene como instalador .msi con Ignite; en Linux se compila y se registra libignite-odbc.so con odbcinst.": [
+    "ignite"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini («HeavyaiDriver», con libheavyaiODBC.so). Se descarga de HEAVY.AI (builds.mapd.com, con cuenta), para Windows y Linux.": [
+    "heavydb"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini («Ingres», o «Ingres XX» con otro ID de instalación). Viene con Actian Ingres, Actian Vector o su Client Runtime; en Linux se registra con iiodbcinst. Se conecta con un vnode dinámico (@servidor,tcp_ip,puerto): el puerto es el del Ingres/Net listener (21064 para la instalación II).": [
+    "ingres"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini («InterSystems ODBC35» o «InterSystems ODBC»; en Linux, libirisodbc.so). Viene con IRIS o se descarga suelto del sitio de InterSystems (WRC) o de su repositorio de drivers.": [
+    "iris"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini («InterSystems ODBC» o «InterSystems ODBC35»; en Linux, libcacheodbc.so). Viene con Caché o su cliente, desde el sitio de InterSystems (WRC).": [
+    "cache"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini («MIMER» en Windows; en Linux suele ser «mimersql», con libmimodbc.so). Viene con Mimer SQL o su cliente para Windows, Linux y macOS, desde mimer.com.": [
+    "mimer"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini («MaxDB», «SAP DB (Unicode)» o similar; bibliotecas sdbodbc / libsdbodbc). Viene con el cliente de SAP MaxDB. El servidor atiende en el X Server (puerto 7210).": [
+    "maxdb"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini («MonetDB ODBC Driver» en Windows, «MonetDB» con unixODBC). Viene con el servidor en Linux y macOS (libMonetODBC) y con un instalador aparte en Windows, desde monetdb.org.": [
+    "monetdb"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini («NetSuite Drivers 64bit» en Windows, «NetSuite ODBC Drivers 7.2» en Linux). Se descarga desde NetSuite (portlet Settings › Set Up SuiteAnalytics Connect), donde también figuran el servidor, el ID de cuenta y el ID de rol. Es de solo lectura.": [
+    "netsuite"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini («NuoDB ODBC Driver» en Windows; en Linux, libNuoODBC.so con el nombre que le des). Es el driver de código abierto de NuoDB (github.com/nuodb/nuodb-odbc), para Windows y Linux. El puerto es el del admin (AP) de NuoDB.": [
+    "nuodb"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini («OpenLink Virtuoso» u «OpenLink Virtuoso Driver» en Windows; en Linux y macOS, la biblioteca virtodbcu_r.so). Viene con Virtuoso (Open Source o Enterprise) y su cliente, desde openlinksw.com.": [
+    "virtuoso"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini («Pervasive ODBC Interface» de 64 bits, «Pervasive ODBC Client Interface» de 32). Viene con Actian Zen o su Client, para Windows, Linux y macOS, desde el sitio de Actian.": [
+    "zen"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini («SqreamODBCDriver» en Linux, con sqream_odbc64.so). Se descarga del sitio de SQream, para Linux y Windows.": [
+    "sqream"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. El driver ODBC de CUBRID (solo Windows) se descarga del sitio de CUBRID.": [
+    "cubrid"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. El driver ODBC de Exasol se descarga gratis del portal de descargas de Exasol.": [
+    "exasol"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. El driver ODBC de Ocient se pide al soporte de Ocient o se descarga de su portal de clientes.": [
+    "ocient"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. Es el mismo IBM Data Server Driver for ODBC and CLI de Db2 LUW; para z/OS hace falta además la licencia de Db2 Connect.": [
+    "db2zos"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. Opciones: FreeTDS (libre; en macOS `brew install freetds` y registrar libtdsodbc en odbcinst.ini; se usa TDS 5.0) o el driver «Adaptive Server Enterprise» del SAP ASE SDK / SDK for SAP ASE.": [
+    "sybase"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. Se usa el driver Simba de Spark (el «Databricks ODBC Driver» / «Simba Spark ODBC Driver»), que se descarga gratis; también sirve el driver de Cloudera para Hive, porque el servidor habla el protocolo de HiveServer2.": [
+    "kyuubi",
+    "spark"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. Se usa el driver de Cloudera (Simba) para Apache Hive, que se descarga gratis del sitio de Cloudera.": [
+    "hive"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. Se usa el driver de Cloudera (Simba) para Apache Hive, que se descarga gratis del sitio de Cloudera. Para Cloudera Data Warehouse o Data Hub: transporte HTTP con TLS (puerto 443) y el usuario de workload de CDP.": [
+    "cloudera"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. Se usa el driver de Cloudera (Simba) para Impala, que se descarga gratis del sitio de Cloudera.": [
+    "impala"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. Viene con GBase 8s Client SDK (CSDK), que se descarga del sitio de GBase.": [
+    "gbase8s"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. Viene con IBM Informix Client SDK (CSDK), que se descarga del sitio de IBM.": [
+    "informix"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. Viene con IBM i Access Client Solutions (paquete «Application Package» para Windows, Linux o macOS), que se descarga del sitio de IBM.": [
+    "db2i"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. Viene con el cliente de Altibase (Altibase Client), que se descarga del sitio o del GitHub de Altibase.": [
+    "altibase"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. Viene con el paquete de clientes de IBM Netezza (nz-odbc), que se descarga de IBM Fix Central.": [
+    "netezza"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. Viene con la instalación de DM (drivers/odbc) o con su cliente, que se descarga del sitio de Dameng.": [
+    "dameng"
+  ],
+  "Nombre del driver ODBC tal como figura en odbcinst.ini. Viene con los Vertica Client Drivers, que se descargan del sitio de OpenText Vertica.": [
+    "vertica"
+  ],
+  "Nombre del replica set; vacío = conexión directa al servidor.": [
+    "mongodb"
+  ],
+  "Nombre del servidor (INFORMIXSERVER)": [
+    "gbase8s",
+    "informix"
+  ],
+  "Nombre del servidor o URL completa. Si la URL no trae puerto, se usa el del campo Puerto.": [
+    "elasticsearch",
+    "opendistro",
+    "opensearch",
+    "solr"
+  ],
+  "Normal": [
+    "oracle"
+  ],
+  "Nube": [
+    "powerbi"
+  ],
+  "Nueva clase": [
+    "orientdb"
+  ],
+  "Nueva clase de aristas": [
+    "orientdb"
+  ],
+  "Nueva clase de vértices": [
+    "orientdb"
+  ],
+  "Nueva clave": [
+    "etcd"
+  ],
+  "Nueva clave con lease (TTL)": [
+    "etcd"
+  ],
+  "Nueva clave de configuración": [
+    "etcd"
+  ],
+  "Nueva colección": [
+    "couchbase",
+    "documentdb",
+    "ferretdb",
+    "mongodb",
+    "solr"
+  ],
+  "Nueva colección (script)": [
+    "solr"
+  ],
+  "Nueva colección capped": [
+    "documentdb",
+    "ferretdb",
+    "mongodb"
+  ],
+  "Nueva consulta continua": [
+    "influxdb1",
+    "iotdb",
+    "timechodb"
+  ],
+  "Nueva copia de campo (copyField)": [
+    "solr"
+  ],
+  "Nueva fuente": [
+    "materialize",
+    "risingwave"
+  ],
+  "Nueva función": [
+    "alloydb",
+    "altibase",
+    "aurora-mysql",
+    "aurora_postgres",
+    "azuresql",
+    "babelfish",
+    "cache",
+    "cassandra",
+    "clickhouse",
+    "cloudberry",
+    "cloudera",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dsql",
+    "edb",
+    "exasol",
+    "fabric",
+    "firebird",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "hana",
+    "hive",
+    "impala",
+    "informix",
+    "iris",
+    "kdb",
+    "kingbase",
+    "kyuubi",
+    "mariadb",
+    "mimer",
+    "monetdb",
+    "mysql",
+    "oceanbase",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "orientdb",
+    "phoenix",
+    "postgres",
+    "presto",
+    "redshift",
+    "singlestore",
+    "spark",
+    "sqlanywhere",
+    "sqlserver",
+    "starburst",
+    "sybase",
+    "teradata",
+    "timescaledb",
+    "trino",
+    "vertica",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "Nueva función (UDF)": [
+    "couchbase",
+    "iotdb",
+    "timechodb"
+  ],
+  "Nueva función JavaScript": [
+    "bigquery",
+    "snowflake",
+    "timeplus"
+  ],
+  "Nueva función Python": [
+    "azure_databricks",
+    "databricks"
+  ],
+  "Nueva función SQL": [
+    "azure_databricks",
+    "bigquery",
+    "databricks",
+    "snowflake"
+  ],
+  "Nueva función de tabla": [
+    "bigquery"
+  ],
+  "Nueva key": [
+    "dragonfly",
+    "redis",
+    "valkey"
+  ],
+  "Nueva lista (cola)": [
+    "dragonfly",
+    "redis",
+    "valkey"
+  ],
+  "Nueva macro": [
+    "duckdb",
+    "duckdb_files"
+  ],
+  "Nueva macro de tabla": [
+    "duckdb",
+    "duckdb_files"
+  ],
+  "Nueva plantilla de dispositivo": [
+    "iotdb",
+    "timechodb"
+  ],
+  "Nueva plantilla de índice": [
+    "elasticsearch",
+    "opendistro",
+    "opensearch"
+  ],
+  "Nueva política ILM": [
+    "elasticsearch"
+  ],
+  "Nueva política ISM": [
+    "opendistro",
+    "opensearch"
+  ],
+  "Nueva política de retención": [
+    "influxdb1"
+  ],
+  "Nueva relación": [
+    "memgraph",
+    "neo4j",
+    "neptune"
+  ],
+  "Nueva restricción": [
+    "memgraph",
+    "neo4j"
+  ],
+  "Nueva secuencia": [
+    "altibase",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dsql",
+    "duckdb",
+    "duckdb_files",
+    "firebird",
+    "gbase8s",
+    "hana",
+    "informix",
+    "ingres",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "netezza",
+    "nuodb",
+    "openedge",
+    "oracle",
+    "oracle_adb",
+    "orientdb",
+    "phoenix",
+    "snowflake",
+    "sqlanywhere",
+    "vertica"
+  ],
+  "Nueva serie temporal": [
+    "documentdb",
+    "ferretdb",
+    "mongodb"
+  ],
+  "Nueva subtabla": [
+    "tdengine"
+  ],
+  "Nueva supertabla": [
+    "tdengine"
+  ],
+  "Nueva tabla": [
+    "access",
+    "alloydb",
+    "altibase",
+    "athena",
+    "aurora-mysql",
+    "aurora_postgres",
+    "azure_databricks",
+    "azuresql",
+    "babelfish",
+    "bigquery",
+    "cache",
+    "cassandra",
+    "clickhouse",
+    "cloudberry",
+    "cloudera",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cratedb",
+    "cubrid",
+    "dameng",
+    "databend",
+    "databricks",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "doris",
+    "dremio",
+    "dsql",
+    "duckdb",
+    "duckdb_files",
+    "dynamodb",
+    "edb",
+    "exasol",
+    "fabric",
+    "firebird",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "greptimedb",
+    "h2",
+    "hana",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kdb",
+    "keyspaces",
+    "kingbase",
+    "kyuubi",
+    "libsql",
+    "machbase",
+    "manticore",
+    "mariadb",
+    "materialize",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "mysql",
+    "netezza",
+    "nuodb",
+    "oceanbase",
+    "ocient",
+    "odbc",
+    "openedge",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "phoenix",
+    "postgres",
+    "presto",
+    "redshift",
+    "risingwave",
+    "scylladb",
+    "singlestore",
+    "snowflake",
+    "spanner",
+    "spark",
+    "sqlanywhere",
+    "sqlite",
+    "sqlserver",
+    "sqream",
+    "starburst",
+    "starrocks",
+    "sybase",
+    "tdengine",
+    "teradata",
+    "tidb",
+    "timescaledb",
+    "trino",
+    "velodb",
+    "vertica",
+    "virtuoso",
+    "yellowbrick",
+    "yugabytedb",
+    "zen"
+  ],
+  "Nueva tabla (CREATE TABLE AS)": [
+    "drill"
+  ],
+  "Nueva tabla (JSON de CreateTable)": [
+    "dynamodb"
+  ],
+  "Nueva tabla agregada (CREATE TABLE AS SELECT)": [
+    "ksqldb"
+  ],
+  "Nueva tabla desde una consulta (CTAS)": [
+    "dremio"
+  ],
+  "Nueva tabla temporal": [
+    "drill"
+  ],
+  "Nueva tarea": [
+    "snowflake"
+  ],
+  "Nueva validación (validate_doc_update)": [
+    "couchdb"
+  ],
+  "Nueva vista": [
+    "access",
+    "alloydb",
+    "altibase",
+    "athena",
+    "aurora-mysql",
+    "aurora_postgres",
+    "azure_databricks",
+    "azuresql",
+    "babelfish",
+    "bigquery",
+    "cache",
+    "clickhouse",
+    "cloudberry",
+    "cloudera",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cratedb",
+    "cubrid",
+    "dameng",
+    "databend",
+    "databricks",
+    "db2",
+    "db2i",
+    "db2zos",
+    "denodo",
+    "documentdb",
+    "doris",
+    "dremio",
+    "drill",
+    "dsql",
+    "duckdb",
+    "duckdb_files",
+    "edb",
+    "exasol",
+    "fabric",
+    "ferretdb",
+    "firebird",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "greptimedb",
+    "h2",
+    "hana",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kdb",
+    "kingbase",
+    "kyuubi",
+    "libsql",
+    "machbase",
+    "mariadb",
+    "materialize",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "mongodb",
+    "mysql",
+    "netezza",
+    "nuodb",
+    "oceanbase",
+    "ocient",
+    "odbc",
+    "openedge",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "phoenix",
+    "postgres",
+    "presto",
+    "redshift",
+    "risingwave",
+    "singlestore",
+    "snowflake",
+    "spanner",
+    "spark",
+    "sqlanywhere",
+    "sqlite",
+    "sqlserver",
+    "sqream",
+    "starburst",
+    "starrocks",
+    "sybase",
+    "tdengine",
+    "teradata",
+    "tidb",
+    "timeplus",
+    "timescaledb",
+    "trino",
+    "velodb",
+    "vertica",
+    "virtuoso",
+    "yellowbrick",
+    "yugabytedb",
+    "zen"
+  ],
+  "Nueva vista (documento de diseño)": [
+    "couchdb"
+  ],
+  "Nueva vista materializada": [
+    "alloydb",
+    "aurora_postgres",
+    "azure_databricks",
+    "bigquery",
+    "cassandra",
+    "clickhouse",
+    "cloudberry",
+    "cloudera",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "databricks",
+    "edb",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "hive",
+    "kingbase",
+    "materialize",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "postgres",
+    "presto",
+    "risingwave",
+    "scylladb",
+    "snowflake",
+    "starburst",
+    "starrocks",
+    "timeplus",
+    "timescaledb",
+    "trino",
+    "yugabytedb"
+  ],
+  "Nueva vista materializada refrescable": [
+    "clickhouse"
+  ],
+  "Nueva vista segura": [
+    "snowflake"
+  ],
+  "Nuevo alias": [
+    "elasticsearch",
+    "opendistro",
+    "opensearch"
+  ],
+  "Nuevo campo": [
+    "solr"
+  ],
+  "Nuevo campo dinámico": [
+    "solr"
+  ],
+  "Nuevo conector": [
+    "ksqldb"
+  ],
+  "Nuevo contador": [
+    "dragonfly",
+    "redis",
+    "valkey"
+  ],
+  "Nuevo contenedor": [
+    "cosmosdb"
+  ],
+  "Nuevo contenedor con clave jerárquica": [
+    "cosmosdb"
+  ],
+  "Nuevo contenedor con escalado automático": [
+    "cosmosdb"
+  ],
+  "Nuevo data stream": [
+    "elasticsearch",
+    "opensearch"
+  ],
+  "Nuevo diccionario": [
+    "clickhouse",
+    "timeplus"
+  ],
+  "Nuevo dispositivo": [
+    "iotdb",
+    "timechodb"
+  ],
+  "Nuevo dominio": [
+    "dsql",
+    "firebird"
+  ],
+  "Nuevo hash con vencimiento": [
+    "dragonfly",
+    "redis",
+    "valkey"
+  ],
+  "Nuevo nodo": [
+    "memgraph",
+    "neo4j",
+    "neptune"
+  ],
+  "Nuevo paquete": [
+    "firebird",
+    "oracle",
+    "oracle_adb"
+  ],
+  "Nuevo pipeline de ingesta": [
+    "elasticsearch",
+    "opendistro",
+    "opensearch"
+  ],
+  "Nuevo procedimiento": [
+    "alloydb",
+    "altibase",
+    "aurora-mysql",
+    "aurora_postgres",
+    "azuresql",
+    "babelfish",
+    "bigquery",
+    "cache",
+    "cloudberry",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "edb",
+    "fabric",
+    "firebird",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "hana",
+    "informix",
+    "ingres",
+    "iris",
+    "kingbase",
+    "mariadb",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "mysql",
+    "netezza",
+    "nuodb",
+    "oceanbase",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "postgres",
+    "redshift",
+    "singlestore",
+    "snowflake",
+    "sqlanywhere",
+    "sqlserver",
+    "sybase",
+    "teradata",
+    "timescaledb",
+    "vertica",
+    "virtuoso",
+    "yugabytedb",
+    "zen"
+  ],
+  "Nuevo procedimiento (Java)": [
+    "openedge"
+  ],
+  "Nuevo scope con colección": [
+    "couchbase"
+  ],
+  "Nuevo script": [
+    "exasol"
+  ],
+  "Nuevo set": [
+    "dragonfly",
+    "redis",
+    "valkey"
+  ],
+  "Nuevo sink": [
+    "materialize",
+    "risingwave"
+  ],
+  "Nuevo sinónimo": [
+    "hana",
+    "oracle",
+    "oracle_adb"
+  ],
+  "Nuevo sorted set (ranking)": [
+    "dragonfly",
+    "redis",
+    "valkey"
+  ],
+  "Nuevo stream": [
+    "ksqldb",
+    "snowflake",
+    "tdengine",
+    "timeplus"
+  ],
+  "Nuevo stream con grupo de consumidores": [
+    "dragonfly",
+    "redis",
+    "valkey"
+  ],
+  "Nuevo stream derivado (CREATE STREAM AS SELECT)": [
+    "ksqldb"
+  ],
+  "Nuevo stream externo (Kafka)": [
+    "timeplus"
+  ],
+  "Nuevo tipo": [
+    "oracle",
+    "oracle_adb"
+  ],
+  "Nuevo tipo (UDT)": [
+    "cassandra",
+    "keyspaces",
+    "scylladb"
+  ],
+  "Nuevo tipo de campo": [
+    "solr"
+  ],
+  "Nuevo tipo de tabla": [
+    "hana"
+  ],
+  "Nuevo trigger": [
+    "alloydb",
+    "altibase",
+    "aurora-mysql",
+    "aurora_postgres",
+    "azuresql",
+    "babelfish",
+    "cloudberry",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "edb",
+    "firebird",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "hana",
+    "informix",
+    "iotdb",
+    "kingbase",
+    "libsql",
+    "mariadb",
+    "memgraph",
+    "mysql",
+    "oceanbase",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "postgres",
+    "sqlanywhere",
+    "sqlite",
+    "sqlserver",
+    "sybase",
+    "teradata",
+    "timechodb",
+    "timescaledb",
+    "yugabytedb"
+  ],
+  "Nuevo tópico": [
+    "tdengine"
+  ],
+  "Nuevo índice": [
+    "couchbase",
+    "documentdb",
+    "elasticsearch",
+    "ferretdb",
+    "memgraph",
+    "mongodb",
+    "neo4j",
+    "opendistro",
+    "opensearch",
+    "orientdb",
+    "phoenix"
+  ],
+  "Nuevo índice Mango": [
+    "couchdb"
+  ],
+  "Nuevo índice SAI": [
+    "cassandra"
+  ],
+  "Nuevo índice de texto completo": [
+    "neo4j"
+  ],
+  "Nuevo índice primario": [
+    "couchbase"
+  ],
+  "Nuevo índice secundario": [
+    "cassandra",
+    "scylladb"
+  ],
+  "Nuevo índice secundario global": [
+    "dynamodb"
+  ],
+  "Nuevo índice vectorial": [
+    "neo4j"
+  ],
+  "OAuth de service principal": [
+    "databricks"
+  ],
+  "OAuth de service principal de Databricks": [
+    "azure_databricks"
+  ],
+  "Obligatorio con una entidad de servicio. Vacío: el inquilino de la cuenta con la que inicies sesión.": [
+    "powerbi"
+  ],
+  "Obligatorio para la entidad de servicio. Con los demás métodos, opcional: sin él vale el inquilino de la cuenta.": [
+    "azuresql",
+    "fabric",
+    "sqlserver"
+  ],
+  "Opcional con el wallet. Sin wallet (TLS), pegá la cadena de conexión TLS de la consola.": [
+    "oracle_adb"
+  ],
+  "Opcional, con TLS: el certificado raíz que firma el del servidor.": [
+    "mariadb",
+    "oceanbase"
+  ],
+  "Opcional, para el monitor: el endpoint del DataNode (dn_metric_reporter_list=PROMETHEUS). Vacío = se prueba el puerto 9092 del mismo servidor.": [
+    "iotdb",
+    "timechodb"
+  ],
+  "Opcional, para el monitor: la interfaz web del Master de HBase (su /jmx). Vacío = el mismo host, puerto 16010.": [
+    "phoenix"
+  ],
+  "Opcional, para el monitor: si los nombres que informa el Master no resuelven desde esta máquina.": [
+    "phoenix"
+  ],
+  "Opcional. Reemplaza servidor, puerto y servicio. Acepta un descriptor completo, una cadena Easy Connect (host:puerto/servicio) o un alias de tnsnames.ora.": [
+    "oracle"
+  ],
+  "Opcional: el certificado del servidor o la CA que lo firmó (PEM o DER), además de los del sistema.": [
+    "babelfish",
+    "sqlserver"
+  ],
+  "Opcional: el nombre que tiene que figurar en el certificado, si no es el del servidor.": [
+    "azuresql",
+    "babelfish",
+    "sqlserver"
+  ],
+  "Opcional: la CA que firmó el certificado del servidor, en PEM.": [
+    "altibase",
+    "avatica",
+    "cloudera",
+    "db2",
+    "db2zos",
+    "flightsql",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "influxdb3",
+    "iotdb",
+    "ksqldb",
+    "kyuubi",
+    "monetdb",
+    "openedge",
+    "phoenix",
+    "spark",
+    "sqlanywhere",
+    "teradata",
+    "timechodb"
+  ],
+  "Opcional: la cuenta con la que se inicia sesión. Las conexiones sin usuario de la misma nube, inquilino y aplicación comparten una sola cuenta: para usar otra, escribila acá.": [
+    "powerbi"
+  ],
+  "Opcional: la cuenta de gcloud que pide el token. Vacía: la activa en gcloud (gcloud auth login), las credenciales predeterminadas de la aplicación o la cuenta de servicio de la máquina.": [
+    "alloydb",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "mysql",
+    "postgres"
+  ],
+  "Opcional: nombre del tenant cuando el puerto es el de SYSTEMDB (3<instancia>13).": [
+    "hana"
+  ],
+  "Opcional: nombre o ID. Con muchas áreas de trabajo conviene indicar una: listar todas pide una llamada por área.": [
+    "powerbi"
+  ],
+  "Opcional: sin él vale el inquilino de la cuenta de az login.": [
+    "mysql",
+    "postgres"
+  ],
+  "Opcional: un perfil de ~/.aws/config (también con SSO o credential_process). Vacío: las variables AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, AWS_PROFILE o el perfil default.": [
+    "aurora-mysql",
+    "aurora_postgres",
+    "mariadb",
+    "mysql",
+    "postgres"
+  ],
+  "Optional (TLS solo en el inicio de sesión, sin verificar)": [
+    "sqlserver"
+  ],
+  "Optional (sin TLS)": [
+    "babelfish"
+  ],
+  "Organización": [
+    "influxdb"
+  ],
+  "PREFERRED (TLS si el servidor lo ofrece, sin verificar)": [
+    "aurora-mysql",
+    "cloudsql-mysql",
+    "databend",
+    "doris",
+    "greptimedb",
+    "manticore",
+    "mysql",
+    "singlestore",
+    "starrocks",
+    "tidb",
+    "velodb"
+  ],
+  "Paquetes": [
+    "firebird",
+    "oracle",
+    "oracle_adb"
+  ],
+  "Par de claves (JWT)": [
+    "snowflake"
+  ],
+  "Para emuladores locales como DynamoDB Local, que hablan http:// sin TLS. Vacío = el endpoint de AWS de la región, siempre por https con el certificado verificado.": [
+    "dynamodb"
+  ],
+  "Para emuladores locales, que hablan http:// sin TLS ni autenticación. Vacío = la API de Google, siempre por https con el certificado verificado.": [
+    "bigquery",
+    "spanner"
+  ],
+  "Para mTLS: la carpeta del wallet descomprimido (tnsnames.ora y ewallet.pem); podés elegir cualquier archivo de adentro. Vacío si la base acepta TLS sin wallet.": [
+    "oracle_adb"
+  ],
+  "Para verificar el servidor: el global-bundle.pem de AWS (RDS).": [
+    "aurora_postgres",
+    "redshift"
+  ],
+  "Para verificar el servidor: el server-ca.pem de la instancia (consola de Cloud SQL).": [
+    "cloudsql_postgres"
+  ],
+  "Para verificar el servidor: la CA del clúster (gcloud alloydb clusters describe).": [
+    "alloydb"
+  ],
+  "Perfil": [
+    "athena",
+    "dsql",
+    "dynamodb",
+    "neptune"
+  ],
+  "Perfil de AWS": [
+    "aurora-mysql",
+    "aurora_postgres",
+    "mariadb",
+    "mysql",
+    "postgres"
+  ],
+  "Perfil de ~/.aws": [
+    "athena",
+    "dsql",
+    "dynamodb",
+    "neptune"
+  ],
+  "Permitir TLS antiguo (1.0/1.1) para servidores viejos": [
+    "sqlserver"
+  ],
+  "Perspectivas": [
+    "powerbi"
+  ],
+  "Prefer": [
+    "teradata"
+  ],
+  "Prefijo de claves": [
+    "etcd"
+  ],
+  "Probar como usuario (RLS)": [
+    "powerbi"
+  ],
+  "Probar con roles (RLS)": [
+    "powerbi"
+  ],
+  "Procedimientos": [
+    "alloydb",
+    "altibase",
+    "aurora-mysql",
+    "aurora_postgres",
+    "azuresql",
+    "babelfish",
+    "bigquery",
+    "cache",
+    "cloudberry",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "edb",
+    "exasol",
+    "fabric",
+    "firebird",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "hana",
+    "informix",
+    "ingres",
+    "iris",
+    "kingbase",
+    "mariadb",
+    "maxdb",
+    "memgraph",
+    "mimer",
+    "monetdb",
+    "mysql",
+    "neo4j",
+    "netezza",
+    "nuodb",
+    "oceanbase",
+    "odbc",
+    "openedge",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "postgres",
+    "redshift",
+    "singlestore",
+    "snowflake",
+    "sqlanywhere",
+    "sqlserver",
+    "sybase",
+    "teradata",
+    "timescaledb",
+    "vertica",
+    "virtuoso",
+    "yugabytedb",
+    "zen"
+  ],
+  "Propia (Client ID)": [
+    "powerbi"
+  ],
+  "Protobuf": [
+    "avatica"
+  ],
+  "Protobuf (predeterminada)": [
+    "phoenix"
+  ],
+  "Protocolo de consultas": [
+    "alloydb",
+    "aurora_postgres",
+    "cloudberry",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cratedb",
+    "denodo",
+    "edb",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "h2",
+    "kingbase",
+    "materialize",
+    "opengauss",
+    "postgres",
+    "redshift",
+    "risingwave",
+    "timescaledb",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "Puerto": [
+    "alloydb",
+    "altibase",
+    "aurora-mysql",
+    "aurora_postgres",
+    "avatica",
+    "azuresql",
+    "babelfish",
+    "cache",
+    "cassandra",
+    "clickhouse",
+    "cloudberry",
+    "cloudera",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "couchbase",
+    "couchdb",
+    "cratedb",
+    "cubrid",
+    "dameng",
+    "databend",
+    "db2",
+    "db2zos",
+    "denodo",
+    "documentdb",
+    "doris",
+    "dragonfly",
+    "dremio",
+    "drill",
+    "dsql",
+    "edb",
+    "elasticsearch",
+    "etcd",
+    "exasol",
+    "fabric",
+    "ferretdb",
+    "firebird",
+    "flightsql",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "greptimedb",
+    "h2",
+    "hana",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "influxdb",
+    "influxdb1",
+    "influxdb3",
+    "informix",
+    "ingres",
+    "iotdb",
+    "iris",
+    "kdb",
+    "keyspaces",
+    "kingbase",
+    "ksqldb",
+    "kyuubi",
+    "machbase",
+    "manticore",
+    "mariadb",
+    "materialize",
+    "memgraph",
+    "mimer",
+    "monetdb",
+    "mongodb",
+    "mysql",
+    "neo4j",
+    "neptune",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "oceanbase",
+    "ocient",
+    "opendistro",
+    "openedge",
+    "opengauss",
+    "opensearch",
+    "oracle",
+    "orientdb",
+    "phoenix",
+    "postgres",
+    "presto",
+    "redis",
+    "redshift",
+    "risingwave",
+    "scylladb",
+    "singlestore",
+    "solr",
+    "spark",
+    "sqlanywhere",
+    "sqlserver",
+    "sqream",
+    "starburst",
+    "starrocks",
+    "sybase",
+    "tdengine",
+    "teradata",
+    "tidb",
+    "timechodb",
+    "timeplus",
+    "timescaledb",
+    "trino",
+    "valkey",
+    "velodb",
+    "vertica",
+    "virtuoso",
+    "yellowbrick",
+    "yugabytedb",
+    "zen"
+  ],
+  "Puerto HTTP de Dremio (la API REST).": [
+    "dremio"
+  ],
+  "Puerto HTTP de un drillbit.": [
+    "drill"
+  ],
+  "Puerto REST de taosAdapter.": [
+    "tdengine"
+  ],
+  "Puerto de administración": [
+    "couchbase"
+  ],
+  "Pública (api.powerbi.com)": [
+    "powerbi"
+  ],
+  "REQUIRED (TLS sin verificar el certificado)": [
+    "aurora-mysql",
+    "cloudsql-mysql",
+    "databend",
+    "doris",
+    "greptimedb",
+    "manticore",
+    "mysql",
+    "singlestore",
+    "starrocks",
+    "tidb",
+    "velodb"
+  ],
+  "RegionServers de HBase": [
+    "phoenix"
+  ],
+  "Región": [
+    "athena",
+    "dsql",
+    "dynamodb",
+    "neptune"
+  ],
+  "Región (datacenter)": [
+    "keyspaces"
+  ],
+  "Región de AWS": [
+    "aurora-mysql",
+    "aurora_postgres",
+    "mariadb",
+    "mysql",
+    "postgres"
+  ],
+  "Región de los jobs (US, EU, southamerica-east1…). Vacía = la del dataset.": [
+    "bigquery"
+  ],
+  "Relaciones": [
+    "memgraph",
+    "neo4j",
+    "neptune",
+    "powerbi"
+  ],
+  "Replica set": [
+    "documentdb",
+    "mongodb"
+  ],
+  "Require": [
+    "teradata"
+  ],
+  "Restricciones": [
+    "memgraph",
+    "neo4j"
+  ],
+  "Rol": [
+    "firebird",
+    "oracle",
+    "snowflake"
+  ],
+  "Rol de base de datos": [
+    "dsql"
+  ],
+  "Roles (RLS)": [
+    "powerbi"
+  ],
+  "Roles separados por comas (solo executeDaxQueries).": [
+    "powerbi"
+  ],
+  "Ruta HTTP (HTTPPath)": [
+    "cloudera"
+  ],
+  "Ruta del administrador de controladores ODBC (libodbc.2.dylib, libodbc.so.2 u odbc32.dll), solo si no se encuentra en las rutas habituales.": [
+    "access",
+    "altibase",
+    "cache",
+    "cloudera",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "exasol",
+    "gbase8s",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kyuubi",
+    "machbase",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "ocient",
+    "odbc",
+    "openedge",
+    "spark",
+    "sqlanywhere",
+    "sqream",
+    "sybase",
+    "teradata",
+    "vertica",
+    "virtuoso",
+    "zen"
+  ],
+  "Ruta del archivo en el servidor o alias de databases.conf.": [
+    "firebird"
+  ],
+  "Ruta del servidor": [
+    "avatica"
+  ],
+  "SQL Server (usuario y contraseña)": [
+    "azuresql",
+    "sqlserver"
+  ],
+  "SQL warehouse": [
+    "azure_databricks",
+    "databricks"
+  ],
+  "STRICT comprueba que el nombre del servidor figure en su certificado; NONE solo verifica la cadena.": [
+    "avatica",
+    "phoenix"
+  ],
+  "Se agregan al final de la cadena de conexión ODBC y reemplazan a los del mismo nombre (TLS, timeouts, juego de caracteres, Kerberos o seguridad integrada de Windows…).": [
+    "access",
+    "altibase",
+    "cache",
+    "cloudera",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "exasol",
+    "gbase8s",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kyuubi",
+    "machbase",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "ocient",
+    "openedge",
+    "spark",
+    "sqlanywhere",
+    "sqream",
+    "sybase",
+    "teradata",
+    "vertica",
+    "virtuoso",
+    "zen"
+  ],
+  "Se ignora si se completa el descriptor de conexión.": [
+    "oracle"
+  ],
+  "Se usa tal cual y tiene prioridad sobre el DSN. Se guarda en el llavero porque suele llevar la contraseña.": [
+    "odbc"
+  ],
+  "Secret access key": [
+    "athena",
+    "dsql",
+    "dynamodb",
+    "neptune"
+  ],
+  "Secreto de la aplicación": [
+    "azuresql",
+    "fabric",
+    "sqlserver"
+  ],
+  "Secreto del cliente": [
+    "powerbi"
+  ],
+  "Secuencias": [
+    "alloydb",
+    "altibase",
+    "aurora_postgres",
+    "azuresql",
+    "cloudberry",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cubrid",
+    "dameng",
+    "databend",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dsql",
+    "duckdb",
+    "edb",
+    "firebird",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "h2",
+    "hana",
+    "informix",
+    "ingres",
+    "kingbase",
+    "mariadb",
+    "mimer",
+    "monetdb",
+    "netezza",
+    "oceanbase",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "orientdb",
+    "phoenix",
+    "postgres",
+    "snowflake",
+    "spanner",
+    "sqlanywhere",
+    "sqlserver",
+    "tidb",
+    "timescaledb",
+    "vertica",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "Serialización": [
+    "avatica",
+    "phoenix"
+  ],
+  "Service principal de Microsoft Entra ID": [
+    "azure_databricks"
+  ],
+  "Servicio": [
+    "oracle_adb",
+    "sqream"
+  ],
+  "Servicio / SID": [
+    "oracle"
+  ],
+  "Servicio de Kerberos": [
+    "mongodb"
+  ],
+  "Servicio de consultas: 8093; con TLS, 18093.": [
+    "couchbase"
+  ],
+  "Servidor": [
+    "alloydb",
+    "altibase",
+    "aurora-mysql",
+    "aurora_postgres",
+    "avatica",
+    "azuresql",
+    "babelfish",
+    "cache",
+    "cassandra",
+    "clickhouse",
+    "cloudberry",
+    "cloudera",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "couchbase",
+    "couchdb",
+    "cratedb",
+    "cubrid",
+    "dameng",
+    "databend",
+    "db2",
+    "db2i",
+    "db2zos",
+    "denodo",
+    "documentdb",
+    "doris",
+    "dragonfly",
+    "dremio",
+    "drill",
+    "edb",
+    "elasticsearch",
+    "etcd",
+    "exasol",
+    "fabric",
+    "ferretdb",
+    "firebird",
+    "flightsql",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "greptimedb",
+    "h2",
+    "hana",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "influxdb",
+    "influxdb1",
+    "influxdb3",
+    "informix",
+    "ingres",
+    "iotdb",
+    "iris",
+    "kdb",
+    "keyspaces",
+    "kingbase",
+    "ksqldb",
+    "kyuubi",
+    "machbase",
+    "manticore",
+    "mariadb",
+    "materialize",
+    "maxdb",
+    "memgraph",
+    "mimer",
+    "monetdb",
+    "mongodb",
+    "mysql",
+    "neo4j",
+    "neptune",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "oceanbase",
+    "ocient",
+    "opendistro",
+    "openedge",
+    "opengauss",
+    "opensearch",
+    "oracle",
+    "orientdb",
+    "phoenix",
+    "postgres",
+    "presto",
+    "redis",
+    "redshift",
+    "risingwave",
+    "scylladb",
+    "singlestore",
+    "solr",
+    "spark",
+    "sqlanywhere",
+    "sqlserver",
+    "sqream",
+    "starburst",
+    "starrocks",
+    "sybase",
+    "tdengine",
+    "teradata",
+    "tidb",
+    "timechodb",
+    "timeplus",
+    "timescaledb",
+    "trino",
+    "valkey",
+    "velodb",
+    "vertica",
+    "virtuoso",
+    "yellowbrick",
+    "yugabytedb",
+    "zen"
+  ],
+  "Servidor o URL (https://… para InfluxDB Cloud).": [
+    "influxdb"
+  ],
+  "Servidor o URL del servicio REST (enable_rest_service=true).": [
+    "iotdb",
+    "timechodb"
+  ],
+  "Servidor o URL.": [
+    "influxdb3"
+  ],
+  "Session token": [
+    "athena",
+    "dsql",
+    "dynamodb",
+    "neptune"
+  ],
+  "Si el servidor es una URL (http://… o https://…), manda su esquema.": [
+    "influxdb",
+    "influxdb3"
+  ],
+  "Si está apagado, los cambios esperan un COMMIT explícito.": [
+    "firebird",
+    "oracle",
+    "oracle_adb"
+  ],
+  "Si se completa, reemplaza a los demás campos.": [
+    "documentdb",
+    "ferretdb"
+  ],
+  "Si se completa, reemplaza a los demás campos. Sirve también para Azure Cosmos DB (API de MongoDB) y MongoDB Atlas.": [
+    "mongodb"
+  ],
+  "Si se completa, se agrega como PWD.": [
+    "odbc"
+  ],
+  "Si se completa, se agrega como UID.": [
+    "odbc"
+  ],
+  "Si se deja vacía, se toma la del perfil o de AWS_REGION.": [
+    "athena",
+    "dsql",
+    "dynamodb",
+    "neptune"
+  ],
+  "Si tu inquilino todavía no aprobó la aplicación de DBine, el cliente de Azure CLI suele estar permitido.": [
+    "powerbi"
+  ],
+  "Sinks": [
+    "materialize",
+    "risingwave"
+  ],
+  "Sinónimos": [
+    "altibase",
+    "azuresql",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "edb",
+    "gbase8s",
+    "hana",
+    "informix",
+    "ingres",
+    "kingbase",
+    "mimer",
+    "netezza",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "sqlserver"
+  ],
+  "Solo con ACL (Redis 6 o superior); vacío = default.": [
+    "dragonfly",
+    "redis",
+    "valkey"
+  ],
+  "Solo con TLS: el servidor rechaza contraseñas por HTTP.": [
+    "presto",
+    "starburst",
+    "trino"
+  ],
+  "Solo executeDaxQueries.": [
+    "powerbi"
+  ],
+  "Solo lectura": [
+    "access",
+    "alloydb",
+    "altibase",
+    "athena",
+    "aurora-mysql",
+    "aurora_postgres",
+    "avatica",
+    "azure_databricks",
+    "azuresql",
+    "babelfish",
+    "bigquery",
+    "cache",
+    "cassandra",
+    "clickhouse",
+    "cloudberry",
+    "cloudera",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cosmosdb",
+    "couchbase",
+    "couchdb",
+    "cratedb",
+    "cubrid",
+    "dameng",
+    "databend",
+    "databricks",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "denodo",
+    "documentdb",
+    "doris",
+    "dragonfly",
+    "dremio",
+    "drill",
+    "dsql",
+    "duckdb",
+    "duckdb_files",
+    "dynamodb",
+    "edb",
+    "elasticsearch",
+    "etcd",
+    "exasol",
+    "fabric",
+    "ferretdb",
+    "firebird",
+    "flightsql",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "greptimedb",
+    "h2",
+    "hana",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "influxdb",
+    "influxdb1",
+    "influxdb3",
+    "informix",
+    "ingres",
+    "iotdb",
+    "iris",
+    "kdb",
+    "keyspaces",
+    "kingbase",
+    "ksqldb",
+    "kyuubi",
+    "libsql",
+    "machbase",
+    "manticore",
+    "mariadb",
+    "materialize",
+    "maxdb",
+    "memgraph",
+    "mimer",
+    "monetdb",
+    "mongodb",
+    "mysql",
+    "neo4j",
+    "neptune",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "oceanbase",
+    "ocient",
+    "odbc",
+    "opendistro",
+    "openedge",
+    "opengauss",
+    "opensearch",
+    "oracle",
+    "oracle_adb",
+    "orientdb",
+    "phoenix",
+    "postgres",
+    "powerbi",
+    "presto",
+    "redis",
+    "redshift",
+    "risingwave",
+    "scylladb",
+    "singlestore",
+    "snowflake",
+    "solr",
+    "spanner",
+    "spark",
+    "sqlanywhere",
+    "sqlite",
+    "sqlserver",
+    "sqream",
+    "starburst",
+    "starrocks",
+    "sybase",
+    "tdengine",
+    "teradata",
+    "tidb",
+    "timechodb",
+    "timeplus",
+    "timescaledb",
+    "trino",
+    "valkey",
+    "velodb",
+    "vertica",
+    "virtuoso",
+    "yellowbrick",
+    "yugabytedb",
+    "zen"
+  ],
+  "Solo para credenciales temporales.": [
+    "athena",
+    "dsql",
+    "dynamodb",
+    "neptune"
+  ],
+  "Solo protocolo simple": [
+    "alloydb",
+    "aurora_postgres",
+    "cloudberry",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cratedb",
+    "denodo",
+    "edb",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "h2",
+    "kingbase",
+    "materialize",
+    "opengauss",
+    "postgres",
+    "redshift",
+    "risingwave",
+    "timescaledb",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "Solo si Drill tiene autenticación; sin ella, el usuario se ignora.": [
+    "drill"
+  ],
+  "Solo si la autenticación de etcd está habilitada.": [
+    "etcd"
+  ],
+  "Streams": [
+    "ksqldb",
+    "snowflake",
+    "tdengine",
+    "timeplus"
+  ],
+  "Su certificado nombra la instancia, no la IP: verify-ca con la CA de la instancia en sslrootcert. Con el Auth Proxy en 127.0.0.1, disable: el proxy ya cifra la conexión.": [
+    "alloydb",
+    "cloudsql_postgres"
+  ],
+  "Subtablas": [
+    "tdengine"
+  ],
+  "Supertablas": [
+    "tdengine"
+  ],
+  "Sólo este archivo": [
+    "duckdb_files"
+  ],
+  "TCPS cifra la conexión y verifica el certificado del servidor (el listener suele atenderlo en el puerto 2484); TCP no cifra (puerto 1521). Con un descriptor de conexión manda su propio PROTOCOL. Por un túnel SSH el certificado se verifica contra 127.0.0.1: el cliente de Oracle no permite indicar el nombre real del servidor.": [
+    "oracle"
+  ],
+  "Tablas": [
+    "access",
+    "alloydb",
+    "altibase",
+    "athena",
+    "aurora-mysql",
+    "aurora_postgres",
+    "avatica",
+    "azure_databricks",
+    "azuresql",
+    "babelfish",
+    "bigquery",
+    "cache",
+    "cassandra",
+    "clickhouse",
+    "cloudberry",
+    "cloudera",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cratedb",
+    "cubrid",
+    "dameng",
+    "databend",
+    "databricks",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "denodo",
+    "doris",
+    "dremio",
+    "drill",
+    "dsql",
+    "duckdb",
+    "duckdb_files",
+    "dynamodb",
+    "edb",
+    "exasol",
+    "fabric",
+    "firebird",
+    "flightsql",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "greptimedb",
+    "h2",
+    "hana",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "influxdb3",
+    "informix",
+    "ingres",
+    "iris",
+    "kdb",
+    "keyspaces",
+    "kingbase",
+    "ksqldb",
+    "kyuubi",
+    "libsql",
+    "machbase",
+    "manticore",
+    "mariadb",
+    "materialize",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "mysql",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "oceanbase",
+    "ocient",
+    "odbc",
+    "openedge",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "phoenix",
+    "postgres",
+    "powerbi",
+    "presto",
+    "redshift",
+    "risingwave",
+    "scylladb",
+    "singlestore",
+    "snowflake",
+    "spanner",
+    "spark",
+    "sqlanywhere",
+    "sqlite",
+    "sqlserver",
+    "sqream",
+    "starburst",
+    "starrocks",
+    "sybase",
+    "tdengine",
+    "teradata",
+    "tidb",
+    "timeplus",
+    "timescaledb",
+    "trino",
+    "velodb",
+    "vertica",
+    "virtuoso",
+    "yellowbrick",
+    "yugabytedb",
+    "zen"
+  ],
+  "Tablas particionadas": [
+    "kdb"
+  ],
+  "Tablas splayed": [
+    "kdb"
+  ],
+  "Tablas virtuales": [
+    "libsql",
+    "sqlite"
+  ],
+  "Tareas": [
+    "snowflake"
+  ],
+  "Tenant ID (Entra ID)": [
+    "azure_databricks"
+  ],
+  "Tiempo máximo de consulta (s)": [
+    "powerbi"
+  ],
+  "Tipos": [
+    "alloydb",
+    "aurora_postgres",
+    "azuresql",
+    "babelfish",
+    "cassandra",
+    "cloudberry",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "dameng",
+    "db2",
+    "db2zos",
+    "dsql",
+    "duckdb",
+    "edb",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "hana",
+    "keyspaces",
+    "kingbase",
+    "materialize",
+    "mimer",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "postgres",
+    "scylladb",
+    "sqlserver",
+    "timescaledb",
+    "yugabytedb"
+  ],
+  "Todo el texto de una vez": [
+    "access",
+    "altibase",
+    "cache",
+    "cloudera",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "exasol",
+    "gbase8s",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kyuubi",
+    "machbase",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "ocient",
+    "odbc",
+    "openedge",
+    "spark",
+    "sqlanywhere",
+    "sqream",
+    "sybase",
+    "teradata",
+    "vertica",
+    "virtuoso",
+    "zen"
+  ],
+  "Token": [
+    "azure_databricks",
+    "flightsql",
+    "influxdb",
+    "influxdb3",
+    "libsql"
+  ],
+  "Token (PAT)": [
+    "snowflake"
+  ],
+  "Token bearer en lugar de usuario y contraseña (InfluxDB 3, Dremio PAT…).": [
+    "flightsql"
+  ],
+  "Token de Microsoft Entra ID": [
+    "azure_databricks"
+  ],
+  "Token de acceso": [
+    "azuresql",
+    "fabric",
+    "powerbi",
+    "sqlserver"
+  ],
+  "Token de acceso personal": [
+    "azure_databricks",
+    "databricks",
+    "dremio"
+  ],
+  "Token de acceso programático (PAT)": [
+    "snowflake"
+  ],
+  "Topics": [
+    "ksqldb"
+  ],
+  "Triggers": [
+    "alloydb",
+    "aurora-mysql",
+    "aurora_postgres",
+    "azuresql",
+    "babelfish",
+    "cloudberry",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "edb",
+    "firebird",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "hana",
+    "kingbase",
+    "libsql",
+    "mariadb",
+    "memgraph",
+    "mysql",
+    "oceanbase",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "postgres",
+    "sqlite",
+    "sqlserver",
+    "timescaledb",
+    "yugabytedb"
+  ],
+  "Truststore": [
+    "netsuite",
+    "openedge"
+  ],
+  "Turso: turso db show <base> --url. Para un archivo local usá la conexión SQLite.": [
+    "libsql"
+  ],
+  "Turso: turso db tokens create <base>. Vacío si el servidor no pide autenticación.": [
+    "libsql"
+  ],
+  "Tópicos": [
+    "tdengine"
+  ],
+  "URL de la base": [
+    "libsql"
+  ],
+  "URL de métricas (Prometheus)": [
+    "iotdb",
+    "timechodb"
+  ],
+  "Ubicación": [
+    "bigquery"
+  ],
+  "Ubicación (location)": [
+    "db2zos"
+  ],
+  "Ubicación de resultados": [
+    "athena"
+  ],
+  "Un PEM con el certificado y su clave privada (PKCS#8, con o sin contraseña), o un PFX / PKCS#12. La clave tiene que ser RSA. El certificado sin la clave se sube en Certificados y secretos del registro de la aplicación.": [
+    "powerbi"
+  ],
+  "Un host o una URI bolt://servidor:7687 (bolt+s:// con TLS).": [
+    "memgraph"
+  ],
+  "Un host o una URI: neo4j+s://xxxx.databases.neo4j.io (Aura), bolt://servidor:7687.": [
+    "neo4j"
+  ],
+  "Un nombre de host o una URL completa (https://servidor:2480).": [
+    "orientdb"
+  ],
+  "Un nombre de host o una URL completa (https://servidor:6984).": [
+    "couchdb"
+  ],
+  "Un origen de datos definido en odbc.ini (o en el Administrador de orígenes de datos ODBC de Windows). Dejalo vacío si usás una cadena de conexión.": [
+    "odbc"
+  ],
+  "Un token para Power BI de la nube elegida. DBine no lo renueva: cuando vence hay que pegar otro.": [
+    "powerbi"
+  ],
+  "Un token para https://database.windows.net/ (por ejemplo, de `az account get-access-token --resource https://database.windows.net/`). Vence en una hora.": [
+    "azuresql",
+    "fabric",
+    "sqlserver"
+  ],
+  "Una URL escrita en el servidor usa su propio esquema (http:// o https://).": [
+    "couchdb",
+    "elasticsearch",
+    "opendistro",
+    "opensearch",
+    "orientdb",
+    "solr"
+  ],
+  "Una aplicación cliente pública con permisos delegados de Power BI y la URI de redirección http://localhost.": [
+    "powerbi"
+  ],
+  "Una consulta EMIT CHANGES se corta al llegar al máximo de filas o a este tiempo.": [
+    "ksqldb"
+  ],
+  "Una sentencia por vez (separadas por ;)": [
+    "access",
+    "altibase",
+    "cache",
+    "cloudera",
+    "cubrid",
+    "dameng",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "exasol",
+    "gbase8s",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kyuubi",
+    "machbase",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "ocient",
+    "odbc",
+    "openedge",
+    "spark",
+    "sqlanywhere",
+    "sqream",
+    "sybase",
+    "teradata",
+    "vertica",
+    "virtuoso",
+    "zen"
+  ],
+  "Uno o más nodos de contacto, separados por comas.": [
+    "cassandra",
+    "scylladb"
+  ],
+  "Usuario": [
+    "alloydb",
+    "altibase",
+    "aurora-mysql",
+    "aurora_postgres",
+    "avatica",
+    "azuresql",
+    "babelfish",
+    "cache",
+    "cassandra",
+    "clickhouse",
+    "cloudberry",
+    "cloudera",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "couchbase",
+    "couchdb",
+    "cratedb",
+    "cubrid",
+    "dameng",
+    "databend",
+    "db2",
+    "db2i",
+    "db2zos",
+    "denodo",
+    "documentdb",
+    "doris",
+    "dragonfly",
+    "dremio",
+    "drill",
+    "edb",
+    "elasticsearch",
+    "etcd",
+    "exasol",
+    "fabric",
+    "ferretdb",
+    "firebird",
+    "flightsql",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "greptimedb",
+    "h2",
+    "hana",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "influxdb1",
+    "informix",
+    "ingres",
+    "iotdb",
+    "iris",
+    "kdb",
+    "keyspaces",
+    "kingbase",
+    "ksqldb",
+    "kyuubi",
+    "machbase",
+    "manticore",
+    "mariadb",
+    "materialize",
+    "maxdb",
+    "memgraph",
+    "mimer",
+    "monetdb",
+    "mongodb",
+    "mysql",
+    "neo4j",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "oceanbase",
+    "ocient",
+    "odbc",
+    "opendistro",
+    "openedge",
+    "opengauss",
+    "opensearch",
+    "oracle",
+    "oracle_adb",
+    "orientdb",
+    "phoenix",
+    "postgres",
+    "powerbi",
+    "presto",
+    "redis",
+    "redshift",
+    "risingwave",
+    "scylladb",
+    "singlestore",
+    "snowflake",
+    "solr",
+    "spark",
+    "sqlanywhere",
+    "sqlserver",
+    "sqream",
+    "starburst",
+    "starrocks",
+    "sybase",
+    "tdengine",
+    "teradata",
+    "tidb",
+    "timechodb",
+    "timeplus",
+    "timescaledb",
+    "trino",
+    "valkey",
+    "velodb",
+    "vertica",
+    "virtuoso",
+    "yellowbrick",
+    "yugabytedb",
+    "zen"
+  ],
+  "Usuario de las credenciales específicas del servicio (IAM → Credenciales de Amazon Keyspaces).": [
+    "keyspaces"
+  ],
+  "Usuario y contraseña": [
+    "alloydb",
+    "aurora-mysql",
+    "aurora_postgres",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "mariadb",
+    "mongodb",
+    "mysql",
+    "postgres"
+  ],
+  "VERIFY_CA (verifica la CA de ssl-ca, no el nombre)": [
+    "aurora-mysql",
+    "cloudsql-mysql",
+    "databend",
+    "doris",
+    "greptimedb",
+    "manticore",
+    "mysql",
+    "singlestore",
+    "starrocks",
+    "tidb",
+    "velodb"
+  ],
+  "VERIFY_IDENTITY (verifica la CA y el nombre)": [
+    "aurora-mysql",
+    "cloudsql-mysql",
+    "databend",
+    "doris",
+    "greptimedb",
+    "manticore",
+    "mysql",
+    "singlestore",
+    "starrocks",
+    "tidb",
+    "velodb"
+  ],
+  "Vacía: se toma del endpoint (….us-east-1.rds.amazonaws.com), de AWS_REGION o del perfil.": [
+    "aurora-mysql",
+    "aurora_postgres",
+    "mariadb",
+    "mysql",
+    "postgres"
+  ],
+  "Vacío o :memory: abre una base en memoria.": [
+    "duckdb"
+  ],
+  "Vacío si el proceso no pide usuario (sin -u ni -U).": [
+    "kdb"
+  ],
+  "Vacío si el servidor corre sin autenticación.": [
+    "influxdb3"
+  ],
+  "Valor de CUSTOMDATA()": [
+    "powerbi"
+  ],
+  "Variables": [
+    "kdb"
+  ],
+  "Varios miembros separados por coma: host1:27017,host2:27017.": [
+    "documentdb",
+    "ferretdb",
+    "mongodb"
+  ],
+  "VeloDB Cloud exige TLS en los endpoints públicos.": [
+    "velodb"
+  ],
+  "Ventas Norte, Ventas Sur": [
+    "powerbi"
+  ],
+  "Verifica el certificado del servidor: la CA y el nombre del servidor.": [
+    "hana"
+  ],
+  "Verifica la cadena del certificado y que sea del nodo: su IP o el nombre escrito en Servidor.": [
+    "cassandra",
+    "keyspaces",
+    "scylladb"
+  ],
+  "Vertica": [
+    "vertica"
+  ],
+  "Vistas": [
+    "access",
+    "alloydb",
+    "altibase",
+    "athena",
+    "aurora-mysql",
+    "aurora_postgres",
+    "avatica",
+    "azure_databricks",
+    "azuresql",
+    "babelfish",
+    "bigquery",
+    "cache",
+    "clickhouse",
+    "cloudberry",
+    "cloudera",
+    "cloudsql-mysql",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "couchdb",
+    "cratedb",
+    "cubrid",
+    "dameng",
+    "databend",
+    "databricks",
+    "db2",
+    "db2i",
+    "db2zos",
+    "dbase",
+    "denodo",
+    "documentdb",
+    "doris",
+    "dremio",
+    "drill",
+    "dsql",
+    "duckdb",
+    "edb",
+    "exasol",
+    "fabric",
+    "ferretdb",
+    "firebird",
+    "flightsql",
+    "fujitsu",
+    "gbase8s",
+    "greengage",
+    "greenplum",
+    "greptimedb",
+    "h2",
+    "hana",
+    "heavydb",
+    "hive",
+    "ignite",
+    "ignite3",
+    "impala",
+    "informix",
+    "ingres",
+    "iris",
+    "kdb",
+    "kingbase",
+    "kyuubi",
+    "libsql",
+    "machbase",
+    "mariadb",
+    "materialize",
+    "maxdb",
+    "mimer",
+    "monetdb",
+    "mongodb",
+    "mysql",
+    "netezza",
+    "netsuite",
+    "nuodb",
+    "oceanbase",
+    "ocient",
+    "odbc",
+    "openedge",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "phoenix",
+    "postgres",
+    "presto",
+    "redshift",
+    "risingwave",
+    "singlestore",
+    "snowflake",
+    "spanner",
+    "spark",
+    "sqlanywhere",
+    "sqlite",
+    "sqlserver",
+    "sqream",
+    "starburst",
+    "starrocks",
+    "sybase",
+    "tdengine",
+    "teradata",
+    "tidb",
+    "timeplus",
+    "timescaledb",
+    "trino",
+    "velodb",
+    "vertica",
+    "virtuoso",
+    "yellowbrick",
+    "yugabytedb",
+    "zen"
+  ],
+  "Vistas materializadas": [
+    "alloydb",
+    "aurora_postgres",
+    "azure_databricks",
+    "bigquery",
+    "cassandra",
+    "clickhouse",
+    "cloudberry",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "databricks",
+    "edb",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "kingbase",
+    "materialize",
+    "opengauss",
+    "oracle",
+    "oracle_adb",
+    "postgres",
+    "presto",
+    "risingwave",
+    "scylladb",
+    "snowflake",
+    "starburst",
+    "starrocks",
+    "timeplus",
+    "timescaledb",
+    "trino",
+    "yugabytedb"
+  ],
+  "Vértices": [
+    "orientdb"
+  ],
+  "Wallet (carpeta descomprimida)": [
+    "oracle_adb"
+  ],
+  "Warehouse": [
+    "snowflake"
+  ],
+  "Windows: usuario actual": [
+    "sqlserver"
+  ],
+  "Windows: usuario actual entra con la sesión de Windows o, en macOS y Linux, con el ticket de Kerberos (kinit usuario@DOMINIO). Entra ID interactivo abre el navegador y admite MFA; con usuario y contraseña no hay MFA. La integrada usa la sesión de Windows (o el ticket de Kerberos) con el ADFS de la organización. La identidad administrada solo funciona si DBine corre en Azure. La predeterminada prueba, en orden, las variables AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET, la identidad administrada, Azure CLI (az login) y Azure Developer CLI (azd auth login).": [
+    "sqlserver"
+  ],
+  "Windows: usuario y contraseña de dominio": [
+    "sqlserver"
+  ],
+  "Workgroup": [
+    "athena"
+  ],
+  "Workspace": [
+    "azure_databricks",
+    "databricks"
+  ],
+  "Zona IANA en la que se muestran las fechas (p. ej. America/Argentina/Buenos_Aires).": [
+    "tdengine"
+  ],
+  "Zona horaria": [
+    "tdengine"
+  ],
+  "bolt+s cifra y verifica el certificado; bolt+ssc cifra sin verificarlo; bolt no cifra. Un esquema escrito en el servidor (neo4j+s://…) tiene prioridad.": [
+    "memgraph",
+    "neo4j"
+  ],
+  "certificado.pem o .pfx": [
+    "powerbi"
+  ],
+  "contoso.onmicrosoft.com o GUID": [
+    "powerbi"
+  ],
+  "database: mibase": [
+    "flightsql"
+  ],
+  "disable (sin TLS)": [
+    "alloydb",
+    "aurora_postgres",
+    "cloudberry",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cratedb",
+    "denodo",
+    "edb",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "kingbase",
+    "materialize",
+    "opengauss",
+    "postgres",
+    "redshift",
+    "risingwave",
+    "timescaledb",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "executeDaxQueries (Arrow, capacidad Premium o Fabric)": [
+    "powerbi"
+  ],
+  "executeQueries (JSON, cualquier licencia)": [
+    "powerbi"
+  ],
+  "high (máxima prioridad, paralelo)": [
+    "oracle_adb"
+  ],
+  "libsql://mibase-miorg.turso.io o http://localhost:8080": [
+    "libsql"
+  ],
+  "localhost o https://mi-cluster:9200": [
+    "elasticsearch",
+    "opendistro",
+    "opensearch"
+  ],
+  "localhost o https://mi-solr:8983": [
+    "solr"
+  ],
+  "low (más concurrencia)": [
+    "oracle_adb"
+  ],
+  "onsocssl verifica el certificado con el almacén de claves del cliente (SSL_KEYSTORE_FILE en conssl.cfg).": [
+    "gbase8s",
+    "informix"
+  ],
+  "prefer (TLS si el servidor lo ofrece, sin verificar)": [
+    "alloydb",
+    "aurora_postgres",
+    "cloudberry",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cratedb",
+    "denodo",
+    "edb",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "kingbase",
+    "materialize",
+    "opengauss",
+    "postgres",
+    "redshift",
+    "risingwave",
+    "timescaledb",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "require (TLS sin verificar el certificado)": [
+    "alloydb",
+    "aurora_postgres",
+    "cloudberry",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cratedb",
+    "denodo",
+    "edb",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "kingbase",
+    "materialize",
+    "opengauss",
+    "postgres",
+    "redshift",
+    "risingwave",
+    "timescaledb",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "rs0 para conectarse al cluster; vacío = conexión directa a la instancia (útil con un túnel SSH).": [
+    "documentdb"
+  ],
+  "tp (transaccional, ATP)": [
+    "oracle_adb"
+  ],
+  "verify-ca (verifica la CA, no el nombre)": [
+    "alloydb",
+    "aurora_postgres",
+    "cloudberry",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cratedb",
+    "denodo",
+    "edb",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "kingbase",
+    "materialize",
+    "opengauss",
+    "postgres",
+    "redshift",
+    "risingwave",
+    "timescaledb",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "verify-ca y verify-full necesitan el root.crt de la CA en el cliente.": [
+    "vertica"
+  ],
+  "verify-full (verifica la CA y el nombre)": [
+    "alloydb",
+    "aurora_postgres",
+    "cloudberry",
+    "cloudsql_postgres",
+    "cockroachdb",
+    "cratedb",
+    "denodo",
+    "edb",
+    "fujitsu",
+    "greengage",
+    "greenplum",
+    "kingbase",
+    "materialize",
+    "opengauss",
+    "postgres",
+    "redshift",
+    "risingwave",
+    "timescaledb",
+    "yellowbrick",
+    "yugabytedb"
+  ],
+  "«system» usa los certificados del sistema; en Linux, la ruta del archivo .cer de NetSuite.": [
+    "netsuite"
+  ],
+  "«true» si te conectás al balanceador de carga (puerto 3108); «false» para un worker directo (puerto 5000).": [
+    "sqream"
+  ],
+  "Árbol de claves con prefijo": [
+    "etcd"
+  ],
+  "Área de trabajo": [
+    "powerbi"
+  ],
+  "Índice de la base lógica (0–15 en una instalación estándar).": [
+    "dragonfly",
+    "redis",
+    "valkey"
+  ],
+  "Índices": [
+    "couchbase",
+    "elasticsearch",
+    "memgraph",
+    "neo4j",
+    "opendistro",
+    "opensearch",
+    "orientdb"
+  ],
+  "Índices secundarios": [
+    "dynamodb"
+  ]
+}

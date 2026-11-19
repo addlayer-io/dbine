@@ -868,3 +868,5 @@ backend:Viewer
 backend:Write
 lint.json:groups.dax
 optimizer.json:rules.dax_selectedvalue.title
+backend:DRIVER={ODBC Driver 18 for SQL Server};SERVER=host,1433;UID=usuario;PWD=…
+backend:database: mibase

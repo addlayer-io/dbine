@@ -480,3 +480,4 @@ backend:Referencia cultural
 lint.json:groups.dax
 optimizer.json:rules.dax_selectedvalue.title
 editor.json:tableHover.format
+backend:Servicio / SID

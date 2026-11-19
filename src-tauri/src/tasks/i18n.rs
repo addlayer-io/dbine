@@ -361,4 +361,107 @@ mod tests {
             matches!(split_placeholders("{x} {12}")[..], [Part::Text(_), Part::Value(ref n)] if n == "12")
         );
     }
+
+    /// Every text a driver puts on screen (the connection form's labels,
+    /// help, placeholders and options, the explorer's folders, the create
+    /// menu and the designer) is in every UI language's catalog, which the UI
+    /// translates them with (tb()). Otherwise it shows in Spanish: Power BI's
+    /// "DBine (predeterminada)" or SQL Server's "Microsoft Entra ID:
+    /// interactivo (MFA)" did in 1.6.3, because extract_backend.py's Spanish
+    /// heuristic can't find texts like these (short, built with concat!(), or
+    /// without a Spanish-looking word).
+    ///
+    /// The texts are read from the drivers' real manifests into
+    /// web/src/locales/driver.msgids.json, which extract_backend.py merges
+    /// into backend.msgids.json; `DBINE_WRITE_DRIVER_TEXTS=1` rewrites it.
+    /// Product names and examples, shown as written in every language, are
+    /// listed in scripts/i18n/driver_texts_as_is.txt.
+    #[test]
+    fn every_driver_text_is_in_every_catalog() {
+        use dbine_driver::{Driver, FieldKind};
+        use std::collections::{BTreeMap, BTreeSet, HashSet};
+
+        let as_is: HashSet<&str> = include_str!("../../../scripts/i18n/driver_texts_as_is.txt")
+            .lines()
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect();
+        // A lone host, path, id or number stays as written; a single word
+        // with a capital ("Tablas") is a label.
+        let code_like = |s: &str| {
+            let spanish = s.chars().any(|c| "áéíóúñÁÉÍÓÚÑ¿¡".contains(c));
+            let mut chars = s.chars();
+            let label = chars.next().is_some_and(char::is_uppercase)
+                && s.chars().count() >= 3
+                && chars.all(char::is_lowercase);
+            // A PEM header or a JSON example (BigQuery's key file) is code
+            // too: not listed as is, where secret scanners take them for a
+            // real key.
+            let snippet = (s.starts_with("-----") && s.ends_with("-----")) || s.starts_with('{');
+            snippet || (!s.contains(char::is_whitespace) && !spanish && !label)
+        };
+        let mut texts: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for d in dbine_drivers::all() {
+            let info = d.info();
+            let mut shown = vec![info.databases_label];
+            for f in &info.fields {
+                shown.extend([f.label, f.help, f.placeholder]);
+                if let FieldKind::Select(options) = &f.kind {
+                    shown.extend(options.iter().map(|(_, label)| *label));
+                }
+            }
+            shown.extend(info.object_kinds.iter().map(|k| k.label));
+            shown.extend(Driver::create_templates(d.as_ref()).iter().map(|t| t.label));
+            shown.extend(Driver::designer(d.as_ref()).map(|s| s.label));
+            for s in shown {
+                // A line break is written `\n` in the list.
+                if s.chars().any(char::is_alphabetic)
+                    && !code_like(s)
+                    && !as_is.contains(s.replace('\n', "\\n").as_str())
+                {
+                    texts
+                        .entry(s.to_string())
+                        .or_default()
+                        .insert(info.id.to_string());
+                }
+            }
+        }
+        assert!(
+            texts.len() > 300,
+            "the drivers' texts weren't read: {}",
+            texts.len()
+        );
+
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../web/src/locales/driver.msgids.json");
+        if std::env::var_os("DBINE_WRITE_DRIVER_TEXTS").is_some() {
+            std::fs::write(&path, serde_json::to_string_pretty(&texts).unwrap() + "\n").unwrap();
+        }
+        let listed: BTreeMap<String, BTreeSet<String>> =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(
+            listed == texts,
+            "web/src/locales/driver.msgids.json is out of date: rewrite it with \
+             DBINE_WRITE_DRIVER_TEXTS=1 cargo test -p dbine --lib every_driver_text, then run \
+             scripts/i18n/extract_backend.py and translate what's new"
+        );
+
+        let mut missing = Vec::new();
+        for (lang, _) in CATALOGS {
+            let c = catalog(lang).expect(lang);
+            for (text, ids) in &texts {
+                if !c.exact.contains_key(text) {
+                    let ids: Vec<_> = ids.iter().map(String::as_str).collect();
+                    missing.push(format!("{lang}: {text:?} ({})", ids.join(", ")));
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "{} driver texts without a translation: translate them in web/src/locales/<lang>/backend.json \
+             (python3 scripts/i18n/check.py lists them), or list a product name or an example in \
+             scripts/i18n/driver_texts_as_is.txt:\n{}",
+            missing.len(),
+            missing.join("\n")
+        );
+    }
 }
