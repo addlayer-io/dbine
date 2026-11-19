@@ -22,6 +22,86 @@ use dbine_driver::TableSchema;
 
 pub struct Oracle;
 
+/// Most dimensions of a `VECTOR`.
+const MAX_VECTOR_DIMS: u32 = 65535;
+
+/// `VECTOR(n, FLOAT32)`, `VECTOR(*, INT8)`, `VECTOR(n, FLOAT32, SPARSE)`…
+fn render_vector(t: &L) -> Rendered {
+    use dbine_driver::VectorElement as E;
+    use IssueCode::*;
+    use Severity::*;
+    let L::Vector {
+        dims,
+        element,
+        sparse,
+    } = t
+    else {
+        return Rendered::exact("VECTOR(*, *)");
+    };
+    let mut notes: Vec<(Severity, IssueCode, String)> = Vec::new();
+    let mut format = match element {
+        E::F32 => "FLOAT32",
+        E::F64 => "FLOAT64",
+        E::I8 => "INT8",
+        E::Bit => "BINARY",
+        E::F16 | E::Bf16 => {
+            notes.push((
+                Info,
+                TypeChanged,
+                format!("{}: como FLOAT32 (sin pérdida).", t.describe()),
+            ));
+            "FLOAT32"
+        }
+        E::U8 | E::Other => {
+            notes.push((
+                Info,
+                TypeChanged,
+                format!("{}: como FLOAT32.", t.describe()),
+            ));
+            "FLOAT32"
+        }
+    };
+    let dims = match dims {
+        Some(n) if *n > MAX_VECTOR_DIMS => {
+            notes.push((
+                Warning,
+                TypeApproximated,
+                format!("Oracle admite vectores de hasta {MAX_VECTOR_DIMS} dimensiones: queda sin dimensión fija (*)."),
+            ));
+            "*".to_string()
+        }
+        Some(n) => {
+            // BINARY packs 8 dimensions per byte.
+            if format == "BINARY" && n % 8 != 0 {
+                notes.push((
+                    Info,
+                    TypeChanged,
+                    "Un vector BINARY de Oracle tiene una cantidad de dimensiones múltiplo de 8: queda como INT8.".to_string(),
+                ));
+                format = "INT8";
+            }
+            n.to_string()
+        }
+        None => "*".to_string(),
+    };
+    let native = if *sparse {
+        if format == "BINARY" {
+            notes.push((
+                Info,
+                TypeChanged,
+                "Oracle no tiene vectores BINARY dispersos: queda FLOAT32.".to_string(),
+            ));
+            format = "FLOAT32";
+        }
+        format!("VECTOR({dims}, {format}, SPARSE)")
+    } else {
+        format!("VECTOR({dims}, {format})")
+    };
+    notes
+        .into_iter()
+        .fold(Rendered::exact(native), |r, (s, c, m)| r.with(s, c, m))
+}
+
 /// Longest VARCHAR2 with the default `MAX_STRING_SIZE = STANDARD`, in bytes.
 const MAX_VARCHAR2: u32 = 4000;
 /// Longest CHAR, in bytes.
@@ -118,6 +198,21 @@ impl Dialect for Oracle {
             },
             "boolean" => L::Bool,
             "json" => L::Json { binary: true },
+            // 23ai: `VECTOR(dims|*, FLOAT32|FLOAT64|INT8|BINARY|*, DENSE|SPARSE)`.
+            "vector" => {
+                use dbine_driver::VectorElement as E;
+                let arg = |i: usize| t.args.get(i).map(|a| a.trim().to_ascii_uppercase());
+                L::Vector {
+                    dims: p(0),
+                    element: match arg(1).as_deref() {
+                        Some("FLOAT64") => E::F64,
+                        Some("INT8") => E::I8,
+                        Some("BINARY") => E::Bit,
+                        _ => E::F32,
+                    },
+                    sparse: arg(2).as_deref() == Some("SPARSE"),
+                }
+            }
             "xmltype" | "sys.xmltype" => L::Xml,
             "sdo_geometry" | "mdsys.sdo_geometry" => L::Geometry {
                 kind: None,
@@ -144,7 +239,7 @@ impl Dialect for Oracle {
         use IssueCode::*;
         use Severity::*;
         match t {
-            L::Vector { .. } => super::vector_fallback(self, t),
+            L::Vector { .. } => render_vector(t),
             L::Bool => Rendered::exact("NUMBER(1)").with(Info, TypeChanged, "Booleano como NUMBER(1) (Oracle recién tiene BOOLEAN desde 23ai)."),
             L::Int { bytes, unsigned } => {
                 let digits = match (bytes, unsigned) {
@@ -255,6 +350,60 @@ impl Dialect for Oracle {
             DefaultValue::Text(s) if s.is_empty() => Some("NULL".into()),
             other => standard_default(other, ty, "SYSTIMESTAMP", Some("SYS_GUID()"), true),
         }
+    }
+
+    /// `CREATE VECTOR INDEX … ORGANIZATION INMEMORY NEIGHBOR GRAPH` (HNSW)
+    /// or `NEIGHBOR PARTITIONS` (IVF); another family's graph index
+    /// (DiskANN, HNSW variants) becomes HNSW, its list index IVF.
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        use dbine_driver::vector::{metric, param};
+        let algorithm = match v
+            .algorithm
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
+            Some("ivf" | "ivfflat" | "ivf_flat" | "ivf_pq" | "ivf_sq") => "ivf",
+            _ => "hnsw",
+        };
+        let m = v.metric.as_deref().map(str::to_ascii_lowercase);
+        let metric = match m.as_deref() {
+            None => None,
+            Some(
+                x @ (metric::COSINE
+                | metric::L2
+                | metric::IP
+                | metric::L1
+                | metric::HAMMING
+                | metric::JACCARD),
+            ) => Some(x.to_string()),
+            Some("euclidean") => Some(metric::L2.into()),
+            Some("dot" | "inner_product") => Some(metric::IP.into()),
+            Some("manhattan") => Some(metric::L1.into()),
+            Some(other) => return Err(format!("Oracle no tiene la distancia «{other}»")),
+        };
+        let keep: &[&str] = if algorithm == "hnsw" {
+            &[param::M, param::EF_CONSTRUCTION, "target_accuracy"]
+        } else {
+            &[param::LISTS, "target_accuracy"]
+        };
+        let params = v
+            .params
+            .iter()
+            .filter(|(k, _)| keep.contains(&k.as_str()))
+            .map(|(k, x)| (k.clone(), x.clone()))
+            .collect();
+        Ok((
+            Some("VECTOR".into()),
+            dbine_driver::VectorIndex {
+                algorithm: Some(algorithm.into()),
+                metric,
+                params,
+            },
+        ))
     }
 
     fn caps(&self) -> Caps {
@@ -527,5 +676,87 @@ mod tests {
             )
             .unwrap()
             .starts_with("LOWER("));
+    }
+
+    #[test]
+    fn vectors_round_trip() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        let v = |dims, element, sparse| L::Vector {
+            dims,
+            element,
+            sparse,
+        };
+        assert_eq!(ty("VECTOR(3, FLOAT32)"), v(Some(3), E::F32, false));
+        assert_eq!(ty("VECTOR(*, *)"), v(None, E::F32, false));
+        assert_eq!(ty("VECTOR(16, BINARY)"), v(Some(16), E::Bit, false));
+        assert_eq!(ty("VECTOR(5, FLOAT32, SPARSE)"), v(Some(5), E::F32, true));
+        assert_eq!(ty("VECTOR(2, FLOAT64)"), v(Some(2), E::F64, false));
+        for native in [
+            "VECTOR(3, FLOAT32)",
+            "VECTOR(16, BINARY)",
+            "VECTOR(4, INT8)",
+            "VECTOR(2, FLOAT64)",
+            "VECTOR(5, FLOAT32, SPARSE)",
+            "VECTOR(*, FLOAT32)",
+        ] {
+            assert_eq!(Oracle.render_type(&ty(native)).native, native);
+        }
+        // pgvector's vector(3), halfvec(3), bit(12), sparsevec(5).
+        assert_eq!(
+            Oracle.render_type(&v(Some(3), E::F32, false)).native,
+            "VECTOR(3, FLOAT32)"
+        );
+        let half = Oracle.render_type(&v(Some(3), E::F16, false));
+        assert_eq!(half.native, "VECTOR(3, FLOAT32)");
+        assert!(!half.notes.is_empty());
+        assert_eq!(
+            Oracle.render_type(&v(Some(12), E::Bit, false)).native,
+            "VECTOR(12, INT8)"
+        );
+        assert_eq!(
+            Oracle.render_type(&v(Some(5), E::F32, true)).native,
+            "VECTOR(5, FLOAT32, SPARSE)"
+        );
+        // Indexes: HNSW and IVF keep their parameters; other graphs become HNSW.
+        let hnsw = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("ip".into()),
+            params: [
+                ("m".to_string(), "16".to_string()),
+                ("ef_construction".to_string(), "64".to_string()),
+                ("lists".to_string(), "9".to_string()),
+            ]
+            .into(),
+        };
+        let (kind, m) = Oracle.vector_index(&hnsw).unwrap();
+        assert_eq!(kind.as_deref(), Some("VECTOR"));
+        assert_eq!(m.algorithm.as_deref(), Some("hnsw"));
+        assert_eq!(m.params.len(), 2);
+        let ivf = VectorIndex {
+            algorithm: Some("ivfflat".into()),
+            metric: Some("l2".into()),
+            params: [("lists".to_string(), "100".to_string())].into(),
+        };
+        let (_, m) = Oracle.vector_index(&ivf).unwrap();
+        assert_eq!(m.algorithm.as_deref(), Some("ivf"));
+        assert_eq!(m.params.get("lists").map(String::as_str), Some("100"));
+        let diskann = VectorIndex {
+            algorithm: Some("diskann".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            Oracle
+                .vector_index(&diskann)
+                .unwrap()
+                .1
+                .algorithm
+                .as_deref(),
+            Some("hnsw")
+        );
+        let odd = VectorIndex {
+            metric: Some("chebyshev".into()),
+            ..Default::default()
+        };
+        assert!(Oracle.vector_index(&odd).is_err());
     }
 }
