@@ -10,7 +10,8 @@
 //!   cargo test -p dbine-transfer --test clone_vectors_pg -- --ignored --nocapture --test-threads 1
 //! ```
 //!
-//! Each makes the schema `clonevec` (dropped first and at the end).
+//! Each makes the database `dbine_clonevec` (dropped first and at the end,
+//! also when the test fails), and in it the schema `clonevec`.
 
 use dbine_driver::{ConnectionConfig, ObjectRef, QueryOutcome, Session};
 use dbine_transfer::clone_table::{
@@ -20,12 +21,21 @@ use dbine_transfer::Endpoints;
 use std::sync::Arc;
 
 const SCHEMA: &str = "clonevec";
+/// The database each test makes and drops.
+const DB: &str = "dbine_clonevec";
 
+/// Endpoints on the database of `url`.
 fn endpoints(driver: &str, url: &str) -> Arc<ConfigEndpoints> {
+    endpoints_on(driver, url, None)
+}
+
+/// Endpoints on `database`, or the one `url` names.
+fn endpoints_on(driver: &str, url: &str, database: Option<&str>) -> Arc<ConfigEndpoints> {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     let (auth, hostport) = rest.rsplit_once('@').unwrap();
     let (user, pass) = auth.split_once(':').unwrap_or((auth, ""));
     let (hostport, db) = hostport.split_once('/').unwrap_or((hostport, "postgres"));
+    let db = database.unwrap_or(db);
     let (host, port) = hostport.rsplit_once(':').unwrap();
     let config = ConnectionConfig {
         driver: driver.into(),
@@ -136,6 +146,48 @@ async fn clone_round_trip(e: Arc<ConfigEndpoints>, setup: &str, drop: &str) {
     }
 }
 
+/// `DROP DATABASE` of [`DB`] on the server of `url` (CockroachDB's with
+/// CASCADE, PostgreSQL's forcing the sessions out).
+async fn drop_db(driver: &str, url: &str, cockroach: bool) {
+    let admin = endpoints(driver, url);
+    let Ok(mut s) = admin.open_target().await else {
+        return;
+    };
+    let sql = if cockroach {
+        format!("DROP DATABASE IF EXISTS {DB} CASCADE")
+    } else {
+        format!("DROP DATABASE IF EXISTS {DB} WITH (FORCE)")
+    };
+    let mut out = QueryOutcome::default();
+    if let Err(e) = s.execute(&sql, 0, &mut out).await {
+        eprintln!("cleanup: {e}");
+    } else if let Some(e) = out.error {
+        eprintln!("cleanup: {e}");
+    }
+}
+
+/// [`clone_round_trip`] in a database of its own on the server of `url`,
+/// dropped first and at the end, also when it fails.
+async fn in_own_database(driver: &str, url: &str, cockroach: bool, setup: &str) {
+    drop_db(driver, url, cockroach).await;
+    {
+        let admin = endpoints(driver, url);
+        let mut s = admin.open_target().await.unwrap();
+        rows(&mut *s, &format!("CREATE DATABASE {DB}")).await;
+    }
+    let e = endpoints_on(driver, url, Some(DB));
+    let res = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(clone_round_trip(
+        e,
+        setup,
+        &format!("DROP SCHEMA IF EXISTS {SCHEMA} CASCADE"),
+    )))
+    .await;
+    drop_db(driver, url, cockroach).await;
+    if let Err(p) = res {
+        std::panic::resume_unwind(p);
+    }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore]
 async fn pgvector_clone_keeps_vectors() {
@@ -143,7 +195,6 @@ async fn pgvector_clone_keeps_vectors() {
         eprintln!("DBINE_TEST_PGVECTOR_URL not set; skipping");
         return;
     };
-    let e = endpoints("postgres", &url);
     let setup = format!(
         "CREATE EXTENSION IF NOT EXISTS vector; CREATE SCHEMA {SCHEMA};
          CREATE TABLE {SCHEMA}.items (id int PRIMARY KEY, v vector(3), h halfvec(3), s sparsevec(5));
@@ -153,12 +204,7 @@ async fn pgvector_clone_keeps_vectors() {
          CREATE INDEX items_q ON {SCHEMA}.items USING hnsw ((binary_quantize(v)::bit(3)) bit_hamming_ops);
          INSERT INTO {SCHEMA}.items VALUES (1, '[1,2.5,-3]', '[1,2,3]', '{{1:1}}/5'), (2, '[0,1,0]', '[0,1,0]', '{{2:2}}/5');"
     );
-    clone_round_trip(
-        e,
-        &setup,
-        &format!("DROP SCHEMA IF EXISTS {SCHEMA} CASCADE"),
-    )
-    .await;
+    in_own_database("postgres", &url, false, &setup).await;
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -168,7 +214,6 @@ async fn cockroach_clone_keeps_vectors() {
         eprintln!("DBINE_TEST_COCKROACH_URL not set; skipping");
         return;
     };
-    let e = endpoints("cockroachdb", &url);
     let setup = format!(
         "CREATE SCHEMA {SCHEMA};
          CREATE TABLE {SCHEMA}.items (id INT8 PRIMARY KEY, uid INT8, v VECTOR(3));
@@ -176,10 +221,5 @@ async fn cockroach_clone_keeps_vectors() {
          CREATE VECTOR INDEX items_uv ON {SCHEMA}.items (uid, v) WITH (min_partition_size = 16);
          INSERT INTO {SCHEMA}.items VALUES (1, 7, '[1,2.5,-3]'), (2, 8, '[0,1,0]');"
     );
-    clone_round_trip(
-        e,
-        &setup,
-        &format!("DROP SCHEMA IF EXISTS {SCHEMA} CASCADE"),
-    )
-    .await;
+    in_own_database("cockroachdb", &url, true, &setup).await;
 }

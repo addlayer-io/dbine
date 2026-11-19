@@ -12,6 +12,8 @@
 //! Others: `DBINE_TEST_TIMESCALE_HA_URL` (pgvector + pgvectorscale),
 //! `DBINE_TEST_YUGABYTE_URL`, `DBINE_TEST_RISINGWAVE_URL`,
 //! `DBINE_TEST_CLOUDBERRY_URL`, `DBINE_TEST_OPENGAUSS_URL`.
+//! `transfers_with_pgvector_siblings` moves rows between pgvector and each
+//! of TimescaleDB, YugabyteDB and RisingWave whose URL is set.
 //!
 //! Each one makes a table with vector columns and a vector index from a
 //! `TableSchema` (as the designer does), inserts rows with
@@ -1231,6 +1233,158 @@ async fn transfers_between_engines() {
         drop_named(&*crdbd, &crdbc, true, X).await;
         if let Ok(mut c) = crated.connect(&cratec, None).await {
             let _ = try_run(&mut c, &format!("DROP TABLE IF EXISTS {X}.dst")).await;
+        }
+    };
+    guarded(body, cleanup).await;
+}
+
+/// Where a sibling keeps the test's tables: a database of its own, or a
+/// schema (RisingWave).
+#[derive(Clone, Copy, PartialEq)]
+enum Home {
+    Database,
+    Schema,
+}
+
+/// pgvector → `id` → pgvector for TimescaleDB, YugabyteDB (pgvector there
+/// too: COPY both ways) and RisingWave (`vector(n)`, INSERTs into it):
+/// every vector arrives whole each way. Each sibling is skipped without its
+/// URL; what each makes is dropped first and at the end.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn transfers_with_pgvector_siblings() {
+    let Ok(pg_url) = std::env::var("DBINE_TEST_PGVECTOR_URL") else {
+        eprintln!("DBINE_TEST_PGVECTOR_URL not set; skipping");
+        return;
+    };
+    for (id, env, home, halfvec) in [
+        (
+            "timescaledb",
+            "DBINE_TEST_TIMESCALE_HA_URL",
+            Home::Database,
+            true,
+        ),
+        (
+            "yugabytedb",
+            "DBINE_TEST_YUGABYTE_URL",
+            Home::Database,
+            true,
+        ),
+        (
+            "risingwave",
+            "DBINE_TEST_RISINGWAVE_URL",
+            Home::Schema,
+            false,
+        ),
+    ] {
+        let Ok(url) = std::env::var(env) else {
+            eprintln!("{env} not set; skipping {id}");
+            continue;
+        };
+        sibling_round_trip(&pg_url, id, &url, home, halfvec).await;
+    }
+}
+
+async fn sibling_round_trip(pg_url: &str, id: &str, url: &str, home: Home, halfvec: bool) {
+    const X: &str = "dbine_vec_s";
+    let (pgd, od) = (driver("postgres"), driver(id));
+    let (pgc, oc) = (parse_url("postgres", pg_url), parse_url(id, url));
+    let mut pg = fresh_named(&*pgd, &pgc, false, X).await;
+    let schema = match home {
+        Home::Database => "public",
+        Home::Schema => X,
+    };
+    let drop_schema = format!("DROP SCHEMA IF EXISTS {X} CASCADE");
+    let mut other = match home {
+        Home::Database => fresh_named(&*od, &oc, false, X).await,
+        Home::Schema => {
+            let mut s = od.connect(&oc, None).await.expect("connect");
+            run(&mut s, &drop_schema).await;
+            run(&mut s, &format!("CREATE SCHEMA {X}")).await;
+            s
+        }
+    };
+    let body = async {
+        run(&mut pg, "CREATE EXTENSION IF NOT EXISTS vector").await;
+        if home == Home::Database {
+            run(&mut other, "CREATE EXTENSION IF NOT EXISTS vector").await;
+        }
+        let mut columns = vec![col("id", "integer", false), col("v", "vector(3)", true)];
+        let mut cols = vec!["id", "v"];
+        if halfvec {
+            columns.push(col("h", "halfvec(3)", true));
+            cols.push("h");
+        }
+        for name in ["src", "back"] {
+            let t = table("public", name, columns.clone(), vec![]);
+            run(&mut pg, &pgd.table_ddl(&t, ALL).unwrap()).await;
+        }
+        let dst = table(schema, "dst", columns.clone(), vec![]);
+        run(&mut other, &od.table_ddl(&dst, ALL).unwrap()).await;
+        let values = if halfvec {
+            "(1, '[1,2.5,-3]', '[1,2,3]'), (2, '[0.125,-0,1e-3]', '[0.5,0,1]'), (3, NULL, NULL)"
+        } else {
+            "(1, '[1,2.5,-3]'), (2, '[0.125,-0,1e-3]'), (3, NULL)"
+        };
+        run(&mut pg, &format!("INSERT INTO public.src VALUES {values}")).await;
+        let mut pg2 = pgd.connect(&pgc, Some(X)).await.unwrap();
+        let mut other2 = match home {
+            Home::Database => od.connect(&oc, Some(X)).await.unwrap(),
+            Home::Schema => od.connect(&oc, None).await.unwrap(),
+        };
+        let announced = transfer(
+            &mut pg,
+            &obj("public", "src"),
+            &*od,
+            &mut other,
+            &obj(schema, "dst"),
+            &cols,
+        )
+        .await;
+        assert_eq!(announced[1].type_name, "vector(3)", "{id}");
+        if home == Home::Schema {
+            run(&mut other, "FLUSH").await;
+        }
+        // On the sibling: the vectors as they were sent, read as vectors.
+        let out = run(
+            &mut other,
+            &format!("SELECT id, v FROM {schema}.dst ORDER BY id"),
+        )
+        .await;
+        let r = &out.results[0];
+        assert_eq!(
+            r.columns[1].vector,
+            Some(VectorMeta::dense(Some(3), VectorElement::F32)),
+            "{id}"
+        );
+        assert_eq!(r.rows[0][1], json!("[1,2.5,-3]"), "{id}");
+        let announced = transfer(
+            &mut other2,
+            &obj(schema, "dst"),
+            &*pgd,
+            &mut pg2,
+            &obj("public", "back"),
+            &cols,
+        )
+        .await;
+        assert_eq!(announced[1].type_name, "vector(3)", "{id}");
+        let list = cols.join(", ");
+        let diff = cells(&mut pg, &format!("SELECT count(*) FROM (SELECT {list} FROM public.src EXCEPT SELECT {list} FROM public.back) x")).await;
+        assert_eq!(diff, [[Some("0".to_string())]], "{id}");
+        let n = cells(&mut pg, "SELECT count(*) FROM public.back").await;
+        assert_eq!(n, [[Some("3".to_string())]], "{id}");
+    };
+    let cleanup = async {
+        drop_named(&*pgd, &pgc, false, X).await;
+        match home {
+            Home::Database => drop_named(&*od, &oc, false, X).await,
+            Home::Schema => {
+                if let Ok(mut c) = od.connect(&oc, None).await {
+                    if let Err(e) = try_run(&mut c, &drop_schema).await {
+                        eprintln!("cleanup: {e}");
+                    }
+                }
+            }
         }
     };
     guarded(body, cleanup).await;
