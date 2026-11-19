@@ -213,10 +213,11 @@ pub fn policy_index(kind: &str, n: usize, entry: &Value) -> IndexDef {
     }
 }
 
-/// The indexing policy entry of a spatial, full-text or vector index.
-fn policy_entry(i: &IndexDef) -> Value {
+/// The indexing policy entry of a spatial, full-text or vector index of
+/// `t`.
+fn policy_entry(t: &TableSchema, i: &IndexDef) -> Value {
     if crate::vector::is_vector(i) {
-        return crate::vector::entry(i);
+        return crate::vector::entry(i, crate::vector::field_dims(t, i));
     }
     let mut e = Map::new();
     e.insert(
@@ -272,7 +273,7 @@ pub fn container_body(t: &TableSchema, indexes: bool) -> Result<Value> {
                 )));
             }
             if let Some(list) = policy_list(i) {
-                lists.push((list, policy_entry(i)));
+                lists.push((list, policy_entry(t, i)));
             } else if is_composite(i) {
                 if i.columns.len() < 2 {
                     return Err(Error::Query(format!(

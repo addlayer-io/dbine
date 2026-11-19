@@ -360,20 +360,68 @@ pub fn compared_metric(m: Option<&str>) -> String {
     }
 }
 
-/// What the container's vector policy writes otherwise than the design
-/// asks (a squared euclidean distance as euclidean), for the script.
-pub fn notes(t: &TableSchema) -> Vec<String> {
-    t.indexes
+/// Most dimensions a `flat` vector index takes (`quantizedFlat` and
+/// `diskANN` take more).
+pub const FLAT_MAX_DIMS: u32 = 505;
+
+/// The dimension of the vector field `i` indexes, from its type.
+pub fn field_dims(t: &TableSchema, i: &IndexDef) -> Option<u32> {
+    let f = i.columns.first()?;
+    t.columns
         .iter()
-        .filter(|i| is_vector(i))
-        .filter_map(|i| {
-            let m = i.vector.as_ref()?.metric.as_deref().filter(|m| squared(m))?;
-            Some(format!(
+        .find(|c| c.name == *f)
+        .and_then(|c| parse_type(&c.data_type))
+        .and_then(|(d, _)| d)
+}
+
+/// The vector index type `i` is written with: its algorithm, else the
+/// option `type`, else `diskANN`. A `flat` index over more than
+/// [`FLAT_MAX_DIMS`] dimensions (`dims`) is `quantizedFlat`, which also
+/// compares every vector, over their quantized form.
+fn index_type(i: &IndexDef, dims: Option<u32>) -> String {
+    let t = i
+        .vector
+        .as_ref()
+        .and_then(|v| v.algorithm.clone())
+        .or_else(|| i.options.get("type").cloned())
+        .unwrap_or_else(|| "diskANN".into());
+    if t.eq_ignore_ascii_case("flat") && dims.is_some_and(|d| d > FLAT_MAX_DIMS) {
+        "quantizedFlat".into()
+    } else {
+        t
+    }
+}
+
+/// What the container's vector policy writes otherwise than the design
+/// asks (a squared euclidean distance as euclidean, a `flat` index too
+/// wide for it as `quantizedFlat`), for the script.
+pub fn notes(t: &TableSchema) -> Vec<String> {
+    let mut out = Vec::new();
+    for i in t.indexes.iter().filter(|i| is_vector(i)) {
+        if let Some(m) = i
+            .vector
+            .as_ref()
+            .and_then(|v| v.metric.as_deref())
+            .filter(|m| squared(m))
+        {
+            out.push(format!(
                 "El índice vectorial {} de {}: la distancia {m} queda euclidean (Cosmos DB no tiene la euclídea al cuadrado; los vecinos más cercanos son los mismos).",
                 i.name, t.name
-            ))
-        })
-        .collect()
+            ));
+        }
+        let dims = field_dims(t, i);
+        if index_type(i, None).eq_ignore_ascii_case("flat")
+            && index_type(i, dims) != index_type(i, None)
+        {
+            out.push(format!(
+                "El índice vectorial {} de {} queda quantizedFlat: flat indexa vectores de hasta {FLAT_MAX_DIMS} dimensiones, y este tiene {}.",
+                i.name,
+                t.name,
+                dims.unwrap_or_default()
+            ));
+        }
+    }
+    out
 }
 
 /// A vector index: kind `vector`, or a designer row with "Vectorial" on.
@@ -384,20 +432,16 @@ pub fn is_vector(i: &IndexDef) -> bool {
             .is_some_and(|k| k.trim().eq_ignore_ascii_case(KIND))
 }
 
-/// A vector index's `vectorIndexes` entry.
-pub fn entry(i: &IndexDef) -> Value {
+/// A vector index's `vectorIndexes` entry; `dims`: its field's dimension
+/// (see [`index_type`]).
+pub fn entry(i: &IndexDef, dims: Option<u32>) -> Value {
     let mut e = Map::new();
     e.insert(
         "path".into(),
         path(i.columns.first().map(String::as_str).unwrap_or_default()).into(),
     );
     let v = i.vector.clone().unwrap_or_default();
-    let algorithm = v
-        .algorithm
-        .clone()
-        .or_else(|| i.options.get("type").cloned())
-        .unwrap_or_else(|| "diskANN".into());
-    e.insert("type".into(), algorithm.into());
+    e.insert("type".into(), index_type(i, dims).into());
     // Options of an index from before (`type`, `quantizationByteSize`…),
     // then the parameters.
     let params = i
@@ -609,7 +653,7 @@ mod tests {
             embedding_policy(&t).unwrap().unwrap(),
             c["vectorEmbeddingPolicy"]
         );
-        assert_eq!(entry(&ix), c["indexingPolicy"]["vectorIndexes"][0]);
+        assert_eq!(entry(&ix, None), c["indexingPolicy"]["vectorIndexes"][0]);
         assert_eq!(
             fields(&c).get("raw"),
             Some(&VectorMeta::dense(Some(4), VectorElement::U8))
@@ -696,13 +740,70 @@ mod tests {
         t.columns[0].data_type = "vector(8)".into();
         let p = embedding_policy(&t).unwrap().unwrap();
         assert_eq!(p["vectorEmbeddings"][0]["distanceFunction"], "euclidean");
-        assert_eq!(entry(&t.indexes[0])["type"], "diskANN");
+        assert_eq!(entry(&t.indexes[0], None)["type"], "diskANN");
         t.columns[0].data_type = "string".into();
         assert!(embedding_policy(&t).is_err());
         t.indexes[0].vector.as_mut().unwrap().metric = Some("hamming".into());
         t.columns[0].data_type = "vector(8)".into();
         assert!(embedding_policy(&t).is_err());
         assert_eq!(excluded_paths(&p), vec![json!({ "path": "/emb/*" })]);
+    }
+
+    #[test]
+    fn a_flat_index_too_wide_is_quantized_flat_and_said() {
+        let t = |dims: u32, algorithm: &str| TableSchema {
+            name: "d".into(),
+            columns: vec![ColumnDef {
+                name: "emb".into(),
+                data_type: format!("vector({dims})"),
+                ..Default::default()
+            }],
+            indexes: vec![IndexDef {
+                name: "v".into(),
+                columns: vec!["emb".into()],
+                vector: Some(VectorIndex {
+                    algorithm: Some(algorithm.into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            options: [(crate::ddl::PARTITION_KEY.to_string(), "/id".to_string())].into(),
+            ..Default::default()
+        };
+        let wide = t(1536, "flat");
+        assert_eq!(field_dims(&wide, &wide.indexes[0]), Some(1536));
+        let body = crate::ddl::container_body(&wide, true).unwrap();
+        assert_eq!(
+            body["indexingPolicy"]["vectorIndexes"][0]["type"],
+            "quantizedFlat"
+        );
+        let n = notes(&wide);
+        assert_eq!(n.len(), 1, "{n:?}");
+        assert!(
+            n[0].contains("queda quantizedFlat") && n[0].contains("1536"),
+            "{n:?}"
+        );
+        // Up to 505 dimensions, and the other types: as asked, nothing said.
+        for (dims, alg) in [(505, "flat"), (1536, "diskANN"), (1536, "quantizedFlat")] {
+            let ok = t(dims, alg);
+            let body = crate::ddl::container_body(&ok, true).unwrap();
+            assert_eq!(body["indexingPolicy"]["vectorIndexes"][0]["type"], alg);
+            assert!(notes(&ok).is_empty());
+        }
+        // The table's DDL says it in a comment.
+        let ddl = crate::ddl::table_ddl(
+            &wide,
+            dbine_driver::DdlParts {
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        );
+        let ddl = ddl.unwrap();
+        assert!(
+            ddl.contains("-- El índice vectorial v de d queda quantizedFlat"),
+            "{ddl}"
+        );
     }
 
     #[test]
