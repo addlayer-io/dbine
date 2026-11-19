@@ -10,12 +10,12 @@ import type { Cell, ResultColumn, SortKey, VectorMeta } from '../api/types';
 import { nextSort } from '../composables/gridSort';
 import ContextMenu, { type MenuItem } from './ContextMenu.vue';
 import CellViewer from './CellViewer.vue';
+import { ELEMENT_NAMES, checkVector, isDense, sameVector, vectorMeta, vectorPreview, type VectorPreview } from '../composables/vector';
+import { vectorProblemText } from '../composables/vectorLabels';
 import { columnKind, describe, menuFor, parseFilter, type ColumnFilter, type FilterMenuEntry, type FilterState } from '../composables/gridFilter';
 import { gridFontSize } from '../composables/appearance';
 import { COPY_FORMATS, defaultCopyFormat, formatRows, setDefaultCopyFormat, type CopyContext, type CopyFormat } from '../composables/copyFormats';
 import { revealCell } from '../composables/gridReveal';
-import { ELEMENT_NAMES, checkVector, isDense, sameVector, vectorMeta, vectorPreview, type VectorPreview } from '../composables/vector';
-import { vectorProblemText } from '../composables/vectorLabels';
 
 // Virtualized result grid: only the rows in view are in the DOM, so tens of
 // thousands of rows scroll smoothly. Columns resize by dragging the header
