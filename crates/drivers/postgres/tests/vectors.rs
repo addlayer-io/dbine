@@ -472,8 +472,8 @@ async fn round_trip(id: &str, env: &str, extra: Option<(IndexDef, &str, &str)>, 
     let spec = d.designer().unwrap();
     assert!(spec.vector_indexes.is_some());
     assert!(spec.data_types.contains(&"vector(1536)"));
-    let mut s = fresh_database(&*d, &cfg, false).await;
     let body = async {
+        let mut s = fresh_database(&*d, &cfg, false).await;
         // openGauss' DataVec is built in: no extension to create.
         if id != "opengauss" {
             run(&mut s, "CREATE EXTENSION IF NOT EXISTS vector").await;
@@ -813,8 +813,8 @@ async fn cockroach_vectors() {
     let spec = d.designer().unwrap();
     assert_eq!(spec.vector_indexes.as_ref().unwrap().algorithms, ["cspann"]);
     assert!(spec.data_types.contains(&"VECTOR(1536)"));
-    let mut s = fresh_database(&*d, &cfg, true).await;
     let body = async {
+        let mut s = fresh_database(&*d, &cfg, true).await;
         // 1. A table with two vector indexes, one with a prefix column; a
         // pgvector-spelled type (halfvec) comes out as VECTOR.
         let t = table(
@@ -1135,11 +1135,13 @@ async fn transfers_between_engines() {
         parse_url("cockroachdb", &crdb_url),
         parse_url("cratedb", &crate_url),
     );
-    let mut pg = fresh_named(&*pgd, &pgc, false, X).await;
-    let mut crdb = fresh_named(&*crdbd, &crdbc, true, X).await;
-    let mut cr = crated.connect(&cratec, None).await.unwrap();
-    let _ = try_run(&mut cr, &format!("DROP TABLE IF EXISTS {X}.dst")).await;
+    // Made inside the guard: what one server made is dropped even when
+    // another refuses.
     let body = async {
+        let mut pg = fresh_named(&*pgd, &pgc, false, X).await;
+        let mut crdb = fresh_named(&*crdbd, &crdbc, true, X).await;
+        let mut cr = crated.connect(&cratec, None).await.unwrap();
+        let _ = try_run(&mut cr, &format!("DROP TABLE IF EXISTS {X}.dst")).await;
         run(&mut pg, "CREATE EXTENSION IF NOT EXISTS vector").await;
         let vec_cols = |v: &str, h: &str| {
             vec![
@@ -1289,22 +1291,24 @@ async fn sibling_round_trip(pg_url: &str, id: &str, url: &str, home: Home, halfv
     const X: &str = "dbine_vec_s";
     let (pgd, od) = (driver("postgres"), driver(id));
     let (pgc, oc) = (parse_url("postgres", pg_url), parse_url(id, url));
-    let mut pg = fresh_named(&*pgd, &pgc, false, X).await;
     let schema = match home {
         Home::Database => "public",
         Home::Schema => X,
     };
     let drop_schema = format!("DROP SCHEMA IF EXISTS {X} CASCADE");
-    let mut other = match home {
-        Home::Database => fresh_named(&*od, &oc, false, X).await,
-        Home::Schema => {
-            let mut s = od.connect(&oc, None).await.expect("connect");
-            run(&mut s, &drop_schema).await;
-            run(&mut s, &format!("CREATE SCHEMA {X}")).await;
-            s
-        }
-    };
+    // Made inside the guard: a sibling that refuses (a full disk) still
+    // leaves nothing behind on either server.
     let body = async {
+        let mut pg = fresh_named(&*pgd, &pgc, false, X).await;
+        let mut other = match home {
+            Home::Database => fresh_named(&*od, &oc, false, X).await,
+            Home::Schema => {
+                let mut s = od.connect(&oc, None).await.expect("connect");
+                run(&mut s, &drop_schema).await;
+                run(&mut s, &format!("CREATE SCHEMA {X}")).await;
+                s
+            }
+        };
         run(&mut pg, "CREATE EXTENSION IF NOT EXISTS vector").await;
         if home == Home::Database {
             run(&mut other, "CREATE EXTENSION IF NOT EXISTS vector").await;
