@@ -1404,6 +1404,12 @@ pub(crate) fn manticore_indexes(create: &str) -> Vec<IndexDef> {
                 "knn_type" => vi.algorithm = Some(val.to_ascii_lowercase()),
                 "hnsw_similarity" => vi.metric = Some(standard_metric(v, &val)),
                 _ => {
+                    // The dimension under the standard key too, where a
+                    // conversion to another family looks for it (the
+                    // column's type, `float_vector`, doesn't say it).
+                    if k == "knn_dims" {
+                        options.insert(DIMS_OPTION.into(), val.clone());
+                    }
                     vi.params.insert(standard_param(v, &k), val);
                 }
             }
@@ -1419,6 +1425,10 @@ pub(crate) fn manticore_indexes(create: &str) -> Vec<IndexDef> {
     }
     out
 }
+
+/// The index option that repeats a Manticore KNN index's `knn_dims` under
+/// a name schema conversion reads as the vectors' dimension.
+const DIMS_OPTION: &str = "dims";
 
 /// `float_vector knn_type=…` as the bare type (the KNN settings are the
 /// column's vector index).
@@ -2418,6 +2428,10 @@ mod tests {
         let r = manticore_indexes(create);
         assert_eq!(r.len(), 1);
         assert_eq!(r[0].vector, ix.vector);
+        // The dimension also under the key a conversion to another family
+        // reads (`float_vector` doesn't say it).
+        assert_eq!(r[0].options.get("dims").map(String::as_str), Some("4"));
+        assert_eq!(r[0].options.get("knn_dims").map(String::as_str), Some("4"));
         assert_eq!(
             manticore_base_type("float_vector knn_type='hnsw'"),
             "float_vector"

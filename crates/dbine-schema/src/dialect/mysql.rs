@@ -828,13 +828,18 @@ mod tests {
 
     /// A searched list of numbers whose index states its dimension moves as
     /// a vector out of Doris and StarRocks (`convert`), also to families
-    /// outside this one; Manticore's float_vector keeps its knn_dims inside
-    /// the family.
+    /// outside this one; Manticore's float_vector too, whose dimension the
+    /// driver repeats as the index's `dims` option (`knn_dims` is its own
+    /// name, which `convert` doesn't read).
     #[test]
     fn olap_vectors_leave_as_vectors() {
         use crate::convert::{convert, Options};
-        for from in ["doris", "starrocks"] {
-            for (to, want) in [("postgres", "vector(3)"), ("mariadb", "vector(3)")] {
+        for from in ["doris", "starrocks", "manticore"] {
+            for (to, want) in [
+                ("postgres", "vector(3)"),
+                ("clickhouse", "Array(Float32)"),
+                ("mariadb", "vector(3)"),
+            ] {
                 let c = convert(&[dim_in_index(from)], from, to, &Options::default()).unwrap();
                 let t = &c.tables[0];
                 let v = t.columns.iter().find(|c| c.name == "v").unwrap();
@@ -902,6 +907,20 @@ mod tests {
             "manticore" => ("float_vector", "KNN", "knn_dims"),
             _ => ("ARRAY<FLOAT>", "ANN", "dim"),
         };
+        // Manticore's KNN settings as the driver reads them back: the
+        // native ones, and the dimension under `dims`.
+        let options = match engine {
+            "manticore" => [
+                ("knn_type", "hnsw"),
+                ("knn_dims", "3"),
+                ("hnsw_similarity", "L2"),
+                ("dims", "3"),
+            ]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+            _ => Default::default(),
+        };
         TableSchema {
             name: "items".into(),
             columns: vec![
@@ -926,6 +945,7 @@ mod tests {
                 name: "v".into(),
                 columns: vec!["v".into()],
                 kind: Some(kind.into()),
+                options,
                 vector: Some(dbine_driver::VectorIndex {
                     algorithm: Some("hnsw".into()),
                     metric: Some("l2".into()),
