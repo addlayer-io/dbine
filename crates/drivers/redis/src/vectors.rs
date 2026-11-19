@@ -1018,10 +1018,18 @@ pub fn browse(name: &str, ix: Option<&FtIndex>, server: Server, limit: u32) -> S
     let Some(ix) = ix else {
         return format!("FT.SEARCH {q} * LIMIT 0 {limit}");
     };
+    // A JSON index's attributes, each in a column (its whole document
+    // otherwise comes in `$`).
+    let ret = if ix.on_json && !ix.fields.is_empty() {
+        let attrs: Vec<String> = ix.fields.iter().map(|f| quote_arg(&f.attribute)).collect();
+        format!(" RETURN {} {}", attrs.len(), attrs.join(" "))
+    } else {
+        String::new()
+    };
     if server == Server::Valkey {
         if let Some(f) = ix.fields.iter().find(|f| f.kind == "NUMERIC") {
             return format!(
-                "FT.SEARCH {q} {} LIMIT 0 {limit}",
+                "FT.SEARCH {q} {}{ret} LIMIT 0 {limit}",
                 quote_arg(&format!("@{}:[-inf +inf]", f.attribute))
             );
         }
@@ -1035,21 +1043,13 @@ pub fn browse(name: &str, ix: Option<&FtIndex>, server: Server, limit: u32) -> S
                 *first = 1.0;
             }
             return format!(
-                "FT.SEARCH {q} {} PARAMS 2 q {} LIMIT 0 {limit} DIALECT 2",
+                "FT.SEARCH {q} {} PARAMS 2 q {}{ret} LIMIT 0 {limit} DIALECT 2",
                 quote_arg(&format!("*=>[KNN {limit} @{} $q]", f.attribute)),
                 quote_bytes(&v.ty.encode(&unit))
             );
         }
     }
-    if ix.on_json && !ix.fields.is_empty() {
-        let attrs: Vec<String> = ix.fields.iter().map(|f| quote_arg(&f.attribute)).collect();
-        return format!(
-            "FT.SEARCH {q} * RETURN {} {} LIMIT 0 {limit}",
-            attrs.len(),
-            attrs.join(" ")
-        );
-    }
-    format!("FT.SEARCH {q} * LIMIT 0 {limit}")
+    format!("FT.SEARCH {q} *{ret} LIMIT 0 {limit}")
 }
 
 /// `VSIM`'s reply (`element [score] [attributes]` each, as asked) as a

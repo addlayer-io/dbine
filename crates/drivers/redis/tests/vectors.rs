@@ -269,8 +269,8 @@ async fn search(
     panic!("the index never held {n} documents: {browse}");
 }
 
-const CLEANUP: &str = "FT.DROPINDEX dbvec_docs\nFT.DROPINDEX dbvec_copy\nFT.DROPINDEX dbvec_pg\n\
-DEL dbvec:doc:1 dbvec:doc:2 dbvec:doc:3 dbvec:copy:1 dbvec:copy:2 dbvec:copy:3 dbvec:pg:10 dbvec:pg:11 dbvec:vs";
+const CLEANUP: &str = "FT.DROPINDEX dbvec_docs\nFT.DROPINDEX dbvec_copy\nFT.DROPINDEX dbvec_pg\nFT.DROPINDEX dbvec_json\n\
+DEL dbvec:doc:1 dbvec:doc:2 dbvec:doc:3 dbvec:copy:1 dbvec:copy:2 dbvec:copy:3 dbvec:pg:10 dbvec:pg:11 dbvec:vs dbvec:j:1 dbvec:j:2";
 
 async fn cleanup(s: &mut Box<dyn Session>) {
     // A failed command (an index that isn't there) doesn't stop the rest.
@@ -537,9 +537,90 @@ async fn body(id: &str, url: &str) {
     run(&mut ro, &knn).await;
     assert!(try_run(&mut ro, "FT.DROPINDEX dbvec_docs").await.is_err());
 
+    json_documents(&d, &mut s).await;
     if id == "redis" {
         vector_sets(&d, &mut s, &mut ro).await;
     }
+}
+
+/// A search index over JSON documents: its vectors are arrays, returned
+/// as columns of their own, and edited with `JSON.SET`.
+async fn json_documents(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>) {
+    let mut t = TableSchema {
+        kind: kinds::KEY.into(),
+        name: "dbvec:j:1".into(),
+        columns: vec![col("emb", "VECTOR(3, FLOAT32)", ""), col("lang", "TAG", "")],
+        indexes: vec![IndexDef {
+            name: "dbvec_json".into(),
+            columns: vec!["emb".into(), "lang".into()],
+            vector: Some(VectorIndex {
+                algorithm: Some("flat".into()),
+                metric: Some("l2".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    t.options.insert("type".into(), "json".into());
+    t.options.insert(
+        "value".into(),
+        r#"{"emb": [0.5, 0.25, 1], "lang": "es"}"#.into(),
+    );
+    let ddl = d
+        .table_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    println!("{ddl}");
+    assert!(
+        ddl.contains("ON JSON PREFIX 1 dbvec:j: SCHEMA $.emb AS emb VECTOR FLAT"),
+        "{ddl}"
+    );
+    run(s, &ddl).await;
+    run(
+        s,
+        r#"JSON.SET dbvec:j:2 $ '{"emb": [1, 0, 0], "lang": "en"}'"#,
+    )
+    .await;
+    let cols = s.columns(&index("dbvec_json")).await.unwrap();
+    assert_eq!(
+        cols.iter().find(|c| c.name == "emb").unwrap().data_type,
+        "VECTOR(3, FLOAT32)"
+    );
+    let browse = s.browse_query(&index("dbvec_json"), 10);
+    println!("{browse}");
+    let (out, got) = search(s, &browse, 2).await;
+    assert!(out.results[0]
+        .columns
+        .iter()
+        .any(|c| c.name == "emb" && c.vector.is_some()));
+    assert_eq!(
+        got,
+        [
+            ("dbvec:j:1".to_string(), "[0.5,0.25,1]".to_string()),
+            ("dbvec:j:2".into(), "[1,0,0]".into())
+        ]
+    );
+    let upd = d
+        .update_script(
+            &index("dbvec_json"),
+            &[RowChange {
+                key: vec![("id".into(), json!("dbvec:j:1"))],
+                set: vec![("emb".into(), json!([0, 0, 1]))],
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+    assert!(upd.starts_with("JSON.SET dbvec:j:1 $.emb [0,0,1]"), "{upd}");
+    run(s, &upd).await;
+    let (_, got) = search(s, &browse, 2).await;
+    assert_eq!(got[0].1, "[0,0,1]");
 }
 
 /// Redis 8's vector sets: made from the designer, browsed with their
