@@ -21,6 +21,7 @@ mod security;
 mod stats;
 mod sync;
 pub mod transfer;
+pub mod vectors;
 
 use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
@@ -33,6 +34,8 @@ use dbine_driver_elasticsearch::flatten;
 use dbine_driver_elasticsearch::http;
 use dbine_driver_elasticsearch::json::{Obj, J};
 use dbine_driver_elasticsearch::steps::Step;
+use dbine_driver_elasticsearch::vectors::VecType;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -299,6 +302,8 @@ impl Driver for Solr {
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             monitor: true,
+            // DenseVectorField fields and their HNSW graphs (see `vectors`).
+            vectors: true,
             ..Capabilities::default()
         }
     }
@@ -439,6 +444,7 @@ impl Driver for Solr {
             read_only: cfg.read_only,
             cloud,
             version,
+            vector_fields: Default::default(),
         }))
     }
 }
@@ -451,9 +457,44 @@ struct SolrSession {
     read_only: bool,
     cloud: bool,
     version: String,
+    /// Each core's vector fields (by name), read to mark the vector
+    /// columns of its search results; cleared by any request that may
+    /// change a schema.
+    vector_fields: std::sync::Mutex<HashMap<String, Vec<(String, VecType)>>>,
 }
 
+/// Handlers whose responses carry a core's documents.
+const DOC_HANDLERS: &[&str] = &["select", "query", "get", "browse", "export"];
+
 impl SolrSession {
+    /// The vector fields of core `core`, from its schema (read once, until
+    /// a request may change it); none when the schema can't be read.
+    async fn core_vectors(&self, core: &str) -> Vec<(String, VecType)> {
+        if let Some(v) = self
+            .vector_fields
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(core)
+        {
+            return v.clone();
+        }
+        let c = transfer::seg(core);
+        let (Ok(fields), Ok(types)) = (
+            self.get_json(&format!("/solr/{c}/schema/fields?wt=json"))
+                .await,
+            self.get_json(&format!("/solr/{c}/schema/fieldtypes?wt=json"))
+                .await,
+        ) else {
+            return Vec::new();
+        };
+        let found = vector_fields(&fields, &types);
+        self.vector_fields
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(core.to_string(), found.clone());
+        found
+    }
+
     async fn call(&self, rb: reqwest::RequestBuilder) -> Result<String> {
         let (status, body) = http::send(rb).await?;
         if status >= 400 {
@@ -486,6 +527,13 @@ impl SolrSession {
                 req.path_only()
             )));
         }
+        if !read_only_allows(&req) {
+            // It may change a schema.
+            self.vector_fields
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
+        }
         if let Some(name) = collection_command(&req) {
             return self.manage_collection(&req, name, out).await;
         }
@@ -511,8 +559,14 @@ impl SolrSession {
             }
             return Err(Error::Query(solr_error_message(status, &text)));
         }
+        let vectors = match req.segments().as_slice() {
+            ["solr", core, handler, ..] if DOC_HANDLERS.contains(handler) => {
+                self.core_vectors(core).await
+            }
+            _ => Vec::new(),
+        };
         match J::parse(&text) {
-            Ok(resp) => push_response(&resp, max_rows, out),
+            Ok(resp) => push_response(&resp, max_rows, out, &vectors),
             Err(_) => {
                 flatten::push_text(out, &text, max_rows);
                 Ok(())
@@ -700,7 +754,7 @@ impl SolrSession {
             .await?;
         let resp =
             J::parse(&text).map_err(|e| Error::Query(format!("Respuesta SQL inesperada: {e}")))?;
-        push_response(&resp, max_rows, out)
+        push_response(&resp, max_rows, out, &[])
     }
 }
 
@@ -716,8 +770,34 @@ pub fn collection_command(req: &Request) -> Option<&str> {
     }
 }
 
-/// Turn a Solr JSON response into result sets.
-fn push_response(resp: &J, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
+/// The vector fields of a core: its `schema/fields` whose field type
+/// (`schema/fieldtypes`) is a `DenseVectorField`.
+fn vector_fields(fields: &J, types: &J) -> Vec<(String, VecType)> {
+    fields
+        .get("fields")
+        .and_then(J::as_arr)
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|f| {
+            let name = f.get("name").and_then(J::as_str)?;
+            let ty = f.get("type").and_then(J::as_str)?;
+            let def = ddl::type_def(Some(types), ty)?;
+            Some((
+                name.to_string(),
+                vectors::VectorType::from_field_type(def)?.cells(),
+            ))
+        })
+        .collect()
+}
+
+/// Turn a Solr JSON response into result sets; `vectors` are the core's
+/// vector fields.
+fn push_response(
+    resp: &J,
+    max_rows: usize,
+    out: &mut QueryOutcome,
+    vectors: &[(String, VecType)],
+) -> Result<()> {
     // Streaming / SQL: {"result-set": {"docs": [..., {"EOF": true}]}}.
     if let Some(docs) = resp.at(&["result-set", "docs"]).and_then(J::as_arr) {
         if let Some(e) = docs.iter().find_map(|d| d.get("EXCEPTION")) {
@@ -733,10 +813,11 @@ fn push_response(resp: &J, max_rows: usize, out: &mut QueryOutcome) -> Result<()
     let mut shown = false;
     if let Some(r) = resp.get("response") {
         let docs = r.get("docs").and_then(J::as_arr).unwrap_or(&[]);
-        flatten::push_docs(
+        flatten::push_docs_typed(
             out,
             docs.iter().filter_map(|d| d.as_obj().cloned()),
             max_rows,
+            vectors,
         );
         if let Some(n) = r.get("numFound") {
             let qtime = resp
@@ -749,7 +830,7 @@ fn push_response(resp: &J, max_rows: usize, out: &mut QueryOutcome) -> Result<()
         shown = true;
     } else if let Some(doc) = resp.get("doc") {
         // Real-time get of a single id.
-        flatten::push_docs(out, doc.as_obj().cloned(), max_rows);
+        flatten::push_docs_typed(out, doc.as_obj().cloned(), max_rows, vectors);
         shown = true;
     }
     if let Some(fc) = resp.get("facet_counts") {
@@ -995,6 +1076,10 @@ impl Session for SolrSession {
             .await
             .ok()
             .and_then(|k| k.get("uniqueKey").and_then(J::as_str).map(str::to_string));
+        let types = self
+            .get_json(&format!("/solr/{c}/schema/fieldtypes?wt=json"))
+            .await
+            .ok();
         let internal = |n: &str| n.len() > 1 && n.starts_with('_') && n.ends_with('_');
         let mut out: Vec<ColumnInfo> = Vec::new();
         for f in fields.get("fields").and_then(J::as_arr).unwrap_or(&[]) {
@@ -1002,6 +1087,12 @@ impl Session for SolrSession {
                 continue;
             };
             let mut ty = f.get("type").map(J::text).unwrap_or_default();
+            // A vector field: the vector it holds (`knn_vector(3)`).
+            if let Some(v) =
+                ddl::type_def(types.as_ref(), &ty).and_then(vectors::VectorType::from_field_type)
+            {
+                ty = v.spelling();
+            }
             if f.get("multiValued").and_then(J::as_bool) == Some(true) {
                 ty.push_str("[]");
             }
@@ -1063,6 +1154,12 @@ impl Session for SolrSession {
                     "/solr/{c}/schema/fields?showDefaults=false&wt=json"
                 ))
                 .await?;
+            let types = self
+                .get_json(&format!(
+                    "/solr/{c}/schema/fieldtypes?showDefaults=false&wt=json"
+                ))
+                .await
+                .ok();
             let key = self
                 .get_json(&format!("/solr/{c}/schema/uniquekey?wt=json"))
                 .await
@@ -1074,7 +1171,13 @@ impl Session for SolrSession {
             let status = cluster
                 .as_ref()
                 .and_then(|s| s.at(&["cluster", "collections", c]));
-            out.push(ddl::collection_schema(c, &fields, key, status));
+            out.push(ddl::collection_schema(
+                c,
+                &fields,
+                types.as_ref(),
+                key,
+                status,
+            ));
         }
         Ok(out)
     }
@@ -1150,7 +1253,8 @@ impl Session for SolrSession {
             };
             let resp = self.fetch(&debug_request(&req, analyze)).await?;
             if analyze {
-                push_response(&resp, max_rows, out)?;
+                let vectors = self.core_vectors(&core).await;
+                push_response(&resp, max_rows, out, &vectors)?;
             }
             let statement = match &req.body {
                 Some(b) => format!("{label}\n{b}"),
@@ -1340,7 +1444,7 @@ mod tests {
         )
         .unwrap();
         let mut out = QueryOutcome::default();
-        push_response(&resp, 100, &mut out).unwrap();
+        push_response(&resp, 100, &mut out, &[]).unwrap();
         assert_eq!(out.results.len(), 2);
         let names: Vec<_> = out.results[0]
             .columns
@@ -1366,12 +1470,14 @@ mod tests {
         )
         .unwrap();
         let mut out = QueryOutcome::default();
-        push_response(&ok, 10, &mut out).unwrap();
+        push_response(&ok, 10, &mut out, &[]).unwrap();
         assert_eq!(out.results[0].rows, vec![vec![json!("1"), json!(2)]]);
         let err =
             J::parse(r#"{"result-set":{"docs":[{"EXCEPTION":"bad column","EOF":true}]}}"#).unwrap();
         assert_eq!(
-            push_response(&err, 10, &mut out).unwrap_err().to_string(),
+            push_response(&err, 10, &mut out, &[])
+                .unwrap_err()
+                .to_string(),
             "bad column"
         );
     }

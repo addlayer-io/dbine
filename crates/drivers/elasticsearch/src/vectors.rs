@@ -65,6 +65,10 @@ pub struct VecType {
     pub sparse: bool,
     /// How a result column names it (DBine's spelling with the dimension).
     pub type_name: String,
+    /// The engine gives back the float32 it stores (Solr), in whatever
+    /// text its Java prints: cells are that float32's shortest text.
+    /// Elasticsearch and OpenSearch give back `_source` as it was sent.
+    pub single: bool,
 }
 
 impl VecType {
@@ -75,6 +79,7 @@ impl VecType {
             elem,
             sparse: base == "sparse_vector",
             type_name: String::new(),
+            single: false,
         };
         t.type_name = t.spelling();
         t
@@ -241,6 +246,7 @@ pub fn cell(val: &J, t: &VecType) -> serde_json::Value {
         return val.cell();
     }
     match numbers(val, t) {
+        Some(n) if t.single && t.elem == Elem::Float => v::json(n.into_iter().map(|x| x as f32)),
         Some(n) => v::json(n),
         None => val.cell(),
     }
@@ -250,6 +256,11 @@ pub fn cell(val: &J, t: &VecType) -> serde_json::Value {
 /// text, written number by number without holding them (a transfer's
 /// vector costs about its text): `None` when it isn't one.
 pub fn canonical_text(raw: &str) -> Option<String> {
+    canonical_numbers(raw, false)
+}
+
+/// [`canonical_text`], each number as the float32 it is when `single`.
+fn canonical_numbers(raw: &str, single: bool) -> Option<String> {
     use std::fmt::Write;
     let inner = raw.trim().strip_prefix('[')?.strip_suffix(']')?;
     let mut out = String::with_capacity(inner.len() + 2);
@@ -269,7 +280,11 @@ pub fn canonical_text(raw: &str) -> Option<String> {
             if i > 0 {
                 out.push(',');
             }
-            let _ = write!(out, "{f}");
+            if single {
+                let _ = write!(out, "{}", f as f32);
+            } else {
+                let _ = write!(out, "{f}");
+            }
         }
     }
     out.push(']');
@@ -284,7 +299,7 @@ pub fn raw_text(raw: &str, t: &VecType) -> Option<String> {
         return None;
     }
     if t.elem != Elem::Bit && raw.trim_start().starts_with('[') {
-        return canonical_text(raw);
+        return canonical_numbers(raw, t.single && t.elem == Elem::Float);
     }
     numbers(&J::parse(raw).ok()?, t).map(v::text)
 }
@@ -963,6 +978,21 @@ mod tests {
         assert_eq!(cell(&j(r#""8140""#), &bit), cell(&j("[-127,64]"), &bit));
         let sparse = VecType::new("sparse_vector", None, Elem::Float);
         assert_eq!(cell(&j(r#"{"a":1.5}"#), &sparse), json!("{\"a\":1.5}"));
+    }
+
+    #[test]
+    fn single_precision_cells() {
+        let mut t = VecType::new("knn_vector", Some(2), Elem::Float);
+        t.single = true;
+        // Java 17's text of a float: the same float32, shortest.
+        assert_eq!(
+            cell(&j("[3.6379788E-12,1.0]"), &t),
+            json!("[0.000000000003637979,1]")
+        );
+        assert_eq!(
+            raw_text("[3.6379788E-12, 1.0]", &t).as_deref(),
+            Some("[0.000000000003637979,1]")
+        );
     }
 
     #[test]
