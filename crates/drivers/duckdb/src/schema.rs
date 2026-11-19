@@ -679,6 +679,37 @@ pub struct Catalog {
     pub constraints: Vec<Vec<Option<String>>>,
     /// schema, table, index, unique, expressions, CREATE INDEX statement
     pub indexes: Vec<Vec<Option<String>>>,
+    /// schema, table, index, metric: vss's `pragma_hnsw_index_info()`, for
+    /// the HNSW indexes whose statement doesn't say their distance
+    /// ([`hnsw_info_needed`]); empty when none or vss isn't loaded.
+    pub hnsw: Vec<Vec<Option<String>>>,
+}
+
+/// vss's report of its HNSW indexes (their distance in vss's names), which
+/// [`Catalog::hnsw`] reads.
+pub const HNSW_INFO: &str = "SELECT schema_name, table_name, index_name, metric
+     FROM pragma_hnsw_index_info() WHERE catalog_name = ?1";
+
+/// Whether vss is loaded (`pragma_hnsw_index_info()` exists), as `true` /
+/// `false`.
+pub const HNSW_INFO_EXISTS: &str = "SELECT (count(*) > 0)::VARCHAR FROM duckdb_functions()
+     WHERE function_name = 'pragma_hnsw_index_info'";
+
+/// Whether an index row (as [`Catalog::indexes`] has them) is an HNSW index
+/// whose statement doesn't say its distance: DuckDB 1.5's
+/// `duckdb_indexes().sql` leaves out the `WITH (…)` an HNSW index was made
+/// with, so its distance (and `M`, `ef_construction`…) are only in vss's
+/// own report, which has the distance.
+pub fn hnsw_info_needed(indexes: &[Vec<Option<String>>]) -> bool {
+    indexes.iter().any(|r| {
+        let sql = r.get(5).cloned().flatten().unwrap_or_default();
+        match index_parts(&sql) {
+            Some((Some(k), _, with)) if k.eq_ignore_ascii_case(HNSW) => {
+                hnsw_vector(with.as_deref()).metric.is_none()
+            }
+            _ => false,
+        }
+    })
 }
 
 fn s(r: &[Option<String>], i: usize) -> String {
@@ -927,7 +958,23 @@ pub fn assemble(cat: Catalog) -> Vec<TableSchema> {
             ..Default::default()
         };
         if kind.eq_ignore_ascii_case(HNSW) {
-            let v = hnsw_vector(with.as_deref());
+            let mut v = hnsw_vector(with.as_deref());
+            // Its distance from vss where the statement left it out (DuckDB
+            // 1.5 drops the `WITH`; vss's default, `l2sq`, is `l2`).
+            if v.metric.is_none() {
+                v.metric = cat
+                    .hnsw
+                    .iter()
+                    .find(|h| (s(h, 0), s(h, 1), s(h, 2)) == (s(r, 0), s(r, 1), s(r, 2)))
+                    .map(|h| s(h, 3).to_ascii_lowercase())
+                    .filter(|m| !m.is_empty())
+                    .map(|m| {
+                        HNSW_METRICS
+                            .iter()
+                            .find(|(n, _)| *n == m)
+                            .map_or(m.clone(), |(_, std)| std.to_string())
+                    });
+            }
             // Its settings in the options too, as the DDL writes them: the
             // schema compare reads an index's options, not its vector
             // settings.
@@ -966,6 +1013,95 @@ fn in_dependency_order(mut rest: Vec<TableSchema>) -> Vec<TableSchema> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// DuckDB 1.5 lists an HNSW index's statement without its `WITH (…)`:
+    /// the distance comes from vss's `pragma_hnsw_index_info()`, which is
+    /// asked only then.
+    #[test]
+    fn hnsw_distance_from_vss_where_the_statement_has_none() {
+        let row = |name: &str, sql: &str| {
+            vec![
+                Some("main".into()),
+                Some("t".into()),
+                Some(name.into()),
+                Some("false".into()),
+                Some("[v]".into()),
+                Some(sql.into()),
+            ]
+        };
+        let indexes = vec![
+            row("t_cos", "CREATE INDEX t_cos ON t USING HNSW (v);"),
+            row("t_l2", "CREATE INDEX t_l2 ON t USING HNSW (v);"),
+            row(
+                "t_ip",
+                "CREATE INDEX t_ip ON t USING HNSW (v) WITH (metric = 'ip', M = 8);",
+            ),
+            row("t_m", "CREATE INDEX t_m ON t USING HNSW (v) WITH (M = 8);"),
+        ];
+        assert!(hnsw_info_needed(&indexes));
+        assert!(!hnsw_info_needed(&indexes[2..3]));
+        assert!(!hnsw_info_needed(&[row(
+            "t_a",
+            "CREATE INDEX t_a ON t (v);"
+        )]));
+        let info = |name: &str, metric: &str| {
+            vec![
+                Some("main".into()),
+                Some("t".into()),
+                Some(name.into()),
+                Some(metric.into()),
+            ]
+        };
+        let t = assemble(Catalog {
+            tables: vec![vec![Some("main".into()), Some("t".into()), None]],
+            columns: vec![vec![
+                Some("main".into()),
+                Some("t".into()),
+                Some("v".into()),
+                Some("FLOAT[3]".into()),
+                Some("true".into()),
+                None,
+                None,
+            ]],
+            constraints: Vec::new(),
+            indexes,
+            hnsw: vec![
+                info("t_cos", "cosine"),
+                info("t_l2", "l2sq"),
+                info("t_ip", "ip"),
+                info("t_m", "cosine"),
+            ],
+        })
+        .remove(0);
+        let metric = |i: usize| t.indexes[i].vector.as_ref().unwrap().metric.clone();
+        assert_eq!(metric(0).as_deref(), Some("cosine"));
+        assert_eq!(metric(1).as_deref(), Some("l2"));
+        assert_eq!(metric(2).as_deref(), Some("ip"));
+        assert_eq!(metric(3).as_deref(), Some("cosine"));
+        // In the options too (the schema compare reads them), and in the
+        // script.
+        assert_eq!(
+            t.indexes[0].options.get(WITH).map(String::as_str),
+            Some("metric = 'cosine'")
+        );
+        assert_eq!(
+            t.indexes[3].options.get(WITH).map(String::as_str),
+            Some("metric = 'cosine', M = 8")
+        );
+        let ddl = table_ddl(
+            &t,
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            ddl.contains(
+                "\"t_cos\" ON \"main\".\"t\" USING HNSW (\"v\") WITH (metric = 'cosine');"
+            ),
+            "{ddl}"
+        );
+    }
 
     #[test]
     fn hnsw_indexes_are_read_and_written() {
@@ -1019,6 +1155,7 @@ mod tests {
                     ),
                 ],
             ],
+            hnsw: Vec::new(),
         };
         let mut t = assemble(cat).remove(0);
         assert_eq!(t.columns[0].data_type, "FLOAT[3]");

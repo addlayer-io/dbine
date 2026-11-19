@@ -1058,15 +1058,30 @@ impl Session for DuckDbSession {
             .strings(
                 "SELECT schema_name, table_name, index_name, is_unique::VARCHAR, expressions::VARCHAR, sql
                  FROM duckdb_indexes() WHERE database_name = ?1 AND NOT is_primary ORDER BY 1, 2, 3",
-                db,
+                db.clone(),
                 6,
             )
             .await?;
+        // Without vss loaded (a read-only connection) the pragma doesn't
+        // exist, and is not called (an error would end the user's open
+        // transaction): those indexes keep no distance, as before.
+        let hnsw = if schema::hnsw_info_needed(&indexes)
+            && self
+                .strings(schema::HNSW_INFO_EXISTS, Vec::new(), 1)
+                .await?
+                .first()
+                .is_some_and(|r| r.first().cloned().flatten().as_deref() == Some("true"))
+        {
+            self.strings(schema::HNSW_INFO, db, 4).await?
+        } else {
+            Vec::new()
+        };
         Ok(schema::assemble(schema::Catalog {
             tables,
             columns,
             constraints,
             indexes,
+            hnsw,
         }))
     }
 
