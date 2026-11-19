@@ -52,7 +52,7 @@
 //! volume the connection doesn't configure; it's not used.
 
 use crate::ddl::{lit, q};
-use crate::{Api, DatabricksSession};
+use crate::{results, Api, DatabricksSession};
 use base64::Engine as _;
 use dbine_driver::transfer::{
     BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
@@ -788,14 +788,27 @@ fn fetch(api: &Api, id: &str, i: u64, first: Option<Json>) -> Download {
 
 /// The chunks to read and the rows the manifest promises, from a finished
 /// statement's status. A truncated result or a manifest without its chunk
-/// count is an error: the table would be copied short.
-pub(crate) fn chunk_plan(resp: &Json) -> Result<(u64, Option<u64>)> {
+/// count is an error: the table would be read short (a comparison, a copy
+/// or an export of part of it). `refused`: what the warehouse answered when
+/// the read asked for external links, if it read inline instead.
+pub(crate) fn chunk_plan(resp: &Json, refused: Option<&str>) -> Result<(u64, Option<u64>)> {
     if resp.pointer("/manifest/truncated").and_then(Json::as_bool) == Some(true) {
-        return Err(Error::Query(
-            "Databricks truncó el resultado de la lectura (el límite de las respuestas en línea es de unos 25 MiB); no se copia una tabla incompleta.".into(),
-        ));
+        return Err(match refused {
+            Some(why) => inline_too_big(why),
+            None => Error::Query(
+                "Databricks cortó la lectura de la tabla por su tamaño (el límite es de 100 GiB); no se usa una lectura incompleta.".into(),
+            ),
+        });
     }
-    chunk_count(resp).ok_or_else(|| Error::Query("La respuesta de Databricks no dice cuántos bloques tiene el resultado; no se copia una tabla que podría quedar incompleta.".into()))
+    chunk_count(resp).ok_or_else(|| Error::Query("La respuesta de Databricks no dice cuántos bloques tiene el resultado; no se usa una lectura que podría quedar incompleta.".into()))
+}
+
+/// A table over the inline 25 MiB, read inline because the warehouse
+/// refused external links: says what it answered, which is what to fix.
+fn inline_too_big(refused: &str) -> Error {
+    Error::Query(format!(
+        "La tabla pasa los 25 MiB que Databricks entrega en la respuesta, y Databricks rechazó entregarla por enlaces externos, que no tienen ese límite: {refused}. No se usa una lectura incompleta."
+    ))
 }
 
 /// The chunks of a finished statement and the rows its manifest promises.
@@ -878,26 +891,33 @@ fn pick<'a>(described: &'a [ColumnInfo], table: &str, name: &str) -> Result<&'a 
 
 impl DatabricksSession {
     /// Submit `sql` and wait for it (external links first, inline if the
-    /// warehouse refuses them); gives its id, final status and whether the
-    /// result comes by external links.
-    async fn submit_read(&self, sql: &str) -> Result<(String, Json, bool)> {
+    /// warehouse refuses them); gives its id, final status and, when it was
+    /// read inline, what the warehouse answered to the links.
+    async fn submit_read(&self, sql: &str) -> Result<(String, Json, Option<String>)> {
         let mut body = self.request(sql, None);
         body["disposition"] = json!("EXTERNAL_LINKS");
-        let (resp, external) = match self.api.post("/api/2.0/sql/statements", &body).await {
-            Ok(r) => (r, true),
-            Err(Error::Query(m)) => {
-                tracing::debug!("databricks external links refused, reading inline: {m}");
-                (
-                    self.api
-                        .post("/api/2.0/sql/statements", &self.request(sql, None))
-                        .await?,
-                    false,
-                )
-            }
+        // A workspace can have links disabled, on submitting or once
+        // submitted. Were it a real sign-in or SQL problem, the inline read
+        // gives it again, as the server says it.
+        let refused = match self.api.post("/api/2.0/sql/statements", &body).await {
+            Ok(r) => match self.follow(r).await {
+                Ok((id, resp)) => return Ok((id, resp, None)),
+                Err(Error::Query(m)) if results::names_links(&m) => m,
+                Err(e) => return Err(e),
+            },
+            Err(Error::Query(m) | Error::AuthFailed(m)) => m,
             Err(e) => return Err(e),
         };
-        let (id, resp) = self.follow(resp).await?;
-        Ok((id, resp, external))
+        tracing::warn!("databricks external links refused, reading inline: {refused}");
+        let resp = self
+            .api
+            .post("/api/2.0/sql/statements", &self.request(sql, None))
+            .await?;
+        match self.follow(resp).await {
+            Ok((id, resp)) => Ok((id, resp, Some(refused))),
+            Err(Error::Query(m)) if results::over_inline_limit(&m) => Err(inline_too_big(&refused)),
+            Err(e) => Err(e),
+        }
     }
 
     /// A submitted statement, followed to its end: its id (now the running
@@ -985,8 +1005,9 @@ impl DatabricksSession {
         kinds: &[Kind],
         sink: BatchSinkRef,
     ) -> Result<u64> {
-        let (id, mut resp, external) = self.submit_read(sql).await?;
-        let (chunks, expected) = chunk_plan(&resp)?;
+        let (id, mut resp, refused) = self.submit_read(sql).await?;
+        let (chunks, expected) = chunk_plan(&resp, refused.as_deref())?;
+        let external = refused.is_none();
         let first = first_chunk(&mut resp);
 
         sink.lock()
@@ -1019,7 +1040,7 @@ impl DatabricksSession {
         )?;
         if let Some(n) = expected.filter(|n| *n != builder.rows) {
             return Err(Error::Query(format!(
-                "Databricks anunció {n} filas y se leyeron {}; no se copia una tabla incompleta.",
+                "Databricks anunció {n} filas y se leyeron {}; no se usa una lectura incompleta.",
                 builder.rows
             )));
         }
@@ -2002,7 +2023,7 @@ pub(crate) mod tests {
 
     #[test]
     fn truncated_or_unsized_answers_are_errors() {
-        let plan = |m: Json| chunk_plan(&json!({ "manifest": m }));
+        let plan = |m: Json| chunk_plan(&json!({ "manifest": m }), None);
         assert_eq!(
             plan(json!({ "total_chunk_count": 3, "total_row_count": 10, "truncated": false }))
                 .unwrap(),
@@ -2017,7 +2038,85 @@ pub(crate) mod tests {
             plan(json!({ "total_row_count": 10 })),
             Err(Error::Query(_))
         ));
-        assert!(matches!(chunk_plan(&json!({})), Err(Error::Query(_))));
+        assert!(matches!(chunk_plan(&json!({}), None), Err(Error::Query(_))));
+    }
+
+    struct Discard;
+    impl dbine_driver::transfer::BatchSink for Discard {
+        fn begin(&mut self, _: &[TransferColumn]) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn batch(&mut self, _: dbine_driver::transfer::RowBatch) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A table read (Compare data, a copy) on a warehouse that refuses
+    /// external links: as reported on 1.6.3, the error said only that the
+    /// inline answer was truncated, that "no se copia una tabla incompleta"
+    /// (in a comparison), and threw away what Databricks answered to the
+    /// links, the one thing to fix. The refusal comes on submitting or once
+    /// submitted, and the inline read is truncated or fails over its limit.
+    #[tokio::test]
+    async fn a_read_without_links_says_why_they_were_refused() {
+        const REFUSED: &str = "EXTERNAL_LINKS is disabled for this workspace";
+        let inline_truncated = json!({
+            "statement_id": "s2",
+            "status": { "state": "SUCCEEDED" },
+            "manifest": { "total_chunk_count": 1, "total_row_count": 9, "truncated": true },
+            "result": { "chunk_index": 0, "data_array": [["1"]] },
+        })
+        .to_string();
+        let inline_over = json!({
+            "statement_id": "s2",
+            "status": { "state": "FAILED", "error": { "message": "Inline byte limit exceeded. Statements executed with disposition=INLINE can have a result size of at most 26214400 bytes." } },
+        })
+        .to_string();
+        let links_failed = json!({
+            "statement_id": "s1",
+            "status": { "state": "FAILED", "error": { "message": REFUSED } },
+        })
+        .to_string();
+        for (on_submit, inline) in [
+            (true, inline_truncated.clone()),
+            (false, inline_truncated),
+            (true, inline_over.clone()),
+            (false, inline_over),
+        ] {
+            let links_failed = links_failed.clone();
+            let base = serve(Arc::new(move |m, p, body| {
+                if (m, p) != ("POST", "/api/2.0/sql/statements") {
+                    return (404, "{}".into());
+                }
+                let b: Json = serde_json::from_str(body).unwrap();
+                if b["disposition"] == "EXTERNAL_LINKS" {
+                    if on_submit {
+                        (400, json!({ "message": REFUSED }).to_string())
+                    } else {
+                        (200, links_failed.clone())
+                    }
+                } else {
+                    (200, inline.clone())
+                }
+            }))
+            .await;
+            let col = TransferColumn {
+                name: "id".into(),
+                type_name: "int".into(),
+                nullable: true,
+            };
+            let sink: BatchSinkRef = Arc::new(std::sync::Mutex::new(Discard));
+            match session(base)
+                .read_chunks("SELECT `id` FROM t", &[col], &[kind_of("int")], sink)
+                .await
+            {
+                Err(Error::Query(m)) => {
+                    assert!(m.contains(REFUSED) && m.contains("25 MiB"), "{m}");
+                    assert!(!m.contains("copia"), "{m}");
+                }
+                other => panic!("{other:?}"),
+            }
+        }
     }
 
     #[test]

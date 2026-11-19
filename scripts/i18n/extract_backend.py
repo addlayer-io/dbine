@@ -262,6 +262,16 @@ def form_labels(src: str):
             yield _unescape(label)
 
 
+# What the drivers show (the connection form's labels, help, placeholders and options, the
+# explorer's folders, the create menu, the designer) is often short, built with concat!() or
+# lacking a Spanish-looking word ("DBine (predeterminada)", "certificado.pem o .pfx"), so the
+# filter above can't find it. The test every_driver_text_is_in_every_catalog
+# (src-tauri/src/tasks/i18n.rs) reads it from the drivers' real manifests into
+# web/src/locales/driver.msgids.json, which is merged here:
+#   DBINE_WRITE_DRIVER_TEXTS=1 cargo test -p dbine --lib every_driver_text
+DRIVER_MSGIDS = ROOT / "web/src/locales/driver.msgids.json"
+
+
 def monitor_label(s: str) -> bool:
     text = PLACEHOLDER.sub("", s).strip()
     if not re.search(r"[a-záéíóúñ]", text):
@@ -292,6 +302,8 @@ def main():
         for lit in [*monitor_labels(src), *form_labels(src)]:
             if monitor_label(lit):
                 msgs.setdefault(normalize(lit), set()).add(str(f.relative_to(ROOT)))
+    for m, ids in json.loads(DRIVER_MSGIDS.read_text(encoding="utf-8")).items():
+        msgs.setdefault(m, set()).update(f"driver {i}" for i in ids)
     out = {m: sorted(v) for m, v in sorted(msgs.items())}
     OUT.write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     print(f"{len(out)} messages from {len(files)} files -> {OUT.relative_to(ROOT)}")

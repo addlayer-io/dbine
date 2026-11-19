@@ -54,13 +54,13 @@ pub(crate) fn row_limit(stmt: &str, max_rows: usize) -> Option<i64> {
 }
 
 /// The server's answer to an `INLINE` result over its limit.
-fn over_inline_limit(message: &str) -> bool {
+pub(crate) fn over_inline_limit(message: &str) -> bool {
     let m = message.to_ascii_lowercase();
     m.contains("inline byte limit") || m.contains("disposition=external_links")
 }
 
 /// A statement's error that is about the disposition, not about its SQL.
-fn names_links(message: &str) -> bool {
+pub(crate) fn names_links(message: &str) -> bool {
     let m = message.to_ascii_lowercase();
     m.contains("external_links") || m.contains("external links")
 }
