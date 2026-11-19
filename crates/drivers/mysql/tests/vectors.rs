@@ -508,6 +508,20 @@ async fn steps(id: &'static str, url: String, db: Option<&'static str>, c: CaseD
         }
         must(&mut s, &stmt).await;
     }
+    if matches!(id, "doris" | "starrocks") && c.index_back.is_some() {
+        // The index is built by an asynchronous job (StarRocks' takes a
+        // while even on an empty table).
+        for _ in 0..60 {
+            let all = s.database_schema().await.expect("database_schema");
+            if all
+                .iter()
+                .any(|t| t.name == "vec_items" && t.indexes.iter().any(|i| i.vector.is_some()))
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        }
+    }
 
     // 2. Rows from insert_script, vectors as JSON arrays.
     let mut columns: Vec<String> = vec!["id".into(), "v".into()];

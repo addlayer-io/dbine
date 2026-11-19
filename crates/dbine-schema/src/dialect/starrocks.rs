@@ -859,14 +859,21 @@ impl Dialect for Olap {
                     ),
                 );
                 ("duplicate", first.into_iter().collect::<Vec<_>>())
-            } else if self.doris
-                && t.indexes.iter().any(|i| i.vector.is_some())
+            } else if t.indexes.iter().any(|i| i.vector.is_some())
                 && bad_for(false).is_none()
+                && (self.doris || bad_for(true).is_some())
             {
-                // Doris builds ANN indexes on DUPLICATE KEY tables only.
+                // Doris builds ANN indexes on DUPLICATE KEY tables only,
+                // StarRocks its vector indexes on DUPLICATE or PRIMARY KEY
+                // (not UNIQUE, where a key PRIMARY KEY can't hold ends up).
                 let list = pk.join(", ");
+                let why = if self.doris {
+                    "Doris crea índices ANN solo en tablas DUPLICATE KEY"
+                } else {
+                    "StarRocks crea índices vectoriales solo en tablas DUPLICATE KEY o PRIMARY KEY, y esta clave no entra en PRIMARY KEY"
+                };
                 report.push(Warning, PrimaryKeyDropped, &table, Some(&list), format!(
-                    "Doris crea índices ANN solo en tablas DUPLICATE KEY: la tabla queda DUPLICATE KEY({list}) y no garantiza la unicidad de su clave primaria."
+                    "{why}: la tabla queda DUPLICATE KEY({list}) y no garantiza la unicidad de su clave primaria."
                 ));
                 t.primary_key = None;
                 ("duplicate", pk.clone())

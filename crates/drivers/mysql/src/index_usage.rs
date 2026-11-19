@@ -877,7 +877,13 @@ pub(crate) fn with_vectors(mut indexes: Vec<IndexUsage>, found: Vec<IndexDef>) -
     for ix in found {
         let Some(vi) = ix.vector else { continue };
         match indexes.iter_mut().find(|u| u.name == ix.name) {
-            Some(u) => u.vector = Some(vi),
+            Some(u) => {
+                u.vector = Some(vi);
+                // StarRocks' SHOW INDEX writes the properties in the type.
+                if let Some(k) = ix.kind {
+                    u.kind = k;
+                }
+            }
             None => indexes.push(IndexUsage {
                 name: ix.name,
                 kind: ix.kind.unwrap_or_default(),
@@ -1084,6 +1090,7 @@ mod tests {
         let found = olap_vectors(Variant::Doris, rows.into_iter());
         assert_eq!(found.len(), 1);
         let got = with_vectors(listed(&[("iv", "ANN"), ("ix_k", "INVERTED")]), found);
+        assert_eq!(got[0].kind, "ANN");
         assert_eq!(
             got[0].vector,
             Some(vi(Some("hnsw"), "l2", &[("dim", "3"), ("m", "32")]))
@@ -1103,6 +1110,9 @@ mod tests {
             found[0].vector,
             Some(vi(Some("hnsw"), "cosine", &[("dim", "3"), ("m", "16")]))
         );
+        let raw = r#"VECTOR("dim" = "3", "m" = "16")"#;
+        let got = with_vectors(listed(&[("iv", raw)]), found);
+        assert_eq!(got[0].kind, "VECTOR");
     }
 
     #[test]

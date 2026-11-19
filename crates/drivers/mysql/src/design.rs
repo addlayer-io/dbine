@@ -1264,13 +1264,24 @@ fn olap_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<String> {
                     ))))?);
                     continue;
                 }
-                // Doris builds ANN indexes on DUPLICATE KEY tables only.
-                if v == Variant::Doris && olap_model(v, t) != "DUPLICATE" {
-                    notes.push(vector_index_or_note(Err(Error::Unsupported(format!(
-                        "Doris crea índices ANN solo en tablas DUPLICATE KEY: el índice vectorial «{}» pide el modelo DUPLICATE KEY",
-                        ix.name
-                    ))))?);
-                    continue;
+                // Doris builds ANN indexes on DUPLICATE KEY tables only,
+                // StarRocks its vector indexes on DUPLICATE or PRIMARY KEY.
+                match (v, olap_model(v, t)) {
+                    (_, "DUPLICATE") | (Variant::StarRocks, "PRIMARY") => {}
+                    (Variant::Doris, _) => {
+                        notes.push(vector_index_or_note(Err(Error::Unsupported(format!(
+                            "Doris crea índices ANN solo en tablas DUPLICATE KEY: el índice vectorial «{}» pide el modelo DUPLICATE KEY",
+                            ix.name
+                        ))))?);
+                        continue;
+                    }
+                    _ => {
+                        notes.push(vector_index_or_note(Err(Error::Unsupported(format!(
+                            "StarRocks crea índices vectoriales solo en tablas DUPLICATE KEY o PRIMARY KEY: el índice vectorial «{}» pide uno de esos modelos",
+                            ix.name
+                        ))))?);
+                        continue;
+                    }
                 }
                 // ANN (Doris) / VECTOR (StarRocks) with their properties.
                 let (kind, props, note) = match crate::vectors::olap_index(v, ix) {
@@ -2697,6 +2708,20 @@ mod tests {
             s.contains("UNIQUE KEY(`id`)")
                 && s.contains("-- Doris crea índices ANN solo en tablas DUPLICATE KEY")
                 && !s.contains("USING ANN"),
+            "{s}"
+        );
+        // StarRocks: PRIMARY KEY (its default with a key) or DUPLICATE KEY.
+        let s = table_ddl(Variant::StarRocks, &t, all).unwrap();
+        assert!(
+            s.contains("PRIMARY KEY(`id`)") && s.contains("USING VECTOR"),
+            "{s}"
+        );
+        t.options.insert("key_model".into(), "unique".into());
+        let s = table_ddl(Variant::StarRocks, &t, all).unwrap();
+        assert!(
+            s.contains(
+                "-- StarRocks crea índices vectoriales solo en tablas DUPLICATE KEY o PRIMARY KEY"
+            ) && !s.contains("USING VECTOR"),
             "{s}"
         );
         t.options.insert("key_model".into(), "duplicate".into());

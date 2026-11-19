@@ -452,7 +452,8 @@ impl MySqlSession {
 
     /// The (schema, table)s a SELECT reads, for the engines whose result
     /// columns don't name their table. Manticore has one namespace (`""`);
-    /// GreptimeDB's default database is `public`.
+    /// GreptimeDB's default database is `public`; a StarRocks / Doris
+    /// table without a database (none in the session either) is left out.
     fn query_tables(&self, sql: &str) -> Option<Vec<(String, String)>> {
         if !crate::vectors::by_query_tables(self.variant) {
             return None;
@@ -461,15 +462,15 @@ impl MySqlSession {
         Some(
             tables
                 .into_iter()
-                .map(|(schema, table)| {
-                    let schema = if self.variant == Variant::Manticore {
-                        String::new()
-                    } else {
-                        schema
+                .filter_map(|(schema, table)| {
+                    let schema = match self.variant {
+                        Variant::Manticore => String::new(),
+                        Variant::GreptimeDb => schema
                             .or_else(|| self.database.clone())
-                            .unwrap_or_else(|| "public".into())
+                            .unwrap_or_else(|| "public".into()),
+                        _ => schema.or_else(|| self.database.clone())?,
                     };
-                    (schema, table)
+                    Some((schema, table))
                 })
                 .collect(),
         )
