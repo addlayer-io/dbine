@@ -102,6 +102,57 @@ pub(crate) fn meta_of_type(v: Variant, data_type: &str) -> Option<VectorMeta> {
     })
 }
 
+/// A sibling's vector type in this variant's spelling, for a table that
+/// came from another engine of the family (same dialect, so the type
+/// arrives as the source wrote it): CockroachDB's `VECTOR(n)`, CrateDB's
+/// `FLOAT_VECTOR(n)`, pgvector's `vector(n)`. `None` when it stays as it is.
+pub(crate) fn sibling_type(v: Variant, data_type: &str) -> Option<String> {
+    if meta_of_type(v, data_type).is_some() || !supported(v) {
+        return None;
+    }
+    let t = data_type.trim().to_ascii_lowercase();
+    let (name, dims) = match t.split_once('(') {
+        Some((n, rest)) => (
+            n.trim(),
+            rest.split_once(')').map(|(d, _)| d.trim().to_string()),
+        ),
+        None => (t.as_str(), None),
+    };
+    let name = name.rsplit('.').next().unwrap_or(name).trim_matches('"');
+    if !matches!(name, "vector" | "halfvec" | "float_vector") {
+        return None;
+    }
+    let dims = dims.filter(|d| d.parse::<u32>().is_ok());
+    Some(match (v, dims) {
+        (Variant::Cockroach, Some(d)) => format!("VECTOR({d})"),
+        (Variant::Cockroach, None) => "VECTOR".into(),
+        (Variant::CrateDb, Some(d)) => format!("FLOAT_VECTOR({d})"),
+        // CrateDB's vectors need their dimension.
+        (Variant::CrateDb, None) => return None,
+        (_, Some(d)) => format!("vector({d})"),
+        (_, None) => "vector".into(),
+    })
+}
+
+/// `t` with its siblings' vector types in this variant's spelling
+/// ([`sibling_type`]).
+pub(crate) fn sibling_types(v: Variant, t: &TableSchema) -> std::borrow::Cow<'_, TableSchema> {
+    if !t
+        .columns
+        .iter()
+        .any(|c| sibling_type(v, &c.data_type).is_some())
+    {
+        return std::borrow::Cow::Borrowed(t);
+    }
+    let mut out = t.clone();
+    for c in &mut out.columns {
+        if let Some(ty) = sibling_type(v, &c.data_type) {
+            c.data_type = ty;
+        }
+    }
+    std::borrow::Cow::Owned(out)
+}
+
 /// A result column whose type the prepared statement described
 /// (`typname`, `typmod`): a vector column gets its metadata and its type
 /// with the dimension (`vector(3)`), as `format_type` writes it.
@@ -766,6 +817,36 @@ mod tests {
         assert_eq!(m(Variant::Postgres, "integer[]"), None);
         assert_eq!(m(Variant::Redshift, "vector(3)"), None);
         assert_eq!(m(Variant::Materialize, "vector(3)"), None);
+    }
+
+    #[test]
+    fn siblings_vector_types() {
+        assert_eq!(
+            sibling_type(Variant::Cockroach, "halfvec(3)").as_deref(),
+            Some("VECTOR(3)")
+        );
+        assert_eq!(
+            sibling_type(Variant::Cockroach, "FLOAT_VECTOR(3)").as_deref(),
+            Some("VECTOR(3)")
+        );
+        assert_eq!(sibling_type(Variant::Cockroach, "vector(3)"), None);
+        assert_eq!(sibling_type(Variant::Cockroach, "sparsevec(3)"), None);
+        assert_eq!(
+            sibling_type(Variant::CrateDb, "vector(3)").as_deref(),
+            Some("FLOAT_VECTOR(3)")
+        );
+        assert_eq!(sibling_type(Variant::CrateDb, "VECTOR"), None);
+        assert_eq!(
+            sibling_type(Variant::Postgres, "FLOAT_VECTOR(3)").as_deref(),
+            Some("vector(3)")
+        );
+        assert_eq!(sibling_type(Variant::Postgres, "halfvec(3)"), None);
+        assert_eq!(
+            sibling_type(Variant::RisingWave, "halfvec(3)").as_deref(),
+            Some("vector(3)")
+        );
+        assert_eq!(sibling_type(Variant::Redshift, "vector(3)"), None);
+        assert_eq!(sibling_type(Variant::Postgres, "integer"), None);
     }
 
     #[test]

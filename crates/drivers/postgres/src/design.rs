@@ -175,6 +175,17 @@ fn identity_clause(value: &str) -> Option<String> {
 /// A column as CREATE TABLE / ADD COLUMN writes it, with its identity's
 /// ALWAYS and sequence options ([`IDENTITY_OPTION`]).
 fn column_def(v: Variant, f: &SqlFlavor, t: &TableSchema, c: &dbine_driver::ColumnDef) -> String {
+    let mapped;
+    let c = match crate::vectors::sibling_type(v, &c.data_type) {
+        Some(ty) => {
+            mapped = dbine_driver::ColumnDef {
+                data_type: ty,
+                ..c.clone()
+            };
+            &mapped
+        }
+        None => c,
+    };
     let line = ddl::column_def(f, t, c);
     if !c.auto_increment || !identity_options(v) {
         return line;
@@ -596,6 +607,8 @@ fn using(v: Variant, kind: Option<&str>) -> Option<String> {
 }
 
 pub fn table_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> String {
+    let t = crate::vectors::sibling_types(v, t);
+    let t = t.as_ref();
     let f = flavor(v);
     let name = qualified_name(
         Quote::Double,
