@@ -263,6 +263,7 @@ async fn compare_only(
         key: Vec::new(),
         wanted: Vec::new(),
         cols: [named(&p, 0), named(&p, 1)],
+        ..Default::default()
     };
     let how = How {
         pairs: Some(p),

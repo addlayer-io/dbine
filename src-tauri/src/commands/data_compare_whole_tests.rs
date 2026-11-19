@@ -87,6 +87,7 @@ async fn run(
         key: key.iter().map(|k| k.to_string()).collect(),
         wanted: Vec::new(),
         cols,
+        ..Default::default()
     };
     compare(
         Side {
@@ -597,6 +598,7 @@ async fn a_side_goes_on_while_the_other_has_not_begun() {
         key: vec!["id".into(), "k2".into()],
         wanted: Vec::new(),
         cols,
+        ..Default::default()
     };
     let seen = Arc::new(Mutex::new(Vec::<Progress>::new()));
     let s2 = seen.clone();
@@ -737,6 +739,7 @@ async fn sources_and_scratch_on_one_duckdb_host() {
         key: vec!["id".into()],
         wanted: Vec::new(),
         cols,
+        ..Default::default()
     };
     let started = std::time::Instant::now();
     let got = tokio::time::timeout(
@@ -984,6 +987,7 @@ async fn the_scratch_compares_tables_far_bigger_than_its_memory() {
         columns: vec![("id".into(), "id".into()), ("v".into(), "v".into())],
         nk: 1,
         bools: [vec![false; 2], vec![false; 2]],
+        vectors: Default::default(),
         only_left_columns: Vec::new(),
         only_right_columns: Vec::new(),
     });
@@ -1155,6 +1159,7 @@ async fn order_key_ties_are_cut_by_key() {
         columns: vec![("id".into(), "id".into()), ("v".into(), "v".into())],
         nk: 1,
         bools: [vec![false; 2], vec![false; 2]],
+        vectors: Default::default(),
         only_left_columns: Vec::new(),
         only_right_columns: Vec::new(),
     });
@@ -1215,6 +1220,7 @@ async fn long_keys_fit_the_scratch_memory() {
             columns: vec![("id".into(), "id".into()), ("v".into(), "v".into())],
             nk: 1,
             bools: [vec![false; 2], vec![false; 2]],
+            vectors: Default::default(),
             only_left_columns: Vec::new(),
             only_right_columns: Vec::new(),
         });
@@ -1290,6 +1296,7 @@ async fn millions_of_differences_fit_the_scratch_memory() {
             .collect(),
         nk: 2,
         bools: [vec![false; 4], vec![false; 4]],
+        vectors: Default::default(),
         only_left_columns: Vec::new(),
         only_right_columns: Vec::new(),
     });
@@ -1305,5 +1312,70 @@ async fn millions_of_differences_fit_the_scratch_memory() {
         (max / 2, max / 2, 0)
     );
     s.close().await;
+    assert_eq!(leftovers(&root.0), Vec::<String>::new());
+}
+
+/// Vector columns compare by value, in memory and in the scratch DuckDB:
+/// `[1e-07, 2]` is `[0.0000001,2.0]`, and digits a float32 can't hold
+/// don't count. Without the catalog's mark they'd compare as text.
+#[tokio::test(flavor = "multi_thread")]
+async fn vector_columns_compare_by_value_on_both_paths() {
+    const L: &str = "CREATE TABLE t (id INTEGER, v VARCHAR);
+INSERT INTO t VALUES (1, '[1e-07, 2]'), (2, '[0.1,0.2]'), (3, '[1,2,3]'), (4, NULL), (5, '[1,2]');";
+    const R: &str = "CREATE TABLE \"T\" (id INTEGER, v VARCHAR);
+INSERT INTO \"T\" VALUES (1, '[0.0000001,2.0]'), (2, '[0.100000001, 0.2]'), (3, '[1,2,4]'), (4, NULL), (5, '[1,2,0]');";
+    let root = temp_dir("vectors");
+    let compare_with_marks = |marked: bool, in_memory_rows: usize| {
+        let root = root.0.clone();
+        async move {
+            let mut l = duck(L).await;
+            let mut r = duck(R).await;
+            let (lo, ro) = (table("t"), table("T"));
+            let cols = [l.columns(&lo).await.unwrap(), r.columns(&ro).await.unwrap()];
+            let mark = || {
+                if marked {
+                    HashMap::from([("v".to_string(), VectorElement::F32)])
+                } else {
+                    HashMap::new()
+                }
+            };
+            let input = Input {
+                key: vec!["id".into()],
+                wanted: Vec::new(),
+                cols,
+                vectors: [mark(), mark()],
+            };
+            compare(
+                Side {
+                    session: l.as_mut(),
+                    object: &lo,
+                },
+                Side {
+                    session: r.as_mut(),
+                    object: &ro,
+                },
+                input,
+                &opts(in_memory_rows, 1_000_000, &root),
+                &Arc::new(Ctl::default()),
+                &quiet,
+            )
+            .await
+            .unwrap()
+        }
+    };
+    let memory = compare_with_marks(true, 1_000_000).await;
+    let disk = compare_with_marks(true, 1).await;
+    assert!(!memory.spilled && disk.spilled);
+    assert_eq!(summary(&memory), summary(&disk));
+    assert_eq!((memory.counts.same, memory.counts.changed), (3, 2));
+    let changed: Vec<Value> = memory.changed.iter().map(|c| c.left[0].clone()).collect();
+    assert_eq!(changed, [json!(3), json!(5)]);
+    // The values kept (shown, and written by a sync script) are the
+    // vectors' exact text.
+    assert_eq!(memory.changed[0].left[1], json!("[1,2,3]"));
+    assert_eq!(memory.changed[1].right[1], json!("[1,2,0]"));
+    // Unmarked, the text differs on 1, 2, 3 and 5.
+    let text = compare_with_marks(false, 1_000_000).await;
+    assert_eq!((text.counts.same, text.counts.changed), (1, 4));
     assert_eq!(leftovers(&root.0), Vec::<String>::new());
 }

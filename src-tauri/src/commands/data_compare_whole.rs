@@ -47,12 +47,13 @@
 //! too, from a few columns more per compared column.
 
 use super::{as_bool, canon, is_bool_type, sort_value, ChangedRow, Counts, SortValue};
+use crate::commands::vectors;
 use crate::error::{CommandError, CommandResult};
 use crate::local_duckdb;
 use dbine_driver::transfer::{BatchSource, Cell, LoadSpec, RowBatch, TransferColumn};
 use dbine_driver::{
     BatchSink, ColumnInfo, Driver, ObjectRef, QueryOutcome, ReadSpec, ResultColumn, RowSink,
-    RowSinkRef, Session,
+    RowSinkRef, Session, VectorElement,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -182,10 +183,15 @@ pub(crate) struct Options {
 
 /// What to compare: the key, the columns asked for (empty: all both sides
 /// have) and each side's columns from its catalog (names, types, booleans).
+#[derive(Default)]
 pub(crate) struct Input {
     pub key: Vec<String>,
     pub wanted: Vec<String>,
     pub cols: [Vec<ColumnInfo>; 2],
+    /// Each side's dense vector columns (lower-case names) and their
+    /// numbers' type, from its catalog: their cells compare by value
+    /// ([`vectors::compared`]). A query's result says its own as it begins.
+    pub vectors: [HashMap<String, VectorElement>; 2],
 }
 
 /// One side of a compare: its session and table.
@@ -343,8 +349,21 @@ pub(crate) struct Projection {
     pub nk: usize,
     /// Per side: the compared columns that hold booleans.
     bools: [Vec<bool>; 2],
+    /// Per side: the compared columns that hold dense vectors, with their
+    /// numbers' type.
+    vectors: [Vec<Option<VectorElement>>; 2],
     pub only_left_columns: Vec<String>,
     pub only_right_columns: Vec<String>,
+}
+
+/// Per side, each compared column's vector element when its catalog says
+/// it holds dense vectors.
+fn vector_columns(input: &Input, columns: &[(String, String)]) -> [Vec<Option<VectorElement>>; 2] {
+    let of = |side: usize, name: &str| input.vectors[side].get(&name.to_lowercase()).copied();
+    [
+        columns.iter().map(|c| of(0, &c.0)).collect(),
+        columns.iter().map(|c| of(1, &c.1)).collect(),
+    ]
 }
 
 impl Projection {
@@ -389,6 +408,7 @@ impl Projection {
                 .map(|c| booleans(&input.cols[1], &c.1))
                 .collect(),
         ];
+        let vectors = vector_columns(input, &columns);
         Ok(Projection {
             nk: input.key.len(),
             only_left_columns: lnames
@@ -403,6 +423,7 @@ impl Projection {
                 .collect(),
             columns,
             bools,
+            vectors,
         })
     }
 
@@ -453,6 +474,7 @@ impl Projection {
                 .map(|c| booleans(&input.cols[1], &c.1))
                 .collect(),
         ];
+        let vectors = vector_columns(input, &columns);
         Ok(Projection {
             nk: pairs.nk,
             only_left_columns: lnames
@@ -467,6 +489,7 @@ impl Projection {
                 .collect(),
             columns,
             bools,
+            vectors,
         })
     }
 
@@ -1076,6 +1099,7 @@ impl BatchSink for SideSink {
             )));
         };
         let bools = &self.job.projection.bools[self.side];
+        let vecs = &self.job.projection.vectors[self.side];
         let rows = batch
             .rows
             .into_iter()
@@ -1093,7 +1117,11 @@ impl BatchSink for SideSink {
                             value_of(c)
                         }
                     };
-                    out.push(if bools[i] { as_bool(v) } else { v });
+                    out.push(if bools[i] {
+                        as_bool(v)
+                    } else {
+                        vectors::compared(v, vecs[i])
+                    });
                 }
                 (out, size)
             })
@@ -1223,6 +1251,9 @@ struct Relay {
     index: Option<usize>,
     pick: Vec<(usize, Option<usize>)>,
     bools: Vec<bool>,
+    /// The compared columns that hold dense vectors (the result's mark, or
+    /// the catalog's), with their numbers' type.
+    vectors: Vec<Option<VectorElement>>,
     batch: Vec<(Vec<Value>, usize)>,
     batch_bytes: usize,
 }
@@ -1325,7 +1356,9 @@ impl RowSink for Relay {
         };
         let mut pick: Vec<(usize, Option<usize>)> = Vec::new();
         let mut bools = Vec::new();
-        for name in self.job.projection.names(self.side) {
+        let mut vecs = Vec::new();
+        let catalog = &self.job.projection.vectors[self.side];
+        for (i, name) in self.job.projection.names(self.side).into_iter().enumerate() {
             let Some(at) = find(&name) else {
                 return Err(self.refuse(CommandError::BadRequest(format!(
                     "el resultado de {} no trae la columna «{name}»: volvé a leer sus columnas",
@@ -1335,11 +1368,17 @@ impl RowSink for Relay {
             let earlier = pick.iter().position(|(x, _)| *x == at);
             pick.push((at, earlier));
             bools.push(is_bool_type(&columns[at].type_name));
+            vecs.push(match &columns[at].vector {
+                Some(m) if !m.sparse => Some(m.element),
+                Some(_) => None,
+                None => catalog.get(i).copied().flatten(),
+            });
         }
         *lock(&self.job.query_columns[self.side]) = columns.to_vec();
         self.index = Some(index);
         self.pick = pick;
         self.bools = bools;
+        self.vectors = vecs;
         Ok(())
     }
 
@@ -1361,7 +1400,11 @@ impl RowSink for Relay {
                     v
                 }
             };
-            out.push(if self.bools[i] { as_bool(v) } else { v });
+            out.push(if self.bools[i] {
+                as_bool(v)
+            } else {
+                vectors::compared(v, self.vectors[i])
+            });
         }
         self.batch.push((out, size));
         self.batch_bytes += size;
@@ -1396,6 +1439,7 @@ async fn read_query(
         index: None,
         pick: Vec::new(),
         bools: Vec::new(),
+        vectors: Vec::new(),
         batch: Vec::new(),
         batch_bytes: 0,
     }));

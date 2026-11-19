@@ -504,6 +504,7 @@ async fn compare_queries(
         key: Vec::new(),
         wanted: Vec::new(),
         cols: [named(&pairs, 0), named(&pairs, 1)],
+        ..Default::default()
     };
     let how = whole::How {
         pairs: Some(pairs),
@@ -639,6 +640,8 @@ fn keep(
             equal: c.equal,
             left_types,
             right_types,
+            left_vectors: Vec::new(),
+            right_vectors: Vec::new(),
             partial: false,
             diff_truncated: c.diff_truncated,
             counts: c.counts,

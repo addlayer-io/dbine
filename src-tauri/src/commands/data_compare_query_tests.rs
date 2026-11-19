@@ -321,6 +321,7 @@ async fn compare_held(
         key: Vec::new(),
         wanted: Vec::new(),
         cols: [named(&pairs, 0), named(&pairs, 1)],
+        ..Default::default()
     };
     let how = How {
         pairs: Some(pairs),
