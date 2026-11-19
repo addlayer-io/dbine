@@ -37,14 +37,26 @@ impl Dialect for DuckDb {
             raw = r.trim_end();
         }
         if let Some(open) = raw.strip_suffix(']').and_then(|r| r.rfind('[')) {
-            if raw[open + 1..raw.len() - 1]
-                .trim()
-                .chars()
-                .all(|c| c.is_ascii_digit())
-            {
-                return L::Array {
-                    of: Box::new(nested(self, &raw[..open])),
+            let size = raw[open + 1..raw.len() - 1].trim();
+            if size.chars().all(|c| c.is_ascii_digit()) {
+                let of = nested(self, &raw[..open]);
+                // `FLOAT[n]` / `DOUBLE[n]` (not a list of them): a vector,
+                // what DuckDB's array_* distances and vss's HNSW take.
+                let element = match of {
+                    L::Float { bytes: 4 } => Some(dbine_driver::VectorElement::F32),
+                    L::Float { bytes: 8 } => Some(dbine_driver::VectorElement::F64),
+                    _ => None,
                 };
+                if let (Some(element), Ok(dims), true) =
+                    (element, size.parse::<u32>(), raw == t.raw.trim())
+                {
+                    return L::Vector {
+                        dims: Some(dims),
+                        element,
+                        sparse: false,
+                    };
+                }
+                return L::Array { of: Box::new(of) };
             }
         }
         match t.name.as_str() {
@@ -158,7 +170,33 @@ impl Dialect for DuckDb {
         use IssueCode::*;
         use Severity::*;
         match t {
-            L::Vector { .. } => super::vector_fallback(self, t),
+            L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
+            L::Vector { dims, element, .. } => {
+                use dbine_driver::VectorElement as E;
+                // Narrower numbers fit a FLOAT exactly; bits as 0 and 1.
+                let of = if *element == E::F64 {
+                    "DOUBLE"
+                } else {
+                    "FLOAT"
+                };
+                let r = match dims {
+                    Some(n) => Rendered::exact(format!("{of}[{n}]")),
+                    None => Rendered::exact(format!("{of}[]")).with(
+                        Warning,
+                        TypeApproximated,
+                        "El vector no tiene dimensión fija: queda como lista; las distancias array_* y los índices HNSW de DuckDB piden un FLOAT[n].",
+                    ),
+                };
+                if *element == E::Bit {
+                    r.with(
+                        Info,
+                        TypeChanged,
+                        "Vector binario: cada bit queda como un número 0 o 1.",
+                    )
+                } else {
+                    r
+                }
+            }
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
                 let (name, note) = match bytes {
@@ -311,6 +349,44 @@ impl Dialect for DuckDb {
         }
     }
 
+    /// vss's HNSW: L2 (`l2sq`, its default), cosine or inner product; `m`
+    /// and `ef_construction` carry over (HNSW's own), the rest is another
+    /// algorithm's and doesn't. The index needs a `FLOAT[n]` column.
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        use dbine_driver::vector::{metric, param};
+        let metric = match v.metric.as_deref() {
+            None => None,
+            Some(m) if [metric::L2, metric::COSINE, metric::IP].contains(&m) => {
+                Some(m.to_string())
+            }
+            Some(m) => {
+                return Err(format!(
+                    "los índices HNSW de DuckDB miden distancia L2, coseno o producto interno, y el índice usa «{m}»"
+                ))
+            }
+        };
+        let params = v
+            .params
+            .iter()
+            .filter(|(k, val)| {
+                (k.as_str() == param::M || k.as_str() == param::EF_CONSTRUCTION)
+                    && val.trim().parse::<u32>().is_ok()
+            })
+            .map(|(k, val)| (k.clone(), val.trim().to_string()))
+            .collect();
+        Ok((
+            Some("HNSW".into()),
+            dbine_driver::VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric,
+                params,
+            },
+        ))
+    }
+
     fn caps(&self) -> Caps {
         const ACTIONS: &[&str] = &["RESTRICT", "NO ACTION"];
         Caps {
@@ -338,6 +414,126 @@ mod tests {
 
     fn lt(s: &str) -> L {
         logical_of(&DuckDb, &parse(s))
+    }
+
+    #[test]
+    fn vectors_round_trip() {
+        use dbine_driver::VectorElement as E;
+        let vec = |dims, element| L::Vector {
+            dims,
+            element,
+            sparse: false,
+        };
+        assert_eq!(lt("FLOAT[3]"), vec(Some(3), E::F32));
+        assert_eq!(lt("DOUBLE[768]"), vec(Some(768), E::F64));
+        assert_eq!(lt("REAL[2]"), vec(Some(2), E::F32));
+        // Lists, arrays of other types and lists of arrays aren't vectors.
+        assert_eq!(
+            lt("FLOAT[]"),
+            L::Array {
+                of: Box::new(L::Float { bytes: 4 })
+            }
+        );
+        assert!(matches!(lt("INTEGER[3]"), L::Array { .. }));
+        assert!(matches!(lt("FLOAT[3][]"), L::Array { .. }));
+        for (t, native) in [
+            (vec(Some(3), E::F32), "FLOAT[3]"),
+            (vec(Some(2), E::F64), "DOUBLE[2]"),
+            // pgvector's halfvec(4) and bit(8), as their dialect reads them.
+            (vec(Some(4), E::F16), "FLOAT[4]"),
+            (vec(Some(8), E::Bit), "FLOAT[8]"),
+            (vec(None, E::F32), "FLOAT[]"),
+        ] {
+            assert_eq!(DuckDb.render_type(&t).native, native, "{t:?}");
+        }
+        assert!(DuckDb.render_type(&vec(None, E::F32)).notes.len() == 1);
+    }
+
+    #[test]
+    fn vector_indexes_become_hnsw() {
+        use dbine_driver::VectorIndex;
+        let v = VectorIndex {
+            algorithm: Some("diskann".into()),
+            metric: Some("cosine".into()),
+            params: [
+                ("m", "20"),
+                ("quantization", "float8"),
+                ("ef_construction", "x"),
+            ]
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        };
+        let (kind, out) = DuckDb.vector_index(&v).unwrap();
+        assert_eq!(kind.as_deref(), Some("HNSW"));
+        assert_eq!(out.algorithm.as_deref(), Some("hnsw"));
+        assert_eq!(out.metric.as_deref(), Some("cosine"));
+        assert_eq!(
+            out.params.into_iter().collect::<Vec<_>>(),
+            [("m".to_string(), "20".to_string())]
+        );
+        let e = DuckDb
+            .vector_index(&VectorIndex {
+                metric: Some("hamming".into()),
+                ..Default::default()
+            })
+            .unwrap_err();
+        assert!(e.contains("hamming"), "{e}");
+    }
+
+    /// DuckDB → libSQL → DuckDB: the vector type and its index cross
+    /// families (pgvector's `vector(3)` reads as the same logical type).
+    #[test]
+    fn vectors_cross_to_libsql_and_back() {
+        use crate::convert::{convert, Options};
+        use dbine_driver::{ColumnDef, IndexDef, TableSchema, VectorIndex};
+        let t = TableSchema {
+            name: "docs".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "INTEGER".into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "emb".into(),
+                    data_type: "FLOAT[3]".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            indexes: vec![IndexDef {
+                name: "docs_emb".into(),
+                columns: vec!["emb".into()],
+                kind: Some("HNSW".into()),
+                vector: Some(VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some("l2".into()),
+                    params: [("m".to_string(), "16".to_string())].into(),
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let r = convert(&[t], "duckdb", "libsql", &Options::default()).unwrap();
+        let lt = &r.tables[0];
+        assert_eq!(lt.columns[1].data_type, "F32_BLOB(3)");
+        let ix = &lt.indexes[0];
+        assert_eq!(ix.kind, None);
+        let v = ix.vector.as_ref().unwrap();
+        assert_eq!(
+            (v.algorithm.as_deref(), v.metric.as_deref()),
+            (None, Some("l2"))
+        );
+        assert_eq!(v.params["m"], "16");
+        let back = convert(&r.tables, "libsql", "duckdb", &Options::default()).unwrap();
+        let dt = &back.tables[0];
+        assert_eq!(dt.columns[1].data_type, "FLOAT[3]");
+        assert_eq!(dt.indexes[0].kind.as_deref(), Some("HNSW"));
+        assert_eq!(
+            dt.indexes[0].vector.as_ref().unwrap().metric.as_deref(),
+            Some("l2")
+        );
     }
 
     #[test]
@@ -421,10 +617,11 @@ mod tests {
                 })
             }
         );
+        // A fixed-size array of floats is a vector (see `vectors_round_trip`).
         assert_eq!(
-            lt("DOUBLE[3]"),
+            lt("SMALLINT[3]"),
             L::Array {
-                of: Box::new(L::Float { bytes: 8 })
+                of: Box::new(L::int(2))
             }
         );
         assert_eq!(

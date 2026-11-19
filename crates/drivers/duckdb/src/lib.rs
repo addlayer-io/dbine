@@ -19,6 +19,7 @@ mod rename;
 mod schema;
 mod stats;
 mod transfer;
+mod vector;
 
 use async_trait::async_trait;
 use dbine_driver::sql::{
@@ -182,12 +183,62 @@ impl Driver for DuckDbDriver {
             foreign_keys: true,
             monitor: true,
             database_properties: true,
+            // FLOAT[n] / DOUBLE[n] and vss's HNSW indexes; the files preset
+            // reads vectors (Parquet's fixed-size lists) but creates nothing.
+            vectors: !self.files,
             ..Default::default()
         }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
         Some(schema::designer())
+    }
+
+    /// The contract's scripts, with a vector as `'[1,2.5]'` (cast to the
+    /// column's `FLOAT[n]` on INSERT and UPDATE).
+    fn insert_script(
+        &self,
+        target: &ObjectRef,
+        columns: &[String],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        Ok(dbine_driver::ddl::insert_script_with(
+            &schema::SCRIPTS,
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+            100,
+            &script_literal,
+        ))
+    }
+
+    fn update_script(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+    ) -> Result<String> {
+        Ok(dbine_driver::ddl::update_script_with(
+            Quote::Double,
+            target.schema(),
+            &target.name,
+            changes,
+            &script_literal,
+        ))
+    }
+
+    fn delete_script(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+    ) -> Result<String> {
+        Ok(dbine_driver::ddl::delete_script_with(
+            Quote::Double,
+            target.schema(),
+            &target.name,
+            keys,
+            &script_literal,
+        ))
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
@@ -351,6 +402,7 @@ impl Driver for DuckDbDriver {
             let catalog: String = conn
                 .query_row("SELECT current_database()", [], |r| r.get(0))
                 .map_err(Error::query)?;
+            load_vss_for_hnsw(&conn);
             Ok((db, conn, catalog))
         })
         .await?;
@@ -363,6 +415,42 @@ impl Driver for DuckDbDriver {
             read_only,
             tx: Tx::default(),
         }))
+    }
+}
+
+/// A value of an edit or insert script: a vector as `'[1,2.5]'`, the rest
+/// as the contract's defaults write it.
+fn script_literal(v: &serde_json::Value) -> String {
+    vector::literal(v).unwrap_or_else(|| dbine_driver::ddl::sql_literal(&schema::SCRIPTS, v))
+}
+
+/// A database with HNSW indexes (the vss extension's) needs vss loaded to
+/// change its tables: without it DuckDB keeps such an index unbound and
+/// refuses every write to the table ("unknown index type 'HNSW'"), and the
+/// DDL that recreates one (sync, clone) fails. So it's loaded (installed
+/// first if needed: DuckDB downloads its signed extension once), with
+/// HNSW's experimental persistence on, which a file with such an index
+/// already uses. Best effort: without the network the database still opens,
+/// reads work and a write says what's missing.
+fn load_vss_for_hnsw(conn: &Connection) {
+    let has: bool = conn
+        .query_row(
+            "SELECT count(*) > 0 FROM duckdb_indexes() WHERE sql ILIKE '%USING HNSW%'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(false);
+    if !has {
+        return;
+    }
+    let loaded = conn
+        .execute_batch("LOAD vss")
+        .or_else(|_| conn.execute_batch("INSTALL vss; LOAD vss"));
+    match loaded {
+        Ok(()) => {
+            let _ = conn.execute_batch(schema::HNSW_PERSISTENCE);
+        }
+        Err(e) => tracing::warn!("duckdb: the database has HNSW indexes but vss didn't load: {e}"),
     }
 }
 
@@ -1322,15 +1410,25 @@ fn run_statement(
             out.push_affected(changed as u64);
             return Ok(());
         }
-        let types: Vec<String> = (0..names.len()).map(|i| type_name(&stmt, i)).collect();
+        // FLOAT[n] and DOUBLE[n] are vectors: their full type and their
+        // cells as vector text.
+        let vectors: Vec<Option<String>> = (0..names.len())
+            .map(|i| vector::result_type(&stmt.column_type(i)))
+            .collect();
+        let types: Vec<String> = (0..names.len())
+            .map(|i| vectors[i].clone().unwrap_or_else(|| type_name(&stmt, i)))
+            .collect();
         out.begin_result(
             names
                 .into_iter()
                 .zip(types)
-                .map(|(name, type_name)| ResultColumn {
-                    name,
-                    type_name,
-                    vector: None,
+                .map(|(name, type_name)| {
+                    let meta = vector::meta(&type_name);
+                    let col = ResultColumn::new(name, type_name);
+                    match meta {
+                        Some(m) => col.with_vector(m),
+                        None => col,
+                    }
                 })
                 .collect(),
         );
@@ -1339,7 +1437,13 @@ fn run_statement(
         while let Some(row) = rows.next()? {
             out.push_row(
                 (0..n)
-                    .map(|i| cell(row.get_ref_unwrap(i).to_owned()))
+                    .map(|i| {
+                        let v = row.get_ref_unwrap(i).to_owned();
+                        match vectors[i].as_ref().and_then(|_| vector::cell(&v)) {
+                            Some(c) => c,
+                            None => cell(v),
+                        }
+                    })
                     .collect(),
                 max_rows,
             );
