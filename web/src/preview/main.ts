@@ -83,6 +83,7 @@ import {
 } from './samples';
 import CellViewer from '../components/CellViewer.vue';
 import { buildChanges, buildInserts } from '../composables/gridEdit';
+import { rowsForScripts } from '../composables/vector';
 import type { Cell } from '../api/types';
 
 import MultiDbRunDialog from '../components/MultiDbRunDialog.vue';
@@ -281,6 +282,13 @@ function vectorsView() {
   return h('div', { style: 'flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--ide-editor)' }, [
     h('div', { style: 'flex: 1; min-height: 0; display: flex; flex-direction: column' }, [h(ResultGrid, {
       columns, rows: all, editable: true, insertable: true, added: pvVecAdded.length, edits,
+      // "Copiar como SQL INSERTs / UPDATEs": a stand-in for the driver's script
+      // (`window.__pvNoScript`: the driver can't, the generic SQL goes).
+      copyContext: {
+        table: { schema: 'public', name: 'documentos' }, dialect: 'postgres', keyColumns: ['id'],
+        script: async (format: string, cols: typeof columns, rs: Cell[][]) => ((window as unknown as Record<string, unknown>).__pvNoScript
+          ? null : `-- ${format} (driver)\n${JSON.stringify(rowsForScripts(cols, rs))}`),
+      },
       onAdd: () => pvVecAdded.push({}),
       onEdit: (r: number, c: number, v: Cell | undefined) => {
         const set = r >= rows.length ? pvVecAdded[r - rows.length] : (pvVecEdits[r] ??= {});
