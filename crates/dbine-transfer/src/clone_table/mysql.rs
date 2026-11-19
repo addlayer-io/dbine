@@ -1415,7 +1415,6 @@ mod vector_live {
     use dbine_driver::{kinds, ConnectionConfig, Driver, ObjectRef, QueryOutcome, Session};
     use std::sync::Arc;
 
-    const DB: &str = "dbine_vec_move";
     const ROWS: [&str; 3] = ["[1,0,0]", "[0.5,0.5,0]", "[-1,2.5,0.125]"];
 
     fn driver(id: &str) -> Arc<dyn Driver> {
@@ -1487,15 +1486,19 @@ mod vector_live {
         config: ConnectionConfig,
         /// PostgreSQL keeps the table in a schema of its database.
         pg: bool,
+        /// The test's database (PostgreSQL: schema), one per test, so
+        /// that the tests sharing a server run at the same time.
+        db: String,
     }
 
     impl Side {
-        fn new(driver_id: &str, env: &str) -> Option<Self> {
+        fn new(driver_id: &str, env: &str, db: &str) -> Option<Self> {
             let url = std::env::var(env).ok()?;
             Some(Side {
                 driver: driver(driver_id),
                 config: config(driver_id, &url),
                 pg: driver_id == "postgres",
+                db: db.to_string(),
             })
         }
 
@@ -1509,32 +1512,34 @@ mod vector_live {
         /// A session in the test's database (PostgreSQL: a schema).
         async fn fresh(&self) -> Box<dyn Session> {
             let mut a = self.admin().await;
+            let db = &self.db;
             if self.pg {
-                let _ = run(&mut *a, &format!("DROP SCHEMA IF EXISTS {DB} CASCADE")).await;
+                let _ = run(&mut *a, &format!("DROP SCHEMA IF EXISTS {db} CASCADE")).await;
                 must(&mut *a, "CREATE EXTENSION IF NOT EXISTS vector").await;
-                must(&mut *a, &format!("CREATE SCHEMA {DB}")).await;
+                must(&mut *a, &format!("CREATE SCHEMA {db}")).await;
                 return a;
             }
-            let _ = run(&mut *a, &format!("DROP DATABASE IF EXISTS {DB}")).await;
-            must(&mut *a, &format!("CREATE DATABASE {DB}")).await;
+            let _ = run(&mut *a, &format!("DROP DATABASE IF EXISTS {db}")).await;
+            must(&mut *a, &format!("CREATE DATABASE {db}")).await;
             self.driver
-                .connect(&self.config, Some(DB))
+                .connect(&self.config, Some(db))
                 .await
                 .expect("connect to the test database")
         }
 
         async fn drop_db(&self) {
             let mut a = self.admin().await;
+            let db = &self.db;
             let sql = if self.pg {
-                format!("DROP SCHEMA IF EXISTS {DB} CASCADE")
+                format!("DROP SCHEMA IF EXISTS {db} CASCADE")
             } else {
-                format!("DROP DATABASE IF EXISTS {DB}")
+                format!("DROP DATABASE IF EXISTS {db}")
             };
             let _ = run(&mut *a, &sql).await;
         }
 
         fn schema(&self) -> Option<&str> {
-            self.pg.then_some(DB)
+            self.pg.then_some(self.db.as_str())
         }
 
         /// The vector column's values, by id, as the engine prints them
@@ -1584,7 +1589,7 @@ mod vector_live {
         };
         let src_session = from
             .driver
-            .connect(&from.config, (!from.pg).then_some(DB))
+            .connect(&from.config, (!from.pg).then_some(from.db.as_str()))
             .await
             .unwrap();
         let stats = copy_table(
@@ -1608,7 +1613,10 @@ mod vector_live {
     /// A vector table made on `side` with its own SQL, rows in [`ROWS`].
     async fn make(side: &Side, s: &mut dyn Session, name: &str, with_rows: bool) {
         let ddl = match side.driver.info().id {
-            "postgres" => format!("CREATE TABLE {DB}.{name} (id int PRIMARY KEY, v vector(3))"),
+            "postgres" => format!(
+                "CREATE TABLE {}.{name} (id int PRIMARY KEY, v vector(3))",
+                side.db
+            ),
             // `id` is a keyword to GreptimeDB.
             "greptimedb" => format!(
                 "CREATE TABLE {name} (`id` INT, v VECTOR(3), ts TIMESTAMP(3) DEFAULT '2024-01-01 00:00:00' TIME INDEX, PRIMARY KEY (`id`))"
@@ -1662,9 +1670,10 @@ mod vector_live {
     }
 
     async fn both_ways(other_id: &str, env: &str, back: bool) {
+        let db = format!("dbine_vec_move_{other_id}");
         let (Some(pg), Some(other)) = (
-            Side::new("postgres", "DBINE_TEST_PGVECTOR_URL"),
-            Side::new(other_id, env),
+            Side::new("postgres", "DBINE_TEST_PGVECTOR_URL", &db),
+            Side::new(other_id, env, &db),
         ) else {
             eprintln!("DBINE_TEST_PGVECTOR_URL or {env} not set; skipping");
             return;
@@ -1692,8 +1701,8 @@ mod vector_live {
         })
         .await;
         // Whatever failed, the test's databases go.
-        let pg = Side::new("postgres", "DBINE_TEST_PGVECTOR_URL").unwrap();
-        let other = Side::new(other_id, env).unwrap();
+        let pg = Side::new("postgres", "DBINE_TEST_PGVECTOR_URL", &db).unwrap();
+        let other = Side::new(other_id, env, &db).unwrap();
         pg.drop_db().await;
         other.drop_db().await;
         if let Err(e) = outcome {
@@ -1722,7 +1731,8 @@ mod vector_live {
     /// "Clonar tabla" of a vector table: the rows' vectors the same as the
     /// server prints them, and MariaDB's vector index kept.
     async fn clone_vectors(id: &str, env: &str) {
-        let Some(side) = Side::new(id, env) else {
+        let db = format!("dbine_vec_clone_{id}");
+        let Some(side) = Side::new(id, env, &db) else {
             eprintln!("{env} not set; skipping");
             return;
         };
@@ -1734,7 +1744,7 @@ mod vector_live {
             let endpoints = Arc::new(ConfigEndpoints {
                 driver: side.driver.clone(),
                 config: side.config.clone(),
-                database: Some(DB.into()),
+                database: Some(side.db.clone()),
             });
             let report = clone_table(
                 endpoints,
@@ -1760,7 +1770,7 @@ mod vector_live {
             }
         })
         .await;
-        Side::new(id, env).unwrap().drop_db().await;
+        Side::new(id, env, &db).unwrap().drop_db().await;
         if let Err(e) = outcome {
             std::panic::resume_unwind(e.into_panic());
         }
