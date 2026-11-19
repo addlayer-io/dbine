@@ -13,7 +13,7 @@ import { lineComment } from '../composables/scriptComment';
 import { isProdConnection } from '../composables/tags';
 import { useConnectionsStore } from '../stores/connections';
 import { vKeyActivate } from '../composables/keyActivate';
-import { vectorOfType } from '../composables/vector';
+import { indexableVectorType, sameVectorIndex } from '../composables/vector';
 import { metricLabel, paramLabel, vectorIndexLine } from '../composables/vectorLabels';
 
 // Designer for a new table / collection / index / key… in any engine. What
@@ -255,11 +255,15 @@ const table = computed<TableSchema>(() => {
         // A vector index: what the row chose, where the spec offers them;
         // elsewhere (edit mode) the index's own, so it's never lost.
         const vector = spec.vector_indexes ? (i.vector ? vectorOf(i) : undefined) : o?.vector;
+        // Rebuilt (edit mode): the source's kind and settings describe the
+        // old vector index (pgvector's operator class, TiDB's distance
+        // function), so they go and the engine scripts it from `vector`.
+        const rebuilt = rebuiltIndex(i);
         return {
           name: i.name.trim(), columns: [...i.columns], unique: i.unique && !vector,
-          kind: i.kind.trim() || null, filter: i.filter.trim() || null,
+          kind: rebuilt && vector ? null : i.kind.trim() || null, filter: i.filter.trim() || null,
           ...(o?.include?.length ? { include: o.include.map(cur).filter(alive) } : {}),
-          ...(o?.options && Object.keys(o.options).length ? { options: { ...o.options } } : {}),
+          ...(!rebuilt && o?.options && Object.keys(o.options).length ? { options: { ...o.options } } : {}),
           ...(vector ? { vector } : {}),
         };
       })
@@ -322,6 +326,7 @@ const issues = computed(() => {
         if (first && colNames.value.includes(first) && !vectorColumns.value.includes(first)) warn('indexes', t('vectors:designer.notVectorColumn', { label, column: first }));
         if (!spec.vector_indexes.filter_columns && x.columns.length > 1) err('indexes', t('vectors:designer.noFilterColumns', { label }));
       }
+      if (rebuiltIndex(x)) warn('indexes', t('vectors:designer.rebuilt', { label }));
     }
   }
   if (spec.foreign_keys) {
@@ -525,8 +530,23 @@ function addIndex() {
 
 // -- vector indexes (spec.vector_indexes) ------------------------------------------------------
 const vspec = computed(() => props.spec.vector_indexes ?? null);
-/** Columns of a vector type (`vector(1536)`, `VECTOR(3, FLOAT32)`…). */
-const vectorColumns = computed(() => cols.value.filter((c) => c.name.trim() && vectorOfType(c.data_type)).map((c) => c.name.trim()));
+/** Columns a vector index can take: a vector type (`vector(1536)`,
+ *  `VECTOR(3, FLOAT32)`, `float_vector(3)`…), an array of floats where the
+ *  engine keeps vectors in one (`FLOAT[3]`, `Array(Float32)`,
+ *  `ARRAY<FLOAT64>`) or pgvector's binary `bit(n)`. */
+const vectorColumns = computed(() => cols.value.filter((c) => c.name.trim() && indexableVectorType(c.data_type)).map((c) => c.name.trim()));
+/** Edit mode: the index as the table has it. */
+const srcIndexOf = (x: IdxRow) => (props.alter && x.orig ? props.initial?.indexes.find((i) => i.name === x.orig) : undefined);
+/** Edit mode: an index whose vector side changed (turned vector or
+ *  ordinary, another algorithm, distance, parameter or vector column). The
+ *  engine drops and creates it: a vector index isn't altered in place. */
+function rebuiltIndex(x: IdxRow): boolean {
+  const o = srcIndexOf(x);
+  if (!o || !props.spec.vector_indexes) return false;
+  const vector = x.vector ? vectorOf(x) : undefined;
+  if (!vector && !o.vector) return false;
+  return !sameVectorIndex(o.vector, vector) || (!!vector && (o.columns[0] ?? '') !== (x.columns[0] ?? ''));
+}
 /** The vector column's choices: the vector columns first, then the rest. */
 const vectorColumnOptions = computed(() => [...vectorColumns.value, ...colNames.value.filter((n) => !vectorColumns.value.includes(n))]);
 
@@ -535,9 +555,13 @@ const vectorColumnOptions = computed(() => [...vectorColumns.value, ...colNames.
 function toggleVector(x: IdxRow, on: boolean) {
   x.vector = on;
   const vs = vspec.value;
+  // An index that was vector, now ordinary: its kind was the vector one's.
+  if (!on && srcIndexOf(x)?.vector) x.kind = '';
   if (!on || !vs) return;
   x.unique = false;
   if (!x.orig) x.kind = '';
+  // Edit mode, a vector index turned off and on again: its own kind.
+  else if (!x.kind.trim() && srcIndexOf(x)?.vector) x.kind = srcIndexOf(x)?.kind ?? '';
   if (!x.algorithm) x.algorithm = vs.algorithms[0] ?? '';
   if (!x.metric) x.metric = vs.metrics[0] ?? '';
   const vcol = x.columns.find((c) => vectorColumns.value.includes(c)) ?? (x.columns.length ? undefined : vectorColumns.value[0]);
@@ -554,7 +578,21 @@ function setFilterColumns(x: IdxRow, list: string[]) {
 const paramsFor = (x: IdxRow) => (vspec.value?.params ?? []).filter((p) => !p.algorithms.length || p.algorithms.includes(x.algorithm));
 /** Another algorithm: the spec's parameters of the old one go. */
 function setAlgorithm(x: IdxRow, a: string) {
+  const prev = x.algorithm;
   x.algorithm = a;
+  // Edit mode: the kind is the source's only with its algorithm (else the
+  // engine's, from the new one).
+  const o = srcIndexOf(x);
+  if (o) {
+    const back = !!o.vector && (o.vector.algorithm ?? '').toLowerCase() === a.toLowerCase();
+    x.kind = back ? o.kind ?? '' : '';
+    // Back to the index's own algorithm: its parameters, where none is set.
+    if (back) for (const [k, v] of Object.entries(o.vector?.params ?? {})) if (!String(x.params[k] ?? '').trim()) x.params[k] = v;
+  } else if (x.kind.trim().toLowerCase() === prev.trim().toLowerCase()) {
+    // A new table from another's design: a kind that named the old
+    // algorithm (pgvector's access method) is the engine's again.
+    x.kind = '';
+  }
   const keep = new Set(paramsFor(x).map((p) => p.key));
   for (const p of vspec.value?.params ?? []) if (!keep.has(p.key)) delete x.params[p.key];
 }
