@@ -109,7 +109,7 @@ async fn libsql_vector_columns_in_a_file() {
                 vec![
                     json!("[0.5,-2]"),
                     json!("[1,2]"),
-                    json!("[1,-1,1]"),
+                    json!("[1,0,1]"),
                     json!("[1,1.9960785,3]"),
                     json!(1.5)
                 ]
@@ -154,7 +154,7 @@ async fn libsql_vector_columns_in_a_file() {
                 vec![
                     json!("0000000000000440000000000000F0BF02"),
                     json!("[2.5,-1]"),
-                    json!("[1,-1,1]")
+                    json!("[1,0,1]")
                 ]
             );
             run(
@@ -177,7 +177,7 @@ async fn libsql_vector_columns_in_a_file() {
                     Cell::Int(1),
                     Cell::Text("[3,4.25]".into()),
                     Cell::Text("[1,2]".into()),
-                    Cell::Text("[1,-1,1]".into()),
+                    Cell::Text("[1,0,1]".into()),
                     Cell::Text("[1,1.9960785,3]".into()),
                     Cell::Float(1.5)
                 ]
@@ -210,7 +210,7 @@ async fn libsql_vector_columns_in_a_file() {
                     json!(15),
                     json!("[3,4.25]"),
                     json!("[1,2]"),
-                    json!("[1,-1,1]"),
+                    json!("[1,0,1]"),
                     json!("[1,1.9960785,3]")
                 ]
             );
@@ -275,7 +275,7 @@ async fn typed_scripts_write_each_format_in_a_file() {
                     json!("[0.5,-2]"),
                     json!("[0.5,-2]"),
                     json!("[0.5,-2]"),
-                    json!("[1,-1]"),
+                    json!("[1,0]"),
                     json!("[0.5,-2]"),
                     json!("x"),
                     // 2 bytes, 2 of padding, alpha, shift and 3 more.

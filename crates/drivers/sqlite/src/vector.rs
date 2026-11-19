@@ -13,7 +13,8 @@
 //!   bytes, the type byte; a value is `alpha · q + shift`.
 //! - `1BIT`: the bits, the first dimension in the lowest bit; a zero byte
 //!   when needed to keep the length odd; `8 · (length − 1) − dims`; the
-//!   type byte. A bit reads as 1 or −1, as `vector_extract` writes it.
+//!   type byte. A bit reads as 1 or 0, the bit vectors' form everywhere in
+//!   DBine (`vector_extract` writes −1 for a 0; `vector1bit` takes either).
 //!
 //! A SQLite file written by libSQL keeps these columns, so the SQLite driver
 //! reads them too (it can't create their indexes: `libsql_vector_idx` is
@@ -153,13 +154,7 @@ pub fn text(b: &[u8]) -> Option<String> {
             if dims > 8 * rest.len() {
                 return None;
             }
-            Some(v::text((0..dims).map(|i| {
-                if rest[i / 8] >> (i % 8) & 1 == 1 {
-                    1i8
-                } else {
-                    -1
-                }
-            })))
+            Some(v::text((0..dims).map(|i| rest[i / 8] >> (i % 8) & 1)))
         }
         _ => None,
     }
@@ -559,7 +554,8 @@ mod tests {
     }
 
     /// The blobs sqld 0.24 wrote for these vectors (`hex(vector…('[…]'))`),
-    /// and what `vector_extract` showed for them.
+    /// and what `vector_extract` showed for them (a 1-bit 0, which it shows
+    /// as −1, reads as 0).
     #[test]
     fn libsql_blobs_decode() {
         let cases = [
@@ -570,8 +566,8 @@ mod tests {
             ),
             ("003C0040004205", "[1,2,3]"),
             ("803F0040404006", "[1,2,3]"),
-            ("050D03", "[1,-1,1]"),
-            ("CD01001703", "[1,-1,1,1,-1,-1,1,1,1]"),
+            ("050D03", "[1,0,1]"),
+            ("CD01001703", "[1,0,1,1,0,0,1,1,1]"),
             ("FFFFFF01001703", &format!("[{}]", ["1"; 25].join(","))),
             // 8-bit: [0.5,-1,3,7] as libSQL quantized it.
             (

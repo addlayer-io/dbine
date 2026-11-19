@@ -18,6 +18,11 @@ use serde_json::json;
 use std::process::Command;
 use std::sync::{Arc, Mutex};
 
+/// One test at a time: sqld 0.24.33 crashed (a segfault) with the two
+/// running at once, each making and dropping vector-indexed tables, and the
+/// crash left half-made indexes behind.
+static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn url() -> String {
     std::env::var("DBINE_LIBSQL_URL").unwrap_or_else(|_| "http://localhost:25880".into())
 }
@@ -197,6 +202,7 @@ async fn drop_all(names: &[String], meta_was_there: bool) {
 #[tokio::test]
 #[ignore]
 async fn vectors_end_to_end() {
+    let _one = LOCK.lock().await;
     let pid = std::process::id();
     let name = format!("vec_t_{pid}");
     let copy = format!("vec_c_{pid}");
@@ -669,6 +675,7 @@ async fn vectors_end_to_end() {
 #[tokio::test]
 #[ignore]
 async fn typed_scripts_in_every_format() {
+    let _one = LOCK.lock().await;
     let pid = std::process::id();
     let formats = [
         ("F32_BLOB", "vector32"),
