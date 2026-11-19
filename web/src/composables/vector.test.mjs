@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   bitVectorOfType, checkVector, compareVectors, indexableVectorType, isDense, parseVector, rowsForScripts, sameVector, sameVectorIndex,
-  scriptValue, shortNumber, shownVectorMeta, vectorArrayOfType, vectorDiffPreview, vectorIndexText, vectorLines, vectorMeta, vectorOfType,
+  scriptValue, shortNumber, shownVectorMeta, vectorArrayOfType, vectorDiffPreview, vectorIndexTag, vectorIndexText, vectorLines, vectorMeta, vectorOfType,
   vectorPreview, vectorStats, vectorValueProblem,
 } from './vector.ts';
 
@@ -324,4 +324,20 @@ test('a vector index in one line', () => {
   assert.equal(vectorIndexText({ metric: 'DOT_PRODUCT' }), 'DOT_PRODUCT');
   assert.equal(vectorIndexText({}), '');
   assert.equal(vectorIndexText(undefined), '');
+});
+
+test("a vector index's tag in the explorer names its algorithm once, with its metric", () => {
+  const up = (m) => m.toUpperCase();
+  // pgvector: the kind is the algorithm.
+  assert.equal(vectorIndexTag('HNSW', { algorithm: 'hnsw', metric: 'cosine', params: { m: '16' } }, up), 'HNSW · COSINE');
+  assert.equal(vectorIndexTag('IVFFLAT', { algorithm: 'ivfflat', metric: 'l2' }), 'IVFFLAT · l2');
+  // SQL Server 2025 / MySQL: a generic kind, the algorithm apart.
+  assert.equal(vectorIndexTag('VECTOR', { algorithm: 'diskann', metric: 'cosine' }), 'VECTOR · DISKANN · cosine');
+  // Spelled apart (vector_similarity vs VECTOR SIMILARITY) still counts as named.
+  assert.equal(vectorIndexTag('VECTOR SIMILARITY', { algorithm: 'vector_similarity', metric: 'l2' }), 'VECTOR SIMILARITY · l2');
+  // No kind: the algorithm alone; no algorithm: the kind alone.
+  assert.equal(vectorIndexTag('', { algorithm: 'hnsw', metric: 'ip' }), 'HNSW · ip');
+  assert.equal(vectorIndexTag('VECTORSEARCH', { metric: 'dotProduct' }), 'VECTORSEARCH · dotProduct');
+  // Not a vector index: the kind's tag as is.
+  assert.equal(vectorIndexTag('BTREE', null), 'BTREE');
 });

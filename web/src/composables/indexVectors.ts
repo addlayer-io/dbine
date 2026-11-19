@@ -3,19 +3,16 @@ import type { IndexUsage } from '../api/types';
 import type { VectorIndex } from '../api/schema-types';
 import { findTable, relationsSchema } from './fkJump';
 import { objKey, useConnectionsStore } from '../stores/connections';
-import { indexableVectorType } from './vector';
+import { indexableVectorType, vectorIndexTag } from './vector';
 import { metricLabel, vectorIndexLine } from './vectorLabels';
 
 // A table's vector indexes (algorithm, distance, build parameters) for the
 // views that list indexes from their usage (the explorer's "Índices"
-// folder, the "Índices" tab, the drop dialog), which says only an index's
-// kind. `IndexUsage.vector` when the backend gives it; else the table's
-// schema (`database_schema`, cached a few minutes per database and shared
-// with the grid's foreign-key jumps), read only for engines with vectors
-// and tables that may have a vector column.
-
-/** An index's usage with its vector index, where the backend reports it. */
-type UsageWithVector = IndexUsage & { vector?: VectorIndex | null };
+// folder, the "Índices" tab, the drop dialog). `IndexUsage.vector` when
+// the driver reports it; else (a driver that doesn't fill it yet) the
+// table's schema (`database_schema`, cached a few minutes per database and
+// shared with the grid's foreign-key jumps), read only for engines with
+// vectors and tables that may have a vector column.
 
 type TableRef = { schema?: string | null; name: string };
 const keyOf = (connectionId: string, database: string, table: TableRef) =>
@@ -27,17 +24,14 @@ const asked = new Set<string>();
 
 /** The index's vector index, or null (not one, or not known yet). */
 export function indexVector(connectionId: string, database: string, table: TableRef, index: IndexUsage | string): VectorIndex | null {
-  if (typeof index !== 'string' && (index as UsageWithVector).vector) return (index as UsageWithVector).vector!;
+  if (typeof index !== 'string' && index.vector) return index.vector;
   const name = typeof index === 'string' ? index : index.name;
   return found[keyOf(connectionId, database, table)]?.[name] ?? null;
 }
 
-/** "HNSW · Coseno": an index's tag with its distance, for the explorer. */
-export function vectorTag(tag: string, v: VectorIndex | null): string {
-  if (!v) return tag;
-  const parts = [tag || (v.algorithm ?? '').toUpperCase(), v.metric ? metricLabel(v.metric) : ''].filter(Boolean);
-  return parts.join(' · ');
-}
+/** "HNSW · Coseno", "VECTOR · DISKANN · Coseno": an index's tag with its
+ *  algorithm and distance, for the explorer. */
+export const vectorTag = (tag: string, v: VectorIndex | null) => vectorIndexTag(tag, v, metricLabel);
 
 /** The whole line: `hnsw · Coseno · m = 16, ef_construction = 64`. */
 export const vectorLine = (v: VectorIndex | null) => (v ? vectorIndexLine(v) : '');
@@ -51,7 +45,7 @@ export const vectorLine = (v: VectorIndex | null) => (v ? vectorIndexLine(v) : '
 export function loadIndexVectors(connectionId: string, database: string, table: TableRef, indexes: IndexUsage[], force = false): void {
   const conns = useConnectionsStore();
   if (!indexes.length || !conns.driverOf(connectionId)?.capabilities?.vectors) return;
-  if (indexes.some((i) => (i as UsageWithVector).vector)) return;
+  if (indexes.some((i) => i.vector)) return;
   // Columns read (not still loading, as when the explorer opens a table) and none a vector index takes.
   const cols = conns.columns[objKey(connectionId, database, table.schema ?? null, table.name)];
   if (cols?.status === 'ready' && !cols.items.some((c) => indexableVectorType(c.data_type))) return;
