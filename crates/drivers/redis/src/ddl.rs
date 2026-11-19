@@ -95,7 +95,12 @@ pub fn designer(driver_id: &str) -> DesignerSpec {
             .help("Solo para string y JSON (un documento JSON, p. ej. {\"a\": 1})."),
         Field::new("index_prefix", "Prefijo de los índices", FieldKind::Text)
             .placeholder("(el nombre de la key hasta su último «:»)")
-            .help("Los índices de búsqueda (FT.CREATE … PREFIX) cubren las keys que empiezan así: hashes o documentos JSON."),
+            .help(if server == Server::Redis {
+                "Los índices de búsqueda (FT.CREATE … PREFIX) cubren las keys que empiezan así: hashes o documentos JSON. \
+                 Los vectores FLOAT16 y BFLOAT16 piden Redis Stack 7.4 o Redis 8; INT8 y UINT8, Redis 8.0; el algoritmo SVS-VAMANA, Redis 8.2."
+            } else {
+                "Los índices de búsqueda (FT.CREATE … PREFIX) cubren las keys que empiezan así: hashes o documentos JSON."
+            }),
     ];
     if server == Server::Redis {
         types.push(("vectorset", "Vector set (Redis 8)"));
@@ -146,13 +151,49 @@ pub fn designer(driver_id: &str) -> DesignerSpec {
     }
 }
 
-pub fn templates() -> Vec<CreateTemplate> {
+pub fn templates(server: Server) -> Vec<CreateTemplate> {
     let t = |label: &'static str, template: &str| CreateTemplate {
         kind: kinds::KEY,
         label,
         template: template.into(),
     };
-    vec![
+    // A vector of the templates, as the blob of a FLOAT32 field.
+    let v = |x: &[f64]| vectors::quote_bytes(&VType::F32.encode(x));
+    let mut out = vec![
+        CreateTemplate {
+            kind: kinds::INDEX,
+            label: "Nuevo índice vectorial (hashes)",
+            template: format!(
+                "FT.CREATE {{name}} ON HASH PREFIX 1 {{name}}: SCHEMA etiqueta TAG embedding VECTOR HNSW 6 TYPE FLOAT32 DIM 3 DISTANCE_METRIC COSINE\n\
+                 HSET {{name}}:1 etiqueta a embedding {} # embedding: FLOAT32 [0.1,0.2,0.3]\n\
+                 HSET {{name}}:2 etiqueta b embedding {} # embedding: FLOAT32 [0.3,0.1,0.2]\n\
+                 FT.SEARCH {{name}} \"*=>[KNN 5 @embedding $v AS distancia]\" PARAMS 2 v {} DIALECT 2\n",
+                v(&[0.1, 0.2, 0.3]),
+                v(&[0.3, 0.1, 0.2]),
+                v(&[0.1, 0.2, 0.3]),
+            ),
+        },
+        CreateTemplate {
+            kind: kinds::INDEX,
+            label: "Nuevo índice vectorial (documentos JSON)",
+            template: "FT.CREATE {name} ON JSON PREFIX 1 {name}: SCHEMA $.etiqueta AS etiqueta TAG $.embedding AS embedding VECTOR HNSW 6 TYPE FLOAT32 DIM 3 DISTANCE_METRIC COSINE\n\
+                       JSON.SET {name}:1 $ \"{\\\"etiqueta\\\": \\\"a\\\", \\\"embedding\\\": [0.1, 0.2, 0.3]}\"\n\
+                       JSON.SET {name}:2 $ \"{\\\"etiqueta\\\": \\\"b\\\", \\\"embedding\\\": [0.3, 0.1, 0.2]}\"\n\
+                       FT.SEARCH {name} \"*=>[KNN 5 @embedding $v AS distancia]\" PARAMS 2 v \"\\xcd\\xcc\\xcc=\\xcd\\xccL>\\x9a\\x99\\x99>\" RETURN 2 etiqueta distancia DIALECT 2\n"
+                .into(),
+        },
+    ];
+    if server == Server::Redis {
+        out.push(t(
+            "Nuevo vector set (Redis 8)",
+            "VADD {name} VALUES 3 0.1 0.2 0.3 elemento-1 SETATTR \"{\\\"tipo\\\": \\\"a\\\"}\"\n\
+             VADD {name} VALUES 3 0.3 0.1 0.2 elemento-2 SETATTR \"{\\\"tipo\\\": \\\"b\\\"}\"\n\
+             VSIM {name} VALUES 3 0.1 0.2 0.3 WITHSCORES COUNT 10\n\
+             VSIM {name} ELE elemento-1 FILTER \".tipo == \\\"b\\\"\" WITHSCORES WITHATTRIBS\n\
+             VEMB {name} elemento-2\n",
+        ));
+    }
+    out.extend([
         t("Nuevo hash con vencimiento", "HSET {name} nombre Ana email ana@example.com visitas 0\nEXPIRE {name} 3600\nTTL {name}\n"),
         t("Nueva lista (cola)", "RPUSH {name} tarea-1 tarea-2 tarea-3\nLPOP {name}\nLRANGE {name} 0 -1\n"),
         t("Nuevo set", "SADD {name} rojo verde azul\nSISMEMBER {name} verde\nSMEMBERS {name}\n"),
@@ -163,7 +204,8 @@ pub fn templates() -> Vec<CreateTemplate> {
              XREADGROUP GROUP procesadores worker-1 COUNT 10 STREAMS {name} >\nXINFO GROUPS {name}\n",
         ),
         t("Nuevo contador", "SET {name} 0\nINCRBY {name} 5\nGET {name}\n"),
-    ]
+    ]);
+    out
 }
 
 fn opt<'a>(t: &'a TableSchema, key: &str) -> Option<&'a str> {
@@ -278,6 +320,12 @@ fn vector_field(
         return Ok(None);
     };
     let Some(dims) = dims else {
+        if c.data_type.trim().eq_ignore_ascii_case("vector") {
+            return Err(Error::Query(format!(
+                "El servidor no informa la configuración del campo vectorial {} (RediSearch anterior a 2.8 no la muestra en FT.INFO): indicá su tipo y dimensión, p. ej. VECTOR(3, FLOAT32), y su algoritmo y distancia.",
+                c.name
+            )));
+        }
         return Err(Error::Query(format!(
             "Indicá la dimensión del vector de {}: p. ej. VECTOR(3, FLOAT32).",
             c.name
@@ -360,6 +408,7 @@ fn key_index(t: &TableSchema, ix: &IndexDef, json: bool, server: Server) -> Resu
         on_json: json,
         prefixes: vec![index_prefix(t)],
         filter: ix.filter.clone().filter(|f| !f.trim().is_empty()),
+        options: Vec::new(),
         fields,
     })
 }
@@ -386,6 +435,9 @@ pub fn index_schema(ix: &FtIndex) -> TableSchema {
     if let Some(f) = &ix.filter {
         options.insert("filter".into(), f.clone());
     }
+    if !ix.options.is_empty() {
+        options.insert("index_options".into(), line_of(&ix.options));
+    }
     let columns = ix
         .fields
         .iter()
@@ -411,18 +463,18 @@ pub fn index_schema(ix: &FtIndex) -> TableSchema {
             }
         })
         .collect();
+    // Each vector field is a vector index; one whose settings the server
+    // doesn't report too, with no settings (never an ordinary index).
     let indexes = ix
         .fields
         .iter()
-        .filter_map(|f| {
-            let v = f.vector.as_ref()?;
-            Some(IndexDef {
-                name: f.attribute.clone(),
-                columns: vec![f.attribute.clone()],
-                kind: Some(v.algorithm.to_ascii_lowercase()),
-                vector: Some(v.index()),
-                ..Default::default()
-            })
+        .filter(|f| f.kind == "VECTOR")
+        .map(|f| IndexDef {
+            name: f.attribute.clone(),
+            columns: vec![f.attribute.clone()],
+            kind: f.vector.as_ref().map(|v| v.algorithm.to_ascii_lowercase()),
+            vector: Some(f.vector.as_ref().map(FtVector::index).unwrap_or_default()),
+            ..Default::default()
         })
         .collect();
     TableSchema {
@@ -484,11 +536,21 @@ pub fn schema_index(t: &TableSchema, server: Server) -> Result<FtIndex> {
             t.name
         )));
     }
+    // The index-wide options, as one command line's arguments.
+    let options = match opt(t, "index_options") {
+        Some(o) => crate::command::parse_line(o)
+            .map_err(|e| Error::Query(format!("Opciones del índice {}: {e}", t.name)))?
+            .into_iter()
+            .map(|a| String::from_utf8_lossy(&a).into_owned())
+            .collect(),
+        None => Vec::new(),
+    };
     Ok(FtIndex {
         name: t.name.clone(),
         on_json: json,
         prefixes,
         filter: opt(t, "filter").map(str::to_string),
+        options,
         fields,
     })
 }
@@ -728,20 +790,324 @@ fn is_vector_value(v: &Value) -> bool {
 }
 
 /// The type a vector written to the field `field` of the hash `key` takes:
-/// that of the search index that covers it, if DBine has seen one, else
-/// `FLOAT32` (what vectors in hashes usually are) for a value that is a
-/// vector. `None`: not a vector, written as it is.
-fn hash_vector_type(known: &Known, key: &str, field: &str, v: &Value) -> Option<VType> {
-    match known.hash_vector(key, field) {
-        Some(f) => dbine_driver::vector::parse_value(v).map(|_| f.ty),
-        None => is_vector_value(v).then_some(VType::F32),
+/// that of the search index that covers it (with its dimension), if DBine
+/// has seen one, else `FLOAT32` (what vectors in hashes usually are) for a
+/// value that is a vector. `None`: not a vector, written as it is.
+fn hash_vector_type(
+    known: &Known,
+    key: &str,
+    field: &str,
+    v: &Value,
+) -> Result<Option<(VType, Option<u32>)>> {
+    Ok(match known.hash_vector(key, field).map_err(Error::Query)? {
+        Some(f) => dbine_driver::vector::parse_value(v).map(|_| (f.ty, Some(f.dims))),
+        None => is_vector_value(v).then_some((VType::F32, None)),
+    })
+}
+
+/// A vector of `n` numbers where the index says `dims`: the server would
+/// keep it but leave the document out of the index.
+pub(crate) fn check_dims(n: usize, dims: Option<u32>, what: &str) -> Result<()> {
+    match dims {
+        Some(d) if d as usize != n => Err(Error::Query(format!(
+            "El vector de {what} tiene {n} dimensiones y su índice lo declara de {d}: el servidor lo guardaría sin indexarlo."
+        ))),
+        _ => Ok(()),
     }
 }
 
-/// Each row as a hash: `HSET <target>:<first column's value> col value …`,
-/// null cells left out. A vector (a JSON array of numbers) is written as
-/// the blob of the type of the search index that covers the key, or of
-/// `FLOAT32`.
+/// A vector value packed as `ty` once its length matches `dims`.
+fn packed_checked(v: &Value, ty: VType, dims: Option<u32>, what: &str) -> Result<Option<Vec<u8>>> {
+    let Some(nums) = dbine_driver::vector::parse_value(v) else {
+        return Ok(None);
+    };
+    check_dims(nums.len(), dims, what)?;
+    Ok(Some(ty.encode(&nums)))
+}
+
+/// What the columns of a browsed key say it is (see `columns` in the
+/// session): a new row of its grid goes into that key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyShape {
+    /// `element`, `vector`, `attributes`.
+    VectorSet,
+    /// `field`, `value`.
+    Hash,
+    /// `member`, `score`.
+    SortedSet,
+    /// A lone `value`: a list or a set (told apart on the server).
+    Values,
+}
+
+fn key_shape(columns: &[String]) -> Option<KeyShape> {
+    let within = |names: &[&str]| columns.iter().all(|c| names.contains(&c.as_str()));
+    let has = |n: &str| columns.iter().any(|c| c == n);
+    if has("element") && within(&["element", "vector", "attributes"]) {
+        Some(KeyShape::VectorSet)
+    } else if has("field") && within(&["field", "value"]) {
+        Some(KeyShape::Hash)
+    } else if has("member") && within(&["member", "score"]) {
+        Some(KeyShape::SortedSet)
+    } else if columns == ["value"] {
+        Some(KeyShape::Values)
+    } else {
+        None
+    }
+}
+
+/// Lua that adds a value to a list (`RPUSH`) or a set (`SADD`), whichever
+/// the key is (ARGV[1]: the value).
+const VALUE_ADD: &str = "local t = redis.call('TYPE', KEYS[1])['ok'] \
+if t == 'list' then return redis.call('RPUSH', KEYS[1], ARGV[1]) end \
+if t == 'set' then return redis.call('SADD', KEYS[1], ARGV[1]) end \
+return redis.error_reply('solo se agregan valores a una lista o a un set: la key es ' .. t)";
+
+/// New rows of a browsed key's grid, into that key: `VADD` (a vector
+/// set's element, with its attributes), `HSET` (a hash field; a vector
+/// field as the blob of its index's type), `ZADD`, or an `EVAL` that adds
+/// to a list or a set.
+fn key_inserts(
+    key: &str,
+    shape: KeyShape,
+    columns: &[String],
+    rows: &[(usize, &Vec<Value>)],
+    known: &Known,
+) -> Result<Vec<String>> {
+    let get = |row: &Vec<Value>, c: &str| {
+        columns
+            .iter()
+            .position(|x| x == c)
+            .and_then(|i| row.get(i))
+            .filter(|v| !v.is_null())
+            .cloned()
+    };
+    let mut out = Vec::new();
+    for (n, row) in rows {
+        let need = |c: &str| {
+            get(row, c)
+                .ok_or_else(|| Error::Query(format!("La fila {n} necesita un valor en {c}.")))
+        };
+        match shape {
+            KeyShape::VectorSet => {
+                let element = cell_text(&need("element")?);
+                let nums = get(row, "vector")
+                    .as_ref()
+                    .and_then(dbine_driver::vector::parse_value)
+                    .ok_or_else(|| {
+                        Error::Query(format!(
+                            "La fila {n} necesita el vector del elemento, como [0.1, 0.2, 0.3]."
+                        ))
+                    })?;
+                let mut a = vectors::vadd_args(key, &element, &nums, known.vset_flag(key));
+                if let Some(attrs) = get(row, "attributes") {
+                    a.push("SETATTR".into());
+                    a.push(match attrs {
+                        Value::String(t) => t,
+                        other => other.to_string(),
+                    });
+                }
+                out.push(line_of(&a));
+            }
+            KeyShape::Hash => {
+                let field = cell_text(&need("field")?);
+                let value = get(row, "value").unwrap_or(Value::String(String::new()));
+                out.push(hset_line(key, &field, &value, known)?);
+            }
+            KeyShape::SortedSet => {
+                let member = cell_text(&need("member")?);
+                let score = get(row, "score").map_or_else(|| "0".into(), |v| cell_text(&v));
+                out.push(line(&["ZADD", key, &score, &member]));
+            }
+            KeyShape::Values => {
+                let value = cell_text(&need("value")?);
+                out.push(line(&["EVAL", VALUE_ADD, "1", key, &value]));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// `HSET key field value` for a hash field: a vector field (of an index
+/// that covers the key) as the blob of its type, checked against its
+/// dimension, with what the comment says of it.
+fn hset_line(key: &str, field: &str, v: &Value, known: &Known) -> Result<String> {
+    match known.hash_vector(key, field).map_err(Error::Query)? {
+        Some(f) => {
+            if let Some(nums) = dbine_driver::vector::parse_value(v) {
+                check_dims(nums.len(), Some(f.dims), field)?;
+            }
+            Ok(match vector_arg(v, f.ty, field) {
+                Some((arg, note)) => {
+                    blob_line(&["HSET".into(), key.into(), field.into(), arg], Some(&note))
+                }
+                None => line(&["HSET", key, field, &cell_text(v)]),
+            })
+        }
+        None => Ok(line(&["HSET", key, field, &cell_text(v)])),
+    }
+}
+
+/// The key of a new document of `index`: `id` as given when one of the
+/// index's prefixes starts it (or the index covers every key), else after
+/// its first prefix, so the index takes it.
+pub(crate) fn document_key(index: &FtIndex, id: &str) -> String {
+    let prefixes: Vec<&String> = index.prefixes.iter().filter(|p| !p.is_empty()).collect();
+    if prefixes.is_empty() || prefixes.iter().any(|p| id.starts_with(p.as_str())) {
+        id.to_string()
+    } else {
+        format!("{}{id}", prefixes[0])
+    }
+}
+
+/// A JSONPath DBine writes a value at in a new document: `$.a` or
+/// `$.a.b` (plain names), as those names.
+fn simple_path(path: &str) -> Option<Vec<&str>> {
+    let rest = path.strip_prefix("$.")?;
+    let parts: Vec<&str> = rest.split('.').collect();
+    parts
+        .iter()
+        .all(|p| !p.is_empty() && p.chars().all(|c| c.is_alphanumeric() || c == '_'))
+        .then_some(parts)
+}
+
+/// A cell as the JSON a document holds: a vector field's numbers as an
+/// array (checked against its dimension), a `NUMERIC` field's text as a
+/// number, text that is a JSON array or object as that JSON.
+fn json_value(field: Option<&FtField>, v: &Value, what: &str) -> Result<Value> {
+    if let Some(vf) = field.and_then(|f| f.vector.as_ref()) {
+        let nums = dbine_driver::vector::parse_value(v).ok_or_else(|| {
+            Error::Query(format!(
+                "El valor de {what} no es un vector: escribilo como [0.1, 0.2, 0.3]."
+            ))
+        })?;
+        check_dims(nums.len(), Some(vf.dims), what)?;
+        // The canonical text's numbers (`1`, not `1.0`).
+        return Ok(serde_json::from_str(&dbine_driver::vector::text(nums)).unwrap_or(Value::Null));
+    }
+    Ok(match v {
+        Value::String(t) if field.is_some_and(|f| f.kind == "NUMERIC") => t
+            .trim()
+            .parse::<f64>()
+            .map_or_else(|_| v.clone(), dbine_driver::json_f64),
+        Value::String(t) => serde_json::from_str::<Value>(t)
+            .ok()
+            .filter(|j| j.is_array() || j.is_object())
+            .unwrap_or_else(|| v.clone()),
+        other => other.clone(),
+    })
+}
+
+/// A new JSON document from its cells (column, value, the index field it
+/// is): each at its field's path (`$.a.b`, plain names) or at `$.<column>`,
+/// as [`json_value`] writes it.
+pub(crate) fn json_document<'a>(
+    cells: impl Iterator<Item = (&'a str, &'a Value, Option<&'a FtField>)>,
+) -> Result<Value> {
+    let mut doc = serde_json::Map::new();
+    for (c, v, field) in cells {
+        let path = field.map_or_else(|| format!("$.{c}"), |f| f.identifier.clone());
+        let parts = simple_path(&path).ok_or_else(|| {
+            Error::Unsupported(format!(
+                "el campo {c} está en una ruta JSON compuesta ({path}): escribí ese documento con JSON.SET a mano"
+            ))
+        })?;
+        let value = json_value(field, v, c)?;
+        let (last, parents) = parts.split_last().expect("one part at least");
+        let mut at = &mut doc;
+        for p in parents {
+            let slot = at
+                .entry(p.to_string())
+                .or_insert_with(|| Value::Object(Default::default()));
+            if !slot.is_object() {
+                *slot = Value::Object(Default::default());
+            }
+            at = slot.as_object_mut().expect("an object");
+        }
+        at.insert(last.to_string(), value);
+    }
+    Ok(Value::Object(doc))
+}
+
+/// New documents of a search index's results: `HSET` of each one's key
+/// (`id`) with its fields (vector fields as the blob of their type), or on
+/// a JSON index `JSON.SET` of the whole document.
+fn index_inserts(
+    name: &str,
+    columns: &[String],
+    rows: &[(usize, &Vec<Value>)],
+    known: &Known,
+) -> Result<Vec<String>> {
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+    let index = known.index(name).map_err(Error::Query)?.ok_or_else(|| {
+        Error::Unsupported(format!(
+            "DBine no leyó todavía el índice {name}: abrilo de nuevo para que lea sus campos"
+        ))
+    })?;
+    let id_at = columns.iter().position(|c| c == "id").ok_or_else(|| {
+        Error::Query("Un documento nuevo necesita su key en la columna id.".into())
+    })?;
+    let mut out = Vec::new();
+    for (n, row) in rows {
+        let id = match row.get(id_at) {
+            Some(Value::Null) | None => {
+                return Err(Error::Query(format!(
+                    "La fila {n} necesita un valor en id: la key del documento nuevo."
+                )))
+            }
+            Some(v) => document_key(index, &cell_text(v)),
+        };
+        let cells = columns
+            .iter()
+            .zip(row.iter())
+            .filter(|(c, v)| *c != "id" && !v.is_null())
+            .map(|(c, v)| (c.as_str(), v, index.fields.iter().find(|f| f.is(c))));
+        if index.on_json {
+            let doc = json_document(cells)?;
+            out.push(line(&["JSON.SET", &id, "$", &doc.to_string()]));
+            continue;
+        }
+        let mut args: Vec<Arg> = vec!["HSET".into(), id.clone().into()];
+        let mut notes = Vec::new();
+        for (c, v, field) in cells {
+            let hash_field = field.map_or(c, |f| f.identifier.as_str());
+            args.push(hash_field.into());
+            match field.and_then(|f| f.vector.as_ref()) {
+                Some(vf) => {
+                    let blob = packed_checked(v, vf.ty, Some(vf.dims), c)?.ok_or_else(|| {
+                        Error::Query(format!(
+                            "El valor de {c} no es un vector: escribilo como [0.1, 0.2, 0.3]."
+                        ))
+                    })?;
+                    if let Some((_, note)) = vector_arg(v, vf.ty, hash_field) {
+                        notes.push(note);
+                    }
+                    args.push(Arg::Blob(blob));
+                }
+                None => args.push(cell_text(v).into()),
+            }
+        }
+        if args.len() == 2 {
+            return Err(Error::Query(format!(
+                "La fila {n} no tiene ningún campo con valor: Redis no guarda hashes vacíos."
+            )));
+        }
+        out.push(blob_line(&args, Some(&notes.join("; "))));
+    }
+    Ok(out)
+}
+
+/// Rows as code that writes them. Into a search index (its results'
+/// grid): new documents (see [`index_inserts`]). Into a browsed key whose
+/// columns say what it is (a vector set's `element`/`vector`, a hash's
+/// `field`/`value`…): into that key (see [`key_inserts`]). Otherwise (a
+/// table's rows: imports, copies, data compare) each row as a hash
+/// `HSET <target>:<first column's value> col value …`, null cells left
+/// out. A vector (a JSON array of numbers) is written as the blob of the
+/// type of the search index that covers the key (checked against its
+/// dimension), or of `FLOAT32`. A row with no value at all (the grid's
+/// probe) writes nothing.
 pub fn insert_script(
     target: &ObjectRef,
     columns: &[String],
@@ -751,13 +1117,28 @@ pub fn insert_script(
     if columns.is_empty() {
         return Ok(String::new());
     }
-    let mut out = String::new();
-    for (n, row) in rows.iter().enumerate() {
+    let rows: Vec<(usize, &Vec<Value>)> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| !r.iter().all(Value::is_null))
+        .map(|(i, r)| (i + 1, r))
+        .collect();
+    let finish = |out: Vec<String>| out.into_iter().map(|l| l + "\n").collect::<String>();
+    if target.kind == kinds::INDEX {
+        return index_inserts(&target.name, columns, &rows, known).map(finish);
+    }
+    if let Some(shape) = (target.kind == kinds::KEY)
+        .then(|| key_shape(columns))
+        .flatten()
+    {
+        return key_inserts(&target.name, shape, columns, &rows, known).map(finish);
+    }
+    let mut out = Vec::new();
+    for (n, row) in rows {
         let id = match row.first() {
             Some(Value::Null) | None => {
                 return Err(Error::Query(format!(
-                    "La fila {} no tiene valor en la primera columna ({}), que forma el nombre de la key.",
-                    n + 1,
+                    "La fila {n} no tiene valor en la primera columna ({}), que forma el nombre de la key.",
                     columns[0]
                 )))
             }
@@ -770,15 +1151,18 @@ pub fn insert_script(
                 continue;
             }
             args.push(c.clone().into());
-            match hash_vector_type(known, &key, c, v).and_then(|t| vectors::pack(v, t)) {
+            let blob = match hash_vector_type(known, &key, c, v)? {
+                Some((t, dims)) => packed_checked(v, t, dims, c)?,
+                None => None,
+            };
+            match blob {
                 Some(blob) => args.push(Arg::Blob(blob)),
                 None => args.push(cell_text(v).into()),
             }
         }
-        out.push_str(&blob_line(&args, None));
-        out.push('\n');
+        out.push(blob_line(&args, None));
     }
-    Ok(out)
+    Ok(finish(out))
 }
 
 /// Lua for an edited `value` cell, whose key type (string, list, set or
@@ -838,15 +1222,10 @@ fn index_edits(index: &FtIndex, changes: &[RowChange]) -> Result<Vec<String>> {
                     out.push(line(&["JSON.DEL", &id, &path]));
                     continue;
                 }
-                // A vector (or any value) as JSON; text that is JSON goes
-                // as that JSON.
-                let json = match v {
-                    Value::String(t) => serde_json::from_str::<Value>(t)
-                        .ok()
-                        .filter(|j| j.is_array() || j.is_object())
-                        .unwrap_or_else(|| v.clone()),
-                    other => other.clone(),
-                };
+                // A vector as an array of numbers (of the index's
+                // dimension), any other value as JSON; text that is JSON
+                // goes as that JSON.
+                let json = json_value(field, v, col)?;
                 out.push(line(&["JSON.SET", &id, &path, &json.to_string()]));
                 continue;
             }
@@ -862,6 +1241,9 @@ fn index_edits(index: &FtIndex, changes: &[RowChange]) -> Result<Vec<String>> {
                             "El valor de {col} no es un vector: escribilo como [0.1, 0.2, 0.3]."
                         ))
                     })?;
+                    if let Some(nums) = dbine_driver::vector::parse_value(v) {
+                        check_dims(nums.len(), Some(vf.dims), col)?;
+                    }
                     out.push(blob_line(
                         &["HSET".into(), id.clone().into(), name.into(), arg],
                         Some(&note),
@@ -893,7 +1275,7 @@ fn vectorset_edits(key: &str, changes: &[RowChange], known: &Known) -> Result<Ve
                             "El vector de un elemento se escribe como [0.1, 0.2, 0.3]; para quitar el elemento, borrá la fila.".into(),
                         )
                     })?;
-                    let flag = known.vsets.get(key).map(String::as_str);
+                    let flag = known.vset_flag(key);
                     out.push(line_of(&vectors::vadd_args(key, &element, &nums, flag)));
                 }
                 "attributes" => {
@@ -933,7 +1315,7 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange], known: &Known) -
     };
     // The documents of a search index's results.
     if target.kind == kinds::INDEX {
-        let index = known.indexes.get(key).ok_or_else(|| {
+        let index = known.index(key).map_err(Error::Query)?.ok_or_else(|| {
             Error::Unsupported(format!(
                 "DBine no leyó todavía el índice {key}: abrilo de nuevo para que lea sus campos"
             ))
@@ -948,17 +1330,7 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange], known: &Known) -
     }
     let mut out: Vec<String> = Vec::new();
     // A hash field that holds a vector: its blob, with what the comment says.
-    let hset = |field: &str, v: &Value| -> String {
-        match known
-            .hash_vector(key, field)
-            .and_then(|f| vector_arg(v, f.ty, field))
-        {
-            Some((arg, note)) => {
-                blob_line(&["HSET".into(), key.into(), field.into(), arg], Some(&note))
-            }
-            None => line(&["HSET", key, field, &cell_text(v)]),
-        }
-    };
+    let hset = |field: &str, v: &Value| hset_line(key, field, v, known);
     for ch in changes.iter().filter(|c| !c.set.is_empty()) {
         let (k, s) = (&ch.key, &ch.set);
         if let Some(field) = get(k, "field").filter(|v| !v.is_null()) {
@@ -969,10 +1341,10 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange], known: &Known) -
                 .filter(|f| *f != field);
             match (new_field, get(s, "value")) {
                 (_, Some(Value::Null)) => out.push(line(&["HDEL", key, &field])),
-                (None, Some(v)) => out.push(hset(&field, &v)),
+                (None, Some(v)) => out.push(hset(&field, &v)?),
                 (Some(nf), Some(v)) => {
                     out.push(line(&["HDEL", key, &field]));
-                    out.push(hset(&nf, &v));
+                    out.push(hset(&nf, &v)?);
                 }
                 (Some(nf), None) => out.push(line(&["EVAL", HASH_RENAME, "1", key, &field, &nf])),
                 (None, None) => {}
@@ -1580,6 +1952,7 @@ mod tests {
             on_json: false,
             prefixes: vec!["doc:".into(), "art:".into()],
             filter: Some("@lang==\"es\"".into()),
+            options: vec!["LANGUAGE".into(), "spanish".into(), "NOOFFSETS".into()],
             fields: vec![
                 FtField {
                     identifier: "title".into(),
@@ -1639,6 +2012,230 @@ mod tests {
         );
     }
 
+    /// The index-wide options go with the index, before SCHEMA, and a
+    /// vector field whose settings the server didn't report stays a vector
+    /// index (scripting it asks for them).
+    #[test]
+    fn index_options_and_unreported_vectors() {
+        let ix = redis_index();
+        assert!(
+            ix.create_command()
+                .contains("FILTER \"@lang==\\\"es\\\"\" LANGUAGE spanish NOOFFSETS SCHEMA title"),
+            "{}",
+            ix.create_command()
+        );
+        let t = index_schema(&ix);
+        assert_eq!(t.options["index_options"], "LANGUAGE spanish NOOFFSETS");
+        let mut old = ix.clone();
+        old.options.clear();
+        old.fields[1].vector = None;
+        let t = index_schema(&old);
+        assert_eq!(t.columns[1].data_type, "VECTOR");
+        assert_eq!(t.indexes.len(), 1);
+        assert!(t.indexes[0].vector.is_some());
+        let e = schema_index(&t, Server::Redis).unwrap_err().to_string();
+        assert!(e.contains("no informa la configuración"), "{e}");
+        assert_eq!(old.unreported_vectors(), ["embedding"]);
+    }
+
+    fn target(kind: &str, name: &str) -> ObjectRef {
+        ObjectRef {
+            kind: kind.into(),
+            schema: None,
+            name: name.into(),
+        }
+    }
+
+    fn strs(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// "Agregar fila" on a browsed key writes into that key, by what its
+    /// columns say it is.
+    #[test]
+    fn new_rows_of_a_browsed_key() {
+        let mut known = Known::default();
+        // A vector set: VADD with its attributes (and its quantization
+        // once read).
+        let vs = target(kinds::KEY, "vs");
+        let cols = strs(&["element", "vector", "attributes"]);
+        let rows = vec![vec![
+            Value::from("a b"),
+            Value::from("[0.1, 2]"),
+            Value::from("{\"lang\":\"es\"}"),
+        ]];
+        assert_eq!(
+            parsed(&super::insert_script(&vs, &cols, &rows, &known).unwrap()),
+            [vec![
+                "VADD",
+                "vs",
+                "VALUES",
+                "2",
+                "0.1",
+                "2",
+                "a b",
+                "SETATTR",
+                "{\"lang\":\"es\"}"
+            ]]
+        );
+        known.put_vset("t", 0, "vs", "NOQUANT");
+        let only = vec![vec![Value::from("c"), serde_json::json!([1, 0])]];
+        assert_eq!(
+            parsed(
+                &super::insert_script(&vs, &strs(&["element", "vector"]), &only, &known).unwrap()
+            ),
+            [vec!["VADD", "vs", "VALUES", "2", "1", "0", "c", "NOQUANT"]]
+        );
+        let no_vector = vec![vec![Value::from("d"), Value::Null, Value::Null]];
+        assert!(super::insert_script(&vs, &cols, &no_vector, &known).is_err());
+        // The grid's probe: nothing to write, and no error.
+        assert_eq!(
+            super::insert_script(&vs, &cols, &[vec![Value::Null; 3]], &known).unwrap(),
+            ""
+        );
+        // A hash: HSET of the key itself; a vector field as its index's blob.
+        let mut ix = redis_index();
+        ix.fields[1].identifier = "emb".into();
+        known.put_index("t", 0, &ix);
+        let h = target(kinds::KEY, "doc:9");
+        let s = super::insert_script(
+            &h,
+            &strs(&["field", "value"]),
+            &[
+                vec![Value::from("title"), Value::from("hola")],
+                vec![Value::from("emb"), Value::from("[1,2,3,4]")],
+            ],
+            &known,
+        )
+        .unwrap();
+        let p = parse_script(&s).unwrap();
+        assert_eq!(
+            p[0],
+            [
+                b"HSET".to_vec(),
+                b"doc:9".to_vec(),
+                b"title".to_vec(),
+                b"hola".to_vec()
+            ]
+        );
+        assert_eq!(p[1][3], VType::F16.encode(&[1.0, 2.0, 3.0, 4.0]));
+        let e = super::insert_script(
+            &h,
+            &strs(&["field", "value"]),
+            &[vec![Value::from("emb"), Value::from("[1,2]")]],
+            &known,
+        )
+        .unwrap_err();
+        assert!(e.to_string().contains("2 dimensiones"), "{e}");
+        // A sorted set and a list or set.
+        assert_eq!(
+            parsed(
+                &super::insert_script(
+                    &target(kinds::KEY, "z"),
+                    &strs(&["member", "score"]),
+                    &[vec![Value::from("ana"), Value::from(3.5)]],
+                    &known
+                )
+                .unwrap()
+            ),
+            [vec!["ZADD", "z", "3.5", "ana"]]
+        );
+        let s = super::insert_script(
+            &target(kinds::KEY, "l"),
+            &strs(&["value"]),
+            &[vec![Value::from("x")]],
+            &known,
+        )
+        .unwrap();
+        let p = parsed(&s);
+        assert_eq!(
+            (p[0][0].as_str(), p[0][3].as_str(), p[0][4].as_str()),
+            ("EVAL", "l", "x")
+        );
+        // Rows of a table (an import): hashes <name>:<id>, as before.
+        assert_eq!(
+            parsed(
+                &super::insert_script(
+                    &target(kinds::TABLE, "person"),
+                    &strs(&["id", "name"]),
+                    &[vec![Value::from(1), Value::from("Ana")]],
+                    &known
+                )
+                .unwrap()
+            ),
+            [vec!["HSET", "person:1", "id", "1", "name", "Ana"]]
+        );
+    }
+
+    /// "Agregar fila" on a search index's results: a new document under
+    /// the index's prefix.
+    #[test]
+    fn new_documents_of_a_search_index() {
+        let idx = target(kinds::INDEX, "docs");
+        let cols = strs(&["id", "title", "embedding", "__embedding_score"]);
+        let row = vec![
+            Value::from("7"),
+            Value::from("Hola"),
+            Value::from("[1, 0, 0, 0.5]"),
+            Value::Null,
+        ];
+        // Not read yet: it doesn't guess.
+        assert!(insert_script(&idx, &cols, std::slice::from_ref(&row)).is_err());
+        assert_eq!(
+            insert_script(&idx, &cols, &[vec![Value::Null; 4]]).unwrap(),
+            ""
+        );
+        let mut known = Known::default();
+        known.put_index("t", 0, &redis_index());
+        let s = super::insert_script(&idx, &cols, std::slice::from_ref(&row), &known).unwrap();
+        let p = parse_script(&s).unwrap();
+        // `7` isn't under a prefix of the index: it goes under the first.
+        assert_eq!(p[0][1], b"doc:7".to_vec());
+        assert_eq!(p[0][2], b"title".to_vec());
+        assert_eq!(p[0][4], b"emb".to_vec());
+        assert_eq!(p[0][5], VType::F16.encode(&[1.0, 0.0, 0.0, 0.5]));
+        assert_eq!(p[0].len(), 6);
+        // A key under a prefix stays as it is; a vector of another
+        // dimension is refused.
+        let art = vec![
+            Value::from("art:1"),
+            Value::from("x"),
+            Value::Null,
+            Value::Null,
+        ];
+        assert_eq!(
+            parse_script(&super::insert_script(&idx, &cols, &[art], &known).unwrap()).unwrap()[0]
+                [1],
+            b"art:1".to_vec()
+        );
+        let bad = vec![
+            Value::from("doc:2"),
+            Value::Null,
+            Value::from("[1,2]"),
+            Value::Null,
+        ];
+        assert!(super::insert_script(&idx, &cols, &[bad], &known).is_err());
+        // A JSON index: the whole document, at the fields' paths.
+        let mut j = redis_index();
+        j.on_json = true;
+        j.fields[0].identifier = "$.meta.title".into();
+        j.fields[1].identifier = "$.emb".into();
+        known.put_index("t", 0, &j);
+        let s = super::insert_script(&idx, &cols, std::slice::from_ref(&row), &known).unwrap();
+        assert_eq!(
+            parsed(&s),
+            [vec![
+                "JSON.SET",
+                "doc:7",
+                "$",
+                "{\"emb\":[1,0,0,0.5],\"meta\":{\"title\":\"Hola\"}}"
+            ]]
+        );
+        j.fields[0].identifier = "$.tags[*]".into();
+        known.put_index("t", 0, &j);
+        assert!(super::insert_script(&idx, &cols, &[row], &known).is_err());
+    }
+
     #[test]
     fn scripts_write_vectors_as_blobs() {
         let target = ObjectRef {
@@ -1658,15 +2255,27 @@ mod tests {
         assert_eq!(p[0][4], b"emb".to_vec());
         assert_eq!(p[0][5], VType::F32.encode(&[0.5, 1.0, -2.0]));
         assert_eq!(p[0][7], b"[\"x\"]".to_vec());
-        // A search index over doc: says FLOAT16.
+        // A search index over doc: says FLOAT16, of 4 dimensions.
         let mut known = Known::default();
         let mut ix = redis_index();
         ix.fields[1].identifier = "emb".into();
-        known.indexes.insert(ix.name.clone(), ix.clone());
-        let s = super::insert_script(&target, &cols, &rows, &known).unwrap();
+        known.put_index("t", 0, &ix);
+        let e = super::insert_script(&target, &cols, &rows, &known).unwrap_err();
+        assert!(e.to_string().contains("3 dimensiones"), "{e}");
+        let rows4 = vec![vec![
+            Value::from(1),
+            serde_json::json!([0.5, 1, -2, 0]),
+            serde_json::json!(["x"]),
+        ]];
+        let s = super::insert_script(&target, &cols, &rows4, &known).unwrap();
         assert_eq!(
             parse_script(&s).unwrap()[0][5],
-            VType::F16.encode(&[0.5, 1.0, -2.0])
+            VType::F16.encode(&[0.5, 1.0, -2.0, 0.0])
+        );
+        // A row of nothing (the grid's probe) writes nothing.
+        assert_eq!(
+            super::insert_script(&target, &cols, &[vec![Value::Null; 3]], &known).unwrap(),
+            ""
         );
         // An edited hash field, as text from the grid.
         let hash = ObjectRef {
@@ -1704,7 +2313,7 @@ mod tests {
         // DBine hasn't read the index: it doesn't guess.
         assert!(update_script(&idx, &[ch(vec![("title", Value::from("x"))])]).is_err());
         let mut known = Known::default();
-        known.indexes.insert("docs".into(), redis_index());
+        known.put_index("t", 0, &redis_index());
         let s = super::update_script(
             &idx,
             &[ch(vec![
@@ -1736,7 +2345,7 @@ mod tests {
         let mut j = redis_index();
         j.on_json = true;
         j.fields[1].identifier = "$.emb".into();
-        known.indexes.insert("docs".into(), j);
+        known.put_index("t", 0, &j);
         let s = super::update_script(
             &idx,
             &[ch(vec![("embedding", serde_json::json!([1, 2, 3, 4]))])],
@@ -1779,7 +2388,7 @@ mod tests {
             ]
         );
         // The set's quantization, once read, goes with VADD.
-        known.vsets.insert("vs".into(), "NOQUANT".into());
+        known.put_vset("t", 0, "vs", "NOQUANT");
         let s = super::update_script(&vs, std::slice::from_ref(&ch), &known).unwrap();
         assert!(
             s.starts_with("VADD vs VALUES 2 0.1 2 \"a b\" NOQUANT\n"),
@@ -1798,11 +2407,27 @@ mod tests {
 
     #[test]
     fn templates_parse() {
-        let ts = templates();
-        assert!(ts.len() >= 5);
-        for t in ts {
-            let text = t.template.replace("{name}", "demo");
-            assert!(!parsed(&text).is_empty(), "{}", t.label);
+        for server in [Server::Redis, Server::Valkey, Server::Dragonfly] {
+            let ts = templates(server);
+            assert!(ts.len() >= 7);
+            assert_eq!(
+                ts.iter().any(|t| t.label.contains("vector set")),
+                server == Server::Redis
+            );
+            for t in ts {
+                let text = t.template.replace("{name}", "demo");
+                assert!(!parse_script(&text).unwrap().is_empty(), "{}", t.label);
+            }
         }
+        // The vectors in them are what their comments say.
+        let ts = templates(Server::Redis);
+        let p = parse_script(&ts[0].template).unwrap();
+        assert_eq!(p[1][5], VType::F32.encode(&[0.1, 0.2, 0.3]));
+        let p = parse_script(&ts[1].template).unwrap();
+        assert_eq!(p[3][6], VType::F32.encode(&[0.1, 0.2, 0.3]));
+        assert_eq!(
+            p[1][3],
+            b"{\"etiqueta\": \"a\", \"embedding\": [0.1, 0.2, 0.3]}".to_vec()
+        );
     }
 }

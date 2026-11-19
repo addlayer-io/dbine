@@ -56,7 +56,7 @@ impl RedisSession {
             }
         }
         out.sort_by(|a, b| a.name.cmp(&b.name));
-        self.remember(&out);
+        self.known().set_indexes(&self.server_id, self.db, &out);
         self.ft = Some((std::time::Instant::now(), out.clone()));
         out
     }
@@ -66,9 +66,21 @@ impl RedisSession {
         if self.multi {
             return None;
         }
-        let v = self.run(&[b"FT.INFO", name.as_bytes()]).await.ok()?;
+        let v = match self.run(&[b"FT.INFO", name.as_bytes()]).await {
+            Ok(v) => v,
+            Err(e) => {
+                // Gone (dropped by another client): the scripts forget it.
+                if crate::vectors::no_such_index(&e.to_string()) {
+                    self.known().forget_index(&self.server_id, self.db, name);
+                    if let Some((_, list)) = &mut self.ft {
+                        list.retain(|i| i.name != name);
+                    }
+                }
+                return None;
+            }
+        };
         let ix = FtIndex::from_info(name, &v)?;
-        self.remember(std::slice::from_ref(&ix));
+        self.known().put_index(&self.server_id, self.db, &ix);
         if let Some((_, list)) = &mut self.ft {
             match list.iter_mut().find(|i| i.name == ix.name) {
                 Some(slot) => *slot = ix.clone(),
@@ -78,21 +90,50 @@ impl RedisSession {
         Some(ix)
     }
 
-    /// What a command changes of the search indexes the session read: an
-    /// `FT.*` that isn't a read, or another database's keys.
-    pub(crate) fn ft_after(&mut self, name: &str) {
+    /// What a command (that the server took) changes of the search indexes
+    /// the session read: an `FT.*` that isn't a read, another database,
+    /// or flushed keys. The scripts' registry follows: a dropped index is
+    /// forgotten, a created or altered one read again at once.
+    pub(crate) async fn ft_after(&mut self, name: &str, cmd: &[Vec<u8>]) {
         let changes = (name.starts_with("FT.") && !FT_READS.contains(&name))
-            || matches!(name, "SELECT" | "FLUSHDB" | "FLUSHALL" | "SWAPDB");
-        if changes {
-            self.ft = None;
+            || matches!(
+                name,
+                "SELECT" | "FLUSHDB" | "FLUSHALL" | "SWAPDB" | "EXEC" | "DISCARD"
+            );
+        if !changes {
+            return;
+        }
+        self.ft = None;
+        if self.multi {
+            // Queued, not run yet: EXEC reads them again.
+            return;
+        }
+        let arg = cmd
+            .get(1)
+            .map(|a| String::from_utf8_lossy(a).into_owned())
+            .unwrap_or_default();
+        match name {
+            "FT.DROPINDEX" | "FT.DROP" => {
+                self.known().forget_index(&self.server_id, self.db, &arg);
+            }
+            "FT.CREATE" | "FT.ALTER" => {
+                self.ft_index(&arg).await;
+            }
+            // Read again now (a transaction may have created or dropped
+            // some): forgetting would leave the scripts guessing.
+            "FLUSHDB" | "EXEC" => {
+                self.ft_indexes().await;
+            }
+            "FLUSHALL" | "SWAPDB" => {
+                self.known().forget_db(&self.server_id, None);
+                self.ft_indexes().await;
+            }
+            _ => {}
         }
     }
 
-    fn remember(&self, indexes: &[FtIndex]) {
-        let mut k = self.known.lock().unwrap_or_else(|e| e.into_inner());
-        for ix in indexes {
-            k.indexes.insert(ix.name.clone(), ix.clone());
-        }
+    pub(crate) fn known(&self) -> std::sync::MutexGuard<'_, crate::vectors::Known> {
+        self.known.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// The vector fields of the hash `key` (by hash field name): those of
@@ -149,11 +190,8 @@ impl RedisSession {
                 .and_then(|kv| kv.get(1).map(|q| text_of(q)))
         });
         if let Some(flag) = quant.as_deref().and_then(quant_flag) {
-            self.known
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .vsets
-                .insert(String::from_utf8_lossy(key).into_owned(), flag.into());
+            let key = String::from_utf8_lossy(key).into_owned();
+            self.known().put_vset(&self.server_id, self.db, &key, flag);
         }
         (dims, quant)
     }
@@ -219,7 +257,18 @@ impl RedisSession {
                 let ix = self.ft_index(&String::from_utf8_lossy(key)).await;
                 Some(search_table(cmd, reply, ix.as_ref()))
             }
-            "FT.AGGREGATE" => Some(aggregate_table(reply)),
+            "FT.AGGREGATE" => {
+                let ix = self.ft_index(&String::from_utf8_lossy(key)).await;
+                Some(aggregate_table(cmd, reply, ix.as_ref()))
+            }
+            // FT.CURSOR READ <index> <cursor>: more of an FT.AGGREGATE.
+            "FT.CURSOR" if key.eq_ignore_ascii_case(b"READ") => {
+                let ix = match cmd.get(2) {
+                    Some(i) => self.ft_index(&String::from_utf8_lossy(i)).await,
+                    None => None,
+                };
+                Some(aggregate_table(&[], reply, ix.as_ref()))
+            }
             "VEMB" if !has("RAW") => {
                 let text = vemb_text(reply)?;
                 let dims = vector::parse(&text)?.len();

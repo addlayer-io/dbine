@@ -376,7 +376,7 @@ impl Driver for RedisDriver {
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
-        ddl::templates()
+        ddl::templates(self.server)
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
@@ -435,6 +435,8 @@ impl Driver for RedisDriver {
             cfg.host.trim().to_string()
         };
         let port = cfg.port_or(6379);
+        // What the scripts know of this server's vectors is kept under it.
+        let server_id = format!("{host}:{port}");
         // redis' rustls needs a process-wide crypto provider when more
         // than one is compiled in; a second install is a no-op error.
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -513,7 +515,11 @@ impl Driver for RedisDriver {
             queued: 0,
             queued_db: None,
             server: self.server,
-            known: self.known.clone(),
+            known: {
+                self.known().attach(&server_id);
+                self.known.clone()
+            },
+            server_id,
             ft: None,
             vrange: None,
         }))
@@ -596,11 +602,22 @@ pub struct RedisSession {
     /// The driver's [`vectors::Known`], filled as indexes and vector sets
     /// are read.
     known: vectors::Shared,
+    /// The server, as [`vectors::Known`] keeps it (`host:port`).
+    server_id: String,
     /// The database's search indexes as last read (see [`FT_TTL`]).
     ft: Option<(std::time::Instant, Vec<vectors::FtIndex>)>,
-    /// The server has `VRANGE` (Redis 8.2+), for browsing a vector set in
+    /// The server has `VRANGE` (Redis 8.4+), for browsing a vector set in
     /// order; `None`: not asked yet.
     vrange: Option<bool>,
+}
+
+impl Drop for RedisSession {
+    fn drop(&mut self) {
+        self.known
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .detach(&self.server_id);
+    }
 }
 
 impl RedisSession {
@@ -645,7 +662,23 @@ impl RedisSession {
             )));
         }
         let args: Vec<&[u8]> = cmd.iter().map(Vec::as_slice).collect();
-        let reply = self.send_raw(&args).await.map_err(command_err);
+        let reply = self
+            .send_raw(&args)
+            .await
+            .map_err(command_err)
+            .map_err(|e| {
+                // A refused index that asked for a vector type or algorithm
+                // not every version has: say which, and since when.
+                match (name.as_str(), e) {
+                    ("FT.CREATE" | "FT.ALTER", Error::Statement(mut se)) => {
+                        if let Some(h) = vectors::create_hint(cmd, self.server) {
+                            se.message = format!("{} ({h})", se.message.trim_end());
+                        }
+                        Error::Statement(se)
+                    }
+                    (_, e) => e,
+                }
+            });
         // A refused command inside MULTI makes EXEC fail (EXECABORT): the
         // transaction is over either way.
         let was_multi = self.multi;
@@ -706,7 +739,7 @@ impl RedisSession {
                 }
             }
         }
-        self.ft_after(&name);
+        self.ft_after(&name, cmd).await;
         let table = match self.vector_table(&name, cmd, &reply, max_rows).await {
             Some(t) => t,
             None => shape::shape(cmd, reply),
@@ -1075,7 +1108,17 @@ impl Session for RedisSession {
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {
         // A search index: the FT.CREATE that makes it.
         if obj.kind == kinds::INDEX {
-            return Ok(self.ft_index(&obj.name).await.map(|ix| ix.create_command()));
+            return Ok(self.ft_index(&obj.name).await.map(|ix| {
+                let mut s = ix.create_command();
+                let unknown = ix.unreported_vectors();
+                if !unknown.is_empty() {
+                    s.push_str(&format!(
+                        "\n# FT.INFO de este servidor no informa la configuración de {}: completá su algoritmo, TYPE, DIM y DISTANCE_METRIC antes de ejecutarlo.",
+                        unknown.join(", ")
+                    ));
+                }
+                s
+            }));
         }
         let key = obj.name.as_bytes();
         let t = self.key_type(&obj.name).await?;
@@ -1133,7 +1176,7 @@ impl Session for RedisSession {
                 .and_then(|(_, l)| l.iter().find(|i| i.name == obj.name).cloned())
                 .or_else(|| {
                     let k = self.known.lock().unwrap_or_else(|e| e.into_inner());
-                    k.indexes.get(&obj.name).cloned()
+                    k.index_at(&self.server_id, self.db, &obj.name).cloned()
                 });
             return vectors::browse(&obj.name, ix.as_ref(), self.server, limit);
         }

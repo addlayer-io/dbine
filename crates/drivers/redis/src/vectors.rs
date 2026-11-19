@@ -165,6 +165,7 @@ pub fn parse_spelling(s: &str) -> Option<(Option<u32>, VType)> {
 
 /// A vector value of a script or a cell (a JSON array of numbers, or text
 /// that holds one) as the blob of `t`.
+#[cfg(test)]
 pub fn pack(v: &serde_json::Value, t: VType) -> Option<Vec<u8>> {
     vector::parse_value(v).map(|n| t.encode(&n))
 }
@@ -352,7 +353,7 @@ impl FtField {
         }
     }
 
-    fn is(&self, name: &str) -> bool {
+    pub fn is(&self, name: &str) -> bool {
         self.attribute == name || self.identifier == name
     }
 }
@@ -366,7 +367,107 @@ pub struct FtIndex {
     /// Key prefixes it covers (empty, or `""`: every key).
     pub prefixes: Vec<String>,
     pub filter: Option<String>,
+    /// Index-wide `FT.CREATE` options before `SCHEMA`, as it takes them
+    /// (`LANGUAGE spanish`, `SCORE 0.5`, `NOOFFSETS`, `STOPWORDS 2 a b`…):
+    /// those that aren't the server's default.
+    pub options: Vec<String>,
     pub fields: Vec<FtField>,
+}
+
+/// valkey-search's defaults for a text index, which its `FT.INFO` lists
+/// whether set or not.
+const VALKEY_PUNCTUATION: &str = ",.<>{}[]\"':;!@#$%^&*()-+=~/\\|?";
+const VALKEY_STOPWORDS: &[&str] = &[
+    "a", "is", "the", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in", "into",
+    "it", "no", "not", "of", "on", "or", "such", "that", "their", "then", "there", "these", "they",
+    "this", "to", "was", "will", "with",
+];
+
+/// Index-wide flags, in the order `FT.CREATE` lists them.
+const INDEX_FLAGS: &[&str] = &["MAXTEXTFIELDS", "NOOFFSETS", "NOHL", "NOFIELDS", "NOFREQS"];
+
+/// The index-wide options of `FT.INFO`'s reply (`top`, and its
+/// `index_definition`, `def`) that aren't the server's default, as
+/// `FT.CREATE` takes them.
+fn index_options(top: &[(String, &Value)], def: &[(String, &Value)]) -> Vec<String> {
+    let mut o: Vec<String> = Vec::new();
+    let mut push = |k: &str, v: String| {
+        o.push(k.to_string());
+        o.push(v);
+    };
+    // RediSearch and Dragonfly say it in the definition, valkey-search at
+    // the top.
+    if let Some(l) = text(def, "default_language")
+        .or_else(|| text(top, "language"))
+        .filter(|l| !l.eq_ignore_ascii_case("english"))
+    {
+        push("LANGUAGE", l);
+    }
+    if let Some(f) = text(def, "language_field").filter(|f| f != "__language") {
+        push("LANGUAGE_FIELD", f);
+    }
+    if let Some(sc) = get(def, "default_score")
+        .map(number)
+        .filter(|sc| sc.parse::<f64>().map_or(!sc.is_empty(), |x| x != 1.0))
+    {
+        push("SCORE", sc);
+    }
+    if let Some(f) = text(def, "score_field").filter(|f| f != "__score") {
+        push("SCORE_FIELD", f);
+    }
+    if let Some(f) = text(def, "payload_field").filter(|f| f != "__payload") {
+        push("PAYLOAD_FIELD", f);
+    }
+    if let Some(p) = text(top, "punctuation").filter(|p| p != VALKEY_PUNCTUATION) {
+        push("PUNCTUATION", p);
+    }
+    if let Some(n) = text(top, "min_stem_size").filter(|n| n != "4") {
+        push("MINSTEMSIZE", n);
+    }
+    let flags: Vec<String> = get(top, "index_options")
+        .map(items)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|f| text_of(f).to_ascii_uppercase())
+        .collect();
+    let valkey_no_offsets = text(top, "with_offsets").is_some_and(|w| w == "0");
+    for f in INDEX_FLAGS {
+        if flags.iter().any(|x| x == f) || (*f == "NOOFFSETS" && valkey_no_offsets) {
+            o.push(f.to_string());
+        }
+    }
+    // Stop words: RediSearch and Dragonfly list them only when set,
+    // valkey-search always.
+    let words = |k: &str| {
+        get(top, k).map(|v| {
+            items(v)
+                .into_iter()
+                .map(text_of)
+                .filter(|w| !w.is_empty())
+                .collect::<Vec<_>>()
+        })
+    };
+    let stop = match (words("stopwords_list"), words("stop_words")) {
+        (Some(w), _) => Some(w),
+        (None, Some(w)) => {
+            let mut a: Vec<&str> = w.iter().map(String::as_str).collect();
+            let mut b = VALKEY_STOPWORDS.to_vec();
+            a.sort_unstable();
+            b.sort_unstable();
+            (a != b).then_some(w)
+        }
+        _ => None,
+    };
+    // In order: the servers keep them in a set (Dragonfly lists them in
+    // another order each time), and two lists that differ only in order
+    // are the same.
+    if let Some(mut w) = stop {
+        w.sort_unstable();
+        o.push("STOPWORDS".into());
+        o.push(w.len().to_string());
+        o.extend(w);
+    }
+    o
 }
 
 /// Flags RediSearch lists bare among a field's attributes (RESP2).
@@ -449,6 +550,7 @@ impl FtIndex {
             })
             .unwrap_or_default();
         let filter = text(&def, "filter");
+        let options = index_options(&top, &def);
         let mut fields = Vec::new();
         for a in get(&top, "attributes").map(items).unwrap_or_default() {
             if let Some(f) = field(a) {
@@ -460,8 +562,20 @@ impl FtIndex {
             on_json,
             prefixes,
             filter,
+            options,
             fields,
         })
+    }
+
+    /// The attributes of the vector fields whose settings `FT.INFO`
+    /// doesn't report (RediSearch before 2.8): their `FT.CREATE` needs them
+    /// written in.
+    pub fn unreported_vectors(&self) -> Vec<&str> {
+        self.fields
+            .iter()
+            .filter(|f| f.kind == "VECTOR" && f.vector.is_none())
+            .map(|f| f.attribute.as_str())
+            .collect()
     }
 
     /// Whether the index covers `key` (by its prefixes).
@@ -475,6 +589,35 @@ impl FtIndex {
             .iter()
             .find(|f| f.is(name))
             .and_then(|f| f.vector.as_ref())
+    }
+
+    /// The vector field stored in the hash field `name` (its identifier).
+    pub fn hash_vector_field(&self, name: &str) -> Option<&FtVector> {
+        self.fields
+            .iter()
+            .find(|f| f.identifier == name)
+            .and_then(|f| f.vector.as_ref())
+    }
+
+    /// Whether `other` takes the same documents the same way: what the
+    /// scripts need of an index (where it searches, its fields and their
+    /// vector types).
+    pub fn same_shape(&self, other: &FtIndex) -> bool {
+        let fields = |i: &FtIndex| {
+            i.fields
+                .iter()
+                .map(|f| {
+                    (
+                        f.identifier.clone(),
+                        f.attribute.clone(),
+                        f.vector.as_ref().map(|v| (v.ty, v.dims)),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        self.on_json == other.on_json
+            && self.prefixes == other.prefixes
+            && fields(self) == fields(other)
     }
 
     /// `FT.CREATE`'s arguments (the command name first).
@@ -495,6 +638,7 @@ impl FtIndex {
             a.push("FILTER".into());
             a.push(f.clone());
         }
+        a.extend(self.options.iter().cloned());
         a.push("SCHEMA".into());
         for f in &self.fields {
             a.push(f.identifier.clone());
@@ -570,11 +714,12 @@ fn field(a: &Value) -> Option<FtField> {
         ..Default::default()
     };
     if kind == "VECTOR" {
-        f.vector = Some(if let Some(ix) = get(&p, "index") {
-            valkey_vector(ix)?
-        } else {
-            redisearch_vector(&p)?
-        });
+        // Kept without its settings where FT.INFO doesn't report them
+        // (RediSearch before 2.8): a VECTOR field of unknown type.
+        f.vector = match get(&p, "index") {
+            Some(ix) => valkey_vector(ix),
+            None => redisearch_vector(&p),
+        };
         return Some(f);
     }
     // A non-vector field's arguments, as FT.CREATE takes them (Dragonfly
@@ -650,6 +795,13 @@ fn valkey_vector(ix: &Value) -> Option<FtVector> {
     if let Some(c) = get(&p, "capacity").map(number).filter(|c| !c.is_empty()) {
         params.push(("INITIAL_CAP".into(), c));
     }
+    // In the order the scripts write them (see `FtVector::from_index`).
+    params.sort_by_key(|(k, _)| {
+        VECTOR_PARAMS
+            .iter()
+            .position(|p| p.eq_ignore_ascii_case(k))
+            .unwrap_or(VECTOR_PARAMS.len())
+    });
     Some(FtVector {
         algorithm,
         ty,
@@ -659,28 +811,196 @@ fn valkey_vector(ix: &Value) -> Option<FtVector> {
     })
 }
 
-/// What the scripts (which run without a session) know of the server's
-/// vectors: each search index seen (by name) and each vector set's
-/// quantization (by key). Sessions fill it as they read them; it's only a
-/// hint, the script says which type it wrote.
+/// What the scripts (which run without a session) know of the servers'
+/// vectors, per server (`host:port`, as each session connected) and
+/// database: the search indexes the sessions read (by name) and each
+/// vector set's quantization (by key). A server's entries go when its last
+/// session closes, an index's when a session drops it, and a full read
+/// replaces them all (so a dropped index doesn't linger).
+///
+/// The scripts don't say which connection they are for (the driver's
+/// contract gives them no session), so a lookup looks at every open
+/// server: when two of them disagree on what it needs (a field that is a
+/// vector of another type, an index of the same name with other fields) it
+/// refuses instead of guessing.
 #[derive(Debug, Default)]
 pub struct Known {
-    pub indexes: HashMap<String, FtIndex>,
-    /// Vector set → `VADD`'s quantization flag (`Q8`, `NOQUANT`, `BIN`).
-    pub vsets: HashMap<String, String>,
+    servers: HashMap<String, ServerKnown>,
+}
+
+#[derive(Debug, Default)]
+struct ServerKnown {
+    /// Open sessions to the server.
+    sessions: usize,
+    /// Database → index name → index.
+    indexes: HashMap<i64, HashMap<String, FtIndex>>,
+    /// Database → vector set → `VADD`'s quantization flag (`Q8`,
+    /// `NOQUANT`, `BIN`).
+    vsets: HashMap<i64, HashMap<String, String>>,
 }
 
 pub type Shared = Arc<Mutex<Known>>;
 
+/// Why a script can't tell which open connection it is for.
+fn ambiguous(what: &str) -> String {
+    format!(
+        "DBine no sabe para cuál de las conexiones abiertas es este script: {what}. Cerrá la conexión que no corresponde o escribí el comando a mano."
+    )
+}
+
 impl Known {
-    /// The vector field `field` of the hash `key`: its type and dimension,
-    /// from an index over hashes that covers the key.
-    pub fn hash_vector(&self, key: &str, field: &str) -> Option<&FtVector> {
-        self.indexes
-            .values()
-            .filter(|i| !i.on_json && i.covers(key.as_bytes()))
-            .find_map(|i| i.vector_field(field))
+    /// A session to `server` opened.
+    pub fn attach(&mut self, server: &str) {
+        self.servers.entry(server.to_string()).or_default().sessions += 1;
     }
+
+    /// A session to `server` closed: with the last one, what was read of it
+    /// goes.
+    pub fn detach(&mut self, server: &str) {
+        if let Some(s) = self.servers.get_mut(server) {
+            s.sessions = s.sessions.saturating_sub(1);
+            if s.sessions == 0 {
+                self.servers.remove(server);
+            }
+        }
+    }
+
+    fn server(&mut self, server: &str) -> &mut ServerKnown {
+        self.servers.entry(server.to_string()).or_default()
+    }
+
+    /// Every search index of `server`'s database `db`, as just read.
+    pub fn set_indexes(&mut self, server: &str, db: i64, list: &[FtIndex]) {
+        self.server(server).indexes.insert(
+            db,
+            list.iter().map(|i| (i.name.clone(), i.clone())).collect(),
+        );
+    }
+
+    /// One search index, as just read.
+    pub fn put_index(&mut self, server: &str, db: i64, ix: &FtIndex) {
+        self.server(server)
+            .indexes
+            .entry(db)
+            .or_default()
+            .insert(ix.name.clone(), ix.clone());
+    }
+
+    /// An index that is gone (`FT.DROPINDEX`, or `FT.INFO` doesn't find it).
+    pub fn forget_index(&mut self, server: &str, db: i64, name: &str) {
+        if let Some(m) = self
+            .servers
+            .get_mut(server)
+            .and_then(|s| s.indexes.get_mut(&db))
+        {
+            m.remove(name);
+        }
+    }
+
+    /// What was read of a database (`db`) or of the whole server (`None`):
+    /// after `FLUSHDB`, `FLUSHALL`, `SWAPDB`.
+    pub fn forget_db(&mut self, server: &str, db: Option<i64>) {
+        if let Some(s) = self.servers.get_mut(server) {
+            match db {
+                Some(d) => {
+                    s.indexes.remove(&d);
+                    s.vsets.remove(&d);
+                }
+                None => {
+                    s.indexes.clear();
+                    s.vsets.clear();
+                }
+            }
+        }
+    }
+
+    /// A vector set's quantization flag, as `VINFO` said.
+    pub fn put_vset(&mut self, server: &str, db: i64, key: &str, flag: &str) {
+        self.server(server)
+            .vsets
+            .entry(db)
+            .or_default()
+            .insert(key.to_string(), flag.to_string());
+    }
+
+    /// The index `name` of one server's database (a session's own).
+    pub fn index_at(&self, server: &str, db: i64, name: &str) -> Option<&FtIndex> {
+        self.servers.get(server)?.indexes.get(&db)?.get(name)
+    }
+
+    fn all_indexes(&self) -> impl Iterator<Item = &FtIndex> {
+        self.servers
+            .values()
+            .flat_map(|s| s.indexes.values())
+            .flat_map(|m| m.values())
+    }
+
+    /// The search index `name`, for a script: `None` when no open session
+    /// read it, an error when two servers have different ones.
+    pub fn index(&self, name: &str) -> Result<Option<&FtIndex>, String> {
+        let mut found: Option<&FtIndex> = None;
+        for ix in self.all_indexes().filter(|i| i.name == name) {
+            match found {
+                None => found = Some(ix),
+                Some(f) if f.same_shape(ix) => {}
+                Some(_) => {
+                    return Err(ambiguous(&format!(
+                        "dos servidores tienen un índice {name} con campos distintos"
+                    )))
+                }
+            }
+        }
+        Ok(found)
+    }
+
+    /// The vector field `field` of the hash `key`, for a script: its type
+    /// and dimension, from the indexes over hashes that cover the key.
+    /// `None` when none does; an error when two servers say different
+    /// things.
+    pub fn hash_vector(&self, key: &str, field: &str) -> Result<Option<&FtVector>, String> {
+        let mut found: Option<&FtVector> = None;
+        let covering = self
+            .all_indexes()
+            .filter(|i| !i.on_json && i.covers(key.as_bytes()))
+            .filter_map(|i| i.hash_vector_field(field));
+        for v in covering {
+            match found {
+                None => found = Some(v),
+                Some(f) if (f.ty, f.dims) == (v.ty, v.dims) => {}
+                Some(f) => {
+                    return Err(ambiguous(&format!(
+                        "el campo {field} de {key} es {} en un servidor y {} en otro",
+                        spell(f.dims, f.ty),
+                        spell(v.dims, v.ty)
+                    )))
+                }
+            }
+        }
+        Ok(found)
+    }
+
+    /// The quantization flag `VADD` needs for the vector set `key`, when
+    /// the open sessions read it and agree on it.
+    pub fn vset_flag(&self, key: &str) -> Option<&str> {
+        let mut flags = self
+            .servers
+            .values()
+            .flat_map(|s| s.vsets.values())
+            .filter_map(|m| m.get(key));
+        let first = flags.next()?;
+        flags.all(|f| f == first).then_some(first.as_str())
+    }
+}
+
+/// Whether a refused `FT.INFO` says the index doesn't exist: RediSearch
+/// (`Unknown index name`, Redis 8's `Index not found`), Dragonfly (`no
+/// such index`), valkey-search (`Index with name '…' not found`).
+pub fn no_such_index(error: &str) -> bool {
+    let e = error.to_ascii_lowercase();
+    e.contains("unknown index")
+        || e.contains("index not found")
+        || e.contains("no such index")
+        || (e.contains("index with name") && e.contains("not found"))
 }
 
 /// `VINFO`'s `quant-type` as `VADD`'s flag.
@@ -783,6 +1103,42 @@ impl Server {
     }
 }
 
+/// What a refused `FT.CREATE` / `FT.ALTER` (`cmd`) asked for that not every
+/// server version has: the vector types and algorithms newer than FLOAT32,
+/// FLOAT64, HNSW and FLAT, with the versions that brought them, to say
+/// along with the server's error. `None` when it asked for none.
+pub fn create_hint(cmd: &[Vec<u8>], server: Server) -> Option<String> {
+    let has = |w: &str| cmd.iter().any(|a| a.eq_ignore_ascii_case(w.as_bytes()));
+    let mut used = Vec::new();
+    for (w, since) in [
+        ("FLOAT16", "Redis Stack 7.4 (RediSearch 2.10)"),
+        ("BFLOAT16", "Redis Stack 7.4 (RediSearch 2.10)"),
+        ("INT8", "Redis 8.0"),
+        ("UINT8", "Redis 8.0"),
+        ("SVS-VAMANA", "Redis 8.2"),
+    ] {
+        if has(w) {
+            used.push(match server {
+                Server::Valkey => w.to_string(),
+                _ => format!("{w} (desde {since})"),
+            });
+        }
+    }
+    if used.is_empty() {
+        return None;
+    }
+    Some(match server {
+        Server::Valkey => format!(
+            "valkey-search indexa vectores FLOAT32 con HNSW o FLAT: no tiene {}.",
+            used.join(", ")
+        ),
+        _ => format!(
+            "Puede que este servidor no tenga {}: no están en todas las versiones.",
+            used.join(", ")
+        ),
+    })
+}
+
 /// The build parameters the designer offers per algorithm, with their
 /// defaults, as each server takes them.
 pub fn designer_params(server: Server) -> Vec<dbine_driver::VectorParamSpec> {
@@ -836,26 +1192,102 @@ type Doc = (
     Vec<(String, serde_json::Value)>,
 );
 
+/// The fields a `RETURN n id [AS name] …` (or `LOAD n @id [AS name] …`)
+/// clause of `args` asks for: each name the result gives it → the field
+/// it is (`@` dropped). `None` without the clause (or with `LOAD *`).
+fn returned(args: &[Vec<u8>], word: &str) -> Option<Vec<(String, String)>> {
+    let at = args
+        .iter()
+        .skip(3)
+        .position(|a| a.eq_ignore_ascii_case(word.as_bytes()))?
+        + 3;
+    let n: usize = std::str::from_utf8(args.get(at + 1)?)
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    let list = &args[(at + 2).min(args.len())..(at + 2 + n).min(args.len())];
+    let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < list.len() {
+        let id = text(&list[i]);
+        let id = id.strip_prefix('@').unwrap_or(&id).to_string();
+        if list
+            .get(i + 1)
+            .is_some_and(|a| a.eq_ignore_ascii_case(b"AS"))
+        {
+            out.push((list.get(i + 2).map_or_else(|| id.clone(), |a| text(a)), id));
+            i += 3;
+        } else {
+            out.push((id.clone(), id));
+            i += 1;
+        }
+    }
+    Some(out)
+}
+
+/// The vector field of `index` a result field `name` is: by its name, or
+/// by the field an alias of `aliases` stands for.
+fn result_vector<'a>(
+    index: Option<&'a FtIndex>,
+    aliases: &[(String, String)],
+    name: &str,
+) -> Option<&'a FtVector> {
+    let ix = index?;
+    let field = aliases
+        .iter()
+        .find(|(alias, _)| alias == name)
+        .map_or(name, |(_, id)| id.as_str());
+    ix.vector_field(field)
+}
+
+/// A vector field's value in a result as the canonical text: a hash's
+/// blob decoded by the field's type, a JSON index's array (`[1.5,2]`, or
+/// `[[1.5,2]]` with DIALECT 3) as it is.
+fn result_vector_cell(index: &FtIndex, vf: &FtVector, v: &Value) -> serde_json::Value {
+    use serde_json::Value as J;
+    match v {
+        Value::BulkString(b) if !index.on_json => vf
+            .ty
+            .decode(b, Some(vf.dims))
+            .map(J::String)
+            .unwrap_or_else(|| crate::shape::cell(v)),
+        _ => {
+            let c = crate::shape::cell(v);
+            match c.as_str().and_then(json_vector) {
+                Some(s) => J::String(s),
+                None => c,
+            }
+        }
+    }
+}
+
 /// A search result's documents (`FT.SEARCH`'s reply) as rows: `id`, the
 /// score and payload when asked for, then every field in order of
-/// appearance. A vector field of `index` is decoded to its text and its
-/// column marked; on a JSON index a returned vector is already an array.
+/// appearance. A vector field of `index` (also under a `RETURN … AS`
+/// alias) is decoded to its text and its column marked; on a JSON index a
+/// returned vector is already an array.
 pub fn search_table(
     args: &[Vec<u8>],
     reply: &Value,
     index: Option<&FtIndex>,
 ) -> crate::shape::Table {
     use serde_json::Value as J;
+    // The options, after the index and the query.
     let has = |w: &str| {
         args.iter()
-            .skip(2)
+            .skip(3)
             .any(|a| a.eq_ignore_ascii_case(w.as_bytes()))
     };
+    let aliases = returned(args, "RETURN").unwrap_or_default();
+    // `RETURN 0` is NOCONTENT too.
+    let return_none = returned(args, "RETURN").is_some_and(|r| r.is_empty());
     let (scores, payloads, sortkeys, content) = (
         has("WITHSCORES"),
         has("WITHPAYLOADS"),
         has("WITHSORTKEYS"),
-        !has("NOCONTENT"),
+        !has("NOCONTENT") && !return_none,
     );
     let list = items(reply);
     let mut t = crate::shape::Table::default();
@@ -887,21 +1319,9 @@ pub fn search_table(
                 if !names.contains(&name) {
                     names.push(name.clone());
                 }
-                let cell = match (index.and_then(|ix| ix.vector_field(&name)), v) {
-                    (Some(vf), Value::BulkString(b)) if !index.is_some_and(|ix| ix.on_json) => vf
-                        .ty
-                        .decode(b, Some(vf.dims))
-                        .map(J::String)
-                        .unwrap_or_else(|| crate::shape::cell(v)),
-                    (Some(_), _) => {
-                        let c = crate::shape::cell(v);
-                        // JSON: `[1.5,2]` (or `[[1.5,2]]` with DIALECT 3).
-                        match c.as_str().and_then(json_vector) {
-                            Some(s) => J::String(s),
-                            None => c,
-                        }
-                    }
-                    (None, _) => crate::shape::cell(v),
+                let cell = match (index, result_vector(index, &aliases, &name)) {
+                    (Some(ix), Some(vf)) => result_vector_cell(ix, vf, v),
+                    _ => crate::shape::cell(v),
                 };
                 fields.push((name, cell));
             }
@@ -923,12 +1343,10 @@ pub fn search_table(
     t.columns.extend(names.iter().cloned());
     t.vectors = vec![None; t.columns.len()];
     t.types = vec![String::new(); t.columns.len()];
-    if let Some(ix) = index {
-        for (n, name) in names.iter().enumerate() {
-            if let Some(v) = ix.vector_field(name) {
-                t.vectors[fixed + n] = Some(v.meta());
-                t.types[fixed + n] = spell(v.dims, v.ty);
-            }
+    for (n, name) in names.iter().enumerate() {
+        if let Some(v) = result_vector(index, &aliases, name) {
+            t.vectors[fixed + n] = Some(v.meta());
+            t.types[fixed + n] = spell(v.dims, v.ty);
         }
     }
     for (id, extra, mut fields) in docs {
@@ -960,8 +1378,15 @@ fn json_vector(s: &str) -> Option<String> {
 }
 
 /// `FT.AGGREGATE`'s rows (`[n, [f, v…], …]`, or with a cursor
-/// `[[n, rows…], cursor]`): one row each, its fields as columns.
-pub fn aggregate_table(reply: &Value) -> crate::shape::Table {
+/// `[[n, rows…], cursor]`): one row each, its fields as columns. A vector
+/// field of `index` that `LOAD` brings (also under an alias) is decoded to
+/// its text and its column marked.
+pub fn aggregate_table(
+    args: &[Vec<u8>],
+    reply: &Value,
+    index: Option<&FtIndex>,
+) -> crate::shape::Table {
+    let aliases = returned(args, "LOAD").unwrap_or_default();
     let list = items(reply);
     let (rows, cursor) = match list.first() {
         Some(Value::Array(_)) => (items(list[0]), list.get(1).map(|c| text_of(c))),
@@ -977,18 +1402,27 @@ pub fn aggregate_table(reply: &Value) -> crate::shape::Table {
             if !names.contains(&name) {
                 names.push(name.clone());
             }
-            fields.push((
-                name,
-                kv.get(1)
-                    .map_or(serde_json::Value::Null, |v| crate::shape::cell(v)),
-            ));
+            let cell = match (kv.get(1), index, result_vector(index, &aliases, &name)) {
+                (None, _, _) => serde_json::Value::Null,
+                (Some(v), Some(ix), Some(vf)) => result_vector_cell(ix, vf, v),
+                (Some(v), _, _) => crate::shape::cell(v),
+            };
+            fields.push((name, cell));
         }
         parsed.push(fields);
     }
     let mut t = crate::shape::Table {
         columns: names.clone(),
+        vectors: vec![None; names.len()],
+        types: vec![String::new(); names.len()],
         ..Default::default()
     };
+    for (n, name) in names.iter().enumerate() {
+        if let Some(v) = result_vector(index, &aliases, name) {
+            t.vectors[n] = Some(v.meta());
+            t.types[n] = spell(v.dims, v.ty);
+        }
+    }
     for mut fields in parsed {
         t.rows.push(
             names
@@ -1447,6 +1881,226 @@ mod tests {
         assert_eq!(json_vector("\"x\""), None);
     }
 
+    fn argv(line: &str) -> Vec<Vec<u8>> {
+        line.split(' ').map(|w| w.as_bytes().to_vec()).collect()
+    }
+
+    /// `RETURN 0` brings no fields (as NOCONTENT); a vector field under a
+    /// `RETURN … AS` alias, or brought by FT.AGGREGATE's `LOAD`, is decoded.
+    #[test]
+    fn returned_fields_and_aliases() {
+        let ix = FtIndex::from_info("docs", &redis8_info()).unwrap();
+        let t = search_table(
+            &argv("FT.SEARCH docs * RETURN 0"),
+            &arr(vec![Value::Int(2), b("doc:1"), b("doc:2")]),
+            Some(&ix),
+        );
+        assert_eq!(t.columns, ["id"]);
+        assert_eq!(t.rows.len(), 2);
+        let blob = VType::F32.encode(&[0.1, 0.2, 0.3]);
+        let reply = arr(vec![
+            Value::Int(1),
+            b("doc:1"),
+            arr(vec![b("e"), Value::BulkString(blob.clone())]),
+        ]);
+        let t = search_table(
+            &argv("FT.SEARCH docs * RETURN 3 emb AS e"),
+            &reply,
+            Some(&ix),
+        );
+        assert_eq!(t.rows[0][1], serde_json::json!("[0.1,0.2,0.3]"));
+        assert_eq!(t.types[1], "VECTOR(3, FLOAT32)");
+        // A query word that reads like an option isn't one.
+        let t = search_table(
+            &argv("FT.SEARCH docs NOCONTENT"),
+            &arr(vec![
+                Value::Int(1),
+                b("doc:1"),
+                arr(vec![b("title"), b("x")]),
+            ]),
+            Some(&ix),
+        );
+        assert_eq!(t.columns, ["id", "title"]);
+        // FT.AGGREGATE … LOAD 3 @emb AS v.
+        let reply = arr(vec![
+            Value::Int(1),
+            arr(vec![b("v"), Value::BulkString(blob), b("title"), b("x")]),
+        ]);
+        let t = aggregate_table(
+            &argv("FT.AGGREGATE docs * LOAD 4 @emb AS v @title"),
+            &reply,
+            Some(&ix),
+        );
+        assert_eq!(t.columns, ["v", "title"]);
+        assert_eq!(t.rows[0][0], serde_json::json!("[0.1,0.2,0.3]"));
+        assert_eq!(
+            t.vectors[0],
+            Some(VectorMeta::dense(Some(3), VectorElement::F32))
+        );
+        assert_eq!(t.vectors[1], None);
+        // On a JSON index, the array LOAD brings.
+        let mut j = ix.clone();
+        j.on_json = true;
+        let reply = arr(vec![Value::Int(1), arr(vec![b("emb"), b("[1.5,2,3]")])]);
+        let t = aggregate_table(&argv("FT.AGGREGATE docs * LOAD 1 @emb"), &reply, Some(&j));
+        assert_eq!(t.rows[0][0], serde_json::json!("[1.5,2,3]"));
+    }
+
+    /// Index-wide options, as each server's FT.INFO says them.
+    #[test]
+    fn index_wide_options() {
+        let info = arr(vec![
+            b("index_name"),
+            b("p"),
+            b("index_options"),
+            arr(vec![b("NOFREQS"), b("NOOFFSETS"), b("NOHL")]),
+            b("index_definition"),
+            arr(vec![
+                b("key_type"),
+                b("HASH"),
+                b("prefixes"),
+                arr(vec![b("p:")]),
+                b("default_language"),
+                b("spanish"),
+                b("language_field"),
+                b("lang"),
+                b("default_score"),
+                b("0.5"),
+                b("score_field"),
+                b("sc"),
+                b("payload_field"),
+                b("pl"),
+            ]),
+            b("attributes"),
+            arr(vec![arr(vec![
+                b("identifier"),
+                b("t"),
+                b("attribute"),
+                b("t"),
+                b("type"),
+                b("TEXT"),
+                b("WEIGHT"),
+                b("1"),
+            ])]),
+            b("stopwords_list"),
+            arr(vec![b("bar"), b("foo")]),
+        ]);
+        let ix = FtIndex::from_info("p", &info).unwrap();
+        assert_eq!(
+            ix.create_command(),
+            "FT.CREATE p ON HASH PREFIX 1 p: LANGUAGE spanish LANGUAGE_FIELD lang SCORE 0.5 SCORE_FIELD sc \
+             PAYLOAD_FIELD pl NOOFFSETS NOHL NOFREQS STOPWORDS 2 bar foo SCHEMA t TEXT"
+        );
+        // valkey-search: at the top, defaults listed too.
+        let mut words: Vec<Value> = VALKEY_STOPWORDS.iter().map(|w| b(w)).collect();
+        let valkey = |punct: &str, stop: Vec<Value>, offsets: &str, stem: &str| {
+            arr(vec![
+                b("index_name"),
+                b("v"),
+                b("index_definition"),
+                arr(vec![
+                    b("key_type"),
+                    b("HASH"),
+                    b("prefixes"),
+                    arr(vec![b("v:")]),
+                    b("default_score"),
+                    b("1"),
+                ]),
+                b("attributes"),
+                arr(vec![]),
+                b("punctuation"),
+                b(punct),
+                b("stop_words"),
+                arr(stop),
+                b("with_offsets"),
+                b(offsets),
+                b("min_stem_size"),
+                b(stem),
+                b("language"),
+                b("english"),
+            ])
+        };
+        let ix =
+            FtIndex::from_info("v", &valkey(VALKEY_PUNCTUATION, words.clone(), "1", "4")).unwrap();
+        assert!(ix.options.is_empty(), "{:?}", ix.options);
+        words.reverse();
+        let ix = FtIndex::from_info("v", &valkey(".,", vec![b("foo")], "0", "3")).unwrap();
+        assert_eq!(
+            ix.options,
+            [
+                "PUNCTUATION",
+                ".,",
+                "MINSTEMSIZE",
+                "3",
+                "NOOFFSETS",
+                "STOPWORDS",
+                "1",
+                "foo"
+            ]
+        );
+        let ix = FtIndex::from_info("v", &valkey(VALKEY_PUNCTUATION, words, "1", "4")).unwrap();
+        assert!(ix.options.is_empty());
+        let ix = FtIndex::from_info("v", &valkey(VALKEY_PUNCTUATION, vec![], "1", "4")).unwrap();
+        assert_eq!(ix.options, ["STOPWORDS", "0"]);
+    }
+
+    /// A vector field FT.INFO reports without its settings (RediSearch
+    /// before 2.8) stays, as a VECTOR of unknown type.
+    #[test]
+    fn a_vector_field_without_settings_stays() {
+        let info = arr(vec![
+            b("index_name"),
+            b("old"),
+            b("index_definition"),
+            arr(vec![
+                b("key_type"),
+                b("HASH"),
+                b("prefixes"),
+                arr(vec![b("o:")]),
+            ]),
+            b("attributes"),
+            arr(vec![arr(vec![
+                b("identifier"),
+                b("emb"),
+                b("attribute"),
+                b("emb"),
+                b("type"),
+                b("VECTOR"),
+            ])]),
+        ]);
+        let ix = FtIndex::from_info("old", &info).unwrap();
+        assert_eq!(ix.fields.len(), 1);
+        assert_eq!(ix.fields[0].data_type(), "VECTOR");
+        assert!(ix.vector_field("emb").is_none());
+        assert_eq!(ix.unreported_vectors(), ["emb"]);
+        assert_eq!(
+            index_columns(&ix)[1],
+            ("emb".to_string(), "VECTOR".to_string())
+        );
+    }
+
+    #[test]
+    fn create_hints() {
+        let cmd = argv("FT.CREATE i SCHEMA v VECTOR HNSW 6 TYPE FLOAT16 DIM 2 DISTANCE_METRIC L2");
+        let h = create_hint(&cmd, Server::Redis).unwrap();
+        assert!(h.contains("FLOAT16 (desde Redis Stack 7.4"), "{h}");
+        let h = create_hint(&cmd, Server::Valkey).unwrap();
+        assert!(
+            h.starts_with("valkey-search indexa vectores FLOAT32"),
+            "{h}"
+        );
+        let plain =
+            argv("FT.CREATE i SCHEMA v VECTOR HNSW 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2");
+        assert_eq!(create_hint(&plain, Server::Redis), None);
+        let svs =
+            argv("FT.CREATE i SCHEMA v VECTOR SVS-VAMANA 6 TYPE INT8 DIM 2 DISTANCE_METRIC L2");
+        let h = create_hint(&svs, Server::Dragonfly).unwrap();
+        assert!(
+            h.contains("INT8 (desde Redis 8.0), SVS-VAMANA (desde Redis 8.2)"),
+            "{h}"
+        );
+    }
+
     #[test]
     fn aggregate_rows() {
         let reply = arr(vec![
@@ -1454,7 +2108,7 @@ mod tests {
             arr(vec![b("lang"), b("es"), b("n"), b("3")]),
             arr(vec![b("lang"), b("en")]),
         ]);
-        let t = aggregate_table(&reply);
+        let t = aggregate_table(&[], &reply, None);
         assert_eq!(t.columns, ["lang", "n"]);
         assert_eq!(
             t.rows[1],
@@ -1484,9 +2138,49 @@ mod tests {
     fn the_registry_finds_a_hash_field() {
         let mut k = Known::default();
         let ix = FtIndex::from_info("docs", &redis8_info()).unwrap();
-        k.indexes.insert("docs".into(), ix);
-        assert_eq!(k.hash_vector("doc:7", "emb").unwrap().ty, VType::F32);
-        assert!(k.hash_vector("doc:7", "title").is_none());
-        assert!(k.hash_vector("x:7", "emb").is_none());
+        k.attach("a:1");
+        k.put_index("a:1", 0, &ix);
+        assert_eq!(
+            k.hash_vector("doc:7", "emb").unwrap().unwrap().ty,
+            VType::F32
+        );
+        assert!(k.hash_vector("doc:7", "title").unwrap().is_none());
+        assert!(k.hash_vector("x:7", "emb").unwrap().is_none());
+        assert!(k.index("docs").unwrap().is_some());
+        // Another server with the same index: no doubt.
+        k.attach("b:2");
+        k.put_index("b:2", 0, &ix);
+        assert!(k.hash_vector("doc:7", "emb").unwrap().is_some());
+        assert!(k.index("docs").unwrap().is_some());
+        // With another type there: the scripts don't guess.
+        let mut other = ix.clone();
+        other.fields[1].vector.as_mut().unwrap().ty = VType::F16;
+        k.put_index("b:2", 0, &other);
+        let e = k.hash_vector("doc:7", "emb").unwrap_err();
+        assert!(e.contains("FLOAT32") && e.contains("FLOAT16"), "{e}");
+        assert!(k.index("docs").is_err());
+        // Its last session closes: what was read of it goes.
+        k.detach("b:2");
+        assert!(k.hash_vector("doc:7", "emb").unwrap().is_some());
+        // A dropped index goes; a full read replaces the list.
+        k.forget_index("a:1", 0, "docs");
+        assert!(k.index("docs").unwrap().is_none());
+        k.set_indexes("a:1", 0, std::slice::from_ref(&ix));
+        assert!(k.index_at("a:1", 0, "docs").is_some());
+        k.set_indexes("a:1", 0, &[]);
+        assert!(k.index_at("a:1", 0, "docs").is_none());
+        // Vector sets' quantization: only when the servers agree.
+        k.put_vset("a:1", 0, "vs", "Q8");
+        assert_eq!(k.vset_flag("vs"), Some("Q8"));
+        k.attach("c:3");
+        k.put_vset("c:3", 0, "vs", "NOQUANT");
+        assert_eq!(k.vset_flag("vs"), None);
+        k.forget_db("c:3", None);
+        assert_eq!(k.vset_flag("vs"), Some("Q8"));
+        assert!(no_such_index("SEARCH_INDEX_NOT_FOUND Index not found: x"));
+        assert!(no_such_index("Unknown Index name"));
+        assert!(no_such_index("ERR x: no such index"));
+        assert!(no_such_index("Index with name 'x' not found in database 0"));
+        assert!(!no_such_index("ERR wrong number of arguments"));
     }
 }

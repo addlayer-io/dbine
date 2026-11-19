@@ -34,7 +34,7 @@ fn driver(id: &str) -> Arc<dyn Driver> {
 /// A session of `d`: the app has one driver, whose sessions tell its
 /// scripts what they read (a search index's vector types).
 async fn open(d: &Arc<dyn Driver>, url: &str, read_only: bool) -> Box<dyn Session> {
-    let (host, port) = url.rsplit_once(':').unwrap();
+    let (host, port) = host_port(url);
     let cfg = ConnectionConfig {
         driver: d.info().id.into(),
         host: host.into(),
@@ -43,6 +43,12 @@ async fn open(d: &Arc<dyn Driver>, url: &str, read_only: bool) -> Box<dyn Sessio
         ..Default::default()
     };
     d.connect(&cfg, Some("db0")).await.unwrap()
+}
+
+/// `host:port` of an address given as `host:port` or `redis://host:port`.
+fn host_port(url: &str) -> (&str, &str) {
+    let rest = url.trim_start_matches("redis://").trim_end_matches('/');
+    rest.rsplit_once(':').unwrap_or((rest, "6379"))
 }
 
 async fn try_run(s: &mut Box<dyn Session>, text: &str) -> Result<QueryOutcome, String> {
@@ -182,10 +188,18 @@ impl BatchSink for Collect {
 }
 
 async fn read(s: &mut Box<dyn Session>, name: &str, columns: Option<Vec<String>>) -> Collect {
+    read_obj(s, key(name), columns).await
+}
+
+async fn read_obj(
+    s: &mut Box<dyn Session>,
+    table: ObjectRef,
+    columns: Option<Vec<String>>,
+) -> Collect {
     let sink = Arc::new(Mutex::new(Collect::default()));
     s.read_batches(
         &ReadSpec {
-            table: key(name),
+            table,
             columns,
             filter: None,
         },
@@ -205,9 +219,18 @@ async fn load(
     columns: &[TransferColumn],
     rows: Vec<Vec<Cell>>,
 ) -> u64 {
+    try_load(s, key(name), columns, rows).await.unwrap()
+}
+
+async fn try_load(
+    s: &mut Box<dyn Session>,
+    table: ObjectRef,
+    columns: &[TransferColumn],
+    rows: Vec<Vec<Cell>>,
+) -> dbine_driver::Result<u64> {
     s.bulk_load(
         &LoadSpec {
-            table: key(name),
+            table,
             columns: columns.iter().map(|c| c.name.clone()).collect(),
             table_lock: false,
             keep_identity: false,
@@ -219,7 +242,14 @@ async fn load(
         &|_| {},
     )
     .await
-    .unwrap()
+}
+
+fn tcol(name: &str, type_name: &str) -> TransferColumn {
+    TransferColumn {
+        name: name.into(),
+        type_name: type_name.into(),
+        nullable: true,
+    }
 }
 
 /// A hash field's bytes, as the server keeps them.
@@ -269,8 +299,9 @@ async fn search(
     panic!("the index never held {n} documents: {browse}");
 }
 
-const CLEANUP: &str = "FT.DROPINDEX dbvec_docs\nFT.DROPINDEX dbvec_copy\nFT.DROPINDEX dbvec_pg\nFT.DROPINDEX dbvec_json\n\
-DEL dbvec:doc:1 dbvec:doc:2 dbvec:doc:3 dbvec:copy:1 dbvec:copy:2 dbvec:copy:3 dbvec:pg:10 dbvec:pg:11 dbvec:vs dbvec:j:1 dbvec:j:2";
+const CLEANUP: &str = "FT.DROPINDEX dbvec_docs\nFT.DROPINDEX dbvec_copy\nFT.DROPINDEX dbvec_pg\nFT.DROPINDEX dbvec_json\nFT.DROPINDEX dbvec_opts\nFT.DROPINDEX dbvec_bad\n\
+FT.DROPINDEX dbvec_reg_redis\nFT.DROPINDEX dbvec_reg_valkey\nFT.DROPINDEX dbvec_reg_dragonfly\nFT.DROPINDEX dbvec_tpl\nDEL dbvec_tpl dbvec_tpl:1 dbvec_tpl:2\n\
+DEL dbvec:doc:1 dbvec:doc:2 dbvec:doc:3 dbvec:doc:4 dbvec:doc:5 dbvec:copy:1 dbvec:copy:2 dbvec:copy:3 dbvec:pg:10 dbvec:pg:11 dbvec:vs dbvec:vs2 dbvec:j:1 dbvec:j:2 dbvec:j:3";
 
 async fn cleanup(s: &mut Box<dyn Session>) {
     // A failed command (an index that isn't there) doesn't stop the rest.
@@ -537,9 +568,312 @@ async fn body(id: &str, url: &str) {
     run(&mut ro, &knn).await;
     assert!(try_run(&mut ro, "FT.DROPINDEX dbvec_docs").await.is_err());
 
+    templates(id, &d, &mut s).await;
+    index_endpoints(id, &d, &mut s).await;
+    registry(id, url, &d, &mut s).await;
+    index_options(id, &d, &mut s).await;
     json_documents(&d, &mut s).await;
     if id == "redis" {
         vector_sets(&d, &mut s, &mut ro).await;
+    }
+}
+
+/// The create templates of vectors run as they are, in database 0: the
+/// search indexes over hashes and JSON (their KNN finds both documents),
+/// and Redis 8's vector set.
+async fn templates(id: &str, d: &Arc<dyn Driver>, s: &mut Box<dyn Session>) {
+    for t in d.create_templates() {
+        let vector = t.kind == kinds::INDEX || t.template.starts_with("VADD");
+        if !vector {
+            continue;
+        }
+        let text = t.template.replace("{name}", "dbvec_tpl");
+        let out = run(s, &text).await;
+        let last = out.results.last().unwrap();
+        println!("{id}: {} → {} rows", t.label, last.rows.len());
+        assert_eq!(
+            last.rows.len(),
+            if t.kind == kinds::INDEX { 2 } else { 1 },
+            "{}",
+            t.label
+        );
+        if t.kind == kinds::INDEX {
+            let e = last.columns.iter().position(|c| c.name == "etiqueta");
+            assert!(e.is_some(), "{}: {:?}", t.label, last.columns);
+            // (valkey-search has no DD.)
+            run(s, "FT.DROPINDEX dbvec_tpl\nDEL dbvec_tpl:1 dbvec_tpl:2").await;
+        } else {
+            run(s, "DEL dbvec_tpl").await;
+        }
+    }
+}
+
+/// A search index as an object of its own: its documents read as a table
+/// (the object a vector collection is), loaded into, and added to from its
+/// results' grid; vectors of another dimension refused.
+async fn index_endpoints(id: &str, d: &Arc<dyn Driver>, s: &mut Box<dyn Session>) {
+    // Its columns are those of its describe (in the server's order)…
+    let got = read_obj(s, index("dbvec_docs"), None).await;
+    let mut names: Vec<&str> = got.columns.iter().map(|c| c.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["emb", "id", "lang"]);
+    // …asked for in this order here.
+    let three = ["id", "emb", "lang"].map(String::from).to_vec();
+    let got = read_obj(s, index("dbvec_docs"), Some(three.clone())).await;
+    assert_eq!(
+        got.columns[1].type_name,
+        format!("VECTOR(3, {})", vtype(id))
+    );
+    assert_eq!(
+        got.rows,
+        [
+            vec![
+                Cell::Text("dbvec:doc:1".into()),
+                Cell::Text("[0.5,0.25,1]".into()),
+                Cell::Text("es".into())
+            ],
+            vec![
+                Cell::Text("dbvec:doc:2".into()),
+                Cell::Text("[0,1,0]".into()),
+                Cell::Text("en".into())
+            ],
+            vec![
+                Cell::Text("dbvec:doc:3".into()),
+                Cell::Text("[1,1,1]".into()),
+                Cell::Text("es".into())
+            ],
+        ]
+    );
+    // pgvector's rows into the index: documents under its prefix, `id`
+    // the key's end, vectors packed by the index's type.
+    let cols = [
+        tcol("id", "int4"),
+        tcol("emb", "vector(3)"),
+        tcol("lang", "text"),
+    ];
+    let n = try_load(
+        s,
+        index("dbvec_docs"),
+        &cols,
+        vec![vec![
+            Cell::Int(4),
+            Cell::Text("[0.25,-0.5,2]".into()),
+            Cell::Text("pt".into()),
+        ]],
+    )
+    .await
+    .unwrap();
+    assert_eq!(n, 1);
+    // HGET decodes a covered field by the index's type: the blob is it.
+    let out = run(s, "HGET dbvec:doc:4 emb").await;
+    assert_eq!(out.results[0].rows[0][0], json!("[0.25,-0.5,2]"));
+    let out = run(s, "HEXISTS dbvec:doc:4 id").await;
+    assert_eq!(out.results[0].rows[0][0], json!(0));
+    let e = try_load(
+        s,
+        index("dbvec_docs"),
+        &cols,
+        vec![vec![Cell::Int(9), Cell::Text("[1,2]".into()), Cell::Null]],
+    )
+    .await
+    .unwrap_err();
+    assert!(e.to_string().contains("2 dimensiones"), "{e}");
+    let out = run(s, "EXISTS dbvec:doc:9").await;
+    assert_eq!(out.results[0].rows[0][0], json!(0));
+    // "Agregar fila" on its results: the probe writes nothing; a new
+    // document goes to its key.
+    let names = ["id", "emb", "lang"].map(String::from).to_vec();
+    assert_eq!(
+        d.insert_script(&index("dbvec_docs"), &names, &[vec![Value::Null; 3]])
+            .unwrap(),
+        ""
+    );
+    let ins = d
+        .insert_script(
+            &index("dbvec_docs"),
+            &names,
+            &[vec![
+                json!("dbvec:doc:5"),
+                json!("[0.25, 0.75, -1]"),
+                json!("de"),
+            ]],
+        )
+        .unwrap();
+    println!("{ins}");
+    run(s, &ins).await;
+    let out = run(s, "HGET dbvec:doc:5 emb").await;
+    assert_eq!(out.results[0].rows[0][0], json!("[0.25,0.75,-1]"));
+    assert!(d
+        .insert_script(
+            &index("dbvec_docs"),
+            &names,
+            &[vec![json!("dbvec:doc:6"), json!([1, 2]), Value::Null]]
+        )
+        .is_err());
+    // The table's own insert script refuses a vector of the wrong length
+    // under the index's prefix too.
+    assert!(d
+        .insert_script(
+            &key("dbvec:doc"),
+            &["id".into(), "emb".into()],
+            &[vec![json!(7), json!([1, 2])]]
+        )
+        .is_err());
+}
+
+/// What the scripts know of each server follows its sessions: a dropped
+/// index is forgotten, and two open servers that disagree make the
+/// scripts refuse instead of guessing.
+async fn registry(id: &str, url: &str, d: &Arc<dyn Driver>, s: &mut Box<dyn Session>) {
+    let change = RowChange {
+        key: vec![("id".into(), json!("dbvec:copy:1"))],
+        set: vec![("emb".into(), json!([1, 2, 3]))],
+        ..Default::default()
+    };
+    // dbvec_copy was read (by the transfer): known; dropped here: gone.
+    s.columns(&index("dbvec_copy")).await.unwrap();
+    assert!(d
+        .update_script(&index("dbvec_copy"), std::slice::from_ref(&change))
+        .is_ok());
+    run(s, "FT.DROPINDEX dbvec_copy").await;
+    let e = d
+        .update_script(&index("dbvec_copy"), std::slice::from_ref(&change))
+        .unwrap_err();
+    assert!(e.to_string().contains("no leyó todavía"), "{e}");
+    // Another server with an index of the same name over the same keys,
+    // of another vector type: the redis test opens valkey-bundle, the
+    // others Redis 8, through the same driver (the app's one). Names of
+    // each test's own, so the tests can run at once.
+    let (other_url, other_ty) = if id == "redis" {
+        (
+            std::env::var("DBINE_TEST_VALKEY_SEARCH_URL")
+                .unwrap_or_else(|_| "localhost:27204".into()),
+            "FLOAT32",
+        )
+    } else {
+        (
+            std::env::var("DBINE_TEST_REDIS8_URL").unwrap_or_else(|_| "localhost:27203".into()),
+            "FLOAT16",
+        )
+    };
+    let other_ty = if other_ty == vtype(id) {
+        "FLOAT64"
+    } else {
+        other_ty
+    };
+    let (h, p) = host_port(&other_url);
+    let cfg = ConnectionConfig {
+        driver: d.info().id.into(),
+        host: h.into(),
+        port: p.parse().unwrap(),
+        ..Default::default()
+    };
+    let Ok(mut other) = d.connect(&cfg, Some("db0")).await else {
+        println!("{id}: {other_url} not reachable, the two-server check is skipped");
+        return;
+    };
+    let name = format!("dbvec_reg_{id}");
+    let prefix = format!("dbvec:reg:{id}:");
+    let create = |ty: &str| {
+        format!("FT.CREATE {name} ON HASH PREFIX 1 {prefix} SCHEMA emb VECTOR HNSW 6 TYPE {ty} DIM 3 DISTANCE_METRIC COSINE")
+    };
+    let drop_it = format!("FT.DROPINDEX {name}");
+    let _ = try_run(&mut other, &drop_it).await;
+    let _ = try_run(s, &drop_it).await;
+    run(s, &create(vtype(id))).await;
+    run(&mut other, &create(other_ty)).await;
+    // The checks in a task of their own (owning what they use): a failure
+    // still lets both indexes be dropped.
+    let checks = {
+        let (d, name, prefix, change) = (d.clone(), name.clone(), prefix.clone(), change.clone());
+        let mut mine = open(&d, url, false).await;
+        tokio::spawn(async move {
+            mine.columns(&index(&name)).await.unwrap();
+            other.columns(&index(&name)).await.unwrap();
+            let rows = [vec![json!(8), json!([1, 0, 0])]];
+            let names = ["id".to_string(), "emb".into()];
+            let table = key(prefix.trim_end_matches(':'));
+            let e = d.insert_script(&table, &names, &rows).unwrap_err();
+            assert!(e.to_string().contains("conexiones abiertas"), "{e}");
+            let e = d
+                .update_script(&index(&name), std::slice::from_ref(&change))
+                .unwrap_err();
+            assert!(e.to_string().contains("conexiones abiertas"), "{e}");
+            run(&mut other, &format!("FT.DROPINDEX {name}")).await;
+            // Its last session gone, the other server's index is too.
+            drop(other);
+            assert!(d.insert_script(&table, &names, &rows).is_ok());
+        })
+        .await
+    };
+    let _ = try_run(s, &drop_it).await;
+    if let Err(e) = checks {
+        if let Ok(mut again) = d.connect(&cfg, Some("db0")).await {
+            let _ = try_run(&mut again, &drop_it).await;
+        }
+        std::panic::resume_unwind(e.into_panic());
+    }
+}
+
+/// Index-wide FT.CREATE options (language, offsets, stop words…) are kept
+/// in the definition and in what the schema scripts back.
+async fn index_options(id: &str, d: &Arc<dyn Driver>, s: &mut Box<dyn Session>) {
+    let (create, want): (&str, &[&str]) = match id {
+        "valkey" => (
+            "FT.CREATE dbvec_opts ON HASH PREFIX 1 dbvec:o: PUNCTUATION \".,;\" NOOFFSETS STOPWORDS 2 foo bar MINSTEMSIZE 3 SCHEMA t TEXT emb VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2",
+            &["PUNCTUATION", "MINSTEMSIZE 3", "NOOFFSETS", "STOPWORDS 2"],
+        ),
+        "dragonfly" => (
+            "FT.CREATE dbvec_opts ON HASH PREFIX 1 dbvec:o: LANGUAGE spanish NOOFFSETS STOPWORDS 2 foo bar SCHEMA t TEXT emb VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2",
+            &["LANGUAGE spanish", "NOOFFSETS", "STOPWORDS 2"],
+        ),
+        _ => (
+            "FT.CREATE dbvec_opts ON HASH PREFIX 1 dbvec:o: LANGUAGE spanish LANGUAGE_FIELD idioma SCORE 0.5 NOOFFSETS NOFREQS STOPWORDS 2 foo bar SCHEMA t TEXT emb VECTOR FLAT 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2",
+            &["LANGUAGE spanish", "LANGUAGE_FIELD idioma", "SCORE 0.5", "NOOFFSETS", "NOFREQS", "STOPWORDS 2"],
+        ),
+    };
+    run(s, create).await;
+    let def = s.definition(&index("dbvec_opts")).await.unwrap().unwrap();
+    println!("{def}");
+    let before_schema = def.split(" SCHEMA ").next().unwrap();
+    for w in want {
+        assert!(before_schema.contains(w), "{w} missing: {def}");
+    }
+    let schema = s.database_schema().await.unwrap();
+    let t = schema.iter().find(|t| t.name == "dbvec_opts").unwrap();
+    let again = d
+        .table_ddl(
+            t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(again.trim_end(), def);
+    // Made again from what it scripts, it reads back the same (Dragonfly
+    // lists the fields in an order of its own).
+    run(s, "FT.DROPINDEX dbvec_opts").await;
+    run(s, again.trim_end()).await;
+    let words = |d: &str| {
+        let mut w: Vec<String> = d.split_whitespace().map(str::to_string).collect();
+        w.sort();
+        w
+    };
+    assert_eq!(
+        words(&s.definition(&index("dbvec_opts")).await.unwrap().unwrap()),
+        words(&def)
+    );
+    run(s, "FT.DROPINDEX dbvec_opts").await;
+    // A vector type the server lacks: its refusal says so.
+    if id == "valkey" {
+        let e = try_run(
+            s,
+            "FT.CREATE dbvec_bad ON HASH PREFIX 1 dbvec:bad: SCHEMA v VECTOR HNSW 6 TYPE FLOAT16 DIM 2 DISTANCE_METRIC L2",
+        )
+        .await
+        .unwrap_err();
+        assert!(e.contains("valkey-search indexa vectores FLOAT32"), "{e}");
     }
 }
 
@@ -621,6 +955,52 @@ async fn json_documents(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>) {
     run(s, &upd).await;
     let (_, got) = search(s, &browse, 2).await;
     assert_eq!(got[0].1, "[0,0,1]");
+    // The JSON index's documents, read by their paths and loaded whole.
+    let three = ["id", "emb", "lang"].map(String::from).to_vec();
+    let got = read_obj(s, index("dbvec_json"), Some(three)).await;
+    assert_eq!(
+        got.rows,
+        [
+            vec![
+                Cell::Text("dbvec:j:1".into()),
+                Cell::Text("[0,0,1]".into()),
+                Cell::Text("es".into())
+            ],
+            vec![
+                Cell::Text("dbvec:j:2".into()),
+                Cell::Text("[1,0,0]".into()),
+                Cell::Text("en".into())
+            ],
+        ]
+    );
+    let cols = [
+        tcol("id", "text"),
+        tcol("emb", "vector(3)"),
+        tcol("lang", "text"),
+    ];
+    let n = try_load(
+        s,
+        index("dbvec_json"),
+        &cols,
+        vec![vec![
+            Cell::Text("dbvec:j:3".into()),
+            Cell::Text("[0.5,0.5,0.5]".into()),
+            Cell::Text("fr".into()),
+        ]],
+    )
+    .await
+    .unwrap();
+    assert_eq!(n, 1);
+    let out = run(s, "JSON.GET dbvec:j:3 $").await;
+    assert_eq!(
+        out.results[0].rows[0][0],
+        json!(r#"[{"emb":[0.5,0.5,0.5],"lang":"fr"}]"#)
+    );
+    let (_, got) = search(s, &browse, 3).await;
+    assert_eq!(
+        got[2],
+        ("dbvec:j:3".to_string(), "[0.5,0.5,0.5]".to_string())
+    );
 }
 
 /// Redis 8's vector sets: made from the designer, browsed with their
@@ -732,6 +1112,69 @@ async fn vector_sets(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, ro: &mut Box
             ],
         ]
     );
+    // "Agregar fila" on the set's grid: VADD, with its quantization.
+    let ins = d
+        .insert_script(
+            &key("dbvec:vs"),
+            &["element".into(), "vector".into(), "attributes".into()],
+            &[vec![
+                json!("c"),
+                json!("[0, 0, 1]"),
+                json!("{\"lang\":\"pt\"}"),
+            ]],
+        )
+        .unwrap();
+    assert!(
+        ins.starts_with("VADD dbvec:vs VALUES 3 0 0 1 c NOQUANT SETATTR"),
+        "{ins}"
+    );
+    run(s, &ins).await;
+    let out = run(s, "VEMB dbvec:vs c").await;
+    assert_eq!(out.results[0].rows[0][0], json!("[0,0,1]"));
+    // Loads: a vector set read into a new key is a vector set again…
+    let src = read(s, "dbvec:vs", None).await;
+    assert_eq!(
+        load(s, "dbvec:vs2", &src.columns, src.rows.clone()).await,
+        3
+    );
+    let out = run(s, "TYPE dbvec:vs2").await;
+    assert_eq!(out.results[0].rows[0][0], json!("vectorset"));
+    assert_eq!(read(s, "dbvec:vs2", None).await.rows, src.rows);
+    // …and a pgvector table into an existing set: the first column the
+    // element, the vector column by its type, the rest attributes.
+    let cols = [
+        tcol("id", "int4"),
+        tcol("embedding", "vector(3)"),
+        tcol("lang", "text"),
+    ];
+    let n = load(
+        s,
+        "dbvec:vs",
+        &cols,
+        vec![vec![
+            Cell::Int(100),
+            Cell::Text("[0,2,0]".into()),
+            Cell::Text("it".into()),
+        ]],
+    )
+    .await;
+    assert_eq!(n, 1);
+    // (A set keeps vectors normalized: VEMB gives them back times their
+    // norm, exact for this one.)
+    let out = run(s, "VEMB dbvec:vs 100").await;
+    assert_eq!(out.results[0].rows[0][0], json!("[0,2,0]"));
+    let out = run(s, "VGETATTR dbvec:vs 100").await;
+    assert_eq!(out.results[0].rows[0][0], json!("{\"lang\":\"it\"}"));
+    let e = try_load(
+        s,
+        key("dbvec:vs"),
+        &cols,
+        vec![vec![Cell::Int(101), Cell::Text("[1,1]".into()), Cell::Null]],
+    )
+    .await
+    .unwrap_err();
+    assert!(e.to_string().contains("2 dimensiones"), "{e}");
+    run(s, "VREM dbvec:vs 100\nVREM dbvec:vs c").await;
     // Delete an element.
     let del = d
         .delete_script(&key("dbvec:vs"), &[vec![("element".into(), json!("b"))]])
