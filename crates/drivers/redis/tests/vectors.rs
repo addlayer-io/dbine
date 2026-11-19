@@ -299,7 +299,7 @@ async fn search(
     panic!("the index never held {n} documents: {browse}");
 }
 
-const CLEANUP: &str = "FT.DROPINDEX dbvec_docs\nFT.DROPINDEX dbvec_copy\nFT.DROPINDEX dbvec_pg\nFT.DROPINDEX dbvec_json\nFT.DROPINDEX dbvec_opts\nFT.DROPINDEX dbvec_bad\n\
+const CLEANUP: &str = "FT.DROPINDEX dbvec_docs\nFT.DROPINDEX dbvec_copy\nFT.DROPINDEX dbvec_pg\nFT.DROPINDEX dbvec_json\nFT.DROPINDEX dbvec_opts\nFT.DROPINDEX dbvec_bad\nFT.DROPINDEX dbvec_types\n\
 FT.DROPINDEX dbvec_reg_redis\nFT.DROPINDEX dbvec_reg_valkey\nFT.DROPINDEX dbvec_reg_dragonfly\nFT.DROPINDEX dbvec_tpl\nDEL dbvec_tpl dbvec_tpl:1 dbvec_tpl:2\n\
 DEL dbvec:doc:1 dbvec:doc:2 dbvec:doc:3 dbvec:doc:4 dbvec:doc:5 dbvec:copy:1 dbvec:copy:2 dbvec:copy:3 dbvec:pg:10 dbvec:pg:11 dbvec:vs dbvec:vs2 dbvec:j:1 dbvec:j:2 dbvec:j:3";
 
@@ -568,6 +568,7 @@ async fn body(id: &str, url: &str) {
     run(&mut ro, &knn).await;
     assert!(try_run(&mut ro, "FT.DROPINDEX dbvec_docs").await.is_err());
 
+    designer_types(id, &d, &mut s).await;
     templates(id, &d, &mut s).await;
     index_endpoints(id, &d, &mut s).await;
     registry(id, url, &d, &mut s).await;
@@ -576,6 +577,64 @@ async fn body(id: &str, url: &str) {
     if id == "redis" {
         vector_sets(&d, &mut s, &mut ro).await;
     }
+}
+
+/// Every vector type and algorithm the designer offers for this server is
+/// one it takes: an index of each is made from the designer's schema and
+/// dropped.
+async fn designer_types(id: &str, d: &Arc<dyn Driver>, s: &mut Box<dyn Session>) {
+    let spec = d.designer().unwrap();
+    let algorithms = spec.vector_indexes.as_ref().unwrap().algorithms.clone();
+    for ty in spec.data_types.iter().filter(|t| t.starts_with("VECTOR")) {
+        for alg in &algorithms {
+            let mut t = designed(id);
+            t.columns[3].data_type = ty.to_string();
+            t.columns[3].default_value = Some("[0.5, 0.25, 1]".into());
+            t.indexes[0].name = "dbvec_types".into();
+            let v = t.indexes[0].vector.as_mut().unwrap();
+            v.algorithm = Some(alg.to_string());
+            // Each parameter the designer offers for it, at its default.
+            v.params = spec
+                .vector_indexes
+                .as_ref()
+                .unwrap()
+                .params
+                .iter()
+                .filter(|p| !p.default.is_empty())
+                .filter(|p| p.algorithms.is_empty() || p.algorithms.contains(alg))
+                .map(|p| (p.key.to_string(), p.default.to_string()))
+                .collect();
+            let ddl = d.table_ddl(
+                &t,
+                DdlParts {
+                    indexes: true,
+                    ..Default::default()
+                },
+            );
+            // SVS-VAMANA takes FLOAT32 and FLOAT16 only: the designer's
+            // DDL says so before the server does.
+            if *alg == "svs-vamana" && !matches!(*ty, "VECTOR(3, FLOAT32)" | "VECTOR(3, FLOAT16)") {
+                let e = ddl.unwrap_err().to_string();
+                assert!(
+                    e.contains("SVS-VAMANA indexa vectores FLOAT32 o FLOAT16"),
+                    "{e}"
+                );
+                continue;
+            }
+            let ddl = ddl.unwrap();
+            if let Err(e) = try_run(s, &ddl).await {
+                panic!("{id}: the designer offers {ty} with {alg}, refused: {e}\n{ddl}");
+            }
+            run(s, "FT.DROPINDEX dbvec_types").await;
+        }
+    }
+    println!(
+        "{id}: designer types {:?} × {algorithms:?} all taken",
+        spec.data_types
+            .iter()
+            .filter(|t| t.starts_with("VECTOR"))
+            .collect::<Vec<_>>()
+    );
 }
 
 /// The create templates of vectors run as they are, in database 0: the

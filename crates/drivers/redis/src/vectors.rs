@@ -1116,16 +1116,24 @@ pub fn create_hint(cmd: &[Vec<u8>], server: Server) -> Option<String> {
     if used.is_empty() {
         return None;
     }
-    Some(match server {
-        Server::Valkey => format!(
+    if server == Server::Valkey {
+        return Some(format!(
             "valkey-search indexa vectores FLOAT32 con HNSW o FLAT: no tiene {}.",
             used.join(", ")
-        ),
-        _ => format!(
-            "Puede que este servidor no tenga {}: FLOAT16 y BFLOAT16 están desde Redis Stack 7.4 (RediSearch 2.10), INT8 y UINT8 desde Redis 8.0, y SVS-VAMANA desde Redis 8.2.",
-            used.join(", ")
-        ),
-    })
+        ));
+    }
+    // SVS-VAMANA takes two of the types.
+    if has("SVS-VAMANA")
+        && ["FLOAT64", "BFLOAT16", "INT8", "UINT8"]
+            .iter()
+            .any(|t| has(t))
+    {
+        return Some("El algoritmo SVS-VAMANA indexa solo vectores FLOAT32 y FLOAT16.".into());
+    }
+    Some(format!(
+        "Puede que este servidor no tenga {}: FLOAT16 y BFLOAT16 están desde Redis Stack 7.4 (RediSearch 2.10), INT8 y UINT8 desde Redis 8.0, y SVS-VAMANA desde Redis 8.2.",
+        used.join(", ")
+    ))
 }
 
 /// The build parameters the designer offers per algorithm, with their
@@ -2086,8 +2094,15 @@ mod tests {
         assert_eq!(create_hint(&plain, Server::Redis), None);
         let svs =
             argv("FT.CREATE i SCHEMA v VECTOR SVS-VAMANA 6 TYPE INT8 DIM 2 DISTANCE_METRIC L2");
-        let h = create_hint(&svs, Server::Dragonfly).unwrap();
-        assert!(h.contains("no tenga INT8, SVS-VAMANA:"), "{h}");
+        let h = create_hint(&svs, Server::Redis).unwrap();
+        assert_eq!(
+            h,
+            "El algoritmo SVS-VAMANA indexa solo vectores FLOAT32 y FLOAT16."
+        );
+        let svs16 =
+            argv("FT.CREATE i SCHEMA v VECTOR SVS-VAMANA 6 TYPE FLOAT16 DIM 2 DISTANCE_METRIC L2");
+        let h = create_hint(&svs16, Server::Dragonfly).unwrap();
+        assert!(h.contains("no tenga FLOAT16, SVS-VAMANA:"), "{h}");
     }
 
     #[test]

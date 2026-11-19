@@ -345,6 +345,13 @@ fn vector_field(
     }
     let f = FtVector::from_index(v.unwrap_or(&VectorIndex::default()), ty, dims)
         .map_err(Error::Query)?;
+    if f.algorithm == "SVS-VAMANA" && !matches!(ty, VType::F32 | VType::F16) {
+        return Err(Error::Query(format!(
+            "El algoritmo SVS-VAMANA indexa vectores FLOAT32 o FLOAT16, no {}: cambiá el tipo de {} o el algoritmo.",
+            ty.name(),
+            c.name
+        )));
+    }
     if !server
         .algorithms()
         .contains(&f.algorithm.to_ascii_lowercase().as_str())
@@ -2048,6 +2055,40 @@ mod tests {
 
     fn strs(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// SVS-VAMANA indexes FLOAT32 and FLOAT16 vectors only: the DDL says
+    /// so before the server does.
+    #[test]
+    fn svs_vamana_types() {
+        let c = |ty: &str| ColumnDef {
+            name: "emb".into(),
+            data_type: ty.into(),
+            ..Default::default()
+        };
+        let svs = VectorIndex {
+            algorithm: Some("svs-vamana".into()),
+            ..Default::default()
+        };
+        for ty in ["VECTOR(3, FLOAT32)", "VECTOR(3, FLOAT16)"] {
+            assert!(
+                vector_field(&c(ty), Some(&svs), Server::Redis).is_ok(),
+                "{ty}"
+            );
+        }
+        for ty in [
+            "VECTOR(3, FLOAT64)",
+            "VECTOR(3, BFLOAT16)",
+            "VECTOR(3, INT8)",
+            "VECTOR(3, UINT8)",
+        ] {
+            let e = vector_field(&c(ty), Some(&svs), Server::Redis).unwrap_err();
+            assert!(
+                e.to_string()
+                    .contains("SVS-VAMANA indexa vectores FLOAT32 o FLOAT16"),
+                "{ty}: {e}"
+            );
+        }
     }
 
     /// "Agregar fila" on a browsed key writes into that key, by what its
