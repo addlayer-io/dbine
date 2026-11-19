@@ -258,81 +258,340 @@ pub(crate) fn bit_text(text: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-/// The one table a plain `SELECT … FROM t [WHERE …] [ORDER BY …] [LIMIT
-/// …]` reads (its schema, if named, and name), as written; `None` for a
-/// join, a subquery or anything else. RisingWave's results carry no column
-/// types DBine can read, so its vector columns are found by their table.
-pub(crate) fn single_table(sql: &str) -> Option<(Option<String>, String)> {
-    let sql = sql.trim().trim_end_matches(';').trim();
-    if !sql.get(..6)?.eq_ignore_ascii_case("select") {
-        return None;
-    }
-    // ` FROM ` at depth 0, outside quotes.
-    let bytes = sql.as_bytes();
-    let (mut depth, mut quote, mut at) = (0i32, None::<u8>, None);
-    let mut i = 0;
-    while i < bytes.len() {
-        let b = bytes[i];
-        match (quote, b) {
-            (Some(q), c) if c == q => quote = None,
-            (Some(_), _) => {}
-            (None, b'\'' | b'"') => quote = Some(b),
-            (None, b'(') => depth += 1,
-            (None, b')') => depth -= 1,
-            (None, _)
-                if depth == 0
-                    && bytes[i].is_ascii_whitespace()
-                    && sql
-                        .get(i + 1..i + 6)
-                        .is_some_and(|w| w.eq_ignore_ascii_case("from "))
-                    && at.is_none() =>
-            {
-                at = Some(i + 6);
+// ------------------------------------------------------------ typed scripts
+
+/// What a column of a known type takes, for the values whose literal
+/// depends on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Slot {
+    /// pgvector's `sparsevec`: `{i:v}/n`, from a dense vector too.
+    Sparse,
+    /// A bit string (`bit(n)`, pgvector's binary vectors): `1011`, from a
+    /// vector of zeros and ones too.
+    Bits,
+    /// CrateDB's `FLOAT_VECTOR` or array: an array literal, never text
+    /// (CrateDB doesn't cast text to either).
+    CrateArray,
+    /// CrateDB text: a JSON array is its text, quoted.
+    CrateText,
+    /// A PostgreSQL array (`real[]`, `_float4`): `'{1,2.5}'`.
+    PgArray,
+    /// The value's own literal (a vector type, `json`, a number…).
+    AsIs,
+}
+
+/// How a value goes into `col` on this variant, by its type (`type_name`
+/// as a result or a describe spells it: `sparsevec(5)`, `bit(4)`, `bit`,
+/// `_float4`, `real[]`, `FLOAT_VECTOR(3)`), else by its vector mark.
+fn slot(v: Variant, col: &ResultColumn) -> Slot {
+    let t = col.type_name.trim().to_ascii_lowercase();
+    let base = t.split('(').next().unwrap_or("").trim();
+    let base = base.rsplit('.').next().unwrap_or(base).trim_matches('"');
+    let array = t.ends_with("[]") || (base.starts_with('_') && base.len() > 1);
+    if v == Variant::CrateDb {
+        return match base {
+            "float_vector" | "array" => Slot::CrateArray,
+            _ if array || base.ends_with("_array") => Slot::CrateArray,
+            "text" | "varchar" | "character varying" | "string" | "char" | "character" => {
+                Slot::CrateText
             }
-            _ => {}
-        }
-        i += 1;
-    }
-    let rest = sql[at?..].trim_start();
-    // An identifier, maybe quoted, maybe qualified.
-    let mut parts: Vec<String> = Vec::new();
-    let mut r = rest;
-    loop {
-        let (part, after) = if let Some(q) = r.strip_prefix('"') {
-            let end = q.find('"')?;
-            (q[..end].to_string(), &q[end + 1..])
-        } else {
-            let end = r
-                .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
-                .unwrap_or(r.len());
-            if end == 0 {
-                return None;
-            }
-            (r[..end].to_ascii_lowercase(), &r[end..])
+            // A vector typed by another engine (a result or a describe
+            // there): CrateDB's is a FLOAT_VECTOR.
+            _ if col.vector.is_some() => Slot::CrateArray,
+            _ => Slot::AsIs,
         };
-        parts.push(part);
-        match after.strip_prefix('.') {
-            Some(more) => r = more,
-            None => {
-                r = after;
-                break;
-            }
-        }
     }
-    let tail = r.trim_start().to_ascii_lowercase();
-    let ends = tail.is_empty()
-        || ["where ", "order ", "limit ", "offset ", "fetch "]
-            .iter()
-            .any(|w| tail.starts_with(w));
-    if !ends {
+    if let Some(meta) = meta_of_type(v, &t) {
+        return if meta.sparse {
+            Slot::Sparse
+        } else {
+            Slot::AsIs
+        };
+    }
+    match base {
+        // H2's BIT is a boolean.
+        "bit" | "bit varying" | "varbit" if v != Variant::H2 => Slot::Bits,
+        _ if array && !matches!(v, Variant::Redshift | Variant::H2 | Variant::Denodo) => {
+            Slot::PgArray
+        }
+        _ => Slot::AsIs,
+    }
+}
+
+/// A JSON array as a PostgreSQL array literal's text (`{1,2.5,NULL}`,
+/// `{"a","b \"c\""}`, `{{1,2},{3,4}}`), each number as it came.
+fn pg_array_text(items: &[serde_json::Value]) -> String {
+    use serde_json::Value as V;
+    let quoted = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
+    let parts: Vec<String> = items
+        .iter()
+        .map(|x| match x {
+            V::Null => "NULL".to_string(),
+            V::Bool(b) => b.to_string(),
+            V::Number(n) => n.to_string(),
+            V::String(s) => quoted(s),
+            V::Array(inner) => pg_array_text(inner),
+            V::Object(_) => quoted(&x.to_string()),
+        })
+        .collect();
+    format!("{{{}}}", parts.join(","))
+}
+
+/// A string holding a JSON array (`"[1,2.5]"`, a vector sent as text) as
+/// that array, its numbers as written.
+fn json_array(s: &str) -> Option<Vec<serde_json::Value>> {
+    let s = s.trim();
+    if !s.starts_with('[') {
         return None;
     }
-    let name = parts.pop()?;
-    match parts.len() {
-        0 => Some((None, name)),
-        1 => Some((parts.pop(), name)),
+    match serde_json::from_str(s).ok()? {
+        serde_json::Value::Array(items) => Some(items),
         _ => None,
     }
+}
+
+/// `value` as `col` takes it on this variant, when that differs from its
+/// own literal: a dense vector into a `sparsevec` column as `{i:v}/n`, a
+/// vector of zeros and ones into a `bit(n)` column as `1011`, a vector (or
+/// any JSON array) sent as text into a CrateDB `FLOAT_VECTOR` or array as
+/// the array, a JSON array into a PostgreSQL array as `{…}`, and a JSON
+/// array into CrateDB text as its text. `None`: as it is.
+pub(crate) fn typed_value(
+    v: Variant,
+    col: &ResultColumn,
+    value: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    use serde_json::Value as V;
+    let text = |value: &V| match value {
+        V::Array(_) => Some(value.to_string()),
+        V::String(s) => Some(s.clone()),
+        _ => None,
+    };
+    match slot(v, col) {
+        Slot::Sparse => {
+            let t = text(value)?;
+            dbine_driver::vector::parse(&t)?;
+            Some(V::String(sparse_text(&t).into_owned()))
+        }
+        Slot::Bits => {
+            let t = text(value)?;
+            match bit_text(&t) {
+                std::borrow::Cow::Owned(bits) => Some(V::String(bits)),
+                std::borrow::Cow::Borrowed(_) => None,
+            }
+        }
+        Slot::CrateArray => match value {
+            V::String(s) => match json_array(s) {
+                Some(items) => Some(V::Array(items)),
+                // CrateDB's own text of a vector (`{"1.0","2.5"}`).
+                None => crate_text(s).and_then(|t| json_array(&t)).map(V::Array),
+            },
+            _ => None,
+        },
+        Slot::CrateText => match value {
+            V::Array(_) => Some(V::String(value.to_string())),
+            _ => None,
+        },
+        Slot::PgArray => match value {
+            V::Array(items) => Some(V::String(pg_array_text(items))),
+            V::String(s) => json_array(s).map(|items| V::String(pg_array_text(&items))),
+            _ => None,
+        },
+        Slot::AsIs => None,
+    }
+}
+
+/// `rows` (cells in `columns`' order) with [`typed_value`] applied; `rows`
+/// itself when nothing changes.
+pub(crate) fn typed_rows<'a>(
+    v: Variant,
+    columns: &[ResultColumn],
+    rows: &'a [Vec<serde_json::Value>],
+) -> std::borrow::Cow<'a, [Vec<serde_json::Value>]> {
+    let mut out: Option<Vec<Vec<serde_json::Value>>> = None;
+    for (r, row) in rows.iter().enumerate() {
+        for (i, cell) in row.iter().enumerate() {
+            let Some(col) = columns.get(i) else {
+                continue;
+            };
+            if let Some(new) = typed_value(v, col, cell) {
+                out.get_or_insert_with(|| rows.to_vec())[r][i] = new;
+            }
+        }
+    }
+    match out {
+        Some(o) => std::borrow::Cow::Owned(o),
+        None => std::borrow::Cow::Borrowed(rows),
+    }
+}
+
+/// `(column, value)` pairs (an update's `SET` or a key) with
+/// [`typed_value`] applied by the column's name; a column `types` doesn't
+/// list stays as it is.
+pub(crate) fn typed_pairs(
+    v: Variant,
+    types: &[ResultColumn],
+    pairs: &mut [(String, serde_json::Value)],
+) {
+    for (name, value) in pairs.iter_mut() {
+        if let Some(col) = types.iter().find(|c| &c.name == name) {
+            if let Some(new) = typed_value(v, col, value) {
+                *value = new;
+            }
+        }
+    }
+}
+
+/// The tables a top-level `SELECT` (or `WITH … SELECT`) reads, as written
+/// (their schema, if named, and name): each one named right after `FROM`,
+/// `JOIN` or a comma of a `FROM` list, aliased or not. A subquery or a
+/// function in `FROM` adds none; any other statement reads none.
+/// RisingWave's results carry no column types DBine can read, so its
+/// vector columns are found by the tables read.
+pub(crate) fn read_tables(sql: &str) -> Vec<(Option<String>, String)> {
+    let sql = sql.trim().trim_end_matches(';').trim();
+    let first = sql
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .next()
+        .unwrap_or("");
+    if !first.eq_ignore_ascii_case("select") && !first.eq_ignore_ascii_case("with") {
+        return Vec::new();
+    }
+    let tokens = top_level_tokens(sql);
+    let mut out = Vec::new();
+    // In a `FROM` list (its commas name tables), and whether the next name
+    // is a table.
+    let (mut in_from, mut expect) = (false, false);
+    for (i, tok) in tokens.iter().enumerate() {
+        match tok {
+            // A keyword: an unquoted word where no name is due (`ONLY` and
+            // `LATERAL` come before one).
+            Token::Name {
+                parts,
+                quoted: false,
+            } if parts.len() == 1
+                && (!expect || matches!(parts[0].as_str(), "only" | "lateral")) =>
+            {
+                match parts[0].as_str() {
+                    "from" => (in_from, expect) = (true, true),
+                    "join" => expect = true,
+                    // `FROM ONLY t`, `FROM LATERAL …`: the name still comes.
+                    "only" | "lateral" => {}
+                    "where" | "group" | "having" | "order" | "limit" | "offset" | "fetch"
+                    | "window" | "union" | "intersect" | "except" | "for" | "returning" => {
+                        (in_from, expect) = (false, false)
+                    }
+                    _ => {}
+                }
+            }
+            Token::Name { parts, .. } => {
+                // A function in FROM (`generate_series(1, 3)`) is no table.
+                if expect && !matches!(tokens.get(i + 1), Some(Token::Group)) {
+                    let mut parts = parts.clone();
+                    let name = parts.pop().unwrap_or_default();
+                    out.push((parts.pop(), name));
+                }
+                expect = false;
+            }
+            Token::Comma => expect = in_from,
+            Token::Group | Token::Other => expect = false,
+        }
+    }
+    out
+}
+
+/// A token of SQL outside parentheses and quotes ([`read_tables`]).
+enum Token {
+    /// A name, maybe quoted, maybe qualified (`"public".items`); unquoted
+    /// parts in lower case.
+    Name {
+        parts: Vec<String>,
+        quoted: bool,
+    },
+    Comma,
+    /// A parenthesized group, whole.
+    Group,
+    /// Anything else: a literal, an operator.
+    Other,
+}
+
+/// `sql`'s tokens at depth 0 ([`Token`]).
+fn top_level_tokens(sql: &str) -> Vec<Token> {
+    let chars: Vec<char> = sql.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    let word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    while i < chars.len() {
+        let c = chars[i];
+        if c.is_whitespace() {
+            i += 1;
+        } else if c == ',' {
+            out.push(Token::Comma);
+            i += 1;
+        } else if c == '(' {
+            // The whole group, with its quotes.
+            let (mut depth, mut quote) = (0i32, None::<char>);
+            while i < chars.len() {
+                match (quote, chars[i]) {
+                    (Some(q), x) if x == q => quote = None,
+                    (Some(_), _) => {}
+                    (None, '\'' | '"') => quote = Some(chars[i]),
+                    (None, '(') => depth += 1,
+                    (None, ')') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            i += 1;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+            out.push(Token::Group);
+        } else if c == '\'' {
+            i += 1;
+            while i < chars.len() && chars[i] != '\'' {
+                i += 1;
+            }
+            i += 1;
+            out.push(Token::Other);
+        } else if c == '"' || word(c) {
+            // A name: parts joined by dots.
+            let (mut parts, mut quoted) = (Vec::new(), false);
+            loop {
+                if chars.get(i) == Some(&'"') {
+                    let start = i + 1;
+                    let mut end = start;
+                    while end < chars.len() && chars[end] != '"' {
+                        end += 1;
+                    }
+                    parts.push(chars[start..end.min(chars.len())].iter().collect());
+                    quoted = true;
+                    i = end + 1;
+                } else {
+                    let start = i;
+                    while i < chars.len() && word(chars[i]) {
+                        i += 1;
+                    }
+                    let part: String = chars[start..i].iter().collect();
+                    parts.push(part.to_lowercase());
+                }
+                if chars.get(i) == Some(&'.')
+                    && chars.get(i + 1).is_some_and(|&n| n == '"' || word(n))
+                {
+                    i += 1;
+                } else {
+                    break;
+                }
+            }
+            out.push(Token::Name { parts, quoted });
+        } else {
+            out.push(Token::Other);
+            i += 1;
+        }
+    }
+    out
 }
 
 // ------------------------------------------------------------------ indexes
@@ -439,6 +698,26 @@ fn key_type(key: &str, columns: &[ColumnDef]) -> &'static str {
         "bit" | "bit varying" | "varbit" => "bit",
         _ => "vector",
     }
+}
+
+/// The dimension of an index key: its cast's (`(v::halfvec(3072))`), else
+/// its column's type's (`vector(3072)`); `None` when neither says it.
+fn key_dims(key: &str, columns: &[ColumnDef]) -> Option<u32> {
+    let dims_after = |s: &str, at: usize| -> Option<u32> {
+        let rest = &s[at..];
+        let open = rest.find('(')?;
+        let close = rest[open..].find(')')?;
+        rest[open + 1..open + close].trim().parse().ok()
+    };
+    let k = key.to_ascii_lowercase();
+    if k.starts_with('(') {
+        return ["::halfvec", "::vector", "::bit", "::sparsevec"]
+            .iter()
+            .find_map(|cast| k.find(cast).and_then(|at| dims_after(&k, at)));
+    }
+    let col = columns.iter().find(|c| c.name == key)?;
+    let t = col.data_type.to_ascii_lowercase();
+    dims_after(&t, 0)
 }
 
 /// The operator class for a key of type `prefix` in an `alg` index
@@ -588,7 +867,14 @@ pub(crate) fn refusal(
         .filter(|m| !m.is_empty())
         .unwrap_or_else(|| default_metric(&alg, prefix).to_string());
     let label = algorithm_label(&alg);
-    match takes(&alg, prefix) {
+    // CockroachDB's and RisingWave's indexes take only their own VECTOR (a
+    // sibling's `halfvec` becomes one): never a bit string, which a binary
+    // vector converted into the family is, nor a sparse vector.
+    let kind = match (v, prefix) {
+        (Variant::Cockroach | Variant::RisingWave, "bit" | "sparsevec") => Takes::NotType,
+        _ => takes(&alg, prefix),
+    };
+    match kind {
         Takes::NotType => {
             return Some(format!(
                 "El índice «{}»: {label} no indexa columnas {prefix}.",
@@ -605,6 +891,35 @@ pub(crate) fn refusal(
             ))
         }
         _ => {}
+    }
+    // pgvector's HNSW and IVFFlat index up to 2000 dimensions of `vector`,
+    // 4000 of `halfvec` and 64000 of `bit`; openGauss' DataVec has the same
+    // limits (7.0). YugabyteDB's ybhnsw (also for `USING hnsw`) builds
+    // more, and KingbaseES' own build is left to its server.
+    let limit = match prefix {
+        "vector" => Some(2_000),
+        "halfvec" => Some(4_000),
+        "bit" => Some(64_000),
+        _ => None,
+    };
+    if let (true, Some(max), Some(n)) = (
+        matches!(alg.as_str(), "hnsw" | "ivfflat")
+            && pgvector(v)
+            && !matches!(v, Variant::Kingbase | Variant::Yugabyte),
+        limit,
+        key_dims(first, &t.columns),
+    ) {
+        if n > max {
+            return Some(format!(
+                "El índice «{}»: {label} indexa hasta {max} dimensiones de {prefix} y la columna tiene {n}{}.",
+                ix.name,
+                if prefix == "vector" && n <= 4_000 {
+                    " (un índice sobre la columna convertida a halfvec llega a 4000)"
+                } else {
+                    ""
+                }
+            ));
+        }
     }
     vi.params
         .iter()
@@ -1019,8 +1334,40 @@ pub(crate) fn canonical_options(v: Variant, t: &mut TableSchema) {
         ix.options
             .insert(VECTOR_OPTION.into(), body(v, &snapshot, ix, &vi));
         if supported(v) {
-            ix.kind = Some(algorithm_for(v, &vi, ix.kind.as_deref()).0);
+            ix.vector = Some(as_written(v, &snapshot, ix, &vi));
+            ix.kind = ix.vector.as_ref().and_then(|w| w.algorithm.clone());
         }
+    }
+}
+
+/// `vi` as this variant writes it ([`body`]): its algorithm (a sibling's
+/// `hnsw` is CockroachDB's `cspann`), the distance it gets when none is
+/// named, and only the parameters a translated algorithm knows. Two
+/// indexes the variant would make the same compare the same.
+fn as_written(v: Variant, t: &TableSchema, ix: &IndexDef, vi: &VectorIndex) -> VectorIndex {
+    let (alg, translated) = algorithm_for(v, vi, ix.kind.as_deref());
+    let metric = vi
+        .metric
+        .as_deref()
+        .map(|m| m.trim().to_ascii_lowercase())
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| match (v, ix.columns.first()) {
+            (Variant::RisingWave, _) => metric::L2.to_string(),
+            (_, Some(first)) => default_metric(&alg, key_type(first, &t.columns)).to_string(),
+            (_, None) => default_metric(&alg, "vector").to_string(),
+        });
+    let known = params_of(&alg);
+    let params = vi
+        .params
+        .iter()
+        .filter(|(k, _)| !translated || known.contains(&k.as_str()))
+        .filter(|(_, val)| !val.trim().is_empty())
+        .map(|(k, val)| (k.clone(), val.trim().to_string()))
+        .collect();
+    VectorIndex {
+        algorithm: Some(alg),
+        metric: Some(metric),
+        params,
     }
 }
 
@@ -1631,29 +1978,51 @@ mod tests {
     }
 
     #[test]
-    fn the_table_a_select_reads() {
-        let t = |s: &str| single_table(s);
+    fn the_tables_a_select_reads() {
+        let t = |s: &str| read_tables(s);
+        let named = |n: &str| (None, n.to_string());
+        let qualified = |s: &str, n: &str| (Some(s.to_string()), n.to_string());
         assert_eq!(
             t("SELECT * FROM \"public\".\"items\" LIMIT 100"),
-            Some((Some("public".into()), "items".into()))
+            [qualified("public", "items")]
         );
         assert_eq!(
             t("select id, v from items where id = 1 order by id;"),
-            Some((None, "items".into()))
+            [named("items")]
+        );
+        assert_eq!(t("SELECT v FROM s.Items"), [qualified("s", "items")]);
+        assert_eq!(
+            t("SELECT v FROM s.\"Items\" AS x"),
+            [qualified("s", "Items")]
         );
         assert_eq!(
-            t("SELECT v FROM s.Items"),
-            Some((Some("s".into()), "items".into()))
+            t("SELECT a.id, b.v FROM s.a x JOIN b ON x.id = b.id LEFT OUTER JOIN c USING (id)"),
+            [qualified("s", "a"), named("b"), named("c")]
         );
-        assert_eq!(t("SELECT * FROM a JOIN b ON a.id = b.id"), None);
-        assert_eq!(t("SELECT * FROM a, b"), None);
         assert_eq!(
-            t("SELECT (SELECT 1 FROM x) FROM y"),
-            Some((None, "y".into()))
+            t("SELECT * FROM a, b c, s.d"),
+            [named("a"), named("b"), qualified("s", "d")]
         );
-        assert_eq!(t("SELECT * FROM (SELECT 1) x"), None);
-        assert_eq!(t("SELECT 1"), None);
-        assert_eq!(t("INSERT INTO t SELECT * FROM u"), None);
+        assert_eq!(t("SELECT (SELECT 1 FROM x) FROM y"), [named("y")]);
+        assert_eq!(
+            t("SELECT * FROM (SELECT 1 FROM z) x JOIN y ON true"),
+            [named("y")]
+        );
+        assert_eq!(
+            t("WITH c AS (SELECT v FROM t) SELECT c.v FROM c ORDER BY c.v <-> '[1,2]' LIMIT 3"),
+            [named("c")]
+        );
+        assert_eq!(
+            t("SELECT id, v <-> '[1, 2]' AS d FROM items, generate_series(1, 2) g WHERE v IS NOT NULL GROUP BY id, v"),
+            [named("items")]
+        );
+        assert_eq!(
+            t("SELECT 'from x' FROM \"from\" UNION SELECT v FROM u"),
+            [named("from"), named("u")]
+        );
+        assert!(t("SELECT 1").is_empty());
+        assert!(t("INSERT INTO t SELECT * FROM u").is_empty());
+        assert!(t("selectx FROM u").is_empty());
     }
 
     #[test]
@@ -1819,6 +2188,18 @@ mod tests {
         assert!(refused(Variant::Yugabyte, &["h"], Some("hnsw"), Some("l2"), &[]).is_some());
         assert!(refused(Variant::Yugabyte, &["v"], None, Some("l1"), &[]).is_some());
         assert!(refused(Variant::Cockroach, &["v"], None, Some("l1"), &[]).is_some());
+        // C-SPANN and RisingWave's indexes take no bit string (a binary
+        // vector converted into the family, with Hamming) nor sparse vector.
+        for (v, cols, alg, m) in [
+            (Variant::Cockroach, &["b"][..], None, Some("hamming")),
+            (Variant::Cockroach, &["b"], Some("hnsw"), Some("l2")),
+            (Variant::Cockroach, &["s"], None, Some("l2")),
+            (Variant::RisingWave, &["b"], Some("hnsw"), Some("hamming")),
+            (Variant::RisingWave, &["s"], Some("flat"), Some("ip")),
+        ] {
+            let why = refused(v, cols, alg, m, &[]).unwrap_or_else(|| panic!("{v:?} {cols:?}"));
+            assert!(why.contains("no indexa columnas"), "{why}");
+        }
         assert!(refused(Variant::OpenGauss, &["s"], Some("diskann"), Some("l2"), &[]).is_some());
 
         for (v, cols, alg, m, params) in [
@@ -1858,6 +2239,8 @@ mod tests {
             ),
             (Variant::Yugabyte, &["v"], None, Some("ip"), &[("m", "16")]),
             (Variant::Cockroach, &["v", "uid"], None, Some("cosine"), &[]),
+            // A sibling's halfvec is a VECTOR there.
+            (Variant::Cockroach, &["h"], Some("hnsw"), Some("ip"), &[]),
             (Variant::RisingWave, &["v"], Some("flat"), Some("l1"), &[]),
             (Variant::OpenGauss, &["v"], Some("diskann"), Some("l2"), &[]),
             // An engine's own operator class, as it was read.
@@ -1870,6 +2253,206 @@ mod tests {
                 "{v:?} {cols:?} {alg:?} {m:?}"
             );
         }
+    }
+
+    /// pgvector's HNSW and IVFFlat index up to 2000 dimensions of `vector`
+    /// (4000 of `halfvec`, also as an expression's cast), and so does
+    /// openGauss' DataVec (live, 7.0); DiskANN, YugabyteDB's ybhnsw (also
+    /// asked as `hnsw`) and CockroachDB's C-SPANN build more (live).
+    #[test]
+    fn dimensions_past_the_index_limit_are_refused() {
+        let mut t = table();
+        t.columns.push(col("big", "vector(3072)"));
+        t.columns.push(col("huge", "halfvec(5000)"));
+        let refused = |v, key: &str, alg: Option<&str>| {
+            let vi = vix(alg, Some("cosine"), &[]);
+            refusal(v, &t, &ix("i", &[key], vi.clone()), &vi)
+        };
+        let why = refused(Variant::Postgres, "big", Some("hnsw")).unwrap();
+        assert!(
+            why.contains("«i»")
+                && why.contains("2000")
+                && why.contains("3072")
+                && why.contains("halfvec"),
+            "{why}"
+        );
+        assert!(refused(Variant::Timescale, "big", Some("ivfflat")).is_some());
+        assert!(refused(Variant::Postgres, "huge", Some("hnsw")).is_some());
+        assert!(refused(Variant::Postgres, "(big::halfvec(3072))", Some("hnsw")).is_none());
+        assert!(refused(Variant::Postgres, "(big::halfvec(4001))", Some("hnsw")).is_some());
+        assert!(refused(Variant::Timescale, "big", Some("diskann")).is_none());
+        let why = refused(Variant::OpenGauss, "big", Some("hnsw")).unwrap();
+        assert!(why.contains("2000") && why.contains("3072"), "{why}");
+        assert!(refused(Variant::OpenGauss, "big", Some("ivfflat")).is_some());
+        assert!(refused(Variant::OpenGauss, "huge", Some("hnsw")).is_some());
+        assert!(refused(Variant::OpenGauss, "big", Some("diskann")).is_none());
+        assert!(refused(Variant::Yugabyte, "big", Some("hnsw")).is_none());
+        assert!(refused(Variant::Yugabyte, "big", None).is_none());
+        assert!(refused(Variant::Cockroach, "big", None).is_none());
+        assert!(refused(Variant::Cockroach, "big", Some("hnsw")).is_none());
+        assert!(refused(Variant::Postgres, "v", Some("hnsw")).is_none());
+    }
+
+    fn typed(name: &str, ty: &str) -> ResultColumn {
+        ResultColumn::new(name, ty)
+    }
+
+    /// Typed scripts: the literal follows the target column's type.
+    #[test]
+    fn values_follow_their_column_type() {
+        let pg = Variant::Postgres;
+        let some = |v, c: &ResultColumn, x: serde_json::Value| typed_value(v, c, &x);
+        // A dense vector (array or text) into sparsevec: its notation.
+        let s = typed("s", "sparsevec(5)");
+        assert_eq!(
+            some(pg, &s, json!([0, 1.5, 0, 2, 0])),
+            Some(json!("{2:1.5,4:2}/5"))
+        );
+        assert_eq!(
+            some(pg, &s, json!("[0,1.5,0,2,0]")),
+            Some(json!("{2:1.5,4:2}/5"))
+        );
+        assert_eq!(some(pg, &s, json!("{2:1.5}/5")), None);
+        assert_eq!(
+            some(pg, &typed("s", "sparsevec"), json!([1, 0])),
+            Some(json!("{1:1}/2"))
+        );
+        // Zeros and ones into bit(n), as a result (`bit`) or a describe
+        // (`bit(4)`) names it; CockroachDB's BIT too.
+        for ty in ["bit(4)", "bit", "bit varying(8)", "varbit"] {
+            assert_eq!(
+                some(pg, &typed("b", ty), json!([1, 0, 1, 1])),
+                Some(json!("1011")),
+                "{ty}"
+            );
+        }
+        assert_eq!(
+            some(pg, &typed("b", "bit(4)"), json!("[0,1,1,0]")),
+            Some(json!("0110"))
+        );
+        assert_eq!(some(pg, &typed("b", "bit(4)"), json!("1011")), None);
+        assert_eq!(some(pg, &typed("b", "bit(2)"), json!([1, 2])), None);
+        assert_eq!(
+            some(Variant::Cockroach, &typed("b", "BIT(2)"), json!([1, 0])),
+            Some(json!("10"))
+        );
+        // H2's BIT is a boolean.
+        assert_eq!(some(Variant::H2, &typed("b", "BIT"), json!([1, 0])), None);
+        // Dense vector types and json take the value's own literal.
+        for ty in [
+            "vector(3)",
+            "halfvec(3)",
+            "extensions.vector(3)",
+            "jsonb",
+            "json",
+            "text",
+            "",
+        ] {
+            assert_eq!(some(pg, &typed("v", ty), json!([1, 2.5, 3])), None, "{ty}");
+        }
+        assert_eq!(
+            some(Variant::Cockroach, &typed("v", "VECTOR(3)"), json!([1, 2])),
+            None
+        );
+        assert_eq!(
+            some(
+                Variant::RisingWave,
+                &typed("v", "vector(3)"),
+                json!("[1,2]")
+            ),
+            None
+        );
+        // A JSON array into a PostgreSQL array: `{…}`, numbers as they came.
+        let a = typed("a", "real[]");
+        assert_eq!(some(pg, &a, json!([1, 2.5, -3])), Some(json!("{1,2.5,-3}")));
+        assert_eq!(some(pg, &a, json!("[1,2.5]")), Some(json!("{1,2.5}")));
+        assert_eq!(some(pg, &a, json!("{1,2.5}")), None);
+        assert_eq!(
+            some(pg, &typed("a", "_int8"), json!([9007199254740993u64, null])),
+            Some(json!("{9007199254740993,NULL}"))
+        );
+        assert_eq!(
+            some(pg, &typed("a", "text[]"), json!(["a", "b \"c\" \\", true])),
+            Some(json!(r#"{"a","b \"c\" \\",true}"#))
+        );
+        assert_eq!(
+            some(pg, &typed("a", "integer[]"), json!([[1, 2], [3, 4]])),
+            Some(json!("{{1,2},{3,4}}"))
+        );
+        assert_eq!(some(Variant::Redshift, &a, json!([1, 2])), None);
+        // CrateDB: a vector sent as text into FLOAT_VECTOR is the array
+        // (its numbers as written); a result's `float_vector(2)`, a
+        // describe's `FLOAT_VECTOR(2)`, another engine's vector column.
+        let cr = Variant::CrateDb;
+        for c in [
+            typed("v", "FLOAT_VECTOR(2)"),
+            typed("v", "float_vector(2)"),
+            typed("v", "VECTOR(2, FLOAT32)")
+                .with_vector(VectorMeta::dense(Some(2), VectorElement::F32)),
+        ] {
+            assert_eq!(
+                some(cr, &c, json!("[1.0,2.5]")),
+                Some(json!([1.0, 2.5])),
+                "{c:?}"
+            );
+            assert_eq!(
+                some(cr, &c, json!("{\"1.0\",\"2.5\"}")),
+                Some(json!([1, 2.5]))
+            );
+            assert_eq!(some(cr, &c, json!([1, 2])), None);
+            assert_eq!(some(cr, &c, json!("text")), None);
+        }
+        assert_eq!(
+            some(
+                cr,
+                &typed("a", "ARRAY(BIGINT)"),
+                json!("[9007199254740993]")
+            ),
+            Some(json!([9007199254740993u64]))
+        );
+        assert_eq!(
+            some(cr, &typed("a", "_int8"), json!("[1,2]")),
+            Some(json!([1, 2]))
+        );
+        // A JSON array into CrateDB text: its text, quoted.
+        assert_eq!(
+            some(cr, &typed("t", "TEXT"), json!([1, 2])),
+            Some(json!("[1,2]"))
+        );
+        assert_eq!(some(cr, &typed("o", "OBJECT"), json!([1, 2])), None);
+        // Untyped (no type, no mark): as it is.
+        assert_eq!(some(cr, &typed("v", ""), json!("[1,2]")), None);
+    }
+
+    #[test]
+    fn typed_rows_and_pairs_change_only_what_their_type_says() {
+        let cols = [
+            typed("id", "int4"),
+            typed("s", "sparsevec(3)"),
+            typed("b", "bit"),
+        ];
+        let rows = vec![vec![json!(1), json!([0, 2, 0]), json!([1, 1, 0])]];
+        let out = typed_rows(Variant::Postgres, &cols, &rows);
+        assert_eq!(out[0], vec![json!(1), json!("{2:2}/3"), json!("110")]);
+        // Nothing to change: the same rows.
+        let plain = vec![vec![json!(1), json!("{2:2}/3"), json!("110")]];
+        assert!(matches!(
+            typed_rows(Variant::Postgres, &cols, &plain),
+            std::borrow::Cow::Borrowed(_)
+        ));
+        // More cells than types: the rest as they are.
+        let wide = vec![vec![json!(1), json!([0, 2, 0]), json!([1]), json!([1, 0])]];
+        assert_eq!(
+            typed_rows(Variant::Postgres, &cols, &wide)[0][3],
+            json!([1, 0])
+        );
+        let mut pairs = vec![
+            ("b".to_string(), json!([0, 1])),
+            ("x".to_string(), json!([0, 1])),
+        ];
+        typed_pairs(Variant::Postgres, &cols, &mut pairs);
+        assert_eq!(pairs[0].1, json!("01"));
+        assert_eq!(pairs[1].1, json!([0, 1]));
     }
 
     /// A table from pgvector on a variant without vectors (a conversion

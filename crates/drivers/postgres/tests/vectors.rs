@@ -11,7 +11,8 @@
 //!
 //! Others: `DBINE_TEST_TIMESCALE_HA_URL` (pgvector + pgvectorscale),
 //! `DBINE_TEST_YUGABYTE_URL`, `DBINE_TEST_RISINGWAVE_URL`,
-//! `DBINE_TEST_CLOUDBERRY_URL`, `DBINE_TEST_OPENGAUSS_URL`.
+//! `DBINE_TEST_CLOUDBERRY_URL`, `DBINE_TEST_OPENGAUSS_URL`, and
+//! `DBINE_TEST_MATERIALIZE_URL` (no vectors: typed scripts into arrays).
 //! `transfers_with_pgvector_siblings` moves rows between pgvector and each
 //! of TimescaleDB, YugabyteDB and RisingWave whose URL is set.
 //!
@@ -386,6 +387,35 @@ fn assert_vector_index(ix: &IndexDef, alg: &str, m: &str, params: &[(&str, &str)
     assert_eq!(ix.kind.as_deref(), Some(alg), "{ix:?}");
 }
 
+/// Index usage lists every vector index of `read` with the `VectorIndex`
+/// its describe has (algorithm, distance, build parameters).
+async fn usage_matches(s: &mut Box<dyn Session>, target: &ObjectRef, read: &TableSchema) {
+    let usage = s
+        .index_usage(target)
+        .await
+        .expect("index usage")
+        .expect("an index usage report");
+    let mut seen = 0;
+    for ix in read.indexes.iter().filter(|i| i.vector.is_some()) {
+        let u = usage
+            .indexes
+            .iter()
+            .find(|u| u.name == ix.name)
+            .unwrap_or_else(|| panic!("{} not in the usage report", ix.name));
+        assert_eq!(u.vector, ix.vector, "{}", ix.name);
+        seen += 1;
+    }
+    assert!(seen > 0, "no vector index to check");
+    assert!(usage
+        .indexes
+        .iter()
+        .filter(|u| u.vector.is_none())
+        .all(|u| read
+            .indexes
+            .iter()
+            .all(|i| i.name != u.name || i.vector.is_none())));
+}
+
 /// The sync of a table with itself changes nothing; with one vector
 /// index's metric changed, it makes that index again with the new one.
 async fn sync_round_trip(
@@ -449,6 +479,56 @@ async fn json_numbers_stay(d: &dyn Driver, s: &mut Box<dyn Session>, schema: &st
     )
     .await;
     assert_eq!(got, [[Some("[9007199254740993, 1.0]".to_string())]]);
+}
+
+/// A vector index as schema conversion brings it from another family
+/// (Oracle's `VECTOR(3072, FLOAT32)` with an HNSW cosine index): HNSW on
+/// a 3072-dimension vector `ty`, past pgvector's 2000. `builds`: the
+/// algorithm the engine builds it with (YugabyteDB's ybhnsw, CockroachDB's
+/// C-SPANN), and it is scripted, made and listed; `None` (pgvector,
+/// openGauss' DataVec): the driver refuses it with the reason, and the
+/// server refuses it too.
+async fn wide_index(
+    d: &dyn Driver,
+    s: &mut Box<dyn Session>,
+    schema: &str,
+    ty: &str,
+    builds: Option<&str>,
+) {
+    let mut t = table(
+        schema,
+        "wide",
+        vec![col("id", "integer", false), col("w", ty, true)],
+        vec![vindex("ix_w", &["w"], Some("hnsw"), metric::COSINE, &[])],
+    );
+    t.indexes[0].kind = Some("hnsw".into());
+    match builds {
+        Some(alg) => {
+            let ddl = d.table_ddl(&t, ALL).unwrap();
+            for st in ddl.split(";\n") {
+                run(s, st).await;
+            }
+            let read = read_table(s, schema, "wide").await;
+            assert_vector_index(index(&read, "ix_w"), alg, metric::COSINE, &[]);
+        }
+        None => {
+            let why = d.table_ddl(&t, ALL).unwrap_err().to_string();
+            assert!(why.contains("2000") && why.contains("3072"), "{why}");
+            let create = DdlParts {
+                create: true,
+                ..Default::default()
+            };
+            run(s, &d.table_ddl(&t, create).unwrap()).await;
+            let err = try_run(
+                s,
+                &format!("CREATE INDEX ix_w ON {schema}.wide USING hnsw (w vector_cosine_ops)"),
+            )
+            .await
+            .unwrap_err();
+            assert!(err.contains("2000"), "{err}");
+        }
+    }
+    run(s, &format!("DROP TABLE {schema}.wide")).await;
 }
 
 // ------------------------------------------------------------- pgvector
@@ -635,6 +715,8 @@ async fn round_trip(id: &str, env: &str, extra: Option<(IndexDef, &str, &str)>, 
             assert_eq!(got.vector.as_ref().unwrap().metric, want.metric);
             assert_eq!(got.vector.as_ref().unwrap().params, want.params);
         }
+        // Index usage says the same of each vector index.
+        usage_matches(&mut s, &target, &read).await;
         // The read table's DDL makes the same indexes.
         let again = d
             .table_ddl(
@@ -702,6 +784,62 @@ async fn round_trip(id: &str, env: &str, extra: Option<(IndexDef, &str, &str)>, 
                 .unwrap(),
         )
         .await;
+        // Typed by the result's columns: a dense vector into sparsevec and
+        // zeros and ones into bit(n), also sent as text.
+        let types = grid.columns.clone();
+        let change = RowChange {
+            key: vec![("id".into(), json!(1))],
+            set: vec![
+                ("s".into(), json!([0, 0, 4, 0, 0])),
+                ("b".into(), json!("[0,0,1,1]")),
+            ],
+            row: Vec::new(),
+        };
+        run(
+            &mut s,
+            &d.update_script_typed(&target, &[change], &types).unwrap(),
+        )
+        .await;
+        let got = cells(
+            &mut s,
+            "SELECT s::text, b::text FROM public.items WHERE id = 1",
+        )
+        .await;
+        assert_eq!(got, [[Some("{3:4}/5".into()), Some("0011".into())]]);
+        let ins = d
+            .insert_script_typed(
+                &target,
+                &types,
+                &[vec![
+                    json!(4),
+                    json!("[1,1,1]"),
+                    json!([0.5, 0.5, 0.5]),
+                    json!("[1.5,0,0,0,2]"),
+                    json!([1, 1, 1, 1]),
+                ]],
+            )
+            .unwrap();
+        run(&mut s, &ins).await;
+        let got = cells(
+            &mut s,
+            "SELECT v::text, h::text, s::text, b::text FROM public.items WHERE id = 4",
+        )
+        .await;
+        assert_eq!(
+            got,
+            [[
+                Some("[1,1,1]".into()),
+                Some("[0.5,0.5,0.5]".into()),
+                Some("{1:1.5,5:2}/5".into()),
+                Some("1111".into())
+            ]]
+        );
+        run(
+            &mut s,
+            &d.delete_script_typed(&target, &[vec![("id".into(), json!(4))]], &types)
+                .unwrap(),
+        )
+        .await;
         // 8. A transfer to a copy of the table.
         let mut copy = t.clone();
         copy.name = "items_copy".into();
@@ -746,6 +884,16 @@ async fn round_trip(id: &str, env: &str, extra: Option<(IndexDef, &str, &str)>, 
         let got = cells(&mut s, "SELECT s::text FROM public.dense_to_sparse").await;
         assert_eq!(got, [[Some("{2:2.5}/3".to_string())]]);
         drop(s2);
+        // A converted index past pgvector's 2000 dimensions: YugabyteDB's
+        // ybhnsw builds it; pgvector and DataVec refuse it.
+        wide_index(
+            &*d,
+            &mut s,
+            "public",
+            "vector(3072)",
+            (!full).then_some(hnsw),
+        )
+        .await;
     };
     let cleanup = async {
         drop_database(&*d, &cfg, false).await;
@@ -889,6 +1037,7 @@ async fn cockroach_vectors() {
         );
         assert_eq!(vu.columns, ["v", "uid"]);
         assert_vector_index(index(&read, "ix_h"), "cspann", metric::IP, &[]);
+        usage_matches(&mut s, &target, &read).await;
         let again = d
             .table_ddl(
                 &read,
@@ -943,6 +1092,107 @@ async fn cockroach_vectors() {
         let diff = cells(&mut s, "SELECT count(*) FROM (SELECT id, v::STRING, h::STRING FROM public.items EXCEPT SELECT id, v::STRING, h::STRING FROM public.items_copy)").await;
         assert_eq!(diff, [[Some("0".to_string())]]);
         drop(s2);
+        // A converted index past pgvector's 2000 dimensions: C-SPANN builds
+        // it.
+        wide_index(&*d, &mut s, "public", "VECTOR(3072)", Some("cspann")).await;
+        // A binary vector converted into the family (bit(n), with Hamming):
+        // C-SPANN indexes no bit string, the driver says so, and the server
+        // agrees.
+        let bits = table(
+            "public",
+            "bits",
+            vec![col("id", "INT8", false), col("b", "BIT(64)", true)],
+            vec![vindex("ix_b", &["b"], Some("hnsw"), metric::HAMMING, &[])],
+        );
+        let why = d.table_ddl(&bits, ALL).unwrap_err().to_string();
+        assert!(why.contains("C-SPANN no indexa columnas bit"), "{why}");
+        let create = DdlParts {
+            create: true,
+            ..Default::default()
+        };
+        run(&mut s, &d.table_ddl(&bits, create).unwrap()).await;
+        assert!(
+            try_run(&mut s, "CREATE VECTOR INDEX ix_b ON public.bits (b)")
+                .await
+                .is_err()
+        );
+        run(&mut s, "DROP TABLE public.bits").await;
+        // Typed scripts: zeros and ones into BIT(n) as a bit string, a JSON
+        // array into FLOAT8[] as '{…}' and a vector sent as text into
+        // VECTOR, by the describe's types and by a result's.
+        run(
+            &mut s,
+            "CREATE TABLE public.typed (id INT8 PRIMARY KEY, v VECTOR(3), b BIT(4), f FLOAT8[])",
+        )
+        .await;
+        let typed_t = obj("public", "typed");
+        let described = read_table(&mut s, "public", "typed").await;
+        let types: Vec<ResultColumn> = described
+            .columns
+            .iter()
+            .map(|c| ResultColumn::new(&c.name, &c.data_type))
+            .collect();
+        let ins = d
+            .insert_script_typed(
+                &typed_t,
+                &types,
+                &[vec![
+                    json!(1),
+                    json!("[1,2.5,-3]"),
+                    json!([1, 0, 1, 1]),
+                    json!([1, 2.5, -0.125]),
+                ]],
+            )
+            .unwrap();
+        assert!(
+            ins.contains("'1011'") && ins.contains("'{1,2.5,-0.125}'"),
+            "{ins}"
+        );
+        run(&mut s, &ins).await;
+        let sql = "SELECT v::STRING, b::STRING, f::STRING FROM public.typed WHERE id = 1";
+        let got = cells(&mut s, sql).await;
+        assert_eq!(
+            got,
+            [[
+                Some("[1,2.5,-3]".to_string()),
+                Some("1011".to_string()),
+                Some("{1,2.5,-0.125}".to_string())
+            ]]
+        );
+        let out = run(&mut s, "SELECT id, v, b, f FROM public.typed").await;
+        let result_types = out.results[0].columns.clone();
+        let change = RowChange {
+            key: vec![("id".into(), json!(1))],
+            set: vec![
+                ("v".into(), json!([9, 8, 7.5])),
+                ("b".into(), json!("[0,1,1,0]")),
+                ("f".into(), json!("[4,8]")),
+            ],
+            row: Vec::new(),
+        };
+        run(
+            &mut s,
+            &d.update_script_typed(&typed_t, &[change], &result_types)
+                .unwrap(),
+        )
+        .await;
+        let got = cells(&mut s, sql).await;
+        assert_eq!(
+            got,
+            [[
+                Some("[9,8,7.5]".to_string()),
+                Some("0110".to_string()),
+                Some("{4,8}".to_string())
+            ]]
+        );
+        run(
+            &mut s,
+            &d.delete_script_typed(&typed_t, &[vec![("id".into(), json!(1))]], &result_types)
+                .unwrap(),
+        )
+        .await;
+        let n = cells(&mut s, "SELECT count(*) FROM public.typed").await;
+        assert_eq!(n, [[Some("0".to_string())]]);
     };
     let cleanup = async {
         drop_database(&*d, &cfg, true).await;
@@ -1082,6 +1332,45 @@ async fn cratedb_vectors() {
         run(&mut s, &format!("REFRESH TABLE {DB}.items")).await;
         let out = run(&mut s, &format!("SELECT v FROM {DB}.items WHERE id = 2")).await;
         assert_eq!(out.results[0].rows[0][0], json!("[9,8,7.5]"));
+        // Typed: a vector sent as text (as another family's source sends
+        // it) goes into FLOAT_VECTOR as an array, by the describe's type
+        // or by another engine's vector column.
+        let types = vec![
+            ResultColumn::new("id", "INTEGER"),
+            ResultColumn::new("v", "FLOAT_VECTOR(3)"),
+        ];
+        let ins = d
+            .insert_script_typed(&target, &types, &[vec![json!(4), json!("[0.5,0.25,1]")]])
+            .unwrap();
+        run(&mut s, &ins).await;
+        run(&mut s, &format!("REFRESH TABLE {DB}.items")).await;
+        let out = run(&mut s, &format!("SELECT v FROM {DB}.items WHERE id = 4")).await;
+        assert_eq!(out.results[0].rows[0][0], json!("[0.5,0.25,1]"));
+        let other = vec![
+            ResultColumn::new("id", "NUMBER"),
+            ResultColumn::new("v", "VECTOR(3, FLOAT32)")
+                .with_vector(VectorMeta::dense(Some(3), VectorElement::F32)),
+        ];
+        let change = RowChange {
+            key: vec![("id".into(), json!(4))],
+            set: vec![("v".into(), json!("[2,4,8]"))],
+            row: Vec::new(),
+        };
+        run(
+            &mut s,
+            &d.update_script_typed(&target, &[change], &other).unwrap(),
+        )
+        .await;
+        run(&mut s, &format!("REFRESH TABLE {DB}.items")).await;
+        let out = run(&mut s, &format!("SELECT v FROM {DB}.items WHERE id = 4")).await;
+        assert_eq!(out.results[0].rows[0][0], json!("[2,4,8]"));
+        run(
+            &mut s,
+            &d.delete_script_typed(&target, &[vec![("id".into(), json!(4))]], &types)
+                .unwrap(),
+        )
+        .await;
+        run(&mut s, &format!("REFRESH TABLE {DB}.items")).await;
         // 8. A transfer to a copy (no bulk load: INSERTs with array literals).
         let mut copy = t.clone();
         copy.name = "items_copy".into();
@@ -1465,6 +1754,7 @@ async fn risingwave_vectors() {
         // 5. The indexes.
         assert_vector_index(index(&read, "ix_v"), "hnsw", metric::COSINE, &[("m", "16")]);
         assert_vector_index(index(&read, "ix_f"), "flat", metric::IP, &[]);
+        usage_matches(&mut s, &target, &read).await;
         sync_round_trip(
             &*d,
             &mut s,
@@ -1507,6 +1797,24 @@ async fn risingwave_vectors() {
         )
         .await;
         assert_eq!(a.results[0].rows, b.results[0].rows);
+        // A join with aliases: the vector columns of the tables read are
+        // marked; a distance computed from them isn't a vector.
+        let out = run(
+            &mut s,
+            &format!(
+                "SELECT a.id, b.v, a.v <-> '[1,2.5,-3]' AS d FROM {DB}.items AS a JOIN {DB}.items_copy b ON a.id = b.id ORDER BY a.id"
+            ),
+        )
+        .await;
+        let r = &out.results[0];
+        assert_eq!(r.columns[1].type_name, "vector(3)");
+        assert_eq!(
+            r.columns[1].vector,
+            Some(VectorMeta::dense(Some(3), VectorElement::F32))
+        );
+        assert_eq!(r.rows[0][1], json!("[1,2.5,-3]"));
+        assert_eq!(r.columns[0].vector, None);
+        assert_eq!(r.columns[2].vector, None);
         let change = RowChange {
             key: vec![("id".into(), json!(2))],
             set: vec![("v".into(), json!([9, 8, 7.5]))],
@@ -1524,6 +1832,171 @@ async fn risingwave_vectors() {
         )
         .await;
         assert_eq!(got, [[Some("[9,8,7.5]".into())]]);
+        // Typed scripts, by the describe's types: a vector sent as text
+        // into vector(n), a JSON array into real[] as '{…}'.
+        run(
+            &mut s,
+            &format!("CREATE TABLE {DB}.typed (id integer PRIMARY KEY, v vector(3), a real[])"),
+        )
+        .await;
+        let typed_t = obj(DB, "typed");
+        let described = read_table(&mut s, DB, "typed").await;
+        let types: Vec<ResultColumn> = described
+            .columns
+            .iter()
+            .map(|c| ResultColumn::new(&c.name, &c.data_type))
+            .collect();
+        let ins = d
+            .insert_script_typed(
+                &typed_t,
+                &types,
+                &[vec![json!(1), json!("[1,2.5,-3]"), json!([1, 2.5, -0.125])]],
+            )
+            .unwrap();
+        assert!(ins.contains("'{1,2.5,-0.125}'"), "{ins}");
+        run(&mut s, &ins).await;
+        run(&mut s, "FLUSH").await;
+        let sql = format!("SELECT v::varchar, a::varchar FROM {DB}.typed WHERE id = 1");
+        let got = cells(&mut s, &sql).await;
+        assert_eq!(
+            got,
+            [[
+                Some("[1,2.5,-3]".to_string()),
+                Some("{1,2.5,-0.125}".to_string())
+            ]]
+        );
+        let change = RowChange {
+            key: vec![("id".into(), json!(1))],
+            set: vec![
+                ("v".into(), json!("[9,8,7.5]")),
+                ("a".into(), json!("[4,8]")),
+            ],
+            row: Vec::new(),
+        };
+        run(
+            &mut s,
+            &d.update_script_typed(&typed_t, &[change], &types).unwrap(),
+        )
+        .await;
+        run(&mut s, "FLUSH").await;
+        let got = cells(&mut s, &sql).await;
+        assert_eq!(
+            got,
+            [[Some("[9,8,7.5]".to_string()), Some("{4,8}".to_string())]]
+        );
+        run(
+            &mut s,
+            &d.delete_script_typed(&typed_t, &[vec![("id".into(), json!(1))]], &types)
+                .unwrap(),
+        )
+        .await;
+        // RisingWave has no bit string (a binary vector converted into the
+        // family): the driver refuses an index on one, and the server the
+        // column itself.
+        let bits = table(
+            DB,
+            "bits",
+            vec![col("id", "integer", false), col("b", "bit(4)", true)],
+            vec![vindex("ix_b", &["b"], Some("hnsw"), metric::HAMMING, &[])],
+        );
+        let why = d.table_ddl(&bits, ALL).unwrap_err().to_string();
+        assert!(why.contains("HNSW no indexa columnas bit"), "{why}");
+        assert!(try_run(
+            &mut s,
+            &format!("CREATE TABLE {DB}.bits (id integer, b bit(4))")
+        )
+        .await
+        .is_err());
+    };
+    let cleanup = async {
+        if let Ok(mut c) = d.connect(&cfg, None).await {
+            if let Err(e) = try_run(&mut c, &drop).await {
+                eprintln!("cleanup: {e}");
+            }
+        }
+    };
+    guarded(body, cleanup).await;
+}
+
+// ----------------------------------------------------------- Materialize
+
+/// Materialize has no vectors; a JSON array typed by its array column goes
+/// in as '{…}' (by the describe's types, and by a result's), its numbers
+/// as they came. Yellowbrick takes the same path (no image to run it).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn materialize_typed_arrays() {
+    let Ok(url) = std::env::var("DBINE_TEST_MATERIALIZE_URL") else {
+        eprintln!("DBINE_TEST_MATERIALIZE_URL not set; skipping");
+        return;
+    };
+    let cfg = parse_url("materialize", &url);
+    let d = driver("materialize");
+    assert!(!d.capabilities().vectors);
+    let mut s = d.connect(&cfg, None).await.expect("connect");
+    let drop = format!("DROP SCHEMA IF EXISTS {DB} CASCADE");
+    run(&mut s, &drop).await;
+    run(&mut s, &format!("CREATE SCHEMA {DB}")).await;
+    let body = async {
+        run(
+            &mut s,
+            &format!("CREATE TABLE {DB}.typed (id integer, a real[], n bigint[])"),
+        )
+        .await;
+        let target = obj(DB, "typed");
+        let described = read_table(&mut s, DB, "typed").await;
+        let types: Vec<ResultColumn> = described
+            .columns
+            .iter()
+            .map(|c| ResultColumn::new(&c.name, &c.data_type))
+            .collect();
+        let ins = d
+            .insert_script_typed(
+                &target,
+                &types,
+                &[vec![
+                    json!(1),
+                    json!([1, 2.5, -0.125]),
+                    json!([9007199254740993u64, 1]),
+                ]],
+            )
+            .unwrap();
+        assert!(ins.contains("'{1,2.5,-0.125}'"), "{ins}");
+        run(&mut s, &ins).await;
+        let sql = format!("SELECT a::text, n::text FROM {DB}.typed WHERE id = 1");
+        let got = cells(&mut s, &sql).await;
+        assert_eq!(
+            got,
+            [[
+                Some("{1,2.5,-0.125}".to_string()),
+                Some("{9007199254740993,1}".to_string())
+            ]]
+        );
+        // By the result's columns; an array sent as text (as another
+        // family's source sends it) too.
+        let out = run(&mut s, &format!("SELECT id, a, n FROM {DB}.typed")).await;
+        let result_types = out.results[0].columns.clone();
+        let change = RowChange {
+            key: vec![("id".into(), json!(1))],
+            set: vec![("a".into(), json!("[4,8]")), ("n".into(), json!([7]))],
+            row: Vec::new(),
+        };
+        run(
+            &mut s,
+            &d.update_script_typed(&target, &[change], &result_types)
+                .unwrap(),
+        )
+        .await;
+        let got = cells(&mut s, &sql).await;
+        assert_eq!(got, [[Some("{4,8}".to_string()), Some("{7}".to_string())]]);
+        run(
+            &mut s,
+            &d.delete_script_typed(&target, &[vec![("id".into(), json!(1))]], &result_types)
+                .unwrap(),
+        )
+        .await;
+        let n = cells(&mut s, &format!("SELECT count(*) FROM {DB}.typed")).await;
+        assert_eq!(n, [[Some("0".to_string())]]);
     };
     let cleanup = async {
         if let Ok(mut c) = d.connect(&cfg, None).await {

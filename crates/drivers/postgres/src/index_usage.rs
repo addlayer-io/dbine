@@ -102,11 +102,20 @@ pub(crate) fn indexes_sql(v: Variant, version: i32, rel: &str) -> String {
     } else {
         "x.indnatts"
     };
+    // A vector index's definition and storage parameters, on its first row
+    // (its algorithm, distance and build parameters, as the structure read
+    // has them); engines without vectors don't read them.
+    let vector = if crate::vectors::supported(v) {
+        "CASE WHEN k.ord = 1 THEN pg_get_indexdef(x.indexrelid) END AS def,
+                CASE WHEN k.ord = 1 THEN array_to_string(i.reloptions, E'\\n') END AS opts"
+    } else {
+        "NULL::text AS def, NULL::text AS opts"
+    };
     format!(
         "SELECT i.relname AS idx, am.amname AS am, x.indisunique AS uniq, x.indisprimary AS pk,
                 pg_get_expr(x.indpred, x.indrelid) AS pred, a.attname AS att,
                 pg_get_indexdef(x.indexrelid, k.ord::int, true) AS expr, k.ord > {key_atts} AS inc,
-                (x.indoption[k.ord - 1]::int & 1) = 1 AS dsc
+                (x.indoption[k.ord - 1]::int & 1) = 1 AS dsc, {vector}
          FROM pg_index x
          JOIN pg_class i ON i.oid = x.indexrelid
          LEFT JOIN pg_am am ON am.oid = i.relam
@@ -304,6 +313,10 @@ pub(crate) struct ColumnRow {
     pub expr: String,
     pub included: bool,
     pub descending: bool,
+    /// The index's whole definition (`pg_get_indexdef`), on its first row.
+    pub def: Option<String>,
+    /// Its storage parameters (`name=value` per line), on its first row.
+    pub opts: Option<String>,
 }
 
 /// One index's counters.
@@ -356,9 +369,20 @@ pub(crate) fn assemble(
                 .and_then(|m| m.get(&c.index))
                 .cloned()
                 .unwrap_or_default();
+            // A vector index: its algorithm, distance and build parameters,
+            // as the structure read gives them (CockroachDB's pg_am says
+            // `prefix`; its definition, `USING cspann`).
+            let vector = c.def.as_deref().and_then(|def| {
+                let opts = crate::compare::reloptions(c.opts.as_deref().unwrap_or_default());
+                crate::vectors::from_catalog(c.am.as_deref().unwrap_or_default(), def, &opts)
+            });
             out.push(IndexUsage {
                 name: c.index.clone(),
-                kind: kind(c.am.as_deref()),
+                kind: match vector.as_ref().and_then(|x| x.algorithm.as_deref()) {
+                    Some(alg) => alg.to_ascii_uppercase(),
+                    None => kind(c.am.as_deref()),
+                },
+                vector,
                 unique: c.unique || c.primary_key,
                 primary_key: c.primary_key,
                 filter: c.filter.clone(),
@@ -417,6 +441,7 @@ pub(crate) fn from_structure(v: Variant, t: &TableSchema) -> Vec<IndexUsage> {
             key_columns: ix.columns.clone(),
             included_columns: ix.include.clone(),
             filter: ix.filter.clone(),
+            vector: ix.vector.clone(),
             ..Default::default()
         });
     }
@@ -540,6 +565,8 @@ impl PgSession {
                 expr: cell(r, "expr").unwrap_or_default(),
                 included: flag(r, "inc"),
                 descending: flag(r, "dsc"),
+                def: cell(r, "def"),
+                opts: cell(r, "opts"),
             })
             .collect();
         // Materialize has no foreign keys (nor pg_constraint rows).
@@ -692,7 +719,7 @@ impl PgSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dbine_driver::{IndexDef, KeyDef};
+    use dbine_driver::{IndexDef, KeyDef, VectorIndex};
 
     fn col(index: &str, att: &str, included: bool, descending: bool) -> ColumnRow {
         ColumnRow {
@@ -968,6 +995,97 @@ mod tests {
             Some("2026-10-01 10:00:00")
         );
         assert_eq!(timestamp(Some("".into())), None);
+    }
+
+    /// A vector index's usage row carries its algorithm, distance and build
+    /// parameters, as the structure read gives them; its kind is the
+    /// algorithm (CockroachDB's pg_am says `prefix`).
+    #[test]
+    fn vector_indexes_say_how_they_search() {
+        let first = |index: &str, am: &str, att: &str, def: &str, opts: Option<&str>| ColumnRow {
+            index: index.into(),
+            am: Some(am.into()),
+            att: Some(att.into()),
+            expr: att.into(),
+            def: Some(def.into()),
+            opts: opts.map(String::from),
+            ..Default::default()
+        };
+        let rows = vec![
+            first(
+                "ix_v",
+                "hnsw",
+                "v",
+                "CREATE INDEX ix_v ON public.t USING hnsw (v vector_cosine_ops) WITH (m='16', ef_construction='64')",
+                Some("m=16\nef_construction=64"),
+            ),
+            first(
+                "ix_b",
+                "btree",
+                "a",
+                "CREATE INDEX ix_b ON public.t USING btree (a)",
+                None,
+            ),
+            first(
+                "ix_c",
+                "prefix",
+                "uid",
+                "CREATE VECTOR INDEX ix_c ON defaultdb.public.t USING cspann (uid ASC, v vector_l2_ops) WITH (build_beam_size = 8)",
+                None,
+            ),
+            ColumnRow {
+                index: "ix_c".into(),
+                am: Some("prefix".into()),
+                att: Some("v".into()),
+                expr: "v".into(),
+                ..Default::default()
+            },
+        ];
+        let out = assemble(&rows, None, None, 0);
+        let v = out[0].vector.as_ref().expect("hnsw is a vector index");
+        assert_eq!(out[0].kind, "HNSW");
+        assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        assert_eq!(
+            v.params,
+            [
+                ("ef_construction".to_string(), "64".to_string()),
+                ("m".to_string(), "16".to_string())
+            ]
+            .into()
+        );
+        assert_eq!(out[1].vector, None);
+        assert_eq!(out[1].kind, "BTREE");
+        let c = out[2].vector.as_ref().expect("C-SPANN is a vector index");
+        assert_eq!(out[2].kind, "CSPANN");
+        assert_eq!(c.metric.as_deref(), Some("l2"));
+        assert_eq!(
+            c.params.get("build_beam_size").map(String::as_str),
+            Some("8")
+        );
+        assert_eq!(out[2].key_columns, ["uid", "v"]);
+        // Engines read through their structure: the IndexDef's.
+        let vi = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("l1".into()),
+            params: [("m".to_string(), "16".to_string())].into(),
+        };
+        let t = TableSchema {
+            name: "t".into(),
+            indexes: vec![IndexDef {
+                name: "ix".into(),
+                columns: vec!["v".into()],
+                kind: Some("hnsw".into()),
+                vector: Some(vi.clone()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(from_structure(Variant::RisingWave, &t)[0].vector, Some(vi));
+        // Only engines with vectors read the definitions.
+        assert!(indexes_sql(Variant::Postgres, 170000, "1")
+            .contains("pg_get_indexdef(x.indexrelid) END AS def"));
+        assert!(indexes_sql(Variant::Materialize, 170000, "1").contains("NULL::text AS def"));
     }
 
     #[test]
