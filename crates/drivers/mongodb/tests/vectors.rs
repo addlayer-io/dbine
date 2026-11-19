@@ -1020,6 +1020,14 @@ async fn ferretdb_vectors() {
     let v = ix.vector.as_ref().unwrap();
     assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
     assert_eq!(v.metric.as_deref(), Some("cosine"));
+    // The explorer lists it with the same settings.
+    let usage = s.index_usage(&coll(t1)).await.unwrap().unwrap();
+    let u = usage
+        .indexes
+        .iter()
+        .find(|i| i.name == "emb_vix")
+        .expect("listed");
+    assert_eq!(u.vector.as_ref(), Some(v));
     let same = d
         .sync_script(&[TableChange::Alter {
             old: t.clone(),
