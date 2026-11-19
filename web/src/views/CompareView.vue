@@ -28,6 +28,7 @@ import { useTabsStore, type CompareTab } from '../stores/tabs';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 import { trackFeature } from '../composables/telemetry';
 import { vKeyActivate } from '../composables/keyActivate';
+import { vectorIndexLine } from '../composables/vectorLabels';
 
 // "Comparar esquemas": two databases side by side, WinMerge style. Each
 // difference can be carried to the other side (→ / ←); that only edits an
@@ -1241,6 +1242,8 @@ function ixParts(ix: IndexDef) {
     { f: 'columns', t: `(${ix.columns.join(', ')})` },
     { f: 'include', t: ix.include?.length ? `INCLUDE (${ix.include.join(', ')})` : '' },
     { f: 'filter', t: ix.filter ? `WHERE ${ix.filter}` : '' },
+    // A vector index: its algorithm, distance and build parameters.
+    { f: 'vector', t: ix.vector ? t('vectors:index.summary', { text: vectorIndexLine(ix.vector) || '—' }) : '' },
     { f: 'options', t: Object.entries(ix.options ?? {}).map(([k, v]) => `${k} = ${v}`).join(', ') },
   ].filter((p) => p.t);
 }

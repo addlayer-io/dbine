@@ -9,6 +9,7 @@ import { useTranslation } from 'i18next-vue';
 import { language } from '../i18n';
 import { CJK_FONTS } from '../styles/fonts';
 import { vKeyActivate } from '../composables/keyActivate';
+import { vectorIndexLine } from '../composables/vectorLabels';
 
 // Entity-relationship diagram of a whole database: tables as cards (keys,
 // types, NOT NULL), foreign keys as curves from the FK column to the
@@ -906,6 +907,7 @@ const fmtRules = (f: ForeignKeyDef) =>
             <span class="dd-idx-name">{{ ix.name }}<span v-if="ix.unique" class="dd-flag uq">{{ $t('diagram:props.unique') }}</span><span v-if="ix.kind" class="dd-idx-kind">{{ ix.kind }}</span></span>
             <code>{{ ix.columns.join(', ') }}</code>
             <span v-if="ix.filter" class="dd-idx-filter">WHERE {{ ix.filter }}</span>
+            <span v-if="ix.vector" class="dd-idx-filter">{{ $t('vectors:index.summary', { text: vectorIndexLine(ix.vector) || '—' }) }}</span>
           </div>
         </section>
 

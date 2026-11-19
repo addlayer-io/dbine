@@ -38,6 +38,10 @@ const left: DbModel & { warnings: string[] } = {
     }),
     table('productos', [col('id', 'integer', false), col('nombre', 'text')]),
     table('auditoria', [col('id', 'bigint', false), col('evento', 'text')]),
+    // A vector index (pgvector) whose distance and parameters differ.
+    table('documentos', [col('id', 'bigint', false), col('contenido', 'text'), col('embedding', 'vector(1536)')], {
+      indexes: [{ ...ix('documentos_embedding_idx', ['embedding']), kind: 'hnsw', vector: { algorithm: 'hnsw', metric: 'cosine', params: { m: '16', ef_construction: '64' } } }],
+    }),
   ],
   objects: [
     view('v_clientes', ' SELECT id,\n    nombre\n   FROM clientes\n  WHERE alta IS NOT NULL;'),
@@ -60,6 +64,9 @@ const right: DbModel & { warnings: string[] } = {
     }),
     table('productos', [col('id', 'integer', false), col('nombre', 'text')]),
     table('tmp_import', [col('id', 'integer', false), col('payload', 'jsonb')]),
+    table('documentos', [col('id', 'bigint', false), col('contenido', 'text'), col('embedding', 'vector(1536)')], {
+      indexes: [{ ...ix('documentos_embedding_idx', ['embedding']), kind: 'hnsw', vector: { algorithm: 'hnsw', metric: 'l2', params: { m: '32', ef_construction: '64' } } }],
+    }),
   ],
   objects: [
     view('v_clientes', ' SELECT id,\n    nombre\n   FROM clientes;'),

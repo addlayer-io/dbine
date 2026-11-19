@@ -23,6 +23,7 @@ import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type DataCompareTab, type QueryComparePick } from '../stores/tabs';
 import { formatElapsed, startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 import { trackFeature } from '../composables/telemetry';
+import { vectorOfType, vectorPreview } from '../composables/vector';
 
 // Data compare (docs/data-compare.md): a table's rows (left) against
 // another table's (right), by key; then a script, in the target engine's
@@ -367,10 +368,17 @@ onBeforeUnmount(() => {
 });
 
 const fmtN = (n: number) => n.toLocaleString(locale());
-function show(v: Cell): string {
+/** Each compared column's vectors, by its type (composables/vector.ts). */
+const vecTypes = computed(() => (result.value?.types ?? []).map(vectorOfType));
+/** A cell as the grid shows it; column `j`'s vectors as their first numbers. */
+function show(v: Cell, j = -1): string {
   if (v === null) return 'NULL';
+  const p = j >= 0 ? vectorPreview(v, vecTypes.value[j] ?? null) : null;
+  if (p) return p.text;
   return typeof v === 'string' ? v : String(v);
 }
+/** A vector cell's dimensions (the badge next to its numbers), or null. */
+const dimsOf = (v: Cell, j: number) => vectorPreview(v, vecTypes.value[j] ?? null)?.dims ?? null;
 // -- order and filters: over all the rows of a kind, not only those shown -------
 const sort = ref<SortKey[]>([]);
 const filters = ref<Record<string, ColumnFilter>>({});
@@ -1236,10 +1244,10 @@ async function suggestKey() {
               </td>
               <td v-for="(c, j) in result.columns" :key="c" :class="{ diff: r.diff.includes(j), key: j < result.key.length }">
                 <template v-if="r.right && r.diff.includes(j)">
-                  <div class="dc-l" :title="$t('dataCompare:left')">{{ show(r.left[j]) }}</div>
-                  <div class="dc-r" :title="$t('dataCompare:right')">{{ show(r.right[j]) }}</div>
+                  <div class="dc-l" :title="$t('dataCompare:left')">{{ show(r.left[j], j) }}<span v-if="dimsOf(r.left[j], j) != null" class="dc-vdims">{{ dimsOf(r.left[j], j) }}</span></div>
+                  <div class="dc-r" :title="$t('dataCompare:right')">{{ show(r.right[j], j) }}<span v-if="dimsOf(r.right[j], j) != null" class="dc-vdims">{{ dimsOf(r.right[j], j) }}</span></div>
                 </template>
-                <template v-else>{{ show(r.left[j]) }}</template>
+                <template v-else>{{ show(r.left[j], j) }}<span v-if="dimsOf(r.left[j], j) != null" class="dc-vdims">{{ dimsOf(r.left[j], j) }}</span></template>
               </td>
             </tr>
           </tbody>
@@ -1385,6 +1393,11 @@ async function suggestKey() {
 .dc-grid td.key { color: var(--nm-text-strong); }
 .dc-grid td.diff { background: color-mix(in srgb, var(--nm-warning) 10%, transparent); }
 .dc-l { color: var(--nm-danger); }
+/* A vector's dimensions, after its first numbers. */
+.dc-vdims {
+  margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10.5px; line-height: 15px; font-variant-numeric: tabular-nums;
+  color: var(--nm-syn-type); background: color-mix(in srgb, var(--nm-syn-type) 14%, transparent);
+}
 .dc-r { color: var(--nm-success); }
 .dc-empty, .dc-hint { padding: 30px 14px; color: var(--nm-text-dim); font-size: 12.5px; }
 .dc-more { padding: 6px 14px; color: var(--nm-text-dim); font-size: 11.5px; }
