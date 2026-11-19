@@ -149,12 +149,22 @@ impl Dialect for Postgres {
             Some(x) => Some(match x.as_str() {
                 "" => return Err("el índice no dice su distancia".into()),
                 m::COSINE | m::L2 | m::IP | m::L1 | m::HAMMING | m::JACCARD => x,
-                "euclidean" | "euclidean_distance" | "l2_distance" | "l2_squared" => m::L2.into(),
-                "dot" | "dot_product" | "dotproduct" | "inner_product" | "max_inner_product" => {
-                    m::IP.into()
-                }
-                "manhattan" | "taxicab" | "l1_distance" => m::L1.into(),
-                "cosine_distance" | "cosine_similarity" => m::COSINE.into(),
+                // Squared or not, the nearest are the same: pgvector's L2.
+                "euclidean" | "euclidean_distance" | "euclidean_squared" | "squared_euclidean"
+                | "sqeuclidean" | "l2_distance" | "l2distance" | "l2_squared" | "squared_l2"
+                | "l2sq" | "l2_norm" | "l2norm" => m::L2.into(),
+                "dot"
+                | "dot_product"
+                | "dotproduct"
+                | "inner_product"
+                | "innerproduct"
+                | "max_inner_product"
+                | "negative_dot_product" => m::IP.into(),
+                "manhattan" | "taxicab" | "l1_distance" | "l1distance" => m::L1.into(),
+                "cosine_distance" | "cosinedistance" | "cosine_similarity" | "cosinesimil"
+                | "angular" => m::COSINE.into(),
+                "hamming_distance" => m::HAMMING.into(),
+                "jaccard_distance" => m::JACCARD.into(),
                 other => return Err(format!("pgvector no tiene la distancia «{other}»")),
             }),
         };
@@ -773,6 +783,21 @@ mod tests {
         assert!(Postgres
             .vector_index(&vi("hnsw", "chebyshev", &[]))
             .is_err());
+        // Other families' spellings: Oracle's, Elasticsearch's, OpenSearch's…
+        for (from, to) in [
+            ("EUCLIDEAN_SQUARED", "l2"),
+            ("l2_norm", "l2"),
+            ("squared_l2", "l2"),
+            ("L2Distance", "l2"),
+            ("cosinesimil", "cosine"),
+            ("innerproduct", "ip"),
+            ("dotProduct", "ip"),
+            ("MANHATTAN", "l1"),
+            ("hamming_distance", "hamming"),
+        ] {
+            let (_, v) = Postgres.vector_index(&vi("hnsw", from, &[])).unwrap();
+            assert_eq!(v.metric.as_deref(), Some(to), "{from}");
+        }
     }
 
     fn vector_table() -> TableSchema {
