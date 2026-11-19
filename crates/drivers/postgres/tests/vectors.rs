@@ -27,7 +27,8 @@ use dbine_driver::transfer::{
 use dbine_driver::vector::metric;
 use dbine_driver::{
     ColumnDef, ConnectionConfig, DdlParts, Driver, IndexDef, KeyDef, ObjectRef, QueryOutcome,
-    RowChange, Session, TableChange, TableSchema, VectorElement, VectorIndex, VectorMeta,
+    ResultColumn, RowChange, RowSink, RowSinkRef, Session, StatementResult, TableChange,
+    TableSchema, VectorElement, VectorIndex, VectorMeta,
 };
 use futures::FutureExt;
 use serde_json::{json, Value};
@@ -101,6 +102,53 @@ async fn cells(s: &mut Box<dyn Session>, sql: &str) -> Vec<Vec<Option<String>>> 
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// A run whose rows go to a sink (exports, the results store, compares):
+/// the columns the sink began the first result with, and its rows.
+type Rows = (Vec<ResultColumn>, Vec<Vec<Value>>);
+struct Streamed(Arc<Mutex<Rows>>);
+impl RowSink for Streamed {
+    fn begin(&mut self, index: usize, columns: &[ResultColumn]) -> std::io::Result<()> {
+        if index == 0 {
+            self.0.lock().unwrap().0 = columns.to_vec();
+        }
+        Ok(())
+    }
+    fn row(&mut self, index: usize, row: &[Value]) -> std::io::Result<()> {
+        if index == 0 {
+            self.0.lock().unwrap().1.push(row.to_vec());
+        }
+        Ok(())
+    }
+}
+
+async fn streamed(s: &mut Box<dyn Session>, sql: &str) -> Rows {
+    let got = Arc::new(Mutex::new((Vec::new(), Vec::new())));
+    let mut out = QueryOutcome {
+        sink: Some(RowSinkRef(Arc::new(Mutex::new(Streamed(got.clone()))))),
+        ..Default::default()
+    };
+    s.execute(sql, 10_000, &mut out)
+        .await
+        .unwrap_or_else(|e| panic!("{sql}: {e}"));
+    assert!(out.error.is_none(), "{sql}: {:?}", out.error);
+    assert!(out.sink_error.is_none(), "{sql}: {:?}", out.sink_error);
+    let got = std::mem::take(&mut *got.lock().unwrap());
+    got
+}
+
+/// The same query streamed to a sink gives the sink what the grid got:
+/// the columns' types and vectors, and the cells as JSON arrays.
+async fn same_when_streamed(s: &mut Box<dyn Session>, sql: &str, grid: &StatementResult) {
+    let (cols, rows) = streamed(s, sql).await;
+    let shape = |c: &[ResultColumn]| {
+        c.iter()
+            .map(|c| (c.name.clone(), c.type_name.clone(), c.vector.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(shape(&cols), shape(&grid.columns), "{sql}");
+    assert_eq!(rows, grid.rows, "{sql}");
 }
 
 fn col(name: &str, ty: &str, nullable: bool) -> ColumnDef {
@@ -377,6 +425,30 @@ async fn sync_round_trip(
     }
 }
 
+/// `insert_script` of a `jsonb` array of big integers and `1.0` writes it
+/// exactly (it isn't rounded through floats as a vector would be).
+async fn json_numbers_stay(d: &dyn Driver, s: &mut Box<dyn Session>, schema: &str) {
+    run(
+        s,
+        &format!("CREATE TABLE {schema}.json_numbers (id integer PRIMARY KEY, j jsonb)"),
+    )
+    .await;
+    let ins = d
+        .insert_script(
+            &obj(schema, "json_numbers"),
+            &["id".to_string(), "j".to_string()],
+            &[vec![json!(1), json!([9007199254740993u64, 1.0])]],
+        )
+        .unwrap();
+    run(s, &ins).await;
+    let got = cells(
+        s,
+        &format!("SELECT j::text FROM {schema}.json_numbers WHERE id = 1"),
+    )
+    .await;
+    assert_eq!(got, [[Some("[9007199254740993, 1.0]".to_string())]]);
+}
+
 // ------------------------------------------------------------- pgvector
 
 /// pgvector's whole round trip on a server where `CREATE EXTENSION
@@ -511,6 +583,15 @@ async fn round_trip(id: &str, env: &str, extra: Option<(IndexDef, &str, &str)>, 
         assert_eq!(r.rows[0][2], json!("[1,2,3]"));
         assert_eq!(r.rows[0][3], json!("{1:1.5,3:2}/5"));
         assert_eq!(r.rows[1][1], json!("[0.5,0,1]"));
+        let grid = r.clone();
+        same_when_streamed(
+            &mut s,
+            "SELECT id, v, h, s, b FROM public.items ORDER BY id",
+            &grid,
+        )
+        .await;
+        // A JSON array of numbers that isn't a vector keeps its exact text.
+        json_numbers_stay(&*d, &mut s, "public").await;
         // Table browsing too.
         let browse = s.browse_query(&target, 100);
         let out = run(&mut s, &browse).await;
@@ -782,6 +863,9 @@ async fn cockroach_vectors() {
             Some(VectorMeta::dense(Some(3), VectorElement::F32))
         );
         assert_eq!(r.rows[0][1], json!("[1,2.5,-3]"));
+        let grid = r.clone();
+        same_when_streamed(&mut s, "SELECT id, v FROM public.items ORDER BY id", &grid).await;
+        json_numbers_stay(&*d, &mut s, "public").await;
         let browse = s.browse_query(&target, 10);
         let out = run(&mut s, &browse).await;
         assert!(out.results[0]
@@ -868,7 +952,7 @@ async fn cockroach_vectors() {
 
 /// The tables the CrateDB test makes (its schema goes with them).
 async fn drop_crate_tables(s: &mut Box<dyn Session>) {
-    for t in ["items", "items_copy"] {
+    for t in ["items", "items_copy", "items_synced", "json_numbers"] {
         if let Err(e) = try_run(s, &format!("DROP TABLE IF EXISTS {DB}.{t}")).await {
             eprintln!("cleanup: {e}");
         }
@@ -928,6 +1012,50 @@ async fn cratedb_vectors() {
         );
         assert_eq!(r.rows[0][1], json!("[1,2.5,-3]"));
         assert_eq!(r.rows[1][1], json!("[0.5,0,1]"));
+        // Streamed to a sink: the columns are vectors and the cells JSON
+        // arrays as they arrive, so a data sync from them writes vectors.
+        let grid = r.clone();
+        let sql = format!("SELECT id, v FROM {DB}.items ORDER BY id");
+        same_when_streamed(&mut s, &sql, &grid).await;
+        let (scols, srows) = streamed(&mut s, &sql).await;
+        run(
+            &mut s,
+            &format!("CREATE TABLE {DB}.items_synced (id INTEGER PRIMARY KEY, v FLOAT_VECTOR(3))"),
+        )
+        .await;
+        let ins = d
+            .insert_script(
+                &obj(DB, "items_synced"),
+                &cols,
+                &dbine_driver::vector::rows_for_scripts(&scols, &srows),
+            )
+            .unwrap();
+        run(&mut s, &ins).await;
+        run(&mut s, &format!("REFRESH TABLE {DB}.items_synced")).await;
+        let synced = run(
+            &mut s,
+            &format!("SELECT id, v FROM {DB}.items_synced ORDER BY id"),
+        )
+        .await;
+        assert_eq!(synced.results[0].rows, grid.rows);
+        // An ARRAY(BIGINT) value keeps its big integers.
+        run(
+            &mut s,
+            &format!("CREATE TABLE {DB}.json_numbers (id INTEGER PRIMARY KEY, a ARRAY(BIGINT))"),
+        )
+        .await;
+        let ins = d
+            .insert_script(
+                &obj(DB, "json_numbers"),
+                &["id".to_string(), "a".to_string()],
+                &[vec![json!(1), json!([9007199254740993u64, 1])]],
+            )
+            .unwrap();
+        assert!(ins.contains("[9007199254740993,1]"), "{ins}");
+        run(&mut s, &ins).await;
+        run(&mut s, &format!("REFRESH TABLE {DB}.json_numbers")).await;
+        let got = cells(&mut s, &format!("SELECT a[1] FROM {DB}.json_numbers")).await;
+        assert_eq!(got, [[Some("9007199254740993".to_string())]]);
         let browse = s.browse_query(&target, 10);
         let out = run(&mut s, &browse).await;
         assert!(out.results[0]
