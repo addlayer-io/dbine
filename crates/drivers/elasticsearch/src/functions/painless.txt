@@ -7,3 +7,7 @@ s dotProduct(query_vector, field) -> double since=7.3
 s l1norm(query_vector, field) -> double since=7.3
 s l2norm(query_vector, field) -> double since=7.3
 s hamming(query_vector, field) -> double since=8.15
+# rank_vectors (several vectors per document, 8.18+): the query's vectors
+# against the document's, by MaxSim.
+s maxSimDotProduct(query_vectors, field) -> double since=8.18
+s maxSimInvHamming(query_vectors, field) -> double since=8.18

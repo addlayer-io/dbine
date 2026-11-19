@@ -69,12 +69,50 @@ async fn painless_unknown(url: &str, opensearch: bool, functions: &[FunctionInfo
     )
     .await;
     assert!(status < 300, "{body}");
-    let mut unknown = Vec::new();
-    for f in functions {
-        let (field, q) = if f.name == "hamming" {
-            ("b", json!([1, 2]))
+    // rank_vectors' MaxSim functions (8.18+) need rank_vectors fields, an
+    // Enterprise feature: run them where the license has it.
+    let maxsim = |f: &&FunctionInfo| f.name.starts_with("maxSim");
+    let mut skipped = false;
+    if functions.iter().any(|f| maxsim(&f)) {
+        let (status, body) = call(
+            reqwest::Method::PUT,
+            &format!("{base}/_mapping"),
+            Some(json!({ "properties": {
+                "r": { "type": "rank_vectors", "dims": 3 },
+                "rb": { "type": "rank_vectors", "dims": 16, "element_type": "bit" } } })),
+        )
+        .await;
+        if status >= 400 && body.to_string().contains("license") {
+            eprintln!("rank_vectors not licensed here: MaxSim functions not run");
+            skipped = true;
         } else {
-            ("v", json!([1.0, 0.5, 0.0]))
+            assert!(status < 300, "{body}");
+            // One document with every field, or a script fails on the
+            // documents without its own.
+            let (status, body) = call(
+                reqwest::Method::POST,
+                &format!("{base}/_delete_by_query?refresh=true"),
+                Some(json!({ "query": { "match_all": {} } })),
+            )
+            .await;
+            assert!(status < 300, "{body}");
+            let (status, body) = call(
+                reqwest::Method::POST,
+                &format!("{base}/_doc?refresh=true"),
+                Some(json!({ "v": [1, 0, 0], "b": [1, 2],
+                    "r": [[1, 0, 0], [0, 1, 0]], "rb": [[1, 2], [3, 4]] })),
+            )
+            .await;
+            assert!(status < 300, "{body}");
+        }
+    }
+    let mut unknown = Vec::new();
+    for f in functions.iter().filter(|f| !(skipped && maxsim(f))) {
+        let (field, q) = match f.name.as_str() {
+            "hamming" => ("b", json!([1, 2])),
+            "maxSimDotProduct" => ("r", json!([[1.0, 0.5, 0.0]])),
+            "maxSimInvHamming" => ("rb", json!([[1, 2]])),
+            _ => ("v", json!([1.0, 0.5, 0.0])),
         };
         let arg = if opensearch {
             format!("doc['{field}']")
@@ -299,18 +337,19 @@ async fn elasticsearch_sql_functions() {
     };
     let (v, all) = catalog("elasticsearch", &url).await;
     let (c, painless) = split(all);
-    assert_eq!(
-        names(&painless),
-        [
-            "cosineSimilarity",
-            "dotProduct",
-            "hamming",
-            "l1norm",
-            "l2norm"
-        ]
-        .map(String::from)
-        .into()
-    );
+    let mut expected: BTreeSet<String> = [
+        "cosineSimilarity",
+        "dotProduct",
+        "hamming",
+        "l1norm",
+        "l2norm",
+    ]
+    .map(String::from)
+    .into();
+    if version_at_least(&v, "8.18") {
+        expected.extend(["maxSimDotProduct", "maxSimInvHamming"].map(String::from));
+    }
+    assert_eq!(names(&painless), expected);
     let unknown = painless_unknown(&url, false, &painless).await;
     assert!(unknown.is_empty(), "{unknown:#?}");
     let at = |m| version_at_least(&v, m);
