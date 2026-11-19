@@ -514,6 +514,11 @@ async fn body(cfg: &ConnectionConfig) {
     assert_eq!(u.kind, "VECTOR");
     assert_eq!(u.key_columns, ["emb"]);
     assert_eq!(u.vector, ix.vector);
+    // It can't be disabled (ALTER INDEX … DISABLE fails with 42250): said.
+    assert!(matches!(
+        d.index_toggle_script(&table("docs"), u, false),
+        Err(dbine_driver::Error::Unsupported(_))
+    ));
     assert!(usage
         .indexes
         .iter()

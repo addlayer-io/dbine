@@ -359,6 +359,17 @@ pub(crate) async fn report(
     })
 }
 
+/// A vector index takes neither `ALTER INDEX … DISABLE` nor `REBUILD`
+/// (SQL Server 2025: error 42250, "unsupported for a Vector Index").
+pub(crate) fn refuse_vector_toggle(index: &IndexUsage) -> Result<()> {
+    if index.vector.is_some() || index.kind == crate::vector::INDEX_KIND {
+        return Err(dbine_driver::Error::Unsupported(
+            "SQL Server no deshabilita ni reconstruye índices vectoriales: para dejar de usarlo hay que eliminarlo y crearlo de nuevo después.".into(),
+        ));
+    }
+    Ok(())
+}
+
 /// "Deshabilitar / Habilitar índice": `ALTER INDEX … DISABLE` and
 /// `ALTER INDEX … REBUILD` (enabling a disabled index rebuilds it whole).
 pub(crate) fn toggle_script(table: &ObjectRef, index: &IndexUsage, enable: bool) -> SyncScript {
@@ -457,6 +468,25 @@ mod tests {
             descending,
             key_ordinal,
         }
+    }
+
+    #[test]
+    fn vector_indexes_are_not_toggled() {
+        let v = IndexUsage {
+            name: "ix_emb".into(),
+            kind: "VECTOR".into(),
+            ..Default::default()
+        };
+        assert!(matches!(
+            refuse_vector_toggle(&v),
+            Err(dbine_driver::Error::Unsupported(m)) if m.contains("vectoriales")
+        ));
+        let nc = IndexUsage {
+            name: "ix".into(),
+            kind: "NONCLUSTERED".into(),
+            ..Default::default()
+        };
+        assert!(refuse_vector_toggle(&nc).is_ok());
     }
 
     #[test]

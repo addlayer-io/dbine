@@ -604,6 +604,21 @@ async fn body(s: &mut Box<dyn Session>) {
             .clone();
         assert!(listed.is_some());
         assert_eq!(u.vector, listed, "{index}");
+        // Made invisible and visible again with the driver's scripts.
+        let off = d.index_toggle_script(&table(table_name), u, false).unwrap();
+        for st in &off.statements {
+            run(s, st).await;
+        }
+        let usage = s.index_usage(&table(table_name)).await.unwrap().unwrap();
+        let u = usage.indexes.iter().find(|i| i.name == index).unwrap();
+        assert!(u.disabled && u.kind.contains("INVISIBLE"), "{}", u.kind);
+        for st in &d
+            .index_toggle_script(&table(table_name), u, true)
+            .unwrap()
+            .statements
+        {
+            run(s, st).await;
+        }
     }
     // A BINARY column's index without a distance: HAMMING, which Oracle
     // takes there (its default, COSINE, it refuses).

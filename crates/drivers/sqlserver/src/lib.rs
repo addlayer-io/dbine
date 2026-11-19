@@ -167,6 +167,7 @@ impl Driver for SqlServerDriver {
                 "este motor no deshabilita índices".into(),
             ));
         }
+        index_usage::refuse_vector_toggle(index)?;
         Ok(index_usage::toggle_script(table, index, enable))
     }
 

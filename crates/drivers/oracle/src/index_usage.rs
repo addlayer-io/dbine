@@ -630,6 +630,11 @@ pub(crate) fn toggle_script(
     } else {
         Unusable::No
     };
+    if unusable != Unusable::No && kind.starts_with(crate::vector::KIND) {
+        return Err(Error::Unsupported(
+            "Oracle no reconstruye índices vectoriales (ORA-51926): para volver a usarlo hay que eliminarlo y crearlo de nuevo.".into(),
+        ));
+    }
     let mut statements = Vec::new();
     let mut warnings = Vec::new();
     match unusable {
@@ -693,6 +698,21 @@ mod tests {
             unusable: Unusable::No,
             vector: None,
         }
+    }
+
+    #[test]
+    fn vector_indexes_turn_invisible_but_are_not_rebuilt() {
+        let t = t(Some("APP"));
+        // Invisible and visible again, as any index (verified on 23.26).
+        let off = toggle_script(&t, &usage("IX_EMB", "VECTOR"), false).unwrap();
+        assert_eq!(off.statements, ["ALTER INDEX \"APP\".\"IX_EMB\" INVISIBLE"]);
+        let on = toggle_script(&t, &usage("IX_EMB", "VECTOR INVISIBLE"), true).unwrap();
+        assert_eq!(on.statements, ["ALTER INDEX \"APP\".\"IX_EMB\" VISIBLE"]);
+        // An unusable one would need REBUILD, which Oracle refuses there.
+        assert!(matches!(
+            toggle_script(&t, &usage("IX_EMB", "VECTOR UNUSABLE"), true),
+            Err(Error::Unsupported(m)) if m.contains("ORA-51926")
+        ));
     }
 
     #[test]
