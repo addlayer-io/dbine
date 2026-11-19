@@ -21,7 +21,10 @@ use crate::retry::{backoff, is_transient};
 use crate::slots::{Slot, Slots};
 use crate::state::{RunSpec, RunStatus, Store, TableState, TableStatus};
 use crate::{lock, panic_text};
-use dbine_driver::{async_trait, Driver, Error, ObjectRef, QueryOutcome, Result, Session};
+use dbine_driver::{
+    async_trait, Driver, Error, ObjectRef, QueryOutcome, Result, ResultColumn, Session,
+    TransferColumn,
+};
 use futures::FutureExt;
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
@@ -56,6 +59,23 @@ pub trait Endpoints: Send + Sync {
     /// The app answers it from the engine's dialect; none by default.
     fn vector_columns(&self, _table: &dbine_driver::TableSchema) -> Vec<String> {
         Vec::new()
+    }
+    /// Target columns (as the target describes them) as a script's types:
+    /// each one's name and native type and, where the app can tell, the
+    /// vector that type holds on the target's engine (it answers it from
+    /// the engine's dialect). By default, the names and types only.
+    fn column_types(&self, columns: &[TransferColumn]) -> Vec<ResultColumn> {
+        columns
+            .iter()
+            .map(|c| ResultColumn::new(c.name.clone(), c.type_name.clone()))
+            .collect()
+    }
+    /// The target columns' types for `job`, by name, where its rows go as
+    /// the target driver's insert script (`Driver::insert_script_typed`):
+    /// each value is written as its column takes it. Empty: untyped. By
+    /// default, its `expected_columns` (the target's describe).
+    fn job_types(&self, job: &TransferJob) -> Vec<ResultColumn> {
+        self.column_types(&job.expected_columns)
     }
 }
 
@@ -885,7 +905,8 @@ async fn attempt(sh: &Shared, env: &Env, job: &TransferJob, ctl: &TableCtl) -> R
             log: &log,
             delta: None,
         };
-        let stats = copy::copy_table(input, src, &mut *tgt).await?;
+        let types = env.endpoints.job_types(job);
+        let stats = copy::copy_table_typed(input, &types, src, &mut *tgt).await?;
         sh.store.set_copied(run, name, stats.rows)?;
         tracker.publish(stats.rows);
         stats

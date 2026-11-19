@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Asker } from './aiTask';
 import type { ColumnFilter } from '../composables/gridFilter';
-import type { Cell, ObjectRef, ResultColumn, SortKey } from './types';
+import type { Cell, ObjectRef, ResultColumn, SortKey, VectorMeta } from './types';
 import type { ExportOptions, ExportResult } from '../composables/export';
 
 // Data compare (docs/data-compare.md).
@@ -61,6 +61,11 @@ export interface DataCompareResult {
   /** Rows of each kind in the lists the screen filters and the script syncs
    *  (`counts` unless `diff_truncated`). */
   listed: { changed: number; only_left: number; only_right: number; equal?: number };
+  /** Each compared column's vectors (dims, element, sparse), null where it
+   *  holds none: the left side's, else the right's (each table's catalog, or
+   *  a query's result marks), else an array of floats that holds vectors on
+   *  its engine (`ARRAY<FLOAT64>`, `LIST<FLOAT>`…). Older backends leave it out. */
+  vectors?: (VectorMeta | null)[];
 }
 
 /** A list of the result: a kind of difference, or the equal rows (when listed). */
@@ -96,6 +101,8 @@ export interface DataRows {
   total: number;
   /** With a filter, every row that passes. */
   indices: number[];
+  /** Each compared column's vectors, as in `DataCompareResult.vectors`. */
+  vectors?: (VectorMeta | null)[];
 }
 
 export interface DataScript {

@@ -905,15 +905,15 @@ mod tests {
         let env_with = |k: &str| (k == "VAULT_TOKEN").then(|| "env-token".to_string());
         let no_env = |_: &str| None;
         assert_eq!(
-            token(Some("kept"), env_with, Some(dir.clone())).unwrap(),
+            token(Some("kept"), env_with, Some(dir.to_path_buf())).unwrap(),
             "kept"
         );
         assert_eq!(
-            token(None, env_with, Some(dir.clone())).unwrap(),
+            token(None, env_with, Some(dir.to_path_buf())).unwrap(),
             "env-token"
         );
         assert_eq!(
-            token(Some("  "), no_env, Some(dir.clone())).unwrap(),
+            token(Some("  "), no_env, Some(dir.to_path_buf())).unwrap(),
             "file-token"
         );
         assert!(token(None, no_env, None)

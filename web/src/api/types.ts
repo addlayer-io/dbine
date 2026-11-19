@@ -1236,7 +1236,12 @@ export interface WriteSummary {
   error: string | null;
   warnings?: string[];
 }
-export interface StoredColumn { name: string; type_name: string }
+export interface StoredColumn {
+  name: string;
+  type_name: string;
+  /** Set when the column holds vectors (the result's mark); the file keeps it. */
+  vector?: VectorMeta;
+}
 export interface StoredStatement {
   columns: StoredColumn[];
   rows: Cell[][];

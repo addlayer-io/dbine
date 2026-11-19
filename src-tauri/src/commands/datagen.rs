@@ -14,7 +14,7 @@ use crate::commands::vectors;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use chrono::{Duration as Days, NaiveDate};
-use dbine_driver::{ColumnInfo, ObjectRef, QueryOutcome, VectorElement, VectorMeta};
+use dbine_driver::{ColumnInfo, ObjectRef, QueryOutcome, ResultColumn, VectorElement, VectorMeta};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -822,14 +822,32 @@ pub(crate) fn fake(id: &str, rng: &mut Rng, row: u64, len: Option<usize>) -> Opt
 /// Resolved generators, in column order, with the columns that go in the INSERT.
 struct Plan {
     columns: Vec<String>,
+    /// `columns` with their types (the table's describe, and the vector it
+    /// holds): the insert script writes each value as its column takes it.
+    types: Vec<ResultColumn>,
     gens: Vec<(Gen, Option<usize>, u8, bool)>,
     /// What "auto" picked per column (all columns), for the dialog.
     auto: BTreeMap<String, String>,
 }
 
+impl Plan {
+    /// A batch of generated rows as `driver`'s insert script into `table`,
+    /// typed by the plan's columns: what the command runs, and what its
+    /// live test runs.
+    fn script(
+        &self,
+        driver: &dyn dbine_driver::Driver,
+        table: &ObjectRef,
+        rows: &[Vec<Value>],
+    ) -> dbine_driver::Result<String> {
+        driver.insert_script_typed(table, &self.types, rows)
+    }
+}
+
 fn plan(metas: &[Meta], specs: &[ColumnGen], rng: &mut Rng) -> CommandResult<Plan> {
     let mut out = Plan {
         columns: Vec::new(),
+        types: Vec::new(),
         gens: Vec::new(),
         auto: BTreeMap::new(),
     };
@@ -872,6 +890,11 @@ fn plan(metas: &[Meta], specs: &[ColumnGen], rng: &mut Rng) -> CommandResult<Pla
             None
         };
         out.columns.push(m.info.name.clone());
+        out.types.push(ResultColumn {
+            name: m.info.name.clone(),
+            type_name: m.info.data_type.clone(),
+            vector: m.vector.clone(),
+        });
         out.gens.push((g, len, nulls, m.unique));
     }
     if out.columns.is_empty() {
@@ -1157,7 +1180,7 @@ pub(crate) async fn run_generation(
             }
             let n = batch.min(args.rows - done);
             let chunk = rows(&mut p, &mut rng, done + 1, n, &mut seen);
-            let script = driver.insert_script(&args.table, &p.columns, &chunk)?;
+            let script = p.script(driver.as_ref(), &args.table, &chunk)?;
             let mut out = QueryOutcome::default();
             let r = tokio::select! {
                 r = s.execute(&script, 1, &mut out) => r.map_err(CommandError::from),
@@ -1191,11 +1214,14 @@ pub(crate) async fn run_generation(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::FutureExt;
+    use std::panic::AssertUnwindSafe;
 
     /// Against a real SQL Server (`DBINE_TEST_SQLSERVER_URL`,
     /// `mssql://user:pass@host:port`): a child table with a primary key, a
     /// foreign key, a short text and dates gets 1000 rows through the same
-    /// plan → rows → insert_script path the command runs.
+    /// plan → rows → typed insert script path the command runs
+    /// ([`Plan::script`]).
     #[tokio::test(flavor = "multi_thread")]
     #[ignore]
     async fn sqlserver_end_to_end() {
@@ -1218,87 +1244,93 @@ mod tests {
             ..Default::default()
         };
         let driver = dbine_drivers::find("sqlserver").unwrap();
-        let mut s = dbine_drivers::open_session(&cfg, Some("master"))
+        // Its own database, dropped at the end even when the test fails.
+        let db = format!("dbine_e2e_datagen_{}", std::process::id());
+        let mut m = dbine_drivers::open_session(&cfg, Some("master"))
             .await
             .unwrap();
-        let _ = s.drop_database("dbine_datagen").await;
-        s.create_database("dbine_datagen").await.unwrap();
-        let mut s = dbine_drivers::open_session(&cfg, Some("dbine_datagen"))
+        let _ = m.drop_database(&db).await;
+        m.create_database(&db).await.unwrap();
+        let res = AssertUnwindSafe(async {
+            let mut s = dbine_drivers::open_session(&cfg, Some(db.as_str()))
+                .await
+                .unwrap();
+            let mut out = QueryOutcome::default();
+            s.execute(
+                "CREATE TABLE dbo.clientes (id int PRIMARY KEY, nombre nvarchar(60));
+                 INSERT INTO dbo.clientes VALUES (1, 'a'), (2, 'b'), (3, 'c');
+                 CREATE TABLE dbo.pedidos (id int PRIMARY KEY, cliente_id int NOT NULL REFERENCES dbo.clientes(id),
+                                           email varchar(30), total decimal(10,2), creado datetime2, nota nvarchar(8) NULL);",
+                10,
+                &mut out,
+            )
             .await
             .unwrap();
-        let mut out = QueryOutcome::default();
-        s.execute(
-            "CREATE TABLE dbo.clientes (id int PRIMARY KEY, nombre nvarchar(60));
-             INSERT INTO dbo.clientes VALUES (1, 'a'), (2, 'b'), (3, 'c');
-             CREATE TABLE dbo.pedidos (id int PRIMARY KEY, cliente_id int NOT NULL REFERENCES dbo.clientes(id),
-                                       email varchar(30), total decimal(10,2), creado datetime2, nota nvarchar(8) NULL);",
-            10,
-            &mut out,
-        )
-        .await
-        .unwrap();
-        assert!(out.error.is_none(), "{:?}", out.error);
+            assert!(out.error.is_none(), "{:?}", out.error);
 
-        let table = ObjectRef {
-            kind: "table".into(),
-            schema: Some("dbo".into()),
-            name: "pedidos".into(),
-        };
-        let (metas, labels) = metas(&mut s, driver.as_ref(), &table).await.unwrap();
-        assert_eq!(
-            labels.get("cliente_id").map(String::as_str),
-            Some("clientes.id")
-        );
-        let mut rng = Rng::new(Some(42));
-        let specs = [ColumnGen {
-            name: "nota".into(),
-            null_percent: 30,
-            ..Default::default()
-        }];
-        let mut p = plan(&metas, &specs, &mut rng).unwrap();
-        let mut seen = vec![HashSet::new(); p.columns.len()];
-        let mut done = 0;
-        while done < 1000 {
-            let chunk = rows(&mut p, &mut rng, done + 1, 250, &mut seen);
+            let table = ObjectRef {
+                kind: "table".into(),
+                schema: Some("dbo".into()),
+                name: "pedidos".into(),
+            };
+            let (metas, labels) = metas(&mut s, driver.as_ref(), &table).await.unwrap();
+            assert_eq!(
+                labels.get("cliente_id").map(String::as_str),
+                Some("clientes.id")
+            );
+            let mut rng = Rng::new(Some(42));
+            let specs = [ColumnGen {
+                name: "nota".into(),
+                null_percent: 30,
+                ..Default::default()
+            }];
+            let mut p = plan(&metas, &specs, &mut rng).unwrap();
+            assert!(p.types.iter().all(|c| !c.type_name.is_empty()));
+            let mut seen = vec![HashSet::new(); p.columns.len()];
+            let mut done = 0;
+            while done < 1000 {
+                let chunk = rows(&mut p, &mut rng, done + 1, 250, &mut seen);
+                let mut o = QueryOutcome::default();
+                s.execute(
+                    &p.script(driver.as_ref(), &table, &chunk).unwrap(),
+                    1,
+                    &mut o,
+                )
+                .await
+                .unwrap();
+                assert!(o.error.is_none(), "{:?}", o.error);
+                done += 250;
+            }
             let mut o = QueryOutcome::default();
             s.execute(
-                &driver.insert_script(&table, &p.columns, &chunk).unwrap(),
+                "SELECT COUNT(*), COUNT(DISTINCT id), SUM(CASE WHEN cliente_id IN (1, 2, 3) THEN 1 ELSE 0 END),
+                        SUM(CASE WHEN nota IS NULL THEN 1 ELSE 0 END), MAX(LEN(email))
+                 FROM dbo.pedidos",
                 1,
                 &mut o,
             )
             .await
             .unwrap();
-            assert!(o.error.is_none(), "{:?}", o.error);
-            done += 250;
+            let r = &o.results[0].rows[0];
+            let n = |i: usize| {
+                r[i].as_i64()
+                    .or_else(|| r[i].as_str().and_then(|v| v.parse().ok()))
+                    .unwrap()
+            };
+            assert_eq!(
+                (n(0), n(1), n(2)),
+                (1000, 1000, 1000),
+                "count, distinct ids, valid foreign keys"
+            );
+            assert!((200..400).contains(&n(3)), "about 30% NULL notes: {}", n(3));
+            assert!(n(4) <= 30, "emails fit varchar(30)");
+        })
+        .catch_unwind()
+        .await;
+        m.drop_database(&db).await.unwrap();
+        if let Err(panic) = res {
+            std::panic::resume_unwind(panic);
         }
-        let mut o = QueryOutcome::default();
-        s.execute(
-            "SELECT COUNT(*), COUNT(DISTINCT id), SUM(CASE WHEN cliente_id IN (1, 2, 3) THEN 1 ELSE 0 END),
-                    SUM(CASE WHEN nota IS NULL THEN 1 ELSE 0 END), MAX(LEN(email))
-             FROM dbo.pedidos",
-            1,
-            &mut o,
-        )
-        .await
-        .unwrap();
-        let r = &o.results[0].rows[0];
-        let n = |i: usize| {
-            r[i].as_i64()
-                .or_else(|| r[i].as_str().and_then(|v| v.parse().ok()))
-                .unwrap()
-        };
-        assert_eq!(
-            (n(0), n(1), n(2)),
-            (1000, 1000, 1000),
-            "count, distinct ids, valid foreign keys"
-        );
-        assert!((200..400).contains(&n(3)), "about 30% NULL notes: {}", n(3));
-        assert!(n(4) <= 30, "emails fit varchar(30)");
-        drop(s);
-        let mut m = dbine_drivers::open_session(&cfg, Some("master"))
-            .await
-            .unwrap();
-        m.drop_database("dbine_datagen").await.unwrap();
     }
 
     fn meta(name: &str, ty: &str, pk: bool) -> Meta {
@@ -1404,6 +1436,45 @@ mod tests {
         let plain = meta("name", "varchar(10)", false);
         assert!(!offered(std::slice::from_ref(&plain)).contains(&"vector"));
         assert!(offered(&[plain, m]).contains(&"vector"));
+    }
+
+    /// The insert script knows each column's type from the describe: a
+    /// vector column's carries its vector (a `halfvec` is written as one).
+    #[test]
+    fn the_plan_types_its_columns() {
+        let mut rng = Rng::new(Some(5));
+        let mut v = meta("embedding", "halfvec(4)", false);
+        v.vector = Some(VectorMeta::dense(Some(4), VectorElement::F16));
+        let p = plan(&[meta("id", "integer", true), v], &[], &mut rng).unwrap();
+        assert_eq!(p.columns, ["id", "embedding"]);
+        let types: Vec<(&str, &str)> = p
+            .types
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_name.as_str()))
+            .collect();
+        assert_eq!(types, [("id", "integer"), ("embedding", "halfvec(4)")]);
+        assert!(p.types[0].vector.is_none());
+        assert_eq!(
+            p.types[1].vector,
+            Some(VectorMeta::dense(Some(4), VectorElement::F16))
+        );
+        // The script is the driver's typed one, with the plan's types:
+        // PostgreSQL writes the vector.
+        let pg = dbine_drivers::find("postgres").unwrap();
+        let table = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "t".into(),
+        };
+        let rows = vec![vec![json!(1), json!([0.5, 0.5, 0.5, 0.5])]];
+        let script = p.script(pg.as_ref(), &table, &rows).unwrap();
+        assert!(script.contains("0.5"), "{script}");
+        let rec = crate::commands::typed_scripts::tests::Recorder::default();
+        p.script(&rec, &table, &rows).unwrap();
+        let calls = rec.take();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "insert_typed");
+        assert_eq!(calls[0].1[1].vector, p.types[1].vector);
     }
 
     /// A sparse vector column gets sparse vectors in its engine's text

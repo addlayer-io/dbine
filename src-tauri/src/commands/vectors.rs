@@ -152,6 +152,90 @@ pub(crate) fn compared(v: Value, precision: Option<Precision>) -> Value {
     }
 }
 
+/// The numbers of a float type's name (`FLOAT32`, `double`, `Float16`…);
+/// `None` for any other name.
+fn float_element(name: &str) -> Option<VectorElement> {
+    Some(match name.trim().to_ascii_lowercase().as_str() {
+        "float" | "float32" | "float4" | "real" => VectorElement::F32,
+        "float64" | "float8" | "double" => VectorElement::F64,
+        "float16" => VectorElement::F16,
+        "bfloat16" => VectorElement::Bf16,
+        _ => return None,
+    })
+}
+
+/// Arrays of floats that are how some engines keep vectors, though the
+/// type alone doesn't say it holds one: DuckDB's `FLOAT[3]` and
+/// `DOUBLE[768]`, ClickHouse's `Array(Float32)`, BigQuery's
+/// `ARRAY<FLOAT64>`, Doris' and StarRocks' `ARRAY<FLOAT>` (Doris adds a
+/// `/* dim=3 */` comment), Spanner's `ARRAY<FLOAT32>` and Neo4j's
+/// `LIST<FLOAT>`. Their drivers mark these columns as vectors in results,
+/// and the results grid shows them as vectors by this same reading of the
+/// type (`vectorArrayOfType` in `web/src/composables/vector.ts`). Only to
+/// show them: nothing compares or writes a column as a vector by this.
+/// `None` for any other type (`real[]`, `Array(Array(Float32))`,
+/// `ARRAY<INT64>`…).
+pub(crate) fn float_array_of_type(native: &str) -> Option<VectorMeta> {
+    let t = native.trim();
+    let lower = t.to_ascii_lowercase();
+    // `FLOAT[3]`: a fixed size, the dims.
+    if let Some((head, rest)) = t.split_once('[') {
+        let dims = rest.strip_suffix(']')?.trim();
+        if dims.is_empty() || !dims.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let element = match head.trim().to_ascii_lowercase().as_str() {
+            h @ ("float" | "float32" | "float64" | "double" | "real" | "float4" | "float8") => {
+                float_element(h)?
+            }
+            _ => return None,
+        };
+        return Some(VectorMeta::dense(dims.parse().ok(), element));
+    }
+    // `Array(Float32)`.
+    if let Some(inner) = lower
+        .strip_prefix("array")
+        .map(str::trim_start)
+        .and_then(|r| r.strip_prefix('('))
+        .and_then(|r| r.strip_suffix(')'))
+    {
+        let inner = inner.trim();
+        return matches!(inner, "float32" | "float64" | "bfloat16" | "float16")
+            .then(|| float_element(inner))
+            .flatten()
+            .map(|e| VectorMeta::dense(None, e));
+    }
+    // `ARRAY<FLOAT64>`, `LIST<FLOAT>`, `ARRAY<FLOAT> /* dim=3 */`.
+    let rest = lower
+        .strip_prefix("array")
+        .or_else(|| lower.strip_prefix("list"))?
+        .trim_start()
+        .strip_prefix('<')?;
+    let (inner, after) = rest.split_once('>')?;
+    let inner = inner.trim();
+    if !matches!(
+        inner,
+        "float" | "float32" | "float64" | "double" | "real" | "float4" | "float8"
+    ) {
+        return None;
+    }
+    let element = float_element(inner)?;
+    let after = after.trim();
+    if after.is_empty() {
+        return Some(VectorMeta::dense(None, element));
+    }
+    let comment = after.strip_prefix("/*")?.strip_suffix("*/")?.trim();
+    let n = comment
+        .strip_prefix("dim")?
+        .trim_start()
+        .strip_prefix('=')?
+        .trim();
+    if n.is_empty() || !n.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some(VectorMeta::dense(n.parse().ok(), element))
+}
+
 /// Whether a native type reads as a vector type on some engine by its
 /// spelling alone, for code with no engine at hand (a notebook's warnings,
 /// a subset's masks): `vector(3)`, `VECTOR(768, FLOAT32)`,
@@ -496,6 +580,46 @@ pub(crate) mod tests {
             "json",
         ] {
             assert!(!looks_like_vector_type(t), "{t}");
+        }
+    }
+
+    /// The same arrays of floats the results grid shows as vectors
+    /// (`vectorArrayOfType`, `web/src/composables/vector.test.mjs`).
+    #[test]
+    fn arrays_of_floats_show_as_vectors() {
+        use VectorElement as E;
+        let dense = VectorMeta::dense;
+        for (t, want) in [
+            ("FLOAT[3]", dense(Some(3), E::F32)),
+            ("DOUBLE[768]", dense(Some(768), E::F64)),
+            ("float4 [ 2 ]", dense(Some(2), E::F32)),
+            ("Array(Float32)", dense(None, E::F32)),
+            ("Array(BFloat16)", dense(None, E::Bf16)),
+            ("ARRAY<FLOAT64>", dense(None, E::F64)),
+            ("ARRAY<FLOAT>", dense(None, E::F32)),
+            ("ARRAY<FLOAT> /* dim=3 */", dense(Some(3), E::F32)),
+            ("ARRAY<FLOAT32>", dense(None, E::F32)),
+            ("ARRAY<DOUBLE>", dense(None, E::F64)),
+            ("LIST<FLOAT>", dense(None, E::F32)),
+        ] {
+            assert_eq!(float_array_of_type(t), Some(want), "{t}");
+        }
+        for t in [
+            "FLOAT[]",
+            "FLOAT[3][2]",
+            "real[]",
+            "Array(Array(Float32))",
+            "Array(Int8)",
+            "ARRAY<INT64>",
+            "ARRAY<STRING>",
+            "ARRAY<FLOAT> /* x=3 */",
+            "LIST<FLOAT>x",
+            "int[3]",
+            "vector(3)",
+            "text",
+            "",
+        ] {
+            assert_eq!(float_array_of_type(t), None, "{t}");
         }
     }
 

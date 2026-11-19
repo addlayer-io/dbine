@@ -79,6 +79,7 @@
     "unique": "Único",
     "included": "Incluye",
     "filter": "Filtro",
+    "vector": "Índice vectorial",
     "checks": "Restricciones CHECK",
     "condition": "Condición",
     "name": "Nombre",

@@ -543,6 +543,80 @@ async fn sqlite_refusals() {
     );
 }
 
+/// Every insert and the cut cycle's update go to the target driver's typed
+/// methods, each with the target's columns and their types (SQLite's real
+/// scripts run behind the spy, so the copy still lands).
+#[tokio::test(flavor = "multi_thread")]
+async fn sqlite_scripts_are_typed_by_the_targets_columns() {
+    use crate::commands::typed_scripts::tests::Spy;
+    let state = setup("typed").await;
+    let a = args(
+        "departments",
+        StartFilter::default(),
+        Some(ChildrenOptions {
+            depth: 1,
+            max_rows: 1000,
+        }),
+    );
+    let emit = events().0;
+    let (mut p, data, _, tgt_entry) = plan_and_collect(&state, &a, true, &emit).await.unwrap();
+    let spy = Arc::new(Spy::new(p.tgt_driver));
+    let as_driver: Arc<dyn Driver> = spy.clone();
+    p.tgt_driver = Box::leak(Box::new(as_driver));
+    let progress = |_: &str, _: &str, _: u64, _: u64| {};
+    let (reports, cancelled) = {
+        let mut tgt = tgt_entry.session.lock().await;
+        write(
+            &mut tgt,
+            &tgt_entry,
+            &p,
+            &data,
+            &[],
+            &Masker::with_seed(1),
+            &progress,
+        )
+        .await
+    };
+    state.sessions.remove(&format!("subset:{}:tgt", a.run_id));
+    assert!(!cancelled);
+    assert!(reports.iter().all(|r| r.status == "done"), "{reports:#?}");
+
+    let calls = spy.rec.take();
+    let kinds: Vec<&str> = calls.iter().map(|c| c.0.as_str()).collect();
+    assert!(
+        kinds
+            .iter()
+            .all(|k| *k == "insert_typed" || *k == "update_typed"),
+        "{kinds:?}"
+    );
+    assert_eq!(kinds.iter().filter(|k| **k == "insert_typed").count(), 2);
+    // Each insert names its table's target columns, each with its type.
+    for (_, cols) in calls.iter().filter(|c| c.0 == "insert_typed") {
+        assert!(!cols.is_empty());
+        assert!(
+            cols.iter().all(|c| !c.type_name.trim().is_empty()),
+            "{cols:?}"
+        );
+    }
+    let (_, cycle) = calls.iter().find(|c| c.0 == "update_typed").unwrap();
+    let manager = cycle.iter().find(|c| c.name == "manager_id").unwrap();
+    assert!(
+        manager.type_name.eq_ignore_ascii_case("integer"),
+        "{manager:?}"
+    );
+    assert_eq!(
+        one(
+            &state,
+            "tgt",
+            None,
+            "SELECT manager_id FROM departments WHERE id = 2"
+        )
+        .await,
+        11,
+        "the cut column is set afterwards"
+    );
+}
+
 /// PostgreSQL → PostgreSQL on `dbine-test-postgres`: two databases of the
 /// same server, schema `public`, a serial key and the same plan.
 #[tokio::test(flavor = "multi_thread")]

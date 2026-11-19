@@ -378,6 +378,8 @@ const canDelete = computed(() => canEdit.value && !deleteReason.value);
  * SQL would quote the JSON text). INSERTs where new rows can go; UPDATEs
  * where the rows can be edited and the copy has their key columns (vector
  * columns are never part of it). Null otherwise: the generic SQL goes.
+ * The columns go with their types (`types`): the driver writes each value
+ * as its column takes it (a `halfvec`, an int8 or bit vector…).
  */
 async function copyScript(format: 'sql_insert' | 'sql_update', columns: ResultColumn[], rows: Cell[][]): Promise<string | null> {
   const src = props.editSource;
@@ -386,7 +388,7 @@ async function copyScript(format: 'sql_insert' | 'sql_update', columns: ResultCo
   if (format === 'sql_insert') {
     const target = insertTarget.value;
     if (!target || insertReason.value) return null;
-    return invoke<string>('insert_script', { args: { connection_id: src.connectionId, target, columns: names, rows: rowsForScripts(columns, rows) } });
+    return invoke<string>('insert_script', { args: { connection_id: src.connectionId, target, columns: names, rows: rowsForScripts(columns, rows), types: columns } });
   }
   const s = setup.value;
   if (!s || typeof s === 'string' || s.keyColumns.some((k) => !names.includes(k))) return null;
@@ -398,7 +400,7 @@ async function copyScript(format: 'sql_insert' | 'sql_update', columns: ResultCo
     return { key, set: names.flatMap((n, i) => (inKey.has(n) ? [] : [[n, scriptValue(metas[i], row[i] ?? null)] as [string, ScriptValue]])), row: [] };
   }).filter((ch) => ch.set.length);
   if (!changes.length) return null;
-  return invoke<string>('update_script', { args: { connection_id: src.connectionId, target: s.target, changes } });
+  return invoke<string>('update_script', { args: { connection_id: src.connectionId, target: s.target, changes, types: columns } });
 }
 
 // -- new rows / documents (INSERT code: the driver's `insert_script`) --------------------
@@ -424,8 +426,9 @@ watch(
     const src = props.editSource;
     if (!k || !target || !src) return;
     try {
-      const columns = current.value?.columns.map((c) => c.name) ?? [];
-      await invoke<string>('update_script', { args: { connection_id: src.connectionId, target, changes: [], inserts: [], columns } });
+      const types = current.value?.columns ?? [];
+      const columns = types.map((c) => c.name);
+      await invoke<string>('update_script', { args: { connection_id: src.connectionId, target, changes: [], inserts: [], columns, types } });
     } catch (e) {
       if (seq === insertSeq) insertReason.value = errorMessage(e);
     }
@@ -589,10 +592,13 @@ async function generate() {
     const inserts = [...(r ? buildInserts(r.columns, currentAdded.value).map((row) => asDocPairs(r.columns, row)) : []), ...docs.value.map((d) => Object.entries(d))];
     if (!changes.length && !keys.length && !inserts.length) { code.value = ''; codeError.value = null; return; }
     // Without deletes / inserts the call stays as before (older behavior, same code).
+    // The result's columns go with their types: the driver writes each value
+    // as its column takes it.
     const args = {
       connection_id: src.connectionId, target, changes,
       ...(keys.length ? { deletes: keys } : {}),
       ...(inserts.length ? { inserts, identity: editable ? s.identity : [] } : {}),
+      ...(r ? { types: r.columns } : {}),
     };
     code.value = await invoke<string>('update_script', { args });
     codeError.value = null;

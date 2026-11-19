@@ -823,6 +823,7 @@ pub fn outcome_to_result(
                 .map(|c| StoredColumn {
                     name: c.name.clone(),
                     type_name: c.type_name.clone(),
+                    vector: c.vector.clone(),
                 })
                 .collect(),
             rows: r.rows.clone(),

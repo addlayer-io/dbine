@@ -12,7 +12,7 @@ use crate::{lock, panic_text};
 use dbine_driver::transfer::{BatchSinkRef, Progress};
 use dbine_driver::{
     async_trait, BatchSink, BatchSource, Cell, CopySpec, DeltaSpec, Driver, Error, LoadSpec,
-    QueryOutcome, Result, RowBatch, Session, TransferColumn,
+    QueryOutcome, Result, ResultColumn, RowBatch, Session, TransferColumn,
 };
 use std::io;
 use std::sync::{Arc, Condvar, Mutex};
@@ -48,6 +48,18 @@ pub(crate) struct DeltaWrite<'a> {
 /// Copy the table's rows from `src` into `tgt`.
 pub(crate) async fn copy_table(
     input: CopyInput<'_>,
+    src: Box<dyn Session>,
+    tgt: &mut dyn Session,
+) -> Result<CopyStats> {
+    copy_table_typed(input, &[], src, tgt).await
+}
+
+/// [`copy_table`] knowing the target columns' types (by name; empty:
+/// untyped): where the rows go as the driver's insert script, it writes
+/// each value as its column takes it ([`Driver::insert_script_typed`]).
+pub(crate) async fn copy_table_typed(
+    input: CopyInput<'_>,
+    types: &[ResultColumn],
     mut src: Box<dyn Session>,
     tgt: &mut dyn Session,
 ) -> Result<CopyStats> {
@@ -159,7 +171,16 @@ pub(crate) async fn copy_table(
             tgt.bulk_load(target, &columns, &mut source, progress)
                 .await?
         } else {
-            insert_batches(job, target, target_driver, tgt, &mut source, progress).await?
+            insert_batches(
+                job,
+                target,
+                types,
+                target_driver,
+                tgt,
+                &mut source,
+                progress,
+            )
+            .await?
         };
         after_load(job, tgt).await?;
         Ok::<_, Error>((rows, source.waited, result))
@@ -250,6 +271,7 @@ fn fallback_columns(job: &TransferJob) -> Vec<TransferColumn> {
 async fn insert_batches(
     job: &TransferJob,
     target: &LoadSpec,
+    types: &[ResultColumn],
     driver: &dyn Driver,
     tgt: &mut dyn Session,
     source: &mut ChannelSource,
@@ -258,11 +280,20 @@ async fn insert_batches(
     if !job.before.trim().is_empty() {
         exec(tgt, &job.before).await?;
     }
+    let columns = typed_columns(&target.columns, types);
     let vectors: Vec<bool> = target
         .columns
         .iter()
-        .map(|c| job.vector_columns.iter().any(|v| v.eq_ignore_ascii_case(c)))
+        .zip(&columns)
+        .map(|(c, t)| {
+            job.vector_columns.iter().any(|v| v.eq_ignore_ascii_case(c))
+                || t.vector.as_ref().is_some_and(|m| !m.sparse)
+        })
         .collect();
+    // Types that say nothing are no types: the untyped script, as before.
+    let typed = columns
+        .iter()
+        .any(|c| !c.type_name.trim().is_empty() || c.vector.is_some());
     let mut done = 0u64;
     while let Some(batch) = source.next().await {
         let rows: Vec<Vec<serde_json::Value>> = batch
@@ -281,12 +312,37 @@ async fn insert_batches(
                     .collect()
             })
             .collect();
-        let sql = driver.insert_script(&target.table, &target.columns, &rows)?;
+        let sql = if typed {
+            driver.insert_script_typed(&target.table, &columns, &rows)?
+        } else {
+            driver.insert_script(&target.table, &target.columns, &rows)?
+        };
         exec(tgt, &sql).await?;
         done += batch.len() as u64;
         progress(done);
     }
     Ok(done)
+}
+
+/// The type of each of `names` in `types` (by name: as written, then
+/// without case), named as `names` says; a name `types` lacks is untyped.
+pub(crate) fn typed_columns(names: &[String], types: &[ResultColumn]) -> Vec<ResultColumn> {
+    names
+        .iter()
+        .map(|n| {
+            types
+                .iter()
+                .find(|c| &c.name == n)
+                .or_else(|| types.iter().find(|c| c.name.eq_ignore_ascii_case(n)))
+                .map_or_else(
+                    || ResultColumn::new(n.clone(), ""),
+                    |c| ResultColumn {
+                        name: n.clone(),
+                        ..c.clone()
+                    },
+                )
+        })
+        .collect()
 }
 
 /// A vector column's cell as `insert_script` takes it: the JSON array of

@@ -23,7 +23,7 @@ import { dbKey, objKey, useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type DataCompareTab, type QueryComparePick } from '../stores/tabs';
 import { formatElapsed, startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 import { trackFeature } from '../composables/telemetry';
-import { shownVectorMeta, vectorDiffPreview, vectorPreview, type VectorDiff, type VectorPreview } from '../composables/vector';
+import { vectorDiffPreview, vectorPreview, type VectorDiff, type VectorPreview } from '../composables/vector';
 import type { VectorMeta } from '../api/types';
 import VectorValue from '../components/VectorValue.vue';
 import CellViewer from '../components/CellViewer.vue';
@@ -371,13 +371,14 @@ onBeforeUnmount(() => {
 });
 
 const fmtN = (n: number) => n.toLocaleString(locale());
-/** Each compared column's vectors (composables/vector.ts): a query's
- *  result column says it (the driver's mark); a table's, its type on the
- *  left (`vector(3)`, `FLOAT[3]`, `ARRAY<FLOAT64>`…). */
-const vecMetas = computed<(VectorMeta | null)[]>(() => (result.value?.columns ?? []).map((c, j) => {
-  const col = mode.value === 'queries' ? qColumns.left.find((x) => x.name === c) : undefined;
-  return shownVectorMeta(col ?? { type_name: result.value?.types?.[j] ?? '' });
-}));
+/** Each compared column's vectors, as the backend says them (`vectors`: a
+ *  table's catalog types on its engine, a query's result marks, the left's
+ *  else the right's; else an array of floats that holds vectors on its
+ *  engine, such as BigQuery's `ARRAY<FLOAT64>`, as the results grid shows). */
+const vecMetas = computed<(VectorMeta | null)[]>(() => {
+  const r = result.value;
+  return (r?.columns ?? []).map((_, j) => r?.vectors?.[j] ?? null);
+});
 /** Vector cells as shown, worked out once per row and column (a changed
  *  row's two vectors are read whole to find where they part). */
 let vecCache = new WeakMap<Cell[], Map<number, VectorPreview | null>>();
@@ -473,6 +474,7 @@ function sortClick(e: MouseEvent, c: string) {
 const menu = ref<{ column: string; index: number; x: number; y: number; op: FilterOp; value: string; changed: boolean } | null>(null);
 /** A vector column filters as text here: the compare's own store holds its text. */
 const kindOf = (j: number) => {
+  if (vecMetas.value[j]) return 'text';
   const k = columnKind(result.value?.types?.[j] ?? '', shown.value[0]?.left[j] ?? null);
   return k === 'vector' ? 'text' : k;
 };

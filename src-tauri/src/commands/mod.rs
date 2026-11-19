@@ -59,6 +59,7 @@ pub mod ssh_profiles;
 pub mod subset;
 pub mod sync;
 pub mod telemetry;
+pub(crate) mod typed_scripts;
 pub mod updates;
 #[cfg(test)]
 mod vector_live_tests;

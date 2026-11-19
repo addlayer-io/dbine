@@ -88,6 +88,17 @@ impl Endpoints for AppEndpoints {
             crate::commands::vectors::of_type(self.driver.info().id, t)
         })
     }
+    fn column_types(
+        &self,
+        columns: &[dbine_driver::TransferColumn],
+    ) -> Vec<dbine_driver::ResultColumn> {
+        crate::commands::typed_scripts::of_describe(
+            self.driver.info().id,
+            columns
+                .iter()
+                .map(|c| (c.name.as_str(), c.type_name.as_str())),
+        )
+    }
 }
 
 /// `table`'s columns that hold dense vectors by `of` (their type on the
@@ -252,5 +263,39 @@ mod vector_tests {
             ["emb", "half"]
         );
         assert!(vector_columns(&t, |_| None).is_empty());
+    }
+
+    /// A clone that goes by insert script is typed by its engine: each
+    /// column's type with the vector that type holds there. The transfer's
+    /// default would give the names and types only.
+    #[test]
+    fn a_clones_scripts_are_typed_by_its_engine() {
+        let e = AppEndpoints {
+            state: AppState::new(dbine_core::StateStore::open_in_memory().unwrap()),
+            run_id: "t".into(),
+            connection_id: "c".into(),
+            database: String::new(),
+            driver: dbine_drivers::find("postgres").unwrap().clone(),
+            seq: AtomicU64::new(0),
+        };
+        let col = |name: &str, ty: &str| dbine_driver::TransferColumn {
+            name: name.into(),
+            type_name: ty.into(),
+            nullable: true,
+        };
+        let types = e.column_types(&[col("id", "integer"), col("emb", "halfvec(2)")]);
+        let named: Vec<(&str, &str)> = types
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_name.as_str()))
+            .collect();
+        assert_eq!(named, [("id", "integer"), ("emb", "halfvec(2)")]);
+        assert!(types[0].vector.is_none());
+        assert_eq!(
+            types[1].vector,
+            Some(dbine_driver::VectorMeta::dense(
+                Some(2),
+                dbine_driver::VectorElement::F16
+            ))
+        );
     }
 }

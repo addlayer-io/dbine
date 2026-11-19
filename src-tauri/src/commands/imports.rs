@@ -3,7 +3,7 @@
 //! `insertMany`, `_bulk`…) run in batches, so every engine imports the same way.
 
 use crate::commands::schema::driver_of;
-use crate::commands::vectors;
+use crate::commands::{typed_scripts, vectors};
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_core::import::{self, ImportFormat, ImportOptions, Preview};
@@ -333,10 +333,7 @@ pub(crate) async fn import_with(
                     .unwrap_or_default()
             }
         };
-        let id = driver.info().id;
-        let vector_at = vector_targets(&columns, &types, |t| {
-            vectors::of_type(id, t).is_some_and(|m| !m.sparse)
-        });
+        let target = Target::new(driver.info().id, &columns, &types);
 
         let mut rows = 0u64;
         let mut last_emit = Instant::now();
@@ -369,8 +366,7 @@ pub(crate) async fn import_with(
                 break;
             }
             let n = chunk.len() as u64;
-            let chunk = vectors::script_rows(&vector_at, chunk);
-            let script = driver.insert_script(&args.target, &columns, &chunk)?;
+            let script = target.script(driver.as_ref(), &args.target, &columns, chunk)?;
             exec(script)
                 .await
                 .map_err(|e| CommandError::Sql(format!("filas {}–{}: {e}", rows + 1, rows + n)))?;
@@ -391,6 +387,46 @@ pub(crate) async fn import_with(
         rows: res?,
         elapsed_ms: started.elapsed().as_millis() as u64,
     })
+}
+
+/// The import's target columns as its insert scripts write them.
+struct Target {
+    /// Which of the columns are dense vector columns: the file's vectors
+    /// (JSON-array text, or arrays) reach the script as arrays.
+    vector_at: Vec<bool>,
+    /// The target's columns with their types (as it describes them, or as
+    /// the import creates them): the insert script writes each value as
+    /// its column takes it.
+    typed: Vec<dbine_driver::ResultColumn>,
+}
+
+impl Target {
+    /// The target `columns` by the table's `types` (name, native type) on
+    /// `driver_id`'s engine.
+    fn new(driver_id: &str, columns: &[String], types: &[(String, String)]) -> Target {
+        Target {
+            vector_at: vector_targets(columns, types, |t| {
+                vectors::of_type(driver_id, t).is_some_and(|m| !m.sparse)
+            }),
+            typed: typed_scripts::of_describe(
+                driver_id,
+                types.iter().map(|(n, t)| (n.as_str(), t.as_str())),
+            ),
+        }
+    }
+
+    /// A batch of the file's rows (in `columns`' order) as `driver`'s insert
+    /// script into `target`, typed by the target's columns.
+    fn script(
+        &self,
+        driver: &dyn dbine_driver::Driver,
+        target: &ObjectRef,
+        columns: &[String],
+        chunk: Vec<Vec<Value>>,
+    ) -> dbine_driver::Result<String> {
+        let chunk = vectors::script_rows(&self.vector_at, chunk);
+        typed_scripts::insert(driver, target, columns, &self.typed, &chunk)
+    }
 }
 
 /// Which of the import's target `columns` are vector columns, by the
@@ -450,6 +486,42 @@ mod tests {
             ]
         );
         assert_eq!(vector_targets(&columns, &[], is_vector), [false; 3]);
+    }
+
+    /// A batch goes to the target driver's typed insert script, each
+    /// column with the type the target describes (a vector column with its
+    /// vector) and its vectors as arrays; a target that describes no
+    /// columns gets the untyped script, as before.
+    #[test]
+    fn a_batch_is_typed_by_the_targets_columns() {
+        use crate::commands::typed_scripts::tests::{table, Recorder};
+        let rec = Recorder::default();
+        let columns = vec!["id".to_string(), "Embedding".to_string()];
+        let types = vec![
+            ("id".to_string(), "integer".to_string()),
+            ("embedding".to_string(), "vector(3)".to_string()),
+        ];
+        let target = Target::new("postgres", &columns, &types);
+        assert_eq!(target.vector_at, [false, true]);
+        let chunk = vec![vec![json!("1"), json!("[1, 2, 3]")]];
+        target
+            .script(&rec, &table("t"), &columns, chunk.clone())
+            .unwrap();
+        let calls = rec.take();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "insert_typed");
+        let named: Vec<(&str, &str)> = calls[0]
+            .1
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_name.as_str()))
+            .collect();
+        assert_eq!(named, [("id", "integer"), ("Embedding", "vector(3)")]);
+        assert_eq!(calls[0].1[1].vector.as_ref().and_then(|m| m.dims), Some(3));
+        assert!(calls[0].1[0].vector.is_none());
+
+        let untyped = Target::new("postgres", &columns, &[]);
+        untyped.script(&rec, &table("t"), &columns, chunk).unwrap();
+        assert_eq!(rec.take()[0].0, "insert");
     }
 
     fn count(text: &str, delim: u8) -> u64 {

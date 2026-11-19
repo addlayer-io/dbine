@@ -245,12 +245,239 @@ async fn vector_live_similarity_search_reads_without_approval() {
     .await;
 }
 
+/// The assistant's describe_object and index_usage on pgvector give an HNSW
+/// index's algorithm, metric and parameters, so it can pick the distance
+/// operator that uses the index. index_usage gives them once the driver
+/// fills `IndexUsage.vector` (the PostgreSQL family's own round), and its
+/// index line is there either way.
+#[tokio::test]
+#[ignore = "needs dbine-test-pgvector"]
+async fn vector_live_assistant_sees_vector_index_settings() {
+    let name = "dbine_e2e_vecapp_ix";
+    with_pgvector_db(name, |cfg| async move {
+        let mut s = open(&cfg).await?;
+        exec(
+            s.as_mut(),
+            "CREATE TABLE items (id int PRIMARY KEY, embedding vector(3)); \
+             CREATE INDEX items_hnsw ON items USING hnsw (embedding vector_cosine_ops) \
+             WITH (m = 8, ef_construction = 32)",
+        )
+        .await?;
+        let usage = s
+            .index_usage(&table(Some("public"), "items"))
+            .await
+            .map_err(|e| e.to_string())?;
+        drop(s);
+        let driver_fills_usage = usage
+            .iter()
+            .flat_map(|r| &r.indexes)
+            .any(|i| i.vector.is_some());
+        let t = test_state("ix", &cfg)?;
+        let rt = crate::mcp::McpRuntime::with_log(
+            t.state.clone(),
+            crate::mcp::activity::ActivityLog::in_memory(),
+        );
+        let conn = t
+            .state
+            .store
+            .get_connection("c")
+            .map_err(|e| e.to_string())?
+            .ok_or("no connection")?;
+        let call = |tool: &'static str| {
+            let (rt, conn) = (&rt, &conn);
+            async move {
+                crate::mcp::tools::assistant_call(
+                    &rt.inner,
+                    conn,
+                    tool,
+                    &json!({ "database": name, "object": "items" }),
+                    false,
+                )
+                .await
+            }
+        };
+        let (described, failed) = call("describe_object").await;
+        check!(!failed, "{described}");
+        let line = described
+            .lines()
+            .find(|l| l.contains("items_hnsw"))
+            .ok_or_else(|| format!("no index line: {described}"))?;
+        for want in [
+            "[vector index: algorithm hnsw, metric cosine",
+            "ef_construction=32",
+            "m=8",
+        ] {
+            check!(line.contains(want), "{want} not in {line}");
+        }
+        let (used, failed) = call("index_usage").await;
+        check!(!failed, "{used}");
+        let line = used
+            .lines()
+            .find(|l| l.contains("items_hnsw"))
+            .ok_or_else(|| format!("no index line: {used}"))?;
+        check!(
+            line.contains("[vector index: algorithm hnsw, metric cosine") == driver_fills_usage,
+            "driver fills IndexUsage.vector: {driver_fills_usage}; {line}"
+        );
+        Ok(())
+    })
+    .await;
+}
+
+/// The Spanner emulator's admin API (`url` is its REST endpoint): a raw
+/// request, its answer ignored (an instance that's already there, a
+/// database that isn't).
+fn spanner_admin(url: &str, method: &str, path: &str, body: &str) {
+    use std::io::{Read, Write};
+    let hp = url
+        .split("://")
+        .last()
+        .unwrap_or(url)
+        .trim_end_matches('/')
+        .to_string();
+    let Ok(mut c) = std::net::TcpStream::connect(&hp) else {
+        return;
+    };
+    let req = format!(
+        "{method} /v1/projects/test/instances{path} HTTP/1.1\r\nHost: {hp}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    let _ = c.write_all(req.as_bytes());
+    let mut answer = String::new();
+    let _ = c.read_to_string(&mut answer);
+}
+
+/// A table compare on Spanner (its emulator, `dbine-test-spanner`,
+/// 127.0.0.1:25303; `DBINE_TEST_SPANNER_URL` replaces it), whose
+/// embeddings are `ARRAY<FLOAT32>` columns without `vector_length`: its
+/// catalog types them as arrays and its driver marks them as vectors in
+/// results. The screen gets them as vectors, as the results grid shows
+/// them, while they compare as the arrays they are.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs dbine-test-spanner"]
+async fn vector_live_data_compare_shows_float_arrays_as_vectors() {
+    const DB: &str = "dbine_e2e_vecapp_fa";
+    let url =
+        std::env::var("DBINE_TEST_SPANNER_URL").unwrap_or_else(|_| "http://127.0.0.1:25303".into());
+    let mut cfg = ConnectionConfig {
+        driver: "spanner".into(),
+        database: DB.into(),
+        ..Default::default()
+    };
+    for (k, v) in [
+        ("project_id", "test"),
+        ("instance", "i1"),
+        ("endpoint_url", url.as_str()),
+    ] {
+        cfg.options.insert(k.into(), v.into());
+    }
+    let drop_db = || spanner_admin(&url, "DELETE", &format!("/i1/databases/{DB}"), "");
+    spanner_admin(
+        &url,
+        "POST",
+        "",
+        r#"{"instanceId":"i1","instance":{"config":"projects/test/instanceConfigs/emulator-config","displayName":"i1","nodeCount":1}}"#,
+    );
+    drop_db();
+    spanner_admin(
+        &url,
+        "POST",
+        "/i1/databases",
+        &format!(
+            r#"{{"createStatement":"CREATE DATABASE `{DB}`","extraStatements":["CREATE TABLE fa_l (id INT64 NOT NULL, emb ARRAY<FLOAT32>) PRIMARY KEY (id)","CREATE TABLE fa_r (id INT64 NOT NULL, emb ARRAY<FLOAT32>) PRIMARY KEY (id)"]}}"#
+        ),
+    );
+    let body = AssertUnwindSafe(async {
+        let mut s = open(&cfg).await?;
+        exec(
+            s.as_mut(),
+            "INSERT INTO fa_l (id, emb) VALUES (1, ARRAY<FLOAT32>[0.5, 1]), \
+             (2, ARRAY<FLOAT32>[2, 3]), (3, ARRAY<FLOAT32>[1, 1])",
+        )
+        .await?;
+        exec(
+            s.as_mut(),
+            "INSERT INTO fa_r (id, emb) VALUES (1, ARRAY<FLOAT32>[0.5, 1]), \
+             (2, ARRAY<FLOAT32>[2, 4]), (4, ARRAY<FLOAT32>[1, 1])",
+        )
+        .await?;
+        drop(s);
+        check!(
+            vectors::of_type("spanner", "ARRAY<FLOAT32>").is_none(),
+            "Spanner's dialect now reads ARRAY<FLOAT32> as a vector: this test no longer covers arrays"
+        );
+        let t = test_state("float-arrays", &cfg)?;
+        let side = |name: &str| Side {
+            connection_id: "c".into(),
+            database: DB.into(),
+            object: table(None, name),
+        };
+        let opts = whole::Options {
+            in_memory_rows: 1_000,
+            in_memory_bytes: 1 << 20,
+            max_diff_rows: 1_000,
+            max_equal_rows: 0,
+            scratch: None,
+            duckdb: None,
+        };
+        let r = data_compare::compare_sides(
+            &t.state,
+            data_compare::DataCompareArgs {
+                left: side("fa_l"),
+                right: side("fa_r"),
+                key: vec!["id".into()],
+                columns: Vec::new(),
+                run: String::new(),
+                equal: false,
+            },
+            "vecapp-fa",
+            &Arc::new(whole::Ctl::default()),
+            &opts,
+            &|_| {},
+        )
+        .await
+        .map_err(|err| format!("data compare: {err}"))?;
+        check!(
+            (
+                r.counts.same,
+                r.counts.changed,
+                r.counts.only_left,
+                r.counts.only_right
+            ) == (1, 1, 1, 1),
+            "{:?}",
+            r.counts
+        );
+        check!(
+            r.vectors == [None, Some(VectorMeta::dense(None, VectorElement::F32))],
+            "{:?} for types {:?}",
+            r.vectors,
+            r.types
+        );
+        let changed = &r.changed[0];
+        check!(
+            f32s(&changed.left[1]) == Some(vec![2.0, 3.0])
+                && f32s(&changed.right[1]) == Some(vec![2.0, 4.0]),
+            "{:?} / {:?}",
+            changed.left,
+            changed.right
+        );
+        Ok::<(), String>(())
+    })
+    .catch_unwind()
+    .await;
+    drop_db();
+    match body {
+        Ok(res) => res.unwrap(),
+        Err(p) => std::panic::resume_unwind(p),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Data compare, sync scripts, data scripts, imports and transfers
 
 use crate::commands::data_compare::{self, whole, ChangedRow, Counts, Diff, Side};
 use crate::commands::vectors;
-use dbine_driver::{ObjectRef, RowChange, VectorElement};
+use dbine_driver::{ObjectRef, RowChange, VectorElement, VectorMeta};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -403,8 +630,8 @@ async fn vector_live_data_compare_pgvector_against_duckdb_and_sync() {
                 equal: Vec::new(),
                 left_types: p.columns.iter().map(|c| type_of(&lcols, &c.0)).collect(),
                 right_types: p.columns.iter().map(|c| type_of(&rcols, &c.1)).collect(),
-                left_vectors: p.columns.iter().map(|c| vector_of("postgres", &type_of(&lcols, &c.0)).is_some()).collect(),
-                right_vectors: p.columns.iter().map(|c| vector_of("duckdb", &type_of(&rcols, &c.1)).is_some()).collect(),
+                left_vectors: p.columns.iter().map(|c| vector_of("postgres", &type_of(&lcols, &c.0)).map(|e| VectorMeta::dense(None, e))).collect(),
+                right_vectors: p.columns.iter().map(|c| vector_of("duckdb", &type_of(&rcols, &c.1)).map(|e| VectorMeta::dense(None, e))).collect(),
                 partial: false,
                 diff_truncated: false,
                 counts: Counts::default(),
@@ -600,6 +827,17 @@ impl dbine_transfer::Endpoints for Ends {
     }
     fn native_copy_allowed(&self) -> bool {
         false
+    }
+    fn column_types(
+        &self,
+        columns: &[dbine_driver::TransferColumn],
+    ) -> Vec<dbine_driver::ResultColumn> {
+        crate::commands::typed_scripts::of_describe(
+            &self.target.driver,
+            columns
+                .iter()
+                .map(|c| (c.name.as_str(), c.type_name.as_str())),
+        )
     }
 }
 
@@ -1224,6 +1462,196 @@ async fn app_paths(e: Engine) {
     .await;
 }
 
+// ---------------------------------------------------------------------------
+// Typed scripts (round 2): the grid's copy and save send the result's
+// columns with their types, as the web does, and a data compare's sync
+// types its target's columns from the describe. pgvector's `halfvec`,
+// `sparsevec` and `vector` columns get their values exactly.
+
+/// The rows of `table` with every vector column as its text.
+async fn typed_rows(s: &mut dyn Session, table: &str) -> Res<Vec<Vec<String>>> {
+    let r = first(
+        exec(
+            s,
+            &format!("SELECT id, h::text, sp::text, v::text FROM {table} ORDER BY id"),
+        )
+        .await?,
+    );
+    Ok(r.rows
+        .iter()
+        .map(|row| row.iter().map(text).collect())
+        .collect())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs dbine-test-pgvector"]
+async fn vector_live_typed_scripts_pgvector() {
+    use crate::commands::schema::{
+        insert_script_with, update_script_with, InsertScriptArgs, UpdateScriptArgs,
+    };
+    with_pgvector_db("dbine_e2e_vecapp_typed", |cfg| async move {
+        let t = test_state("typed", &cfg)?;
+        let state = &t.state;
+        let mut s = open(&cfg).await?;
+        for name in ["typed", "typed2"] {
+            exec(
+                s.as_mut(),
+                &format!(
+                    "CREATE TABLE {name} (id int PRIMARY KEY, h halfvec(3), sp sparsevec(5), v vector(3))"
+                ),
+            )
+            .await?;
+        }
+        // The result's columns as the grid has them: the driver's marks.
+        let cols = first(exec(s.as_mut(), "SELECT * FROM typed").await?).columns;
+        let marked: Vec<(&str, bool)> = cols
+            .iter()
+            .map(|c| (c.name.as_str(), c.vector.as_ref().is_some_and(|m| !m.sparse)))
+            .collect();
+        check!(
+            marked == [("id", false), ("h", true), ("sp", false), ("v", true)],
+            "{cols:?}"
+        );
+        let types = serde_json::to_value(&cols).map_err(|e| e.to_string())?;
+        let target = json!({ "kind": "table", "schema": "public", "name": "typed" });
+
+        // "Copiar como SQL INSERTs", as ResultsPane sends it: dense vectors
+        // as arrays, the sparse one as its text, and the columns' types.
+        let args: InsertScriptArgs = serde_json::from_value(json!({
+            "connection_id": "c",
+            "target": target,
+            "columns": ["id", "h", "sp", "v"],
+            "rows": [
+                [1, [0.5, -1, 2], "{1:0.5,3:2}/5", [0.1, 0.2, 0.3]],
+                [2, null, null, [1, 2, 3]],
+            ],
+            "types": types,
+        }))
+        .map_err(|e| e.to_string())?;
+        let sql = insert_script_with(state, &args).map_err(|e| e.to_string())?;
+        exec(s.as_mut(), &sql).await?;
+        let got = typed_rows(s.as_mut(), "typed").await?;
+        check!(
+            got == [
+                ["1", "[0.5,-1,2]", "{1:0.5,3:2}/5", "[0.1,0.2,0.3]"],
+                ["2", "null", "null", "[1,2,3]"],
+            ],
+            "{got:?}\n{sql}"
+        );
+
+        // "Guardar" in the grid: an edit, a deleted row and a new row in one
+        // script, typed by the result's columns.
+        let args: UpdateScriptArgs = serde_json::from_value(json!({
+            "connection_id": "c",
+            "target": target,
+            "changes": [{
+                "key": [["id", 1]],
+                "set": [["h", [1, 2, 3]], ["v", [0.25, 0.5, 1]]],
+                "row": [],
+            }],
+            "deletes": [[["id", 2]]],
+            "inserts": [[["id", 3], ["h", [3, 2, 1]], ["sp", "{2:1}/5"], ["v", [3, 2, 1]]]],
+            "identity": [],
+            "types": types,
+        }))
+        .map_err(|e| e.to_string())?;
+        let sql = update_script_with(state, &args).map_err(|e| e.to_string())?;
+        exec(s.as_mut(), &sql).await?;
+        let got = typed_rows(s.as_mut(), "typed").await?;
+        let want = [
+            ["1", "[1,2,3]", "{1:0.5,3:2}/5", "[0.25,0.5,1]"],
+            ["3", "[3,2,1]", "{2:1}/5", "[3,2,1]"],
+        ];
+        check!(got == want, "{got:?}\n{sql}");
+
+        // A data compare into another table: its sync script is typed by
+        // the target's describe, and the screen gets each column's vectors.
+        exec(
+            s.as_mut(),
+            "INSERT INTO typed2 VALUES (1, '[1,2,3]', '{1:0.5,3:2}/5', '[0.25,0.5,1]'), \
+             (3, '[3,2,0]', '{2:1}/5', '[3,2,1]'), (4, '[1,1,1]', NULL, '[4,4,4]')",
+        )
+        .await?;
+        let side = |name: &str| data_compare::Side {
+            connection_id: "c".into(),
+            database: cfg.database.clone(),
+            object: table(Some("public"), name),
+        };
+        let compare = || async {
+            let opts = whole::Options {
+                in_memory_rows: 1_000,
+                in_memory_bytes: 1 << 20,
+                max_diff_rows: 1_000,
+                max_equal_rows: 0,
+                scratch: None,
+                duckdb: None,
+            };
+            data_compare::compare_sides(
+                state,
+                data_compare::DataCompareArgs {
+                    left: side("typed"),
+                    right: side("typed2"),
+                    key: Vec::new(),
+                    columns: Vec::new(),
+                    run: String::new(),
+                    equal: false,
+                },
+                "vecapp-typed",
+                &Arc::new(whole::Ctl::default()),
+                &opts,
+                &|_| {},
+            )
+            .await
+            .map_err(|err| format!("data compare: {err}"))
+        };
+        let r = compare().await?;
+        check!(
+            (r.counts.same, r.counts.changed, r.counts.only_right) == (1, 1, 1),
+            "{:?}",
+            r.counts
+        );
+        let shown: Vec<Option<(Option<u32>, bool)>> = r
+            .vectors
+            .iter()
+            .map(|m| m.as_ref().map(|m| (m.dims, m.sparse)))
+            .collect();
+        check!(
+            shown == [None, Some((Some(3), false)), Some((Some(5), true)), Some((Some(3), false))],
+            "{shown:?}"
+        );
+        let to_right = || data_compare::Pick {
+            all: data_compare::Dir::Right,
+            rows: Vec::new(),
+        };
+        let scripts = data_compare::scripts_for(
+            state,
+            &data_compare::DataScriptArgs {
+                id: r.id.clone(),
+                choices: data_compare::Choices {
+                    changed: to_right(),
+                    only_right: to_right(),
+                    only_left: Default::default(),
+                },
+            },
+        )
+        .map_err(|err| format!("sync script: {err}"))?;
+        check!(scripts.len() == 1, "{} scripts", scripts.len());
+        exec(s.as_mut(), &scripts[0].script).await?;
+        let r = compare().await?;
+        check!(
+            (r.counts.same, r.counts.changed, r.counts.only_right) == (2, 0, 0),
+            "after the sync: {:?}\n{}",
+            r.counts,
+            scripts[0].script
+        );
+        let got = typed_rows(s.as_mut(), "typed2").await?;
+        check!(got == want, "{got:?}");
+        drop(s);
+        Ok(())
+    })
+    .await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs dbine-test-pgvector"]
 async fn vector_live_app_paths_pgvector() {
@@ -1288,6 +1716,17 @@ impl dbine_transfer::Endpoints for CloneEnds {
     }
     fn vector_columns(&self, table: &dbine_driver::TableSchema) -> Vec<String> {
         crate::commands::clone_table::vector_columns(table, |t| vectors::of_type(&self.0.driver, t))
+    }
+    fn column_types(
+        &self,
+        columns: &[dbine_driver::TransferColumn],
+    ) -> Vec<dbine_driver::ResultColumn> {
+        crate::commands::typed_scripts::of_describe(
+            &self.0.driver,
+            columns
+                .iter()
+                .map(|c| (c.name.as_str(), c.type_name.as_str())),
+        )
     }
 }
 
