@@ -273,6 +273,13 @@ enum Gen {
         dims: usize,
         element: VectorElement,
     },
+    /// A random sparse vector of `dims` dimensions, in its engine's text
+    /// ([`vectors::SparseText`], [`random_sparse`]).
+    Sparse {
+        dims: usize,
+        element: VectorElement,
+        text: vectors::SparseText,
+    },
 }
 
 /// Numbers in a generated vector when its column doesn't say.
@@ -305,6 +312,17 @@ pub const GENERATORS: &[&str] = &[
     "vector",
 ];
 
+/// The generators the dialog offers for a table's columns: the vector one
+/// only where the table has a vector column.
+fn offered(metas: &[Meta]) -> Vec<&'static str> {
+    let has_vectors = metas.iter().any(|m| m.vector.is_some());
+    GENERATORS
+        .iter()
+        .copied()
+        .filter(|g| *g != "vector" || has_vectors)
+        .collect()
+}
+
 /// A column, with what the catalog says about it.
 #[derive(Debug, Clone)]
 struct Meta {
@@ -313,8 +331,18 @@ struct Meta {
     pool: Option<Vec<Value>>,
     /// Single-column primary key or unique: values may not repeat.
     unique: bool,
-    /// The column holds dense vectors (its type, on its engine).
+    /// The column holds vectors (its type, on its engine), dense or sparse.
     vector: Option<VectorMeta>,
+}
+
+impl Meta {
+    /// A sparse vector column's text, when DBine writes that engine's.
+    fn sparse_text(&self) -> Option<vectors::SparseText> {
+        self.vector
+            .as_ref()
+            .filter(|v| v.sparse)
+            .and_then(|_| vectors::SparseText::of_type(&self.info.data_type))
+    }
 }
 
 /// The length in `varchar(40)` / `nvarchar(max)` (None for max or none).
@@ -358,9 +386,23 @@ fn auto(m: &Meta, rng: &mut Rng) -> Gen {
         return Gen::Pool(pool.clone());
     }
     if let Some(v) = &m.vector {
-        return Gen::Vector {
-            dims: v.dims.map_or(VECTOR_DIMS, |d| d as usize),
-            element: v.element,
+        let dims = v.dims.map_or(VECTOR_DIMS, |d| d as usize);
+        if !v.sparse {
+            return Gen::Vector {
+                dims,
+                element: v.element,
+            };
+        }
+        // A sparse vector in its engine's text; one whose text DBine
+        // doesn't write is left to the engine (NULL, or its default).
+        return match m.sparse_text() {
+            Some(text) if dims >= 3 => Gen::Sparse {
+                dims,
+                element: v.element,
+                text,
+            },
+            _ if m.info.nullable => Gen::Null,
+            _ => Gen::Skip,
         };
     }
     let n = m.info.name.to_lowercase();
@@ -532,13 +574,21 @@ fn chosen(g: &ColumnGen, m: &Meta, rng: &mut Rng) -> CommandResult<Gen> {
             }
             Gen::List(values)
         }
-        "vector" => Gen::Vector {
-            dims: param(g, "dims")
+        "vector" => {
+            let dims = param(g, "dims")
                 .or(m.vector.as_ref().and_then(|v| v.dims.map(|d| d as usize)))
                 .unwrap_or(VECTOR_DIMS)
-                .clamp(1, 65_536),
-            element: m.vector.as_ref().map_or(VectorElement::F32, |v| v.element),
-        },
+                .clamp(1, 65_536);
+            let element = m.vector.as_ref().map_or(VectorElement::F32, |v| v.element);
+            match m.sparse_text() {
+                Some(text) if dims >= 3 => Gen::Sparse {
+                    dims,
+                    element,
+                    text,
+                },
+                _ => Gen::Vector { dims, element },
+            }
+        }
         "foreign_key" => match &m.pool {
             Some(p) if !p.is_empty() => Gen::Pool(p.clone()),
             _ => {
@@ -582,7 +632,7 @@ fn id_of(g: &Gen) -> &'static str {
         Gen::Address => "address",
         Gen::List(_) => "list",
         Gen::Pool(_) => "foreign_key",
-        Gen::Vector { .. } => "vector",
+        Gen::Vector { .. } | Gen::Sparse { .. } => "vector",
     }
 }
 
@@ -663,6 +713,53 @@ fn value(g: &mut Gen, rng: &mut Rng, row: u64, len: Option<usize>) -> Value {
         Gen::List(v) => s(rng.pick(v).clone()),
         Gen::Pool(v) => rng.pick(v).clone(),
         Gen::Vector { dims, element } => random_vector(rng, *dims, *element),
+        Gen::Sparse {
+            dims,
+            element,
+            text,
+        } => Value::String(random_sparse(rng, *dims, *element).text(*text)),
+    }
+}
+
+/// A random sparse vector of `dims` dimensions (at least 3): one to eight
+/// non-zero positions between 1 and `dims - 2`, valid whether the engine
+/// counts positions from 0 or from 1, each a float32 in -1..1 (or a byte,
+/// for an INT8 one).
+pub(crate) fn random_sparse(rng: &mut Rng, dims: usize, element: VectorElement) -> vectors::Sparse {
+    let last = dims.saturating_sub(2).max(1) as i64;
+    let k = rng.range(1, last.min(8));
+    let mut at: Vec<u64> = Vec::new();
+    while (at.len() as i64) < k {
+        let i = rng.range(1, last) as u64;
+        if !at.contains(&i) {
+            at.push(i);
+        }
+    }
+    at.sort_unstable();
+    let entries = at
+        .into_iter()
+        .map(|i| {
+            let x = match element {
+                VectorElement::I8 => {
+                    let b = rng.range(1, 127) as f64;
+                    if rng.next().is_multiple_of(2) {
+                        b
+                    } else {
+                        -b
+                    }
+                }
+                _ => {
+                    let x = (rng.float() * 2.0 - 1.0) as f32;
+                    let x = if x == 0.0 { 0.5 } else { x };
+                    format!("{x}").parse().unwrap_or(0.5)
+                }
+            };
+            (i, x)
+        })
+        .collect();
+    vectors::Sparse {
+        dims: dims as u64,
+        entries,
     }
 }
 
@@ -761,7 +858,13 @@ fn plan(metas: &[Meta], specs: &[ColumnGen], rng: &mut Rng) -> CommandResult<Pla
         };
         let texty = !matches!(
             g,
-            Gen::Seq { .. } | Gen::Int { .. } | Gen::Dec { .. } | Gen::Bool | Gen::Pool(_)
+            Gen::Seq { .. }
+                | Gen::Int { .. }
+                | Gen::Dec { .. }
+                | Gen::Bool
+                | Gen::Pool(_)
+                | Gen::Vector { .. }
+                | Gen::Sparse { .. }
         );
         let len = if texty {
             length(&m.info.data_type)
@@ -926,7 +1029,7 @@ async fn metas(
             None => None,
         };
         let is_unique = unique.contains(&c.name);
-        let vector = vectors::of_type(driver.info().id, &c.data_type).filter(|v| !v.sparse);
+        let vector = vectors::of_type(driver.info().id, &c.data_type);
         out.push(Meta {
             info: c,
             pool,
@@ -968,7 +1071,7 @@ pub async fn datagen_preview(
             .collect();
         Ok(Preview {
             table_columns,
-            generators: GENERATORS.to_vec(),
+            generators: offered(&metas),
             columns: p.columns.clone(),
             rows: sample,
         })
@@ -1287,6 +1390,79 @@ mod tests {
             );
         }
         assert!(GENERATORS.contains(&"vector"));
+        // Offered where the table has a vector column only.
+        let plain = meta("name", "varchar(10)", false);
+        assert!(!offered(std::slice::from_ref(&plain)).contains(&"vector"));
+        assert!(offered(&[plain, m]).contains(&"vector"));
+    }
+
+    /// A sparse vector column gets sparse vectors in its engine's text
+    /// (pgvector's `sparsevec`, Oracle's SPARSE), never text or decimals
+    /// the engine rejects; one whose text DBine doesn't write is left to
+    /// the engine (NULL where it takes one, else left out).
+    #[test]
+    fn sparse_vector_columns_get_sparse_vectors_or_are_left_alone() {
+        use vectors::{Sparse, SparseText};
+        let mut rng = Rng::new(Some(5));
+        for (ty, text, element) in [
+            ("sparsevec(30)", SparseText::Pg, VectorElement::F32),
+            (
+                "VECTOR(30, FLOAT32, SPARSE)",
+                SparseText::Oracle,
+                VectorElement::F32,
+            ),
+            (
+                "VECTOR(30, INT8, SPARSE)",
+                SparseText::Oracle,
+                VectorElement::I8,
+            ),
+        ] {
+            let mut m = meta("terms", ty, false);
+            m.vector = Some(VectorMeta {
+                dims: Some(30),
+                element,
+                sparse: true,
+            });
+            for mut g in [
+                auto(&m, &mut rng),
+                chosen(
+                    &ColumnGen {
+                        name: "terms".into(),
+                        generator: "vector".into(),
+                        ..Default::default()
+                    },
+                    &m,
+                    &mut rng,
+                )
+                .unwrap(),
+            ] {
+                assert_eq!(id_of(&g), "vector", "{ty}");
+                for row in 0..50 {
+                    let v = value(&mut g, &mut rng, row, Some(30));
+                    let s = Sparse::parse(v.as_str().expect("text"), text).expect(ty);
+                    assert_eq!(s.dims, 30);
+                    assert!(!s.entries.is_empty() && s.entries.len() <= 8, "{ty} {v}");
+                    assert!(s.entries.windows(2).all(|w| w[0].0 < w[1].0), "{v}");
+                    assert!(s
+                        .entries
+                        .iter()
+                        .all(|(i, x)| (1..=28).contains(i) && *x != 0.0));
+                    if element == VectorElement::I8 {
+                        assert!(s.entries.iter().all(|(_, x)| x.fract() == 0.0));
+                    }
+                }
+            }
+        }
+        // A sparse type whose text DBine doesn't write: NULL, or left out.
+        let mut m = meta("terms", "sparse_vector", false);
+        m.vector = Some(VectorMeta {
+            dims: None,
+            element: VectorElement::F32,
+            sparse: true,
+        });
+        assert!(matches!(auto(&m, &mut rng), Gen::Null));
+        m.info.nullable = false;
+        assert!(matches!(auto(&m, &mut rng), Gen::Skip));
     }
 
     #[test]
