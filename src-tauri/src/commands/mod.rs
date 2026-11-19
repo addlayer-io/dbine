@@ -62,3 +62,4 @@ pub mod telemetry;
 pub mod updates;
 #[cfg(test)]
 mod vector_live_tests;
+pub(crate) mod vectors;

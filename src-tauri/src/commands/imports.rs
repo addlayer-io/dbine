@@ -3,6 +3,7 @@
 //! `insertMany`, `_bulk`…) run in batches, so every engine imports the same way.
 
 use crate::commands::schema::driver_of;
+use crate::commands::vectors;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_core::import::{self, ImportFormat, ImportOptions, Preview};
@@ -306,6 +307,27 @@ pub async fn import_file(
                 .map_err(|e| CommandError::Sql(format!("no se pudo crear {}: {e}", t.name)))?;
         }
 
+        // The target's vector columns take the file's vectors (JSON-array
+        // text, or arrays) as arrays.
+        let types: Vec<(String, String)> = match &args.create_table {
+            Some(t) => t
+                .columns
+                .iter()
+                .map(|c| (c.name.clone(), c.data_type.clone()))
+                .collect(),
+            None => {
+                let mut s = entry.session.lock().await;
+                s.columns(&args.target)
+                    .await
+                    .map(|cols| cols.into_iter().map(|c| (c.name, c.data_type)).collect())
+                    .unwrap_or_default()
+            }
+        };
+        let id = driver.info().id;
+        let vector_at = vector_targets(&columns, &types, |t| {
+            vectors::of_type(id, t).is_some_and(|m| !m.sparse)
+        });
+
         let mut rows = 0u64;
         let mut last_emit = Instant::now();
         let batch = args.batch.clamp(1, 10_000);
@@ -337,6 +359,7 @@ pub async fn import_file(
                 break;
             }
             let n = chunk.len() as u64;
+            let chunk = vectors::script_rows(&vector_at, chunk);
             let script = driver.insert_script(&args.target, &columns, &chunk)?;
             exec(script)
                 .await
@@ -360,9 +383,64 @@ pub async fn import_file(
     })
 }
 
+/// Which of the import's target `columns` are vector columns, by the
+/// target table's `types` (name, native type; names compared ignoring
+/// case).
+fn vector_targets(
+    columns: &[String],
+    types: &[(String, String)],
+    is_vector: impl Fn(&str) -> bool,
+) -> Vec<bool> {
+    columns
+        .iter()
+        .map(|c| {
+            types
+                .iter()
+                .find(|(n, _)| n == c)
+                .or_else(|| types.iter().find(|(n, _)| n.eq_ignore_ascii_case(c)))
+                .is_some_and(|(_, t)| is_vector(t))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn vector_columns_of_the_target_take_arrays() {
+        let d = crate::commands::vectors::tests::WithVectors;
+        let is_vector = |t: &str| crate::commands::vectors::of_type_in(&d, t).is_some();
+        let columns = vec![
+            "id".to_string(),
+            "Embedding".to_string(),
+            "note".to_string(),
+        ];
+        let types = vec![
+            ("id".to_string(), "integer".to_string()),
+            ("embedding".to_string(), "vector(3)".to_string()),
+            ("note".to_string(), "text".to_string()),
+        ];
+        let at = vector_targets(&columns, &types, is_vector);
+        assert_eq!(at, [false, true, false]);
+        // CSV gives text, JSON arrays; both reach the script as arrays. A
+        // text column with an array's text stays text.
+        let chunk = vec![
+            vec![json!("1"), json!("[1, 2.5, -3]"), json!("[1,2]")],
+            vec![json!("2"), json!([0.5, 1, 0]), json!(null)],
+            vec![json!("3"), json!(""), json!("x")],
+        ];
+        assert_eq!(
+            vectors::script_rows(&at, chunk),
+            vec![
+                vec![json!("1"), json!([1.0, 2.5, -3.0]), json!("[1,2]")],
+                vec![json!("2"), json!([0.5, 1, 0]), json!(null)],
+                vec![json!("3"), json!(""), json!("x")],
+            ]
+        );
+        assert_eq!(vector_targets(&columns, &[], is_vector), [false; 3]);
+    }
 
     fn count(text: &str, delim: u8) -> u64 {
         count_records(text.as_bytes(), delim, &AtomicBool::new(false))

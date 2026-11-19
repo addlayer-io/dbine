@@ -10,10 +10,11 @@
 //! and texts respect the column's length.
 
 use crate::commands::schema::driver_of;
+use crate::commands::vectors;
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use chrono::{Duration as Days, NaiveDate};
-use dbine_driver::{ColumnInfo, ObjectRef, QueryOutcome};
+use dbine_driver::{ColumnInfo, ObjectRef, QueryOutcome, VectorElement, VectorMeta};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -266,7 +267,16 @@ enum Gen {
     List(Vec<String>),
     /// Values taken from the parent of a foreign key.
     Pool(Vec<Value>),
+    /// A random vector of `dims` numbers of `element` (floats of length 1,
+    /// bytes, bits), as the array an insert script takes.
+    Vector {
+        dims: usize,
+        element: VectorElement,
+    },
 }
+
+/// Numbers in a generated vector when its column doesn't say.
+const VECTOR_DIMS: usize = 8;
 
 /// The generator ids the dialog offers (besides "auto").
 pub const GENERATORS: &[&str] = &[
@@ -292,6 +302,7 @@ pub const GENERATORS: &[&str] = &[
     "address",
     "list",
     "foreign_key",
+    "vector",
 ];
 
 /// A column, with what the catalog says about it.
@@ -302,6 +313,8 @@ struct Meta {
     pool: Option<Vec<Value>>,
     /// Single-column primary key or unique: values may not repeat.
     unique: bool,
+    /// The column holds dense vectors (its type, on its engine).
+    vector: Option<VectorMeta>,
 }
 
 /// The length in `varchar(40)` / `nvarchar(max)` (None for max or none).
@@ -343,6 +356,12 @@ fn auto(m: &Meta, rng: &mut Rng) -> Gen {
     }
     if let Some(pool) = &m.pool {
         return Gen::Pool(pool.clone());
+    }
+    if let Some(v) = &m.vector {
+        return Gen::Vector {
+            dims: v.dims.map_or(VECTOR_DIMS, |d| d as usize),
+            element: v.element,
+        };
     }
     let n = m.info.name.to_lowercase();
     let t = m.info.data_type.to_lowercase();
@@ -513,6 +532,13 @@ fn chosen(g: &ColumnGen, m: &Meta, rng: &mut Rng) -> CommandResult<Gen> {
             }
             Gen::List(values)
         }
+        "vector" => Gen::Vector {
+            dims: param(g, "dims")
+                .or(m.vector.as_ref().and_then(|v| v.dims.map(|d| d as usize)))
+                .unwrap_or(VECTOR_DIMS)
+                .clamp(1, 65_536),
+            element: m.vector.as_ref().map_or(VectorElement::F32, |v| v.element),
+        },
         "foreign_key" => match &m.pool {
             Some(p) if !p.is_empty() => Gen::Pool(p.clone()),
             _ => {
@@ -556,6 +582,7 @@ fn id_of(g: &Gen) -> &'static str {
         Gen::Address => "address",
         Gen::List(_) => "list",
         Gen::Pool(_) => "foreign_key",
+        Gen::Vector { .. } => "vector",
     }
 }
 
@@ -635,7 +662,43 @@ fn value(g: &mut Gen, rng: &mut Rng, row: u64, len: Option<usize>) -> Value {
         Gen::Address => s(format!("{} {}", rng.pick(STREETS), rng.range(1, 9999))),
         Gen::List(v) => s(rng.pick(v).clone()),
         Gen::Pool(v) => rng.pick(v).clone(),
+        Gen::Vector { dims, element } => random_vector(rng, *dims, *element),
     }
+}
+
+/// A random vector as a JSON array: floats on the unit sphere (rounded to
+/// what the column keeps), or bytes and bits in their range.
+fn random_vector(rng: &mut Rng, dims: usize, element: VectorElement) -> Value {
+    let nums: Vec<f64> = match element {
+        VectorElement::I8 => (0..dims).map(|_| rng.range(-128, 127) as f64).collect(),
+        VectorElement::U8 => (0..dims).map(|_| rng.range(0, 255) as f64).collect(),
+        VectorElement::Bit => (0..dims).map(|_| rng.range(0, 1) as f64).collect(),
+        _ => {
+            let raw: Vec<f64> = (0..dims).map(|_| rng.float() * 2.0 - 1.0).collect();
+            let norm = raw
+                .iter()
+                .map(|x| x * x)
+                .sum::<f64>()
+                .sqrt()
+                .max(f64::MIN_POSITIVE);
+            raw.into_iter()
+                .map(|x| {
+                    let x = x / norm;
+                    if element == VectorElement::F64 {
+                        x
+                    } else {
+                        // The float32 a column keeps, written the shortest way.
+                        format!("{}", x as f32).parse().unwrap_or(x)
+                    }
+                })
+                .collect()
+        }
+    };
+    Value::Array(
+        nums.into_iter()
+            .map(dbine_driver::model::json_f64)
+            .collect(),
+    )
 }
 
 /// A made-up value of one of the person / place generators (`first_name`,
@@ -863,10 +926,12 @@ async fn metas(
             None => None,
         };
         let is_unique = unique.contains(&c.name);
+        let vector = vectors::of_type(driver.info().id, &c.data_type).filter(|v| !v.sparse);
         out.push(Meta {
             info: c,
             pool,
             unique: is_unique,
+            vector,
         });
     }
     Ok((out, labels))
@@ -1135,6 +1200,7 @@ mod tests {
             },
             pool: None,
             unique: pk,
+            vector: None,
         }
     }
 
@@ -1170,6 +1236,57 @@ mod tests {
         let mut ai = meta("id", "int", true);
         ai.info.auto_increment = true;
         assert!(matches!(auto(&ai, &mut rng), Gen::Skip));
+    }
+
+    /// A vector column gets random vectors of its dimension, as arrays the
+    /// insert script writes as the engine's literal: unit floats, or bytes
+    /// and bits in their range.
+    #[test]
+    fn vector_columns_get_random_vectors() {
+        let mut rng = Rng::new(Some(3));
+        let mut m = meta("embedding", "vector(4)", false);
+        m.vector = Some(VectorMeta::dense(Some(4), VectorElement::F32));
+        let mut g = auto(&m, &mut rng);
+        assert_eq!(id_of(&g), "vector");
+        let v = value(&mut g, &mut rng, 1, Some(4));
+        let nums = dbine_driver::vector::parse_value(&v).expect("a vector");
+        assert_eq!(nums.len(), 4);
+        let norm: f64 = nums.iter().map(|x| x * x).sum::<f64>().sqrt();
+        assert!((norm - 1.0).abs() < 1e-5, "{norm}");
+        // Each number is a float32's, written the shortest way.
+        assert!(nums
+            .iter()
+            .all(|x| format!("{}", *x as f32).parse::<f64>().ok() == Some(*x)));
+        // Without a dimension, the default; the dialog's own dimension wins.
+        m.vector = Some(VectorMeta::dense(None, VectorElement::F32));
+        let mut g = auto(&m, &mut rng);
+        let n = dbine_driver::vector::parse_value(&value(&mut g, &mut rng, 1, None)).unwrap();
+        assert_eq!(n.len(), VECTOR_DIMS);
+        let spec = ColumnGen {
+            name: "embedding".into(),
+            generator: "vector".into(),
+            params: BTreeMap::from([("dims".to_string(), "16".to_string())]),
+            ..Default::default()
+        };
+        let mut g = chosen(&spec, &m, &mut rng).unwrap();
+        let n = dbine_driver::vector::parse_value(&value(&mut g, &mut rng, 1, None)).unwrap();
+        assert_eq!(n.len(), 16);
+        // Bytes and bits.
+        for (element, lo, hi) in [
+            (VectorElement::I8, -128.0, 127.0),
+            (VectorElement::U8, 0.0, 255.0),
+            (VectorElement::Bit, 0.0, 1.0),
+        ] {
+            m.vector = Some(VectorMeta::dense(Some(64), element));
+            let mut g = auto(&m, &mut rng);
+            let n = dbine_driver::vector::parse_value(&value(&mut g, &mut rng, 1, None)).unwrap();
+            assert_eq!(n.len(), 64);
+            assert!(
+                n.iter().all(|x| x.fract() == 0.0 && (lo..=hi).contains(x)),
+                "{element:?} {n:?}"
+            );
+        }
+        assert!(GENERATORS.contains(&"vector"));
     }
 
     #[test]
