@@ -10124,11 +10124,14 @@
  "Databricks anunció {0} filas del resultado y llegaron {1}: no se entrega incompleto.": [
   "crates/drivers/databricks/src/results.rs"
  ],
- "Databricks anunció {0} filas y se leyeron {1}; no se copia una tabla incompleta.": [
+ "Databricks anunció {0} filas y se leyeron {1}; no se usa una lectura incompleta.": [
   "crates/drivers/databricks/src/transfer.rs"
  ],
  "Databricks cortó el resultado por su tamaño (el límite es de 100 GiB): no se entrega incompleto. Probá con un filtro o con menos columnas.": [
   "crates/drivers/databricks/src/results.rs"
+ ],
+ "Databricks cortó la lectura de la tabla por su tamaño (el límite es de 100 GiB); no se usa una lectura incompleta.": [
+  "crates/drivers/databricks/src/transfer.rs"
  ],
  "Databricks devolvió «{0}» en una columna {1} y no se pudo leer; no se copia un valor alterado.": [
   "crates/drivers/databricks/src/transfer.rs"
@@ -10185,9 +10188,6 @@
  ],
  "Databricks rechazó el inicio de sesión: {0}": [
   "crates/drivers/databricks/src/u2m.rs"
- ],
- "Databricks truncó el resultado de la lectura (el límite de las respuestas en línea es de unos 25 MiB); no se copia una tabla incompleta.": [
-  "crates/drivers/databricks/src/transfer.rs"
  ],
  "Datacenter": [
   "crates/drivers/cassandra/src/monitor.rs"
@@ -22648,7 +22648,7 @@
  "La respuesta de CouchDB ({0} bytes) no entra en memoria.": [
   "crates/drivers/couchdb/src/transfer.rs"
  ],
- "La respuesta de Databricks no dice cuántos bloques tiene el resultado; no se copia una tabla que podría quedar incompleta.": [
+ "La respuesta de Databricks no dice cuántos bloques tiene el resultado; no se usa una lectura que podría quedar incompleta.": [
   "crates/drivers/databricks/src/transfer.rs"
  ],
  "La respuesta de Power BI es demasiado grande": [
@@ -22774,6 +22774,9 @@
  ],
  "La tabla pasa a ser una etiqueta de nodos y sus columnas, propiedades: los tipos indican cómo quedan los valores, nada los controla.": [
   "crates/dbine-schema/src/dialect/graph.rs"
+ ],
+ "La tabla pasa los 25 MiB que Databricks entrega en la respuesta, y Databricks rechazó entregarla por enlaces externos, que no tienen ese límite: {0}. No se usa una lectura incompleta.": [
+  "crates/drivers/databricks/src/transfer.rs"
  ],
  "La tabla {0} no es Delta (formato {1}): la carga masiva de Databricks confirma por tandas y solo en una tabla Delta puede deshacerlas si la carga falla.": [
   "crates/drivers/databricks/src/transfer.rs"

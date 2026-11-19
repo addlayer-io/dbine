@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixes
+
+- **Databricks tables over 25 MiB in Compare data without the reason:** comparing, copying or exporting a Databricks table could stop with "Databricks truncó el resultado… no se copia una tabla incompleta", even in a comparison. Behind it, Databricks had refused to deliver the table through external links, the way without a size limit, and the error left out what Databricks said. The error now gives Databricks' reason and talks about the read, not a copy. A refusal that comes after the query was sent is also detected.
+
 ## [1.6.3] - 2026-11-18
 
 ### Improvements
