@@ -93,9 +93,11 @@ impl Dialect for CosmosDb {
                     "su columna vectorial no tiene dimensión, y Cosmos DB la necesita".into(),
                 )
             }
-            Some(L::Vector { dims: Some(n), .. }) if *n > MAX_DIMS => return Err(format!(
+            Some(L::Vector { dims: Some(n), .. }) if *n > MAX_DIMS => {
+                return Err(format!(
                 "Cosmos DB indexa vectores de hasta {MAX_DIMS} dimensiones, y su columna tiene {n}"
-            )),
+            ))
+            }
             _ => {}
         }
         let bits = matches!(
