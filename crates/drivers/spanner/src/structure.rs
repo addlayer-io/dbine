@@ -7,13 +7,16 @@
 //!
 //! Index settings go into [`IndexDef::options`]: `desc` (the descending key
 //! columns), `interleave_in`, `partition_by` / `order_by` (search indexes)
-//! and each `OPTIONS (…)` entry under its own name.
+//! and each `OPTIONS (…)` entry under its own name. A vector index also
+//! gets its [`IndexDef::vector`]: the distance (`cosine`, `l2`, `ip`) and
+//! the tree's sizes (`num_leaves` as the standard `lists`), which win over
+//! the native options when the index is written (the designer edits them
+//! there).
 
 use crate::{bq, bq_qualified};
 use dbine_driver::alter::check_expr;
-#[cfg(test)]
-use dbine_driver::TableSchema;
-use dbine_driver::{CheckDef, IndexDef, SyncScript, TableChange};
+use dbine_driver::vector::{metric, param};
+use dbine_driver::{CheckDef, IndexDef, SyncScript, TableChange, TableSchema, VectorIndex};
 use std::collections::BTreeMap;
 
 pub const OPT_DESC: &str = "desc";
@@ -31,15 +34,141 @@ fn is(kind: &Option<String>, k: &str) -> bool {
     kind.as_deref().is_some_and(|x| x.eq_ignore_ascii_case(k))
 }
 
+/// A vector index, by its kind or by its vector settings (the designer
+/// may set only those).
+pub fn is_vector(ix: &IndexDef) -> bool {
+    ix.vector.is_some() || is(&ix.kind, VECTOR)
+}
+
 /// `CREATE [SEARCH |VECTOR ]INDEX` / `DROP … INDEX`: the keyword for the kind.
 fn index_word(ix: &IndexDef) -> &'static str {
     if is(&ix.kind, SEARCH) {
         "SEARCH INDEX"
-    } else if is(&ix.kind, VECTOR) {
+    } else if is_vector(ix) {
         "VECTOR INDEX"
     } else {
         "INDEX"
     }
+}
+
+/// A vector index's `OPTIONS` entries (the distance and the tree's sizes).
+const VECTOR_OPTIONS: &[&str] = &[
+    "distance_type",
+    "tree_depth",
+    "num_leaves",
+    "num_branches",
+    "leaf_scatter_factor",
+    "min_leaf_splits",
+    "min_branch_splits",
+];
+
+/// What a vector parameter is called in `OPTIONS` (`lists` is `num_leaves`).
+fn spanner_param(k: &str) -> &str {
+    if k == param::LISTS {
+        "num_leaves"
+    } else {
+        k
+    }
+}
+
+fn unquoted(v: &str) -> String {
+    v.trim().trim_matches(|c| c == '\'' || c == '"').to_string()
+}
+
+/// The vector settings of a vector index's `OPTIONS`.
+pub fn vector_of(options: &BTreeMap<String, String>) -> VectorIndex {
+    let metric =
+        options
+            .get("distance_type")
+            .map(|d| match unquoted(d).to_ascii_uppercase().as_str() {
+                "COSINE" => metric::COSINE.to_string(),
+                "EUCLIDEAN" => metric::L2.to_string(),
+                "DOT_PRODUCT" => metric::IP.to_string(),
+                other => other.to_ascii_lowercase(),
+            });
+    let params = VECTOR_OPTIONS[1..]
+        .iter()
+        .filter_map(|k| {
+            let v = options.get(*k)?;
+            let k = if *k == "num_leaves" { param::LISTS } else { k };
+            Some((k.to_string(), unquoted(v)))
+        })
+        .collect();
+    VectorIndex {
+        algorithm: None,
+        metric,
+        params,
+    }
+}
+
+/// The index's options, with a vector index's settings from its
+/// [`IndexDef::vector`] in Spanner's words. A vector index needs a
+/// distance: COSINE when none was chosen.
+pub fn effective_options(ix: &IndexDef) -> BTreeMap<String, String> {
+    let Some(v) = &ix.vector else {
+        return ix.options.clone();
+    };
+    let mut o: BTreeMap<String, String> = ix
+        .options
+        .iter()
+        .filter(|(k, _)| !VECTOR_OPTIONS.contains(&k.as_str()))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    let distance = match v.metric.as_deref() {
+        None | Some(metric::COSINE) => "COSINE".to_string(),
+        Some(metric::L2) => "EUCLIDEAN".into(),
+        Some(metric::IP) => "DOT_PRODUCT".into(),
+        Some(other) => other.to_ascii_uppercase(),
+    };
+    o.insert("distance_type".into(), format!("'{distance}'"));
+    for (k, val) in &v.params {
+        let k = spanner_param(k);
+        if VECTOR_OPTIONS[1..].contains(&k) && !val.trim().is_empty() {
+            o.insert(k.to_string(), val.trim().to_string());
+        }
+    }
+    o
+}
+
+/// A vector index as Spanner writes it: one key column (the vector; the
+/// designer's filter columns are `STORING`), a vector kind, its options from
+/// its settings, and, on a nullable column, the `IS NOT NULL` filter
+/// Spanner requires. Any other index is left as it is.
+pub fn prepared(t: &TableSchema, ix: &IndexDef) -> IndexDef {
+    if !is_vector(ix) {
+        return ix.clone();
+    }
+    let mut out = ix.clone();
+    out.kind = Some(VECTOR.into());
+    out.unique = false;
+    out.options = effective_options(ix);
+    if out.columns.len() > 1 {
+        let rest = out.columns.split_off(1);
+        for c in rest {
+            if !out.include.iter().any(|i| i.eq_ignore_ascii_case(&c)) {
+                out.include.push(c);
+            }
+        }
+    }
+    if out.filter.as_deref().is_none_or(|f| f.trim().is_empty()) {
+        if let Some(c) = out.columns.first() {
+            let nullable = t
+                .columns
+                .iter()
+                .find(|x| x.name.eq_ignore_ascii_case(c))
+                .is_none_or(|x| x.nullable);
+            if nullable {
+                // As Spanner reports it back (INFORMATION_SCHEMA.INDEXES.FILTER).
+                let col = if c.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
+                    c.clone()
+                } else {
+                    bq(c)
+                };
+                out.filter = Some(format!("{col} IS NOT NULL"));
+            }
+        }
+    }
+    out
 }
 
 /// Spanner names an unnamed CHECK `CK_<table>_<16 hex>_<n>`; the name
@@ -184,7 +313,7 @@ pub fn index_ddl(schema: Option<&str>, table: &str, ix: &IndexDef, if_not_exists
         .collect();
     let mut s = format!(
         "CREATE {}{}{} {}{} ON {} ({})",
-        if ix.unique && !is(&ix.kind, SEARCH) && !is(&ix.kind, VECTOR) {
+        if ix.unique && !is(&ix.kind, SEARCH) && !is_vector(ix) {
             "UNIQUE "
         } else {
             ""
@@ -307,6 +436,28 @@ pub fn prepare_checks(changes: &[TableChange]) -> Vec<TableChange> {
         .collect()
 }
 
+/// Before the generic planner: vector indexes in the form Spanner writes
+/// and reports them ([`prepared`]), so a designer's change to their
+/// settings is a change and an untouched one isn't.
+pub fn prepare_vectors(changes: &[TableChange]) -> Vec<TableChange> {
+    let fix = |t: &TableSchema| {
+        let mut t = t.clone();
+        t.indexes = t.indexes.iter().map(|ix| prepared(&t, ix)).collect();
+        t
+    };
+    changes
+        .iter()
+        .map(|ch| match ch {
+            TableChange::Alter { old, new } => TableChange::Alter {
+                old: fix(old),
+                new: fix(new),
+            },
+            TableChange::Create { table } => TableChange::Create { table: fix(table) },
+            other => other.clone(),
+        })
+        .collect()
+}
+
 /// After the generic planner: search and vector indexes drop with their
 /// own keyword.
 pub fn fix_script(script: &mut SyncScript, changes: &[TableChange]) {
@@ -318,7 +469,7 @@ pub fn fix_script(script: &mut SyncScript, changes: &[TableChange]) {
         for ix in old
             .indexes
             .iter()
-            .filter(|i| is(&i.kind, SEARCH) || is(&i.kind, VECTOR))
+            .filter(|i| is(&i.kind, SEARCH) || is_vector(i))
         {
             let plain = format!("DROP INDEX {};", bq_qualified(schema, &ix.name));
             for s in script.statements.iter_mut().filter(|s| **s == plain) {
@@ -421,6 +572,116 @@ mod tests {
         assert_eq!(
             index_ddl(None, "p", &ix, false),
             "CREATE SEARCH INDEX `sx` ON `p` (`toks`) PARTITION BY a ORDER BY c DESC;"
+        );
+    }
+
+    #[test]
+    fn vector_indexes_carry_their_settings() {
+        let ddl = "CREATE VECTOR INDEX vx ON v(f) STORING (e) WHERE f IS NOT NULL OPTIONS ( tree_depth = 3, num_leaves = 100, num_branches = 10, distance_type = 'DOT_PRODUCT' )";
+        let opts = ddl_options(ddl);
+        let v = vector_of(&opts);
+        assert_eq!(v.metric.as_deref(), Some("ip"));
+        assert_eq!(v.algorithm, None);
+        assert_eq!(v.params.get("lists").map(String::as_str), Some("100"));
+        assert_eq!(v.params.get("tree_depth").map(String::as_str), Some("3"));
+        assert_eq!(v.params.get("num_branches").map(String::as_str), Some("10"));
+        // Read back as it was written: nothing to sync.
+        let ix = IndexDef {
+            name: "vx".into(),
+            columns: vec!["f".into()],
+            include: vec!["e".into()],
+            kind: Some(VECTOR.into()),
+            filter: Some("f IS NOT NULL".into()),
+            options: opts.clone(),
+            vector: Some(v),
+            ..Default::default()
+        };
+        assert_eq!(effective_options(&ix), opts);
+        let t = TableSchema {
+            name: "v".into(),
+            columns: vec![
+                dbine_driver::ColumnDef {
+                    name: "id".into(),
+                    data_type: "INT64".into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                dbine_driver::ColumnDef {
+                    name: "f".into(),
+                    data_type: "ARRAY<FLOAT64>(vector_length=>2)".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+                dbine_driver::ColumnDef {
+                    name: "e".into(),
+                    data_type: "ARRAY<FLOAT32>(vector_length=>3)".into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(prepared(&t, &ix), ix);
+        assert_eq!(index_ddl(None, "v", &prepared(&t, &ix), false), "CREATE VECTOR INDEX `vx` ON `v` (`f`) STORING (`e`) WHERE f IS NOT NULL OPTIONS (distance_type = 'DOT_PRODUCT', num_branches = 10, num_leaves = 100, tree_depth = 3);");
+
+        // From the designer: only its vector settings, a filter column, a
+        // nullable vector column (Spanner wants it null-filtered).
+        let mut d = dbine_driver::VectorIndex {
+            metric: Some("l2".into()),
+            ..Default::default()
+        };
+        d.params.insert("lists".into(), "50".into());
+        d.params.insert("m".into(), "16".into());
+        let designed = IndexDef {
+            name: "vy".into(),
+            columns: vec!["f".into(), "e".into()],
+            vector: Some(d),
+            ..Default::default()
+        };
+        let p = prepared(&t, &designed);
+        assert_eq!(index_ddl(Some("s"), "v", &p, true), "CREATE VECTOR INDEX IF NOT EXISTS `s`.`vy` ON `s`.`v` (`f`) STORING (`e`) WHERE f IS NOT NULL OPTIONS (distance_type = 'EUCLIDEAN', num_leaves = 50);");
+        assert_eq!(
+            drop_index(None, &designed, false),
+            "DROP VECTOR INDEX `vy`;"
+        );
+        // A NOT NULL column takes no filter; no distance chosen is COSINE.
+        let p = prepared(
+            &t,
+            &IndexDef {
+                name: "vz".into(),
+                columns: vec!["e".into()],
+                vector: Some(Default::default()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            index_ddl(None, "v", &p, false),
+            "CREATE VECTOR INDEX `vz` ON `v` (`e`) OPTIONS (distance_type = 'COSINE');"
+        );
+        // The designer changing the distance of an index read from the
+        // database: its options say so, so the sync sees the change.
+        let mut edited = ix.clone();
+        edited.vector.as_mut().unwrap().metric = Some("cosine".into());
+        let ch = prepare_vectors(&[TableChange::Alter {
+            old: TableSchema {
+                indexes: vec![ix.clone()],
+                ..t.clone()
+            },
+            new: TableSchema {
+                indexes: vec![edited],
+                ..t.clone()
+            },
+        }]);
+        let TableChange::Alter { old, new } = &ch[0] else {
+            unreachable!()
+        };
+        assert_ne!(old.indexes[0].options, new.indexes[0].options);
+        assert_eq!(
+            new.indexes[0]
+                .options
+                .get("distance_type")
+                .map(String::as_str),
+            Some("'COSINE'")
         );
     }
 

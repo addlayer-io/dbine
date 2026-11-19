@@ -1044,6 +1044,12 @@ pub(crate) fn to_cell(v: &Json, t: &Json) -> Cell {
         ("TIMESTAMP", Json::String(s)) => Cell::DateTimeTz(timestamp_text(s)),
         ("UUID", Json::String(s)) => Cell::Uuid(s.to_ascii_lowercase()),
         ("JSON", Json::String(s)) => Cell::Json(s.clone()),
+        // A vector: its canonical text (FLOAT32 at its own precision).
+        ("ARRAY", _) if crate::vector_element(t).is_some() => Cell::Json(
+            crate::vector_element(t)
+                .and_then(|e| crate::vector_text(v, e))
+                .unwrap_or_else(|| whole_json(v, t).to_string()),
+        ),
         ("ARRAY" | "STRUCT", _) => Cell::Json(whole_json(v, t).to_string()),
         (_, Json::String(s)) => Cell::Text(s.clone()),
         (_, Json::Bool(b)) => Cell::Bool(*b),

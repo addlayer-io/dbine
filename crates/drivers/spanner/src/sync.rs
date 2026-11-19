@@ -46,6 +46,8 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
     let mut planned = Vec::with_capacity(changes.len());
     // Generated CHECK names pair by condition.
     let changes = &crate::structure::prepare_checks(changes);
+    // Vector indexes as Spanner writes them (their settings in OPTIONS).
+    let changes = &crate::structure::prepare_vectors(changes);
     for ch in changes {
         planned.push(match ch {
             TableChange::Alter { old, new } => {
