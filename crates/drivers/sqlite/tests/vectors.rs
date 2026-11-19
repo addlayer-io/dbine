@@ -193,3 +193,120 @@ async fn libsql_vector_columns_in_a_file() {
         std::panic::resume_unwind(e.into_panic());
     }
 }
+
+/// A table with a libSQL vector index (a pgvector table converted for
+/// SQLite, or one a libSQL file has): SQLite's DDL and sync scripts leave
+/// the index out, saying why, and run on a real file.
+#[tokio::test]
+async fn libsql_vector_indexes_left_out_on_sqlite() {
+    use dbine_driver::{ColumnDef, DdlParts, IndexDef, TableChange, TableSchema, VectorIndex};
+    let path = std::env::temp_dir().join(format!("dbine-sqlite-vecix-{}.db", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let d: Arc<dyn Driver> = dbine_driver_sqlite::drivers().pop().unwrap();
+    let cfg = ConnectionConfig {
+        driver: "sqlite".into(),
+        host: path.to_string_lossy().into(),
+        ..Default::default()
+    };
+    let r = {
+        let (d, cfg) = (d.clone(), cfg.clone());
+        tokio::spawn(async move {
+            let col = |name: &str, ty: &str| ColumnDef {
+                name: name.into(),
+                data_type: ty.into(),
+                nullable: name != "id",
+                ..Default::default()
+            };
+            let t = TableSchema {
+                name: "docs".into(),
+                columns: vec![col("id", "INTEGER"), col("emb", "F32_BLOB(3)")],
+                indexes: vec![
+                    IndexDef {
+                        name: "docs_emb".into(),
+                        columns: vec!["emb".into()],
+                        vector: Some(VectorIndex {
+                            metric: Some("cosine".into()),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    },
+                    IndexDef {
+                        name: "docs_id".into(),
+                        columns: vec!["id".into()],
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            };
+            let ddl = d
+                .table_ddl(
+                    &t,
+                    DdlParts {
+                        create: true,
+                        indexes: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            assert!(!ddl.contains("CREATE INDEX \"docs_emb\""), "{ddl}");
+            assert!(
+                ddl.contains("-- El índice vectorial «docs_emb» no se crea"),
+                "{ddl}"
+            );
+            let mut s = d.connect(&cfg, None).await.unwrap();
+            run(&mut s, &ddl).await;
+            let schema = s.database_schema().await.unwrap();
+            assert_eq!(
+                schema[0]
+                    .indexes
+                    .iter()
+                    .map(|i| i.name.as_str())
+                    .collect::<Vec<_>>(),
+                ["docs_id"]
+            );
+            // A sync that adds the index, one that adds a column and one
+            // that rebuilds the table (dropping that column).
+            let mut wider = t.clone();
+            wider.columns.push(col("n", "TEXT"));
+            for (new, rebuild) in [(t.clone(), false), (wider, false), (t.clone(), true)] {
+                let old = s.database_schema().await.unwrap().remove(0);
+                let sync = d.sync_script(&[TableChange::Alter { old, new }]).unwrap();
+                assert_eq!(
+                    sync.statements.iter().any(|st| st.contains("DROP TABLE")),
+                    rebuild,
+                    "{:?}",
+                    sync.statements
+                );
+                assert_eq!(
+                    sync.warnings
+                        .iter()
+                        .filter(|w| w.contains("«docs_emb» no se crea"))
+                        .count(),
+                    1,
+                    "{:?}",
+                    sync.warnings
+                );
+                for st in &sync.statements {
+                    assert!(!st.contains("libsql_vector_idx"), "{st}");
+                    run(&mut s, st).await;
+                }
+            }
+            let schema = s.database_schema().await.unwrap();
+            assert_eq!(
+                schema[0]
+                    .columns
+                    .iter()
+                    .map(|c| c.name.as_str())
+                    .collect::<Vec<_>>(),
+                ["id", "emb"]
+            );
+            assert_eq!(schema[0].indexes.len(), 1);
+            assert!(schema[0].indexes[0].vector.is_none());
+        })
+    };
+    let r = r.await;
+    let _ = std::fs::remove_file(&path);
+    if let Err(e) = r {
+        std::panic::resume_unwind(e.into_panic());
+    }
+}

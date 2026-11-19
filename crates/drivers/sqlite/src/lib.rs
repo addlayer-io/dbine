@@ -218,8 +218,10 @@ impl Driver for SqliteDriver {
         schema::create_templates()
     }
 
+    /// libSQL's vector indexes (a file libSQL wrote) are left out with a
+    /// comment: SQLite has no `libsql_vector_idx`.
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
-        Ok(schema::table_ddl(table, parts))
+        Ok(schema::table_ddl_for(table, parts, false))
     }
 
     fn supports_schema_sync(&self) -> bool {
@@ -266,11 +268,12 @@ impl Driver for SqliteDriver {
     }
 
     /// Columns are added in place; any other change rebuilds the table.
+    /// libSQL's vector indexes are left out with a warning.
     fn sync_script(
         &self,
         changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
-        schema::sync_script(changes)
+        schema::sync_script_for(changes, false)
     }
 
     /// Tables and columns with `ALTER TABLE … RENAME`, which views and

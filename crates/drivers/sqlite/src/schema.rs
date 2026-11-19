@@ -161,6 +161,17 @@ pub fn parse_vector_key(key: &str) -> Option<(String, VectorIndex)> {
     Some((column, v))
 }
 
+/// Index option: a libSQL vector index's whole key, as [`vector_index_sql`]
+/// writes it. [`IndexDef::vector`] is what the DDL reads; this copy is for
+/// the schema compare, which compares an index's columns, kind and options
+/// but not its vector settings: without it two indexes that differ only in
+/// their metric or settings would compare equal.
+pub const VECTOR_OPTION: &str = "vector";
+
+/// A vector index's dimension as another family's index may carry it
+/// (ClickHouse's): not a libSQL setting (the column's type has it).
+const DIMENSIONS: &str = "dimensions";
+
 /// `libsql_vector_idx("col", 'type=…', 'metric=…', '<setting>=…')`: a
 /// vector index's key, with its settings in libSQL's names.
 pub fn vector_index_sql(column: &str, v: &VectorIndex) -> String {
@@ -172,7 +183,11 @@ pub fn vector_index_sql(column: &str, v: &VectorIndex) -> String {
     if let Some(m) = v.metric.as_deref().filter(|m| !m.is_empty()) {
         args.push(lit(format!("metric={m}")));
     }
-    for (k, val) in v.params.iter().filter(|(_, x)| !x.trim().is_empty()) {
+    for (k, val) in v
+        .params
+        .iter()
+        .filter(|(k, x)| !x.trim().is_empty() && k.as_str() != DIMENSIONS)
+    {
         let native = VECTOR_SETTINGS
             .iter()
             .find(|(_, std)| std == k)
@@ -246,7 +261,24 @@ fn index_column(c: &str) -> String {
     }
 }
 
+/// Why SQLite leaves a libSQL vector index out (a file libSQL wrote, or a
+/// table converted from another engine's vectors): its key calls
+/// `libsql_vector_idx`, which only libSQL has.
+pub fn no_vector_index(name: &str) -> String {
+    format!(
+        "El índice vectorial «{name}» no se crea: SQLite no tiene libsql_vector_idx (es de libSQL); hay que crearlo desde una conexión libSQL."
+    )
+}
+
+/// libSQL's DDL: its vector indexes included.
 pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
+    table_ddl_for(t, parts, true)
+}
+
+/// The DDL; `vector_indexes` false (SQLite) writes a comment saying why
+/// where each libSQL vector index would go, instead of a `CREATE INDEX`
+/// that fails ("no such function: libsql_vector_idx").
+pub fn table_ddl_for(t: &TableSchema, parts: DdlParts, vector_indexes: bool) -> String {
     let mut out = Vec::new();
     if parts.drop || parts.create {
         let mut s = ddl::table_ddl(
@@ -273,6 +305,10 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
         let table = quote_ident(Quote::Double, &t.name);
         for ix in &t.indexes {
             if let (Some(v), Some(col)) = (&ix.vector, ix.columns.first()) {
+                if !vector_indexes {
+                    out.push(format!("-- {}", no_vector_index(&ix.name)));
+                    continue;
+                }
                 let mut s = format!(
                     "CREATE INDEX {}{} ON {table} ({})",
                     if parts.if_exists {
@@ -370,11 +406,22 @@ pub fn mark_vector_changes(old: &TableSchema, new: &TableSchema) -> TableSchema 
     old
 }
 
-/// Columns are added in place; any other change rebuilds the table (new
-/// table, copy, drop, rename). SQLite can't add or drop a CHECK with ALTER
-/// TABLE, so a table whose CHECKs change is rebuilt too.
+/// libSQL's sync script: its vector indexes included.
 pub fn sync_script(
     changes: &[dbine_driver::TableChange],
+) -> dbine_driver::Result<dbine_driver::SyncScript> {
+    sync_script_for(changes, true)
+}
+
+/// Columns are added in place; any other change rebuilds the table (new
+/// table, copy, drop, rename). SQLite can't add or drop a CHECK with ALTER
+/// TABLE, so a table whose CHECKs change is rebuilt too. `vector_indexes`
+/// false (SQLite): a libSQL vector index the script would create is left
+/// out, with a warning saying why ([`no_vector_index`]); one a rebuild drops
+/// with its table is gone.
+pub fn sync_script_for(
+    changes: &[dbine_driver::TableChange],
+    vector_indexes: bool,
 ) -> dbine_driver::Result<dbine_driver::SyncScript> {
     use dbine_driver::alter::{self, AlterStyle, ColumnAlter, TableChange};
     let changes: Vec<TableChange> = changes
@@ -402,11 +449,30 @@ pub fn sync_script(
         })
         .collect();
     let cd = |t: &TableSchema, c: &ColumnDef| ddl::column_def(&FLAVOR, t, c);
-    let dd = |t: &TableSchema, p: DdlParts| Ok(table_ddl(t, p));
+    let dd = |t: &TableSchema, p: DdlParts| Ok(table_ddl_for(t, p, vector_indexes));
     let mut script = alter::sync_script(
         &AlterStyle::from_flavor(&FLAVOR, ColumnAlter::Recreate, &cd, &dd),
         &changes,
     )?;
+    if !vector_indexes {
+        // The comments table_ddl wrote instead: warnings, not statements.
+        let mut warnings = Vec::new();
+        for st in &mut script.statements {
+            let (notes, rest): (Vec<&str>, Vec<&str>) = st
+                .lines()
+                .partition(|l| l.starts_with("-- El índice vectorial «"));
+            if !notes.is_empty() {
+                warnings.extend(
+                    notes
+                        .iter()
+                        .map(|n| n.trim_start_matches("-- ").to_string()),
+                );
+                *st = rest.join("\n");
+            }
+        }
+        script.statements.retain(|st| !st.trim().is_empty());
+        script.warnings.extend(warnings);
+    }
     // Dropping a table (alone or in a rebuild) with foreign keys on deletes
     // its rows first, which fails while another table's rows point to them;
     // and renaming the rebuilt table checks every view and trigger, which
@@ -950,6 +1016,8 @@ pub fn read_schema_with<E>(
                 if let Some((col, v)) = parse_vector_key(key) {
                     ix.options
                         .retain(|k, _| !k.starts_with(COLLATE) && k != DESC);
+                    ix.options
+                        .insert(VECTOR_OPTION.into(), vector_index_sql(&col, &v));
                     ix.columns = vec![col];
                     ix.vector = Some(v);
                 }
@@ -1044,6 +1112,34 @@ mod tests {
             ddl,
             "CREATE INDEX IF NOT EXISTS \"docs_emb\" ON \"docs\" (libsql_vector_idx(\"emb x\", 'metric=l2', 'insert_l=40', 'max_neighbors=8')) WHERE rowid > 0;"
         );
+        // SQLite can't create it: a comment says why, and a sync script
+        // leaves it out with a warning (no statement fails on
+        // "no such function: libsql_vector_idx").
+        assert_eq!(
+            table_ddl_for(
+                &t,
+                DdlParts {
+                    indexes: true,
+                    ..Default::default()
+                },
+                false
+            ),
+            format!("-- {}", no_vector_index("docs_emb"))
+        );
+        let lite = sync_script_for(
+            &[dbine_driver::TableChange::Create { table: t.clone() }],
+            false,
+        )
+        .unwrap();
+        assert!(
+            lite.statements
+                .iter()
+                .all(|x| !x.contains("libsql_vector_idx") && !x.contains("-- ")),
+            "{:?}",
+            lite.statements
+        );
+        assert!(lite.statements[0].starts_with("CREATE TABLE"));
+        assert_eq!(lite.warnings, [no_vector_index("docs_emb")]);
         // What the DDL writes reads back the same.
         let key = ddl.split(" ON \"docs\" ").nth(1).unwrap();
         let key = key.split(" WHERE").next().unwrap();

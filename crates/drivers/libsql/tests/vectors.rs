@@ -202,7 +202,14 @@ async fn vectors_end_to_end() {
     let copy = format!("vec_c_{pid}");
     let back = format!("vec_b_{pid}");
     let from_pg = format!("vec_p_{pid}");
-    let names = vec![name.clone(), copy.clone(), back.clone(), from_pg.clone()];
+    let other = format!("vec_l_{pid}");
+    let names = vec![
+        name.clone(),
+        copy.clone(),
+        back.clone(),
+        from_pg.clone(),
+        other.clone(),
+    ];
     let pg_table = format!("dbine_vec_libsql_{pid}");
     let file = std::env::temp_dir().join(format!("dbine-libsql-vec-{pid}.db"));
     let meta_was_there = {
@@ -222,13 +229,14 @@ async fn vectors_end_to_end() {
         && psql_in(&pg_table, "CREATE EXTENSION vector").is_some();
 
     let body = {
-        let (name, copy, back, from_pg, pg_table, file) = (
+        let (name, copy, back, from_pg, pg_table, file, other) = (
             name.clone(),
             copy.clone(),
             back.clone(),
             from_pg.clone(),
             pg_table.clone(),
             file.clone(),
+            other.clone(),
         );
         tokio::spawn(async move {
             let psql = |sql: &str| psql_in(&pg_table, sql);
@@ -348,6 +356,39 @@ async fn vectors_end_to_end() {
             let ix = &t.indexes[0];
             assert_eq!(ix.columns, ["emb"]);
             assert_eq!(ix.vector, schema(&name).indexes[0].vector);
+            // Its key in the options too, for the schema compare: an index
+            // that differs only in its metric isn't the same index.
+            assert_eq!(
+                ix.options.get("vector").map(String::as_str),
+                Some("libsql_vector_idx(\"emb\", 'metric=cosine', 'max_neighbors=16')")
+            );
+            let mut l2 = schema(&other);
+            l2.indexes[0].vector.as_mut().unwrap().metric = Some("l2".into());
+            run(
+                &mut s,
+                &d.table_ddl(
+                    &l2,
+                    DdlParts {
+                        create: true,
+                        indexes: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap(),
+            )
+            .await;
+            let all = s.database_schema().await.unwrap();
+            let o = &all.iter().find(|t| t.name == other).unwrap().indexes[0];
+            assert_eq!(
+                (&o.columns, &o.kind, o.unique, &o.filter),
+                (&ix.columns, &ix.kind, ix.unique, &ix.filter)
+            );
+            assert_ne!(o.options, ix.options);
+            assert!(
+                o.options["vector"].contains("'metric=l2'"),
+                "{:?}",
+                o.options
+            );
             // The DDL from the catalog makes the same index (compare, clone).
             let again = d
                 .table_ddl(
@@ -465,18 +506,23 @@ async fn vectors_end_to_end() {
                 ..Default::default()
             };
             let mut f = sqlite.connect(&fcfg, None).await.unwrap();
+            // SQLite's DDL leaves the vector index out (it has no
+            // libsql_vector_idx), saying why, and runs.
             let file_ddl = sqlite
                 .table_ddl(
-                    &TableSchema {
-                        indexes: Vec::new(),
-                        ..schema(&name)
-                    },
+                    &schema(&name),
                     DdlParts {
                         create: true,
+                        indexes: true,
                         ..Default::default()
                     },
                 )
                 .unwrap();
+            assert!(
+                !file_ddl.contains("libsql_vector_idx(")
+                    && file_ddl.contains("-- El índice vectorial"),
+                "{file_ddl}"
+            );
             run(&mut f, &file_ddl).await;
             load(&mut f, &name, &["id", "emb", "emb64", "half"], rows.clone()).await;
             let out = run(

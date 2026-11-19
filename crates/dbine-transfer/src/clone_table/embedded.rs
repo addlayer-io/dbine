@@ -690,6 +690,7 @@ pub(super) async fn native_ddl(
     let mut hnsw = false;
     let mut left_out = Vec::new();
     let mut moved = Vec::new();
+    let mut no_vector = Vec::new();
     for r in strings(s, &index_sql).await? {
         let mut r = r.into_iter();
         let (Some(name), Some(sql)) = (r.next().flatten(), r.next().flatten()) else {
@@ -700,6 +701,14 @@ pub(super) async fn native_ddl(
                 .ok()
                 .is_some_and(|k| is_word(k.get(1), "UNIQUE"));
             left_out.push((name, unique));
+            continue;
+        }
+        // A libSQL vector index in a file SQLite opens: SQLite can't create
+        // it (no `libsql_vector_idx`).
+        if id == "sqlite" && sql.to_ascii_lowercase().contains("libsql_vector_idx") {
+            no_vector.push(format!(
+                "el índice vectorial «{name}» no se crea en el clon: SQLite no tiene libsql_vector_idx (es de libSQL); hay que crearlo desde una conexión libSQL"
+            ));
             continue;
         }
         let (base, _) = rename_constraint(&name, &t.name, new_name, 0);
@@ -748,6 +757,7 @@ pub(super) async fn native_ddl(
         });
     }
     let mut notes = moved;
+    notes.extend(no_vector);
     if !left_out.is_empty() {
         let names = |u: bool| {
             left_out
