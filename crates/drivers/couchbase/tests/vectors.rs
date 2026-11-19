@@ -6,8 +6,14 @@
 //!   cargo test -p dbine-driver-couchbase --test vectors -- --ignored --nocapture
 //! ```
 //!
-//! The test's bucket is dropped first and at the end. The container has no
-//! Search service: Search (FTS) vector indexes are covered by unit tests.
+//! The test's bucket is dropped first and at the end. That container has no
+//! Search service; Search (FTS) vector indexes run against a node that has
+//! one (data, index, query and fts services):
+//!
+//! ```sh
+//! DBINE_TEST_COUCHBASE_FTS_URL=http://localhost:25893 DBINE_TEST_COUCHBASE_FTS_MGMT_PORT=25891 \
+//!   cargo test -p dbine-driver-couchbase --test vectors couchbase_search -- --ignored --nocapture
+//! ```
 
 use dbine_driver::async_trait;
 use dbine_driver::transfer::{
@@ -26,8 +32,11 @@ use std::time::{Duration, Instant};
 const BUCKET: &str = "dbine_vec_it";
 
 fn cfg(database: &str) -> Option<ConnectionConfig> {
-    let url =
-        reqwest::Url::parse(&std::env::var("DBINE_TEST_COUCHBASE_EE_URL").ok()?).expect("URL");
+    cfg_of("DBINE_TEST_COUCHBASE_EE", database)
+}
+
+fn cfg_of(prefix: &str, database: &str) -> Option<ConnectionConfig> {
+    let url = reqwest::Url::parse(&std::env::var(format!("{prefix}_URL")).ok()?).expect("URL");
     let mut c = ConnectionConfig {
         driver: "couchbase".into(),
         host: url.host_str()?.into(),
@@ -39,7 +48,7 @@ fn cfg(database: &str) -> Option<ConnectionConfig> {
     };
     c.options.insert(
         "mgmt_port".into(),
-        std::env::var("DBINE_TEST_COUCHBASE_EE_MGMT_PORT").unwrap_or_else(|_| "8091".into()),
+        std::env::var(format!("{prefix}_MGMT_PORT")).unwrap_or_else(|_| "8091".into()),
     );
     Some(c)
 }
@@ -501,4 +510,193 @@ async fn couchbase_vector_indexes() {
 
     drop(s);
     admin.drop_database(BUCKET).await.expect("drop bucket");
+}
+
+/// Search (FTS) vector indexes: made by the driver's DDL through the Search
+/// service, read into the schema with their vector, compared, changed,
+/// copied to another collection, and their fields marked in results.
+#[tokio::test]
+#[ignore]
+async fn couchbase_search_vector_indexes() {
+    const B: &str = "dbine_vec_fts";
+    let Some(c) = cfg_of("DBINE_TEST_COUCHBASE_FTS", "") else {
+        return;
+    };
+    let d = dbine_driver_couchbase::drivers().remove(0);
+    let mut admin = d.connect(&c, None).await.expect("connect");
+    let _ = admin.drop_database(B).await;
+    admin.create_database(B).await.expect("bucket");
+    let mut s = d
+        .connect(&cfg_of("DBINE_TEST_COUCHBASE_FTS", B).unwrap(), Some(B))
+        .await
+        .unwrap();
+    let coll = |name: &str| ObjectRef {
+        kind: "collection".into(),
+        schema: Some(format!("{B}._default")),
+        name: name.into(),
+    };
+    let ks = format!("`{B}`.`_default`.`docs`");
+
+    // 1. The collection and its Search vector index, by the driver's DDL.
+    let search = IndexDef {
+        name: "vs".into(),
+        columns: vec!["emb".into()],
+        kind: Some("SEARCH".into()),
+        vector: Some(VectorIndex {
+            metric: Some("ip".into()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let t = TableSchema {
+        kind: "collection".into(),
+        schema: Some(format!("{B}._default")),
+        name: "docs".into(),
+        columns: vec![col("cat", "string"), col("emb", "vector(3)")],
+        indexes: vec![search],
+        options: [("primary_index".to_string(), "true".to_string())].into(),
+        ..Default::default()
+    };
+    let ddl = d.table_ddl(&t, ALL).unwrap();
+    assert!(ddl.contains("CREATE SEARCH INDEX `vs`"), "{ddl}");
+    for st in d.split_script(&ddl) {
+        run_settled(&mut s, &st.text).await;
+    }
+
+    // 2. Rows.
+    for (k, v) in [("1", "[1,0,0]"), ("2", "[0,1,0]"), ("3", "[0.9,0.1,0]")] {
+        run_settled(
+            &mut s,
+            &format!(
+                "UPSERT INTO {ks} (KEY, VALUE) VALUES (\"{k}\", {{\"cat\": \"a\", \"emb\": {v}}})"
+            ),
+        )
+        .await;
+    }
+
+    // 3. Results mark the field the Search index declares.
+    let out = run(
+        &mut s,
+        &format!("SELECT d.emb FROM {ks} AS d ORDER BY META(d).id"),
+    )
+    .await;
+    let r = &out.results[0];
+    assert_eq!(
+        r.columns[0].vector,
+        Some(VectorMeta::dense(Some(3), VectorElement::F32))
+    );
+    assert_eq!(r.rows[2][0], json!("[0.9,0.1,0]"));
+
+    // 4 / 5. Describe: the index with its vector, the field's dimension.
+    let schema = s.database_schema().await.unwrap();
+    let tb = schema.iter().find(|x| x.name == "docs").unwrap().clone();
+    let ix = tb
+        .indexes
+        .iter()
+        .find(|i| i.name == "vs")
+        .expect("Search index");
+    assert_eq!(ix.kind.as_deref(), Some("SEARCH"));
+    assert_eq!(ix.columns, ["emb"]);
+    assert_eq!(ix.vector.as_ref().unwrap().metric.as_deref(), Some("ip"));
+    assert_eq!(
+        tb.columns
+            .iter()
+            .find(|c| c.name == "emb")
+            .unwrap()
+            .data_type,
+        "vector(3)"
+    );
+    let usage = s.index_usage(&coll("docs")).await.unwrap().unwrap();
+    assert!(usage
+        .indexes
+        .iter()
+        .any(|u| u.name == "vs" && u.kind == "SEARCH VECTOR"));
+    let same = d
+        .sync_script(&[TableChange::Alter {
+            old: tb.clone(),
+            new: tb.clone(),
+        }])
+        .unwrap();
+    assert!(same.statements.is_empty(), "{:?}", same.statements);
+
+    // 6. A similarity query through the Search service, once it has the
+    // documents (a scoped Search index goes by its full name there).
+    let knn = format!("SELECT RAW META(d).id FROM {ks} AS d WHERE SEARCH(d, {{\"query\": {{\"match_none\": {{}}}}, \"knn\": [{{\"field\": \"emb\", \"vector\": [1, 0, 0], \"k\": 2}}]}}, {{\"index\": \"{B}._default.vs\"}})");
+    let mut ids = Vec::new();
+    for _ in 0..120 {
+        let mut out = QueryOutcome::default();
+        if s.execute(&knn, 10, &mut out).await.is_ok() {
+            ids = out.results[0].rows.iter().map(|r| r[0].clone()).collect();
+            if ids.len() == 2 {
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+    ids.sort_by_key(|v| v.to_string());
+    assert_eq!(ids, [json!("1"), json!("3")]);
+
+    // 7. A change: dropped and made again with the new distance.
+    let mut changed = tb.clone();
+    changed
+        .indexes
+        .iter_mut()
+        .find(|i| i.name == "vs")
+        .unwrap()
+        .vector
+        .as_mut()
+        .unwrap()
+        .metric = Some("l2".into());
+    let sync = d
+        .sync_script(&[TableChange::Alter {
+            old: tb.clone(),
+            new: changed,
+        }])
+        .unwrap();
+    assert_eq!(
+        sync.statements[0],
+        format!("DROP SEARCH INDEX `vs` ON {ks};")
+    );
+    for st in &sync.statements {
+        run_settled(&mut s, st).await;
+    }
+    let schema = s.database_schema().await.unwrap();
+    let tb = schema.iter().find(|x| x.name == "docs").unwrap().clone();
+    let ix = tb.indexes.iter().find(|i| i.name == "vs").unwrap();
+    assert_eq!(ix.vector.as_ref().unwrap().metric.as_deref(), Some("l2"));
+
+    // 8. Copied to another collection (as a clone does, renamed).
+    let mut copy = tb.clone();
+    copy.name = "copy".into();
+    copy.indexes.retain(|i| i.name == "vs");
+    copy.indexes[0].name = "vs_copy".into();
+    for st in d.split_script(&d.table_ddl(&copy, ALL).unwrap()) {
+        run_settled(&mut s, &st.text).await;
+    }
+    let schema = s.database_schema().await.unwrap();
+    let cp = schema.iter().find(|x| x.name == "copy").unwrap();
+    let ix = cp
+        .indexes
+        .iter()
+        .find(|i| i.name == "vs_copy")
+        .expect("copied");
+    assert_eq!(ix.vector.as_ref().unwrap().metric.as_deref(), Some("l2"));
+
+    // The explorer's "Eliminar índice": DROP SEARCH INDEX.
+    run(
+        &mut s,
+        &format!("DROP SEARCH INDEX `vs_copy` ON `{B}`.`_default`.`copy`"),
+    )
+    .await;
+    let schema = s.database_schema().await.unwrap();
+    let cp = schema.iter().find(|x| x.name == "copy").unwrap();
+    assert!(cp.indexes.iter().all(|i| i.name != "vs_copy"));
+
+    drop(s);
+    run(
+        &mut admin,
+        &format!("DROP SEARCH INDEX IF EXISTS `vs` ON `{B}`.`_default`.`docs`"),
+    )
+    .await;
+    admin.drop_database(B).await.expect("drop bucket");
 }

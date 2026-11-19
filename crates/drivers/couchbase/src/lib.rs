@@ -789,6 +789,35 @@ fn created_collection(stmt: &str) -> Option<String> {
         .filter(|k| !k.is_empty() && !k.eq_ignore_ascii_case("IF"))
 }
 
+/// The statement calls the Search service (`SEARCH(…)`, with
+/// `SEARCH_META` / `SEARCH_SCORE`), outside strings and quoted names.
+fn uses_search(stmt: &str) -> bool {
+    let b = stmt.as_bytes();
+    let mut i = 0;
+    let mut quote: Option<u8> = None;
+    while i < b.len() {
+        let c = b[i];
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None if matches!(c, b'\'' | b'"' | b'`') => quote = Some(c),
+            None if c.eq_ignore_ascii_case(&b's')
+                && (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_'))
+                && b.len() >= i + 6
+                && b[i..i + 6].eq_ignore_ascii_case(b"SEARCH") =>
+            {
+                let rest = stmt[i + 6..].trim_start();
+                if rest.starts_with('(') {
+                    return true;
+                }
+            }
+            None => {}
+        }
+        i += 1;
+    }
+    false
+}
+
 /// The `(bucket, scope)` a `CREATE SCOPE [IF NOT EXISTS] b.s` makes (the
 /// session's bucket for a bare scope name).
 fn created_scope(stmt: &str, bucket: Option<&str>) -> Option<(String, String)> {
@@ -830,7 +859,12 @@ impl CbSession {
     }
 
     fn body(&self, stmt: &str, id: Option<&str>) -> Value {
-        let mut b = json!({"statement": stmt, "scan_consistency": "request_plus"});
+        let mut b = json!({ "statement": stmt });
+        // The Search service (`SEARCH()`) doesn't take `request_plus`
+        // ("n1fty: scan_plus consistency not supported"): its own default.
+        if !uses_search(stmt) {
+            b["scan_consistency"] = Value::String("request_plus".into());
+        }
         if let Some(c) = self.context() {
             b["query_context"] = Value::String(c);
         }
@@ -2446,6 +2480,18 @@ fn text_of(v: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_queries_go_without_request_plus() {
+        assert!(uses_search(
+            "SELECT META(d).id FROM ks AS d WHERE SEARCH(d, {\"knn\": []})"
+        ));
+        assert!(uses_search("select * from k where search (k, 'x')"));
+        assert!(!uses_search("SELECT 'SEARCH(' FROM k"));
+        assert!(!uses_search("SELECT `search`(1) FROM k"));
+        assert!(!uses_search("SELECT my_search(1), SEARCH_META() FROM k"));
+        assert!(!uses_search("SELECT * FROM k"));
+    }
 
     #[test]
     fn scopes_made_by_a_script_are_waited_for() {
