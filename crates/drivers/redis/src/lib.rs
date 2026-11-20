@@ -797,6 +797,12 @@ impl RedisSession {
         for row in table.rows {
             out.push_row(row, max_rows);
         }
+        if let Some(why) = table.partial {
+            if let Some(r) = out.results.last_mut() {
+                r.truncated = true;
+            }
+            out.warning(why);
+        }
         Ok(())
     }
 

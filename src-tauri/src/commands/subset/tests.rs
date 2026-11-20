@@ -976,6 +976,29 @@ async fn vector_live_subset_mysql9_to_mysql9() {
     .await;
 }
 
+/// A read the driver marks truncated (valkey-search's KNN maximum, a
+/// fetch past its limit) makes the subset say it is partial, with the
+/// driver's reason; a whole read says nothing.
+#[test]
+fn a_truncated_read_says_the_subset_is_partial() {
+    let mut r = dbine_driver::StatementResult {
+        rows: vec![vec![Value::Null]; 3],
+        total_rows: 3,
+        ..Default::default()
+    };
+    assert_eq!(partial_read("docs", &r, &[]), None);
+    r.truncated = true;
+    let why = "valkey-search devuelve como mucho 10000 documentos por consulta KNN.".to_string();
+    let note = partial_read("docs", &r, std::slice::from_ref(&why)).unwrap();
+    assert!(
+        note.contains("«docs»") && note.contains("parcial") && note.contains(&why),
+        "{note}"
+    );
+    r.total_rows = 5;
+    let note = partial_read("docs", &r, &[]).unwrap();
+    assert!(note.contains("se leyeron 3 de 5 filas"), "{note}");
+}
+
 /// The starting object of an engine without foreign keys, as the engine
 /// lists it (a Redis search index: where it searches and its vector index)
 /// with the describe's columns: its document key (`id`) first, the listed

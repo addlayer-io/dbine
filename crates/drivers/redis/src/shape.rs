@@ -20,6 +20,9 @@ pub struct Table {
     pub types: Vec<String>,
     /// The columns that hold vectors (by position, as `columns`).
     pub vectors: Vec<Option<dbine_driver::VectorMeta>>,
+    /// Why the rows may not be all there are (valkey-search's most per
+    /// KNN query): the result is marked truncated and this is a warning.
+    pub partial: Option<String>,
 }
 
 impl Table {

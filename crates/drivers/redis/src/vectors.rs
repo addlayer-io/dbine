@@ -1601,6 +1601,28 @@ pub fn hybrid_table(
 /// The most neighbours valkey-search's KNN returns (more is an error).
 pub const VALKEY_KNN_MAX: u32 = 10_000;
 
+/// Why an `FT.SEARCH` (`args`) of valkey-search may have left documents
+/// out: its query is a KNN of [`VALKEY_KNN_MAX`] neighbours (what
+/// [`browse`] reads an index without a NUMERIC field with), they all came
+/// back, and the caller would have taken more (`max_rows`). `None`
+/// otherwise.
+pub fn knn_capped(args: &[Vec<u8>], rows: usize, max_rows: usize) -> Option<String> {
+    let max = VALKEY_KNN_MAX as usize;
+    let query = String::from_utf8_lossy(args.get(2)?).to_ascii_uppercase();
+    let k: usize = query
+        .split("KNN")
+        .nth(1)?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
+    (k >= max && rows >= max && max_rows > max).then(|| {
+        format!(
+            "valkey-search devuelve como mucho {max} documentos por consulta KNN: el índice puede tener más, que no se leyeron."
+        )
+    })
+}
+
 /// The command that shows a search index's first `limit` documents: all
 /// of them (`*`), a JSON index's attributes returned (so its vectors come
 /// as columns of their own). valkey-search has no `*`: a range over a
@@ -2533,5 +2555,42 @@ mod tests {
             browse("docs", Some(&numeric), Server::Valkey, 1_000_000),
             "FT.SEARCH docs \"@n:[-inf +inf]\" LIMIT 0 1000000"
         );
+    }
+
+    /// A browse capped at valkey-search's KNN maximum says it may have
+    /// left documents out (the subset reports it as partial): only when
+    /// every neighbour came back and the caller would take more.
+    #[test]
+    fn a_capped_valkey_browse_says_it_may_be_partial() {
+        let ix = FtIndex {
+            name: "docs".into(),
+            fields: vec![FtField {
+                identifier: "emb".into(),
+                attribute: "emb".into(),
+                kind: "VECTOR".into(),
+                vector: Some(FtVector {
+                    algorithm: "HNSW".into(),
+                    ty: VType::F32,
+                    dims: 2,
+                    metric: "COSINE".into(),
+                    params: Vec::new(),
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let args = |limit| {
+            crate::command::parse_line(&browse("docs", Some(&ix), Server::Valkey, limit)).unwrap()
+        };
+        let why = knn_capped(&args(1_000_000), 10_000, 1_000_000).unwrap();
+        assert!(why.contains("10000"), "{why}");
+        // Fewer documents than the maximum: all of them.
+        assert_eq!(knn_capped(&args(1_000_000), 9_999, 1_000_000), None);
+        // Asked for the maximum or fewer: what was asked.
+        assert_eq!(knn_capped(&args(10_000), 10_000, 10_000), None);
+        assert_eq!(knn_capped(&args(200), 200, 200), None);
+        // Not a KNN query.
+        let all = crate::command::parse_line("FT.SEARCH docs * LIMIT 0 1000000").unwrap();
+        assert_eq!(knn_capped(&all, 10_000, 1_000_000), None);
     }
 }

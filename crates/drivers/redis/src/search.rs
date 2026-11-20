@@ -5,8 +5,8 @@
 
 use crate::shape::{self, text_of, Table};
 use crate::vectors::{
-    aggregate_table, hybrid_table, quant_flag, search_table, spell, vemb_text, vsim_table, FtIndex,
-    FtVector, VType, FT_READS,
+    aggregate_table, hybrid_table, knn_capped, quant_flag, search_table, spell, vemb_text,
+    vsim_table, FtIndex, FtVector, Server, VType, FT_READS,
 };
 use crate::RedisSession;
 use dbine_driver::{vector, VectorElement, VectorMeta};
@@ -255,7 +255,11 @@ impl RedisSession {
         match name {
             "FT.SEARCH" => {
                 let ix = self.ft_index(&String::from_utf8_lossy(key)).await;
-                Some(search_table(cmd, reply, ix.as_ref()))
+                let mut t = search_table(cmd, reply, ix.as_ref());
+                if self.server == Server::Valkey {
+                    t.partial = knn_capped(cmd, t.rows.len(), max_rows);
+                }
+                Some(t)
             }
             "FT.AGGREGATE" => {
                 let ix = self.ft_index(&String::from_utf8_lossy(key)).await;
@@ -343,6 +347,7 @@ fn vector_cell_table(column: &str, text: String, dims: usize, t: VType) -> Table
         types: vec![spell(dims as u32, t)],
         vectors: vec![Some(VectorMeta::dense(Some(dims as u32), t.element()))],
         message: None,
+        partial: None,
     }
 }
 

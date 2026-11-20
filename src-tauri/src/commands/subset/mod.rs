@@ -269,6 +269,34 @@ async fn exec(
     Ok(out)
 }
 
+/// What a read that came back short says, for the subset's notes: the
+/// driver marked the result truncated (its rows aren't all the object
+/// has), with the driver's warnings as the reason. `None` when the rows
+/// are all there are.
+fn partial_read(
+    name: &str,
+    r: &dbine_driver::StatementResult,
+    warnings: &[String],
+) -> Option<String> {
+    if !r.truncated {
+        return None;
+    }
+    let read = r.rows.len();
+    let of = if r.total_rows > read as u64 {
+        format!(" de {}", r.total_rows)
+    } else {
+        String::new()
+    };
+    Some(if warnings.is_empty() {
+        format!("«{name}»: el subconjunto es parcial, se leyeron {read}{of} filas y el origen tiene más.")
+    } else {
+        format!(
+            "«{name}»: el subconjunto es parcial, se leyeron {read}{of} filas: {}",
+            warnings.join(" ")
+        )
+    })
+}
+
 /// A table's structure from its columns, for engines whose
 /// `database_schema` doesn't report it (no foreign keys anyway).
 fn schema_from_columns(obj: &ObjectRef, cols: Vec<dbine_driver::ColumnInfo>) -> TableSchema {
@@ -757,12 +785,14 @@ impl Collector<'_> {
         obj_of(&self.tables[t])
     }
 
+    /// The rows of `obj` that pass `filters`, at most `limit`, and why they
+    /// may not be all of them when the driver says so ([`partial_read`]).
     async fn query(
         &mut self,
         obj: &ObjectRef,
         filters: &[ColumnFilter],
         limit: u32,
-    ) -> CommandResult<(Vec<String>, Vec<Vec<Value>>)> {
+    ) -> CommandResult<(Vec<String>, Vec<Vec<Value>>, Option<String>)> {
         let browse = self.s.browse_query(obj, limit);
         let sql = if filters.is_empty() {
             browse
@@ -775,12 +805,31 @@ impl Collector<'_> {
                 CommandError::Sql(m) => CommandError::Sql(format!("«{}»: {m}", obj.name)),
                 other => other,
             })?;
+        let warnings: Vec<String> = out
+            .log
+            .iter()
+            .filter(|m| m.level == dbine_driver::MessageLevel::Warning)
+            .map(|m| m.text.clone())
+            .collect();
         Ok(
             match out.results.into_iter().find(|r| !r.columns.is_empty()) {
-                Some(r) => (r.columns.into_iter().map(|c| c.name).collect(), r.rows),
-                None => (Vec::new(), Vec::new()),
+                Some(r) => {
+                    let partial = partial_read(&obj.name, &r, &warnings);
+                    (
+                        r.columns.into_iter().map(|c| c.name).collect(),
+                        r.rows,
+                        partial,
+                    )
+                }
+                None => (Vec::new(), Vec::new(), None),
             },
         )
+    }
+
+    fn note(&mut self, n: String) {
+        if !self.notes.contains(&n) {
+            self.notes.push(n);
+        }
     }
 
     /// Rows of `t` whose `cols` take one of `tuples` (those not asked for
@@ -832,7 +881,10 @@ impl Collector<'_> {
                 values: chunk.to_vec(),
                 sql: None,
             };
-            let (rcols, mut rows) = self.query(&obj, &[f], FETCH_LIMIT).await?;
+            let (rcols, mut rows, partial) = self.query(&obj, &[f], FETCH_LIMIT).await?;
+            if let Some(n) = partial {
+                self.note(n);
+            }
             if cols.len() > 1 {
                 let at: Option<Vec<usize>> = cols
                     .iter()
@@ -918,12 +970,16 @@ impl Collector<'_> {
             Limit::Rows { count } => count.clamp(1, SCAN_LIMIT as u64) as u32,
             _ => SCAN_LIMIT,
         };
-        let (cols, mut rows) = self.query(obj, &filters, limit).await?;
+        let (cols, mut rows, partial) = self.query(obj, &filters, limit).await?;
         if rows.len() as u32 >= SCAN_LIMIT && !matches!(filter.limit, Limit::Rows { .. }) {
             self.notes.push(format!(
                 "«{}» tiene más de {SCAN_LIMIT} filas: se tomaron las primeras {SCAN_LIMIT}.",
                 obj.name
             ));
+        } else if let Some(n) = partial.filter(|_| (rows.len() as u32) < limit) {
+            // Fewer rows than asked for, and the driver says there are
+            // more (valkey-search's KNN maximum): the subset is partial.
+            self.note(n);
         }
         if let Limit::Percent { percent } = filter.limit {
             let n = rows.len();
