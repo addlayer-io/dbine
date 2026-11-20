@@ -88,10 +88,12 @@ const SEQUENCES: Source = Source {
     kinds: &[(kinds::SEQUENCE, "")],
 };
 
+/// OceanBase's sequences, by owner: `DBA_OB_SEQUENCE_OBJECTS` names the
+/// database only by id (4.4 has no `DATABASE_NAME` there).
 const OCEANBASE_SEQUENCES: Source = Source {
     rank: 4,
-    from: "oceanbase.DBA_OB_SEQUENCE_OBJECTS",
-    db: "DATABASE_NAME",
+    from: "oceanbase.DBA_SEQUENCES",
+    db: "SEQUENCE_OWNER",
     name: "SEQUENCE_NAME",
     parent: "NULL",
     base: "",
@@ -496,7 +498,7 @@ mod tests {
         let p = query(Variant::OceanBase, &q).unwrap();
         assert!(p
             .sql
-            .contains("oceanbase.DBA_OB_SEQUENCE_OBJECTS WHERE DATABASE_NAME = ?"));
+            .contains("oceanbase.DBA_SEQUENCES WHERE SEQUENCE_OWNER = ?"));
     }
 
     #[test]

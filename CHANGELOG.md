@@ -23,6 +23,7 @@
 
 ### Fixes
 
+- **OceanBase sequences missing from the explorer:** on OceanBase 4.4 a database's sequences didn't show. The catalog view DBine read names the database only by its id. They are now read by owner.
 - **SQL Server numbers as text in DataFrame SQL:** a notebook cell over an earlier SQL Server result loaded its nullable numeric, decimal, money, bit, date and time columns as text. A `SUM` over them failed, and comparisons and sorting went by text. They now load with their types.
 - **Compare data guessing a key of almost every column:** in **Queries** mode, a query over one table without an id-like column got every column but its decimals as the key, so the compare could only find missing rows, never changed ones. The key now comes from that table's primary key or a unique index. A query that groups still gets its descriptive columns. With no clear hint nothing is marked and DBine asks for the key. A line under the column table says where the key came from.
 - **Compare data in query mode cut off at the bottom:** with many columns, the column table of **Queries** mode pushed the number tolerances, **Include equal rows** and **Compare** below the window, and nothing scrolled to reach them. The column table now scrolls on its own, with its header in view, and the top of the tab scrolls when the window is short.
