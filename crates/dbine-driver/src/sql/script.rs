@@ -715,8 +715,15 @@ impl Scanner<'_> {
     /// Where a line comment ends: at LF. Servers disagree on a lone CR
     /// (PostgreSQL ends the comment there, MySQL doesn't), so the read-only
     /// guard refuses SQL that has one ([`crate::read_only`]).
+    /// Where a line comment ends: at LF or CR, whichever comes first.
+    /// PostgreSQL and others end `--` comments at a bare CR, so code after
+    /// one must not be taken for comment (a function hidden there would
+    /// skip the read checks).
     fn comment_end(&self, i: usize) -> usize {
-        self.line_end(i)
+        self.b[i..]
+            .iter()
+            .position(|&c| c == b'\n' || c == b'\r')
+            .map_or(self.b.len(), |p| i + p)
     }
 
     /// The newline (not included) or the end.
@@ -1449,6 +1456,18 @@ mod tests {
             texts(s, ScriptDialect::generic()),
             vec!["select ';'", "select \"a;b\", `c;d` from t"]
         );
+    }
+
+    /// A `--` comment ends at a bare CR too (PostgreSQL's lexer does), so
+    /// what follows one is read as code: a function call there stays in view
+    /// of the read checks.
+    #[test]
+    fn a_line_comment_ends_at_cr() {
+        let pg = ScriptDialect::postgres();
+        let q = "select 1 --x\rselect pg_read_file('/etc/hosts')";
+        assert!(name_tokens(q, &pg).iter().any(|t| t.text == "pg_read_file"));
+        let q = "select 1 -- pg_read_file\r\nselect 2";
+        assert!(!name_tokens(q, &pg).iter().any(|t| t.text == "pg_read_file"));
     }
 
     #[test]

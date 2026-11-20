@@ -3,6 +3,13 @@
 
 use serde_json::Value;
 
+/// A character that ends a `//` comment. Neo4j ends one at CR as well as
+/// LF; the Unicode line breaks count too, so nothing after a line break is
+/// taken for a comment (a write or a call hidden there stays in view).
+fn line_break(c: char) -> bool {
+    matches!(c, '\n' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}')
+}
+
 /// Walks the tokens of a statement, skipping comments and whitespace:
 /// `on(start, end, kind)` in char offsets, kind `w` (word), `s` (string),
 /// `q` (quoted name) or `p` (punctuation). Returning `false` stops.
@@ -13,7 +20,7 @@ fn scan(text: &str, mut on: impl FnMut(usize, usize, char) -> bool) {
         let c = b[i];
         let start = i;
         if c == '/' && b.get(i + 1) == Some(&'/') {
-            while i < b.len() && b[i] != '\n' {
+            while i < b.len() && !line_break(b[i]) {
                 i += 1;
             }
             continue;
@@ -119,7 +126,9 @@ fn trivia(s: &str) -> usize {
         if i < b.len() && b[i].is_ascii_whitespace() {
             i += 1;
         } else if b[i..].starts_with(b"//") {
-            i = s[i..].find('\n').map_or(b.len(), |n| i + n + 1);
+            i = s[i..].find(line_break).map_or(b.len(), |n| {
+                i + n + s[i + n..].chars().next().map_or(0, char::len_utf8)
+            });
         } else if b[i..].starts_with(b"/*") {
             i = s[i + 2..].find("*/").map_or(b.len(), |n| i + 2 + n + 2);
         } else {
@@ -709,6 +718,18 @@ mod tests {
         assert!(implicit_only("GRANT ROLE r TO u"));
         assert!(!implicit_only("CREATE (n:User {name: 'x'})"));
         assert!(!implicit_only("MATCH (n) RETURN n"));
+    }
+
+    /// Neo4j ends a `//` comment at CR as well as LF: a write after `//…\r`
+    /// is a write, and the statement after a CR-ended comment is found.
+    #[test]
+    fn a_comment_ends_at_any_line_break() {
+        assert!(write_reason("MATCH (n) //\rDELETE n").is_some());
+        assert!(write_reason("MATCH (n) //\u{2028}SET n.a = 1").is_some());
+        assert_eq!(write_reason("MATCH (n) // DELETE n\r\nRETURN n"), None);
+        let units = script("// note\rCREATE (n)");
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].text, "CREATE (n)");
     }
 
     #[test]

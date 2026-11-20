@@ -240,6 +240,13 @@ enum Tok<'a> {
     Punct(char),
 }
 
+/// A character that ends a `//` comment: LF, CR and the Unicode line
+/// breaks. The server may end comments at fewer of them; ending at all of
+/// them only shows the guard more code.
+fn line_break(c: char) -> bool {
+    matches!(c, '\n' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}')
+}
+
 /// The tokens of a Cypher statement, comments left out. `Err` when a
 /// string, quoted name or comment doesn't end.
 fn tokens(q: &str) -> Result<Vec<Tok<'_>>, String> {
@@ -252,7 +259,9 @@ fn tokens(q: &str) -> Result<Vec<Tok<'_>>, String> {
         if c.is_whitespace() {
             i += c.len_utf8();
         } else if b[i..].starts_with(b"//") {
-            i = q[i..].find('\n').map_or(q.len(), |n| i + n + 1);
+            // Neo4j ends a `//` comment at CR as well as LF: ending it at
+            // any line break (the earliest) keeps code after it in view.
+            i = q[i..].find(line_break).map_or(q.len(), |n| i + n);
         } else if b[i..].starts_with(b"/*") {
             i = i + 2 + q[i + 2..].find("*/").ok_or("/*")? + 2;
         } else if c == '\'' || c == '"' {
@@ -497,5 +506,25 @@ mod tests {
         let q = "MATCH (n) RETURN n LIMIT 1";
         assert!(approval_free("memgraph", q).is_err());
         assert!(approval_free("neptune", q).is_err());
+    }
+
+    /// Neo4j ends a `//` comment at CR too: code after `//…\r` is code to
+    /// the server, so it must be code to the guard (it once hid LOAD CSV
+    /// and procedure calls from it).
+    #[test]
+    fn a_comment_ends_at_any_line_break() {
+        for q in [
+            "WITH 1 AS x //\rLOAD CSV FROM 'http://x' AS l\nRETURN l",
+            "MATCH (n) //\rCALL apoc.load.json('http://x') YIELD value\nRETURN n",
+            "RETURN 1 //\u{2028}CALL dbms.components() YIELD name RETURN name",
+            "RETURN 1 //\u{85}LOAD CSV FROM 'x' AS l RETURN l",
+        ] {
+            assert!(approval_free("neo4j", q).is_err(), "{q:?}");
+        }
+        // CRLF line ends still read as plain comments.
+        assert_eq!(
+            approval_free("neo4j", "MATCH (n) // first\r\nRETURN n LIMIT 1"),
+            Ok(())
+        );
     }
 }
