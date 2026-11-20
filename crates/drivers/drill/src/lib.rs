@@ -13,6 +13,7 @@
 //! `sys.drillbits`, `sys.connections` and the running queries.
 
 mod functions;
+mod objects_page;
 mod permissions;
 mod plan;
 mod processes;
@@ -1094,6 +1095,15 @@ impl Session for DrillSession {
             }
         }
         Ok(out)
+    }
+
+    /// One narrow `INFORMATION_SCHEMA` query per source and page (see
+    /// [`objects_page`]).
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(query).await
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {

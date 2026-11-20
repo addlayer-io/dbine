@@ -14,6 +14,7 @@ mod ddl;
 mod functions;
 mod index_usage;
 mod monitor;
+mod objects_page;
 mod plan;
 mod proto;
 mod stats;
@@ -1253,6 +1254,16 @@ impl Session for PhoenixSession {
             parent: None,
         }));
         Ok(out)
+    }
+
+    /// One narrow `SYSTEM.CATALOG` (and `SYSTEM."SEQUENCE"`) query per page
+    /// (see [`objects_page`]); a generic Avatica server: the contract's
+    /// default.
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(query).await
     }
 
     /// Every schema: those made with `CREATE SCHEMA` (a `SYSTEM.CATALOG` row

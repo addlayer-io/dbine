@@ -15,6 +15,7 @@ mod ddl;
 mod functions;
 mod index_usage;
 mod jobs;
+mod objects_page;
 mod permissions;
 mod plan;
 mod processes;
@@ -866,6 +867,15 @@ impl Session for DremioSession {
                 parent: None,
             })
             .collect())
+    }
+
+    /// One narrow `INFORMATION_SCHEMA."TABLES"` query per page (see
+    /// [`objects_page`]).
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(query).await
     }
 
     /// The space or source and its folders, from INFORMATION_SCHEMA.SCHEMATA

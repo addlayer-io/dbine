@@ -17,6 +17,7 @@
 mod cells;
 mod functions;
 mod index_usage;
+mod objects_page;
 mod plan;
 mod stats;
 mod transfer;
@@ -321,6 +322,7 @@ impl Driver for FlightSqlDriver {
             tx: None,
             dirty: false,
             failed: false,
+            pages_refused: false,
         };
         s.server = s.sql_info().await.unwrap_or_default();
         // Something every server answers: the catalogs (or a trivial query).
@@ -557,6 +559,9 @@ pub struct FlightSession {
     /// A statement failed and the server aborted the transaction (DuckDB:
     /// "Current transaction is aborted"): only Rollback gets out of it.
     failed: bool,
+    /// The server refused the explorer's page query ([`objects_page`]):
+    /// the app pages `list_objects` from then on.
+    pages_refused: bool,
 }
 
 /// `"catalog"."schema"` (standard SQL) with the catalog the explorer menu
@@ -1153,6 +1158,15 @@ impl Session for FlightSession {
                 parent: None,
             })
             .collect())
+    }
+
+    /// One narrow catalog query per page where the engine behind has one
+    /// (see [`objects_page`]).
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(query).await
     }
 
     /// `GetDbSchemas` of the session's catalog, so an empty schema (one just
