@@ -91,7 +91,7 @@ const objects = computed(() => {
   const kinds = new Set(spec.value?.object_kinds.filter(Boolean) ?? []);
   return (conns.objects[dbKey(props.tab.connectionId, props.tab.database)]?.items ?? []).filter((o) => kinds.has(o.kind));
 });
-onMounted(() => conns.loadObjects(props.tab.connectionId, props.tab.database).catch(() => {}));
+onMounted(() => conns.loadAllObjects(props.tab.connectionId, props.tab.database).catch(() => {}));
 const schemas = computed(() => [...new Set(objects.value.map((o) => o.schema).filter((s): s is string => !!s))]);
 const databases = computed(() => conns.live[props.tab.connectionId]?.databases ?? []);
 

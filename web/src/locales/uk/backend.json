@@ -18572,5 +18572,6 @@
   "s SIN(float_exp) -> FLOAT": "s SIN(float_exp) -> FLOAT",
   "{0}: pg_proc listed no functions": "{0}: pg_proc listed no functions",
   "en la base {0}: {1}": "у базі {0}: {1}",
-  "el resultado no tiene las mismas columnas que en la primera base": "результат не має тих самих стовпців, що й у першій базі"
+  "el resultado no tiene las mismas columnas que en la primera base": "результат не має тих самих стовпців, що й у першій базі",
+  "este motor todavía no lista sus objetos por páginas": "цей рушій поки не виводить свої об'єкти посторінково"
 }

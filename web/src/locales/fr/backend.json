@@ -18572,5 +18572,6 @@
   "Área de trabajo": "Espace de travail",
   "Últimas actualizaciones": "Dernières actualisations",
   "en la base {0}: {1}": "dans la base {0} : {1}",
-  "el resultado no tiene las mismas columnas que en la primera base": "le résultat n'a pas les mêmes colonnes que dans la première base"
+  "el resultado no tiene las mismas columnas que en la primera base": "le résultat n'a pas les mêmes colonnes que dans la première base",
+  "este motor todavía no lista sus objetos por páginas": "ce moteur ne liste pas encore ses objets par pages"
 }

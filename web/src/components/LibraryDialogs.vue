@@ -8,7 +8,7 @@ import { ANY_SQL } from '../api/library';
 import { FAMILY_LABELS, type Family, type Language } from '../api/types';
 import { newQuery } from '../composables/actions';
 import { useAiStore } from '../stores/ai';
-import { dbKey, useConnectionsStore } from '../stores/connections';
+import { useConnectionsStore } from '../stores/connections';
 import { fillPlaceholders, placeholders, useLibraryStore } from '../stores/library';
 import { useTabsStore } from '../stores/tabs';
 import CodeEditor from './CodeEditor.vue';
@@ -107,12 +107,6 @@ const targetConns = computed(() => {
   return fit.length ? fit : conns.list;
 });
 const targetDbs = computed(() => conns.live[target.connectionId]?.databases ?? []);
-/** Object names of the target database, for {{tabla}}-like parameters. */
-const objectNames = computed(() =>
-  (conns.objects[dbKey(target.connectionId, target.database)]?.items ?? [])
-    .filter((o) => !o.parent)
-    .map((o) => (o.schema ? `${o.schema}.${o.name}` : o.name)),
-);
 
 watch(() => lib.opening, async (o) => {
   for (const k of Object.keys(values)) delete values[k];
@@ -136,13 +130,19 @@ async function loadTarget() {
   if (!target.connectionId) return;
   if (!(await ensureConnectedOrTell(target.connectionId))) return;
   if (!target.database) target.database = conns.live[target.connectionId]?.defaultDatabase ?? targetDbs.value[0] ?? '';
-  await conns.loadObjects(target.connectionId, target.database);
 }
 watch(() => [target.connectionId, target.database], () => { if (lib.opening) loadTarget(); });
 
+/** Object names of the target database holding `q`, for {{tabla}}-like
+ *  parameters: a search on the server, not the whole database. */
 function suggest(q: string, cb: (x: { value: string }[]) => void) {
-  const l = q.toLowerCase();
-  cb(objectNames.value.filter((n) => n.toLowerCase().includes(l)).slice(0, 50).map((value) => ({ value })));
+  if (!target.connectionId || !conns.isConnected(target.connectionId)) {
+    cb([]);
+    return;
+  }
+  void conns.searchObjects(target.connectionId, target.database, q.trim(), { limit: 50 }).then((found) => {
+    cb(found.filter((o) => !o.parent).map((o) => ({ value: o.schema ? `${o.schema}.${o.name}` : o.name })));
+  }).catch(() => cb([]));
 }
 
 async function finish() {

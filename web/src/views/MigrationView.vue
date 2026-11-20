@@ -125,7 +125,7 @@ async function loadTables(force = false) {
   tablesError.value = null;
   try {
     if (!(await ensureConnection())) return;
-    await conns.loadObjects(props.tab.connectionId, props.tab.database, force);
+    await conns.loadAllObjects(props.tab.connectionId, props.tab.database, force);
     const state = conns.objects[dbKey(props.tab.connectionId, props.tab.database)];
     if (state?.status === 'error') tablesError.value = state.error;
     tables.value = (conns.objects[dbKey(props.tab.connectionId, props.tab.database)]?.items ?? [])
@@ -351,7 +351,7 @@ async function execute(id: string, target: { connectionId: string; database: str
     else if (failedAll) ElMessage.warning(t('migration:run.finishedWithErrors', { count: failedAll }));
     else if (failed) ElMessage.warning(t('migration:run.finishedWithErrors', { count: failed }));
     else ElMessage.success(t('migration:run.finished'));
-    conns.loadObjects(target.connectionId, target.database, true);
+    void conns.refreshDatabase(target.connectionId, target.database);
   } catch (e) {
     runError.value = errorMessage(e);
     runStatus.value = 'failed';

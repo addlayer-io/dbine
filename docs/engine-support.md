@@ -563,6 +563,41 @@ and SAP HANA (other schemas); TDengine; and Virtuoso.
   another database by its prefix; pending a test against a server before
   turning it on.
 
+## Explorer objects by folder
+
+The explorer never reads a whole database. It shows the schemas
+(`Session::list_schemas`), then loads each kind folder of a schema when
+it's opened, 1,000 objects at a time with **Cargar más**. Completion, the
+filter's server search (**Enter**), the pickers and the jumps to a table
+search or look up names on the server. All of them go through
+`Session::list_objects_page`.
+
+A driver that implements it answers each page with a narrow catalog query:
+a `WHERE` on schema, kind and name, and a `LIMIT`. A driver that doesn't
+answers `Unsupported`, and the app then pages `list_objects` itself. It
+reads the whole list once and serves the next pages from it for a minute,
+so a big database's first folder still waits for the whole list.
+
+**Every engine is pending** for the narrow query (second batch of the
+explorer redesign, 2026-11-19). Each one still works through the whole
+list, as before. The crates to do, by family:
+
+- **Relational:** sqlserver, sqlserver_legacy, postgres (and the engines
+  on its protocol), mysql (and MariaDB, TiDB, SingleStore…), oracle,
+  firebird, hana, sqlite, libsql, duckdb, dsql, spanner.
+- **Analytical and cloud:** snowflake, databricks (its catalogs already
+  come from Unity Catalog's API, per schema), bigquery, athena, trino,
+  dremio, drill, clickhouse, flightsql, phoenix, tdengine, iotdb, kdb,
+  powerbi, ksqldb, influxdb.
+- **Documents, search, wide-column and graph:** mongodb, cosmosdb,
+  couchbase, couchdb, dynamodb, cassandra, elasticsearch, solr, neo4j,
+  orientdb.
+- **ODBC:** odbc (it depends on the driver behind it: `SQLTables` filters
+  by schema and type).
+
+Not applicable: Redis, Valkey, Dragonfly and etcd. Their keys are searched
+page by page already (key search), and their tree never lists objects.
+
 ## Engines that are not there yet
 
 Known engines that DBine does not support, and why.

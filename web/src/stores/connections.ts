@@ -6,7 +6,7 @@ import { askRunProxyCommand, askTrustSshHost } from '../composables/sshTrust';
 import { askAllowLegacyTls } from '../composables/legacyTls';
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
 import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
-import type { ColumnInfo, ConnectDetail, ConnectionFolder, DbObject, DriverInfo, KeyEntry, Permissions, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
+import type { ColumnInfo, ConnectDetail, ConnectionFolder, DbObject, DriverInfo, KeyEntry, ObjectQuery, Permissions, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import { rt } from '../composables/i18nLabels';
@@ -95,8 +95,50 @@ const lastFailure = new Map<string, { message: string; at: number }>();
 /** The cache's name for an object's columns (as `cache_item` in Rust). */
 const columnsItem = (o: { kind: string; schema: string | null; name: string }) => `${o.kind}\u0001${o.schema ?? ''}\u0001${o.name}`;
 
-/** Object lists being read, by `dbKey` (a second expand waits for the first). */
+/** Whole object lists being read, by `dbKey` (a second caller waits for the first). */
 const objectsLoading = new Map<string, Promise<void>>();
+/** Schema levels being read, by `dbKey`. */
+const levelsLoading = new Map<string, Promise<void>>();
+/** Tree folders being read, by `folderKey`. */
+const foldersLoading = new Map<string, Promise<void>>();
+
+/** A folder of the tree: a schema's objects of one kind (`schema` null: of
+ *  every schema; `noSchema`: those without one; `other`: the kinds that
+ *  aren't these, "Otros"). */
+export interface FolderSpec {
+  schema: string | null;
+  noSchema?: boolean;
+  kind: string | null;
+  other?: string[];
+}
+/** A folder's objects so far; `next`: more remain ("Cargar más"). */
+export interface FolderLoad extends Loadable<DbObject[]> {
+  spec: FolderSpec;
+  next: string | null;
+  /** Its next page is being read. */
+  more?: boolean;
+}
+/** A folder's page: the tree never reads more at once. */
+export const FOLDER_PAGE = 1000;
+export const folderKey = (connectionId: string, database: string, f: FolderSpec) =>
+  `${connectionId}\u0000${database}\u0000${f.noSchema ? '\u0002' : f.schema ?? ''}\u0000${f.other ? '\u0002' : f.kind ?? ''}`;
+function folderQuery(f: FolderSpec): ObjectQuery {
+  return { schema: f.noSchema ? null : f.schema, no_schema: !!f.noSchema, kind: f.other ? null : f.kind, not_kinds: f.other ?? [], limit: FOLDER_PAGE };
+}
+
+/** A search's page (completion, the explorer's server search, pickers). */
+const SEARCH_PAGE = 200;
+/** How long a search's or a missed lookup's answer serves the same question. */
+const SEARCH_TTL_MS = 30_000;
+/** Searches answered, by database, schema and pattern. */
+const searches = new Map<string, { pattern: string; schema: string | null; items: DbObject[]; complete: boolean; at: number }>();
+/** Searches in flight (the same one asked twice waits for the first). */
+const searching = new Map<string, Promise<DbObject[]>>();
+/** Lookups the server answered with nothing, and when. */
+const lookupMisses = new Map<string, number>();
+/** At most this many found objects are kept per database (the oldest go). */
+const FOUND_CAP = 20_000;
+const objectId = (o: DbObject) => `${o.kind}\u0000${o.schema ?? ''}\u0000${o.name}`;
 /** Columns being read, by `objKey` (likewise). */
 const columnsLoading = new Map<string, Promise<ColumnInfo[]>>();
 /** A connect's read of last time's database list (the explorer cache), by
@@ -129,10 +171,19 @@ export const useConnectionsStore = defineStore('connections', {
     folders: [] as ConnectionFolder[],
     loaded: false,
     live: {} as Record<string, LiveConnection>,
+    /** A whole database's objects, by `dbKey`: only when something that
+     *  needs every one asked for it (`loadAllObjects`); a key database's
+     *  entry is its key search's state. */
     objects: {} as Record<string, Loadable<DbObject[]>>,
     /** Every schema of a database (empty ones too), by `dbKey`; null or
-     *  absent: not listed by the driver, derived from `objects`. */
+     *  absent: not listed by the driver. */
     schemas: {} as Record<string, SchemaInfo[] | null>,
+    /** The tree's database level (its schemas), by `dbKey`. */
+    levels: {} as Record<string, Loadable<SchemaInfo[] | null>>,
+    /** The tree's folders, page by page, by `folderKey`. */
+    objectFolders: {} as Record<string, FolderLoad>,
+    /** Objects found by searches and lookups, by `dbKey` (see `knownObjects`). */
+    found: {} as Record<string, DbObject[]>,
     columns: {} as Record<string, Loadable<ColumnInfo[]>>,
     queries: {} as Record<string, Loadable<SavedQuery[]>>,
     /** Saved migrations per database (the "Migraciones" node). */
@@ -158,6 +209,27 @@ export const useConnectionsStore = defineStore('connections', {
       return s.drivers.find((d) => d.id === id);
     },
     isConnected: (s) => (id: string) => s.live[id]?.status === 'connected',
+    /** A database's objects known so far: its whole list when something
+     *  read it, the tree's loaded folders, and what searches and lookups
+     *  found. Completion, hover and jumps read this; it isn't the whole
+     *  database (look up a name with `findObject`). */
+    knownObjects: (s) => (connectionId: string, database: string): DbObject[] => {
+      const k = dbKey(connectionId, database);
+      const seen = new Set<string>();
+      const out: DbObject[] = [];
+      const add = (o: DbObject) => {
+        const id = objectId(o);
+        if (!seen.has(id)) {
+          seen.add(id);
+          out.push(o);
+        }
+      };
+      s.objects[k]?.items.forEach(add);
+      const prefix = `${k}\u0000`;
+      for (const [fk, f] of Object.entries(s.objectFolders)) if (fk.startsWith(prefix)) f.items.forEach(add);
+      s.found[k]?.forEach(add);
+      return out;
+    },
     /** The privilege the login lacks for an action, or null when it may (or
      *  nobody knows: the server has the last word). */
     denied: (s) => (connectionId: string, database: string, action: keyof Permissions): string | null => {
@@ -272,9 +344,10 @@ export const useConnectionsStore = defineStore('connections', {
     forget(id: string) {
       delete this.live[id];
       const prefix = `${id}\u0000`;
-      for (const map of [this.objects, this.schemas, this.columns, this.queries, this.migrations, this.keys, this.permissions]) {
+      for (const map of [this.objects, this.schemas, this.levels, this.objectFolders, this.found, this.columns, this.queries, this.migrations, this.keys, this.permissions]) {
         for (const k of Object.keys(map)) if (k.startsWith(prefix)) delete map[k];
       }
+      for (const m of [searches, lookupMisses]) for (const k of [...m.keys()]) if (k.startsWith(prefix)) m.delete(k);
     },
 
     /** Follow engine library downloads (the first connection to DuckDB). */
@@ -474,10 +547,12 @@ export const useConnectionsStore = defineStore('connections', {
       return this.connect(id);
     },
 
-    /** A database's objects: the tree's and the editor's list. `quiet`: a
-     *  background re-read (an old answer, a structure change run in the
-     *  editor), whose failure keeps what's shown instead of an error. */
-    async loadObjects(connectionId: string, database: string, force = false, quiet = false) {
+    /** The tree's database level: its schemas (empty ones too; null: the
+     *  driver doesn't list them), the cache's at once (also while
+     *  connecting), then the server's. The kind folders below load on their
+     *  own (`loadFolder`). A key database starts its key search instead.
+     *  `quiet`: a background re-read, whose failure keeps what's shown. */
+    async loadLevel(connectionId: string, database: string, force = false, quiet = false): Promise<void> {
       const k = dbKey(connectionId, database);
       // Databases of keys aren't listed: their keys are searched, page by page.
       if (this.driverOf(connectionId)?.key_search) {
@@ -491,10 +566,225 @@ export const useConnectionsStore = defineStore('connections', {
         this.objects[k] = { status: 'ready', items: [], error: null };
         return this.searchKeys(connectionId, database, last?.pattern ?? '', last?.keyType ?? '');
       }
+      const cur = this.levels[k];
+      if (!force && cur?.status === 'ready') {
+        if (isOld(cur) && !levelsLoading.has(k)) void this.loadLevel(connectionId, database, true, true);
+        return;
+      }
+      if (!force && levelsLoading.has(k)) return levelsLoading.get(k);
+      const auto = !force || quiet;
+      const run = (async () => {
+        const prev = this.levels[k];
+        const shown = prev?.status === 'ready' || prev?.status === 'stale';
+        this.levels[k] = { status: shown ? 'stale' : 'loading', items: prev?.items ?? null, error: null, at: prev?.at };
+        if (!shown && !(auto && this.live[connectionId]?.status === 'error')) {
+          const cached = await api.getCached<SchemaInfo[]>(connectionId, database, 'schemas').catch(() => null);
+          if (cached && this.levels[k]?.status === 'loading') {
+            this.schemas[k] = cached;
+            this.levels[k] = { status: 'stale', items: cached, error: null };
+          }
+        }
+        if (!(await this.ensureConnected(connectionId, { auto }))) {
+          this.levels[k] = { status: 'error', items: null, error: this.live[connectionId]?.error ?? t('common:error') };
+          return;
+        }
+        try {
+          const schemas = await api.listSchemas(connectionId, database);
+          this.schemas[k] = schemas;
+          this.levels[k] = { status: 'ready', items: schemas, error: null, at: Date.now() };
+        } catch (e) {
+          if (quiet && shown) this.levels[k] = { status: 'ready', items: prev?.items ?? null, error: null, at: Date.now() };
+          else this.levels[k] = { status: 'error', items: null, error: errorMessage(e) };
+          void this.recheckAfter(connectionId, e);
+        }
+      })();
+      levelsLoading.set(k, run);
+      try {
+        await run;
+      } finally {
+        if (levelsLoading.get(k) === run) levelsLoading.delete(k);
+      }
+    },
+
+    /** A folder of the tree: a schema's objects of one kind (or "Otros", or
+     *  those without a schema), its first page; the cache's at once (also
+     *  while connecting), then the server's. "Cargar más" is `moreFolder`. */
+    async loadFolder(connectionId: string, database: string, f: FolderSpec, force = false, quiet = false): Promise<void> {
+      const key = folderKey(connectionId, database, f);
+      const cur = this.objectFolders[key];
+      if (!force && cur?.status === 'ready') {
+        if (isOld(cur) && !foldersLoading.has(key)) void this.loadFolder(connectionId, database, f, true, true);
+        return;
+      }
+      if (!force && foldersLoading.has(key)) return foldersLoading.get(key);
+      const auto = !force || quiet;
+      const query = folderQuery(f);
+      const run = (async () => {
+        const prev = this.objectFolders[key];
+        const had = prev?.items ?? [];
+        this.objectFolders[key] = { spec: f, status: had.length ? 'stale' : 'loading', items: had, next: prev?.next ?? null, error: null, at: prev?.at };
+        if (!had.length && !(auto && this.live[connectionId]?.status === 'error')) {
+          const cached = await api.getCachedPage(connectionId, database, query).catch(() => null);
+          if (cached?.length && this.objectFolders[key]?.status === 'loading') {
+            this.objectFolders[key] = { spec: f, status: 'stale', items: cached, next: null, error: null };
+          }
+        }
+        if (!(await this.ensureConnected(connectionId, { auto }))) {
+          this.objectFolders[key] = { spec: f, ...failedLoad<DbObject>(this.live[connectionId]?.error ?? t('common:error')), next: null };
+          return;
+        }
+        try {
+          // A refresh or a re-read asks the server, not a list kept a moment ago.
+          const page = await api.listObjectPage(connectionId, database, query, { tree: true, fresh: force });
+          this.objectFolders[key] = { spec: f, status: 'ready', items: page.objects, next: page.next, error: null, at: Date.now() };
+        } catch (e) {
+          if (quiet && had.length) this.objectFolders[key] = { spec: f, status: 'ready', items: had, next: prev?.next ?? null, error: null, at: Date.now() };
+          else this.objectFolders[key] = { spec: f, ...failedLoad<DbObject>(errorMessage(e)), next: null };
+          void this.recheckAfter(connectionId, e);
+        }
+      })();
+      foldersLoading.set(key, run);
+      try {
+        await run;
+      } finally {
+        if (foldersLoading.get(key) === run) foldersLoading.delete(key);
+      }
+    },
+
+    /** "Cargar más" in a folder: its next page, added below. */
+    async moreFolder(connectionId: string, database: string, f: FolderSpec) {
+      const key = folderKey(connectionId, database, f);
+      const cur = this.objectFolders[key];
+      if (!cur?.next || cur.more || cur.status !== 'ready') return;
+      cur.more = true;
+      try {
+        const page = await api.listObjectPage(connectionId, database, { ...folderQuery(f), after: cur.next }, { tree: true });
+        if (this.objectFolders[key] !== cur) return;
+        cur.items.push(...page.objects);
+        cur.next = page.next;
+      } catch (e) {
+        useOutputStore().add('error', errorMessage(e), { where: this.byId(connectionId)?.name ?? connectionId });
+      } finally {
+        cur.more = false;
+      }
+    },
+
+    /** Objects whose name contains `pattern` (completion, the explorer's
+     *  server search, pickers): one page from the server, kept a short
+     *  while; what's found joins `knownObjects`. A longer pattern whose
+     *  shorter one came back whole is answered from it, without the server.
+     *  `kinds`: only those (filtered here). `tree`: on the tree's session. */
+    async searchObjects(
+      connectionId: string, database: string, pattern: string,
+      opts: { schema?: string | null; kinds?: string[]; limit?: number; tree?: boolean } = {},
+    ): Promise<DbObject[]> {
+      if (this.driverOf(connectionId)?.key_search) return [];
+      const k = dbKey(connectionId, database);
+      const p = pattern.toLowerCase();
+      const schema = opts.schema ?? null;
+      const pick = (objs: DbObject[]) => objs.filter((o) => o.name.toLowerCase().includes(p) && (!opts.kinds || opts.kinds.includes(o.kind)));
+      const now = Date.now();
+      for (const [sk, s] of searches) {
+        if (sk.startsWith(`${k}\u0000`) && now - s.at < SEARCH_TTL_MS && s.complete && s.schema === schema && p.includes(s.pattern)) return pick(s.items);
+      }
+      const sk = `${k}\u0000${schema ?? ''}\u0000${p}`;
+      const running = searching.get(sk);
+      if (running) return pick(await running);
+      const run = (async (): Promise<DbObject[]> => {
+        if (!(await this.ensureConnected(connectionId, { auto: true }))) return [];
+        const page = await api.listObjectPage(connectionId, database, { pattern: pattern || null, schema, limit: opts.limit ?? SEARCH_PAGE }, { tree: opts.tree })
+          .catch(() => null);
+        if (!page) return [];
+        searches.set(sk, { pattern: p, schema, items: page.objects, complete: !page.next, at: Date.now() });
+        this.remember(k, page.objects);
+        return page.objects;
+      })();
+      searching.set(sk, run);
+      try {
+        return pick(await run);
+      } finally {
+        searching.delete(sk);
+      }
+    },
+
+    /** The object named `name` (in `schema` when given; among `kinds` when
+     *  given): what's known first, else a lookup on the server. The exact
+     *  spelling wins over one that differs only in case. */
+    async findObject(connectionId: string, database: string, schema: string | null | undefined, name: string, kinds?: string[]): Promise<DbObject | null> {
+      const pick = (objs: DbObject[]) => {
+        const fits = objs.filter((o) => (!kinds || kinds.includes(o.kind)) && o.name.toLowerCase() === name.toLowerCase());
+        const inSchema = schema == null ? fits : fits.filter((o) => o.schema === schema || o.schema?.toLowerCase() === schema.toLowerCase());
+        return inSchema.find((o) => o.name === name && (schema == null || o.schema === schema)) ?? inSchema.find((o) => o.name === name) ?? inSchema[0] ?? null;
+      };
+      const known = pick(this.knownObjects(connectionId, database));
+      if (known || this.driverOf(connectionId)?.key_search) return known;
+      const k = dbKey(connectionId, database);
+      const lk = `${k}\u0000${schema ?? ''}\u0000${name.toLowerCase()}`;
+      const missed = lookupMisses.get(lk);
+      if (missed && Date.now() - missed < SEARCH_TTL_MS) return null;
+      if (!(await this.ensureConnected(connectionId, { auto: true }))) return null;
+      const page = await api.listObjectPage(connectionId, database, { name, limit: 50 }).catch(() => null);
+      if (!page) return null;
+      this.remember(k, page.objects);
+      const found = pick(page.objects);
+      if (!found) lookupMisses.set(lk, Date.now());
+      return found;
+    },
+
+    /** Whether the server said, not long ago, that there's no object named
+     *  `path` (`table` or `schema.table`): a lookup found nothing. What isn't
+     *  known yet isn't missing: only this marks a name unknown. */
+    missing(connectionId: string, database: string, path: string): boolean {
+      const parts = path.split('.');
+      const name = parts[parts.length - 1] ?? '';
+      const schema = parts.length > 1 ? parts[parts.length - 2] : null;
+      const at = lookupMisses.get(`${dbKey(connectionId, database)}\u0000${schema ?? ''}\u0000${name.toLowerCase()}`);
+      return at !== undefined && Date.now() - at < REREAD_MS;
+    },
+
+    /** Add what a search or a lookup found to the database's known objects. */
+    remember(k: string, objs: DbObject[]) {
+      if (!objs.length) return;
+      const list = this.found[k] ?? (this.found[k] = []);
+      const have = new Set(list.map(objectId));
+      for (const o of objs) if (!have.has(objectId(o))) list.push(o);
+      if (list.length > FOUND_CAP) list.splice(0, list.length - FOUND_CAP);
+    },
+
+    /** Read a database's structure again (Refresh, a structure change made
+     *  in DBine or in the editor): its schema level, its loaded folders and,
+     *  when something holds it, its whole list; searches start over.
+     *  `quiet`: in the background, keeping what's shown if it fails. */
+    async refreshDatabase(connectionId: string, database: string, quiet = false) {
+      const k = dbKey(connectionId, database);
+      if (this.driverOf(connectionId)?.key_search) return this.loadLevel(connectionId, database, true, quiet);
+      for (const sk of [...searches.keys()]) if (sk.startsWith(`${k}\u0000`)) searches.delete(sk);
+      for (const lk of [...lookupMisses.keys()]) if (lk.startsWith(`${k}\u0000`)) lookupMisses.delete(lk);
+      delete this.found[k];
+      const jobs: Promise<unknown>[] = [];
+      if (this.levels[k]) jobs.push(this.loadLevel(connectionId, database, true, quiet));
+      const prefix = `${k}\u0000`;
+      for (const [fk, f] of Object.entries(this.objectFolders)) {
+        if (fk.startsWith(prefix)) jobs.push(this.loadFolder(connectionId, database, f.spec, true, quiet));
+      }
+      const all = this.objects[k];
+      if (all && all.status !== 'error') jobs.push(this.loadAllObjects(connectionId, database, true, quiet));
+      await Promise.all(jobs);
+    },
+
+    /** A whole database's objects, for what truly needs every one (a
+     *  migration's tables, a backup's or a script's object list, the grants
+     *  screen, q and DAX completion). The tree, completion and lookups never
+     *  ask for it: they read by folder, search or look up. `quiet`: a
+     *  background re-read, whose failure keeps what's shown. */
+    async loadAllObjects(connectionId: string, database: string, force = false, quiet = false): Promise<void> {
+      const k = dbKey(connectionId, database);
+      // Key databases aren't listed: their keys are searched (the tree's).
+      if (this.driverOf(connectionId)?.key_search) return this.loadLevel(connectionId, database, force, quiet);
       const cur = this.objects[k];
       if (!force && cur?.status === 'ready') {
         // An old answer: read again in the background, what's shown stays.
-        if (isOld(cur) && !objectsLoading.has(k)) void this.loadObjects(connectionId, database, true, true);
+        if (isOld(cur) && !objectsLoading.has(k)) void this.loadAllObjects(connectionId, database, true, true);
         return;
       }
       if (!force && objectsLoading.has(k)) return objectsLoading.get(k);
@@ -654,14 +944,15 @@ export const useConnectionsStore = defineStore('connections', {
     structureChanged(connectionId: string, database: string, sql: string) {
       if (this.driverOf(connectionId)?.key_search) return;
       const k = dbKey(connectionId, database);
-      if (this.objects[k]?.status === 'ready') void this.loadObjects(connectionId, database, true, true);
+      const known = this.knownObjects(connectionId, database);
+      void this.refreshDatabase(connectionId, database, true);
       const words = new Set(sql.toLowerCase().match(/[\w$#]+/g) ?? []);
       const prefix = `${k}\u0000`;
       for (const [key, l] of Object.entries(this.columns)) {
         if (!key.startsWith(prefix) || l.status !== 'ready') continue;
         const [schema, name] = key.slice(prefix.length).split('\u0000');
         if (words.has(name.toLowerCase())) {
-          const obj = this.objects[k]?.items.find((o) => o.name === name && (o.schema ?? '') === schema);
+          const obj = known.find((o) => o.name === name && (o.schema ?? '') === schema);
           if (obj) {
             void this.loadColumns(connectionId, database, obj, true, { quiet: true });
             continue;

@@ -163,7 +163,7 @@ async function afterRename(d: RenameDialogTarget, newName: string) {
     }
     return;
   }
-  await conns.loadObjects(cid, db, true).catch(() => {});
+  await conns.refreshDatabase(cid, db).catch(() => {});
   switch (target.what) {
     case 'object':
       tabs.renameObject(cid, db, target.object, { ...target.object, name: newName });

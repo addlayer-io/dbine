@@ -456,6 +456,33 @@ export interface DbObject {
   parent: string | null;
 }
 
+/** Which objects, and which page of them (`ObjectQuery` in Rust): every
+ *  filter is optional and they combine. */
+export interface ObjectQuery {
+  /** Only this schema's objects (null: any schema). */
+  schema?: string | null;
+  /** Only objects without a schema; `schema` is then ignored. */
+  no_schema?: boolean;
+  kind?: string | null;
+  /** None of these kinds ("Otros": what the driver doesn't declare). */
+  not_kinds?: string[];
+  /** Names containing this, ignoring case. */
+  pattern?: string | null;
+  /** This name exactly, ignoring case. */
+  name?: string | null;
+  /** The previous page's `next`. */
+  after?: string | null;
+  /** At most this many (0: 1,000). */
+  limit?: number;
+}
+
+/** A page of objects in the tree's order (`ObjectPage` in Rust); `next`:
+ *  more remain, pass it as `after`. */
+export interface ObjectPage {
+  objects: DbObject[];
+  next: string | null;
+}
+
 /** A schema of a database, listed even when empty (`SchemaInfo` in Rust). */
 export interface SchemaInfo {
   name: string;

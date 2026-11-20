@@ -146,7 +146,7 @@ async function runCopy() {
   const h = task;
   Object.assign(copy, { done: 0, total: 0, current: '' });
   try {
-    await conns.loadObjects(connectionId, database);
+    await conns.loadAllObjects(connectionId, database);
     if (h.isCancelling) throw new Error('cancelled');
     const objects = (conns.objects[dbKey(connectionId, database)]?.items ?? []).map((o) => ({ kind: o.kind, schema: o.schema, name: o.name }));
     if (!objects.length) {
@@ -242,7 +242,7 @@ async function runRestoreCopy() {
       restoreCopy.open = false;
       if (!quiet) ElMessage.success(t('backups:restoreCopy.done', { n: num(r.statements) }));
     }
-    conns.loadObjects(connectionId, database, true).catch(() => {});
+    conns.refreshDatabase(connectionId, database).catch(() => {});
   } catch (e) {
     const quiet = isBackground(task);
     if (restoreCopy.cancelling) {

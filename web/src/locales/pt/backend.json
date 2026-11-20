@@ -18572,5 +18572,6 @@
   "Área de trabajo": "Workspace",
   "Últimas actualizaciones": "Últimas atualizações",
   "en la base {0}: {1}": "no banco {0}: {1}",
-  "el resultado no tiene las mismas columnas que en la primera base": "o resultado não tem as mesmas colunas que no primeiro banco"
+  "el resultado no tiene las mismas columnas que en la primera base": "o resultado não tem as mesmas colunas que no primeiro banco",
+  "este motor todavía no lista sus objetos por páginas": "este motor ainda não lista seus objetos por páginas"
 }

@@ -539,13 +539,14 @@ function frameColumns(cell: NotebookCell): FrameColumn[] | null {
   const cols = live[src.id]?.outcome.results.find((r) => r.columns.length)?.columns ?? src.result?.results.find((r) => r.columns.length)?.columns;
   return cols ? cols.map((c) => ({ name: c.name, type: c.type_name })) : null;
 }
-/** The target database's tables (the explorer's cache), in the cell's schema when it has one. */
+/** The target database's tables known so far (a server search when the
+ *  target is set, the tree's folders), in the cell's schema when it has one. */
 function writeTables(cell: NotebookCell): string[] {
   const r = resolvedWrite(cell);
   if (!r.ok) return [];
   const d = conns.driverOf(r.target.connectionId);
   const schema = cell.write?.schema?.toLowerCase();
-  return (conns.objects[dbKey(r.target.connectionId, r.target.database)]?.items ?? [])
+  return conns.knownObjects(r.target.connectionId, r.target.database)
     .filter((o) => d?.object_kinds.find((k) => k.id === o.kind)?.has_columns && o.kind !== 'view' && (!schema || o.schema?.toLowerCase() === schema))
     .map((o) => o.name)
     .sort((a, b) => a.localeCompare(b));
@@ -567,7 +568,7 @@ watch(() => (nb.value?.cells ?? []).filter((c) => c.kind === 'write').map((c) =>
     if (!connectionId) { st.info = null; st.infoError = null; st.infoKey = ''; continue; }
     if (st.infoKey === k) continue;
     st.infoKey = k;
-    if (!conns.objects[dbKey(connectionId, database)]) conns.loadObjects(connectionId, database);
+    void conns.searchObjects(connectionId, database, '', { schema: schema || null, limit: 500 });
     notebookApi.writeTarget(props.tab.id, { connectionId, database, schema: schema || null, table, create: create === '1' })
       .then((info) => { if (st.infoKey === k) { st.info = info; st.infoError = null; } })
       .catch((e) => { if (st.infoKey === k) { st.info = null; st.infoError = errorMessage(e); } });
@@ -718,7 +719,7 @@ async function runWrite(cell: NotebookCell, asked: Set<string> | null): Promise<
 function schemaFor(connectionId: string, database: string): Record<string, string[]> {
   const d = conns.driverOf(connectionId);
   const out: Record<string, string[]> = {};
-  for (const o of conns.objects[dbKey(connectionId, database)]?.items ?? []) {
+  for (const o of conns.knownObjects(connectionId, database)) {
     if (!d?.object_kinds.find((k) => k.id === o.kind)?.has_columns) continue;
     const cols = conns.columns[objKey(connectionId, database, o.schema, o.name)]?.items.map((c) => c.name) ?? [];
     // q names a namespace's table whole (`.ns.t`), never by its bare name.
@@ -774,16 +775,30 @@ const contexts = computed<Record<string, CellContext>>(() => {
   }
   return out;
 });
-// Completion reads the explorer's cache: load each target's objects once connected.
+// Completion's names once each target is connected: the first page of its
+// names (more by prefix as they're typed); a Power BI model, whole (its
+// measures).
 watch(() => [...new Set((nb.value?.cells ?? []).flatMap((c) => {
   const r = c.kind === 'sql' ? resolved(c) : null;
   return r?.ok && conns.isConnected(r.target.connectionId) ? [`${r.target.connectionId}\u0000${r.target.database}`] : [];
 }))].join('\u0001'), (keys) => {
   for (const k of keys ? keys.split('\u0001') : []) {
     const [c, d] = k.split('\u0000');
-    if (!conns.objects[dbKey(c, d)]) conns.loadObjects(c, d);
+    if (conns.driverOf(c)?.language === 'dax') void conns.loadAllObjects(c, d).catch(() => {});
+    else void conns.searchObjects(c, d, '');
   }
 }, { immediate: true });
+/** A cell's editor is on a name being typed: its matches on the server. */
+let prefixTimer: ReturnType<typeof setTimeout> | null = null;
+function needPrefix(cell: NotebookCell, prefix: string) {
+  if (prefixTimer) clearTimeout(prefixTimer);
+  prefixTimer = setTimeout(() => {
+    prefixTimer = null;
+    const r = resolved(cell);
+    if (r.ok && conns.isConnected(r.target.connectionId)) void conns.searchObjects(r.target.connectionId, r.target.database, prefix);
+  }, 150);
+}
+onBeforeUnmount(() => { if (prefixTimer) clearTimeout(prefixTimer); });
 function needNames(cell: NotebookCell) {
   const r = resolved(cell);
   if (r.ok && !conns.isConnected(r.target.connectionId)) void conns.ensureConnected(r.target.connectionId, { auto: true });
@@ -800,8 +815,10 @@ function needColumns(cell: NotebookCell, path: string[]) {
   if (!r.ok) return;
   const { connectionId, database } = r.target;
   const [schemaName, name] = path.length > 1 ? path : [null, path[0]];
-  const obj = (conns.objects[dbKey(connectionId, database)]?.items ?? []).find((o) => o.name === name && (schemaName === null || o.schema === schemaName));
-  if (obj && !conns.columns[objKey(connectionId, database, obj.schema, obj.name)]) conns.loadColumns(connectionId, database, obj);
+  // What's known, else a lookup by name on the server.
+  void conns.findObject(connectionId, database, schemaName, name).then((obj) => {
+    if (obj && !conns.columns[objKey(connectionId, database, obj.schema, obj.name)]) conns.loadColumns(connectionId, database, obj);
+  });
 }
 // The tables the active cell names get their columns (as the editor does).
 let columnsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -815,7 +832,7 @@ watch(() => activeCell.value?.kind === 'sql' ? activeCell.value.source : '', (te
     const words = new Set(text.toLowerCase().match(/[\w$#]+/g) ?? []);
     const d = conns.driverOf(connectionId);
     let started = 0;
-    for (const o of conns.objects[dbKey(connectionId, database)]?.items ?? []) {
+    for (const o of conns.knownObjects(connectionId, database)) {
       if (started >= 20) break;
       if (!words.has(o.name.toLowerCase()) || conns.columns[objKey(connectionId, database, o.schema, o.name)]) continue;
       if (!d?.object_kinds.find((k) => k.id === o.kind)?.has_columns) continue;
@@ -1627,6 +1644,7 @@ const breadcrumbDir = computed(() => {
           @next="textNext(cell)"
           @save="save"
           @need-columns="(p: string[]) => needColumns(cell, p)"
+          @need-prefix="(p: string) => needPrefix(cell, p)"
           @need-names="needNames(cell)"
           @need-functions="needFunctions(cell)"
           @write-to="writeTo(cell)"

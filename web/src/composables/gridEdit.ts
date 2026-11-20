@@ -1,6 +1,6 @@
 import type { Cell, ObjectRef, ResultColumn } from '../api/types';
 import { t } from '../i18n';
-import { dbKey, useConnectionsStore } from '../stores/connections';
+import { useConnectionsStore } from '../stores/connections';
 
 // Editing cells of a result: which table the rows come from, which columns
 // identify a row, and the changes to turn into UPDATE code (the driver writes
@@ -186,11 +186,9 @@ export function inferColumnSources(script: string, resultIndex: number): ((name:
  */
 export async function resolveEditing(connectionId: string, database: string, target: ObjectRef, columns: string[]): Promise<EditSetup | string> {
   const conns = useConnectionsStore();
-  await conns.loadObjects(connectionId, database);
-  const objs = conns.objects[dbKey(connectionId, database)]?.items ?? [];
-  const lower = target.name.toLowerCase();
-  const found = objs.find((o) => o.name === target.name && (!target.schema || o.schema === target.schema))
-    ?? objs.find((o) => o.name.toLowerCase() === lower && (!target.schema || (o.schema ?? '').toLowerCase() === target.schema!.toLowerCase()));
+  // Looked up by name (what's known, else the server), not by reading the
+  // whole database.
+  const found = await conns.findObject(connectionId, database, target.schema || null, target.name);
   const ref: ObjectRef = found ? { kind: found.kind, schema: found.schema, name: found.name } : target;
   const cols = await conns.loadColumns(connectionId, database, { ...ref, parent: found?.parent ?? null });
   const identity = cols.filter((c) => c.auto_increment).map((c) => c.name);

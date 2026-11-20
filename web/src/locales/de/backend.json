@@ -18572,5 +18572,6 @@
   "Área de trabajo": "Arbeitsbereich",
   "Últimas actualizaciones": "Letzte Aktualisierungen",
   "en la base {0}: {1}": "in Datenbank {0}: {1}",
-  "el resultado no tiene las mismas columnas que en la primera base": "das Ergebnis hat nicht dieselben Spalten wie in der ersten Datenbank"
+  "el resultado no tiene las mismas columnas que en la primera base": "das Ergebnis hat nicht dieselben Spalten wie in der ersten Datenbank",
+  "este motor todavía no lista sus objetos por páginas": "Diese Engine listet ihre Objekte noch nicht seitenweise auf"
 }

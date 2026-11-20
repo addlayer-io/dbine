@@ -2,7 +2,7 @@ use crate::error::{CommandError, CommandResult};
 use crate::state::{driver_info, meta_key, AppState, Lane, SessionEntry};
 use dbine_core::cache::kinds as cache_kinds;
 use dbine_driver::sql::{create_table_from_columns, Quote};
-use dbine_driver::{ColumnInfo, DbObject, ObjectRef, SchemaInfo};
+use dbine_driver::{ColumnInfo, DbObject, ObjectPage, ObjectQuery, ObjectRef, SchemaInfo};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tauri::State;
@@ -61,34 +61,34 @@ pub struct DatabaseObjects {
     pub schemas: Option<Vec<SchemaInfo>>,
 }
 
-/// What the explorer tree loads for a database: `list_objects` plus the
-/// schema list, read on the same session (the tree's lane) and cached
-/// together.
+/// A whole database's objects plus the schema list, read on the same
+/// session and cached together: for what truly needs every object (a
+/// migration's tables, a backup's or a script's object list, the grants
+/// screen). The tree reads by folder (`list_object_page`).
 #[tauri::command(rename_all = "camelCase")]
 pub async fn list_database_objects(
     state: State<'_, AppState>,
     args: DatabaseArgs,
 ) -> CommandResult<DatabaseObjects> {
     let read = state
-        .meta_read_on(
-            Lane::Tree,
-            &args.connection_id,
-            &args.database,
-            META_LIMIT,
-            |s| {
-                Box::pin(async move {
-                    let objects = s.list_objects().await?;
-                    // The objects are what matters: a schema list that fails
-                    // leaves the schemas derived from them.
-                    let schemas = s.list_schemas().await.unwrap_or_else(|e| {
-                        tracing::warn!("list_schemas failed: {e}");
-                        None
-                    });
-                    Ok(DatabaseObjects { objects, schemas })
-                })
-            },
-        )
+        .meta_read(&args.connection_id, &args.database, META_LIMIT, |s| {
+            Box::pin(async move {
+                let objects = s.list_objects().await?;
+                // The objects are what matters: a schema list that fails
+                // leaves the schemas derived from them.
+                let schemas = s.list_schemas().await.unwrap_or_else(|e| {
+                    tracing::warn!("list_schemas failed: {e}");
+                    None
+                });
+                Ok(DatabaseObjects { objects, schemas })
+            })
+        })
         .await?;
+    // A whole list read anyway: the tree's next pages come out of it.
+    state.object_lists.insert(
+        meta_key(&args.connection_id, &args.database),
+        (std::time::Instant::now(), Arc::new(read.objects.clone())),
+    );
     state.cache_put(
         &args.connection_id,
         &args.database,
@@ -106,16 +106,146 @@ pub async fn list_database_objects(
     Ok(read)
 }
 
+/// The tree's schema level: every schema of the database, empty ones
+/// included (`None`: the driver doesn't list them, and the tree shows its
+/// kind folders across schemas). On the tree's lane; cached.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn list_schemas(
+    state: State<'_, AppState>,
+    args: DatabaseArgs,
+) -> CommandResult<Option<Vec<SchemaInfo>>> {
+    let schemas = state
+        .meta_read_on(
+            Lane::Tree,
+            &args.connection_id,
+            &args.database,
+            META_LIMIT,
+            |s| Box::pin(s.list_schemas()),
+        )
+        .await?;
+    state.cache_put(
+        &args.connection_id,
+        &args.database,
+        CACHE_SCHEMAS,
+        "",
+        &schemas,
+    );
+    Ok(schemas)
+}
+
+/// How long a whole object list read for a driver without its own pages
+/// serves the next pages (a folder's "Cargar más", the other folders, the
+/// editor's searches) before it's read again.
+pub const OBJECT_LIST_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The explorer cache's entry for a folder's first page.
+pub const CACHE_PAGE: &str = "page";
+
+/// The cache item of a folder: its filters, not its page or search.
+pub fn page_item(q: &ObjectQuery) -> String {
+    serde_json::to_string(&(&q.schema, q.no_schema, &q.kind, &q.not_kinds)).unwrap_or_default()
+}
+
+#[derive(Deserialize)]
+pub struct ObjectPageArgs {
+    pub connection_id: String,
+    pub database: String,
+    pub query: ObjectQuery,
+    /// Read again from the server (Refresh, a structure change), not out of
+    /// a whole list kept from a moment ago.
+    #[serde(default)]
+    pub fresh: bool,
+    /// Asked by the explorer tree: on the tree's lane.
+    #[serde(default)]
+    pub tree: bool,
+}
+
+/// One page of a database's objects: a folder of the tree (a schema's
+/// objects of one kind, with "Cargar más"), a name search (completion, the
+/// filter, a picker) or a lookup by name. The driver's own narrow catalog
+/// query when it has one; otherwise its whole list, read once and kept
+/// `OBJECT_LIST_TTL` for the next pages. A folder's first page is cached.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn list_object_page(
+    state: State<'_, AppState>,
+    args: ObjectPageArgs,
+) -> CommandResult<ObjectPage> {
+    object_page(&state, args).await
+}
+
+/// `list_object_page`'s work.
+pub async fn object_page(state: &AppState, args: ObjectPageArgs) -> CommandResult<ObjectPage> {
+    let lane = if args.tree { Lane::Tree } else { Lane::Default };
+    let key = meta_key(&args.connection_id, &args.database);
+    let lists = state.object_lists.clone();
+    let q = args.query.clone();
+    let fresh = args.fresh;
+    // A fresh read takes a list read after it was asked for (several folders
+    // refreshed at once share one read), never an older one.
+    let asked = std::time::Instant::now();
+    let page = state
+        .meta_read_on(
+            lane,
+            &args.connection_id,
+            &args.database,
+            META_LIMIT,
+            move |s| {
+                Box::pin(async move {
+                    match s.list_objects_page(&q).await {
+                        Err(dbine_driver::Error::Unsupported(_)) => {}
+                        r => return r,
+                    }
+                    // Checked here, on the session: requests queued behind
+                    // the one that read the list take it from there.
+                    let kept = lists
+                        .get(&key)
+                        .filter(|e| {
+                            if fresh {
+                                e.0 >= asked
+                            } else {
+                                e.0.elapsed() < OBJECT_LIST_TTL
+                            }
+                        })
+                        .map(|e| e.1.clone());
+                    let all = match kept {
+                        Some(all) => all,
+                        None => {
+                            let all = Arc::new(s.list_objects().await?);
+                            lists.insert(key, (std::time::Instant::now(), all.clone()));
+                            all
+                        }
+                    };
+                    Ok(dbine_driver::objects::page_of(&all, &q))
+                })
+            },
+        )
+        .await?;
+    let q = &args.query;
+    if q.after.is_none() && q.pattern.is_none() && q.name.is_none() {
+        state.cache_put(
+            &args.connection_id,
+            &args.database,
+            CACHE_PAGE,
+            &page_item(q),
+            &page.objects,
+        );
+    }
+    Ok(page)
+}
+
 #[derive(Deserialize)]
 pub struct CachedArgs {
     pub connection_id: String,
     #[serde(default)]
     pub database: String,
-    /// `databases`, `objects`, `schemas` or `columns`.
+    /// `databases`, `objects`, `schemas`, `columns` or `page`.
     pub kind: String,
     /// For `columns`, the object (`cache_item`).
     #[serde(default)]
     pub item: String,
+    /// For `page`, the folder (its first page's query).
+    #[serde(default)]
+    pub query: Option<ObjectQuery>,
 }
 
 /// What the explorer showed last time for this entry (see
@@ -129,8 +259,12 @@ pub async fn get_cached(
     let Some(cache) = state.cache.get() else {
         return Ok(None);
     };
+    let item = match &args.query {
+        Some(q) => page_item(q),
+        None => args.item.clone(),
+    };
     let raw = cache
-        .get(&args.connection_id, &args.database, &args.kind, &args.item)
+        .get(&args.connection_id, &args.database, &args.kind, &item)
         .unwrap_or_else(|e| {
             tracing::warn!("explorer cache read failed: {e}");
             None
@@ -554,6 +688,104 @@ mod tests {
         .unwrap();
         assert_eq!((query.as_str(), server), ("db.t.find({})", false));
         assert!(why.is_some());
+    }
+
+    /// A driver without its own pages (SQLite): a folder's pages come out of
+    /// one read of its whole list, kept for a while; "fresh" reads again.
+    #[tokio::test]
+    async fn a_folder_pages_through_a_kept_list() {
+        use dbine_core::StateStore;
+        let dir = std::env::temp_dir().join(format!(
+            "dbine-pages-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("t.sqlite");
+        let db = rusqlite::Connection::open(&file).unwrap();
+        db.execute_batch(
+            "CREATE TABLE a (id INTEGER); CREATE TABLE b (id INTEGER); CREATE TABLE c (id INTEGER);
+             CREATE VIEW v1 AS SELECT 1; CREATE VIEW v2 AS SELECT 2;",
+        )
+        .unwrap();
+        let state = AppState::new(StateStore::open_in_memory().unwrap());
+        state
+            .store
+            .save_connection(&dbine_core::SavedConnection {
+                id: "pages".into(),
+                name: "pages".into(),
+                color: None,
+                config: dbine_driver::ConnectionConfig {
+                    driver: "sqlite".into(),
+                    host: file.to_string_lossy().into_owned(),
+                    ..Default::default()
+                },
+                save_password: false,
+                folder_id: None,
+                tags: vec![],
+                mcp_level: None,
+                updated_at: String::new(),
+            })
+            .unwrap();
+        let ask = |query: ObjectQuery, fresh: bool| ObjectPageArgs {
+            connection_id: "pages".into(),
+            database: String::new(),
+            query,
+            fresh,
+            tree: true,
+        };
+        let tables = |after: Option<String>| ObjectQuery {
+            kind: Some("table".into()),
+            limit: 2,
+            after,
+            ..Default::default()
+        };
+        let names = |p: &ObjectPage| p.objects.iter().map(|o| o.name.clone()).collect::<Vec<_>>();
+        let first = object_page(&state, ask(tables(None), false)).await.unwrap();
+        assert_eq!(names(&first), ["a", "b"]);
+        let second = object_page(&state, ask(tables(first.next.clone()), false))
+            .await
+            .unwrap();
+        assert_eq!((names(&second), second.next), (vec!["c".to_string()], None));
+        // The views' folder: the other kind only.
+        let views = ObjectQuery {
+            kind: Some("view".into()),
+            ..Default::default()
+        };
+        let p = object_page(&state, ask(views, false)).await.unwrap();
+        assert_eq!(names(&p), ["v1", "v2"]);
+        // A table made meanwhile: the kept list doesn't have it yet; a fresh
+        // read (Refresh, a structure change) does.
+        db.execute_batch("CREATE TABLE d (id INTEGER)").unwrap();
+        let all = ObjectQuery {
+            kind: Some("table".into()),
+            ..Default::default()
+        };
+        let kept = object_page(&state, ask(all.clone(), false)).await.unwrap();
+        assert_eq!(names(&kept), ["a", "b", "c"]);
+        let fresh = object_page(&state, ask(all, true)).await.unwrap();
+        assert_eq!(names(&fresh), ["a", "b", "c", "d"]);
+        // A lookup by name, ignoring case.
+        let found = object_page(
+            &state,
+            ask(
+                ObjectQuery {
+                    name: Some("V2".into()),
+                    ..Default::default()
+                },
+                false,
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(names(&found), ["v2"]);
+        state.close_connection_sessions("pages");
+        assert!(
+            state.object_lists.is_empty(),
+            "a disconnect drops the kept list"
+        );
+        drop(db);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
 

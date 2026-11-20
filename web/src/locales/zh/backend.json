@@ -18572,5 +18572,6 @@
   "Área de trabajo": "工作区",
   "Últimas actualizaciones": "最近的刷新",
   "en la base {0}: {1}": "在数据库 {0} 中：{1}",
-  "el resultado no tiene las mismas columnas que en la primera base": "结果的列与第一个数据库中的不同"
+  "el resultado no tiene las mismas columnas que en la primera base": "结果的列与第一个数据库中的不同",
+  "este motor todavía no lista sus objetos por páginas": "此引擎尚不支持分页列出其对象"
 }

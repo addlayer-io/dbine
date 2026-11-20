@@ -140,6 +140,11 @@ const emit = defineEmits<{
   needColumns: [path: string[], database?: string];
   /** Completion reached `db.` and that database's objects aren't loaded. */
   needDatabase: [database: string];
+  /** Completion is on a bare name the user is typing (two characters or
+   *  more): the names holding it can be searched on the server (the store
+   *  knows only part of a big database). The list reopens when `schema`
+   *  brings them. */
+  needPrefix: [prefix: string];
   /** Completion was asked for while `schema` is empty. The list reopens
    *  when `schema` brings names. */
   needNames: [];
@@ -219,6 +224,16 @@ function nameSource(dialect: SQLDialect) {
       n.asked.add(`\u0001${needDatabase}`);
       reopenAt = ctx.pos;
       emit('needDatabase', needDatabase);
+    }
+    // A bare name being typed (not after a dot): its matches on the server.
+    const word = ctx.matchBefore(/[\w$#]{2,}$/);
+    if (word && ctx.state.sliceDoc(Math.max(0, word.from - 1), word.from) !== '.') {
+      const asked = `\u0002${word.text.toLowerCase()}`;
+      if (!n.asked.has(asked)) {
+        n.asked.add(asked);
+        reopenAt = ctx.pos;
+        emit('needPrefix', word.text);
+      }
     }
     return result;
   };

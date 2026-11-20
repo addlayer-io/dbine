@@ -18572,5 +18572,6 @@
   "Área de trabajo": "Workspace",
   "Últimas actualizaciones": "Latest refreshes",
   "en la base {0}: {1}": "in database {0}: {1}",
-  "el resultado no tiene las mismas columnas que en la primera base": "the result doesn't have the same columns as in the first database"
+  "el resultado no tiene las mismas columnas que en la primera base": "the result doesn't have the same columns as in the first database",
+  "este motor todavía no lista sus objetos por páginas": "this engine doesn't list its objects page by page yet"
 }

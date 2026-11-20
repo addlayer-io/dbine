@@ -84,6 +84,8 @@ const emit = defineEmits<{
   next: [];
   save: [];
   needColumns: [path: string[]];
+  /** A name being typed: its matches can be searched on the server. */
+  needPrefix: [prefix: string];
   needNames: [];
   /** The editor wants the target's functions (`ctx.functions` is null). */
   needFunctions: [];
@@ -252,6 +254,7 @@ function endRename(save: boolean) {
             @run-statement="() => emit('run', null, false)"
             @save="emit('save')"
             @need-columns="(p: string[]) => emit('needColumns', p)"
+            @need-prefix="(p: string) => emit('needPrefix', p)"
             @need-names="emit('needNames')"
             @need-functions="emit('needFunctions')"
           />

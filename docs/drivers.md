@@ -63,6 +63,46 @@ crates/drivers/<name>/
 | `execute(text, max_rows, out)` | Runs the whole script (see the result format below). |
 | `interrupter()` | A function to cancel from another thread when dropping the session isn't enough. Examples: `KILL QUERY`, a cancel request, an HTTP `DELETE` of the job, or the interrupt of a blocking thread. |
 
+### Objects by page (the explorer)
+
+The explorer never reads a whole database. It asks for one page at a time
+with `list_objects_page(&ObjectQuery) -> ObjectPage` (in
+`dbine_driver::objects`):
+
+- a schema's objects of one kind, for a folder of the tree;
+- a name search, for completion, the filter's **Enter** and the pickers;
+- a lookup by name, for the jumps and hovering a table.
+
+The default answers `Unsupported`, and the app then pages `list_objects`
+itself (`objects::page_of`), reading the whole list once. That is correct,
+but a database with a million views still waits for the whole list before
+showing its one table. A driver that can ask its catalog for less
+implements it.
+
+- **Filters**, which combine:
+  - `schema` (`None`: any) or `no_schema` (only objects without one);
+  - `kind`, or `not_kinds` (everything but those kinds: "Otros");
+  - `pattern` (the name contains it, ignoring case);
+  - `name` (the whole name, ignoring case).
+
+  Map them to the catalog's `WHERE`, and keep excluding system objects as
+  `list_objects` does.
+- **Order:** by schema (objects without one first), then by name, both
+  ignoring case. Pages must follow each other without gaps or repeats.
+- **Paging:** at most `query.page_size()` objects (1,000 by default).
+  `next` is an opaque cursor that comes back as `after`: an offset
+  (`LIMIT … OFFSET`), the last schema and name (keyset, better on big
+  catalogs), or the API's page token. `None` means it was the last page.
+- **Engines with an HTTP catalog** (Unity Catalog, BigQuery, Cosmos DB…)
+  call its listing per schema with the page size and pass its token
+  through as the cursor.
+- **Key databases** (`key_search`) don't implement it: their tree searches
+  keys instead.
+
+Test it against the engine's container, including a folder of more than one
+page and a search, and remove the engine from the pending list in
+`docs/engine-support.md` (**Explorer objects by folder**).
+
 ### Results
 
 All results are tabular (`QueryOutcome`):
