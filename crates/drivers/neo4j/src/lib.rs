@@ -332,6 +332,7 @@ impl Driver for GraphDriver {
             scheduler: scheduler::supported(self.flavor),
             // Float lists as vectors and vector indexes (Neptune has neither).
             vectors: self.flavor != Flavor::Neptune,
+            billed_metadata: false,
         }
     }
 

@@ -12,7 +12,15 @@
     "onlyTag": "Hanya tag",
     "anyTag": "(apa saja)",
     "showAll": "Tampilkan semua",
-    "tagTitle": "Tampilkan hanya koneksi dengan tag «{{tag}}»"
+    "tagTitle": "Tampilkan hanya koneksi dengan tag «{{tag}}»",
+    "inCode": "Cari juga di dalam kode: view, prosedur, measure, dan tabel Power BI…",
+    "searching": "Mencari di server…",
+    "searchingCode": "Mencari di dalam kode…",
+    "enterBilled": "Tekan Enter untuk mencari di {{engines}}: setiap pencarian adalah kueri berbayar.",
+    "codeMin": "Ketik minimal {{n}} huruf untuk mencari di dalam kode.",
+    "codeUnreadable_other": "Kode {{n}} objek tidak dapat dibaca (izin).",
+    "codeLine": "Di kode, baris {{line}}: {{text}}",
+    "codeTag": "kode"
   },
   "empty": {
     "noConnections": "Belum ada koneksi.",

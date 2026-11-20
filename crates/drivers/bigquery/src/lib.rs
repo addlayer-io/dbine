@@ -295,6 +295,8 @@ impl Driver for BigQueryDriver {
             scheduler: true,
             // ARRAY<FLOAT64> embeddings and vector indexes.
             vectors: true,
+            // Folders, searches and lookups are INFORMATION_SCHEMA query jobs.
+            billed_metadata: true,
             ..Default::default()
         }
     }

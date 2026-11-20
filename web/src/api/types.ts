@@ -114,6 +114,8 @@ export interface ObjectKindInfo {
   has_columns: boolean;
   browsable: boolean;
   has_definition: boolean;
+  /** Its definition is DDL the engine generates (a SQL table's): a code search leaves it out unless asked for by kind. */
+  generated_definition?: boolean;
 }
 
 export interface DriverInfo {

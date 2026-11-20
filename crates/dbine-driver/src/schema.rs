@@ -371,6 +371,11 @@ pub struct Capabilities {
     /// write vector literals and vector indexes are read and created.
     #[serde(default)]
     pub vectors: bool,
+    /// Each metadata read (a folder, a search, a lookup) is a query the
+    /// account pays for (BigQuery's `INFORMATION_SCHEMA` jobs): the
+    /// explorer's filter searches the server on Enter, not as you type.
+    #[serde(default)]
+    pub billed_metadata: bool,
 }
 
 #[cfg(test)]

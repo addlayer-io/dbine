@@ -12,7 +12,15 @@
     "onlyTag": "해당 태그만",
     "anyTag": "(모든 태그)",
     "showAll": "모두 표시",
-    "tagTitle": "태그 「{{tag}}」가 있는 연결만 표시"
+    "tagTitle": "태그 「{{tag}}」가 있는 연결만 표시",
+    "inCode": "코드에서도 검색: 뷰, 프로시저, 측정값, Power BI 테이블…",
+    "searching": "서버에서 검색하는 중…",
+    "searchingCode": "코드에서 검색하는 중…",
+    "enterBilled": "Enter를 눌러 {{engines}}에서 검색합니다. 검색할 때마다 요금이 부과되는 쿼리가 실행됩니다.",
+    "codeMin": "코드에서 검색하려면 {{n}}자 이상 입력하세요.",
+    "codeUnreadable_other": "개체 {{n}}개의 코드를 읽을 수 없습니다(권한).",
+    "codeLine": "코드, {{line}}번째 줄: {{text}}",
+    "codeTag": "코드"
   },
   "empty": {
     "noConnections": "아직 연결이 없습니다.",

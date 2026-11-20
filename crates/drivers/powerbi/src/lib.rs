@@ -225,7 +225,9 @@ fn info() -> DriverInfo {
         databases_label: "Modelos semánticos",
         has_schemas: false,
         object_kinds: vec![
-            ObjectKindInfo::new(TABLE, "Tablas", true, true, true),
+            // Its definition is the partitions' M and the calculated columns'
+            // DAX: code someone wrote, searched by default.
+            ObjectKindInfo::new(TABLE, "Tablas", true, true, true).written(),
             ObjectKindInfo::new(CALCULATION_GROUP, "Grupos de cálculo", true, true, true),
             ObjectKindInfo::new(MEASURE, "Medidas", false, true, true),
             ObjectKindInfo::new(HIERARCHY, "Jerarquías", true, true, true),
@@ -297,6 +299,7 @@ impl Driver for PowerBiDriver {
             jobs: true,
             scheduler: true,
             vectors: false,
+            billed_metadata: false,
         }
     }
 
@@ -629,6 +632,15 @@ impl Session for PowerBiSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tables_m_and_dax_are_searched_as_code() {
+        // "Buscar en la base" and the explorer's filter search a table's
+        // partitions (M) and calculated columns (DAX) without asking for tables.
+        let i = info();
+        let table = i.object_kinds.iter().find(|k| k.id == TABLE).unwrap();
+        assert!(table.has_definition && !table.generated_definition);
+    }
 
     #[test]
     fn declares_itself() {

@@ -705,6 +705,7 @@ impl Driver for OracleDriver {
             // VECTOR (23ai): results, describes, literals, transfers and
             // HNSW / IVF vector indexes (see `vector`).
             vectors: true,
+            billed_metadata: false,
         }
     }
 

@@ -165,4 +165,7 @@ export interface Capabilities {
   scheduler?: boolean;
   /** It handles vectors (embeddings): vector columns, their dimension, literals and vector indexes. */
   vectors?: boolean;
+  /** Each metadata read (a folder, a search, a lookup) is a query the account pays for (BigQuery):
+   *  the explorer's filter searches the server on Enter, not as you type. */
+  billed_metadata?: boolean;
 }

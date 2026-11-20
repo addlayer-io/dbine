@@ -12,7 +12,16 @@
     "onlyTag": "Nur der Tag",
     "anyTag": "(beliebig)",
     "showAll": "Alle anzeigen",
-    "tagTitle": "Nur Verbindungen mit dem Tag «{{tag}}» anzeigen"
+    "tagTitle": "Nur Verbindungen mit dem Tag «{{tag}}» anzeigen",
+    "inCode": "Auch im Code suchen: Views, Prozeduren, Measures und Power-BI-Tabellen…",
+    "searching": "Suche auf dem Server…",
+    "searchingCode": "Suche im Code…",
+    "enterBilled": "Eingabetaste, um in {{engines}} zu suchen: Jede Suche ist eine kostenpflichtige Abfrage.",
+    "codeMin": "Geben Sie mindestens {{n}} Buchstaben ein, um im Code zu suchen.",
+    "codeUnreadable_one": "Der Code von {{n}} Objekt konnte nicht gelesen werden (Berechtigungen).",
+    "codeUnreadable_other": "Der Code von {{n}} Objekten konnte nicht gelesen werden (Berechtigungen).",
+    "codeLine": "Im Code, Zeile {{line}}: {{text}}",
+    "codeTag": "Code"
   },
   "empty": {
     "noConnections": "Noch keine Verbindungen.",

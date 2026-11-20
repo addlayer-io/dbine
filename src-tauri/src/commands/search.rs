@@ -71,12 +71,13 @@ pub async fn search_database(
     args: SearchArgs,
 ) -> CommandResult<SearchResult> {
     let key = format!("search:{}", args.search_id);
-    let with_source: Vec<String> = driver_of(&state, &args.connection_id)?
+    // Kinds with source, and whether each one's is generated DDL.
+    let with_source: Vec<(String, bool)> = driver_of(&state, &args.connection_id)?
         .info()
         .object_kinds
         .iter()
         .filter(|k| k.has_definition)
-        .map(|k| k.id.to_string())
+        .map(|k| (k.id.to_string(), k.generated_definition))
         .collect();
     let entry = state
         .dedicated_session(&key, &args.connection_id, &args.database, true)
@@ -86,9 +87,6 @@ pub async fn search_database(
     result
 }
 
-/// Kinds whose "definition" is DDL the engine generates, not code someone
-/// wrote: searched only when asked for by kind (their names are always).
-const GENERATED_DDL: &[&str] = &[dbine_driver::kinds::TABLE];
 /// A hit in a column's name (not an object kind: the UI offers it apart).
 const COLUMN: &str = "column";
 
@@ -96,15 +94,17 @@ async fn run(
     app: &AppHandle,
     entry: &crate::state::SessionEntry,
     args: &SearchArgs,
-    with_source: &[String],
+    with_source: &[(String, bool)],
 ) -> CommandResult<SearchResult> {
-    // "Código" without a kind filter: every kind with source but tables.
+    // "Código" without a kind filter: every kind with source but those whose
+    // source is DDL the engine generates (a SQL table's), searched only when
+    // asked for by kind (their names are always). A Power BI table's is code.
     let mut resolved = args.query.clone();
     if resolved.kinds.is_empty() {
         resolved.kinds = with_source
             .iter()
-            .filter(|k| !GENERATED_DDL.contains(&k.as_str()))
-            .cloned()
+            .filter(|(_, generated)| !generated)
+            .map(|(k, _)| k.clone())
             .collect();
     }
     let names_any_kind = args.query.kinds.is_empty();
@@ -129,9 +129,13 @@ async fn run(
         );
     };
     let mut s = entry.session.lock().await;
-    let objects = s.list_objects().await?;
+    // The whole list only when something needs it: names, or the per-object
+    // scan. A code-only search (the explorer's filter) answered by the
+    // driver's catalog never reads it.
+    let mut objects: Option<Vec<dbine_driver::DbObject>> = None;
 
     if args.names && !q.text.is_empty() {
+        let objects = objects.insert(s.list_objects().await?);
         let hits: Vec<SearchHit> = objects
             .iter()
             .filter(|o| (names_any_kind || wanted(&o.kind)) && line_matches(&o.name, q))
@@ -197,9 +201,13 @@ async fn run(
     }
 
     // Each object's source.
+    let objects = match objects {
+        Some(o) => o,
+        None => s.list_objects().await?,
+    };
     let candidates: Vec<_> = objects
         .iter()
-        .filter(|o| with_source.contains(&o.kind) && wanted(&o.kind))
+        .filter(|o| with_source.iter().any(|(k, _)| *k == o.kind) && wanted(&o.kind))
         .collect();
     let total = candidates.len();
     let mut pending = Vec::new();

@@ -286,6 +286,7 @@ pub fn capabilities(p: &Preset) -> Capabilities {
         scheduler: crate::scheduler::supported(p),
         // Db2 LUW 12.1.2+'s VECTOR (see `crate::vector`).
         vectors: eng(p) == Eng::Db2,
+        billed_metadata: false,
     }
 }
 

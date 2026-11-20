@@ -45,6 +45,10 @@ and queries are organized inside each database.
   appear instantly with what was there last time, and the server updates them
   (the server always wins). It only stores names and structure.
   Details: [`docs/explorer-cache.md`](docs/explorer-cache.md).
+- **Explorer filter** that finds objects in folders that aren't open, by name
+  (the cache at once, then the server) and, optionally, inside their code
+  (views, routines, Power BI measures and tables). Details:
+  [`docs/explorer-cache.md`](docs/explorer-cache.md#the-filter).
 - **Folders and groups**, for example per client or per environment. They can
   be nested and colored, and servers are moved between them by dragging.
 - **Import connections** from DBeaver, DbGate, DataGrip / JetBrains, Azure Data

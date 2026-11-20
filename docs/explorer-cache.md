@@ -20,6 +20,37 @@ It is *stale-while-revalidate*:
 If nothing is stored (first time, or it was cleared), the tree behaves as
 before: it waits for the server.
 
+A background re-read (after five minutes, when you come back to DBine, after
+a `CREATE`, `ALTER` or `DROP` in the editor) keeps what's on screen while it
+asks: the tree doesn't close or show **Loading…**, and only the objects that
+appeared or disappeared change.
+
+## The filter
+
+The tree reads folder by folder, so the filter at the top doesn't stop at
+what's open. As you type, it filters what's loaded at once and, after a short
+pause, looks for the text in the databases in sight (the open ones, or each
+connected connection's default database when none is open):
+
+1. **In this cache**, by name, in every folder it kept for the database: the
+   matches show at once, in their folders (Tables, Views…), also while
+   connecting.
+2. **On the server**, by name, with the engine's narrow query (a page of up
+   to 200 matches). Its answer replaces the cache's. If the server can't
+   answer, the cache's stay.
+3. With **</>** (search in code) on, and from three letters, **in the objects'
+   definitions**: views, procedures, functions, triggers, and Power BI's
+   measures and tables (their M and DAX). This uses the code search of
+   [Search in database](search.md), on a session of its own. An object found
+   this way shows a **code** tag, and its tooltip has the first line where the
+   text is. If the login can't read some objects' code, the line under the
+   filter says how many.
+
+The filter opens the way to each match without opening the folders by hand,
+and clearing it leaves the tree as it was. BigQuery bills each metadata query,
+so for it the server and code searches wait for **Enter** (the line under the
+filter says so); the cache still answers as you type.
+
 ## When the connection fails
 
 Connect first, then show: what the tree shows always belongs to a connection

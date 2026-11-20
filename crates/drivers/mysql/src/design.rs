@@ -41,6 +41,7 @@ pub(crate) fn capabilities(v: Variant) -> Capabilities {
         jobs: crate::jobs::supported(v),
         scheduler: crate::jobs::supported(v),
         vectors: crate::vectors::supported(v),
+        billed_metadata: false,
     }
 }
 
