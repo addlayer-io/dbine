@@ -2,7 +2,7 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-11-19._
+_Updated 2026-11-20._
 
 ## Open findings
 
@@ -22,10 +22,10 @@ _None._
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.6.3 | 2026-11-18 | 0e26e2f0..e8b61cec, everything 1.6.3 adds since v1.6.2 (#123 SQL Server catalog reads, #124 Compare data export, the per-day telemetry, the multi-database export of every row, the grid's keyboard scroll, the release commit); e8b61cec..031d392f, libz-sys 1.1.33 and the picomatch review; 6fa05571..f7e04ee7, lettre 0.11.24 past six SMTP advisories | 0 open | — |
-| codeql | 2026-11-19 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-19 | every lockfile (Cargo, npm) at [`7fe352fc0`](https://github.com/addlayer-io/dbine/commit/7fe352fc05b8) | 0 open | — |
-| scorecard | 2026-11-19 | repository settings and workflows at [`871a07614`](https://github.com/addlayer-io/dbine/commit/871a07614789) | score 7.4/10 | — |
-| trivy | 2026-11-19 | whole repository at [`7fe352fc0`](https://github.com/addlayer-io/dbine/commit/7fe352fc05b8) | 0 open | — |
+| codeql | 2026-11-20 | Rust, TypeScript/Vue and workflows | 0 open | — |
+| osv | 2026-11-20 | every lockfile (Cargo, npm) at [`dc288e5e8`](https://github.com/addlayer-io/dbine/commit/dc288e5e8192) | 0 open | — |
+| scorecard | 2026-11-19 | repository settings and workflows at [`7fe352fc0`](https://github.com/addlayer-io/dbine/commit/7fe352fc05b8) | score 7.4/10 | — |
+| trivy | 2026-11-20 | whole repository at [`dc288e5e8`](https://github.com/addlayer-io/dbine/commit/dc288e5e8192) | 0 open | — |
 
 ## Not counted, and why
 
@@ -404,6 +404,6 @@ OpenSSF Scorecard: **7.4/10** (2026-11-19). The checks below 10, with Scorecard'
 | Code-Review: 0/10 — Found 0/13 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Vulnerabilities: 9/10 — 1 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
-| CI-Tests: 2/10 — 4 out of 15 merged PRs checked by a CI test -- score normalized to 2 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
+| CI-Tests: 3/10 — 5 out of 13 merged PRs checked by a CI test -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |
