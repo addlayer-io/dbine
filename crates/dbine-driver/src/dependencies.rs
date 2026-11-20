@@ -536,16 +536,28 @@ pub fn used_names(body: &str, dialect: &ScriptDialect) -> Vec<UsedName> {
             }
         }
         let prev = i.checked_sub(1).map(|k| &toks[k]);
-        let after_word = prev
+        let uses_word = |t: Option<&NameToken<'_>>| {
+            t.and_then(word)
+                .is_some_and(|w| USES_AFTER.contains(&w.as_str()))
+        };
+        // `FROM x`, and `FROM (x JOIN y …)` (how MySQL stores a view's
+        // joins); not `TABLE (id int)`'s column list.
+        let opens_join = toks
+            .get(i.wrapping_sub(2))
+            .filter(|_| i >= 2 && is(i - 1, "("))
             .and_then(word)
-            .is_some_and(|w| USES_AFTER.contains(&w.as_str()));
+            .is_some_and(|w| w == "from" || w == "join");
+        let after_word = uses_word(prev) || opens_join;
         let in_list = list == Some(depth)
             && prev.is_some_and(|p| p.kind == TokenKind::Punct && p.text == ",");
         let call = is(j + 1, "(");
+        // Keywords are never objects; built-ins only when called (`log(x)`
+        // is the function, `FROM log` a table called log).
         let keyword = single.as_deref().is_some_and(|w| {
-            USES_AFTER.contains(&w) || LIST_ENDS.contains(&w) || NOT_OBJECTS.contains(&w)
+            USES_AFTER.contains(&w) || LIST_ENDS.contains(&w) || (call && NOT_OBJECTS.contains(&w))
         });
-        if (after_word || in_list || call) && !keyword {
+        let local = !at_variable(&toks, i, dialect) && !remote_object(&toks, j);
+        if (after_word || in_list || call) && !keyword && local {
             let name = parts.pop().unwrap_or_default().to_string();
             out.push(UsedName {
                 quals: parts.iter().rev().map(|p| p.to_string()).collect(),
@@ -854,6 +866,7 @@ pub fn find_mentions(
         match tok.kind {
             TokenKind::Name
                 if eq(field(tok.text), &t.name)
+                    && !at_variable(&toks, i, dialect)
                     && qualifier_ok(&toks, i, t.schema())
                     && (!schema || qualifies_next(&toks, i)) =>
             {
@@ -867,6 +880,7 @@ pub fn find_mentions(
                     .column
                     .as_deref()
                     .is_some_and(|c| eq(field(tok.text), c))
+                    && !at_variable(&toks, i, dialect)
                     && !qualifies(&toks, i, &t.name) =>
             {
                 hits.push((tok.start, false));
@@ -925,6 +939,23 @@ fn mentions(body: &str, hits: &[(usize, bool)]) -> Vec<Mention> {
         });
     }
     out
+}
+
+/// `@name` is a variable in T-SQL and MySQL (`@ids`, `@@ROWCOUNT`), never
+/// an object (elsewhere `@` may name one: a Snowflake stage).
+fn at_variable(toks: &[NameToken<'_>], i: usize, d: &ScriptDialect) -> bool {
+    (d.tsql_blocks || d.backtick_idents)
+        && i > 0
+        && toks[i - 1].kind == TokenKind::Punct
+        && toks[i - 1].text == "@"
+        && toks[i - 1].end == toks[i].start
+}
+
+/// `name@link`: an object on another database (an Oracle database link),
+/// not the local one of that name.
+fn remote_object(toks: &[NameToken<'_>], j: usize) -> bool {
+    toks.get(j + 1)
+        .is_some_and(|t| t.kind == TokenKind::Punct && t.text == "@" && t.start == toks[j].end)
 }
 
 /// `x.` follows the name at `i`, then a name.
@@ -1145,6 +1176,66 @@ END";
             ]
         );
         assert!(used.iter().find(|u| u.name == "fn_total").unwrap().call);
+    }
+
+    #[test]
+    fn a_nested_join_and_a_table_named_like_a_function() {
+        // How MySQL stores a view: the first table inside `from (`.
+        let body = "select `a`.`id` from (`ventas`.`a` join `ventas`.`b` on((`a`.`id` = `b`.`id`))) join log l";
+        let names: Vec<String> = used_names(body, &ScriptDialect::mysql())
+            .into_iter()
+            .map(|u| u.name)
+            .collect();
+        assert_eq!(names, ["a", "b", "log"]);
+        // A subquery isn't a table, and log() is the built-in.
+        let names: Vec<String> =
+            used_names("select log(x) from (select 1) s", &ScriptDialect::generic())
+                .into_iter()
+                .map(|u| u.name)
+                .collect();
+        assert!(names.is_empty(), "{names:?}");
+    }
+
+    #[test]
+    fn variables_and_remote_objects_are_not_local_objects() {
+        // T-SQL: a table variable and @@ROWCOUNT aren't the table dbo.ids.
+        let body = "DECLARE @ids TABLE (id int); SELECT * FROM @ids i JOIN dbo.ids d ON d.id = i.id; SELECT @@ROWCOUNT";
+        let names: Vec<String> = used_names(body, &ScriptDialect::tsql())
+            .into_iter()
+            .map(|u| u.name)
+            .collect();
+        assert_eq!(names, ["ids"]);
+        let target = DependencyTarget {
+            object: ObjectRef {
+                kind: "table".into(),
+                schema: Some("dbo".into()),
+                name: "ids".into(),
+            },
+            column: None,
+        };
+        assert!(find_mentions(
+            "DECLARE @ids int; SELECT @ids",
+            &ScriptDialect::tsql(),
+            &target
+        )
+        .is_none());
+        let (_, m) = find_mentions(body, &ScriptDialect::tsql(), &target).unwrap();
+        assert_eq!(m.len(), 1);
+        // MySQL user variables likewise.
+        assert!(
+            used_names("SELECT * FROM t WHERE x = @t", &ScriptDialect::mysql())
+                .iter()
+                .all(|u| u.name == "t" && u.at == 14)
+        );
+        // Oracle: emp@remote is on another database.
+        let names: Vec<String> = used_names(
+            "SELECT * FROM emp@remote e, dept d",
+            &ScriptDialect::oracle(),
+        )
+        .into_iter()
+        .map(|u| u.name)
+        .collect();
+        assert_eq!(names, ["dept"]);
     }
 
     #[test]
