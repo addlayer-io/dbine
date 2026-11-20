@@ -39,7 +39,8 @@
     "company": "Unternehmen",
     "address": "Adresse",
     "list": "Aus einer Liste",
-    "foreign_key": "Aus der referenzierten Tabelle"
+    "foreign_key": "Aus der referenzierten Tabelle",
+    "vector": "Vektor (Zufallszahlen)"
   },
   "param": {
     "value": "Wert",
@@ -50,6 +51,7 @@
     "scale": "Dezimalstellen",
     "from": "von JJJJ-MM-TT",
     "to": "bis JJJJ-MM-TT",
-    "values": "Werte, durch Komma getrennt"
+    "values": "Werte, durch Komma getrennt",
+    "dims": "Dimensionen"
   }
 }

@@ -238,3 +238,7 @@ backend:importación
 lint.json:groups.dax
 optimizer.json:rules.dax_selectedvalue.title
 editor.json:tableHover.format
+vectors.json:viewer.min
+vectors.json:metric.l1
+vectors.json:metricShort.hamming
+vectors.json:metricShort.jaccard

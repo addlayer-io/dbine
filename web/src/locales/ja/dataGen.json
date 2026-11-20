@@ -39,7 +39,8 @@
     "company": "会社",
     "address": "住所",
     "list": "リストから",
-    "foreign_key": "参照先テーブルから"
+    "foreign_key": "参照先テーブルから",
+    "vector": "ベクトル（ランダムな数値）"
   },
   "param": {
     "value": "値",
@@ -50,6 +51,7 @@
     "scale": "小数桁数",
     "from": "開始 YYYY-MM-DD",
     "to": "終了 YYYY-MM-DD",
-    "values": "値(カンマ区切り)"
+    "values": "値(カンマ区切り)",
+    "dims": "次元数"
   }
 }

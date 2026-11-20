@@ -24,6 +24,7 @@
     "migrations": "마이그레이션",
     "noMigrations": "마이그레이션 없음: 마우스 오른쪽 버튼 › 새 마이그레이션…",
     "noSchemaObjects": "개체 없음",
+    "noObjectsCreate": "객체 없음: 마우스 오른쪽 버튼으로 새로 만들기",
     "keys": "키",
     "ofTotal": "/ 전체 {{total}}",
     "others": "기타",

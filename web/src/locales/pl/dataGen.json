@@ -39,7 +39,8 @@
     "company": "Firma",
     "address": "Adres",
     "list": "Z listy",
-    "foreign_key": "Z tabeli, do której prowadzi odwołanie"
+    "foreign_key": "Z tabeli, do której prowadzi odwołanie",
+    "vector": "Wektor (losowe liczby)"
   },
   "param": {
     "value": "wartość",
@@ -50,6 +51,7 @@
     "scale": "miejsca dziesiętne",
     "from": "od RRRR-MM-DD",
     "to": "do RRRR-MM-DD",
-    "values": "wartości, oddzielone przecinkami"
+    "values": "wartości, oddzielone przecinkami",
+    "dims": "wymiary"
   }
 }

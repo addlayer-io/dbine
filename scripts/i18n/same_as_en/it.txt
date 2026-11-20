@@ -372,3 +372,8 @@ backend:Inquilino (tenant)
 lint.json:groups.dax
 optimizer.json:rules.dax_selectedvalue.title
 backend:Inquilino (tenant ID)
+vectors.json:metric.l1
+vectors.json:metric.hamming
+vectors.json:metric.jaccard
+vectors.json:metricShort.hamming
+vectors.json:metricShort.jaccard

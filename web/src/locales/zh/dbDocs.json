@@ -79,6 +79,7 @@
     "unique": "唯一",
     "included": "包含",
     "filter": "筛选",
+    "vector": "向量索引",
     "checks": "CHECK 约束",
     "condition": "条件",
     "name": "名称",

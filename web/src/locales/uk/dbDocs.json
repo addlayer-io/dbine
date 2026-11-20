@@ -79,6 +79,7 @@
     "unique": "Унікальний",
     "included": "Включає",
     "filter": "Фільтр",
+    "vector": "Векторний індекс",
     "checks": "Обмеження CHECK",
     "condition": "Умова",
     "name": "Назва",

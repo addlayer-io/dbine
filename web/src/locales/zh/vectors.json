@@ -1,0 +1,76 @@
+{
+  "cell": {
+    "dims_other": "{{count}} 维",
+    "sparse": "稀疏"
+  },
+  "viewer": {
+    "element": "类型",
+    "dims": "维度",
+    "declared": "（该列声明为 {{dims}}）",
+    "norm": "范数 (L2)",
+    "min": "最小值",
+    "max": "最大值",
+    "empty": "空向量",
+    "sparse": "稀疏向量：按引擎的写法显示。",
+    "copyJson": "复制为 JSON"
+  },
+  "edit": {
+    "format": "“{{column}}”是向量列：请将值写成数字的 JSON 数组，例如 [0.12, -0.03, 0.88]。若要设为 NULL，请使用“$t(results:grid.setNull)”。",
+    "dims": "“{{column}}”存储 {{expected}} 维的向量，而该值有 {{got}} 维。",
+    "range": "“{{column}}”接受 {{min}} 到 {{max}} 的整数：向量的第 {{position}} 个数是 {{value}}。",
+    "overflow": "“{{column}}”存储 {{element}} 数值，最大为 ±{{max}}：向量的第 {{position}} 个数是 {{value}}。",
+    "empty": "“{{column}}”不接受空向量：请写入其数值，例如 [0.12, -0.03, 0.88]。",
+    "skippedColumns": "向量列（{{columns}}）不会包含在 WHERE 中。"
+  },
+  "filter": {
+    "onlyNull": "“{{column}}”是向量列：请按 NULL 或 NOT NULL 筛选，或使用筛选菜单中的 SQL 条件。"
+  },
+  "sort": {
+    "local": "向量列不在服务器上排序"
+  },
+  "compare": {
+    "from": "从 #{{position}} 起",
+    "firstDiff": "{{side}}：自 {{dims}} 个数中的第 {{position}} 个起不同。双击查看完整向量。"
+  },
+  "metric": {
+    "cosine": "余弦",
+    "l2": "欧几里得 (L2)",
+    "ip": "内积",
+    "l1": "曼哈顿 (L1)",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "metricShort": {
+    "cosine": "余弦",
+    "l2": "L2",
+    "ip": "IP",
+    "l1": "L1",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "param": {
+    "m": "每节点连接数 (m)",
+    "ef_construction": "构建候选数 (ef_construction)",
+    "lists": "列表数 (lists)",
+    "quantization": "量化"
+  },
+  "designer": {
+    "toggle": "向量",
+    "toggleHint": "针对向量列的相似度搜索索引",
+    "algorithm": "算法",
+    "metric": "距离",
+    "vectorColumn": "向量列",
+    "vectorColumnPlaceholder": "选择向量列",
+    "filterColumns": "过滤列",
+    "filterColumnsPlaceholder": "无",
+    "paramPlaceholder": "引擎默认值",
+    "vectorType": "向量",
+    "notVectorColumn": "索引“{{label}}”是向量索引，而“{{column}}”不是向量列。",
+    "noFilterColumns": "索引“{{label}}”是向量索引：在此引擎上只接受向量列。",
+    "rebuilt": "向量索引“{{label}}”已更改：将删除并重新创建，在大表上重建可能需要较长时间。"
+  },
+  "index": {
+    "summary": "向量：{{text}}",
+    "column": "向量索引"
+  }
+}

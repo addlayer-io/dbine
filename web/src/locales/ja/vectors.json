@@ -1,0 +1,76 @@
+{
+  "cell": {
+    "dims_other": "{{count}} 次元",
+    "sparse": "スパース"
+  },
+  "viewer": {
+    "element": "型",
+    "dims": "次元数",
+    "declared": "（列の宣言: {{dims}}）",
+    "norm": "ノルム (L2)",
+    "min": "最小値",
+    "max": "最大値",
+    "empty": "空のベクトル",
+    "sparse": "スパースベクトル: エンジンの書式のまま表示しています。",
+    "copyJson": "JSON としてコピー"
+  },
+  "edit": {
+    "format": "「{{column}}」はベクトル列です。値は数値の JSON 配列で入力してください（例: [0.12, -0.03, 0.88]）。NULL にするには「$t(results:grid.setNull)」を使います。",
+    "dims": "「{{column}}」は {{expected}} 次元のベクトルを保持しますが、値は {{got}} 次元です。",
+    "range": "「{{column}}」には {{min}} から {{max}} までの整数を指定できます。ベクトルの {{position}} 番目の数値は {{value}} です。",
+    "overflow": "「{{column}}」には {{element}} の数値（最大 ±{{max}}）を格納できます。ベクトルの {{position}} 番目の数値は {{value}} です。",
+    "empty": "「{{column}}」には空のベクトルを指定できません。数値を入力してください（例: [0.12, -0.03, 0.88]）。",
+    "skippedColumns": "ベクトル列（{{columns}}）は WHERE から除外されます。"
+  },
+  "filter": {
+    "onlyNull": "「{{column}}」はベクトル列です。NULL または NOT NULL で絞り込むか、フィルターのメニューから SQL 条件を使ってください。"
+  },
+  "sort": {
+    "local": "ベクトル列はサーバー側で並べ替えられません"
+  },
+  "compare": {
+    "from": "#{{position}} 以降",
+    "firstDiff": "{{side}}: {{dims}} 個中 {{position}} 番目から異なります。ダブルクリックでベクトル全体を表示します。"
+  },
+  "metric": {
+    "cosine": "コサイン",
+    "l2": "ユークリッド (L2)",
+    "ip": "内積",
+    "l1": "マンハッタン (L1)",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "metricShort": {
+    "cosine": "コサイン",
+    "l2": "L2",
+    "ip": "IP",
+    "l1": "L1",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "param": {
+    "m": "ノードあたりのリンク数 (m)",
+    "ef_construction": "構築時の候補数 (ef_construction)",
+    "lists": "リスト数 (lists)",
+    "quantization": "量子化"
+  },
+  "designer": {
+    "toggle": "ベクトル",
+    "toggleHint": "ベクトル列に対する類似度検索インデックス",
+    "algorithm": "アルゴリズム",
+    "metric": "距離",
+    "vectorColumn": "ベクトル列",
+    "vectorColumnPlaceholder": "ベクトル列を選択",
+    "filterColumns": "フィルター列",
+    "filterColumnsPlaceholder": "なし",
+    "paramPlaceholder": "エンジンの既定値",
+    "vectorType": "ベクトル",
+    "notVectorColumn": "インデックス「{{label}}」はベクトルインデックスですが、「{{column}}」はベクトル列ではありません。",
+    "noFilterColumns": "インデックス「{{label}}」はベクトルインデックスです。このエンジンではベクトル列のみを指定できます。",
+    "rebuilt": "ベクトルインデックス「{{label}}」が変更されます。削除して作成し直すため、大きなテーブルでは再構築に時間がかかる場合があります。"
+  },
+  "index": {
+    "summary": "ベクトル: {{text}}",
+    "column": "ベクトルインデックス"
+  }
+}

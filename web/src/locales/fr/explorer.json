@@ -24,6 +24,7 @@
     "migrations": "Migrations",
     "noMigrations": "Aucune migration : clic droit › Nouvelle migration…",
     "noSchemaObjects": "Aucun objet",
+    "noObjectsCreate": "Aucun objet : clic droit pour en créer un",
     "keys": "Clés",
     "ofTotal": "sur {{total}}",
     "others": "Autres",

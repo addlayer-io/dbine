@@ -39,7 +39,8 @@
     "company": "Empresa",
     "address": "Endereço",
     "list": "De uma lista",
-    "foreign_key": "Da tabela referenciada"
+    "foreign_key": "Da tabela referenciada",
+    "vector": "Vetor (números aleatórios)"
   },
   "param": {
     "value": "valor",
@@ -50,6 +51,7 @@
     "scale": "casas decimais",
     "from": "de AAAA-MM-DD",
     "to": "até AAAA-MM-DD",
-    "values": "valores, separados por vírgula"
+    "values": "valores, separados por vírgula",
+    "dims": "dimensões"
   }
 }
