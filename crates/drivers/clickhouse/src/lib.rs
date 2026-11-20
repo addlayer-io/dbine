@@ -20,6 +20,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod references;
 mod rename;
 mod scheduler;
 mod schema;
@@ -1683,6 +1684,15 @@ impl Session for ClickHouseSession {
         table: &ObjectRef,
     ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         index_usage::report(self, table).await.map(Some)
+    }
+
+    /// What the object uses, from `system.tables` (see [`references`]).
+    async fn references(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        self.references_of(target, scan).await
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {
