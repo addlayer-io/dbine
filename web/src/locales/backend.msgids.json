@@ -55012,6 +55012,9 @@
   "src-tauri/src/enterprise/mod.rs",
   "src-tauri/src/enterprise/signin.rs"
  ],
+ "la distancia hamming queda coseno en libSQL, que no tiene hamming: sobre vectores de 1 bit su distancia coseno cuenta los bits distintos, que es la distancia de Hamming": [
+  "crates/dbine-schema/src/dialect/sqlite.rs"
+ ],
  "la distancia hamming queda euclidean (Cosmos DB no tiene hamming; sobre vectores de 0 y 1 los vecinos más cercanos son los mismos)": [
   "crates/dbine-schema/src/dialect/cosmosdb.rs"
  ],

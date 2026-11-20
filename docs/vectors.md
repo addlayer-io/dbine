@@ -123,8 +123,19 @@ array first. This holds for [bulk transfer](bulk-transfer.md),
 [migration](migration.md), **Clone table**, copy a subset, test data and
 imports. Moves between pgvector and MySQL 9, MariaDB, GreptimeDB, Manticore,
 SQL Server, Oracle, Elasticsearch, OpenSearch, Open Distro, Solr, Redis,
-Cassandra and ScyllaDB were run live and kept the values exact (see the table
-below for what was tested where).
+Cassandra, ScyllaDB, libSQL and MongoDB were run live and kept the values
+exact (see the table below for what was tested where).
+
+- **Binary vectors.** pgvector reads `bit(n)` as its bit string (`1011…`).
+  When the target column holds vectors (a migration's libSQL `F1BIT_BLOB`,
+  MongoDB `vector(n, bit)` or Oracle `VECTOR(n, BINARY)`), the transfer hands
+  the target its bits, one 0 or 1 per dimension, so they arrive as that
+  engine's binary vectors and its vector index finds them. Into a column that
+  isn't a vector, a bit string stays a bit string. The other way, libSQL's
+  1-bit vectors and Oracle's `BINARY` ones load into `bit(n)`.
+- **Sparse vectors.** Oracle's `SPARSE` vectors (`[n,[i…],[v…]]`, indices from
+  0) load into pgvector's `sparsevec` as `{i+1:v}/n`, in transfers, clones and
+  insert scripts.
 
 ### Schema conversion between engines
 
@@ -153,11 +164,12 @@ without them, and the conversion report says why.
   libSQL, Cassandra and Neo4j, JSON in BigQuery).
 - A double vector moved into DuckDB keeps `DOUBLE[n]`, so no precision is lost,
   and loses its index (DuckDB indexes only `FLOAT[n]`).
-- A `bit(n)` column searched by a hamming or Jaccard index moves to other
-  engines as a binary vector with its index (MongoDB BinData bit, Oracle
-  `VECTOR(…, BINARY)`, libSQL `F1BIT_BLOB`; libSQL leaves the Hamming index out
-  because it indexes with cosine or L2 only). A `bit(n)` column without such an
-  index is a plain bit string and stays one.
+- A `bit(n)` column searched by a Hamming or Jaccard index moves to other
+  engines as a binary vector with its index: MongoDB `vector(n, bit)` searched
+  by Euclidean, Oracle `VECTOR(n, BINARY)` with the same distance, libSQL
+  `F1BIT_BLOB(n)` searched by cosine (see the indexes below). Its rows arrive
+  as those binary vectors (see [Transfers](#transfers-migration-and-clone)).
+  A `bit(n)` column without such an index is a plain bit string and stays one.
 - Half precision (pgvector `halfvec`, SQL Server `float16`) becomes SAP HANA's
   `HALF_VECTOR`, with a note that older HANA Cloud releases need
   `REAL_VECTOR`.
@@ -180,7 +192,14 @@ without them, and the conversion report says why.
   becomes `ivf_flat` on OceanBase; a squared Euclidean distance becomes
   `euclidean` in MongoDB and Cosmos DB; Hamming over bit vectors becomes Euclidean in MongoDB, DocumentDB, FerretDB
   and Cosmos DB, and `L2_SQUARED` or `l2_norm` in Couchbase; an Oracle
-  `BINARY` index without a distance is created with `HAMMING`.
+  `BINARY` index without a distance is created with `HAMMING`. In libSQL,
+  Hamming over 1-bit vectors becomes cosine: libSQL has no Hamming distance,
+  and its cosine distance on 1-bit vectors counts the bits that differ, which
+  is the Hamming distance (checked on `sqld` 0.24.33). A Jaccard index has no
+  equal there and is left out. L2 or L1 over bits becomes Hamming in pgvector.
+- Into Elasticsearch, OpenSearch, Open Distro and Solr a vector index is mapped
+  by the vector field its column becomes there; see
+  [their section](#elasticsearch-opensearch-open-distro-and-solr).
 - Limits of the target are applied: HNSW parameters outside Atlas's ranges
   (`maxEdges` 16–64, `numEdgeCandidates` 100–3200) go to the nearest allowed
   value; Cosmos DB's `flat` index over more than 505 dimensions becomes
@@ -190,12 +209,16 @@ without them, and the conversion report says why.
   leaves the index out; MongoDB (Atlas 8192), DocumentDB and FerretDB (2000),
   Cosmos DB (4096) and Couchbase (4096) don't create an index past their
   maximum number of dimensions; Cassandra doesn't create a cosine index on a
-  vector of one dimension; ScyllaDB's vectors have at most 16,000 dimensions.
+  vector of one dimension; ScyllaDB's vectors have at most 16,000 dimensions;
+  Elasticsearch takes 4,096, OpenSearch 16,000 and Open Distro 10,000.
 - On PostgreSQL with pgvector (PostgreSQL, TimescaleDB, AlloyDB, Cloud SQL,
   Aurora, EDB, Fujitsu, openGauss and the Greenplum family) HNSW and IVFFlat
   index up to 2,000 dimensions of `vector`, 4,000 of `halfvec` and 64,000 of
   `bit`. Past that, the index is left out with the reason and the migration
-  goes on. YugabyteDB (`ybhnsw`) and CockroachDB (C-SPANN) keep it. (The
+  goes on. YugabyteDB (`ybhnsw`) and CockroachDB (C-SPANN) keep it. Checked
+  live through the migration: a libSQL `F32_BLOB(3072)` with its vector index
+  arrives in PostgreSQL without the index (the plan says why) and in
+  CockroachDB with it. (The
   conversion into the family keeps an index whatever its dimension, because it
   doesn't know which engine of the family it writes for; the table DDL then
   refuses it on an engine with a limit.)
@@ -222,7 +245,8 @@ Vector cells go to the target as the engine's literal. Masking keeps a vector
 a vector: a hash or made-up value is a random vector of the same dimension,
 and noise moves each number. A subset that the driver had to cut short
 (Valkey's 10,000-document KNN maximum, for example) says it is partial in the
-plan and in the run report. Copying a subset of a Redis, Valkey or Dragonfly
+plan and in the run report (checked live on an index of 10,050 documents with
+no `NUMERIC` field). Copying a subset of a Redis, Valkey or Dragonfly
 search index keeps its definition: its `PREFIX` and its vector index (a
 definition with no prefix gets `PREFIX 1 <name>:` instead of covering every
 hash). See [`data-subset.md`](data-subset.md).
@@ -276,8 +300,15 @@ the table's indexes, where the table has one. See
   read.
 - Functions that call a model or another service (`VECTOR_EMBEDDING`,
   `AI_GENERATE_EMBEDDINGS`, Databricks' `vector_search`) always ask.
-- Engines whose reads aren't SQL (Cassandra, ScyllaDB, Neo4j, Memgraph, Redis,
-  MongoDB) ask for every read.
+- **Neo4j** reads run as one Cypher statement in the READ access mode the
+  server enforces. A read that calls only Neo4j's own functions (Cypher 25's
+  `vector()`, `vector_distance`, `vector_norm` and `vector_dimension_count`,
+  and `vector.similarity.*`) or searches a vector or full-text index
+  (`db.index.vector.queryNodes`…) runs without approval. APOC, GDS, any other
+  procedure and `LOAD CSV` ask. A read-only Neo4j or Memgraph connection runs
+  vector and full-text index searches too.
+- The other engines whose reads aren't SQL (Cassandra, ScyllaDB, Memgraph,
+  Redis, MongoDB) ask for every read.
 
 See [`mcp.md`](mcp.md) and [`ai-assistant.md`](ai-assistant.md).
 
@@ -418,8 +449,10 @@ Particularities:
   `HAMMING`. Vector indexes can be made invisible and visible again; an
   unusable one can't be rebuilt (ORA-51926). Dense values and pgvector's
   `{i:v}/n` go into `SPARSE` columns as Oracle's sparse text, and sparse values
-  into dense columns are spread out, since Oracle converts neither. Values past
-  4,000 bytes are written as a `TO_CLOB('…') || '…'` chain.
+  into dense columns are spread out, since Oracle converts neither. A `SPARSE`
+  vector loads into pgvector's `sparsevec`, and pgvector's binary vectors into
+  `BINARY` columns. Values past 4,000 bytes are written as a
+  `TO_CLOB('…') || '…'` chain.
 - **SAP HANA Cloud:** DBine's HANA client predates the vector type. A server
   that sends vectors as binary has them decoded and marked, with the dimension
   from the catalog. One that sends the vector type itself makes table browsing
@@ -438,20 +471,54 @@ Particularities:
 
 | Engine | Vector types | Vector index | Tested |
 |---|---|---|---|
-| Elasticsearch 7.x, 8.x, 9.x | `dense_vector(n)`, `(n, byte)`, `(n, bit)`, `(n, bfloat16)`, `sparse_vector`, `rank_vectors(n)` (8.18+), `semantic_text` | The field's own ANN index (`index: true`): `similarity` cosine, `l2_norm`, `dot_product`, `max_inner_product`; `index_options` `hnsw` or `flat` with `int8`, `int4` or `bbq` quantization, `m`, `ef_construction`, `confidence_interval` | Live on 7.17.25, 8.15.3, 9.2.0 |
-| OpenSearch 2.x | `knn_vector(n)`, `(n, byte)`, `(n, binary)` | `method` `hnsw` with `space_type` l2, cosinesimil, innerproduct, l1, linf, hamming; `engine`, `m`, `ef_construction`; `mode`, `compression_level` or a trained `model_id` | Live on 2.17.1 |
+| Elasticsearch 7.x, 8.x, 9.x | `dense_vector(n)`, `(n, byte)`, `(n, bit)`, `(n, bfloat16)`, `sparse_vector`, `rank_vectors(n)` (8.18+), `semantic_text` | The field's own ANN index (`index: true`): `similarity` cosine, `l2_norm`, `dot_product`, `max_inner_product`; `index_options` `hnsw` or `flat` with `int8`, `int4` or `bbq` quantization, `m`, `ef_construction`, `confidence_interval` | Live on 7.17.25, 8.15.3, 9.2.0 and 9.5.5 (with a trial license for `rank_vectors`) |
+| OpenSearch 2.x, 3.x | `knn_vector(n)`, `(n, byte)`, `(n, binary)` | `method` `hnsw` with `space_type` l2, cosinesimil, innerproduct, l1, linf, hamming; `engine`, `m`, `ef_construction`; `mode`, `compression_level` or a trained `model_id` | Live on 2.17.1, 2.18.0, 2.19.0 and 3.10.0 |
 | Open Distro 1.13 | `knn_vector(n)` (float only) | The index's k-NN settings (`index.knn`, space type l2, cosinesimil, l1, `m`, `ef_construction`), shared by all its vector fields | Live on 1.13.3 |
 | Solr 9 | `knn_vector(n)`, `(n, BYTE)` (`DenseVectorField`) | The field type's HNSW graph: `similarityFunction` euclidean, cosine, dot_product, maximum_inner_product; `hnswMaxConnections`, `hnswBeamWidth` | Live on 9.10.1, standalone and SolrCloud |
 
 - Vector columns are marked from the mapping in searches, `_mget` and
   `GET _doc` / `_source`; byte vectors given as hex decode to numbers; bit and
-  binary vectors read one 0/1 per dimension. Insert, edit and sync scripts
-  show them the same way, and DBine's console packs them into bytes by the
-  target's mapping when it runs the script. A script run outside DBine
-  (Kibana, curl) needs the packed bytes.
+  binary vectors read one 0/1 per dimension.
+- **Scripts that know the target's types.** Insert, edit and data-sync scripts
+  built with the target's column types (from a result or the table's
+  description) write each vector the way its field takes it, so the script
+  also runs outside DBine (Kibana, curl): a bit vector (Elasticsearch
+  `dense_vector(n, bit)`, OpenSearch `knn_vector(n, binary)`) given one 0/1 per
+  dimension becomes its packed signed bytes (`n / 8` of them), and byte
+  vectors are written as integers. A script built without the types writes
+  bit vectors one 0/1 per dimension: DBine's console packs them by the
+  target's mapping when it runs it, and anywhere else it needs the packed
+  bytes.
 - A vector index of an OpenSearch field that names no engine gets the one its
   vectors need: Lucene for bytes, Faiss with Hamming for binary, NMSLIB for L1
   and L∞.
+- **Schema conversion** maps a vector index by the vector field its column
+  becomes in the target. Bit vectors (Elasticsearch `bit`, OpenSearch
+  `binary`) are searched only by Hamming: a source index by L2 becomes Hamming,
+  which ranks bits the same, and one by cosine or inner product is left out.
+  Hamming exists only for bit vectors, so on a float column (on Open Distro,
+  or bits whose dimension isn't a multiple of 8) the index is left out.
+  OpenSearch searches byte vectors with Lucene, which has no L1, so such an
+  index is left out. Elasticsearch quantizes float vectors only, `int4` needs
+  an even dimension and BBQ 64 dimensions or more; otherwise the quantization
+  is left to the engine. A column that doesn't become a vector field (no
+  dimension on OpenSearch, Open Distro or Solr, a sparse vector, more
+  dimensions than the engine takes) gets no vector index, and the report says
+  why. A float array that another engine searches with a vector index stating
+  its dimension (ClickHouse, BigQuery, Doris…) arrives as a vector field with
+  its index.
+- **OpenSearch to Open Distro.** Both write `knn_vector`, but Open Distro
+  takes less: byte and binary vectors become float vectors (a note says so)
+  and a binary vector's Hamming index is left out; a vector of more than
+  10,000 dimensions isn't a vector field there; an index keeps only HNSW with
+  L2, cosine or L1 and `m` / `ef_construction` (OpenSearch's engine, `mode`
+  and `compression_level` are dropped, and an index by inner product or L∞ is
+  left out). Open Distro keeps the distance and HNSW parameters for the whole
+  index, so when two vector fields are searched differently the second one's
+  index is left out and the report names the first. OpenSearch's own index
+  settings (`index.replication.type`, `index.remote_store.*`) are left out on
+  Elasticsearch and Open Distro, which refuse them, and the report lists each
+  one.
 - **Sync:** a new field gets its vector index in the same update. Changing or
   dropping the vector index of an existing Elasticsearch or OpenSearch field
   needs a reindex, so sync only warns. Settings left empty in the designer are
@@ -472,31 +539,48 @@ Particularities:
   the distance with `index: true`. HNSW parameters given without a
   quantization are written `int8_hnsw`; on 8.0–8.11 choose quantization
   `none`. `bbq_*`, `bbq_disk`, `rescore_vector` and `bfloat16` (9.x) are
-  written as given, without a check of the server's version.
+  written as given, without a check of the server's version. On 9.x, BBQ HNSW
+  indexes with `rescore_vector`, int8 `flat` indexes and `bfloat16` vectors
+  (9.3+) are created from the designer and read back as written, and a schema
+  sync against the designer's model finds nothing to do (checked live on
+  9.5.5).
 - **Elasticsearch 9.2+** leaves vectors out of `_source`. DBine's browse and
-  transfers ask for them. A search, `GET _doc` or `_mget` typed in the console
-  that doesn't ask, and doesn't filter `_source` itself, gets a message saying
-  how (`"_source": {"exclude_vectors": false}` or
-  `?_source_exclude_vectors=false`).
+  transfers ask for them, and get them rebuilt from the index. A search,
+  `GET _doc` or `_mget` typed in the console that doesn't ask, and doesn't
+  filter `_source` itself, gets a message saying how
+  (`"_source": {"exclude_vectors": false}` or
+  `?_source_exclude_vectors=false`). A `bfloat16` vector under a cosine index
+  is stored normalized with its length, so it comes back with bfloat16's
+  error (`[1, 1, 0.5, -2]` reads `[1.0009766, 1.0009766, 0.5004883,
+  -2.0019531]`); under an L2 index it comes back as written when its numbers
+  fit bfloat16. Float vectors under cosine come back exact.
 - `rank_vectors` (several vectors per document) has no ANN index and isn't a
   vector column: its cells are the JSON array of arrays. It is an Enterprise
   feature. `semantic_text` is text whose embeddings Elasticsearch computes with
   an inference endpoint; it isn't a vector column and has no vector index of
   DBine's.
 - **OpenSearch** builds an ANN index for every `knn_vector` of a k-NN index,
-  so the description lists one for a field the designer left without. On 2.18
-  alone, Faiss (the default engine) has no `cosinesimil`: a float cosine
-  vector index needs an engine chosen. NMSLIB (the only engine with L1 and
-  L∞) is deprecated in 2.19 and refused in 3.0 for new indexes. IVF needs a
-  trained model and isn't offered by the designer; a `model_id` index is read
-  and written as it is.
+  so the description lists one for a field the designer left without. A float
+  vector index that names no engine gets the server's default engine: NMSLIB
+  up to 2.17, Faiss from 2.18. L2 works on every version. Cosine too: on 2.18
+  Faiss has no `cosinesimil` (it has it from 2.19), so DBine creates a float
+  or byte cosine index that names no engine with Lucene there, and says so
+  (also for a mapping typed in the console, the designer's default and
+  conversions such as pgvector's `vector_cosine_ops`). L1 and L∞ get NMSLIB,
+  the only engine with them; OpenSearch 3.0 and later don't create new NMSLIB
+  indexes, so on 3.x DBine refuses such an index before sending it and says to
+  choose Faiss or Lucene with L2, cosine or inner product. Checked live on
+  2.17.1, 2.18.0, 2.19.0 and 3.10.0. IVF needs a trained model and isn't
+  offered by the designer; a `model_id` index is read and written as it is.
 - **Open Distro** has float vectors only and fixes the distance and HNSW
   parameters in the index's settings at creation.
 - **Solr:** more than 1024 dimensions are taken from Solr 9.5; 9.4 needs
   `SchemaCodecFactory` in the collection's `solrconfig.xml`, and 9.0–9.3 can't.
   The designer suggests 1024 and the DDL notes it above that. On a standalone
   server cores share their configset's managed schema, so a vector field type
-  added for one core is seen by the others on that configset.
+  added for one core is seen by the others on that configset. Scripts that
+  know the types write `BYTE` vectors as integers and refuse a value Solr would
+  change without a word: it truncates `1.5` to `1` and wraps `200` to `-56`.
 
 ### Redis, Valkey and Dragonfly
 
@@ -515,8 +599,11 @@ Particularities:
   options (`LANGUAGE`, `SCORE`, `STOPWORDS`, valkey-search's `PUNCTUATION`…),
   so compare and sync make it again the same.
 - **Schema compare and sync** on key databases work on search indexes
-  (`FT.DROPINDEX` + `FT.CREATE`), not on keys. A Redis 8 and a Valkey index
-  with the same definition compare equal.
+  (`FT.DROPINDEX` + `FT.CREATE`), not on keys. Each server reports some
+  settings at their defaults (Redis 8 adds `M`, `EF_CONSTRUCTION`,
+  `EF_RUNTIME`…), and DBine reads an index without those, so a Redis 8, a
+  Valkey and a Dragonfly index with the same definition compare equal, also
+  after a sync from one to another.
 - **Results** show vectors as text (`[0.1,0.2,0.3]`), decoded by the type of
   the index that covers the key, and the column says it holds vectors: in
   `FT.SEARCH` (also under `RETURN … AS`), `FT.AGGREGATE … LOAD`, `HGET`,
@@ -526,7 +613,9 @@ Particularities:
 - **Designer:** vector types and, on an index row, algorithm, distance and
   parameters. `FLOAT16` and `BFLOAT16` need Redis Stack 7.4 or Redis 8, `INT8`
   and `UINT8` Redis 8.0, and `SVS-VAMANA` Redis 8.2 (`FLOAT32` or `FLOAT16`
-  only); a refusal says which feature needs a newer server. There are
+  only); a refusal says which feature needs a newer server. An uncompressed
+  `SVS-VAMANA` index is scripted without a `COMPRESSION` setting, since Redis
+  refuses `COMPRESSION NO_COMPRESSION`. There are
   templates for a vector index over hashes, over JSON documents, and a vector
   set.
 - **Editing:** a vector typed as `[0.1, 0.2, 0.3]` is written as its index's
@@ -650,9 +739,13 @@ Particularities:
   expression, not as a vector field. Queries with `APPROX_VECTOR_DISTANCE`,
   `VECTOR_DISTANCE`, `SEARCH()` and the other vector functions run from DBine.
 - **Transfers** read vectors as JSON arrays; loads from other engines write
-  arrays of doubles (into DocumentDB and FerretDB, `int8` and bit vectors
+  arrays of numbers (into DocumentDB and FerretDB, `int8` and bit vectors
   become arrays of numbers, and FerretDB leaves BinData vectors out of its
-  searches). MongoDB to MongoDB keeps each value's form; the direct copy keeps
+  searches). pgvector's binary vectors arrive in a `vector(n, bit)` field as
+  arrays of 0 and 1, which its Euclidean `vectorSearch` index finds, not as
+  packed BinData. A migration into a new collection knows its vector fields
+  from the converted structure, since MongoDB describes an empty collection by
+  no field. MongoDB to MongoDB keeps each value's form; the direct copy keeps
   the raw BSON.
 - CouchDB (Mango and Nouveau are full-text), DynamoDB (vector search goes
   through OpenSearch zero-ETL or S3 Vectors, separate services) and etcd have
@@ -662,7 +755,7 @@ Particularities:
 
 | Engine | Vector types | Vector index | Tested |
 |---|---|---|---|
-| libSQL / Turso | `F32_BLOB(n)` (`FLOAT32(n)`), `F64_BLOB`, `F16_BLOB`, `FB16_BLOB`, `F8_BLOB`, `F1BIT_BLOB` | `libsql_vector_idx` (DiskANN): cosine, L2; `max_neighbors`, `compress_neighbors`, `insert_l`, `search_l`, `alpha`; a partial index keeps its `WHERE` | Live on a local `sqld` 0.24.33; Turso cloud not tested |
+| libSQL / Turso | `F32_BLOB(n)` (`FLOAT32(n)`), `F64_BLOB`, `F16_BLOB`, `FB16_BLOB`, `F8_BLOB`, `F1BIT_BLOB` | `libsql_vector_idx` (DiskANN): cosine (on `F1BIT_BLOB`, the Hamming distance), L2; `max_neighbors`, `compress_neighbors`, `insert_l`, `search_l`, `alpha`; a partial index keeps its `WHERE` | Live on a local `sqld` 0.24.33; Turso cloud not tested |
 | SQLite | A file libSQL wrote: its vector columns are decoded, edited and moved like libSQL's | SQLite can't create or use libSQL's index. A libSQL file's index is listed (as DiskANN) and compared; DDL, sync, clone and rename leave it out and say why | Live |
 | DuckDB | `FLOAT[n]`, `DOUBLE[n]` | `vss` `HNSW` (`l2sq`, `cosine`, `ip`; `M`, `M0`, `ef_construction`, `ef_search`) on `FLOAT[n]` columns only | Live |
 | ClickHouse | `Array(Float32)`, `Array(BFloat16)` | `vector_similarity('hnsw', 'cosineDistance'\|'L2Distance'\|'dotProduct', dimension[, quantization, m, ef_construction])` | Live on 25.3 LTS and 26.9; older and other versions unit |
@@ -676,6 +769,10 @@ Particularities:
   1-bit vectors (libSQL accepts it but ranks wrong) and 1-bit compression with
   L2. An L2 index on 1-bit vectors already on the server is scripted as it is
   by clone, script export, same-engine migration and compare, with a warning.
+  On 1-bit vectors libSQL's cosine distance (`vector_distance_cos`, and the
+  index's ranking) counts the bits that differ: it is the Hamming distance, so
+  pgvector's binary vectors migrate into `F1BIT_BLOB(n)` with their Hamming
+  index as a cosine one (checked live on `sqld` 0.24.33).
   The indexes' shadow tables (`<index>_shadow`, `libsql_vector_meta_shadow`)
   belong to libSQL and are hidden. The **Indexes** tab shows the shadow tables'
   size.
@@ -688,7 +785,14 @@ Particularities:
   indexes never downloads anything: a writable connection loads vss if it is
   installed on the computer, a read-only one loads nothing (reads work without
   it), and without vss a write to such a table fails with an error that says
-  how to install it. In the CSV / Parquet / JSON folder connection, vector
+  how to install it. An HNSW index's distance and settings are read from its
+  statement. DuckDB 1.5 lists the statement without its `WITH (…)` clause, so
+  on a 1.5 file the distance comes from vss's index report
+  (`pragma_hnsw_index_info()`, when vss is loaded), and `M` and
+  `ef_construction`, which that report doesn't have, are lost: the index is
+  read without them, so a script or a clone creates it with vss's defaults.
+  In the CSV / Parquet / JSON
+  folder connection, vector
   columns are marked in results only: those connections have no tables of
   their own, and Parquet has no fixed-size arrays. An index on a `DOUBLE[n]`,
   sparse or dimensionless vector is left out in a conversion, with the reason.
@@ -745,7 +849,9 @@ Particularities:
   `vector.similarity.*`, `db.index.vector.queryNodes` and 2025.10
   (`vector()`, `vector_distance`, `vector_norm`, `vector_dimension_count`)
   functions are offered. A conversion into Neo4j leaves out an index on a
-  sparse vector or with a similarity other than cosine or Euclidean.
+  sparse vector or with a similarity other than cosine or Euclidean. Reads
+  from MCP clients and the assistant run in the READ access mode the server
+  enforces (see [AI assistant and MCP](#ai-assistant-and-mcp)).
 - **Memgraph:** the vector index needs a dimension, from the index or from the
   column (pgvector `vector(3)`, Spanner `vector_length`, Neo4j
   `VECTOR<FLOAT32>(3)`); when nothing states it, the index is left out with the
@@ -807,7 +913,8 @@ offers no vector type or index.
 - **`bit(n)` in PostgreSQL** reads and writes as PostgreSQL's bit string
   (`1011`), not as a vector, even when a `bit_hamming_ops` or `bit_jaccard_ops`
   index covers it: plain bit strings exist without pgvector, so DBine can't
-  tell a binary vector from one. Only the index is a vector index.
+  tell a binary vector from one. Only the index is a vector index. A transfer
+  into another engine's vector column still gets its bits as a binary vector.
 - **Edit and data-sync scripts in pgvector** write a dense vector as `'[…]'`,
   whatever the target column's type, unless the script knows the target's
   types. A transfer into a `sparsevec` column writes the `{i:v}/n` notation,
@@ -820,8 +927,20 @@ offers no vector type or index.
   Db2 `INT8` column, `ARRAY<FLOAT32>` for a Spanner `FLOAT64` vector, arrays
   for Couchbase base64 fields, a `VECTOR(INT, n)` cast for a Snowflake `INT`
   column (all fixed when the app passes the types of the result or the
-  describe). In Elasticsearch and OpenSearch, bit vectors in scripts are
-  written one 0/1 per dimension and need DBine's console to be packed.
+  describe). In Elasticsearch and OpenSearch such a script writes bit vectors
+  one 0/1 per dimension, and in Solr byte vectors as given: DBine's console
+  packs bit vectors by the target's mapping when it runs the script, and run
+  anywhere else it needs the packed bytes. Scripts DBine builds from a result
+  or a table carry the types.
+- **OpenSearch versions:** the designer and conversions still offer and keep
+  L1 and L∞ for OpenSearch 3.x, because neither knows the server's version;
+  the session refuses them on 3.x with what to choose instead.
+- **Elasticsearch 9.2+** gives a `bfloat16` vector under a cosine index back
+  normalized, with bfloat16's error.
+- **DuckDB 1.5 files** lose an HNSW index's `M` and `ef_construction` (see
+  [DuckDB](#embedded-and-analytical-engines)).
+- **MongoDB** gets other engines' binary vectors as arrays of 0 and 1, not
+  packed BinData.
 - **Vector index changes that can't be applied in place:** Elasticsearch and
   OpenSearch need a reindex (sync only warns), GreptimeDB can't add one with
   `ALTER`, SQL Server can't disable or rebuild one, and Cosmos DB for NoSQL
@@ -848,7 +967,11 @@ offers no vector type or index.
   [`engine-support.md`](engine-support.md#vectors). SAP HANA Cloud, Db2 12.1.2,
   Snowflake, SingleStore, Databend, OceanBase, Doris, StarRocks, AlloyDB,
   DocumentDB, Astra DB, Keyspaces, Azure SQL and Cosmos DB for MongoDB vCore
-  are covered by unit tests only.
+  are covered by unit tests only. So are Elasticsearch 8.0 to 8.11, OpenSearch
+  1.x and 2.0 to 2.16, OpenSearch IVF, Faiss PQ, `mode` and
+  `compression_level`, Solr 9.4 above 1024 dimensions, and Oracle HNSW over
+  binary vectors (the test instance has no vector memory pool, so its IVF index
+  was searched instead).
 
 ## Contract
 

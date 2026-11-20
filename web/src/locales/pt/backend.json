@@ -17556,6 +17556,7 @@
   "la dimensión del índice vectorial no es un número: «{0}»": "a dimensão do índice vetorial não é um número: «{0}»",
   "la distancia hamming queda euclidean (Cosmos DB no tiene hamming; sobre vectores de 0 y 1 los vecinos más cercanos son los mismos)": "a distância hamming fica euclidean (o Cosmos DB não tem hamming; sobre vetores de 0 e 1 os vizinhos mais próximos são os mesmos)",
   "la distancia hamming queda l2 (euclidean) en {0}, que no tiene hamming: sobre vectores de bits ordena los vecinos igual": "a distância hamming fica l2 (euclidean) em {0}, que não tem hamming: sobre vetores de bits ela ordena os vizinhos igualmente",
+  "la distancia hamming queda coseno en libSQL, que no tiene hamming: sobre vectores de 1 bit su distancia coseno cuenta los bits distintos, que es la distancia de Hamming": "a distância hamming fica cosseno no libSQL, que não tem hamming: sobre vetores de 1 bit, sua distância cosseno conta os bits diferentes, que é a distância de Hamming",
   "la distancia hamming queda l2 (euclidean: sobre vectores de bits los vecinos más cercanos son los mismos)": "a distância hamming fica l2 (euclidean: sobre vetores de bits os vizinhos mais próximos são os mesmos)",
   "la distancia {0} (queda cosine)": "a distância {0} (fica cosine)",
   "la distancia {0} queda euclidean (Cosmos DB no tiene la euclídea al cuadrado; los vecinos más cercanos son los mismos)": "a distância {0} fica euclidean (o Cosmos DB não tem a euclidiana ao quadrado; os vizinhos mais próximos são os mesmos)",

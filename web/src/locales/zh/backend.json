@@ -18896,6 +18896,7 @@
   "la dimensión del índice vectorial no es un número: «{0}»": "向量索引的维度不是数字：“{0}”",
   "la distancia hamming queda euclidean (Cosmos DB no tiene hamming; sobre vectores de 0 y 1 los vecinos más cercanos son los mismos)": "hamming 距离将变为 euclidean（Cosmos DB 没有 hamming；对 0 和 1 组成的向量，最近邻相同）",
   "la distancia hamming queda l2 (euclidean) en {0}, que no tiene hamming: sobre vectores de bits ordena los vecinos igual": "hamming 距离在 {0} 中变为 l2（euclidean），因其没有 hamming：对位向量，近邻排序相同",
+  "la distancia hamming queda coseno en libSQL, que no tiene hamming: sobre vectores de 1 bit su distancia coseno cuenta los bits distintos, que es la distancia de Hamming": "hamming 距离在 libSQL 中变为余弦，因其没有 hamming：对 1 位向量，其余弦距离统计不同的位数，即汉明距离",
   "la distancia hamming queda l2 (euclidean: sobre vectores de bits los vecinos más cercanos son los mismos)": "hamming 距离将变为 l2（euclidean：对位向量，最近邻相同）",
   "la distancia {0} (queda cosine)": "距离 {0}（将变为 cosine）",
   "la distancia {0} queda euclidean (Cosmos DB no tiene la euclídea al cuadrado; los vecinos más cercanos son los mismos)": "距离 {0} 将变为 euclidean（Cosmos DB 没有平方欧氏距离；最近邻相同）",

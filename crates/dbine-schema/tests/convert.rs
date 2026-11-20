@@ -891,8 +891,9 @@ fn pgvector_bit_vectors_move_as_binary_vectors() {
         assert_eq!(ty(&r.tables[0], "BITS"), "VECTOR(16, BINARY)", "{m}");
         assert_eq!(metric(&r).as_deref(), Some(m), "{m}: {:?}", r.issues);
     }
-    // Into libSQL: a 1-bit vector; its index measures only by cosine or
-    // L2, so a Hamming one is left out, with that reason.
+    // Into libSQL: a 1-bit vector; its index measures by cosine, which on
+    // 1-bit vectors is the Hamming distance: kept as cosine, said. A
+    // Jaccard one has no equal there and is left out, with the reason.
     let r = convert(
         &docs(Some("hamming")),
         "postgres",
@@ -901,12 +902,27 @@ fn pgvector_bit_vectors_move_as_binary_vectors() {
     )
     .unwrap();
     assert_eq!(ty(&r.tables[0], "bits"), "F1BIT_BLOB(16)");
+    assert_eq!(metric(&r).as_deref(), Some("cosine"), "{:?}", r.issues);
+    let changed = r
+        .issues
+        .iter()
+        .find(|i| i.code == IssueCode::IndexChanged)
+        .expect("the change is said");
+    assert!(changed.message.contains("hamming"), "{changed:?}");
+    assert!(!r.issues.iter().any(|i| i.code == IssueCode::IndexDropped));
+    let r = convert(
+        &docs(Some("jaccard")),
+        "postgres",
+        "libsql",
+        &opts("libsql"),
+    )
+    .unwrap();
     let dropped = r
         .issues
         .iter()
         .find(|i| i.code == IssueCode::IndexDropped)
         .expect("the index is left out");
-    assert!(dropped.message.contains("hamming"), "{dropped:?}");
+    assert!(dropped.message.contains("jaccard"), "{dropped:?}");
     assert!(!dropped.message.contains("no es un vector"), "{dropped:?}");
     // A bit string no vector index searches stays a bit string.
     let r = convert(&docs(None), "postgres", "oracle", &opts("oracle")).unwrap();

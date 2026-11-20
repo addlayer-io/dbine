@@ -17850,6 +17850,7 @@
   "la dimensión del índice vectorial no es un número: «{0}»": "розмірність векторного індексу не є числом: «{0}»",
   "la distancia hamming queda euclidean (Cosmos DB no tiene hamming; sobre vectores de 0 y 1 los vecinos más cercanos son los mismos)": "відстань hamming стає euclidean (у Cosmos DB немає hamming; для векторів з 0 і 1 найближчі сусіди ті самі)",
   "la distancia hamming queda l2 (euclidean) en {0}, que no tiene hamming: sobre vectores de bits ordena los vecinos igual": "відстань hamming стає l2 (euclidean) у {0}, де немає hamming: для бітових векторів сусіди впорядковуються так само",
+  "la distancia hamming queda coseno en libSQL, que no tiene hamming: sobre vectores de 1 bit su distancia coseno cuenta los bits distintos, que es la distancia de Hamming": "відстань hamming стає косинусною в libSQL, де немає hamming: для 1-бітних векторів косинусна відстань рахує відмінні біти, а це відстань Геммінга",
   "la distancia hamming queda l2 (euclidean: sobre vectores de bits los vecinos más cercanos son los mismos)": "відстань hamming стає l2 (euclidean: для бітових векторів найближчі сусіди ті самі)",
   "la distancia {0} (queda cosine)": "відстань {0} (стає cosine)",
   "la distancia {0} queda euclidean (Cosmos DB no tiene la euclídea al cuadrado; los vecinos más cercanos son los mismos)": "відстань {0} стає euclidean (у Cosmos DB немає квадрата евклідової; найближчі сусіди ті самі)",

@@ -911,6 +911,70 @@ async fn vectors_pass_through_bulk_loads_and_reach_insert_scripts_as_arrays() {
     }
 }
 
+/// A bit string (PostgreSQL's `bit(n)`, pgvector's binary vectors) going
+/// into a vector column goes as the contract's binary vector, the JSON
+/// array of its bits, on both paths: the target's loader or insert script
+/// takes that, not `1011`. Into a column that isn't a vector, or from a
+/// column that isn't a bit string, cells go as they came.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn bit_strings_into_vector_columns_go_as_arrays_of_bits() {
+    use dbine_driver::{ResultColumn, VectorElement, VectorMeta};
+    let rows = || -> Vec<Vec<Cell>> {
+        vec![
+            vec![Cell::Int(1), Cell::Text("1011".into())],
+            vec![Cell::Int(2), Cell::Null],
+            vec![Cell::Int(3), Cell::Text("0000".into())],
+        ]
+    };
+    let arrays = vec![
+        vec![Cell::Int(1), Cell::Json("[1,0,1,1]".into())],
+        vec![Cell::Int(2), Cell::Null],
+        vec![Cell::Int(3), Cell::Json("[0,0,0,0]".into())],
+    ];
+    let bits = VectorMeta::dense(Some(4), VectorElement::Bit);
+    // (read type, vector_columns, typed as a vector, converted)
+    let cases: [(&str, bool, bool, bool); 6] = [
+        ("bit(4)", true, false, true),
+        ("BIT VARYING(4)", false, true, true),
+        ("varbit", true, false, true),
+        ("bit(4)", false, false, false),
+        ("text", true, false, false),
+        ("vector(4)", true, false, false),
+    ];
+    for bulk in [true, false] {
+        for (k, (read_type, listed, typed, converted)) in cases.iter().enumerate() {
+            let fake = Arc::new(Fake {
+                bulk,
+                name_type: read_type,
+                ..Default::default()
+            });
+            fake.table("bits", 0);
+            fake.source.lock().unwrap().insert("bits".into(), rows());
+            if *typed {
+                *fake.job_types.lock().unwrap() = vec![
+                    ResultColumn::new("id", "integer"),
+                    ResultColumn::new("name", "F1BIT_BLOB(4)").with_vector(bits.clone()),
+                ];
+            }
+            let (st, _state) = store(&format!("vec-bits-{bulk}-{k}"));
+            let mut j = job("bits", Some(3));
+            if *listed {
+                j.vector_columns = vec!["NAME".into()];
+            }
+            let report = Engine::new(st, "r")
+                .run(vec![j], opts(1), FakeEndpoints::new(fake.clone()), |_| {})
+                .await
+                .unwrap();
+            assert_eq!(report.summary.status, RunStatus::Finished);
+            let mut got = fake.target_rows("bits");
+            got.sort_by_key(|r| if let Cell::Int(i) = r[0] { i } else { -1 });
+            let case = format!("bulk {bulk}, {read_type}, listed {listed}, typed {typed}");
+            let want = if *converted { arrays.clone() } else { rows() };
+            assert_eq!(got, want, "{case}");
+        }
+    }
+}
+
 /// The insert-script path writes with the target columns' types the
 /// endpoints give (`job_types`, by name, in the load's order): a vector
 /// column carries its vector, so the driver writes its engine's literal

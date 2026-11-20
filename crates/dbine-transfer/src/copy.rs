@@ -140,6 +140,7 @@ pub(crate) async fn copy_table_typed(
         ended: false,
         waited: Duration::ZERO,
         rows: 0,
+        bits: Vec::new(),
     };
     let (target_driver, progress, delta) = (input.target_driver, input.progress, input.delta);
     let delta_path = delta.is_some();
@@ -160,6 +161,11 @@ pub(crate) async fn copy_table_typed(
         } else {
             &job.target
         };
+        // A sync by rows is between two databases of one driver: its rows
+        // keep their engine's form.
+        if !delta_path {
+            source.bits = bit_vector_columns(job, &target.columns, &columns, types);
+        }
         let mut result = None;
         let rows = if let Some(d) = &delta {
             result = Some(
@@ -345,6 +351,74 @@ pub(crate) fn typed_columns(names: &[String], types: &[ResultColumn]) -> Vec<Res
         .collect()
 }
 
+/// The load's columns (`names`, in the order of the cells) that take bit
+/// strings as binary vectors: the read says the column is a bit string
+/// (PostgreSQL's `bit(n)` / `varbit`, pgvector's binary vectors, read as
+/// `1011…`) and the target column holds vectors (the job's
+/// `vector_columns`, or its type says so). Their cells go as the
+/// contract's binary vector, a JSON array of 0 and 1, which every vector
+/// loader and insert script takes (libSQL's `F1BIT_BLOB`, MongoDB's bit
+/// vectors, Oracle's `VECTOR(n, BINARY)`…); a bit string is no vector to
+/// them. The reader can't do it: it doesn't know where the rows go, and a
+/// `bit(n)` that isn't a vector on the target stays a bit string.
+fn bit_vector_columns(
+    job: &TransferJob,
+    names: &[String],
+    read: &[TransferColumn],
+    types: &[ResultColumn],
+) -> Vec<bool> {
+    let typed = typed_columns(names, types);
+    let flags: Vec<bool> = names
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            let source = if read.len() == names.len() {
+                read.get(i)
+            } else {
+                read.iter().find(|c| c.name.eq_ignore_ascii_case(name))
+            };
+            let vector = job
+                .vector_columns
+                .iter()
+                .any(|v| v.eq_ignore_ascii_case(name))
+                || typed[i].vector.as_ref().is_some_and(|m| !m.sparse);
+            vector && source.is_some_and(|c| is_bit_string_type(&c.type_name))
+        })
+        .collect();
+    if flags.contains(&true) {
+        flags
+    } else {
+        Vec::new()
+    }
+}
+
+/// A bit string type, as a read names it: `bit`, `bit(16)`, `varbit`,
+/// `bit varying(16)` (case and blanks don't matter).
+fn is_bit_string_type(t: &str) -> bool {
+    let t = t.trim().to_ascii_lowercase();
+    let base = t.split('(').next().unwrap_or("").trim();
+    matches!(base, "bit" | "varbit" | "bit varying")
+}
+
+/// A bit string cell (`1011`) as the JSON array of its bits (`[1,0,1,1]`);
+/// any other cell (NULL, an array already) as it is.
+fn bits_as_array(c: &mut Cell) {
+    if let Cell::Text(s) = c {
+        if !s.is_empty() && s.bytes().all(|b| b == b'0' || b == b'1') {
+            let mut out = String::with_capacity(2 * s.len() + 1);
+            out.push('[');
+            for (i, b) in s.bytes().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                out.push(b as char);
+            }
+            out.push(']');
+            *c = Cell::Json(out);
+        }
+    }
+}
+
 /// A vector column's cell as `insert_script` takes it: the JSON array of
 /// its numbers (from the JSON-array text a vector travels as); a cell that
 /// isn't one (NULL, a sparse vector's own text) as it is.
@@ -498,9 +572,26 @@ struct ChannelSource {
     waited: Duration,
     /// Rows handed to the writer.
     rows: u64,
+    /// The cells (by position) whose bit strings go as binary vectors
+    /// ([`bit_vector_columns`]); empty: none.
+    bits: Vec<bool>,
 }
 
 impl ChannelSource {
+    /// A batch as the load takes it: its bit strings for vectors as arrays.
+    fn shaped(&self, mut b: RowBatch) -> RowBatch {
+        if !self.bits.is_empty() {
+            for row in &mut b.rows {
+                for (c, bit) in row.iter_mut().zip(&self.bits) {
+                    if *bit {
+                        bits_as_array(c);
+                    }
+                }
+            }
+        }
+        b
+    }
+
     /// The next message. If the reader went away without `End` (it failed)
     /// this never returns: the copy ends through the reader's error.
     async fn recv(&mut self) -> Msg {
@@ -543,7 +634,7 @@ impl BatchSource for ChannelSource {
         if let Some((b, s)) = self.first.take() {
             self.held = Some(s);
             self.rows += b.len() as u64;
-            return Some(b);
+            return Some(self.shaped(b));
         }
         loop {
             if self.ended {
@@ -553,7 +644,7 @@ impl BatchSource for ChannelSource {
                 Msg::Batch(b, s) => {
                     self.held = Some(s);
                     self.rows += b.len() as u64;
-                    return Some(b);
+                    return Some(self.shaped(b));
                 }
                 Msg::Begin(_) => {}
                 Msg::End => self.ended = true,

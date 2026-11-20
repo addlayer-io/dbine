@@ -18896,6 +18896,7 @@
   "la dimensión del índice vectorial no es un número: «{0}»": "벡터 인덱스의 차원이 숫자가 아닙니다: «{0}»",
   "la distancia hamming queda euclidean (Cosmos DB no tiene hamming; sobre vectores de 0 y 1 los vecinos más cercanos son los mismos)": "거리 hamming은 euclidean이 됩니다(Cosmos DB에는 hamming이 없으며 0과 1의 벡터에서는 가장 가까운 이웃이 같습니다)",
   "la distancia hamming queda l2 (euclidean) en {0}, que no tiene hamming: sobre vectores de bits ordena los vecinos igual": "{0}에는 hamming이 없으므로 거리 hamming은 l2(euclidean)가 됩니다. 비트 벡터에서는 이웃 순서가 같습니다",
+  "la distancia hamming queda coseno en libSQL, que no tiene hamming: sobre vectores de 1 bit su distancia coseno cuenta los bits distintos, que es la distancia de Hamming": "libSQL에는 hamming이 없으므로 거리 hamming은 코사인이 됩니다. 1비트 벡터에서는 코사인 거리가 서로 다른 비트 수를 세며, 이는 해밍 거리와 같습니다",
   "la distancia hamming queda l2 (euclidean: sobre vectores de bits los vecinos más cercanos son los mismos)": "거리 hamming은 l2(euclidean)가 됩니다(비트 벡터에서는 가장 가까운 이웃이 같습니다)",
   "la distancia {0} (queda cosine)": "거리 {0}(cosine으로 남습니다)",
   "la distancia {0} queda euclidean (Cosmos DB no tiene la euclídea al cuadrado; los vecinos más cercanos son los mismos)": "거리 {0}은(는) euclidean이 됩니다(Cosmos DB에는 제곱 유클리드가 없으며 가장 가까운 이웃은 같습니다)",
