@@ -16,6 +16,7 @@ mod ddl;
 mod functions;
 mod index_usage;
 mod jobs;
+mod objects_page;
 mod permissions;
 mod plan;
 mod processes;
@@ -1491,38 +1492,33 @@ impl Session for CbSession {
         Ok(Vec::new())
     }
 
+    /// A few rows of each catalog, narrowed and cut by N1QL (see
+    /// `objects_page`).
+    async fn list_objects_page(
+        &mut self,
+        q: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(q).await
+    }
+
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         let b = self.bucket()?;
-        let mut out = Vec::new();
-        let scopes = match self.conn.mgmt_get(&format!("/pools/default/buckets/{}/scopes", encode(&b))).await {
-            Ok(v) => v
-                .get("scopes")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .flat_map(|s| {
-                    let scope = s.get("name").map(text).unwrap_or_default();
-                    s.get("collections").and_then(Value::as_array).cloned().unwrap_or_default().into_iter().map(move |c| (scope.clone(), c.get("name").map(text).unwrap_or_default()))
-                })
-                .collect::<Vec<_>>(),
+        let mut out = match self.rest_collections(&b).await {
+            Ok(v) => v,
             Err(_) => self
                 .results(&format!("SELECT k.`scope`, k.name FROM system:keyspaces AS k WHERE k.`bucket` = {} ORDER BY k.`scope`, k.name", serde_json::to_string(&b).unwrap_or_default()))
                 .await?
                 .into_iter()
                 .map(|r| (r.get("scope").map(text).unwrap_or_default(), r.get("name").map(text).unwrap_or_default()))
+                .filter(|(s, _)| !s.starts_with("_system"))
+                .map(|(scope, coll)| DbObject {
+                    kind: kinds::COLLECTION.into(),
+                    schema: Some(format!("{b}.{scope}")),
+                    name: coll,
+                    parent: None,
+                })
                 .collect(),
         };
-        for (scope, coll) in scopes
-            .into_iter()
-            .filter(|(s, _)| !s.starts_with("_system"))
-        {
-            out.push(DbObject {
-                kind: kinds::COLLECTION.into(),
-                schema: Some(format!("{b}.{scope}")),
-                name: coll,
-                parent: None,
-            });
-        }
         if let Ok(ix) = self.indexes().await {
             for (scope, coll, name, _, _) in
                 ix.into_iter().filter(|(s, ..)| !s.starts_with("_system"))

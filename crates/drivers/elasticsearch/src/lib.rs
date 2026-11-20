@@ -18,6 +18,7 @@ pub mod http;
 mod jobs;
 pub mod json;
 mod monitor;
+mod objects_page;
 mod permissions;
 pub mod plan;
 mod processes;
@@ -1477,6 +1478,15 @@ impl Session for EsSession {
     /// Indices, aliases and data streams have no comments.
     async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
         Ok(Vec::new())
+    }
+
+    /// The listings of the kinds asked for, narrowed by the name (see
+    /// `objects_page`).
+    async fn list_objects_page(
+        &mut self,
+        q: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(q).await
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {

@@ -45,6 +45,7 @@ pub mod ddl;
 mod functions;
 mod index_usage;
 mod monitor;
+mod objects_page;
 mod permissions;
 mod plan;
 mod properties;
@@ -1790,14 +1791,15 @@ impl Session for CosmosSession {
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         let mut v = self.containers().await?;
         v.sort_by_key(|n| n.to_lowercase());
-        Ok(v.into_iter()
-            .map(|name| DbObject {
-                kind: kinds::COLLECTION.into(),
-                schema: None,
-                name,
-                parent: None,
-            })
-            .collect())
+        Ok(v.into_iter().map(objects_page::container).collect())
+    }
+
+    /// A search or a lookup queries the containers (see `objects_page`).
+    async fn list_objects_page(
+        &mut self,
+        q: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(q).await
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
