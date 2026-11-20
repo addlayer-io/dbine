@@ -1294,38 +1294,58 @@ pub fn indexed_vectors(body: &str) -> Vec<String> {
 
 // -- OpenSearch's default engine by version ----------------------------------------------------
 
-/// Calls `f` with each `knn_vector` field a mapping body defines (its name
-/// and mapping), anywhere in the body.
+/// Calls `f` with each `knn_vector` field a mapping body defines (its
+/// dotted path and mapping), anywhere in the body: an index's creation,
+/// `_mapping` or a template.
 fn knn_fields(j: &mut J, f: &mut dyn FnMut(&str, &mut J)) {
-    match j {
-        J::Obj(o) => {
-            for (k, v) in o.iter_mut() {
-                if v.get("type").and_then(J::as_str) == Some("knn_vector") {
-                    f(k, v);
+    fn walk(j: &mut J, keys: &mut Vec<String>, f: &mut dyn FnMut(&str, &mut J)) {
+        match j {
+            J::Obj(o) => {
+                for (k, v) in o.iter_mut() {
+                    keys.push(k.clone());
+                    if v.get("type").and_then(J::as_str) == Some("knn_vector") {
+                        // The field's path: the keys after the first
+                        // `properties`, without the `properties` between.
+                        let path: Vec<&str> = keys
+                            .iter()
+                            .skip_while(|k| *k != "properties")
+                            .filter(|k| *k != "properties")
+                            .map(String::as_str)
+                            .collect();
+                        let name = if path.is_empty() {
+                            k.clone()
+                        } else {
+                            path.join(".")
+                        };
+                        f(&name, v);
+                    }
+                    walk(v, keys, f);
+                    keys.pop();
                 }
-                knn_fields(v, f);
             }
+            J::Arr(a) => a.iter_mut().for_each(|v| walk(v, keys, f)),
+            _ => {}
         }
-        J::Arr(a) => a.iter_mut().for_each(|v| knn_fields(v, f)),
-        _ => {}
     }
+    walk(j, &mut Vec::new(), f);
 }
 
 /// A mapping body for OpenSearch 2.18, whose default engine, Faiss, has
-/// no cosine distance until 2.19: each float `knn_vector` field searched
-/// by `cosinesimil` with an HNSW method that names no engine (nor a
-/// `mode`, `compression_level` or `model_id`, which decide it) gets
-/// Lucene, which has had it since 2.2. `None`: no field needs it; else
-/// the new body and the fields changed.
+/// no cosine distance until 2.19: each float or byte `knn_vector` field
+/// searched by `cosinesimil` with an HNSW method that names no engine (nor
+/// a `mode`, `compression_level` or `model_id`, which decide it) gets
+/// Lucene, which has it for both. `None`: no field needs it; else the new
+/// body and the fields changed.
 pub fn cosine_on_lucene(body: &str) -> Option<(String, Vec<String>)> {
     let mut j = J::parse(body).ok()?;
     let mut changed = Vec::new();
     knn_fields(&mut j, &mut |name, f| {
         let set = |k: &str| f.get(k).is_some_and(|v| !v.text().trim().is_empty());
-        let float = f
-            .get("data_type")
-            .is_none_or(|d| d.text().eq_ignore_ascii_case("float"));
-        if !float
+        let float_or_byte = f.get("data_type").is_none_or(|d| {
+            let d = d.text();
+            d.eq_ignore_ascii_case("float") || d.eq_ignore_ascii_case("byte")
+        });
+        if !float_or_byte
             || ["mode", "compression_level", "model_id"]
                 .iter()
                 .any(|k| set(k))
@@ -2073,14 +2093,15 @@ mod tests {
             "b":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"l2"}},
             "c":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"cosinesimil","engine":"faiss"}},
             "d":{"type":"knn_vector","dimension":3,"mode":"on_disk","method":{"name":"hnsw","space_type":"cosinesimil"}},
-            "e":{"type":"knn_vector","dimension":8,"data_type":"byte","method":{"name":"hnsw","space_type":"cosinesimil"}},
+            "e":{"type":"knn_vector","dimension":8,"data_type":"binary","method":{"name":"hnsw","space_type":"cosinesimil"}},
+            "y":{"type":"knn_vector","dimension":8,"data_type":"byte","method":{"name":"hnsw","space_type":"cosinesimil"}},
             "f":{"type":"knn_vector","dimension":3,"space_type":"cosinesimil","method":{"name":"hnsw"}},
             "g":{"type":"knn_vector","dimension":3,"method":{"name":"ivf","space_type":"cosinesimil"}},
             "h":{"type":"knn_vector","dimension":3},
             "o":{"properties":{"i":{"type":"knn_vector","dimension":3,"method":{"space_type":"cosinesimil"}}}},
             "t":{"type":"text"}}}}"#;
         let (out, fields) = cosine_on_lucene(body).unwrap();
-        assert_eq!(fields, ["a", "f", "i"]);
+        assert_eq!(fields, ["a", "y", "f", "o.i"]);
         let j = J::parse(&out).unwrap();
         let engine = |path: &[&str]| {
             let mut p = vec!["mappings", "properties"];
@@ -2090,6 +2111,7 @@ mod tests {
         };
         assert_eq!(engine(&["a"]).as_deref(), Some("lucene"));
         assert_eq!(engine(&["f"]).as_deref(), Some("lucene"));
+        assert_eq!(engine(&["y"]).as_deref(), Some("lucene"));
         assert_eq!(engine(&["o", "properties", "i"]).as_deref(), Some("lucene"));
         assert_eq!(engine(&["c"]).as_deref(), Some("faiss"));
         for f in ["b", "d", "e", "g", "h"] {
@@ -2119,7 +2141,12 @@ mod tests {
             "a":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"l1","engine":"nmslib"}},
             "b":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"l2","engine":"faiss"}},
             "o":{"properties":{"c":{"type":"knn_vector","dimension":3,"method":{"engine":"NMSLIB"}}}}}}}"#;
-        assert_eq!(nmslib_fields(body), ["a", "c"]);
+        assert_eq!(nmslib_fields(body), ["a", "o.c"]);
+        // A template's mapping, and `_mapping`'s.
+        let tpl = r#"{"index_patterns":["x*"],"template":{"mappings":{"properties":{"v":{"type":"knn_vector","method":{"engine":"nmslib"}}}}}}"#;
+        assert_eq!(nmslib_fields(tpl), ["v"]);
+        let m = r#"{"properties":{"v":{"type":"knn_vector","method":{"engine":"nmslib"}}}}"#;
+        assert_eq!(nmslib_fields(m), ["v"]);
         assert!(
             nmslib_fields(r#"{"mappings":{"properties":{"b":{"type":"knn_vector"}}}}"#).is_empty()
         );
