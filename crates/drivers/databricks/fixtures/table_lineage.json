@@ -1,0 +1,64 @@
+{
+  "upstreams": [
+    {
+      "tableInfo": {
+        "name": "menu",
+        "catalog_name": "main",
+        "schema_name": "sales",
+        "table_type": "TABLE",
+        "lineage_timestamp": "2026-11-02 14:03:12.0"
+      },
+      "notebookInfos": [
+        { "workspace_id": 4169371664718798, "notebook_id": 1111169262439324 }
+      ],
+      "jobInfos": [
+        { "workspace_id": 4169371664718798, "job_id": 774 }
+      ]
+    },
+    {
+      "tableInfo": {
+        "name": "rates",
+        "catalog_name": "ref",
+        "schema_name": "fx",
+        "table_type": "VIEW"
+      },
+      "queryInfos": [
+        { "workspace_id": 4169371664718798, "query_id": "a1b2c3d4-0000-4000-8000-000000000001" }
+      ]
+    },
+    {
+      "fileInfo": {
+        "path": "s3://landing/orders/2026/?X-Amz-Signature=abc",
+        "has_permission": true,
+        "securable_name": "landing",
+        "securable_type": "EXTERNAL_LOCATION",
+        "storage_location": "s3://landing/"
+      },
+      "pipelineInfos": [
+        { "workspace_id": 4169371664718798, "pipeline_id": "0f3e5d2a-1111-4222-8333-944455556666", "pipeline_update_id": "u-1" }
+      ]
+    },
+    {
+      "notebookInfos": [
+        { "workspace_id": 4169371664718798, "notebook_id": 1111169262439324 },
+        { "workspace_id": 4169371664718798, "notebook_id": 2222 }
+      ]
+    },
+    {
+      "tableInfo": { "name": "dinner", "table_type": "TABLE" }
+    }
+  ],
+  "downstreams": [
+    {
+      "tableInfo": {
+        "name": "dinner_price",
+        "catalog_name": "main",
+        "schema_name": "sales",
+        "table_type": "TABLE"
+      },
+      "notebookInfos": [
+        { "workspace_id": 4169371664718798, "notebook_id": 3333 }
+      ]
+    }
+  ]
+}
