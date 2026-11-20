@@ -2,22 +2,25 @@
 //! (half-precision floats, HANA Cloud QRC 2/2025) and their HNSW vector
 //! indexes.
 //!
-//! The client (`hdbconnect_async` 0.32) has no `REAL_VECTOR` type and
-//! asks for data format version 8, older than the type. A server that
-//! answers such a client in the old protocol sends a vector as
-//! `VARBINARY`, its binary form (the dimension as a little-endian 32-bit
-//! integer, then the float32 values): results take the columns the catalog
-//! says are `REAL_VECTOR` and decode them ([`decode`]). A server that sends
-//! the vector type itself makes the client fail ("Illegal type code 96"),
-//! which [`explain`] turns into what to do. Transfers read vectors as text
+//! DBine's copy of the client (`vendor/hdbconnect_impl`) asks for data
+//! format version 9, the one with `REAL_VECTOR`: such a server sends a
+//! vector as that type, in its binary form (the dimension as a
+//! little-endian 32-bit integer, then the float32 values), so any vector
+//! in a result is marked and decoded ([`decode`]), a computed one or a
+//! view's too ([`sent_as_vector`]). A server that answers in an older
+//! format sends vectors as `VARBINARY` in the same form: results take the
+//! columns the catalog says are `REAL_VECTOR` or `HALF_VECTOR` and decode
+//! them. A `HALF_VECTOR` sent as binary has the same form with 16-bit
+//! values. A type the client doesn't know makes it fail ("Illegal type
+//! code"), which [`explain`] turns into what to do; a table's browse then
+//! reads its vectors as text. Transfers read vectors as text
 //! (`TO_NVARCHAR`) and write them with `TO_REAL_VECTOR` or
 //! `TO_HALF_VECTOR`, the column's own (HANA casts neither a string nor
-//! the other type by itself). A `HALF_VECTOR` sent as binary has the same
-//! form with 16-bit values.
+//! the other type by itself).
 //! The catalog (`SYS.TABLE_COLUMNS.LENGTH`) gives the dimension, and
 //! `SYS.VECTOR_INDEXES` the indexes' settings. Without a HANA Cloud
 //! server at hand these follow SAP's SQL reference and SAP's own client
-//! code (`langchain-hana`), and are covered by unit tests only.
+//! code (`langchain-hana`, `node-hdb`), and are covered by unit tests only.
 
 use dbine_driver::vector::{self, metric, param, VectorElement, VectorIndex, VectorMeta};
 use std::collections::BTreeMap;
@@ -135,11 +138,24 @@ pub(crate) fn columns_sql(schema: &str, table: &str) -> String {
     )
 }
 
-/// Whether a result column of this type may hold a vector sent the old
-/// way (see the module's docs).
+/// Whether a result column of this type may hold a vector: one the server
+/// sent as its type, or as binary the old way (see the module's docs).
 pub(crate) fn may_be_vector(type_id: hdbconnect_async::TypeId) -> bool {
     use hdbconnect_async::TypeId as T;
-    matches!(type_id, T::VARBINARY | T::BINARY | T::BSTRING | T::BLOB)
+    matches!(
+        type_id,
+        T::REAL_VECTOR | T::VARBINARY | T::BINARY | T::BSTRING | T::BLOB
+    )
+}
+
+/// A result column the server sent as `REAL_VECTOR` itself, which the
+/// catalog doesn't describe (a computed vector, a view's): a vector of any
+/// dimension, each cell giving its own.
+pub(crate) fn sent_as_vector(type_id: hdbconnect_async::TypeId) -> Option<Declared> {
+    (type_id == hdbconnect_async::TypeId::REAL_VECTOR).then_some(Declared {
+        kind: TYPE,
+        dims: None,
+    })
 }
 
 /// The select-list item that reads a vector column as its text.
@@ -185,11 +201,11 @@ pub(crate) fn column_kind(c: &dbine_driver::ResultColumn) -> Option<&'static str
     })
 }
 
-/// What to do when the client can't decode a `REAL_VECTOR` result (a
-/// server that sends the type itself to this client).
+/// What to do when the client can't decode a result column's type (one
+/// newer than the client, like a vector type after `REAL_VECTOR`).
 pub(crate) fn explain(message: &str) -> Option<&'static str> {
-    message.contains("Illegal type code 96").then_some(
-        "El resultado tiene una columna REAL_VECTOR y el cliente de HANA que usa DBine no lee ese tipo: \
+    message.contains("Illegal type code").then_some(
+        "El resultado tiene una columna de un tipo que el cliente de HANA que usa DBine no lee: \
          pedila como texto con TO_NVARCHAR(columna).",
     )
 }
@@ -432,8 +448,38 @@ mod tests {
             column_kind(&col("").with_vector(VectorMeta::dense(None, VectorElement::F16))),
             Some(HALF)
         );
-        assert!(explain("impl error: Illegal type code 96").is_some());
+        // A type newer than the client's (REAL_VECTOR, 96, it reads).
+        assert!(explain("impl error: Illegal type code 97").is_some());
         assert!(explain("something else").is_none());
+    }
+
+    /// The server sends `REAL_VECTOR` itself (data format version 9): any
+    /// such column is a vector, a computed one or a view's too, and its
+    /// cells decode. The bytes are the ones in SAP's node-hdb tests.
+    #[test]
+    fn vectors_sent_as_their_type() {
+        use hdbconnect_async::TypeId as T;
+        assert!(may_be_vector(T::REAL_VECTOR));
+        let d = sent_as_vector(T::REAL_VECTOR).unwrap();
+        assert_eq!((d.kind, d.dims), (TYPE, None));
+        assert_eq!(d.type_name(), "REAL_VECTOR");
+        assert_eq!(d.meta(), VectorMeta::dense(None, VectorElement::F32));
+        assert_eq!(sent_as_vector(T::VARBINARY), None);
+        let hex = |h: &str| {
+            (0..h.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&h[i..i + 2], 16).unwrap())
+                .collect::<Vec<u8>>()
+        };
+        assert_eq!(
+            decode(&hex("050000000000803F0000004000004040000080400000A040")).as_deref(),
+            Some("[1,2,3,4,5]")
+        );
+        assert_eq!(
+            decode(&hex("030000000000C8C20000484354873BC5")).as_deref(),
+            Some("[-100,200,-3000.458]")
+        );
+        assert_eq!(decode(&hex("0100000000000000")).as_deref(), Some("[0]"));
     }
 
     #[test]
@@ -503,6 +549,7 @@ mod tests {
              WHERE SCHEMA_NAME = 'A''S' AND TABLE_NAME = 'T' AND DATA_TYPE_NAME IN ('REAL_VECTOR', 'HALF_VECTOR')"
         );
         assert!(may_be_vector(hdbconnect_async::TypeId::VARBINARY));
+        assert!(may_be_vector(hdbconnect_async::TypeId::REAL_VECTOR));
         assert!(!may_be_vector(hdbconnect_async::TypeId::NVARCHAR));
     }
 

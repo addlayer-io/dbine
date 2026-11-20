@@ -1,0 +1,80 @@
+[package]
+name = "hdbconnect_impl"
+edition = "2024"
+authors.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+description = "Common implementation core of hdbconnect and hdbconnect_async; not for direct use"
+keywords.workspace = true
+categories.workspace = true
+include = ["src/**/*", "LICENSE-*", "README.md", "CHANGELOG.md"]
+rust-version = "1.85.0"
+
+[lib]
+doctest = false
+
+[package.metadata.docs.rs]
+all-features = false
+
+[features]
+default = ["sync", "async"]
+async = ["async-trait", "tokio"]
+sync = []
+dist_tx_async = ["dist_tx/async"]
+dist_tx_sync = ["dist_tx/sync"]
+alpha_routing = []
+
+[dependencies]
+rustls = { workspace = true }
+
+bigdecimal = { version = "0.4", features = ["serde"] }
+bitflags = { version = "2.4", features = ["serde"] }
+byteorder = "1.3"
+cesu8 = "1.1"
+crypto-common = "0.1"
+async-trait = { version = "0.1", optional = true }
+debug-ignore = "1.0"
+dist_tx = { version = "0.5", optional = true }
+# dist_tx = { path = "../../dist_tx", optional = true }
+hmac = "0.12"
+log = "0.4"
+lz4_flex = "0.11"
+num = "0.4"
+num-bigint = "0.4.0"
+pbkdf2 = { version = "0.12", default-features = false }
+rand = "0.9"
+secstr = "0.5"
+serde = { version = "1.0", features = ["derive"] }
+# serde_db = { path = "../../serde_db" }
+serde_db = "0.12"
+sha2 = "0.10.8"
+thiserror = "2.0"
+time = { version = "0.3", features = [
+    "formatting",
+    "macros",
+    "parsing",
+    "serde",
+] }
+tokio = { optional = true, version = "1.23", features = [
+    "io-util",
+    "net",
+    "rt",
+    "time",
+    "sync",
+] }
+tokio-rustls = { version = "0.26", default-features = false, features = [] }
+url = "2.1"
+username = "0.2"
+vec_map = "0.8"
+rustls-webpki = "0.103.0"
+webpki-roots = "1.0"
+
+[dev-dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+flexi_logger = "0.29"
+serde_bytes = "0.11"
+serde_json = "1.0"
+version-sync = "0.9"
+ring = "0.17.13"

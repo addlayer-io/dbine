@@ -5351,7 +5351,6 @@ Vectors (embeddings) are described in [`vectors.md`](vectors.md). The driver mar
 | SQL Server 2025 | Inserting, updating or deleting in a table with a vector index; creating one without `PREVIEW_FEATURES` | A SQL Server 2025 rule; the script says both before the index. |
 | SQL Server | Disabling or rebuilding a vector index | Msg 42250: the engine can't. |
 | Oracle | HNSW without the vector memory pool | HNSW needs `VECTOR_MEMORY_SIZE` above 0. |
-| SAP HANA Cloud | Ad-hoc queries with a vector column on a server that sends the vector type itself | DBine's HANA client doesn't read that type; the message says to use `TO_NVARCHAR(column)`. Browsing a table works. **Explicit pending item.** |
 | SAP HANA Cloud, IBM Db2 LUW, Snowflake, Azure SQL | Live test | No instance, container or account on the test machine (Db2 also lacks IBM's ODBC / CLI driver). **Explicit pending item.** |
 | Elasticsearch | Quantization, `bbq_*`, `rescore_vector`, `bfloat16` checked against the server's version | Written as given, without a check of the version. **Explicit pending item.** |
 | Elasticsearch 9.2+ | Vectors in `_source`; `bfloat16` vectors under a cosine index read back exactly | The server leaves vectors out unless asked; DBine's browse and transfers ask, and the console explains how for a typed request. A `bfloat16` vector under a cosine index is stored normalized and comes back with bfloat16's error. |

@@ -164,7 +164,7 @@ fn message(e: &HdbError) -> String {
         m.push_str(&s.to_string());
         src = s.source();
     }
-    // A REAL_VECTOR result the client can't decode: what to do.
+    // A result type the client can't decode: what to do.
     if let Some(why) = vector::explain(&m) {
         m = format!("{why} ({m})");
     }
@@ -899,8 +899,9 @@ impl HanaSession {
         self.warnings(out).await;
         let response = match response {
             Ok(r) => r,
-            // A server that sends REAL_VECTOR itself, which the client can't
-            // decode: a table's browse goes again with its vectors as text.
+            // A result type the client can't decode (a vector type newer than
+            // REAL_VECTOR): a table's browse goes again with its vectors as
+            // text.
             Err(e) if vector::explain(&message(&e)).is_some() => {
                 let Some((sql, known)) = self.browse_vectors_as_text(stmt).await else {
                     return Err(stmt_err(e, stmt, 0));
@@ -1682,10 +1683,12 @@ async fn push_result_set(
     Ok(())
 }
 
-/// For each result column, its declared type when it's a table's
-/// `REAL_VECTOR` or `HALF_VECTOR` column the server sent as binary (see
-/// [`vector`]): the catalog of the tables the binary columns come from
-/// says which. A catalog that can't be read marks nothing.
+/// For each result column, its declared type when it's a vector (see
+/// [`vector`]): the catalog of the tables the vector or binary columns come
+/// from says which are `REAL_VECTOR` or `HALF_VECTOR`, with their
+/// dimension; a column the server sent as `REAL_VECTOR` that the catalog
+/// doesn't describe (computed, a view's) is one of any dimension. A
+/// catalog that can't be read marks only the latter.
 async fn vector_columns(
     conn: &Connection,
     md: &hdbconnect_async::ResultSetMetadata,
@@ -1724,10 +1727,10 @@ async fn vector_columns(
                 return None;
             }
             found
-                .get(&(f.schemaname().to_string(), f.tablename().to_string()))?
-                .iter()
-                .find(|(c, _)| c == f.columnname())
+                .get(&(f.schemaname().to_string(), f.tablename().to_string()))
+                .and_then(|cols| cols.iter().find(|(c, _)| c == f.columnname()))
                 .map(|(_, d)| *d)
+                .or_else(|| vector::sent_as_vector(f.type_id()))
         })
         .collect()
 }

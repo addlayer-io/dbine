@@ -166,10 +166,13 @@ pub(crate) async fn read_batches(
             }
         })
         .collect();
+    // A view's vector columns aren't in the table catalog: the server
+    // names their type.
+    let uncataloged = |m: &FieldMetadata| m.type_id() == TypeId::REAL_VECTOR;
     let select: Vec<String> = meta
         .iter()
         .map(|m| {
-            if vectors.contains_key(m.displayname()) {
+            if vectors.contains_key(m.displayname()) || uncataloged(m) {
                 crate::vector::read_expr(&quote(m.displayname()))
             } else {
                 read_expr(m.displayname(), m.type_id())
@@ -178,7 +181,7 @@ pub(crate) async fn read_batches(
         .collect();
     let is_vector: Vec<bool> = meta
         .iter()
-        .map(|m| vectors.contains_key(m.displayname()))
+        .map(|m| vectors.contains_key(m.displayname()) || uncataloged(m))
         .collect();
     let sql = select_sql(&select, &table, spec.filter.as_deref());
     let widths: Vec<usize> = meta
@@ -263,7 +266,8 @@ fn wire_width(t: TypeId, precision: i16) -> usize {
         | TypeId::BINTEXT
         | TypeId::BLOB
         | TypeId::BLOCATOR => 4096,
-        TypeId::GEOMETRY | TypeId::POINT => 4096,
+        // Read as text (see `read`), any dimension.
+        TypeId::GEOMETRY | TypeId::POINT | TypeId::REAL_VECTOR => 4096,
     }
 }
 
@@ -328,6 +332,7 @@ fn type_name_of(t: TypeId, precision: i16, scale: i16) -> String {
         TypeId::NCLOB => "NCLOB".into(),
         TypeId::TEXT => "TEXT".into(),
         TypeId::BINTEXT => "BINTEXT".into(),
+        TypeId::REAL_VECTOR => crate::vector::TYPE.into(),
         TypeId::BLOB | TypeId::BLOCATOR => "BLOB".into(),
         TypeId::BOOLEAN => "BOOLEAN".into(),
         TypeId::LONGDATE => "TIMESTAMP".into(),
