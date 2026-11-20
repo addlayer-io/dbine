@@ -1672,6 +1672,7 @@
   "la dimensión del índice vectorial no es un número: «{0}»": "ベクトルインデックスの次元が数値ではありません: 「{0}」",
   "la distancia hamming queda euclidean (Cosmos DB no tiene hamming; sobre vectores de 0 y 1 los vecinos más cercanos son los mismos)": "距離 hamming は euclidean になります(Cosmos DB には hamming がありません。0 と 1 のベクトルでは最近傍は同じです)",
   "la distancia hamming queda l2 (euclidean) en {0}, que no tiene hamming: sobre vectores de bits ordena los vecinos igual": "距離 hamming は {0} では l2(euclidean)になります。{0} には hamming がなく、ビットベクトルでは近傍の順序は同じです",
+  "la distancia hamming queda coseno en libSQL, que no tiene hamming: sobre vectores de 1 bit su distancia coseno cuenta los bits distintos, que es la distancia de Hamming": "距離 hamming は libSQL ではコサインになります。libSQL には hamming がなく、1 ビットのベクトルではコサイン距離が異なるビットの数を数えるため、ハミング距離と同じになります",
   "la distancia hamming queda l2 (euclidean: sobre vectores de bits los vecinos más cercanos son los mismos)": "距離 hamming は l2(euclidean)になります(ビットベクトルでは最近傍は同じです)",
   "la distancia {0} (queda cosine)": "距離 {0}(cosine になります)",
   "la distancia {0} queda euclidean (Cosmos DB no tiene la euclídea al cuadrado; los vecinos más cercanos son los mismos)": "距離 {0} は euclidean になります(Cosmos DB には二乗ユークリッドがありません。最近傍は同じです)",
