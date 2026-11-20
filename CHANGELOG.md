@@ -8,6 +8,7 @@
 
 ### Fixes
 
+- **Compare data in query mode cut off at the bottom:** with many columns, the column table of **Queries** mode pushed the number tolerances, **Include equal rows** and **Compare** below the window, and nothing scrolled to reach them. The column table now scrolls on its own, with its header in view, and the top of the tab scrolls when the window is short.
 - **Databricks tables over 25 MiB in Compare data without the reason:** comparing, copying or exporting a Databricks table could stop with "Databricks truncó el resultado… no se copia una tabla incompleta", even in a comparison. Behind it, Databricks had refused to deliver the table through external links, the way without a size limit, and the error left out what Databricks said. The error now gives Databricks' reason and talks about the read, not a copy. A refusal that comes after the query was sent is also detected.
 - **Connection forms partly in Spanish:** some texts that drivers show stayed in Spanish whatever the interface language. Among them were Power BI's sign-in application and query API options, SQL Server's and Azure SQL's Microsoft Entra ID sign-in modes, the ODBC driver field and its help, Neo4j's encryption help, the examples in several fields, and some items of the explorer's create menu. They now appear in every language DBine offers.
 
