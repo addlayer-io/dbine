@@ -31,6 +31,7 @@
 - **MongoDB 7 without search indexes:** a server without mongot, which refuses the search index listing, is treated as having no search indexes, and a listing that fails says why.
 - **Cassandra and ScyllaDB JSON columns:** a JSON value from another engine, such as an object or array from PostgreSQL's jsonb, is written as its JSON text in a text column.
 - **DuckDB HNSW indexes:** the distance of an index DuckDB 1.5 lists without its settings is read from the extension, so a cosine index no longer reads as euclidean, and schema compare tells HNSW indexes apart by their settings.
+- **Reads from MCP clients and the AI assistant:** a `--` comment ended by a carriage return no longer hides what follows it from the read checks. A function written after one is checked like any other, instead of running without your approval.
 
 ## [1.6.3] - 2026-11-18
 
