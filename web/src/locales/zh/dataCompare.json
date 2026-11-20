@@ -118,6 +118,15 @@
     "stale": "某个查询已更改：比较时会重新读取其列。",
     "keyOf": "“{{column}}”是键的一部分",
     "allKeys": "勾选或取消勾选所有列作为键的一部分",
+    "keyFrom": {
+      "none": "无键：请勾选能标识每一行的列。",
+      "primaryKey": "键：{{table}} 的主键。",
+      "unique": "键：{{table}} 的唯一索引 {{index}}。",
+      "id": "键：“{{column}}”，其名称可标识每一行。",
+      "grouped": "键：查询分组所依据的列；比较的是合计值。",
+      "model": "键：模型分组所依据的列；比较的是度量值。",
+      "tableCompare": "键：沿用表比较中的键。"
+    },
     "notCompared": "不比较",
     "unpairedRight": "右侧没有配对的列（不比较）：{{list}}",
     "tolerance": "数字",

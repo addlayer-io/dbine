@@ -79,31 +79,51 @@ function measureLike(type: string, sample: Cell | undefined): boolean {
 /** What the key suggestion looks at in each compared column. */
 export interface KeyHintColumn { left: string; right: string; leftType: string; rightType: string; leftSample?: Cell; rightSample?: Cell }
 
+/** Why the column table's key is what it is: the line under the table. */
+export type KeySource =
+  | { kind: 'model' }
+  | { kind: 'id'; column: string }
+  | { kind: 'grouped' }
+  | { kind: 'none' }
+  | { kind: 'tableCompare' }
+  | { kind: 'primaryKey'; table: string }
+  | { kind: 'unique'; table: string; index: string };
+
 /** The key a compare of two results most likely wants (indexes into
- *  `cols`): a DAX side's group-by columns; else an id-like column alone;
- *  else the columns that describe rather than measure; when none looks
- *  like a measure, all but the last (the usual `SELECT dims…, measure`). */
-export function suggestKey(cols: KeyHintColumn[]): number[] {
-  if (!cols.length) return [];
+ *  `cols`) and why: a DAX side's group-by columns; else an id-like column
+ *  alone; else, when a query groups (`grouped`), the columns that describe
+ *  rather than measure, or all but the last when none looks like a measure
+ *  (the usual `SELECT dims…, total`). Otherwise none: a table's rows have
+ *  no reliable hint, and a guessed key of almost every column would only
+ *  find missing rows, never changed ones. (DataCompareView first tries the
+ *  key of the one table a query reads, from the catalog.) */
+export function keySuggestion(cols: KeyHintColumn[], grouped = false): { keys: number[]; source: KeySource } {
+  const none = { keys: [], source: { kind: 'none' as const } };
+  if (!cols.length) return none;
   const all = cols.map((_, i) => i);
   for (const side of ['left', 'right'] as const) {
     const names = cols.map((c) => c[side]);
     if (names.some((n) => DAX_MEASURE.test(n)) && names.some((n) => DAX_COLUMN.test(n))) {
-      return all.filter((i) => DAX_COLUMN.test(names[i]));
+      return { keys: all.filter((i) => DAX_COLUMN.test(names[i])), source: { kind: 'model' } };
     }
   }
   const measures = cols.map((c) => measureLike(c.leftType, c.leftSample) || measureLike(c.rightType, c.rightSample));
   const id = all.find((i) => !measures[i] && (idLike(cols[i].left) || idLike(cols[i].right)));
-  if (id !== undefined) return [id];
+  if (id !== undefined) return { keys: [id], source: { kind: 'id', column: cols[id].left } };
+  if (!grouped) return none;
   const dims = all.filter((i) => !measures[i]);
-  if (!dims.length) return [0];
-  if (dims.length < cols.length) return dims;
-  return cols.length > 1 ? all.slice(0, -1) : [0];
+  const keys = !dims.length ? [0] : dims.length < cols.length ? dims : cols.length > 1 ? all.slice(0, -1) : [0];
+  return { keys, source: { kind: 'grouped' } };
 }
 
-/** The column table for two results just read: every left column with its
- *  pair, the suggested key marked. */
-export function pairRows(left: ResultColumn[], right: ResultColumn[], leftSample?: Cell[] | null, rightSample?: Cell[] | null): PairRow[] {
+/** The suggested key's indexes (see `keySuggestion`). */
+export function suggestKey(cols: KeyHintColumn[], grouped = false): number[] {
+  return keySuggestion(cols, grouped).keys;
+}
+
+/** The column table for two results just read, every left column with its
+ *  pair and the suggested key marked, and why that key. */
+export function columnTable(left: ResultColumn[], right: ResultColumn[], leftSample?: Cell[] | null, rightSample?: Cell[] | null, grouped = false): { rows: PairRow[]; source: KeySource } {
   const rights = pairColumns(left.map((c) => c.name), right.map((c) => c.name));
   const rows: PairRow[] = left.map((c, i) => ({ left: c.name, right: rights[i], key: false }));
   const paired = rows.map((r, i) => ({ r, i })).filter(({ r }) => r.right);
@@ -114,8 +134,20 @@ export function pairRows(left: ResultColumn[], right: ResultColumn[], leftSample
       leftSample: leftSample?.[i], rightSample: j >= 0 ? rightSample?.[j] : undefined,
     };
   });
-  for (const k of suggestKey(hint)) paired[k].r.key = true;
-  return rows;
+  const { keys, source } = keySuggestion(hint, grouped);
+  for (const k of keys) paired[k].r.key = true;
+  return { rows, source };
+}
+
+/** The column table's rows (see `columnTable`). */
+export function pairRows(left: ResultColumn[], right: ResultColumn[], leftSample?: Cell[] | null, rightSample?: Cell[] | null, grouped = false): PairRow[] {
+  return columnTable(left, right, leftSample, rightSample, grouped).rows;
+}
+
+/** The key's columns, in order, as one string: whether the user changed
+ *  the key since it was suggested. */
+export function keySignature(rows: PairRow[]): string {
+  return rows.filter((r) => r.key && r.right).map((r) => r.left).join('\u0001');
 }
 
 /** The column table after reading the columns again (a query changed): a

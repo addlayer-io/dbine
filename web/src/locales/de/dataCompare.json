@@ -124,6 +124,15 @@
     "stale": "Eine Abfrage hat sich geändert: Beim Vergleichen werden ihre Spalten erneut gelesen.",
     "keyOf": "«{{column}}» ist Teil des Schlüssels",
     "allKeys": "Alle Spalten als Teil des Schlüssels markieren oder die Markierung aufheben",
+    "keyFrom": {
+      "none": "Kein Schlüssel: Markieren Sie die Spalten, die jede Zeile identifizieren.",
+      "primaryKey": "Schlüssel: der Primärschlüssel von {{table}}.",
+      "unique": "Schlüssel: der eindeutige Index {{index}} von {{table}}.",
+      "id": "Schlüssel: «{{column}}», das schon durch den Namen jede Zeile identifiziert.",
+      "grouped": "Schlüssel: die Spalten, nach denen die Abfrage gruppiert; verglichen werden die Summen.",
+      "model": "Schlüssel: die Spalten, nach denen das Modell gruppiert; verglichen werden die Kennzahlen.",
+      "tableCompare": "Schlüssel: der aus dem Tabellenvergleich."
+    },
     "notCompared": "Wird nicht verglichen",
     "unpairedRight": "Spalten rechts ohne Gegenstück (nicht verglichen): {{list}}",
     "tolerance": "Zahlen",

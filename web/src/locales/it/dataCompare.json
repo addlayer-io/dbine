@@ -130,6 +130,15 @@
     "stale": "Una query è cambiata: durante il confronto se ne rileggono le colonne.",
     "keyOf": "« {{column}} » fa parte della chiave",
     "allKeys": "Seleziona o deseleziona tutte le colonne come parte della chiave",
+    "keyFrom": {
+      "none": "Nessuna chiave: seleziona le colonne che identificano ogni riga.",
+      "primaryKey": "Chiave: la chiave primaria di {{table}}.",
+      "unique": "Chiave: l’indice univoco {{index}} di {{table}}.",
+      "id": "Chiave: « {{column}} », che dal nome identifica ogni riga.",
+      "grouped": "Chiave: le colonne per cui la query raggruppa; si confrontano i totali.",
+      "model": "Chiave: le colonne per cui il modello raggruppa; si confrontano le misure.",
+      "tableCompare": "Chiave: quella del confronto tra tabelle."
+    },
     "notCompared": "Non confrontata",
     "unpairedRight": "Colonne di destra senza coppia (non confrontate): {{list}}",
     "tolerance": "Numeri",

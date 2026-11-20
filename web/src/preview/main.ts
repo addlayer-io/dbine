@@ -2,7 +2,7 @@
 // sample data in a plain browser, to look at them without Tauri or a
 // database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|split|dependencies|fonts
 // |connection[&engine=<driver id>][&testfail=1]|monitor|profiler[&mode=sampled]|compare|multidb[&running=1][&results=1]
-// |datacompare (Comparar datos in query mode, 40 paired columns after "Leer columnas": the column table scrolls, "Comparar" stays in view)
+// |datacompare[&pk=1] (Comparar datos in query mode, 40 paired columns after "Leer columnas": the column table scrolls, "Comparar" stays in view; the key from the table's primary key with pk=1, else none)
 // |docs (documents with nested fields: the JSON tree view)|docs-edit (the tree alone, editable)
 // |query[&sample=editor|q] (⌘-click, unknown names, parameters, snippets, a table's columns on hover: preview/editor-samples.ts)
 // |query&sample=named[&exec=1][&again=1][&rename=1][&show=<name>] (named results and the run lens: preview/named-samples.ts)
@@ -646,6 +646,10 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
         if (cmd === 'data_compare_query_columns') {
           const columns = Array.from({ length: 40 }, (_, i) => ({ name: i < 4 ? ['COD_PAI', 'COD_MON', 'CAM_EMI', 'NUM_SEC'][i] : `COL_${String(i).padStart(2, '0')}`, type_name: 'varchar' }));
           return { columns, sample: columns.map(() => 'x') };
+        }
+        // …&pk=1: the table the query reads has a primary key (COD_PAI, NUM_SEC); without it, none.
+        if (cmd === 'get_columns') {
+          return params.get('pk') ? ['COD_PAI', 'COD_MON', 'NUM_SEC'].map((name) => ({ name, data_type: 'varchar', nullable: false, primary_key: name !== 'COD_MON', auto_increment: false, default_value: null })) : [];
         }
       }
       const cmp = compareMock(cmd, a);

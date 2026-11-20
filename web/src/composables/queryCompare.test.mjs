@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEFAULT_FORM, WHOLE_ROWS, bareName, compareWithPicks, comparedPairs, mergePairs, pairColumns, pairRows, queryOptions, sideSignature, suggestKey, unpairedRight, wholeQuery, withKey,
+  DEFAULT_FORM, WHOLE_ROWS, bareName, columnTable, compareWithPicks, comparedPairs, keySignature, keySuggestion, mergePairs, pairColumns, pairRows, queryOptions, sideSignature, suggestKey, unpairedRight, wholeQuery, withKey,
 } from './queryCompare.ts';
 
 const col = (name, type_name = '') => ({ name, type_name });
@@ -47,22 +47,49 @@ test('the key: a DAX side\'s group-by columns', () => {
   assert.deepEqual(suggestKey(flipped), [0, 1]);
 });
 
-test('the key: an id-like column alone, else what describes', () => {
+test('the key: an id-like column alone, else what describes when the query groups', () => {
   const t = (left, leftType = '', leftSample = undefined) => ({ left, right: left, leftType, rightType: '', leftSample });
   assert.deepEqual(suggestKey([t('name', 'text'), t('customer_id', 'int'), t('total', 'numeric')]), [1]);
   assert.deepEqual(suggestKey([t('CustomerKey', 'int'), t('name', 'text')]), [0]);
   // `valid` isn't an id.
-  assert.deepEqual(suggestKey([t('valid', 'boolean'), t('region', 'text'), t('amount', 'decimal(12,2)')]), [0, 1]);
+  assert.deepEqual(suggestKey([t('valid', 'boolean'), t('region', 'text'), t('amount', 'decimal(12,2)')], true), [0, 1]);
   // Measures by type, or by a fractional value when there's no type.
-  assert.deepEqual(suggestKey([t('year', 'int'), t('region', 'varchar'), t('ventas', 'double')]), [0, 1]);
-  assert.deepEqual(suggestKey([t('year', '', 2024), t('region', '', 'Norte'), t('ventas', '', 12.5)]), [0, 1]);
-  assert.deepEqual(suggestKey([t('year', '', 2024), t('ventas', '', '12.50')]), [0]);
+  assert.deepEqual(suggestKey([t('year', 'int'), t('region', 'varchar'), t('ventas', 'double')], true), [0, 1]);
+  assert.deepEqual(suggestKey([t('year', '', 2024), t('region', '', 'Norte'), t('ventas', '', 12.5)], true), [0, 1]);
+  assert.deepEqual(suggestKey([t('year', '', 2024), t('ventas', '', '12.50')], true), [0]);
   // Nothing looks like a measure: all but the last (a count, usually).
-  assert.deepEqual(suggestKey([t('year', 'int'), t('region', 'text'), t('orders', 'bigint')]), [0, 1]);
-  assert.deepEqual(suggestKey([t('only', 'text')]), [0]);
+  assert.deepEqual(suggestKey([t('year', 'int'), t('region', 'text'), t('orders', 'bigint')], true), [0, 1]);
+  assert.deepEqual(suggestKey([t('only', 'text')], true), [0]);
   // Everything looks like a measure: the first column.
-  assert.deepEqual(suggestKey([t('a', 'float'), t('b', 'float')]), [0]);
+  assert.deepEqual(suggestKey([t('a', 'float'), t('b', 'float')], true), [0]);
   assert.deepEqual(suggestKey([]), []);
+});
+
+test('the key: a table\'s rows with no id-like column get none, not almost every column', () => {
+  // The DBA's case: SELECT * over a wide table, its key columns named
+  // COD_…/NUM_…, one decimal. It used to mark every column but CAM_EMI,
+  // so the compare could only find missing rows, never changed ones.
+  const t = (left, leftType) => ({ left, right: left, leftType, rightType: leftType });
+  const wide = [t('COD_PAI', 'varchar'), t('COD_MON', 'varchar'), t('CAM_EMI', 'decimal(18,6)'), t('NUM_SEC', 'int'),
+    t('NUM_POL', 'int'), t('NUM_END', 'int'), t('FEC_EMI', 'date'), t('VIG_DES', 'date')];
+  assert.deepEqual(keySuggestion(wide), { keys: [], source: { kind: 'none' } });
+  // Grouped, the same columns are dimensions and a measure.
+  assert.deepEqual(keySuggestion(wide, true).source, { kind: 'grouped' });
+  // An id still is one, grouped or not.
+  assert.deepEqual(keySuggestion([t('order_id', 'int'), t('total', 'decimal')]), { keys: [0], source: { kind: 'id', column: 'order_id' } });
+  // DAX: the model's group-by columns.
+  const dax = [{ left: 'Date[Year]', right: 'year', leftType: 'Int64', rightType: 'int' }, { left: '[Ventas]', right: 'ventas', leftType: 'Double', rightType: 'decimal' }];
+  assert.deepEqual(keySuggestion(dax), { keys: [0], source: { kind: 'model' } });
+});
+
+test('the column table says why its key and notices a changed key', () => {
+  const { rows, source } = columnTable([col('id', 'int'), col('name', 'text')], [col('id', 'int'), col('name', 'text')]);
+  assert.deepEqual(source, { kind: 'id', column: 'id' });
+  assert.equal(keySignature(rows), 'id');
+  rows[1].key = true;
+  assert.equal(keySignature(rows), 'id\u0001name');
+  // A key column without a pair isn't part of it.
+  assert.equal(keySignature([{ left: 'a', right: '', key: true }]), '');
 });
 
 test('the column table marks the key and leaves unpaired columns out', () => {

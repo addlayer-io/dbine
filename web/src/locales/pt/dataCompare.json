@@ -130,6 +130,15 @@
     "stale": "Uma consulta mudou: ao comparar, suas colunas são lidas de novo.",
     "keyOf": "“{{column}}” faz parte da chave",
     "allKeys": "Marcar ou desmarcar todas as colunas como parte da chave",
+    "keyFrom": {
+      "none": "Sem chave: marque as colunas que identificam cada linha.",
+      "primaryKey": "Chave: a chave primária de {{table}}.",
+      "unique": "Chave: o índice único {{index}} de {{table}}.",
+      "id": "Chave: “{{column}}”, que pelo nome identifica cada linha.",
+      "grouped": "Chave: as colunas pelas quais a consulta agrupa; os totais são comparados.",
+      "model": "Chave: as colunas pelas quais o modelo agrupa; as medidas são comparadas.",
+      "tableCompare": "Chave: a da comparação de tabelas."
+    },
     "notCompared": "Não é comparada",
     "unpairedRight": "Colunas da direita sem par (não comparadas): {{list}}",
     "tolerance": "Números",
