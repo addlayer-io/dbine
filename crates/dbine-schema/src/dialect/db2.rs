@@ -516,6 +516,7 @@ pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     fn luw() -> &'static dyn Dialect {
@@ -1204,6 +1205,8 @@ mod tests {
             .native
             .starts_with("VECTOR"));
         // No vector indexes in Db2.
-        assert!(luw.vector_index(&VectorIndex::default(), None).is_err());
+        assert!(luw
+            .vector_index_pair(&VectorIndex::default(), None)
+            .is_err());
     }
 }

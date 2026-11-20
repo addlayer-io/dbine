@@ -364,8 +364,9 @@ impl Dialect for MsSql {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         use dbine_driver::vector::metric;
         if let Some(c @ L::Vector { .. }) = column {
             if !render_vector(self, c).native.starts_with("vector(") {
@@ -387,7 +388,7 @@ impl Dialect for MsSql {
                 ))
             }
         };
-        Ok((
+        Ok(super::VectorIndexMapping::new(
             Some("VECTOR".into()),
             dbine_driver::VectorIndex {
                 algorithm: Some("diskann".into()),
@@ -540,8 +541,9 @@ impl Dialect for MsSqlNoVectors {
     fn vector_index(
         &self,
         _: &dbine_driver::VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let _ = ctx;
         Err("Fabric Warehouse y Babelfish no tienen tipo vectorial ni índices vectoriales".into())
     }
 }
@@ -549,6 +551,7 @@ impl Dialect for MsSqlNoVectors {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use dbine_driver::{ColumnDef, ForeignKeyDef, IndexDef, KeyDef};
 
     fn ty(s: &str) -> L {
@@ -755,7 +758,7 @@ mod tests {
         assert_eq!(MsSqlNoVectors.render_type(&L::Bool).native, "bit");
         assert_eq!(MsSqlNoVectors.id(), "mssql");
         let e = MsSqlNoVectors
-            .vector_index(&dbine_driver::VectorIndex::default(), None)
+            .vector_index_pair(&dbine_driver::VectorIndex::default(), None)
             .unwrap_err();
         assert!(e.contains("Fabric"), "{e}");
     }
@@ -800,7 +803,7 @@ mod tests {
             metric: Some("l2".into()),
             params: [("m".to_string(), "16".to_string())].into(),
         };
-        let (kind, mapped) = MsSql.vector_index(&hnsw, None).unwrap();
+        let (kind, mapped) = MsSql.vector_index_pair(&hnsw, None).unwrap();
         assert_eq!(kind.as_deref(), Some("VECTOR"));
         assert_eq!(mapped.algorithm.as_deref(), Some("diskann"));
         assert_eq!(mapped.metric.as_deref(), Some("l2"));
@@ -809,7 +812,7 @@ mod tests {
             metric: Some("l1".into()),
             ..Default::default()
         };
-        assert!(MsSql.vector_index(&l1, None).is_err());
+        assert!(MsSql.vector_index_pair(&l1, None).is_err());
         // The column decides: float32 and float16 vectors are indexed, a
         // vector that goes as JSON text isn't.
         let col = v;
@@ -819,14 +822,14 @@ mod tests {
             col(Some(3), E::F64, false),
             col(Some(3), E::Bit, false),
         ] {
-            assert!(MsSql.vector_index(&hnsw, Some(&ok)).is_ok(), "{ok:?}");
+            assert!(MsSql.vector_index_pair(&hnsw, Some(&ok)).is_ok(), "{ok:?}");
         }
         for no in [
             col(Some(3), E::F32, true),
             col(None, E::F32, false),
             col(Some(4000), E::F32, false),
         ] {
-            let e = MsSql.vector_index(&hnsw, Some(&no)).unwrap_err();
+            let e = MsSql.vector_index_pair(&hnsw, Some(&no)).unwrap_err();
             assert!(e.contains("no es un vector"), "{no:?}: {e}");
         }
     }

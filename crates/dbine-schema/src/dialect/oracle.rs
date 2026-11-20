@@ -358,14 +358,15 @@ impl Dialect for Oracle {
     ///
     /// The column's format (as [`render_vector`] writes it) decides the
     /// distances Oracle takes (verified on 23.26): a BINARY vector only
-    /// HAMMING and JACCARD (a distance not given becomes HAMMING: COSINE,
-    /// the default, is refused there), JACCARD only a BINARY one, HAMMING
-    /// only BINARY or INT8.
+    /// HAMMING and JACCARD (a distance not given becomes HAMMING, said:
+    /// COSINE, the default, is refused there), JACCARD only a BINARY one,
+    /// HAMMING only BINARY or INT8.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         use dbine_driver::vector::{metric, param};
         let algorithm = match v
             .algorithm
@@ -397,8 +398,15 @@ impl Dialect for Oracle {
             .map(|c| render_vector(c).native);
         let binary = format.as_deref().is_some_and(|f| f.contains("BINARY"));
         let int8 = format.as_deref().is_some_and(|f| f.contains("INT8"));
+        let mut notes = Vec::new();
         let metric = match metric.as_deref() {
-            None if binary => Some(metric::HAMMING.to_string()),
+            None if binary => {
+                notes.push(
+                    "sin distancia, sobre un vector BINARY queda HAMMING: Oracle no admite ahí la suya por defecto (COSINE), solo HAMMING y JACCARD"
+                        .to_string(),
+                );
+                Some(metric::HAMMING.to_string())
+            }
             Some(metric::HAMMING | metric::JACCARD) if binary => metric,
             Some(m) if binary => {
                 return Err(format!(
@@ -426,14 +434,15 @@ impl Dialect for Oracle {
             .filter(|(k, _)| keep.contains(&k.as_str()))
             .map(|(k, x)| (k.clone(), x.clone()))
             .collect();
-        Ok((
-            Some("VECTOR".into()),
-            dbine_driver::VectorIndex {
+        Ok(super::VectorIndexMapping {
+            kind: Some("VECTOR".into()),
+            index: dbine_driver::VectorIndex {
                 algorithm: Some(algorithm.into()),
                 metric,
                 params,
             },
-        ))
+            notes,
+        })
     }
 
     fn caps(&self) -> Caps {
@@ -532,6 +541,7 @@ fn multibyte(r: Rendered, n: u32, max_bytes: u32) -> Rendered {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
 
     fn ty(s: &str) -> L {
         Oracle.parse_type(&parse(s))
@@ -760,7 +770,7 @@ mod tests {
             ]
             .into(),
         };
-        let (kind, m) = Oracle.vector_index(&hnsw, None).unwrap();
+        let (kind, m) = Oracle.vector_index_pair(&hnsw, None).unwrap();
         assert_eq!(kind.as_deref(), Some("VECTOR"));
         assert_eq!(m.algorithm.as_deref(), Some("hnsw"));
         assert_eq!(m.params.len(), 2);
@@ -769,7 +779,7 @@ mod tests {
             metric: Some("l2".into()),
             params: [("lists".to_string(), "100".to_string())].into(),
         };
-        let (_, m) = Oracle.vector_index(&ivf, None).unwrap();
+        let (_, m) = Oracle.vector_index_pair(&ivf, None).unwrap();
         assert_eq!(m.algorithm.as_deref(), Some("ivf"));
         assert_eq!(m.params.get("lists").map(String::as_str), Some("100"));
         let diskann = VectorIndex {
@@ -778,7 +788,7 @@ mod tests {
         };
         assert_eq!(
             Oracle
-                .vector_index(&diskann, None)
+                .vector_index_pair(&diskann, None)
                 .unwrap()
                 .1
                 .algorithm
@@ -789,7 +799,7 @@ mod tests {
             metric: Some("chebyshev".into()),
             ..Default::default()
         };
-        assert!(Oracle.vector_index(&odd, None).is_err());
+        assert!(Oracle.vector_index_pair(&odd, None).is_err());
     }
 
     /// Moved here from another family: pgvector's sparsevec keeps its
@@ -864,8 +874,11 @@ mod tests {
             metric: metric.map(str::to_string),
             ..Default::default()
         };
-        let metric_on =
-            |m: Option<&str>, c: &L| Oracle.vector_index(&ix(m), Some(c)).map(|(_, v)| v.metric);
+        let metric_on = |m: Option<&str>, c: &L| {
+            Oracle
+                .vector_index_pair(&ix(m), Some(c))
+                .map(|(_, v)| v.metric)
+        };
         let bits = v(Some(16), E::Bit, false);
         // pgvector's bit(16) with bit_hamming_ops / bit_jaccard_ops.
         assert_eq!(
@@ -876,8 +889,22 @@ mod tests {
             metric_on(Some("jaccard"), &bits),
             Ok(Some("jaccard".into()))
         );
-        // No distance: HAMMING, not Oracle's default COSINE.
+        // No distance: HAMMING, not Oracle's default COSINE, said.
         assert_eq!(metric_on(None, &bits), Ok(Some("hamming".into())));
+        let ctx = crate::dialect::VectorIndexCtx {
+            column: Some(&bits),
+            target_driver: Some("oracle"),
+        };
+        let notes = Oracle.vector_index(&ix(None), &ctx).unwrap().notes;
+        assert!(
+            notes.len() == 1 && notes[0].contains("HAMMING"),
+            "{notes:?}"
+        );
+        assert!(Oracle
+            .vector_index(&ix(Some("hamming")), &ctx)
+            .unwrap()
+            .notes
+            .is_empty());
         assert!(metric_on(Some("cosine"), &bits)
             .unwrap_err()
             .contains("BINARY"));

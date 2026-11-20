@@ -755,8 +755,9 @@ impl Dialect for Olap {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         use dbine_driver::vector::{metric, param};
         let engine = self.name();
         refuse_column(engine, v, column, true)?;
@@ -782,7 +783,7 @@ impl Dialect for Olap {
             (true, false) => "ivfpq",
         };
         let params = index_params(v, &[param::M, param::EF_CONSTRUCTION, param::LISTS], column);
-        Ok((
+        Ok(super::VectorIndexMapping::new(
             Some(if self.doris { "ANN" } else { "VECTOR" }.into()),
             dbine_driver::VectorIndex {
                 algorithm: Some(algorithm.into()),
@@ -1020,6 +1021,7 @@ fn indexable(s: &TypeSpec) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     #[test]
@@ -1037,16 +1039,16 @@ mod tests {
             metric: Some("cosine".into()),
             params: [("m".to_string(), "16".to_string())].into(),
         };
-        let (k, v) = sr().vector_index(&pg, None).unwrap();
+        let (k, v) = sr().vector_index_pair(&pg, None).unwrap();
         assert_eq!(k.as_deref(), Some("VECTOR"));
         assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
-        assert!(doris().vector_index(&pg, None).is_err());
+        assert!(doris().vector_index_pair(&pg, None).is_err());
         let l2 = VectorIndex {
             metric: Some("l2".into()),
             algorithm: Some("ivfflat".into()),
             ..pg.clone()
         };
-        let (k, v) = doris().vector_index(&l2, Some(&v3)).unwrap();
+        let (k, v) = doris().vector_index_pair(&l2, Some(&v3)).unwrap();
         assert_eq!(
             (k.as_deref(), v.algorithm.as_deref()),
             (Some("ANN"), Some("ivf"))
@@ -1059,14 +1061,14 @@ mod tests {
             element: VectorElement::F32,
             sparse: false,
         };
-        let e = sr().vector_index(&l2, Some(&any)).unwrap_err();
+        let e = sr().vector_index_pair(&l2, Some(&any)).unwrap_err();
         assert!(e.contains("necesita la dimensión"), "{e}");
         let sparse = L::Vector {
             dims: Some(30_000),
             element: VectorElement::F32,
             sparse: true,
         };
-        let e = doris().vector_index(&l2, Some(&sparse)).unwrap_err();
+        let e = doris().vector_index_pair(&l2, Some(&sparse)).unwrap_err();
         assert!(e.contains("dispersos"), "{e}");
         // finalize: the dim goes into the index, the column NOT NULL.
         let mut t = TableSchema {

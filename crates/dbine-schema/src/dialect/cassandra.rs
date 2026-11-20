@@ -818,8 +818,9 @@ impl Dialect for Cql {
     fn vector_index(
         &self,
         v: &VectorIndex,
-        column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         if !self.vectors {
             return Err("Amazon Keyspaces no tiene índices vectoriales".into());
         }
@@ -845,7 +846,7 @@ impl Dialect for Cql {
             ),
         };
         let kind = if self.scylla { "vector_index" } else { "sai" };
-        Ok((
+        Ok(super::VectorIndexMapping::new(
             Some(kind.to_string()),
             VectorIndex {
                 algorithm: v.algorithm.clone(),
@@ -976,6 +977,7 @@ impl Dialect for Cql {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     fn p(s: &str) -> L {
@@ -1335,7 +1337,7 @@ mod tests {
         // The distance is mapped; the settings go on to finalize.
         let (kind, v) = lookup("cassandra")
             .unwrap()
-            .vector_index(&hnsw, None)
+            .vector_index_pair(&hnsw, None)
             .unwrap();
         assert_eq!(kind.as_deref(), Some("sai"));
         assert_eq!(v.metric.as_deref(), Some("cosine"));
@@ -1373,7 +1375,7 @@ mod tests {
         // ScyllaDB: vector_index with the graph settings it has.
         let (kind, v) = lookup("scylladb")
             .unwrap()
-            .vector_index(&hnsw, None)
+            .vector_index_pair(&hnsw, None)
             .unwrap();
         assert_eq!(kind.as_deref(), Some("vector_index"));
         let (t, r) = finalized(
@@ -1397,7 +1399,10 @@ mod tests {
             metric: Some("l2".into()),
             params: params(&[("quantization", "int8")]),
         };
-        let (_, v) = lookup("scylladb").unwrap().vector_index(&q, None).unwrap();
+        let (_, v) = lookup("scylladb")
+            .unwrap()
+            .vector_index_pair(&q, None)
+            .unwrap();
         let (t, r) = finalized(
             "scylladb",
             vector_table("vector<float, 3>", ix("vector_index", v), false),
@@ -1413,12 +1418,12 @@ mod tests {
         };
         assert!(lookup("cassandra")
             .unwrap()
-            .vector_index(&l1, None)
+            .vector_index_pair(&l1, None)
             .unwrap_err()
             .contains("l1"));
         assert!(lookup("keyspaces")
             .unwrap()
-            .vector_index(&hnsw, None)
+            .vector_index_pair(&hnsw, None)
             .is_err());
     }
 
@@ -1611,13 +1616,15 @@ mod tests {
         };
         for id in ["cassandra", "scylladb"] {
             let d = lookup(id).unwrap();
-            assert!(d.vector_index(&cosine, Some(&col(Some(3), false))).is_ok());
+            assert!(d
+                .vector_index_pair(&cosine, Some(&col(Some(3), false)))
+                .is_ok());
             let e = d
-                .vector_index(&cosine, Some(&col(None, false)))
+                .vector_index_pair(&cosine, Some(&col(None, false)))
                 .unwrap_err();
             assert!(e.contains("dimensión"), "{e}");
             let e = d
-                .vector_index(&cosine, Some(&col(Some(30), true)))
+                .vector_index_pair(&cosine, Some(&col(Some(30), true)))
                 .unwrap_err();
             assert!(e.contains("disperso"), "{e}");
         }
@@ -1625,23 +1632,25 @@ mod tests {
         let long = col(Some(20000), false);
         let e = lookup("scylladb")
             .unwrap()
-            .vector_index(&cosine, Some(&long))
+            .vector_index_pair(&cosine, Some(&long))
             .unwrap_err();
         assert!(e.contains("16000"), "{e}");
         assert!(lookup("scylladb")
             .unwrap()
-            .vector_index(&cosine, Some(&col(Some(16000), false)))
+            .vector_index_pair(&cosine, Some(&col(Some(16000), false)))
             .is_ok());
         let c = lookup("cassandra").unwrap();
-        assert!(c.vector_index(&cosine, Some(&long)).is_ok());
+        assert!(c.vector_index_pair(&cosine, Some(&long)).is_ok());
         let one = col(Some(1), false);
-        assert!(c.vector_index(&cosine, Some(&one)).is_err());
-        assert!(c.vector_index(&VectorIndex::default(), Some(&one)).is_err());
-        assert!(c.vector_index(&l2, Some(&one)).is_ok());
+        assert!(c.vector_index_pair(&cosine, Some(&one)).is_err());
+        assert!(c
+            .vector_index_pair(&VectorIndex::default(), Some(&one))
+            .is_err());
+        assert!(c.vector_index_pair(&l2, Some(&one)).is_ok());
         // ScyllaDB measures cosine on one dimension too.
         assert!(lookup("scylladb")
             .unwrap()
-            .vector_index(&cosine, Some(&one))
+            .vector_index_pair(&cosine, Some(&one))
             .is_ok());
         assert!(!lookup("keyspaces").unwrap().caps().vector_indexes);
         assert!(c.caps().vector_indexes);

@@ -196,15 +196,16 @@ pub(crate) fn vector_type(t: &str) -> Option<L> {
 /// DocumentDB `hnsw` / `ivfflat`, FerretDB `hnsw` / `ivf`) and the kind
 /// are the driver's choice for the server it writes to. `column`: the
 /// vector it searches. Every kind needs its dimension (`numDimensions`,
-/// `dimensions`), up to the target's most; on bits, `hamming` goes on
-/// for the driver to write as euclidean (`vector::for_flavor`), which
-/// ranks 0/1 vectors as hamming does and every kind of the family has
-/// (Atlas searches bits by no other).
+/// `dimensions`), up to the target's most. On bits, `hamming` becomes
+/// euclidean, which ranks 0/1 vectors as hamming does and every kind of
+/// the family has (Atlas searches bits by no other); a squared euclidean
+/// (Couchbase's `l2_squared`) becomes euclidean, the same nearest: both
+/// said in the notes.
 pub(crate) fn vector_index(
     v: &dbine_driver::VectorIndex,
     column: Option<&L>,
     target: VectorTarget,
-) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+) -> Result<super::VectorIndexMapping, String> {
     use dbine_driver::vector::{metric, param};
     let family = target.family;
     let bits = matches!(
@@ -229,14 +230,22 @@ pub(crate) fn vector_index(
         _ => {}
     }
     let mut out = dbine_driver::VectorIndex::default();
+    let mut notes = Vec::new();
     if let Some(m) = v.metric.as_deref() {
         out.metric = Some(match m.to_ascii_lowercase().as_str() {
             metric::COSINE | metric::L2 | metric::IP => m.to_ascii_lowercase(),
-            // The same nearest neighbors as l2: the driver writes l2 and
-            // says so (`vector::for_flavor`).
-            "l2_squared" | "euclidean_squared" => "l2_squared".into(),
-            // On bits, the same order as euclidean (`vector::for_flavor`).
-            metric::HAMMING if bits => metric::HAMMING.into(),
+            sq @ ("l2_squared" | "euclidean_squared") => {
+                notes.push(format!(
+                    "la distancia {sq} queda l2 (euclidean) en {family}: los vecinos más cercanos son los mismos, y la distancia que devuelve es su raíz"
+                ));
+                metric::L2.into()
+            }
+            metric::HAMMING if bits => {
+                notes.push(format!(
+                    "la distancia hamming queda l2 (euclidean) en {family}, que no tiene hamming: sobre vectores de bits ordena los vecinos igual"
+                ));
+                metric::L2.into()
+            }
             _ => {
                 return Err(format!(
                     "{family} no tiene la distancia «{m}» (cosine, l2 o ip)"
@@ -260,7 +269,11 @@ pub(crate) fn vector_index(
         })
         .map(|(k, x)| (k.clone(), x.clone()))
         .collect();
-    Ok((None, out))
+    Ok(super::VectorIndexMapping {
+        kind: None,
+        index: out,
+        notes,
+    })
 }
 
 /// A dense vector as a vector field (`vector(N)`, with `int8` / `bit`);
@@ -398,8 +411,9 @@ impl Dialect for Mongo {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         vector_index(v, column, self.vectors)
     }
 
@@ -489,6 +503,7 @@ impl Dialect for Mongo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     fn p(s: &str) -> L {
@@ -712,7 +727,7 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
         };
-        let (kind, v) = mongo.vector_index(&hnsw, None).unwrap();
+        let (kind, v) = mongo.vector_index_pair(&hnsw, None).unwrap();
         assert_eq!(kind, None);
         assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
         assert_eq!(v.params.len(), 2);
@@ -720,16 +735,20 @@ mod tests {
             metric: Some("l1".into()),
             ..Default::default()
         };
-        assert!(mongo.vector_index(&l1, None).is_err());
-        // Couchbase's squared euclidean goes on for the driver to write as
-        // l2 (with a warning).
+        assert!(mongo.vector_index_pair(&l1, None).is_err());
+        // Couchbase's squared euclidean becomes l2, the same nearest, said.
         let sq = VectorIndex {
             metric: Some("L2_SQUARED".into()),
             ..Default::default()
         };
-        assert_eq!(
-            mongo.vector_index(&sq, None).unwrap().1.metric.as_deref(),
-            Some("l2_squared")
+        let m = mongo
+            .vector_index(&sq, &crate::dialect::VectorIndexCtx::default())
+            .unwrap();
+        assert_eq!(m.index.metric.as_deref(), Some("l2"));
+        assert!(
+            m.notes.len() == 1 && m.notes[0].contains("l2_squared queda l2"),
+            "{:?}",
+            m.notes
         );
         // The column it searches: every kind needs the dimension, and
         // hamming goes on only over bits.
@@ -739,29 +758,32 @@ mod tests {
             sparse: false,
         };
         let no_dims = col(None, E::F32);
-        let why = mongo.vector_index(&hnsw, Some(&no_dims)).unwrap_err();
+        let why = mongo.vector_index_pair(&hnsw, Some(&no_dims)).unwrap_err();
         assert!(why.contains("no tiene dimensión"), "{why}");
         let hamming = VectorIndex {
             metric: Some("hamming".into()),
             ..Default::default()
         };
+        // Over bits it becomes euclidean, which ranks them the same, said.
         let bits = col(Some(8), E::Bit);
-        assert_eq!(
-            mongo
-                .vector_index(&hamming, Some(&bits))
-                .unwrap()
-                .1
-                .metric
-                .as_deref(),
-            Some("hamming")
+        let ctx = crate::dialect::VectorIndexCtx {
+            column: Some(&bits),
+            target_driver: Some("mongodb"),
+        };
+        let m = mongo.vector_index(&hamming, &ctx).unwrap();
+        assert_eq!(m.index.metric.as_deref(), Some("l2"));
+        assert!(
+            m.notes.len() == 1 && m.notes[0].contains("hamming queda l2"),
+            "{:?}",
+            m.notes
         );
-        assert!(mongo.vector_index(&hamming, Some(&lt)).is_err());
-        assert!(mongo.vector_index(&hamming, None).is_err());
+        assert!(mongo.vector_index_pair(&hamming, Some(&lt)).is_err());
+        assert!(mongo.vector_index_pair(&hamming, None).is_err());
         let jaccard = VectorIndex {
             metric: Some("jaccard".into()),
             ..Default::default()
         };
-        assert!(mongo.vector_index(&jaccard, Some(&bits)).is_err());
+        assert!(mongo.vector_index_pair(&jaccard, Some(&bits)).is_err());
         // Int8 and bit vectors: BinData on MongoDB (Atlas searches them),
         // arrays of numbers where only arrays are searched.
         for (id, want) in [
@@ -783,9 +805,11 @@ mod tests {
         // Each target's most dimensions: wider is dropped with the reason.
         for (id, max) in [("mongodb", 8192), ("documentdb", 2000), ("ferretdb", 2000)] {
             let d = lookup(id).unwrap();
-            assert!(d.vector_index(&hnsw, Some(&col(Some(max), E::F32))).is_ok());
+            assert!(d
+                .vector_index_pair(&hnsw, Some(&col(Some(max), E::F32)))
+                .is_ok());
             let why = d
-                .vector_index(&hnsw, Some(&col(Some(max + 1), E::F32)))
+                .vector_index_pair(&hnsw, Some(&col(Some(max + 1), E::F32)))
                 .unwrap_err();
             assert!(
                 why.contains(&format!("hasta {max} dimensiones")),
@@ -831,9 +855,15 @@ mod tests {
         let t = &c.tables[0];
         assert_eq!(t.columns[1].data_type, "vector(16, bit)");
         let ix = &t.indexes[0];
-        assert_eq!(
-            ix.vector.as_ref().unwrap().metric.as_deref(),
-            Some("hamming")
+        assert_eq!(ix.vector.as_ref().unwrap().metric.as_deref(), Some("l2"));
+        assert!(
+            c.issues
+                .iter()
+                .any(|i| i.code == crate::issue::IssueCode::IndexChanged
+                    && i.object.as_deref() == Some("EMB_VIX")
+                    && i.message.contains("hamming queda l2")),
+            "{:?}",
+            c.issues
         );
         // A vector of any dimension: the index can't say its dimension.
         let c = crate::convert::convert(&[table("VECTOR(*, FLOAT32)")], "oracle", "mongodb", &opts)

@@ -371,8 +371,9 @@ impl Dialect for DuckDb {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&L>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         use dbine_driver::vector::{metric, param};
         use dbine_driver::VectorElement as E;
         match column {
@@ -410,7 +411,7 @@ impl Dialect for DuckDb {
             })
             .map(|(k, val)| (k.clone(), val.trim().to_string()))
             .collect();
-        Ok((
+        Ok(super::VectorIndexMapping::new(
             Some("HNSW".into()),
             dbine_driver::VectorIndex {
                 algorithm: Some("hnsw".into()),
@@ -445,6 +446,7 @@ impl Dialect for DuckDb {
 mod tests {
     use super::*;
     use crate::convert::logical_of;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     fn lt(s: &str) -> L {
@@ -507,7 +509,7 @@ mod tests {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect(),
         };
-        let (kind, out) = DuckDb.vector_index(&v, None).unwrap();
+        let (kind, out) = DuckDb.vector_index_pair(&v, None).unwrap();
         assert_eq!(kind.as_deref(), Some("HNSW"));
         assert_eq!(out.algorithm.as_deref(), Some("hnsw"));
         assert_eq!(out.metric.as_deref(), Some("cosine"));
@@ -516,7 +518,7 @@ mod tests {
             [("m".to_string(), "20".to_string())]
         );
         let e = DuckDb
-            .vector_index(
+            .vector_index_pair(
                 &VectorIndex {
                     metric: Some("hamming".into()),
                     ..Default::default()
@@ -535,7 +537,7 @@ mod tests {
         };
         for e in [E::F32, E::F16, E::Bf16, E::I8, E::Bit] {
             assert!(DuckDb
-                .vector_index(&v, Some(&vec(Some(3), e, false)))
+                .vector_index_pair(&v, Some(&vec(Some(3), e, false)))
                 .is_ok());
         }
         for (col, why) in [
@@ -544,7 +546,7 @@ mod tests {
             (vec(Some(3), E::F32, true), "disperso"),
             (L::Text { unicode: true }, "FLOAT[n]"),
         ] {
-            let e = DuckDb.vector_index(&v, Some(&col)).unwrap_err();
+            let e = DuckDb.vector_index_pair(&v, Some(&col)).unwrap_err();
             assert!(e.contains(why), "{e}");
         }
     }

@@ -336,8 +336,9 @@ impl Dialect for Solr {
     fn vector_index(
         &self,
         v: &VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let _ = ctx;
         let metric = match v.metric.as_deref().map(str::to_ascii_lowercase).as_deref() {
             None => None,
             Some("cosine") => Some("cosine"),
@@ -358,7 +359,7 @@ impl Dialect for Solr {
             .filter(|_| hnsw_like)
             .filter_map(|k| Some((k.to_string(), v.params.get(k)?.clone())))
             .collect();
-        Ok((
+        Ok(super::VectorIndexMapping::new(
             None,
             VectorIndex {
                 algorithm: Some("hnsw".into()),
@@ -372,6 +373,7 @@ impl Dialect for Solr {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     #[test]
@@ -557,7 +559,7 @@ mod tests {
             ]
             .into(),
         };
-        let (kind, out) = Solr.vector_index(&pg, None).unwrap();
+        let (kind, out) = Solr.vector_index_pair(&pg, None).unwrap();
         assert_eq!(kind, None);
         assert_eq!(out.metric.as_deref(), Some("maximum_inner_product"));
         assert_eq!(out.params, pg.params);
@@ -566,13 +568,13 @@ mod tests {
             metric: Some("l2".into()),
             params: [("lists".to_string(), "9".to_string())].into(),
         };
-        let out = Solr.vector_index(&ivf, None).unwrap().1;
+        let out = Solr.vector_index_pair(&ivf, None).unwrap().1;
         assert_eq!(
             (out.algorithm.as_deref(), out.params.len()),
             (Some("hnsw"), 0)
         );
         assert!(Solr
-            .vector_index(
+            .vector_index_pair(
                 &VectorIndex {
                     metric: Some("l1".into()),
                     ..Default::default()

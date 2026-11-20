@@ -388,11 +388,20 @@ impl Dialect for Search {
             let Some(v) = ix.vector.as_ref().filter(|_| on_moved) else {
                 continue;
             };
-            match self.vector_index(v, None) {
-                Ok((kind, v)) => {
-                    ix.kind = kind;
-                    ix.vector = Some(v);
+            match self.vector_index(v, &super::VectorIndexCtx::default()) {
+                Ok(m) => {
+                    ix.kind = m.kind;
+                    ix.vector = Some(m.index);
                     ix.options.clear();
+                    for n in m.notes {
+                        report.push(
+                            Severity::Warning,
+                            IssueCode::IndexChanged,
+                            &source_name,
+                            Some(&ix.name),
+                            format!("El índice vectorial «{}»: {n}", ix.name),
+                        );
+                    }
                 }
                 Err(why) => {
                     report.push(
@@ -460,8 +469,9 @@ impl Dialect for Search {
     fn vector_index(
         &self,
         v: &VectorIndex,
-        _column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let _ = ctx;
         let metric = match v.metric.as_deref().map(str::to_ascii_lowercase).as_deref() {
             None => None,
             Some("cosine") => Some("cosine"),
@@ -509,7 +519,7 @@ impl Dialect for Search {
                 params.insert(param::QUANTIZATION.to_string(), q);
             }
         }
-        Ok((
+        Ok(super::VectorIndexMapping::new(
             None,
             VectorIndex {
                 algorithm: Some(algorithm.to_string()),
@@ -540,6 +550,7 @@ fn index_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     #[test]
@@ -870,31 +881,38 @@ mod tests {
             ]
             .into(),
         };
-        let (kind, v) = es.vector_index(&pg_hnsw, None).unwrap();
+        let (kind, v) = es.vector_index_pair(&pg_hnsw, None).unwrap();
         assert_eq!(kind, None);
         assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
         // Any vector's inner product, not dot_product (unit length only).
         assert_eq!(v.metric.as_deref(), Some("max_inner_product"));
         assert_eq!(v.params, pg_hnsw.params);
         assert_eq!(
-            os.vector_index(&pg_hnsw, None).unwrap().1.metric.as_deref(),
+            os.vector_index_pair(&pg_hnsw, None)
+                .unwrap()
+                .1
+                .metric
+                .as_deref(),
             Some("ip")
         );
-        assert!(od.vector_index(&pg_hnsw, None).unwrap_err().contains("ip"));
+        assert!(od
+            .vector_index_pair(&pg_hnsw, None)
+            .unwrap_err()
+            .contains("ip"));
         // IVF and others: HNSW with the engine's parameters.
         let ivf = VectorIndex {
             algorithm: Some("ivfflat".into()),
             metric: Some("l2".into()),
             params: [("lists".to_string(), "100".to_string())].into(),
         };
-        let (_, v) = es.vector_index(&ivf, None).unwrap();
+        let (_, v) = es.vector_index_pair(&ivf, None).unwrap();
         assert_eq!(
             (v.algorithm.as_deref(), v.metric.as_deref()),
             (Some("hnsw"), Some("l2"))
         );
         assert!(v.params.is_empty());
         assert!(es
-            .vector_index(
+            .vector_index_pair(
                 &VectorIndex {
                     metric: Some("jaccard".into()),
                     ..Default::default()
@@ -903,7 +921,7 @@ mod tests {
             )
             .is_err());
         assert!(es
-            .vector_index(
+            .vector_index_pair(
                 &VectorIndex {
                     metric: Some("l1".into()),
                     ..Default::default()
@@ -912,7 +930,7 @@ mod tests {
             )
             .is_err());
         assert_eq!(
-            os.vector_index(
+            os.vector_index_pair(
                 &VectorIndex {
                     metric: Some("l1".into()),
                     ..Default::default()

@@ -334,6 +334,7 @@ impl Dialect for CouchDb {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     #[test]
@@ -351,7 +352,9 @@ mod tests {
             .notes
             .iter()
             .any(|n| n.code == IssueCode::TypeApproximated));
-        assert!(CouchDb.vector_index(&VectorIndex::default(), None).is_err());
+        assert!(CouchDb
+            .vector_index_pair(&VectorIndex::default(), None)
+            .is_err());
         assert_eq!(
             CouchDb.parse_type(&parse("vector(3)")),
             L::Other {

@@ -355,8 +355,9 @@ impl Dialect for Spanner {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         use dbine_driver::vector::{metric, param};
         match column {
             Some(L::Vector { sparse: true, .. }) => {
@@ -386,7 +387,7 @@ impl Dialect for Spanner {
             .filter(|(k, _)| k.as_str() == param::LISTS)
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
-        Ok((
+        Ok(super::VectorIndexMapping::new(
             Some("VECTOR".into()),
             dbine_driver::VectorIndex {
                 algorithm: None,
@@ -458,6 +459,7 @@ impl Dialect for Spanner {
 mod tests {
     use super::*;
     use crate::convert::logical_of;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     fn lt(s: &str) -> L {
@@ -716,18 +718,20 @@ mod tests {
                 .collect(),
         };
         let (kind, got) = Spanner
-            .vector_index(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]), None)
+            .vector_index_pair(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]), None)
             .unwrap();
         assert_eq!(kind.as_deref(), Some("VECTOR"));
         assert_eq!(got, v(None, Some("l2"), &[("lists", "100")]));
         let (_, got) = Spanner
-            .vector_index(&v(Some("hnsw"), Some("cosine"), &[("m", "16")]), None)
+            .vector_index_pair(&v(Some("hnsw"), Some("cosine"), &[("m", "16")]), None)
             .unwrap();
         assert_eq!(got, v(None, Some("cosine"), &[]));
         assert!(Spanner
-            .vector_index(&v(None, Some("l1"), &[]), None)
+            .vector_index_pair(&v(None, Some("l1"), &[]), None)
             .is_err());
-        assert!(Spanner.vector_index(&v(None, None, &[]), None).is_err());
+        assert!(Spanner
+            .vector_index_pair(&v(None, None, &[]), None)
+            .is_err());
         // The searched column: a vector of known dimension takes the index;
         // one without a dimension, or a sparse one, doesn't.
         let col = |dims, sparse| L::Vector {
@@ -737,15 +741,15 @@ mod tests {
         };
         let ok = v(None, Some("cosine"), &[("dimensions", "3")]);
         let (_, got) = Spanner
-            .vector_index(&ok, Some(&col(Some(3), false)))
+            .vector_index_pair(&ok, Some(&col(Some(3), false)))
             .unwrap();
         assert_eq!(got, v(None, Some("cosine"), &[]));
         assert!(Spanner
-            .vector_index(&ok, Some(&col(None, false)))
+            .vector_index_pair(&ok, Some(&col(None, false)))
             .unwrap_err()
             .contains("vector_length"));
         assert!(Spanner
-            .vector_index(&ok, Some(&col(Some(3), true)))
+            .vector_index_pair(&ok, Some(&col(Some(3), true)))
             .unwrap_err()
             .contains("dispersos"));
     }

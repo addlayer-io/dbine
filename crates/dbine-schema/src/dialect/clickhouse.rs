@@ -564,8 +564,9 @@ impl Dialect for ClickHouse {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&L>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         use dbine_driver::vector::{metric, param};
         if self.timeplus {
             return Err("Timeplus no tiene índices vectoriales".into());
@@ -630,7 +631,7 @@ impl Dialect for ClickHouse {
                 _ => {}
             }
         }
-        Ok((
+        Ok(super::VectorIndexMapping::new(
             Some("vector_similarity".into()),
             dbine_driver::VectorIndex {
                 algorithm: Some("hnsw".into()),
@@ -763,6 +764,7 @@ impl Dialect for ClickHouse {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
     use dbine_driver::{ColumnDef, IndexDef, KeyDef};
 
@@ -938,7 +940,7 @@ pub(super) mod tests {
                 .collect(),
         };
         let (kind, v) = ch()
-            .vector_index(
+            .vector_index_pair(
                 &ix(
                     "cosine",
                     &[
@@ -970,7 +972,7 @@ pub(super) mod tests {
         };
         for e in [E::F32, E::F64, E::Bf16, E::F16, E::Bit] {
             let (_, v) = ch()
-                .vector_index(&ix("l2", &[("m", "16")]), Some(&vec(Some(3), e, false)))
+                .vector_index_pair(&ix("l2", &[("m", "16")]), Some(&vec(Some(3), e, false)))
                 .unwrap();
             assert_eq!(v.params["dimensions"], "3", "{e:?}");
         }
@@ -982,15 +984,15 @@ pub(super) mod tests {
             (Some(L::Text { unicode: true }), "Array(Float32)"),
         ] {
             let e = ch()
-                .vector_index(&ix("l2", &[("m", "16")]), col.as_ref())
+                .vector_index_pair(&ix("l2", &[("m", "16")]), col.as_ref())
                 .unwrap_err();
             assert!(e.contains(why), "{e}");
         }
         assert!(ch()
-            .vector_index(&ix("hamming", &[("dims", "3")]), None)
+            .vector_index_pair(&ix("hamming", &[("dims", "3")]), None)
             .is_err());
         assert!(tp()
-            .vector_index(&ix("l2", &[("dims", "3")]), None)
+            .vector_index_pair(&ix("l2", &[("dims", "3")]), None)
             .is_err());
     }
 

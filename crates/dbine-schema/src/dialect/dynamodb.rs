@@ -337,6 +337,7 @@ impl Dialect for DynamoDb {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     #[test]
@@ -354,7 +355,7 @@ mod tests {
             .iter()
             .any(|n| n.code == IssueCode::TypeApproximated));
         assert!(DynamoDb
-            .vector_index(&VectorIndex::default(), None)
+            .vector_index_pair(&VectorIndex::default(), None)
             .is_err());
     }
 

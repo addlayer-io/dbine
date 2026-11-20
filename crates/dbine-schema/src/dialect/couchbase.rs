@@ -67,8 +67,9 @@ impl Dialect for Couchbase {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         use dbine_driver::vector::{metric, param};
         match column {
             Some(L::Vector { dims: None, .. }) => {
@@ -94,7 +95,7 @@ impl Dialect for Couchbase {
         if bits {
             metrics.push(metric::HAMMING);
         }
-        map_vector_index(v, "Couchbase", &metrics, &[], &[param::LISTS])
+        map_vector_index(v, "Couchbase", &metrics, &[], &[param::LISTS]).map(Into::into)
     }
 
     fn render_default(&self, _d: &DefaultValue, _ty: &L) -> Option<String> {
@@ -141,6 +142,7 @@ impl Dialect for Couchbase {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     #[test]
@@ -191,7 +193,7 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
         };
-        let (kind, out) = d.vector_index(&ivf, None).unwrap();
+        let (kind, out) = d.vector_index_pair(&ivf, None).unwrap();
         assert_eq!((kind, out.algorithm), (None, None));
         assert_eq!(out.metric.as_deref(), Some("l2"));
         assert_eq!(out.params.len(), 1);
@@ -199,19 +201,21 @@ mod tests {
             metric: Some("jaccard".into()),
             ..Default::default()
         };
-        assert!(d.vector_index(&jaccard, None).is_err());
+        assert!(d.vector_index_pair(&jaccard, None).is_err());
         // The column it searches: the index needs its dimension.
         let col = |dims| L::Vector {
             dims,
             element: E::F32,
             sparse: false,
         };
-        assert!(d.vector_index(&ivf, Some(&col(Some(3)))).is_ok());
-        let why = d.vector_index(&ivf, Some(&col(None))).unwrap_err();
+        assert!(d.vector_index_pair(&ivf, Some(&col(Some(3)))).is_ok());
+        let why = d.vector_index_pair(&ivf, Some(&col(None))).unwrap_err();
         assert!(why.contains("no tiene dimensión"), "{why}");
         // Up to 4096 dimensions (an Oracle VECTOR(8192) is dropped).
-        assert!(d.vector_index(&ivf, Some(&col(Some(4096)))).is_ok());
-        let why = d.vector_index(&ivf, Some(&col(Some(8192)))).unwrap_err();
+        assert!(d.vector_index_pair(&ivf, Some(&col(Some(4096)))).is_ok());
+        let why = d
+            .vector_index_pair(&ivf, Some(&col(Some(8192))))
+            .unwrap_err();
         assert!(why.contains("hasta 4096 dimensiones"), "{why}");
         // Hamming over bits goes on (the driver writes L2_SQUARED), over
         // anything else it doesn't.
@@ -225,15 +229,15 @@ mod tests {
             sparse: false,
         };
         assert_eq!(
-            d.vector_index(&hamming, Some(&bits))
+            d.vector_index_pair(&hamming, Some(&bits))
                 .unwrap()
                 .1
                 .metric
                 .as_deref(),
             Some("hamming")
         );
-        assert!(d.vector_index(&hamming, Some(&col(Some(8)))).is_err());
-        assert!(d.vector_index(&hamming, None).is_err());
+        assert!(d.vector_index_pair(&hamming, Some(&col(Some(8)))).is_err());
+        assert!(d.vector_index_pair(&hamming, None).is_err());
     }
 
     #[test]

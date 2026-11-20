@@ -256,8 +256,9 @@ impl Dialect for Sqlite {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&L>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         match column {
             Some(L::Vector { sparse: true, .. }) => {
                 return Err("libSQL no indexa vectores dispersos, que quedan como texto".into())
@@ -276,7 +277,7 @@ impl Dialect for Sqlite {
                 return Err("libSQL lo crea sobre columnas vectoriales (F32_BLOB(n), F64_BLOB(n)…)".into())
             }
         }
-        libsql_vector_index(v)
+        libsql_vector_index(v).map(Into::into)
     }
 
     fn caps(&self) -> Caps {
@@ -441,6 +442,7 @@ fn libsql_vector_index(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
 
     fn ty(s: &str) -> L {
         Sqlite.parse_type(&parse(s))
@@ -673,10 +675,10 @@ mod tests {
         };
         for e in [E::F32, E::F64, E::F16, E::Bf16, E::I8, E::Other] {
             assert!(Sqlite
-                .vector_index(&v, Some(&vec(Some(4), e, false)))
+                .vector_index_pair(&v, Some(&vec(Some(4), e, false)))
                 .is_ok());
         }
-        assert!(Sqlite.vector_index(&v, None).is_ok());
+        assert!(Sqlite.vector_index_pair(&v, None).is_ok());
         for (col, why) in [
             (vec(None, E::F32, false), "sin dimensión"),
             (vec(Some(4), E::F32, true), "dispersos"),
@@ -684,7 +686,7 @@ mod tests {
             // libSQL has no L2 distance for 1-bit vectors.
             (vec(Some(4), E::Bit, false), "1 bit"),
         ] {
-            let e = Sqlite.vector_index(&v, Some(&col)).unwrap_err();
+            let e = Sqlite.vector_index_pair(&v, Some(&col)).unwrap_err();
             assert!(e.contains(why), "{e}");
         }
         let cosine = VectorIndex {
@@ -692,7 +694,7 @@ mod tests {
             ..Default::default()
         };
         assert!(Sqlite
-            .vector_index(&cosine, Some(&vec(Some(4), E::Bit, false)))
+            .vector_index_pair(&cosine, Some(&vec(Some(4), E::Bit, false)))
             .is_ok());
     }
 
@@ -708,7 +710,7 @@ mod tests {
                 .collect(),
         };
         let (kind, v) = Sqlite
-            .vector_index(
+            .vector_index_pair(
                 &ix(
                     "cosine",
                     &[("m", "16"), ("ef_construction", "64"), ("lists", "100")],
@@ -727,18 +729,18 @@ mod tests {
             ]
         );
         let (_, v) = Sqlite
-            .vector_index(&ix("l2", &[("quantization", "int8")]), None)
+            .vector_index_pair(&ix("l2", &[("quantization", "int8")]), None)
             .unwrap();
         assert_eq!(v.params["quantization"], "float8");
-        let e = Sqlite.vector_index(&ix("ip", &[]), None).unwrap_err();
+        let e = Sqlite.vector_index_pair(&ix("ip", &[]), None).unwrap_err();
         assert!(e.contains("coseno o L2"), "{e}");
         // 1-bit compression only with cosine.
         let (_, v) = Sqlite
-            .vector_index(&ix("cosine", &[("quantization", "binary")]), None)
+            .vector_index_pair(&ix("cosine", &[("quantization", "binary")]), None)
             .unwrap();
         assert_eq!(v.params["quantization"], "float1bit");
         let (_, v) = Sqlite
-            .vector_index(&ix("l2", &[("quantization", "binary")]), None)
+            .vector_index_pair(&ix("l2", &[("quantization", "binary")]), None)
             .unwrap();
         assert!(v.params.is_empty(), "{v:?}");
     }

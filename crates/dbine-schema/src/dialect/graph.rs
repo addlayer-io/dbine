@@ -192,12 +192,25 @@ impl Cypher {
                 .filter(|_| self.flavor == Flavor::Memgraph)
                 .and_then(|c| columns.iter().find(|x| &x.name == c))
                 .map(|c| self.parse_type(&crate::parse::parse(&c.data_type)));
-            match self.vector_index(v, column.as_ref()) {
-                Ok((kind, v)) => {
-                    if kind.is_some() {
-                        ix.kind = kind;
+            let ctx = super::VectorIndexCtx {
+                column: column.as_ref(),
+                target_driver: None,
+            };
+            match self.vector_index(v, &ctx) {
+                Ok(m) => {
+                    if m.kind.is_some() {
+                        ix.kind = m.kind;
                     }
-                    ix.vector = Some(v);
+                    ix.vector = Some(m.index);
+                    for n in m.notes {
+                        report.push(
+                            Severity::Warning,
+                            IssueCode::IndexChanged,
+                            &name,
+                            Some(&ix.name),
+                            format!("El índice vectorial «{}»: {n}", ix.name),
+                        );
+                    }
                     true
                 }
                 Err(why) => {
@@ -328,8 +341,9 @@ impl Dialect for Cypher {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         use dbine_driver::vector::{metric, param};
         let engine = match self.flavor {
             Flavor::Neptune => {
@@ -432,7 +446,7 @@ impl Dialect for Cypher {
                 }
             }
         };
-        Ok((Some("VECTOR".into()), out))
+        Ok(super::VectorIndexMapping::new(Some("VECTOR".into()), out))
     }
 
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
@@ -707,6 +721,7 @@ impl Dialect for OrientDb {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     #[test]
@@ -755,7 +770,7 @@ mod tests {
         };
         // pgvector's HNSW on Neo4j: its settings, under Neo4j's names later.
         let (kind, got) = d
-            .vector_index(
+            .vector_index_pair(
                 &v(
                     Some("hnsw"),
                     Some("cosine"),
@@ -774,13 +789,15 @@ mod tests {
             )
         );
         let (_, got) = d
-            .vector_index(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]), None)
+            .vector_index_pair(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]), None)
             .unwrap();
         assert_eq!(got, v(Some("hnsw"), Some("l2"), &[]));
-        assert!(d.vector_index(&v(None, Some("ip"), &[]), None).is_err());
+        assert!(d
+            .vector_index_pair(&v(None, Some("ip"), &[]), None)
+            .is_err());
         let mg = lookup("memgraph").unwrap();
         assert!(mg
-            .vector_index(&v(None, Some("cosine"), &[]), None)
+            .vector_index_pair(&v(None, Some("cosine"), &[]), None)
             .unwrap_err()
             .contains("dimensión"));
         // The dimension from the searched column (pgvector's vector(3)),
@@ -791,15 +808,15 @@ mod tests {
             sparse: false,
         };
         let (_, got) = mg
-            .vector_index(&v(Some("hnsw"), Some("cosine"), &[]), Some(&col))
+            .vector_index_pair(&v(Some("hnsw"), Some("cosine"), &[]), Some(&col))
             .unwrap();
         assert_eq!(got, v(None, Some("cosine"), &[("dimensions", "3")]));
         let (_, got) = d
-            .vector_index(&v(Some("hnsw"), Some("cosine"), &[]), Some(&col))
+            .vector_index_pair(&v(Some("hnsw"), Some("cosine"), &[]), Some(&col))
             .unwrap();
         assert_eq!(got, v(Some("hnsw"), Some("cosine"), &[("dimensions", "3")]));
         let (_, got) = d
-            .vector_index(&v(None, Some("cosine"), &[("dimensions", "4")]), Some(&col))
+            .vector_index_pair(&v(None, Some("cosine"), &[("dimensions", "4")]), Some(&col))
             .unwrap();
         assert_eq!(got.params["dimensions"], "4");
         // A column without a dimension (a list) gives none.
@@ -807,10 +824,10 @@ mod tests {
             of: Box::new(L::Float { bytes: 4 }),
         };
         assert!(mg
-            .vector_index(&v(None, Some("cosine"), &[]), Some(&list))
+            .vector_index_pair(&v(None, Some("cosine"), &[]), Some(&list))
             .is_err());
         let (_, got) = mg
-            .vector_index(
+            .vector_index_pair(
                 &v(None, Some("ip"), &[("dimensions", "3"), ("m", "16")]),
                 None,
             )
@@ -818,7 +835,7 @@ mod tests {
         assert_eq!(got, v(None, Some("ip"), &[("dimensions", "3")]));
         assert!(lookup("neptune")
             .unwrap()
-            .vector_index(&v(None, None, &[]), None)
+            .vector_index_pair(&v(None, None, &[]), None)
             .is_err());
     }
 
@@ -972,7 +989,7 @@ mod tests {
             let d = crate::dialect::for_driver(to).unwrap();
             assert!(!d.caps().vector_indexes, "{to}");
             assert!(
-                d.vector_index(&VectorIndex::default(), None).is_err(),
+                d.vector_index_pair(&VectorIndex::default(), None).is_err(),
                 "{to}"
             );
             // Drill, InfluxDB, a generic Avatica server and Power BI take
@@ -1138,7 +1155,7 @@ mod tests {
             };
             assert!(lookup(to)
                 .unwrap()
-                .vector_index(&vix("cosine", &[]), Some(&sparse))
+                .vector_index_pair(&vix("cosine", &[]), Some(&sparse))
                 .is_err());
         }
     }
@@ -1175,9 +1192,11 @@ mod tests {
             ("ef_construction", "3201", "3200"),
             ("m", "x", "16"),
         ] {
-            let err = d.vector_index(&vix("l2", &[(k, bad)]), None).unwrap_err();
+            let err = d
+                .vector_index_pair(&vix("l2", &[(k, bad)]), None)
+                .unwrap_err();
             assert!(err.contains(k) && err.contains(bad), "{err}");
-            let (_, v) = d.vector_index(&vix("l2", &[(k, good)]), None).unwrap();
+            let (_, v) = d.vector_index_pair(&vix("l2", &[(k, good)]), None).unwrap();
             assert_eq!(v.params[k], good);
         }
     }
@@ -1188,7 +1207,7 @@ mod tests {
     fn memgraph_quantization() {
         let d = lookup("memgraph").unwrap();
         let q = |x: &str| {
-            d.vector_index(
+            d.vector_index_pair(
                 &vix("cosine", &[("dimensions", "3"), ("quantization", x)]),
                 None,
             )

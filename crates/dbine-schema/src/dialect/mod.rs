@@ -224,18 +224,89 @@ pub trait Dialect: Send + Sync {
     }
 
     /// A vector index of another family as this family's: its index kind
-    /// (`None`: the default) and its algorithm, metric and parameters in
-    /// this family's names, or `Err` with why it can't be (no vector
-    /// indexes, a metric it lacks…), and the index is left out. `column` is
-    /// the logical type of the vector column it searches (its dimension and
-    /// element), when the source says it.
+    /// (`None`: the default), its algorithm, metric and parameters in this
+    /// family's names and what changed on the way ([`VectorIndexMapping`]),
+    /// or `Err` with why it can't be (no vector indexes, a metric it
+    /// lacks, a dimension past the target engine's limit…), and the index
+    /// is left out. `ctx` says the vector column it searches and the
+    /// target driver.
     fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+        ctx: &VectorIndexCtx<'_>,
+    ) -> Result<VectorIndexMapping, String> {
+        let _ = (v, ctx);
+        Err("el destino no tiene índices vectoriales".into())
+    }
+}
+
+/// What [`Dialect::vector_index`] knows besides the index.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct VectorIndexCtx<'a> {
+    /// The logical type of the vector column it searches (its dimension
+    /// and element), when the source says it.
+    pub column: Option<&'a LogicalType>,
+    /// The target driver's id (`postgres`, `yugabytedb`…), when known: the
+    /// engines of a family may index differently.
+    pub target_driver: Option<&'a str>,
+}
+
+/// A vector index in the target family's terms ([`Dialect::vector_index`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct VectorIndexMapping {
+    /// Its index kind (`None`: the family's default).
+    pub kind: Option<String>,
+    pub index: dbine_driver::VectorIndex,
+    /// What the target does differently from the source and still works
+    /// (a distance that ranks the neighbours the same, an algorithm its
+    /// dimension needs), in Spanish: each one is a conversion issue.
+    pub notes: Vec<String>,
+}
+
+impl VectorIndexMapping {
+    pub fn new(kind: Option<String>, index: dbine_driver::VectorIndex) -> Self {
+        Self {
+            kind,
+            index,
+            notes: Vec::new(),
+        }
+    }
+
+    pub fn note(mut self, note: impl Into<String>) -> Self {
+        self.notes.push(note.into());
+        self
+    }
+}
+
+impl From<(Option<String>, dbine_driver::VectorIndex)> for VectorIndexMapping {
+    fn from((kind, index): (Option<String>, dbine_driver::VectorIndex)) -> Self {
+        Self::new(kind, index)
+    }
+}
+
+/// [`Dialect::vector_index`] with only the column, as `(kind, index)`
+/// without its notes: the dialects' tests of what an index becomes.
+#[cfg(test)]
+pub(crate) trait VectorIndexPair {
+    fn vector_index_pair(
+        &self,
+        v: &dbine_driver::VectorIndex,
+        column: Option<&LogicalType>,
+    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String>;
+}
+
+#[cfg(test)]
+impl<D: Dialect + ?Sized> VectorIndexPair for D {
+    fn vector_index_pair(
         &self,
         v: &dbine_driver::VectorIndex,
         column: Option<&LogicalType>,
     ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
-        let _ = (v, column);
-        Err("el destino no tiene índices vectoriales".into())
+        let ctx = VectorIndexCtx {
+            column,
+            target_driver: None,
+        };
+        self.vector_index(v, &ctx).map(|m| (m.kind, m.index))
     }
 }
 

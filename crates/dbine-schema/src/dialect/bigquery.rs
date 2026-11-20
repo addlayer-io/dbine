@@ -332,8 +332,9 @@ impl Dialect for BigQuery {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         use dbine_driver::vector::{metric, param};
         if let Some(L::Vector { sparse: true, .. }) = column {
             return Err(
@@ -360,7 +361,7 @@ impl Dialect for BigQuery {
                 params.insert(param::LISTS.to_string(), n.clone());
             }
         }
-        Ok((
+        Ok(super::VectorIndexMapping::new(
             Some("VECTOR".into()),
             dbine_driver::VectorIndex {
                 algorithm: Some(if tree { "tree_ah" } else { "ivf" }.into()),
@@ -404,6 +405,7 @@ pub(super) fn not_enforced(t: &TableSchema, report: &mut Report, engine: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     fn lt(s: &str) -> L {
@@ -751,7 +753,7 @@ mod tests {
                 .collect(),
         };
         let (kind, got) = BigQuery
-            .vector_index(
+            .vector_index_pair(
                 &v(
                     Some("hnsw"),
                     Some("cosine"),
@@ -763,15 +765,15 @@ mod tests {
         assert_eq!(kind.as_deref(), Some("VECTOR"));
         assert_eq!(got, v(Some("ivf"), Some("cosine"), &[]));
         let (_, got) = BigQuery
-            .vector_index(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]), None)
+            .vector_index_pair(&v(Some("ivfflat"), Some("l2"), &[("lists", "100")]), None)
             .unwrap();
         assert_eq!(got, v(Some("ivf"), Some("l2"), &[("lists", "100")]));
         let (_, got) = BigQuery
-            .vector_index(&v(Some("scann"), Some("ip"), &[("lists", "100")]), None)
+            .vector_index_pair(&v(Some("scann"), Some("ip"), &[("lists", "100")]), None)
             .unwrap();
         assert_eq!(got, v(Some("tree_ah"), Some("ip"), &[]));
         assert!(BigQuery
-            .vector_index(&v(None, Some("hamming"), &[]), None)
+            .vector_index_pair(&v(None, Some("hamming"), &[]), None)
             .unwrap_err()
             .contains("hamming"));
     }

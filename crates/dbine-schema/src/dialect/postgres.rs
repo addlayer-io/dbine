@@ -144,20 +144,20 @@ impl Dialect for Postgres {
     /// (`bit(n)`) take Hamming and Jaccard (L2 and L1 between zeros and
     /// ones are Hamming), the others not; and IVFFlat doesn't index
     /// `sparsevec`. Those hold on every engine of this dialect that indexes
-    /// vectors.
+    /// vectors. A distance that changes on the way (a squared euclidean as
+    /// L2, L2 or L1 over bits as Hamming) is said in the notes.
     ///
-    /// The dimension limit doesn't: pgvector's HNSW and IVFFlat (also
-    /// openGauss' DataVec) index up to 2000 dimensions of `vector`, while
-    /// YugabyteDB's ybhnsw and CockroachDB's C-SPANN take more, and this
-    /// dialect is shared by all of them without knowing which one it
-    /// writes for. So an index past 2000 dimensions is kept here, and the
-    /// target driver's designer and `table_ddl` refuse it, with the
-    /// reason, where its engine can't build it.
+    /// The dimension limit holds only where the target builds pgvector's
+    /// indexes ([`PGVECTOR_BUILDS`]): HNSW and IVFFlat index up to 2000
+    /// dimensions of `vector`, 4000 of `halfvec` and 64000 of `bit`; past
+    /// it the index is left out with the reason. YugabyteDB's ybhnsw,
+    /// CockroachDB's C-SPANN and KingbaseES' own build take more.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         use dbine_driver::vector::{metric as m, param};
         let target = column.and_then(|c| match c {
             L::Vector {
@@ -165,15 +165,22 @@ impl Dialect for Postgres {
             } => Some(pgvector_type(*element, *sparse)),
             _ => None,
         });
+        let mut notes = Vec::new();
         let metric = match v.metric.as_deref().map(|x| x.trim().to_ascii_lowercase()) {
             None => None,
             Some(x) => Some(match x.as_str() {
                 "" => return Err("el índice no dice su distancia".into()),
                 m::COSINE | m::L2 | m::IP | m::L1 | m::HAMMING | m::JACCARD => x,
                 // Squared or not, the nearest are the same: pgvector's L2.
-                "euclidean" | "euclidean_distance" | "euclidean_squared" | "squared_euclidean"
-                | "sqeuclidean" | "l2_distance" | "l2distance" | "l2_squared" | "squared_l2"
-                | "l2sq" | "l2_norm" | "l2norm" => m::L2.into(),
+                "euclidean" | "euclidean_distance" | "l2_distance" | "l2distance" | "l2_norm"
+                | "l2norm" => m::L2.into(),
+                "euclidean_squared" | "squared_euclidean" | "sqeuclidean" | "l2_squared"
+                | "squared_l2" | "l2sq" => {
+                    notes.push(format!(
+                        "la distancia {x} queda l2: los vecinos más cercanos son los mismos, y la distancia que devuelve es su raíz"
+                    ));
+                    m::L2.into()
+                }
                 "dot"
                 | "dot_product"
                 | "dotproduct"
@@ -192,7 +199,12 @@ impl Dialect for Postgres {
         let metric = match (target, metric) {
             // Between zeros and ones, squared L2 and L1 count the bits that
             // differ: Hamming, the same nearest.
-            (Some("bit"), Some(x)) if x == m::L2 || x == m::L1 => Some(m::HAMMING.into()),
+            (Some("bit"), Some(x)) if x == m::L2 || x == m::L1 => {
+                notes.push(format!(
+                    "la distancia {x} queda hamming: sobre vectores binarios (bit) los vecinos más cercanos son los mismos"
+                ));
+                Some(m::HAMMING.into())
+            }
             (Some("bit"), Some(x)) if x != m::HAMMING && x != m::JACCARD => {
                 return Err(format!(
                     "pgvector no tiene la distancia «{x}» para vectores binarios (bit): tiene hamming y jaccard"
@@ -211,6 +223,29 @@ impl Dialect for Postgres {
             && !matches!(metric.as_deref(), Some(m::L1) | Some(m::JACCARD))
             && target != Some("sparsevec");
         let algorithm = if ivf { "ivfflat" } else { "hnsw" };
+        if let (Some(id), Some(ty), Some(L::Vector { dims: Some(n), .. })) =
+            (ctx.target_driver, target, column)
+        {
+            let max = match ty {
+                "vector" => Some(2_000),
+                "halfvec" => Some(4_000),
+                "bit" => Some(64_000),
+                _ => None,
+            };
+            if let (true, Some(max)) = (PGVECTOR_BUILDS.contains(&id), max) {
+                if *n > max {
+                    return Err(format!(
+                        "{} de pgvector indexa hasta {max} dimensiones de {ty} y la columna tiene {n}{}",
+                        if ivf { "IVFFlat" } else { "HNSW" },
+                        if ty == "vector" && *n <= 4_000 {
+                            " (un índice sobre la columna convertida a halfvec llega a 4000)"
+                        } else {
+                            ""
+                        }
+                    ));
+                }
+            }
+        }
         let keep: &[&str] = if ivf {
             &[param::LISTS]
         } else {
@@ -222,14 +257,15 @@ impl Dialect for Postgres {
             .filter(|(k, val)| keep.contains(&k.as_str()) && val.trim().parse::<u32>().is_ok())
             .map(|(k, val)| (k.clone(), val.trim().to_string()))
             .collect();
-        Ok((
-            Some(algorithm.into()),
-            dbine_driver::VectorIndex {
+        Ok(super::VectorIndexMapping {
+            kind: Some(algorithm.into()),
+            index: dbine_driver::VectorIndex {
                 algorithm: Some(algorithm.into()),
                 metric,
                 params,
             },
-        ))
+            notes,
+        })
     }
 
     fn render_type(&self, t: &L) -> Rendered {
@@ -400,6 +436,24 @@ fn vector_kind(name: &str) -> Option<(dbine_driver::VectorElement, bool)> {
         _ => return None,
     })
 }
+
+/// The driver ids whose HNSW and IVFFlat indexes are pgvector's (or
+/// openGauss' DataVec, with the same limits), as the PostgreSQL driver
+/// checks them: not YugabyteDB (ybhnsw), CockroachDB (C-SPANN),
+/// KingbaseES (its own build) nor the engines without pgvector.
+const PGVECTOR_BUILDS: &[&str] = &[
+    "postgres",
+    "timescaledb",
+    "alloydb",
+    "cloudsql_postgres",
+    "aurora_postgres",
+    "edb",
+    "fujitsu",
+    "opengauss",
+    "greenplum",
+    "cloudberry",
+    "greengage",
+];
 
 /// Largest dimension of pgvector's `vector` and `halfvec` columns.
 const MAX_VECTOR_DIMS: u32 = 16_000;
@@ -591,6 +645,7 @@ impl Rendered {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     fn ty(s: &str) -> L {
@@ -803,7 +858,7 @@ mod tests {
                 .collect(),
         };
         let (kind, v) = Postgres
-            .vector_index(
+            .vector_index_pair(
                 &vi(
                     "hnsw",
                     "cosine",
@@ -822,25 +877,25 @@ mod tests {
             vi("hnsw", "cosine", &[("m", "32"), ("ef_construction", "200")])
         );
         let (kind, v) = Postgres
-            .vector_index(&vi("IVF_FLAT", "euclidean", &[("lists", "100")]), None)
+            .vector_index_pair(&vi("IVF_FLAT", "euclidean", &[("lists", "100")]), None)
             .unwrap();
         assert_eq!(kind.as_deref(), Some("ivfflat"));
         assert_eq!(v, vi("ivfflat", "l2", &[("lists", "100")]));
         // DiskANN, C-SPANN, a flat index…: HNSW.
         let (_, v) = Postgres
-            .vector_index(
+            .vector_index_pair(
                 &vi("diskann", "dot_product", &[("num_neighbors", "50")]),
                 None,
             )
             .unwrap();
         assert_eq!(v, vi("hnsw", "ip", &[]));
         let (_, v) = Postgres
-            .vector_index(&dbine_driver::VectorIndex::default(), None)
+            .vector_index_pair(&dbine_driver::VectorIndex::default(), None)
             .unwrap();
         assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
         assert_eq!(v.metric, None);
         assert!(Postgres
-            .vector_index(&vi("hnsw", "chebyshev", &[]), None)
+            .vector_index_pair(&vi("hnsw", "chebyshev", &[]), None)
             .is_err());
         // Other families' spellings: Oracle's, Elasticsearch's, OpenSearch's…
         for (from, to) in [
@@ -854,15 +909,18 @@ mod tests {
             ("MANHATTAN", "l1"),
             ("hamming_distance", "hamming"),
         ] {
-            let (_, v) = Postgres.vector_index(&vi("hnsw", from, &[]), None).unwrap();
+            let (_, v) = Postgres
+                .vector_index_pair(&vi("hnsw", from, &[]), None)
+                .unwrap();
             assert_eq!(v.metric.as_deref(), Some(to), "{from}");
         }
     }
 
     /// The column the index searches decides the pgvector type and so the
     /// operator classes: binary vectors (`bit(n)`) take Hamming and
-    /// Jaccard, and sparse ones no IVFFlat. The dimension doesn't refuse
-    /// anything: each target engine's limit is its driver's.
+    /// Jaccard, and sparse ones no IVFFlat. Without a target driver the
+    /// dimension doesn't refuse anything (see
+    /// `pgvector_limits_follow_the_target_driver`).
     #[test]
     fn vector_indexes_follow_their_column() {
         use dbine_driver::{VectorElement as E, VectorIndex};
@@ -879,22 +937,24 @@ mod tests {
         let bits = col(64, E::Bit, false);
         // Squared L2 and L1 between zeros and ones are Hamming.
         for m in ["euclidean", "l2", "manhattan"] {
-            let (_, v) = Postgres.vector_index(&vi("hnsw", m), Some(&bits)).unwrap();
+            let (_, v) = Postgres
+                .vector_index_pair(&vi("hnsw", m), Some(&bits))
+                .unwrap();
             assert_eq!(v.metric.as_deref(), Some("hamming"), "{m}");
         }
         let (kind, v) = Postgres
-            .vector_index(&vi("ivf", "hamming"), Some(&bits))
+            .vector_index_pair(&vi("ivf", "hamming"), Some(&bits))
             .unwrap();
         assert_eq!(
             (kind.as_deref(), v.metric.as_deref()),
             (Some("ivfflat"), Some("hamming"))
         );
         let (_, v) = Postgres
-            .vector_index(&vi("hnsw", "jaccard"), Some(&bits))
+            .vector_index_pair(&vi("hnsw", "jaccard"), Some(&bits))
             .unwrap();
         assert_eq!(v.metric.as_deref(), Some("jaccard"));
         let why = Postgres
-            .vector_index(&vi("hnsw", "cosine"), Some(&bits))
+            .vector_index_pair(&vi("hnsw", "cosine"), Some(&bits))
             .unwrap_err();
         assert!(why.contains("bit") && why.contains("hamming"), "{why}");
         // Hamming on a float vector: none.
@@ -905,19 +965,19 @@ mod tests {
         ] {
             assert!(
                 Postgres
-                    .vector_index(&vi("hnsw", "hamming"), Some(&c))
+                    .vector_index_pair(&vi("hnsw", "hamming"), Some(&c))
                     .is_err(),
                 "{c:?}"
             );
         }
         // IVFFlat doesn't index sparsevec: HNSW.
         let (kind, v) = Postgres
-            .vector_index(&vi("ivf_flat", "ip"), Some(&col(30_000, E::F32, true)))
+            .vector_index_pair(&vi("ivf_flat", "ip"), Some(&col(30_000, E::F32, true)))
             .unwrap();
         assert_eq!(kind.as_deref(), Some("hnsw"));
         assert!(v.params.is_empty());
-        // Past pgvector's 2000 dimensions (4000 of halfvec): kept, since
-        // YugabyteDB's ybhnsw and CockroachDB's C-SPANN build them.
+        // Past pgvector's 2000 dimensions (4000 of halfvec), with no target
+        // driver: kept.
         for (alg, c) in [
             ("hnsw", col(3072, E::F32, false)),
             ("ivf", col(3072, E::F32, false)),
@@ -927,21 +987,113 @@ mod tests {
             ("hnsw", col(2000, E::F64, false)),
         ] {
             let (kind, v) = Postgres
-                .vector_index(&vi(alg, "cosine"), Some(&c))
+                .vector_index_pair(&vi(alg, "cosine"), Some(&c))
                 .unwrap_or_else(|e| panic!("{alg} {c:?}: {e}"));
             let want = if alg == "ivf" { "ivfflat" } else { "hnsw" };
             assert_eq!(kind.as_deref(), Some(want), "{c:?}");
             assert_eq!(v.metric.as_deref(), Some("cosine"), "{c:?}");
         }
         // Without the column: as before.
-        assert!(Postgres.vector_index(&vi("hnsw", "hamming"), None).is_ok());
+        assert!(Postgres
+            .vector_index_pair(&vi("hnsw", "hamming"), None)
+            .is_ok());
+    }
+
+    /// pgvector's HNSW and IVFFlat take up to 2000 dimensions of `vector`,
+    /// 4000 of `halfvec` and 64000 of `bit` on the engines that build
+    /// them; YugabyteDB, CockroachDB and KingbaseES take more. A distance
+    /// that changes is said.
+    #[test]
+    fn pgvector_limits_follow_the_target_driver() {
+        use crate::dialect::VectorIndexCtx;
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        let vi = |alg: &str, m: &str| VectorIndex {
+            algorithm: Some(alg.into()),
+            metric: Some(m.into()),
+            ..Default::default()
+        };
+        let col = |dims: u32, element| L::Vector {
+            dims: Some(dims),
+            element,
+            sparse: false,
+        };
+        let map = |v: &VectorIndex, c: &L, to: &str| {
+            let ctx = VectorIndexCtx {
+                column: Some(c),
+                target_driver: Some(to),
+            };
+            Postgres.vector_index(v, &ctx)
+        };
+        for (c, max, ty) in [
+            (col(2001, E::F32), 2000, "vector"),
+            (col(4001, E::F16), 4000, "halfvec"),
+            (col(64_001, E::Bit), 64_000, "bit"),
+        ] {
+            let m = if ty == "bit" { "hamming" } else { "cosine" };
+            for to in [
+                "postgres",
+                "timescaledb",
+                "alloydb",
+                "aurora_postgres",
+                "opengauss",
+            ] {
+                for alg in ["hnsw", "ivfflat"] {
+                    let e = map(&vi(alg, m), &c, to).unwrap_err();
+                    assert!(
+                        e.contains(&format!("hasta {max} dimensiones de {ty}")),
+                        "{to} {alg}: {e}"
+                    );
+                }
+            }
+            for to in ["yugabytedb", "cockroachdb", "kingbase"] {
+                assert!(map(&vi("hnsw", m), &c, to).is_ok(), "{to} {ty}");
+            }
+        }
+        for c in [col(2000, E::F32), col(4000, E::F16), col(64_000, E::Bit)] {
+            let m = if matches!(
+                c,
+                L::Vector {
+                    element: E::Bit,
+                    ..
+                }
+            ) {
+                "hamming"
+            } else {
+                "cosine"
+            };
+            let out = map(&vi("hnsw", m), &c, "postgres").unwrap();
+            assert!(out.notes.is_empty(), "{:?}", out.notes);
+        }
+        // A vector a halfvec index could take says so.
+        let e = map(&vi("hnsw", "cosine"), &col(3072, E::F32), "postgres").unwrap_err();
+        assert!(e.contains("halfvec llega a 4000"), "{e}");
+        // Distances that change, said.
+        let out = map(&vi("hnsw", "l2_squared"), &col(3, E::F32), "postgres").unwrap();
+        assert_eq!(out.index.metric.as_deref(), Some("l2"));
+        assert!(
+            out.notes[0].contains("l2_squared queda l2"),
+            "{:?}",
+            out.notes
+        );
+        for from in ["l2", "l1"] {
+            let out = map(&vi("hnsw", from), &col(16, E::Bit), "postgres").unwrap();
+            assert_eq!(out.index.metric.as_deref(), Some("hamming"));
+            assert!(
+                out.notes[0].contains(&format!("{from} queda hamming")),
+                "{:?}",
+                out.notes
+            );
+        }
+        let out = map(&vi("hnsw", "euclidean"), &col(3, E::F32), "postgres").unwrap();
+        assert!(out.notes.is_empty(), "{:?}", out.notes);
     }
 
     /// From another family: a binary vector becomes `bit(n)` with a Hamming
-    /// index, and a vector wider than pgvector's index (3072 dimensions)
-    /// keeps its index into every target of the dialect: YugabyteDB's
-    /// ybhnsw and CockroachDB's C-SPANN build it, and where the engine
-    /// can't (pgvector's HNSW), its driver refuses it with the reason.
+    /// index (Oracle's euclidean over bits, said), and a vector wider than
+    /// pgvector's index (3072 dimensions) keeps its index where the engine
+    /// builds it (YugabyteDB's ybhnsw, CockroachDB's C-SPANN, KingbaseES)
+    /// and loses it, with the reason, where pgvector's HNSW would refuse
+    /// it (PostgreSQL, openGauss' DataVec).
     #[test]
     fn vector_indexes_from_oracle_follow_their_column() {
         let mut t = vector_table();
@@ -981,12 +1133,31 @@ mod tests {
             let out = &c.tables[0];
             assert_eq!(out.columns[1].data_type, "bit(64)", "{to}");
             assert_eq!(out.columns[2].data_type, "vector(3072)", "{to}");
-            assert_eq!(out.indexes.len(), 2, "{to}: {:?}", c.issues);
             assert_eq!(
                 out.indexes[0].vector.as_ref().unwrap().metric.as_deref(),
                 Some("hamming"),
                 "{to}"
             );
+            assert!(
+                c.issues.iter().any(|i| i.code == IssueCode::IndexChanged
+                    && i.object.as_deref() == Some("ix_v")
+                    && i.message.contains("l2 queda hamming")),
+                "{to}: {:?}",
+                c.issues
+            );
+            if matches!(to, "postgres" | "opengauss") {
+                assert_eq!(out.indexes.len(), 1, "{to}: {:?}", c.issues);
+                assert!(
+                    c.issues.iter().any(|i| i.code == IssueCode::IndexDropped
+                        && i.object.as_deref() == Some("ix_w")
+                        && i.message.contains("hasta 2000 dimensiones")
+                        && i.message.contains("3072")),
+                    "{to}: {:?}",
+                    c.issues
+                );
+                continue;
+            }
+            assert_eq!(out.indexes.len(), 2, "{to}: {:?}", c.issues);
             let w = &out.indexes[1];
             assert_eq!(w.columns, ["w"], "{to}");
             assert_eq!(w.kind.as_deref(), Some("hnsw"), "{to}");

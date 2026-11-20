@@ -302,8 +302,9 @@ impl Dialect for Hana {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         use dbine_driver::vector::{metric, param};
         if let Some(c @ L::Vector { .. }) = column {
             let native = render_vector(self, c).native;
@@ -335,7 +336,7 @@ impl Dialect for Hana {
             .filter(|(k, _)| hnsw && keep.contains(&k.as_str()))
             .map(|(k, x)| (k.clone(), x.clone()))
             .collect();
-        Ok((
+        Ok(super::VectorIndexMapping::new(
             Some("HNSW VECTOR".into()),
             dbine_driver::VectorIndex {
                 algorithm: Some("hnsw".into()),
@@ -375,6 +376,7 @@ pub fn lookup(driver_id: &str) -> Option<&'static dyn Dialect> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     fn p(s: &str) -> L {
@@ -815,23 +817,25 @@ mod tests {
             ]
             .into(),
         };
-        let (kind, m) = Hana.vector_index(&hnsw, None).unwrap();
+        let (kind, m) = Hana.vector_index_pair(&hnsw, None).unwrap();
         assert_eq!(kind.as_deref(), Some("HNSW VECTOR"));
         assert_eq!(m.params.len(), 1);
         let ip = VectorIndex {
             metric: Some("ip".into()),
             ..Default::default()
         };
-        assert!(Hana.vector_index(&ip, None).is_err());
+        assert!(Hana.vector_index_pair(&ip, None).is_err());
         // pgvector's sparsevec isn't a REAL_VECTOR here: no index on it.
         let col = |sparse| L::Vector {
             dims: Some(5),
             element: E::F32,
             sparse,
         };
-        assert!(Hana.vector_index(&hnsw, Some(&col(false))).is_ok());
-        assert!(Hana.vector_index(&hnsw, Some(&v(Some(3), E::F16))).is_ok());
-        let e = Hana.vector_index(&hnsw, Some(&col(true))).unwrap_err();
+        assert!(Hana.vector_index_pair(&hnsw, Some(&col(false))).is_ok());
+        assert!(Hana
+            .vector_index_pair(&hnsw, Some(&v(Some(3), E::F16)))
+            .is_ok());
+        let e = Hana.vector_index_pair(&hnsw, Some(&col(true))).unwrap_err();
         assert!(e.contains("REAL_VECTOR"), "{e}");
     }
 }

@@ -154,8 +154,9 @@ impl Dialect for Manticore {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         use dbine_driver::vector::{metric, param};
         super::starrocks::refuse_column("Manticore", v, column, true)?;
         let m = v.metric.as_deref().unwrap_or(metric::L2);
@@ -166,7 +167,7 @@ impl Dialect for Manticore {
             ));
         }
         let params = super::starrocks::index_params(v, &[param::M, param::EF_CONSTRUCTION], column);
-        Ok((
+        Ok(super::VectorIndexMapping::new(
             Some("KNN".into()),
             dbine_driver::VectorIndex {
                 algorithm: Some("hnsw".into()),
@@ -268,6 +269,7 @@ impl Dialect for Manticore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
     use dbine_driver::{ColumnDef, KeyDef};
 
@@ -333,9 +335,9 @@ mod tests {
             metric: Some("cosine".into()),
             ..Default::default()
         };
-        let (_, vi) = Manticore.vector_index(&pg, Some(&v3)).unwrap();
+        let (_, vi) = Manticore.vector_index_pair(&pg, Some(&v3)).unwrap();
         assert_eq!(vi.params.get("dim").map(String::as_str), Some("3"));
-        let e = Manticore.vector_index(&pg, Some(&v)).unwrap_err();
+        let e = Manticore.vector_index_pair(&pg, Some(&v)).unwrap_err();
         assert!(e.contains("necesita la dimensión"), "{e}");
         assert!(matches!(p("tokencount"), L::Other { .. }));
     }

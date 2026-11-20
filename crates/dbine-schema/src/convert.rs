@@ -782,10 +782,23 @@ fn index(
     let mut vector = ix.vector.clone();
     let mut vector_kind = None;
     if let (Some(v), false) = (&ix.vector, same_family) {
-        match target.vector_index(v, vector_column) {
-            Ok((k, v)) => {
-                vector_kind = Some(k);
-                vector = Some(v);
+        let ctx = dialect::VectorIndexCtx {
+            column: vector_column,
+            target_driver: Some(engine),
+        };
+        match target.vector_index(v, &ctx) {
+            Ok(m) => {
+                vector_kind = Some(m.kind);
+                vector = Some(m.index);
+                for n in m.notes {
+                    report.push(
+                        Severity::Warning,
+                        IssueCode::IndexChanged,
+                        &t.name,
+                        Some(&ix.name),
+                        format!("El índice vectorial «{}»: {n}", ix.name),
+                    );
+                }
             }
             Err(why) => {
                 report.push(

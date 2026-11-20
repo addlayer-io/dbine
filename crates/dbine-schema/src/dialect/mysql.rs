@@ -409,8 +409,9 @@ impl Dialect for MySql {
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
-        column: Option<&crate::logical::LogicalType>,
-    ) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
         // Every engine of the family indexes dense vectors of a fixed
         // dimension (TiDB's `vector` without one takes no index).
         match column {
@@ -442,7 +443,7 @@ impl Dialect for MySql {
             ],
             column,
         );
-        Ok((
+        Ok(super::VectorIndexMapping::new(
             Some("VECTOR".into()),
             dbine_driver::VectorIndex {
                 algorithm: v.algorithm.clone(),
@@ -732,6 +733,7 @@ fn row_bytes(l: &L) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use dbine_driver::{ColumnDef, IndexDef, KeyDef};
 
     fn ty(s: &str) -> L {
@@ -791,12 +793,12 @@ mod tests {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
         };
-        let (kind, v) = MySql.vector_index(&pg, None).unwrap();
+        let (kind, v) = MySql.vector_index_pair(&pg, None).unwrap();
         assert_eq!(kind.as_deref(), Some("VECTOR"));
         assert_eq!(v.metric.as_deref(), Some("cosine"));
         assert_eq!(v.params.len(), 2);
         assert!(MySql
-            .vector_index(
+            .vector_index_pair(
                 &VectorIndex {
                     metric: Some("hamming".into()),
                     ..Default::default()
@@ -806,24 +808,24 @@ mod tests {
             .is_err());
         // The searched column: its dimension rides to finalize; one of
         // unknown dimension, or a sparse one, takes no index.
-        let (_, v) = MySql.vector_index(&pg, Some(&v3)).unwrap();
+        let (_, v) = MySql.vector_index_pair(&pg, Some(&v3)).unwrap();
         assert_eq!(v.params.get("dim").map(String::as_str), Some("3"));
         let any = L::Vector {
             dims: None,
             element: E::F32,
             sparse: false,
         };
-        let e = MySql.vector_index(&pg, Some(&any)).unwrap_err();
+        let e = MySql.vector_index_pair(&pg, Some(&any)).unwrap_err();
         assert!(e.contains("necesitan la dimensión"), "{e}");
         let mut with_dim = pg.clone();
         with_dim.params.insert("knn_dims".into(), "3".into());
-        assert!(MySql.vector_index(&with_dim, Some(&any)).is_ok());
+        assert!(MySql.vector_index_pair(&with_dim, Some(&any)).is_ok());
         let sparse = L::Vector {
             dims: Some(9),
             element: E::F32,
             sparse: true,
         };
-        let e = MySql.vector_index(&pg, Some(&sparse)).unwrap_err();
+        let e = MySql.vector_index_pair(&pg, Some(&sparse)).unwrap_err();
         assert!(e.contains("dispersos"), "{e}");
     }
 
