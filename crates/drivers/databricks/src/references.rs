@@ -87,7 +87,11 @@ fn entities(entry: &Json) -> Vec<Entity> {
     let Some(obj) = entry.as_object() else {
         return out;
     };
-    for (key, list) in obj {
+    // By key: a JSON object's order is serde_json's (sorted, or as written
+    // when a crate in the build turns on `preserve_order`).
+    let mut keys: Vec<_> = obj.iter().collect();
+    keys.sort_by(|a, b| a.0.cmp(b.0));
+    for (key, list) in keys {
         let Some(stem) = key.strip_suffix("Infos") else {
             continue;
         };
@@ -96,8 +100,10 @@ fn entities(entry: &Json) -> Vec<Entity> {
         let id_key = format!("{kind}_id");
         for info in list.as_array().into_iter().flatten() {
             let id = info.get(&id_key).or_else(|| {
-                info.as_object()?
-                    .iter()
+                let mut fields: Vec<_> = info.as_object()?.iter().collect();
+                fields.sort_by(|a, b| a.0.cmp(b.0));
+                fields
+                    .into_iter()
                     .find(|(k, _)| {
                         k.ends_with("_id")
                             && *k != "workspace_id"
