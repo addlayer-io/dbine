@@ -847,7 +847,7 @@ impl EsSession {
             let fields = vectors::nmslib_fields(body);
             if !fields.is_empty() {
                 return Err(Error::Query(format!(
-                    "OpenSearch 3 no crea índices con el motor NMSLIB, el único con las distancias L1 y L∞, y lo usa {}: elegí otro motor (Faiss o Lucene), con L2, coseno o producto interno.",
+                    "OpenSearch 3 no crea índices con el motor NMSLIB, el único con las distancias L1 y L∞. Campos que lo usan: {}. Elegí otro motor (Faiss o Lucene), con L2, coseno o producto interno.",
                     fields.join(", ")
                 )));
             }
@@ -855,7 +855,7 @@ impl EsSession {
         if maps && self.opensearch_in("2.18", Some("2.19")) {
             if let Some((body, fields)) = vectors::cosine_on_lucene(body) {
                 out.info(format!(
-                    "En OpenSearch 2.18, Faiss (el motor por defecto) no tiene la distancia coseno: el índice vectorial de {} se crea con Lucene.",
+                    "En OpenSearch 2.18, Faiss (el motor por defecto) no tiene la distancia coseno, así que el índice vectorial por coseno usa Lucene. Campos: {}.",
                     fields.join(", ")
                 ));
                 return Ok(Some(body));
@@ -2302,7 +2302,8 @@ mod tests {
                 .map(J::text);
             assert_eq!(engine.as_deref(), Some("lucene"), "{path}");
             assert!(
-                msgs.iter().any(|m| m.contains("Lucene") && m.contains('v')),
+                msgs.iter()
+                    .any(|m| m.contains("Lucene") && m.ends_with("Campos: v.")),
                 "{msgs:?}"
             );
         }
