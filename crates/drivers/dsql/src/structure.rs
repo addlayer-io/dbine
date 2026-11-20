@@ -239,16 +239,20 @@ pub fn index_options(
     }
 }
 
-/// The domains, as [`kinds::TYPE`].
-pub async fn list_domains(client: &Client) -> Vec<DbObject> {
-    let q = format!(
-        "SELECT n.nspname::text, t.typname::text FROM pg_catalog.pg_type t
+/// The user schemas' domains: `sch`, `name`.
+pub fn domains_sql() -> String {
+    format!(
+        "SELECT n.nspname::text AS sch, t.typname::text AS name FROM pg_catalog.pg_type t
          JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
          WHERE t.typtype = 'd' AND n.nspname NOT IN {SYSTEM_SCHEMAS} AND n.nspname NOT LIKE 'pg\\_%'
          ORDER BY 1, 2"
-    );
+    )
+}
+
+/// The domains, as [`kinds::TYPE`].
+pub async fn list_domains(client: &Client) -> Vec<DbObject> {
     client
-        .query(q.as_str(), &[])
+        .query(domains_sql().as_str(), &[])
         .await
         .map(|rows| {
             rows.iter()

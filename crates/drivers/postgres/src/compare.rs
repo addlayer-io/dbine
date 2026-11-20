@@ -5,6 +5,7 @@
 //! collations), and the sync fixes for indexes that back a constraint.
 
 use crate::catalog::{cell, lit};
+use crate::object_page::Branch;
 use crate::session::PgSession;
 use crate::Variant;
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
@@ -541,27 +542,7 @@ impl PgSession {
                 Err(e) => tracing::debug!("{v:?}: sequences unavailable: {e}"),
             }
         }
-        if v == Variant::Materialize {
-            // List, map and record types; user objects have `u` ids.
-            let sql = "SELECT s.name AS sch, t.name AS name FROM mz_catalog.mz_types t
-                       JOIN mz_catalog.mz_schemas s ON s.id = t.schema_id
-                       JOIN mz_catalog.mz_databases d ON d.id = s.database_id
-                       WHERE t.id LIKE 'u%' AND d.name = current_database()";
-            match self.text(sql).await {
-                Ok(rows) => out.extend(
-                    rows.iter()
-                        .filter_map(|r| obj(kinds::TYPE, cell(r, "sch"), cell(r, "name"))),
-                ),
-                Err(e) => tracing::debug!("{v:?}: types unavailable: {e}"),
-            }
-        } else if has_types(v) {
-            let sql = format!(
-                "SELECT n.nspname AS sch, t.typname AS name FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
-                 WHERE t.typtype IN ('e', 'd', 'c', 'r') AND {}
-                   AND (t.typtype <> 'c' OR NOT EXISTS (SELECT 1 FROM pg_class rc WHERE rc.oid = t.typrelid AND rc.relkind <> 'c'))
-                   AND NOT EXISTS (SELECT 1 FROM pg_depend e WHERE e.classid = 'pg_type'::regclass AND e.objid = t.oid AND e.deptype = 'e')",
-                self.filter("n.nspname")
-            );
+        if let Some(sql) = self.types_sql() {
             match self.text(&sql).await {
                 Ok(rows) => out.extend(
                     rows.iter()
@@ -571,11 +552,7 @@ impl PgSession {
             }
         }
         if v == Variant::H2 {
-            let sql = format!(
-                "SELECT domain_schema AS sch, domain_name AS name FROM information_schema.domains WHERE {}",
-                self.filter("domain_schema")
-            );
-            match self.text(&sql).await {
+            match self.text(&self.h2_domains_sql()).await {
                 Ok(rows) => out.extend(
                     rows.iter()
                         .filter_map(|r| obj(DOMAIN, cell(r, "sch"), cell(r, "name"))),
@@ -595,24 +572,102 @@ impl PgSession {
         out
     }
 
-    /// Free-standing sequences: not an identity's, not a serial's (the
-    /// table writes those), not an extension's.
-    async fn sequence_names(&self) -> Result<Vec<DbObject>> {
-        let filter = self.filter("n.nspname");
-        let pg = format!(
+    /// [`Self::compare_objects`]'s first-choice queries, as the branches of
+    /// an explorer page.
+    pub(crate) fn compare_branches(&self) -> Vec<Branch> {
+        let v = self.variant;
+        let mut out = Vec::new();
+        if has_sequences(v) {
+            let sql = if v == Variant::H2 {
+                self.info_sequences_sql()
+            } else {
+                self.sequences_sql()
+            };
+            out.push(Branch::one(kinds::SEQUENCE, sql));
+        }
+        if let Some(sql) = self.types_sql() {
+            out.push(Branch::one(kinds::TYPE, sql));
+        }
+        if v == Variant::H2 {
+            out.push(Branch::one(DOMAIN, self.h2_domains_sql()));
+        }
+        if has_synonyms(v) {
+            // `synonym_rows` skips those without a target.
+            let sql = format!(
+                "SELECT y.sch, y.name FROM ({}) y WHERE y.target IS NOT NULL",
+                self.synonym_sql("pg_synonym", "")
+            );
+            out.push(Branch::one(kinds::SYNONYM, sql));
+        }
+        out
+    }
+
+    /// User types (`sch`, `name`): Materialize's list, map and record types
+    /// (user objects have `u` ids), or `pg_type`'s enums, domains,
+    /// composites and ranges that aren't a relation's or an extension's.
+    fn types_sql(&self) -> Option<String> {
+        let v = self.variant;
+        if v == Variant::Materialize {
+            Some(
+                "SELECT s.name AS sch, t.name AS name FROM mz_catalog.mz_types t
+                 JOIN mz_catalog.mz_schemas s ON s.id = t.schema_id
+                 JOIN mz_catalog.mz_databases d ON d.id = s.database_id
+                 WHERE t.id LIKE 'u%' AND d.name = current_database()"
+                    .into(),
+            )
+        } else if has_types(v) {
+            Some(format!(
+                "SELECT n.nspname AS sch, t.typname AS name FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+                 WHERE t.typtype IN ('e', 'd', 'c', 'r') AND {}
+                   AND (t.typtype <> 'c' OR NOT EXISTS (SELECT 1 FROM pg_class rc WHERE rc.oid = t.typrelid AND rc.relkind <> 'c'))
+                   AND NOT EXISTS (SELECT 1 FROM pg_depend e WHERE e.classid = 'pg_type'::regclass AND e.objid = t.oid AND e.deptype = 'e')",
+                self.filter("n.nspname")
+            ))
+        } else {
+            None
+        }
+    }
+
+    /// H2's domains (`sch`, `name`).
+    fn h2_domains_sql(&self) -> String {
+        format!(
+            "SELECT domain_schema AS sch, domain_name AS name FROM information_schema.domains WHERE {}",
+            self.filter("domain_schema")
+        )
+    }
+
+    /// Free-standing sequences from `pg_class` (`sch`, `name`): not an
+    /// identity's, not a serial's (the table writes those), not an
+    /// extension's.
+    fn sequences_sql(&self) -> String {
+        format!(
             "SELECT n.nspname AS sch, c.relname AS name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-             WHERE c.relkind = 'S' AND {filter}
+             WHERE c.relkind = 'S' AND {}
                AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid
                                AND d.deptype IN ('i', 'e'))
                AND NOT EXISTS (SELECT 1 FROM pg_depend d JOIN pg_attrdef ad ON ad.adrelid = d.refobjid AND ad.adnum = d.refobjsubid
                                WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'a'
-                                 AND pg_get_expr(ad.adbin, ad.adrelid) LIKE 'nextval(%')"
-        );
+                                 AND pg_get_expr(ad.adbin, ad.adrelid) LIKE 'nextval(%')",
+            self.filter("n.nspname")
+        )
+    }
+
+    /// Sequences from `information_schema` (`sch`, `name`).
+    fn info_sequences_sql(&self) -> String {
+        format!(
+            "SELECT sequence_schema AS sch, sequence_name AS name FROM information_schema.sequences WHERE {}",
+            self.filter("sequence_schema")
+        )
+    }
+
+    /// Free-standing sequences ([`Self::sequences_sql`]), from
+    /// `information_schema` where `pg_class` can't say.
+    async fn sequence_names(&self) -> Result<Vec<DbObject>> {
         // H2's pg_class is a thin emulation: its own catalog instead.
         let pg = if self.variant == Variant::H2 {
             Err(dbine_driver::Error::Unsupported("H2".into()))
         } else {
-            self.text(&pg).await
+            self.text(&self.sequences_sql()).await
         };
         let rows = match pg {
             Ok(r) => r,
@@ -621,11 +676,7 @@ impl PgSession {
                     "{:?}: pg_class sequences unavailable, using information_schema: {e}",
                     self.variant
                 );
-                self.text(&format!(
-                    "SELECT sequence_schema AS sch, sequence_name AS name FROM information_schema.sequences WHERE {}",
-                    self.filter("sequence_schema")
-                ))
-                .await?
+                self.text(&self.info_sequences_sql()).await?
             }
         };
         Ok(rows
@@ -884,6 +935,24 @@ impl PgSession {
         Ok(Some(t))
     }
 
+    /// The synonyms of `catalog` (`pg_synonym`, KingbaseES' `sys_synonym`)
+    /// that pass `only`: `sch`, `name`, `target`.
+    fn synonym_sql(&self, catalog: &str, only: &str) -> String {
+        let link = if self.variant == Variant::Edb {
+            "COALESCE('@' || y.synlink, '')"
+        } else {
+            "''"
+        };
+        format!(
+            "SELECT n.nspname AS sch, y.synname AS name,
+                    CASE WHEN y.synobjschema IS NULL OR y.synobjschema = '' THEN quote_ident(y.synobjname)
+                         ELSE quote_ident(y.synobjschema) || '.' || quote_ident(y.synobjname) END || {link} AS target
+             FROM {catalog} y JOIN pg_namespace n ON n.oid = y.synnamespace
+             WHERE {}{only} ORDER BY 1, 2",
+            self.filter("n.nspname")
+        )
+    }
+
     /// (schema, name, target) of the synonyms, or of one.
     async fn synonym_rows(
         &self,
@@ -898,24 +967,9 @@ impl PgSession {
             ),
             None => String::new(),
         };
-        let link = if v == Variant::Edb {
-            "COALESCE('@' || y.synlink, '')"
-        } else {
-            "''"
-        };
-        let query = |catalog: &str| {
-            format!(
-                "SELECT n.nspname AS sch, y.synname AS name,
-                        CASE WHEN y.synobjschema IS NULL OR y.synobjschema = '' THEN quote_ident(y.synobjname)
-                             ELSE quote_ident(y.synobjschema) || '.' || quote_ident(y.synobjname) END || {link} AS target
-                 FROM {catalog} y JOIN pg_namespace n ON n.oid = y.synnamespace
-                 WHERE {}{only} ORDER BY 1, 2",
-                self.filter("n.nspname")
-            )
-        };
-        let mut queries = vec![query("pg_synonym")];
+        let mut queries = vec![self.synonym_sql("pg_synonym", &only)];
         if v == Variant::Kingbase {
-            queries.push(query("sys_synonym"));
+            queries.push(self.synonym_sql("sys_synonym", &only));
         }
         let mut last = None;
         for q in queries {
