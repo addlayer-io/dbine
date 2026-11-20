@@ -14,6 +14,7 @@
 
 mod backup;
 mod blocks;
+mod catalog_api;
 mod create_db;
 mod ddl;
 mod functions;
@@ -713,16 +714,8 @@ impl Driver for DatabricksDriver {
         if matches!(s.api.auth, Auth::U2m) {
             s.api.bearer().await?;
         }
-        // Also wakes a stopped warehouse up.
-        tokio::time::timeout(Duration::from_secs(300), s.run("SELECT 1", 1, None))
-            .await
-            .map_err(|_| {
-                Error::Connect("tiempo de espera agotado (¿el warehouse está iniciando?)".into())
-            })?
-            .map_err(|e| match e {
-                Error::Query(m) => Error::Connect(m),
-                other => other,
-            })?;
+        // Also wakes a stopped warehouse up, without waiting for it.
+        s.check_access().await?;
         Ok(Box::new(s))
     }
 }
@@ -986,6 +979,10 @@ impl Session for DatabricksSession {
     }
 
     async fn server_version(&mut self) -> Result<String> {
+        // Only shown: not worth waiting for a stopped warehouse.
+        if self.warehouse_running().await == Some(false) {
+            return Ok("Databricks SQL".into());
+        }
         let rows = self
             .text_rows("SELECT current_version().dbsql_version", &[])
             .await
@@ -998,81 +995,25 @@ impl Session for DatabricksSession {
     }
 
     async fn list_databases(&mut self) -> Result<Vec<String>> {
-        let rows = self.text_rows("SHOW CATALOGS", &[]).await?;
-        Ok(rows
-            .into_iter()
-            .filter_map(|r| r.into_iter().next().flatten())
-            .collect())
+        self.catalogs().await
     }
 
+    /// From Unity Catalog where it lists the catalog (no warehouse), else
+    /// the catalog's `information_schema` (see [`catalog_api`]).
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
-        let Ok(cat) = self.catalog().map(|c| quote_ident(Quote::Backtick, c)) else {
+        let Ok(cat) = self.catalog().map(str::to_string) else {
             return Ok(Vec::new());
         };
-        let mut out = Vec::new();
-        let tables = self
-            .text_rows(
-                &format!(
-                    "SELECT table_schema, table_name, table_type FROM {cat}.information_schema.tables
-                     WHERE table_schema <> 'information_schema' ORDER BY 1, 2"
-                ),
-                &[],
-            )
-            .await?;
-        for r in tables {
-            let kind = match r.get(2).cloned().flatten().as_deref() {
-                Some("VIEW") => kinds::VIEW,
-                Some("MATERIALIZED_VIEW") => kinds::MATERIALIZED_VIEW,
-                _ => kinds::TABLE,
-            };
-            out.push(DbObject {
-                kind: kind.into(),
-                schema: r.first().cloned().flatten(),
-                name: r.get(1).cloned().flatten().unwrap_or_default(),
-                parent: None,
-            });
-        }
-        if let Ok(rows) = self
-            .text_rows(
-                &format!(
-                    "SELECT routine_schema, routine_name FROM {cat}.information_schema.routines
-                     WHERE routine_schema <> 'information_schema' ORDER BY 1, 2"
-                ),
-                &[],
-            )
-            .await
-        {
-            out.extend(rows.into_iter().map(|r| DbObject {
-                kind: kinds::FUNCTION.into(),
-                schema: r.first().cloned().flatten(),
-                name: r.get(1).cloned().flatten().unwrap_or_default(),
-                parent: None,
-            }));
-        }
-        Ok(out)
+        self.objects(&cat).await
     }
 
-    /// The catalog's `information_schema.schemata` (what the user can
-    /// see); information_schema is the system one.
+    /// The catalog's schemas the login can see (see [`catalog_api`]);
+    /// information_schema is the system one.
     async fn list_schemas(&mut self) -> Result<Option<Vec<SchemaInfo>>> {
-        let Ok(cat) = self.catalog().map(|c| quote_ident(Quote::Backtick, c)) else {
+        let Ok(cat) = self.catalog().map(str::to_string) else {
             return Ok(None);
         };
-        let rows = self
-            .text_rows(
-                &format!("SELECT schema_name FROM {cat}.information_schema.schemata ORDER BY 1"),
-                &[],
-            )
-            .await?;
-        Ok(Some(
-            rows.into_iter()
-                .filter_map(|r| r.into_iter().next().flatten())
-                .map(|name| SchemaInfo {
-                    system: name.eq_ignore_ascii_case("information_schema"),
-                    name,
-                })
-                .collect(),
-        ))
+        self.schemas(&cat).await.map(Some)
     }
 
     async fn columns(&mut self, o: &ObjectRef) -> Result<Vec<ColumnInfo>> {

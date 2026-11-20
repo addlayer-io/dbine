@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Improvements
+
+- **Databricks explorer without waiting for the SQL warehouse:** connecting to Databricks and opening catalogs used to wait for a stopped SQL warehouse to start, which can take minutes, and a big catalog's tables were read through `information_schema`. The explorer now gets catalogs, schemas, tables, views and functions from Unity Catalog, which needs no warehouse and answers in a few calls. Connecting still checks your sign-in and your access to the warehouse, and starts it if it's stopped, but no longer waits for it: a query waits for it as before. The legacy `hive_metastore` and foreign catalogs are still read with SQL.
+
 ### Fixes
 
 - **Databricks tables over 25 MiB in Compare data without the reason:** comparing, copying or exporting a Databricks table could stop with "Databricks truncó el resultado… no se copia una tabla incompleta", even in a comparison. Behind it, Databricks had refused to deliver the table through external links, the way without a size limit, and the error left out what Databricks said. The error now gives Databricks' reason and talks about the read, not a copy. A refusal that comes after the query was sent is also detected.

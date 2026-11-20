@@ -54432,6 +54432,7 @@
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
  "la sentencia falló": [
+  "crates/drivers/databricks/src/catalog_api.rs",
   "crates/drivers/databricks/src/lib.rs",
   "crates/drivers/databricks/src/transfer.rs"
  ],
@@ -59395,7 +59396,7 @@
   "crates/drivers/trino/src/lib.rs"
  ],
  "tiempo de espera agotado (¿el warehouse está iniciando?)": [
-  "crates/drivers/databricks/src/lib.rs"
+  "crates/drivers/databricks/src/catalog_api.rs"
  ],
  "tiempo de espera agotado al cargar la configuración de AWS": [
   "crates/drivers/dynamodb/src/aws.rs"

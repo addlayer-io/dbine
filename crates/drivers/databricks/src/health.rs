@@ -74,24 +74,7 @@ pub(crate) fn auto_stop_severity(mins: i64) -> Severity {
 impl DatabricksSession {
     /// Every page of a Unity Catalog list.
     pub(crate) async fn uc_list(&self, path: &str, key: &str, max: usize) -> Result<Vec<Json>> {
-        let mut out = Vec::new();
-        let mut token: Option<String> = None;
-        loop {
-            let sep = if path.contains('?') { '&' } else { '?' };
-            let url = match &token {
-                Some(t) => format!("{path}{sep}page_token={}", escape(t)),
-                None => path.to_string(),
-            };
-            let resp = self.api.get(&url).await?;
-            if let Some(items) = resp.get(key).and_then(Json::as_array) {
-                out.extend(items.iter().cloned());
-            }
-            match resp.get("next_page_token").and_then(Json::as_str) {
-                Some(t) if !t.is_empty() && out.len() < max => token = Some(t.to_string()),
-                _ => break,
-            }
-        }
-        Ok(out)
+        crate::catalog_api::uc_pages(&self.api, path, key, max).await
     }
 
     pub(crate) async fn health_checks_impl(&mut self, database: &str) -> Result<Vec<HealthCheck>> {
