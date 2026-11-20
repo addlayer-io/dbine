@@ -33,7 +33,7 @@
     {
       "source": "osv",
       "date": "2026-11-20",
-      "revision": "8dd0e377147a",
+      "revision": "40aa6d4a5e21",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -41,7 +41,7 @@
     {
       "source": "trivy",
       "date": "2026-11-20",
-      "revision": "8dd0e377147a",
+      "revision": "40aa6d4a5e21",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -57,7 +57,7 @@
     {
       "source": "scorecard",
       "date": "2026-11-20",
-      "revision": "8b0456e0f5dd",
+      "revision": "8dd0e377147a",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.5
@@ -4508,7 +4508,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "CI-Tests: 8/10 — 8 out of 10 merged PRs checked by a CI test -- score normalized to 8",
+      "title": "CI-Tests: 8/10 — 9 out of 11 merged PRs checked by a CI test -- score normalized to 8",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
       "found": "2026-11-15",
@@ -4530,7 +4530,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/10 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/11 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",
