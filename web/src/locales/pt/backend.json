@@ -19068,5 +19068,13 @@
   "el resultado no tiene las mismas columnas que en la primera base": "o resultado não tem as mesmas colunas que no primeiro banco",
   "este motor todavía no lista sus objetos por páginas": "este motor ainda não lista seus objetos por páginas",
   "Índice de búsqueda {0} borrado.": "Índice de busca {0} excluído.",
-  "Único; empieza con una letra; sin comas.": "Único; começa com uma letra; sem vírgulas."
+  "Único; empieza con una letra; sin comas.": "Único; começa com uma letra; sem vírgulas.",
+  "Sin permiso de escritura en el modelo no se ve el código M de las particiones: no se sabe de qué orígenes lee la tabla.": "Sem permissão de escrita no modelo, o código M das partições não fica visível: não se sabe de quais origens a tabela lê.",
+  "No se pudo leer la definición de la vista (listCollections): se muestra solo lo que encuentra la búsqueda en su código.": "Não foi possível ler a definição da view (listCollections): só é mostrado o que a busca encontra no código dela.",
+  "No se pudo leer system_schema: se muestra solo lo que encuentra la búsqueda en el código del objeto.": "Não foi possível ler system_schema: só é mostrado o que a busca encontra no código do objeto.",
+  "Catalogs": "Catalogs",
+  "Excel": "Excel",
+  "Item": "Item",
+  "Kind": "Kind",
+  "Web": "Web"
 }

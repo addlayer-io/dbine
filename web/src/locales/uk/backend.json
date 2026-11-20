@@ -19068,5 +19068,13 @@
   "el resultado no tiene las mismas columnas que en la primera base": "результат не має тих самих стовпців, що й у першій базі",
   "este motor todavía no lista sus objetos por páginas": "цей рушій поки не виводить свої об'єкти посторінково",
   "Índice de búsqueda {0} borrado.": "Пошуковий індекс {0} видалено.",
-  "Único; empieza con una letra; sin comas.": "Унікальний; починається з літери; без ком."
+  "Único; empieza con una letra; sin comas.": "Унікальний; починається з літери; без ком.",
+  "Sin permiso de escritura en el modelo no se ve el código M de las particiones: no se sabe de qué orígenes lee la tabla.": "Без дозволу на запис у модель код M секцій не видно: невідомо, з яких джерел читає таблиця.",
+  "No se pudo leer la definición de la vista (listCollections): se muestra solo lo que encuentra la búsqueda en su código.": "Не вдалося прочитати визначення подання (listCollections): показано лише те, що пошук знаходить у його коді.",
+  "No se pudo leer system_schema: se muestra solo lo que encuentra la búsqueda en el código del objeto.": "Не вдалося прочитати system_schema: показано лише те, що пошук знаходить у коді об'єкта.",
+  "Catalogs": "Catalogs",
+  "Excel": "Excel",
+  "Item": "Item",
+  "Kind": "Kind",
+  "Web": "Web"
 }

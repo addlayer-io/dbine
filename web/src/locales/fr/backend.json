@@ -19068,5 +19068,13 @@
   "Índice «{0}»: Solr indexa cada campo por su propia definición; aparte solo se definen los índices vectoriales. Marcalo como vectorial o quitalo.": "Index « {0} » : Solr indexe chaque champ selon sa propre définition ; seuls les index vectoriels sont définis à part. Marquez-le comme vectoriel ou retirez-le.",
   "Índice «{0}»: {1} indexa cada campo en su propio mapping; aparte solo se definen los índices vectoriales. Marcalo como vectorial o quitalo.": "Index « {0} » : {1} indexe chaque champ dans son propre mapping ; seuls les index vectoriels sont définis à part. Marquez-le comme vectoriel ou retirez-le.",
   "Índices de búsqueda": "Index de recherche",
-  "Único; empieza con una letra; sin comas.": "Unique ; commence par une lettre ; sans virgules."
+  "Único; empieza con una letra; sin comas.": "Unique ; commence par une lettre ; sans virgules.",
+  "Sin permiso de escritura en el modelo no se ve el código M de las particiones: no se sabe de qué orígenes lee la tabla.": "Sans autorisation d'écriture sur le modèle, le code M des partitions n'est pas visible : on ignore de quelles sources la table lit.",
+  "No se pudo leer la definición de la vista (listCollections): se muestra solo lo que encuentra la búsqueda en su código.": "Impossible de lire la définition de la vue (listCollections) : seul ce que la recherche trouve dans son code est affiché.",
+  "No se pudo leer system_schema: se muestra solo lo que encuentra la búsqueda en el código del objeto.": "Impossible de lire system_schema : seul ce que la recherche trouve dans le code de l'objet est affiché.",
+  "Catalogs": "Catalogs",
+  "Excel": "Excel",
+  "Item": "Item",
+  "Kind": "Kind",
+  "Web": "Web"
 }

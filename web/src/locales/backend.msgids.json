@@ -6546,7 +6546,11 @@
   "crates/drivers/cassandra/src/backup.rs"
  ],
  "Catalog": [
-  "crates/drivers/mysql/src/references.rs"
+  "crates/drivers/mysql/src/references.rs",
+  "crates/drivers/powerbi/src/references/m.rs"
+ ],
+ "Catalogs": [
+  "crates/drivers/powerbi/src/references/m.rs"
  ],
  "Categoría": [
   "crates/drivers/sqlserver/src/agent/alert.rs",
@@ -11055,10 +11059,12 @@
   "crates/drivers/mysql/src/backup.rs",
   "crates/drivers/mysql/src/monitor.rs",
   "crates/drivers/odbc/src/presets.rs",
-  "crates/drivers/postgres/src/processes.rs"
+  "crates/drivers/postgres/src/processes.rs",
+  "crates/drivers/powerbi/src/references/m.rs"
  ],
  "Databases": [
   "crates/drivers/cosmosdb/src/lib.rs",
+  "crates/drivers/powerbi/src/references/m.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
  "Databend": [
@@ -11108,7 +11114,8 @@
  ],
  "Databricks": [
   "crates/dbine-core/src/conn_import/mod.rs",
-  "crates/dbine-schema/src/dialect/spark.rs"
+  "crates/dbine-schema/src/dialect/spark.rs",
+  "crates/drivers/powerbi/src/references/m.rs"
  ],
  "Databricks Jobs API: la solicitud que DBine envía al ejecutar el job.": [
   "crates/drivers/databricks/src/scheduler/run.rs"
@@ -18734,6 +18741,9 @@
  "Exasol toma estas medidas cada 30 segundos (EXA_MONITOR_LAST_DAY).": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
+ "Excel": [
+  "crates/drivers/powerbi/src/references/m.rs"
+ ],
  "Excel admite hasta 1.048.576 filas por hoja; exportá en CSV": [
   "crates/dbine-core/src/export.rs"
  ],
@@ -19798,7 +19808,8 @@
   "crates/drivers/spanner/src/monitor.rs"
  ],
  "File": [
-  "crates/drivers/clickhouse/src/backup.rs"
+  "crates/drivers/clickhouse/src/backup.rs",
+  "crates/drivers/powerbi/src/references/m.rs"
  ],
  "Filesystem": [
   "crates/drivers/clickhouse/src/monitor.rs"
@@ -20002,6 +20013,7 @@
   "crates/drivers/influxdb/src/v2.rs"
  ],
  "Folder": [
+  "crates/drivers/powerbi/src/references/m.rs",
   "src-tauri/src/secret_sources/cyberark.rs"
  ],
  "Forbidden": [
@@ -22690,6 +22702,9 @@
  "Italia": [
   "src-tauri/src/commands/datagen.rs"
  ],
+ "Item": [
+  "crates/drivers/powerbi/src/references/m.rs"
+ ],
  "Iteraciones a la vez": [
   "crates/drivers/databricks/src/scheduler/form.rs",
   "crates/drivers/databricks/src/scheduler/spec.rs"
@@ -23081,6 +23096,9 @@
  ],
  "Keyspaces y tamaños": [
   "crates/drivers/cassandra/src/monitor.rs"
+ ],
+ "Kind": [
+  "crates/drivers/powerbi/src/references/m.rs"
  ],
  "KingbaseES no cambia un job de DBMS_SCHEDULER ya creado: al guardar cualquier cambio salvo «Habilitado» el job se borra y se crea de nuevo, y su historial de ejecuciones queda con el anterior.": [
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
@@ -28407,6 +28425,7 @@
   "crates/drivers/odbc/src/processes.rs",
   "crates/drivers/odbc/src/scheduler/iris.rs",
   "crates/drivers/powerbi/src/meta/info.rs",
+  "crates/drivers/powerbi/src/references/m.rs",
   "crates/drivers/sqlserver/src/plan.rs",
   "src-tauri/src/secret_sources/aws.rs",
   "src-tauri/src/secret_sources/ssm.rs"
@@ -29671,6 +29690,9 @@
  "No se pudo leer la contraseña guardada en el llavero del sistema ({0}). Si macOS te pide acceso, se usa la contraseña de tu usuario de Mac y conviene elegir «Permitir siempre». Mientras tanto, escribí la contraseña de la base:": [
   "src-tauri/src/state.rs"
  ],
+ "No se pudo leer la definición de la vista (listCollections): se muestra solo lo que encuentra la búsqueda en su código.": [
+  "crates/drivers/mongodb/src/references.rs"
+ ],
  "No se pudo leer la definición de «{0}»: si tiene alias, se pierden al borrarlo y hay que volver a crearlos sobre «{1}».": [
   "crates/drivers/elasticsearch/src/rename.rs"
  ],
@@ -29807,6 +29829,9 @@
  ],
  "No se pudo leer system.runtime.queries: {0}": [
   "crates/drivers/trino/src/monitor.rs"
+ ],
+ "No se pudo leer system_schema: se muestra solo lo que encuentra la búsqueda en el código del objeto.": [
+  "crates/drivers/cassandra/src/references.rs"
  ],
  "No se pudo leer {0} ({1}): {2}": [
   "crates/dbine-tls/src/lib.rs",
@@ -32223,7 +32248,8 @@
  "Oracle": [
   "crates/dbine-schema/src/dialect/oracle.rs",
   "crates/drivers/oracle/src/lib.rs",
-  "crates/drivers/oracle/src/references.rs"
+  "crates/drivers/oracle/src/references.rs",
+  "crates/drivers/powerbi/src/references/m.rs"
  ],
  "Oracle Autonomous Database no ejecuta jobs de tipo {0}.": [
   "crates/drivers/oracle/src/scheduler/job.rs"
@@ -35148,6 +35174,7 @@
   "crates/drivers/elasticsearch/src/plan.rs",
   "crates/drivers/iotdb/src/jobs.rs",
   "crates/drivers/mysql/src/plan.rs",
+  "crates/drivers/powerbi/src/references/m.rs",
   "crates/drivers/powerbi/src/refresh/jobs.rs",
   "crates/drivers/snowflake/src/plan.rs",
   "crates/drivers/spanner/src/plan.rs",
@@ -37541,6 +37568,7 @@
   "crates/drivers/dsql/src/plan.rs",
   "crates/drivers/odbc/src/presets.rs",
   "crates/drivers/postgres/src/plan.rs",
+  "crates/drivers/powerbi/src/references/m.rs",
   "crates/drivers/sqlserver/src/plan.rs"
  ],
  "Script": [
@@ -39788,6 +39816,9 @@
  "Sin permiso de administrador del workspace, el historial muestra solo tus consultas.": [
   "crates/drivers/databricks/src/monitor.rs"
  ],
+ "Sin permiso de escritura en el modelo no se ve el código M de las particiones: no se sabe de qué orígenes lee la tabla.": [
+  "crates/drivers/powerbi/src/references/mod.rs"
+ ],
  "Sin permiso de escritura en el modelo no se ve su historial.": [
   "crates/drivers/powerbi/src/refresh/jobs.rs"
  ],
@@ -40136,6 +40167,7 @@
  ],
  "Snowflake": [
   "crates/dbine-schema/src/dialect/snowflake.rs",
+  "crates/drivers/powerbi/src/references/m.rs",
   "crates/drivers/snowflake/src/lib.rs"
  ],
  "Snowflake admite hasta 38 dígitos; el origen tiene {0}.": [
@@ -47634,6 +47666,9 @@
  ],
  "Wayne": [
   "src-tauri/src/commands/datagen.rs"
+ ],
+ "Web": [
+  "crates/drivers/powerbi/src/references/m.rs"
  ],
  "Wed": [
   "src-tauri/src/tasks/os.rs"

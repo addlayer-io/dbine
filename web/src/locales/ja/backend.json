@@ -19068,5 +19068,13 @@
   "Últimas actualizaciones": "最近の更新",
   "en la base {0}: {1}": "データベース {0} で：{1}",
   "el resultado no tiene las mismas columnas que en la primera base": "結果の列が最初のデータベースと異なります",
-  "este motor todavía no lista sus objetos por páginas": "このエンジンはまだオブジェクトをページ単位で一覧表示しません"
+  "este motor todavía no lista sus objetos por páginas": "このエンジンはまだオブジェクトをページ単位で一覧表示しません",
+  "Sin permiso de escritura en el modelo no se ve el código M de las particiones: no se sabe de qué orígenes lee la tabla.": "モデルへの書き込み権限がないと、パーティションの M コードは表示されません。テーブルがどのソースから読み取るかは不明です。",
+  "No se pudo leer la definición de la vista (listCollections): se muestra solo lo que encuentra la búsqueda en su código.": "ビューの定義(listCollections)を読み取れませんでした。コード内で検索により見つかった内容のみを表示しています。",
+  "No se pudo leer system_schema: se muestra solo lo que encuentra la búsqueda en el código del objeto.": "system_schema を読み取れませんでした。オブジェクトのコード内で検索により見つかった内容のみを表示しています。",
+  "Catalogs": "Catalogs",
+  "Excel": "Excel",
+  "Item": "Item",
+  "Kind": "Kind",
+  "Web": "Web"
 }

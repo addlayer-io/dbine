@@ -19068,5 +19068,13 @@
   "Índice «{0}»: Solr indexa cada campo por su propia definición; aparte solo se definen los índices vectoriales. Marcalo como vectorial o quitalo.": "Индекс «{0}»: Solr индексирует каждое поле по его собственному определению; отдельно определяются только векторные индексы. Отметьте его как векторный или уберите.",
   "Índice «{0}»: {1} indexa cada campo en su propio mapping; aparte solo se definen los índices vectoriales. Marcalo como vectorial o quitalo.": "Индекс «{0}»: {1} индексирует каждое поле по его собственному mapping; отдельно определяются только векторные индексы. Отметьте его как векторный или уберите.",
   "Índices de búsqueda": "Поисковые индексы",
-  "Único; empieza con una letra; sin comas.": "Уникальное; начинается с буквы; без запятых."
+  "Único; empieza con una letra; sin comas.": "Уникальное; начинается с буквы; без запятых.",
+  "Sin permiso de escritura en el modelo no se ve el código M de las particiones: no se sabe de qué orígenes lee la tabla.": "Без права записи в модель код M секций не виден: неизвестно, из каких источников читает таблица.",
+  "No se pudo leer la definición de la vista (listCollections): se muestra solo lo que encuentra la búsqueda en su código.": "Не удалось прочитать определение представления (listCollections): показано только то, что поиск находит в его коде.",
+  "No se pudo leer system_schema: se muestra solo lo que encuentra la búsqueda en el código del objeto.": "Не удалось прочитать system_schema: показано только то, что поиск находит в коде объекта.",
+  "Catalogs": "Catalogs",
+  "Excel": "Excel",
+  "Item": "Item",
+  "Kind": "Kind",
+  "Web": "Web"
 }

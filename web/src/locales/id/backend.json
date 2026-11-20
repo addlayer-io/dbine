@@ -19068,5 +19068,13 @@
   "Índice «{0}»: Solr indexa cada campo por su propia definición; aparte solo se definen los índices vectoriales. Marcalo como vectorial o quitalo.": "Indeks «{0}»: Solr mengindeks setiap bidang menurut definisinya sendiri; yang didefinisikan terpisah hanya indeks vektor. Tandai sebagai vektor atau hapus.",
   "Índice «{0}»: {1} indexa cada campo en su propio mapping; aparte solo se definen los índices vectoriales. Marcalo como vectorial o quitalo.": "Indeks «{0}»: {1} mengindeks setiap bidang pada mapping-nya sendiri; yang didefinisikan terpisah hanya indeks vektor. Tandai sebagai vektor atau hapus.",
   "Índices de búsqueda": "Indeks pencarian",
-  "Único; empieza con una letra; sin comas.": "Unik; diawali huruf; tanpa koma."
+  "Único; empieza con una letra; sin comas.": "Unik; diawali huruf; tanpa koma.",
+  "Sin permiso de escritura en el modelo no se ve el código M de las particiones: no se sabe de qué orígenes lee la tabla.": "Tanpa izin tulis pada model, kode M partisi tidak terlihat: sumber yang dibaca tabel tidak diketahui.",
+  "No se pudo leer la definición de la vista (listCollections): se muestra solo lo que encuentra la búsqueda en su código.": "Definisi tampilan (listCollections) tidak dapat dibaca: hanya menampilkan apa yang ditemukan pencarian di kodenya.",
+  "No se pudo leer system_schema: se muestra solo lo que encuentra la búsqueda en el código del objeto.": "system_schema tidak dapat dibaca: hanya menampilkan apa yang ditemukan pencarian di kode objek.",
+  "Catalogs": "Catalogs",
+  "Excel": "Excel",
+  "Item": "Item",
+  "Kind": "Kind",
+  "Web": "Web"
 }

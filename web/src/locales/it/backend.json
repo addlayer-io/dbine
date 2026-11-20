@@ -19068,5 +19068,13 @@
   "el resultado no tiene las mismas columnas que en la primera base": "il risultato non ha le stesse colonne del primo database",
   "este motor todavía no lista sus objetos por páginas": "questo motore non elenca ancora i suoi oggetti a pagine",
   "Índice de búsqueda {0} borrado.": "Indice di ricerca {0} eliminato.",
-  "Único; empieza con una letra; sin comas.": "Univoco; inizia con una lettera; senza virgole."
+  "Único; empieza con una letra; sin comas.": "Univoco; inizia con una lettera; senza virgole.",
+  "Sin permiso de escritura en el modelo no se ve el código M de las particiones: no se sabe de qué orígenes lee la tabla.": "Senza permesso di scrittura sul modello il codice M delle partizioni non è visibile: non si sa da quali origini legga la tabella.",
+  "No se pudo leer la definición de la vista (listCollections): se muestra solo lo que encuentra la búsqueda en su código.": "Impossibile leggere la definizione della vista (listCollections): viene mostrato solo ciò che la ricerca trova nel suo codice.",
+  "No se pudo leer system_schema: se muestra solo lo que encuentra la búsqueda en el código del objeto.": "Impossibile leggere system_schema: viene mostrato solo ciò che la ricerca trova nel codice dell'oggetto.",
+  "Catalogs": "Catalogs",
+  "Excel": "Excel",
+  "Item": "Item",
+  "Kind": "Kind",
+  "Web": "Web"
 }

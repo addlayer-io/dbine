@@ -19068,5 +19068,13 @@
   "Índice «{0}»: Solr indexa cada campo por su propia definición; aparte solo se definen los índices vectoriales. Marcalo como vectorial o quitalo.": "索引“{0}”：Solr 按其自身定义索引每个字段；另外只定义向量索引。请将其标记为向量索引或移除。",
   "Índice «{0}»: {1} indexa cada campo en su propio mapping; aparte solo se definen los índices vectoriales. Marcalo como vectorial o quitalo.": "索引“{0}”：{1} 按其自身的 mapping 索引每个字段；另外只定义向量索引。请将其标记为向量索引或移除。",
   "Índices de búsqueda": "搜索索引",
-  "Único; empieza con una letra; sin comas.": "唯一；以字母开头；不含逗号。"
+  "Único; empieza con una letra; sin comas.": "唯一；以字母开头；不含逗号。",
+  "Sin permiso de escritura en el modelo no se ve el código M de las particiones: no se sabe de qué orígenes lee la tabla.": "没有模型的写入权限时，看不到分区的 M 代码，因此无法得知该表从哪些来源读取数据。",
+  "No se pudo leer la definición de la vista (listCollections): se muestra solo lo que encuentra la búsqueda en su código.": "无法读取视图定义（listCollections）：仅显示搜索在其代码中找到的内容。",
+  "No se pudo leer system_schema: se muestra solo lo que encuentra la búsqueda en el código del objeto.": "无法读取 system_schema：仅显示搜索在对象代码中找到的内容。",
+  "Catalogs": "Catalogs",
+  "Excel": "Excel",
+  "Item": "Item",
+  "Kind": "Kind",
+  "Web": "Web"
 }

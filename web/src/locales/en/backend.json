@@ -19068,5 +19068,13 @@
   "el resultado no tiene las mismas columnas que en la primera base": "the result doesn't have the same columns as in the first database",
   "este motor todavía no lista sus objetos por páginas": "this engine doesn't list its objects page by page yet",
   "Índice de búsqueda {0} borrado.": "Search index {0} deleted.",
-  "Único; empieza con una letra; sin comas.": "Unique; starts with a letter; no commas."
+  "Único; empieza con una letra; sin comas.": "Unique; starts with a letter; no commas.",
+  "Sin permiso de escritura en el modelo no se ve el código M de las particiones: no se sabe de qué orígenes lee la tabla.": "Without write permission on the model, the partitions' M code isn't visible: the sources the table reads from are unknown.",
+  "No se pudo leer la definición de la vista (listCollections): se muestra solo lo que encuentra la búsqueda en su código.": "Couldn't read the view definition (listCollections): only what the search finds in its code is shown.",
+  "No se pudo leer system_schema: se muestra solo lo que encuentra la búsqueda en el código del objeto.": "Couldn't read system_schema: only what the search finds in the object's code is shown.",
+  "Catalogs": "Catalogs",
+  "Excel": "Excel",
+  "Item": "Item",
+  "Kind": "Kind",
+  "Web": "Web"
 }

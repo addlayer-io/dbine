@@ -4023,6 +4023,33 @@ Drivers whose engine records dependencies answer from their catalog instead:
   any name the catalog didn't record. Firebird records no external sources, so
   `EXECUTE STATEMENT … ON EXTERNAL` doesn't appear. Sequences and domains use
   the default version. Firebird 3 or later.
+- **Power BI:** What a measure, a calculated column or table, a calculation
+  group's items, a role's RLS filters or a model function uses comes from
+  `INFO.CALCDEPENDENCY()`, filtered on the object, when the account has write
+  permission on a model on capacity (**Confirmed**); otherwise DBine reads the
+  DAX expressions and resolves the tables, columns, measures and functions
+  they name against the model (**Probable**). A table also lists the tables
+  its relationships point at (**Confirmed**). Its sources outside the model
+  come from each partition's Power Query (M): SQL Server, Databricks,
+  Snowflake, PostgreSQL, Oracle, MySQL, ODBC, Excel, CSV, SharePoint, Web and
+  other `X.Database` sources. They are reported with the server, database,
+  schema and table that the navigation steps or the native query reach, with
+  parameter values filled in (passwords and keys are left out). Shared
+  expressions, parameters and other tables named in the M are listed as
+  **Probable**. Without write permission the expressions are hidden and the
+  tab says so. Direct Lake partitions are not read yet.
+- **MongoDB and DocumentDB:** What a view uses comes from its stored
+  definition in `listCollections`: `viewOn` and the pipeline's `$lookup`,
+  `$graphLookup`, `$unionWith`, `$merge` and `$out`, including sub-pipelines,
+  all **Confirmed**. A collection in another database is listed as an external
+  source. Collections use nothing: documents reference each other only by
+  convention. FerretDB has no views.
+- **Cassandra, ScyllaDB and Amazon Keyspaces:** What an object uses comes from
+  `system_schema` and is **Confirmed**: a materialized view's base table
+  (`system_schema.views`), the user-defined types used by a table's columns, a
+  type's fields and a function's arguments and result, and an aggregate's
+  state and final functions (`system_schema.aggregates`). CQL has no foreign
+  keys. Keyspaces has only tables and types.
 
 The engines not listed here use the default version. A driver process
 published before answers `References` with Unsupported, and the app runs the
