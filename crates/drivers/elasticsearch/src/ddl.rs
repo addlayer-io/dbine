@@ -910,6 +910,53 @@ pub fn update_script(target: &ObjectRef, changes: &[RowChange]) -> Result<String
     Ok(reqs.join("\n\n"))
 }
 
+/// [`bulk_script`] knowing the columns' types: bit vectors given one 0 or 1
+/// per dimension are written as the packed bytes their field takes, byte
+/// vectors as integers (see [`vectors::script_value`]).
+pub fn bulk_script_typed(
+    target: &ObjectRef,
+    columns: &[dbine_driver::ResultColumn],
+    rows: &[Vec<Value>],
+) -> Result<String> {
+    let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+    let types: Vec<Option<VecType>> = columns.iter().map(vectors::script_type).collect();
+    let rows: Vec<Vec<Value>> = rows
+        .iter()
+        .map(|r| vectors::script_row(r, &types))
+        .collect();
+    bulk_script(target, &names, &rows)
+}
+
+/// [`update_script`] knowing the columns' types (by name), with vectors
+/// written as in [`bulk_script_typed`].
+pub fn update_script_typed(
+    target: &ObjectRef,
+    changes: &[RowChange],
+    types: &[dbine_driver::ResultColumn],
+) -> Result<String> {
+    let typed: Vec<(&str, VecType)> = types
+        .iter()
+        .filter_map(|c| Some((c.name.as_str(), vectors::script_type(c)?)))
+        .collect();
+    let changes: Vec<RowChange> = changes
+        .iter()
+        .map(|ch| {
+            let mut ch = ch.clone();
+            for (c, val) in &mut ch.set {
+                if let Some(v) = typed
+                    .iter()
+                    .find(|(n, _)| n == c)
+                    .and_then(|(_, t)| vectors::script_value(val, t))
+                {
+                    *val = v;
+                }
+            }
+            ch
+        })
+        .collect();
+    update_script(target, &changes)
+}
+
 /// Documents as `DELETE /<index>/_doc/<id>` requests, addressed like
 /// [`update_script`] (by `_id`, `_routing` in the query string). Data
 /// streams refuse deletes through the stream name, so there it's a
@@ -1959,6 +2006,90 @@ mod tests {
             ..Default::default()
         }];
         assert!(update_script(&target, &no_id).is_err());
+    }
+
+    #[test]
+    fn typed_scripts_pack_bit_vectors_and_write_bytes_as_integers() {
+        use dbine_driver::{ResultColumn, VectorElement, VectorMeta};
+        let target = ObjectRef {
+            kind: kinds::INDEX.into(),
+            schema: None,
+            name: "v".into(),
+        };
+        let bits16 = json!([0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1]);
+        // As a result types them (type name and vector meta), as a describe
+        // does (type name only), and by the meta alone.
+        let columns = vec![
+            ResultColumn::new("_id", "keyword"),
+            ResultColumn::new("es_bits", "dense_vector(16, bit)")
+                .with_vector(VectorMeta::dense(Some(16), VectorElement::Bit)),
+            ResultColumn::new("os_bits", "knn_vector(16, binary)"),
+            ResultColumn::new("meta_bits", "")
+                .with_vector(VectorMeta::dense(Some(16), VectorElement::Bit)),
+            ResultColumn::new("bytes", "knn_vector(3, byte)"),
+            ResultColumn::new("floats", "dense_vector(3)")
+                .with_vector(VectorMeta::dense(Some(3), VectorElement::F32)),
+            ResultColumn::new("title", "keyword"),
+        ];
+        let row = vec![
+            json!("1"),
+            bits16.clone(),
+            json!("[0,1,1,0,0,0,0,0,1,1,1,1,0,0,0,1]"),
+            bits16.clone(),
+            json!([1.0, -2.0, 127.0]),
+            json!([1.0, 0.5, -2.0]),
+            json!("uno"),
+        ];
+        let text = bulk_script_typed(&target, &columns, std::slice::from_ref(&row)).unwrap();
+        let doc = text.lines().nth(2).unwrap();
+        // 0b01100000 = 96, 0b11110001 = -15 as a signed byte.
+        assert_eq!(
+            doc,
+            r#"{"es_bits":[96,-15],"os_bits":[96,-15],"meta_bits":[96,-15],"bytes":[1,-2,127],"floats":[1.0,0.5,-2.0],"title":"uno"}"#
+        );
+        // Untyped: the same rows as they are (the session packs bits by the
+        // mapping when it runs them).
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        let untyped = bulk_script(&target, &names, &[row]).unwrap();
+        assert!(untyped.contains(r#""es_bits":[0,1,1,0,"#), "{untyped}");
+        assert!(untyped.contains(r#""bytes":[1.0,-2.0,127.0]"#), "{untyped}");
+        // Already packed, the wrong length, or not integers: left alone.
+        let row = vec![
+            json!("2"),
+            json!([96, -15]),
+            json!([1, 0, 1]),
+            Value::Null,
+            json!([1.5, 2.0, 3.0]),
+            Value::Null,
+            Value::Null,
+        ];
+        let text = bulk_script_typed(&target, &columns, &[row]).unwrap();
+        assert_eq!(
+            text.lines().nth(2).unwrap(),
+            r#"{"es_bits":[96,-15],"os_bits":[1,0,1],"bytes":[1.5,2.0,3.0]}"#
+        );
+        // Updates, typed by name in any order.
+        let changes = vec![RowChange {
+            key: vec![("_id".into(), json!("3"))],
+            set: vec![
+                ("os_bits".into(), bits16),
+                ("bytes".into(), json!([4.0, 5.0, -6.0])),
+                ("title".into(), json!("x")),
+            ],
+            ..Default::default()
+        }];
+        let types = vec![
+            ResultColumn::new("bytes", "dense_vector(3, byte)"),
+            ResultColumn::new("os_bits", "knn_vector(16, binary)"),
+        ];
+        assert_eq!(
+            update_script_typed(&target, &changes, &types).unwrap(),
+            "POST /v/_update/3?refresh=true\n{\"doc\":{\"os_bits\":[96,-15],\"bytes\":[4,5,-6],\"title\":\"x\"}}"
+        );
+        assert_eq!(
+            update_script_typed(&target, &changes, &[]).unwrap(),
+            update_script(&target, &changes).unwrap()
+        );
     }
 
     #[test]

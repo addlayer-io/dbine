@@ -384,6 +384,26 @@ impl Driver for Solr {
         ddl::atomic_update_script(target, changes)
     }
 
+    /// BYTE vectors as integers, by the columns' types; a value Solr would
+    /// truncate or wrap is an error.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[dbine_driver::ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        ddl::insert_script_typed(target, columns, rows)
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[dbine_driver::ResultColumn],
+    ) -> Result<String> {
+        ddl::atomic_update_script_typed(target, changes, types)
+    }
+
     fn delete_script(
         &self,
         target: &ObjectRef,
