@@ -14,6 +14,7 @@ mod health;
 mod index_usage;
 mod jobs;
 mod monitor;
+mod objects_page;
 mod permissions;
 mod plan;
 mod processes;
@@ -1489,6 +1490,15 @@ impl Session for ClickHouseSession {
             }));
         }
         Ok(out)
+    }
+
+    /// One narrow `system.tables` (and `system.functions`) query per page
+    /// (see [`objects_page`]).
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(query).await
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
