@@ -11,21 +11,26 @@ _Updated 2026-11-20._
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
-| CodeQL (static analysis) | 0 | 0 | 0 | 0 |
+| CodeQL (static analysis) | 1 | 3 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-_None._
+| ID | Severity | Source | Finding | Where | Fix |
+|---|---|---|---|---|---|
+| CQ-469 | CRITICAL | codeql | Static analysis finding | `crates/dbine-sync` | pending |
+| CQ-466 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-467 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+| CQ-468 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.6.3 | 2026-11-18 | 0e26e2f0..e8b61cec, everything 1.6.3 adds since v1.6.2 (#123 SQL Server catalog reads, #124 Compare data export, the per-day telemetry, the multi-database export of every row, the grid's keyboard scroll, the release commit); e8b61cec..031d392f, libz-sys 1.1.33 and the picomatch review; 6fa05571..f7e04ee7, lettre 0.11.24 past six SMTP advisories | 0 open | — |
-| codeql | 2026-11-20 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-20 | every lockfile (Cargo, npm) at [`4e9546e17`](https://github.com/addlayer-io/dbine/commit/4e9546e1758c) | 0 open | — |
-| scorecard | 2026-11-20 | repository settings and workflows at [`8de7e4642`](https://github.com/addlayer-io/dbine/commit/8de7e4642f96) | score 7.6/10 | — |
-| trivy | 2026-11-20 | whole repository at [`4e9546e17`](https://github.com/addlayer-io/dbine/commit/4e9546e1758c) | 0 open | — |
+| codeql | 2026-11-20 | Rust, TypeScript/Vue and workflows | 4 open | — |
+| osv | 2026-11-20 | every lockfile (Cargo, npm) at [`8de7e4642`](https://github.com/addlayer-io/dbine/commit/8de7e4642f96) | 0 open | — |
+| scorecard | 2026-11-20 | repository settings and workflows at [`6be91085f`](https://github.com/addlayer-io/dbine/commit/6be91085f573) | score 7.6/10 | — |
+| trivy | 2026-11-20 | whole repository at [`8de7e4642`](https://github.com/addlayer-io/dbine/commit/8de7e4642f96) | 0 open | — |
 
 ## Not counted, and why
 
@@ -336,6 +341,8 @@ Findings reviewed and found not to affect DBine. Each one says why and who decid
 | CodeQL rust/cleartext-logging: Cleartext logging of sensitive information | `crates/drivers/snowflake/src/security.rs` | used in tests — Test-only assertion messages in #[cfg(test)]; values are privilege names and test role names, no credentials; not shipped. | mpanichella |
 | CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/kdb/src/ipc.rs` | used in tests — Unit test of the kdb+ IPC handshake bytes in #[cfg(test)]; "u"/"p" are one-letter sample values, not credentials; not shipped. | mpanichella |
 | CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `crates/drivers/kdb/src/ipc.rs` | used in tests — Unit test of the kdb+ IPC handshake bytes in #[cfg(test)]; "u"/"p" are one-letter sample values, not credentials; not shipped. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `vendor/hdbconnect_impl/src/conn/authentication/scram_sha256.rs` | used in tests — Vendored hdbconnect_impl 0.32.0 (upstream code, vendor/hdbconnect_impl): the SCRAM-SHA256 known-answer test in #[cfg(test)] mod tests; "manager" is the sample password of the test vector, never built into DBine. | mpanichella |
+| CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value | `vendor/hdbconnect_impl/src/protocol/parts/client_info.rs` | false positive — Vendored hdbconnect_impl 0.32.0 (upstream code): ClientInfoKey::as_ref returns the HANA protocol client-info key names (APPLICATION, APPLICATIONUSER, DRIVER…), not a credential. | mpanichella |
 | CodeQL js/insufficient-key-size: Use of a weak cryptographic key | `src-tauri/src/secret_sources/testdata/zoho-vectors.mjs` | used in tests — src-tauri/src/secret_sources/testdata/zoho-vectors.mjs is a test-vector generator that reproduces Zoho Vault's RSA_1024 organization-key format with a throwaway key; it is not shipped. | mpanichella |
 | CodeQL js/incomplete-multi-character-sanitization: Incomplete multi-character sanitization | `web/src/composables/releaseNotes.ts` | false positive — noteBlocks returns plain text that UpdateNotice.vue renders only with text interpolation ({{ b.text }}, never v-html), so any leftover '<script' is shown as literal text and cannot create an element. | mpanichella |
 | CodeQL js/insecure-randomness: Insecure randomness | `web/src/components/GenerateDataDialog.vue` | false positive — Math.random here makes the data generator's run id (for progress events and cancel) and its reproducible fake-data seed; neither is a secret, token or key. | mpanichella |

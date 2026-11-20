@@ -33,7 +33,7 @@
     {
       "source": "osv",
       "date": "2026-11-20",
-      "revision": "4e9546e1758c",
+      "revision": "8de7e4642f96",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -41,7 +41,7 @@
     {
       "source": "trivy",
       "date": "2026-11-20",
-      "revision": "4e9546e1758c",
+      "revision": "8de7e4642f96",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -52,12 +52,12 @@
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 0
+      "found": 4
     },
     {
       "source": "scorecard",
       "date": "2026-11-20",
-      "revision": "8de7e4642f96",
+      "revision": "6be91085f573",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.6
@@ -4002,6 +4002,68 @@
       "dismissed": "2026-11-04",
       "reason": "used in tests — Unit test of the kdb+ IPC handshake bytes in #[cfg(test)]; \"u\"/\"p\" are one-letter sample values, not credentials; not shipped.",
       "by": "mpanichella"
+    },
+    {
+      "id": "CQ-464",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "vendor/hdbconnect_impl/src/conn/authentication/scram_sha256.rs",
+      "found": "2026-11-20",
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-11-20",
+      "reason": "used in tests — Vendored hdbconnect_impl 0.32.0 (upstream code, vendor/hdbconnect_impl): the SCRAM-SHA256 known-answer test in #[cfg(test)] mod tests; \"manager\" is the sample password of the test vector, never built into DBine.",
+      "by": "mpanichella"
+    },
+    {
+      "id": "CQ-465",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "vendor/hdbconnect_impl/src/protocol/parts/client_info.rs",
+      "found": "2026-11-20",
+      "status": "dismissed",
+      "title": "CodeQL rust/hard-coded-cryptographic-value: Hard-coded cryptographic value",
+      "dismissed": "2026-11-20",
+      "reason": "false positive — Vendored hdbconnect_impl 0.32.0 (upstream code): ClientInfoKey::as_ref returns the HANA protocol client-info key names (APPLICATION, APPLICATIONUSER, DRIVER…), not a credential.",
+      "by": "mpanichella"
+    },
+    {
+      "id": "CQ-466",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-11-20",
+      "status": "open"
+    },
+    {
+      "id": "CQ-467",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-11-20",
+      "status": "open"
+    },
+    {
+      "id": "CQ-468",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "src-tauri",
+      "found": "2026-11-20",
+      "status": "open"
+    },
+    {
+      "id": "CQ-469",
+      "source": "codeql",
+      "severity": "CRITICAL",
+      "kind": "Static analysis finding",
+      "component": "crates/dbine-sync",
+      "found": "2026-11-20",
+      "status": "open"
     },
     {
       "id": "CQ-66",
