@@ -14,6 +14,7 @@ mod index_usage;
 mod jobs;
 mod legacy_probe;
 mod monitor;
+mod objects_page;
 mod permissions;
 mod plan;
 mod processes;
@@ -1514,6 +1515,15 @@ impl Session for SqlServerSession {
             .collect();
         objects.extend(structure::list_objects(self).await);
         Ok(objects)
+    }
+
+    /// The same objects as `list_objects`, a page at a time from the
+    /// catalog (`objects_page`).
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        objects_page::page(self, query).await
     }
 
     async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
