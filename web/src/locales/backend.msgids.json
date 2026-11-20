@@ -10947,11 +10947,11 @@
  "Databricks anunció {0} filas y se leyeron {1}; no se usa una lectura incompleta.": [
   "crates/drivers/databricks/src/transfer.rs"
  ],
+ "Databricks cortó el resultado en su límite de 100 GiB por lectura (medidos en su formato interno, no en lo que ocupa la tabla); no se usa una lectura incompleta.": [
+  "crates/drivers/databricks/src/transfer.rs"
+ ],
  "Databricks cortó el resultado por su tamaño (el límite es de 100 GiB): no se entrega incompleto. Probá con un filtro o con menos columnas.": [
   "crates/drivers/databricks/src/results.rs"
- ],
- "Databricks cortó la lectura de la tabla por su tamaño (el límite es de 100 GiB); no se usa una lectura incompleta.": [
-  "crates/drivers/databricks/src/transfer.rs"
  ],
  "Databricks devolvió «{0}» en una columna {1} y no se pudo leer; no se copia un valor alterado.": [
   "crates/drivers/databricks/src/transfer.rs"
@@ -23890,6 +23890,9 @@
  ],
  "La tabla necesita un nombre.": [
   "crates/drivers/cassandra/src/ddl.rs"
+ ],
+ "La tabla no entra en el límite de Databricks de 100 GiB por lectura (medidos en su formato interno, no en lo que ocupa la tabla) ni dividida en {0} partes; no se usa una lectura incompleta.": [
+  "crates/drivers/databricks/src/transfer.rs"
  ],
  "La tabla no tiene clave primaria y CQL la exige: la forman todas las columnas simples, así que las filas iguales en todas ellas quedan en una sola.": [
   "crates/dbine-schema/src/dialect/cassandra.rs"

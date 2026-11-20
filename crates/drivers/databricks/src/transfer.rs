@@ -12,7 +12,20 @@
 //! depend on the chunk size the server picks (rows are parsed one at a
 //! time by the reader). A warehouse that refuses external links gets the
 //! same statement `INLINE`, one chunk at a time (the whole inline answer
-//! is at most 25 MiB). Values are typed by the
+//! is at most 25 MiB).
+//!
+//! A statement's result through external links is capped at 100 GiB,
+//! counted on Databricks' internal representation (not the table's files),
+//! and a bigger one comes back `truncated`. So a table is read in parts of
+//! its rows by hash, `pmod(xxhash64(<every column read>), N) = i`, each a
+//! statement of its own: N planned up front from `DESCRIBE DETAIL`'s
+//! `sizeInBytes` (one metadata statement; a table estimated under
+//! [`PART_TARGET`] keeps its single statement), and any part Databricks
+//! still cuts is thrown away unread and read again in [`SPLIT`] parts.
+//! A Delta table's parts are all read `VERSION AS OF` one version, so they
+//! are one snapshot; a view or a table without history is read live (a
+//! table changing during the read may then show the change in some parts).
+//! Each part's rows are checked against its manifest. Values are typed by the
 //! catalog's column type: integers, FLOAT (exact, through `f32`), DOUBLE
 //! (also NaN and infinities), DECIMAL as exact text, BOOLEAN, BINARY (base64
 //! in the answer) as bytes, DATE, ARRAY/MAP/STRUCT/VARIANT as JSON.
@@ -57,7 +70,7 @@ use base64::Engine as _;
 use dbine_driver::transfer::{
     BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
 };
-use dbine_driver::{ColumnInfo, Error, Result, Session};
+use dbine_driver::{ColumnInfo, Error, ObjectRef, Result, Session};
 use serde_json::{json, Value as Json};
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -74,6 +87,22 @@ const BLOCK_BYTES: usize = 1024 * 1024;
 const BLOCKS_QUEUED: usize = 1;
 /// How long one network read of a download may take.
 const READ_WAIT: Duration = Duration::from_secs(120);
+/// What one part of a table read aims for, as estimated. Databricks gives
+/// one statement at most 100 GiB of result through external links ("Result
+/// sets larger than this limit will be truncated"), counted on its internal
+/// representation, not on the table's files; aiming well under it leaves
+/// room for an estimate that falls short.
+const PART_TARGET: u64 = 40 << 30;
+/// How much bigger than the table's files (`DESCRIBE DETAIL`'s
+/// `sizeInBytes`, compressed Parquet) its read is taken to be: the rows
+/// decompressed, timestamps read as text and nested values as JSON.
+const INFLATE: u64 = 8;
+/// A part Databricks still cuts is read again as this many.
+const SPLIT: u64 = 4;
+/// The finest division of a read (parts of `pmod(hash, MAX_MODULUS)`).
+/// Each part scans the whole table, and rows that hash alike (identical
+/// rows) can't be spread further.
+const MAX_MODULUS: u64 = 1024;
 /// Bytes one INSERT takes at most as escaped in the request's JSON (`\`
 /// and `"` take two bytes, control characters up to six). The API's limit
 /// is 16 MiB; whether it counts the statement's text or the request body
@@ -173,6 +202,97 @@ pub(crate) fn read_sql(
         sql.push_str(&format!(" WHERE {f}"));
     }
     sql
+}
+
+/// One part of a table read: the rows whose hash over every column read
+/// leaves `residue` when divided by `modulus`. Every row has a hash (NULLs
+/// are skipped, not propagated), so the parts of one modulus hold each row
+/// exactly once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Part {
+    pub modulus: u64,
+    pub residue: u64,
+}
+
+impl Part {
+    /// The whole table, in one statement.
+    pub(crate) const WHOLE: Part = Part {
+        modulus: 1,
+        residue: 0,
+    };
+
+    /// The table in `n` parts.
+    pub(crate) fn all(n: u64) -> impl DoubleEndedIterator<Item = Part> {
+        (0..n).map(move |residue| Part {
+            modulus: n,
+            residue,
+        })
+    }
+
+    /// This part's rows in [`SPLIT`] parts: the residues of `modulus ×
+    /// SPLIT` that leave this one's when divided by `modulus`.
+    pub(crate) fn split(self) -> impl DoubleEndedIterator<Item = Part> {
+        (0..SPLIT).map(move |j| Part {
+            modulus: self.modulus * SPLIT,
+            residue: self.residue + j * self.modulus,
+        })
+    }
+}
+
+/// The parts a read is planned in, from its table's files' size (`None`:
+/// unknown, so one statement, split if Databricks cuts it).
+pub(crate) fn planned_parts(size: Option<u64>) -> u64 {
+    size.map_or(1, |b| {
+        b.saturating_mul(INFLATE)
+            .div_ceil(PART_TARGET)
+            .clamp(1, MAX_MODULUS / SPLIT)
+    })
+}
+
+/// A column as hashed to split a read: nested values as JSON (a map can't
+/// be hashed), VARIANT and types without a mapping as text.
+fn hash_expr(name: &str, kind: Kind) -> String {
+    let c = q(name);
+    match kind {
+        Kind::Nested => format!("to_json({c})"),
+        Kind::Variant | Kind::Other => format!("CAST({c} AS STRING)"),
+        _ => c,
+    }
+}
+
+/// One part's statement: [`read_sql`] at Delta `version` when given, with
+/// only the part's rows. The filter goes first, on lines of its own, so a
+/// trailing `--` comment in it can't swallow the part's condition.
+pub(crate) fn part_sql(
+    table: &str,
+    version: Option<i64>,
+    names: &[String],
+    kinds: &[Kind],
+    filter: Option<&str>,
+    part: Part,
+) -> String {
+    let from = match version {
+        Some(v) => format!("{table} VERSION AS OF {v}"),
+        None => table.to_string(),
+    };
+    if part == Part::WHOLE {
+        return read_sql(&from, names, kinds, filter);
+    }
+    let hashed: Vec<String> = names
+        .iter()
+        .zip(kinds)
+        .map(|(n, k)| hash_expr(n, *k))
+        .collect();
+    let mut cond = format!(
+        "pmod(xxhash64({}), {}) = {}",
+        hashed.join(", "),
+        part.modulus,
+        part.residue
+    );
+    if let Some(f) = filter.map(str::trim).filter(|f| !f.is_empty()) {
+        cond = format!("(\n{f}\n) AND {cond}");
+    }
+    read_sql(&from, names, kinds, Some(&cond))
 }
 
 /// An answer value that doesn't read as its column's type: an error, never
@@ -786,21 +906,76 @@ fn fetch(api: &Api, id: &str, i: u64, first: Option<Json>) -> Download {
     Download { rx, task }
 }
 
+/// Whether Databricks cut a finished statement's result short.
+fn truncated(resp: &Json) -> bool {
+    resp.pointer("/manifest/truncated").and_then(Json::as_bool) == Some(true)
+}
+
 /// The chunks to read and the rows the manifest promises, from a finished
 /// statement's status. A truncated result or a manifest without its chunk
 /// count is an error: the table would be read short (a comparison, a copy
 /// or an export of part of it). `refused`: what the warehouse answered when
-/// the read asked for external links, if it read inline instead.
+/// the read asked for external links, if it read inline instead. (A table
+/// read never gets here with a result cut over external links: it reads
+/// that part again in smaller ones.)
 pub(crate) fn chunk_plan(resp: &Json, refused: Option<&str>) -> Result<(u64, Option<u64>)> {
-    if resp.pointer("/manifest/truncated").and_then(Json::as_bool) == Some(true) {
+    if truncated(resp) {
         return Err(match refused {
             Some(why) => inline_too_big(why),
             None => Error::Query(
-                "Databricks cortó la lectura de la tabla por su tamaño (el límite es de 100 GiB); no se usa una lectura incompleta.".into(),
+                "Databricks cortó el resultado en su límite de 100 GiB por lectura (medidos en su formato interno, no en lo que ocupa la tabla); no se usa una lectura incompleta.".into(),
             ),
         });
     }
     chunk_count(resp).ok_or_else(|| Error::Query("La respuesta de Databricks no dice cuántos bloques tiene el resultado; no se usa una lectura que podría quedar incompleta.".into()))
+}
+
+/// A table that doesn't fit in Databricks' reads even in `parts` parts
+/// (rows that hash alike, or a table far past what a read can bring).
+fn too_big(parts: u64) -> Error {
+    Error::Query(format!(
+        "La tabla no entra en el límite de Databricks de 100 GiB por lectura (medidos en su formato interno, no en lo que ocupa la tabla) ni dividida en {parts} partes; no se usa una lectura incompleta."
+    ))
+}
+
+/// What `DESCRIBE DETAIL` tells of a table, to plan its read.
+#[derive(Debug, Clone, Copy)]
+struct Detail {
+    /// Its files' size (compressed Parquet).
+    size: Option<u64>,
+    /// Whether it's Delta (then its parts are read at one version).
+    delta: bool,
+}
+
+/// How a table is read: what [`part_sql`] takes, and the parts planned.
+pub(crate) struct TableRead<'a> {
+    pub table: &'a str,
+    pub names: &'a [String],
+    pub kinds: &'a [Kind],
+    pub filter: Option<&'a str>,
+    pub parts: u64,
+    /// The Delta version every part is read at (`None`: live).
+    pub version: Option<i64>,
+    /// Delta: a read that has to be split takes a version first.
+    pub delta: bool,
+}
+
+/// A part's statement, finished.
+enum Submitted {
+    Ready(Ready),
+    /// Cut by Databricks at its limit per read: nothing of it is used.
+    Cut,
+}
+
+/// A finished part to read: its id, chunk 0 when the status brought it,
+/// its chunks, the rows its manifest promises and whether it came by
+/// external links.
+struct Ready {
+    id: String,
+    first: Option<Json>,
+    chunks: u64,
+    expected: Option<u64>,
+    external: bool,
 }
 
 /// A table over the inline 25 MiB, read inline because the warehouse
@@ -987,35 +1162,200 @@ impl DatabricksSession {
             });
         }
         let kinds: Vec<Kind> = cols.iter().map(|c| kind_of(&c.type_name)).collect();
-        let sql = read_sql(
-            &self.fq(&spec.table)?,
-            &names,
-            &kinds,
-            spec.filter.as_deref(),
-        );
-        let r = self.read_chunks(&sql, &cols, &kinds, sink).await;
+        let table = self.fq(&spec.table)?;
+        let r = self
+            .read_rows(
+                &spec.table,
+                &table,
+                &names,
+                &kinds,
+                spec.filter.as_deref(),
+                &cols,
+                sink,
+            )
+            .await;
         self.set_running(None);
         r
     }
 
-    async fn read_chunks(
+    /// Plan a table's read and do it. A table (not a view) is first sized
+    /// from its Delta log (`DESCRIBE DETAIL`, one metadata statement): one
+    /// whose read is estimated past [`PART_TARGET`] is read in parts from
+    /// the start, at one Delta version, instead of having Databricks
+    /// compute up to 100 GiB of a result it would cut.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn read_rows(
         &self,
-        sql: &str,
-        cols: &[TransferColumn],
+        obj: &ObjectRef,
+        table: &str,
+        names: &[String],
         kinds: &[Kind],
+        filter: Option<&str>,
+        cols: &[TransferColumn],
         sink: BatchSinkRef,
     ) -> Result<u64> {
-        let (id, mut resp, refused) = self.submit_read(sql).await?;
-        let (chunks, expected) = chunk_plan(&resp, refused.as_deref())?;
-        let external = refused.is_none();
-        let first = first_chunk(&mut resp);
+        let detail = if obj.kind == dbine_driver::kinds::TABLE {
+            self.table_detail(table).await?
+        } else {
+            None
+        };
+        let parts = planned_parts(detail.and_then(|d| d.size));
+        let delta = detail.is_some_and(|d| d.delta);
+        let version = if parts > 1 && delta {
+            self.snapshot_version(table).await?
+        } else {
+            None
+        };
+        if parts > 1 {
+            tracing::info!("databricks: reading {table} in {parts} parts (version {version:?})");
+        }
+        let read = TableRead {
+            table,
+            names,
+            kinds,
+            filter,
+            parts,
+            version,
+            delta,
+        };
+        self.read_table(&read, cols, sink).await
+    }
 
+    /// The table's files' size and format (`DESCRIBE DETAIL`, from the
+    /// Delta log); `None` when it doesn't answer (not Delta, no rights…),
+    /// and the read goes in one statement.
+    async fn table_detail(&self, table: &str) -> Result<Option<Detail>> {
+        let st = match self.run(&format!("DESCRIBE DETAIL {table}"), 1, None).await {
+            Ok(st) => st,
+            Err(Error::Cancelled) => return Err(Error::Cancelled),
+            Err(e) => {
+                tracing::debug!("databricks: DESCRIBE DETAIL of {table} failed: {e}");
+                return Ok(None);
+            }
+        };
+        let col = |name: &str| {
+            st.columns
+                .iter()
+                .position(|(n, _)| n.eq_ignore_ascii_case(name))
+        };
+        let Some(row) = st.rows.first() else {
+            return Ok(None);
+        };
+        let format = col("format").and_then(|i| row.get(i)?.as_str().map(str::to_ascii_lowercase));
+        let size = col("sizeInBytes")
+            .and_then(|i| json_i64(row.get(i)?))
+            .and_then(|n| u64::try_from(n).ok());
+        Ok(Some(Detail {
+            size,
+            delta: format.as_deref() == Some("delta"),
+        }))
+    }
+
+    /// The Delta version to read every part at, so the parts are one
+    /// snapshot of the table; `None` (the parts read live) when its history
+    /// can't be read (a shared table without history, no rights…).
+    async fn snapshot_version(&self, table: &str) -> Result<Option<i64>> {
+        match self
+            .run(&format!("DESCRIBE HISTORY {table} LIMIT 1"), 1, None)
+            .await
+        {
+            Ok(st) => Ok(history_version(&st)),
+            Err(Error::Cancelled) => Err(Error::Cancelled),
+            Err(e) => {
+                tracing::warn!(
+                    "databricks: Delta version of {table} unknown, parts read live: {e}"
+                );
+                Ok(None)
+            }
+        }
+    }
+
+    /// Read `read` into `sink`, part by part. A part Databricks cuts at its
+    /// limit per read is never used: it's read again in [`SPLIT`] parts (at
+    /// one Delta version from then on, when the table is Delta), down to
+    /// [`MAX_MODULUS`]. Each part's rows are checked against its manifest,
+    /// so what reaches `sink` is every row exactly once or an error.
+    pub(crate) async fn read_table(
+        &self,
+        read: &TableRead<'_>,
+        cols: &[TransferColumn],
+        sink: BatchSinkRef,
+    ) -> Result<u64> {
         sink.lock()
             .map_err(|_| Error::State("destino de lotes".into()))?
             .begin(cols)?;
         let mut builder = BatchBuilder::new();
+        let mut version = read.version;
+        let mut todo: VecDeque<Part> = Part::all(read.parts).collect();
+        while let Some(part) = todo.pop_front() {
+            let sql = part_sql(
+                read.table,
+                version,
+                read.names,
+                read.kinds,
+                read.filter,
+                part,
+            );
+            match self.submit_part(&sql).await? {
+                Submitted::Ready(r) => self.read_part(r, read.kinds, &sink, &mut builder).await?,
+                Submitted::Cut => {
+                    if part.modulus * SPLIT > MAX_MODULUS {
+                        return Err(too_big(part.modulus));
+                    }
+                    // Nothing was read yet: from here on, one snapshot.
+                    if part == Part::WHOLE && read.delta {
+                        version = self.snapshot_version(read.table).await?;
+                    }
+                    tracing::info!(
+                        "databricks: part {}/{} of {} cut at the read limit, read in {SPLIT}",
+                        part.residue,
+                        part.modulus,
+                        read.table
+                    );
+                    for p in part.split().rev() {
+                        todo.push_front(p);
+                    }
+                }
+            }
+        }
+        builder.flush(
+            &mut *sink
+                .lock()
+                .map_err(|_| Error::State("destino de lotes".into()))?,
+        )?;
+        Ok(builder.rows)
+    }
+
+    /// Submit a part's statement and wait for it: ready to read, or cut by
+    /// Databricks (over external links: the inline answer's limit is an
+    /// error saying why the links were refused).
+    async fn submit_part(&self, sql: &str) -> Result<Submitted> {
+        let (id, mut resp, refused) = self.submit_read(sql).await?;
+        if refused.is_none() && truncated(&resp) {
+            return Ok(Submitted::Cut);
+        }
+        let (chunks, expected) = chunk_plan(&resp, refused.as_deref())?;
+        Ok(Submitted::Ready(Ready {
+            first: first_chunk(&mut resp),
+            id,
+            chunks,
+            expected,
+            external: refused.is_none(),
+        }))
+    }
+
+    /// A part's rows into `builder` (and `sink`), checked against what its
+    /// manifest promises.
+    async fn read_part(
+        &self,
+        r: Ready,
+        kinds: &[Kind],
+        sink: &BatchSinkRef,
+        builder: &mut BatchBuilder,
+    ) -> Result<()> {
+        let before = builder.rows;
         // An inline chunk comes parsed whole: one at a time.
-        let in_flight = if external { IN_FLIGHT } else { 1 };
+        let in_flight = if r.external { IN_FLIGHT } else { 1 };
         let cells = |values: Vec<Option<String>>| {
             let mut values = values.into_iter();
             kinds
@@ -1023,28 +1363,23 @@ impl DatabricksSession {
                 .map(|k| to_cell(values.next().flatten(), *k))
                 .collect::<Result<Vec<Cell>>>()
         };
-        self.each_block(&id, first, chunks, in_flight, &mut |block| {
+        self.each_block(&r.id, r.first, r.chunks, in_flight, &mut |block| {
             let mut s = sink
                 .lock()
                 .map_err(|_| Error::State("destino de lotes".into()))?;
-            block.each_row(|r| {
-                builder.push(cells(r)?, &mut *s)?;
+            block.each_row(|row| {
+                builder.push(cells(row)?, &mut *s)?;
                 Ok(true)
             })
         })
         .await?;
-        builder.flush(
-            &mut *sink
-                .lock()
-                .map_err(|_| Error::State("destino de lotes".into()))?,
-        )?;
-        if let Some(n) = expected.filter(|n| *n != builder.rows) {
+        let read = builder.rows - before;
+        if let Some(n) = r.expected.filter(|n| *n != read) {
             return Err(Error::Query(format!(
-                "Databricks anunció {n} filas y se leyeron {}; no se usa una lectura incompleta.",
-                builder.rows
+                "Databricks anunció {n} filas y se leyeron {read}; no se usa una lectura incompleta."
             )));
         }
-        Ok(builder.rows)
+        Ok(())
     }
 
     /// A finished statement's chunks in order, up to `in_flight` of them
@@ -2106,10 +2441,17 @@ pub(crate) mod tests {
                 nullable: true,
             };
             let sink: BatchSinkRef = Arc::new(std::sync::Mutex::new(Discard));
-            match session(base)
-                .read_chunks("SELECT `id` FROM t", &[col], &[kind_of("int")], sink)
-                .await
-            {
+            let names = ["id".to_string()];
+            let read = TableRead {
+                table: "t",
+                names: &names,
+                kinds: &[kind_of("int")],
+                filter: None,
+                parts: 1,
+                version: None,
+                delta: false,
+            };
+            match session(base).read_table(&read, &[col], sink).await {
                 Err(Error::Query(m)) => {
                     assert!(m.contains(REFUSED) && m.contains("25 MiB"), "{m}");
                     assert!(!m.contains("copia"), "{m}");
@@ -2117,6 +2459,345 @@ pub(crate) mod tests {
                 other => panic!("{other:?}"),
             }
         }
+    }
+
+    // --- Reads past Databricks' 100 GiB per statement, in parts.
+
+    #[test]
+    fn parts_are_planned_from_the_files_size() {
+        const GIB: u64 = 1 << 30;
+        assert_eq!(planned_parts(None), 1);
+        assert_eq!(planned_parts(Some(0)), 1);
+        // Up to 5 GiB of files: estimated within one part's target.
+        assert_eq!(planned_parts(Some(5 * GIB)), 1);
+        assert_eq!(planned_parts(Some(5 * GIB + 1)), 2);
+        assert_eq!(planned_parts(Some(12 * GIB)), 3);
+        // Far past anything: as many as leaves one split.
+        assert_eq!(planned_parts(Some(u64::MAX)), MAX_MODULUS / SPLIT);
+    }
+
+    #[test]
+    fn split_parts_hold_each_row_once() {
+        // The residues of 3 parts, each split, cover those of 12 once.
+        let mut residues: Vec<u64> = Part::all(3)
+            .flat_map(Part::split)
+            .inspect(|p| assert_eq!(p.modulus, 12))
+            .map(|p| p.residue)
+            .collect();
+        residues.sort_unstable();
+        assert_eq!(residues, (0..12).collect::<Vec<_>>());
+        // A part's split keeps its rows: same residue modulo the part's.
+        let p = Part {
+            modulus: 3,
+            residue: 1,
+        };
+        assert!(p.split().all(|q| q.residue % 3 == 1));
+        assert_eq!(Part::all(1).collect::<Vec<_>>(), vec![Part::WHOLE]);
+    }
+
+    #[test]
+    fn part_statements() {
+        let names = vec!["id".to_string(), "m".into(), "v".into(), "at".into()];
+        let kinds = [Kind::Int, Kind::Nested, Kind::Variant, Kind::Timestamp];
+        let whole = part_sql(
+            "`c`.`s`.`t`",
+            None,
+            &names,
+            &kinds,
+            Some("id > 5"),
+            Part::WHOLE,
+        );
+        assert_eq!(
+            whole,
+            read_sql("`c`.`s`.`t`", &names, &kinds, Some("id > 5"))
+        );
+        let sql = part_sql(
+            "`c`.`s`.`t`",
+            Some(7),
+            &names,
+            &kinds,
+            Some("id > 5 -- recent"),
+            Part {
+                modulus: 12,
+                residue: 4,
+            },
+        );
+        assert!(
+            sql.contains(" FROM `c`.`s`.`t` VERSION AS OF 7 WHERE "),
+            "{sql}"
+        );
+        // The filter on lines of its own: its comment ends at the newline.
+        assert!(
+            sql.ends_with("WHERE (\nid > 5 -- recent\n) AND pmod(xxhash64(`id`, to_json(`m`), CAST(`v` AS STRING), `at`), 12) = 4"),
+            "{sql}"
+        );
+        let live = part_sql(
+            "t",
+            None,
+            &names[..1],
+            &kinds[..1],
+            None,
+            Part {
+                modulus: 4,
+                residue: 0,
+            },
+        );
+        assert_eq!(live, "SELECT `id` FROM t WHERE pmod(xxhash64(`id`), 4) = 0");
+    }
+
+    /// Collects every row a read hands over.
+    #[derive(Default)]
+    struct Collect(Vec<Vec<Cell>>);
+    impl dbine_driver::transfer::BatchSink for Collect {
+        fn begin(&mut self, _: &[TransferColumn]) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn batch(&mut self, b: dbine_driver::transfer::RowBatch) -> std::io::Result<()> {
+            self.0.extend(b.rows);
+            Ok(())
+        }
+    }
+
+    /// A finished statement's status: one column per name, these rows,
+    /// cut or not.
+    fn answer(names: &[&str], rows: &[Vec<String>], cut: bool) -> String {
+        let columns: Vec<Json> = names
+            .iter()
+            .map(|n| json!({ "name": n, "type_name": "STRING" }))
+            .collect();
+        json!({
+            "statement_id": "s",
+            "status": { "state": "SUCCEEDED" },
+            "manifest": {
+                "schema": { "columns": columns },
+                "total_chunk_count": 1,
+                "total_row_count": rows.len(),
+                "truncated": cut,
+            },
+            "result": { "chunk_index": 0, "data_array": rows },
+        })
+        .to_string()
+    }
+
+    /// What a test warehouse answers each SELECT: (rows, cut).
+    type Selects = Arc<dyn Fn(&str) -> (u64, bool) + Send + Sync>;
+
+    /// A warehouse for table reads: `DESCRIBE DETAIL` answers `detail`
+    /// (format, sizeInBytes; `None`: fails, as for a view), `DESCRIBE
+    /// HISTORY` version 7, and each SELECT `select(statement)`. Gives the
+    /// base URL and the statements received.
+    async fn warehouse(
+        detail: Option<(&'static str, u64)>,
+        select: Selects,
+    ) -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+        let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let base = serve(Arc::new(move |m, p, body| {
+            if (m, p) != ("POST", "/api/2.0/sql/statements") {
+                return (404, "{}".into());
+            }
+            let b: Json = serde_json::from_str(body).unwrap();
+            let sql = b["statement"].as_str().unwrap_or("").to_string();
+            log.lock().unwrap().push(sql.clone());
+            if sql.starts_with("DESCRIBE DETAIL") {
+                return match detail {
+                    Some((format, size)) => (
+                        200,
+                        answer(
+                            &["format", "sizeInBytes"],
+                            &[vec![format.to_string(), size.to_string()]],
+                            false,
+                        ),
+                    ),
+                    None => (
+                        400,
+                        json!({ "message": "DESCRIBE DETAIL is only supported for tables" })
+                            .to_string(),
+                    ),
+                };
+            }
+            if sql.starts_with("DESCRIBE HISTORY") {
+                return (
+                    200,
+                    answer(
+                        &["version", "operation"],
+                        &[vec!["7".into(), "WRITE".into()]],
+                        false,
+                    ),
+                );
+            }
+            assert_eq!(b["disposition"], "EXTERNAL_LINKS", "{sql}");
+            let (n, cut) = select(&sql);
+            let rows: Vec<Vec<String>> = (0..n).map(|i| vec![i.to_string()]).collect();
+            (200, answer(&["id"], &rows, cut))
+        }))
+        .await;
+        (base, seen)
+    }
+
+    /// Read table `t` (of kind `kind`) with one INT column `id`: the result
+    /// and the rows that reached the sink.
+    async fn read_t(base: String, kind: &str) -> (Result<u64>, usize) {
+        let names = ["id".to_string()];
+        let cols = [TransferColumn {
+            name: "id".into(),
+            type_name: "int".into(),
+            nullable: false,
+        }];
+        let rows = Arc::new(std::sync::Mutex::new(Collect::default()));
+        let sink: BatchSinkRef = rows.clone();
+        let obj = ObjectRef {
+            kind: kind.into(),
+            schema: Some("s".into()),
+            name: "t".into(),
+        };
+        let r = session(base)
+            .read_rows(&obj, "`c`.`s`.`t`", &names, &[Kind::Int], None, &cols, sink)
+            .await;
+        let n = rows.lock().unwrap().0.len();
+        (r, n)
+    }
+
+    fn selects(seen: &std::sync::Mutex<Vec<String>>) -> Vec<String> {
+        seen.lock()
+            .unwrap()
+            .iter()
+            .filter(|s| s.starts_with("SELECT"))
+            .cloned()
+            .collect()
+    }
+
+    /// The DBA's Compare data on 1.6.4-test.1: a Databricks table whose
+    /// read passed the 100 GiB of one statement came back cut, and the
+    /// compare stopped. A table sized past one part's target is read in
+    /// parts from the start, all at one Delta version, each row once.
+    #[tokio::test]
+    async fn a_big_table_is_read_in_parts_of_one_snapshot() {
+        // 12 GiB of files → 3 parts; part i answers 10 + i rows.
+        let (base, seen) = warehouse(
+            Some(("delta", 12 << 30)),
+            Arc::new(|sql| {
+                let r: u64 = sql.rsplit("= ").next().unwrap().trim().parse().unwrap();
+                (10 + r, false)
+            }),
+        )
+        .await;
+        let (r, n) = read_t(base, "table").await;
+        assert_eq!((r.unwrap(), n), (33, 33));
+        let parts = selects(&seen);
+        assert_eq!(parts.len(), 3, "{parts:?}");
+        for (i, sql) in parts.iter().enumerate() {
+            assert!(
+                sql.contains("`c`.`s`.`t` VERSION AS OF 7 WHERE pmod(xxhash64(`id`), 3) = "),
+                "{sql}"
+            );
+            assert!(sql.ends_with(&format!("= {i}")), "{sql}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_small_table_stays_one_statement() {
+        let (base, seen) = warehouse(Some(("delta", 1 << 30)), Arc::new(|_| (5, false))).await;
+        let (r, n) = read_t(base, "table").await;
+        assert_eq!((r.unwrap(), n), (5, 5));
+        let all = seen.lock().unwrap().clone();
+        assert_eq!(all.len(), 2, "{all:?}");
+        assert!(all[0].starts_with("DESCRIBE DETAIL `c`.`s`.`t`"));
+        assert_eq!(all[1], "SELECT `id` FROM `c`.`s`.`t`");
+    }
+
+    /// A part Databricks still cuts is never used: its rows (999 here)
+    /// don't reach the sink, and it's read again in four, at one version.
+    #[tokio::test]
+    async fn a_cut_part_is_read_again_in_smaller_ones() {
+        // Sized as one statement, but the whole read and the part 2 of 4
+        // come back cut.
+        let (base, seen) = warehouse(
+            Some(("delta", 1 << 30)),
+            Arc::new(|sql| {
+                if !sql.contains("pmod") || sql.ends_with("4) = 2") {
+                    (999, true)
+                } else {
+                    (1, false)
+                }
+            }),
+        )
+        .await;
+        let (r, n) = read_t(base, "table").await;
+        // 3 of the 4 parts, plus the 4 parts of the cut one.
+        assert_eq!((r.unwrap(), n), (7, 7));
+        let all = seen.lock().unwrap().clone();
+        assert!(
+            all.iter().any(|s| s.starts_with("DESCRIBE HISTORY")),
+            "{all:?}"
+        );
+        let parts = selects(&seen);
+        let tails: Vec<&str> = parts
+            .iter()
+            .map(|s| s.rsplit("pmod").next().unwrap())
+            .collect();
+        assert_eq!(
+            tails,
+            [
+                "SELECT `id` FROM `c`.`s`.`t`",
+                "(xxhash64(`id`), 4) = 0",
+                "(xxhash64(`id`), 4) = 1",
+                "(xxhash64(`id`), 4) = 2",
+                "(xxhash64(`id`), 16) = 2",
+                "(xxhash64(`id`), 16) = 6",
+                "(xxhash64(`id`), 16) = 10",
+                "(xxhash64(`id`), 16) = 14",
+                "(xxhash64(`id`), 4) = 3",
+            ]
+        );
+        assert!(
+            parts[1..].iter().all(|s| s.contains("VERSION AS OF 7")),
+            "{parts:?}"
+        );
+    }
+
+    /// A view has no Delta log: no size, read live, split the same.
+    #[tokio::test]
+    async fn a_view_is_read_live_in_parts_when_cut() {
+        let (base, seen) = warehouse(
+            None,
+            Arc::new(|sql| {
+                if sql.contains("pmod") {
+                    (2, false)
+                } else {
+                    (999, true)
+                }
+            }),
+        )
+        .await;
+        let (r, n) = read_t(base, "view").await;
+        assert_eq!((r.unwrap(), n), (8, 8));
+        let all = seen.lock().unwrap().clone();
+        assert!(!all.iter().any(|s| s.starts_with("DESCRIBE")), "{all:?}");
+        assert!(!all.iter().any(|s| s.contains("VERSION AS OF")), "{all:?}");
+        assert_eq!(selects(&seen).len(), 5);
+    }
+
+    /// Rows that can't be spread (every part cut, down to the finest)
+    /// end in an error that says it's Databricks' limit, not the table's
+    /// size on disk, and nothing cut is used.
+    #[tokio::test]
+    async fn a_read_that_never_fits_says_so() {
+        let (base, seen) = warehouse(None, Arc::new(|_| (999, true))).await;
+        let (r, n) = read_t(base, "view").await;
+        match r {
+            Err(Error::Query(m)) => {
+                assert!(
+                    m.contains("100 GiB") && m.contains("formato interno"),
+                    "{m}"
+                );
+                assert!(m.contains(&format!("{MAX_MODULUS} partes")), "{m}");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert_eq!(n, 0);
+        // Depth first: 1, 4, 16, 64, 256, 1024.
+        assert_eq!(selects(&seen).len(), 6);
     }
 
     #[test]
