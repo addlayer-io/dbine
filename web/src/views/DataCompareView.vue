@@ -1308,7 +1308,9 @@ async function suggestKey() {
 
 <style scoped>
 .dc { display: flex; flex-direction: column; height: 100%; min-height: 0; background: var(--ide-editor); }
-.dc-pick { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--nm-border); }
+/* Scrolls when it doesn't fit (a short window, a long column table): its
+   buttons stay reachable, and the result keeps at least the grid's minimum. */
+.dc-pick { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--nm-border); flex: 0 1 auto; min-height: 0; overflow-y: auto; }
 /* The key and the button always on their own line, at the left. */
 .dc-side { display: flex; align-items: center; gap: 6px; }
 .dc-side-label { font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--nm-text-dim); }
@@ -1356,7 +1358,7 @@ async function suggestKey() {
 .dc-progress-time { color: var(--nm-text-dim); font-variant-numeric: tabular-nums; }
 .dc-compared { padding: 8px 14px 0; font-size: 12.5px; color: var(--nm-text-dim); }
 .dc-cancelled { padding: 10px 14px 0; }
-.dc-grid-wrap { flex: 1; min-height: 0; overflow: auto; }
+.dc-grid-wrap { flex: 1; min-height: 160px; overflow: auto; }
 .dc-grid { border-collapse: collapse; font-size: 12px; font-family: var(--nm-mono); }
 .dc-grid th { position: sticky; top: 0; background: var(--nm-bg-elev); color: var(--nm-text-dim); font-weight: 500; text-align: left; padding: 4px 10px; white-space: nowrap; border-bottom: 1px solid var(--nm-border); }
 .dc-grid th.key { color: var(--nm-text-strong); }

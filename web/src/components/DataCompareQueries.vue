@@ -95,7 +95,10 @@ function setRight(row: PairRow, name: string | undefined) {
       <span v-if="stale && pairs.length" class="dq-stale">{{ $t('dataCompare:query.stale') }}</span>
       <span v-else-if="!pairs.length" class="dq-hint">{{ $t('dataCompare:query.columnsHint') }}</span>
     </div>
-    <table v-if="pairs.length" class="dq-pairs">
+    <!-- Its own scroll (header kept): a query with many columns can't push
+         the tolerance and "Comparar" out of the view. -->
+    <div v-if="pairs.length" class="dq-pairs-wrap">
+    <table class="dq-pairs">
       <thead>
         <tr>
           <th class="dq-key">{{ $t('dataCompare:keyLabel') }}</th>
@@ -118,6 +121,7 @@ function setRight(row: PairRow, name: string | undefined) {
         </tr>
       </tbody>
     </table>
+    </div>
     <div v-if="pairs.length && unpaired.length" class="dq-hint dq-unpaired">{{ $t('dataCompare:query.unpairedRight', { list: unpaired.join(', ') }) }}</div>
 
     <div class="dq-opts">
@@ -151,8 +155,9 @@ function setRight(row: PairRow, name: string | undefined) {
 .dq-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dq-stale { font-size: 12px; color: var(--nm-warning); }
 .dq-hint { font-size: 12px; color: var(--nm-text-dim); }
-.dq-pairs { border-collapse: collapse; font-size: 12px; max-width: 760px; }
-.dq-pairs th { text-align: left; font-weight: 500; color: var(--nm-text-dim); padding: 2px 10px 2px 0; border-bottom: 1px solid var(--nm-border); }
+.dq-pairs-wrap { max-height: 40vh; overflow: auto; max-width: 760px; align-self: flex-start; }
+.dq-pairs { border-collapse: collapse; font-size: 12px; }
+.dq-pairs th { position: sticky; top: 0; z-index: 3; background: var(--ide-editor); text-align: left; font-weight: 500; color: var(--nm-text-dim); padding: 2px 10px 2px 0; border-bottom: 1px solid var(--nm-border); }
 .dq-pairs td { padding: 2px 10px 2px 0; border-bottom: 1px solid var(--nm-border-soft); }
 .dq-pairs tr.off .dq-name { color: var(--nm-text-dim); }
 .dq-key { width: 48px; text-align: center !important; }
