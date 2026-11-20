@@ -204,6 +204,10 @@ async function followDatabase(db: string | null | undefined) {
 /** Statements that change the server's list of databases (keyspaces in
  *  CQL, schemas where those are the databases, as in Oracle's users). */
 const CHANGES_DATABASES = /\b(?:create|drop|alter|rename)\s+(?:database|schema|keyspace|user)\b/i;
+/** A statement that changes a database's structure (one starting with
+ *  CREATE, ALTER, DROP, RENAME or COMMENT ON, or T-SQL's sp_rename): the
+ *  explorer reads that database's objects again. */
+const CHANGES_STRUCTURE = /(?:^|[;\n])\s*(?:(?:create|alter|drop|rename)\b|comment\s+on\b|(?:exec(?:ute)?\s+)?sp_rename\b)/i;
 
 // -- completion schema ------------------------------------------------------------
 type DbObject = NonNullable<(typeof conns.objects)[string]>['items'][number];
@@ -1060,6 +1064,12 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean,
       // A database created, dropped or renamed here: the explorer and the
       // pickers list it right away.
       if (CHANGES_DATABASES.test(script)) void conns.refreshDatabases(props.tab.connectionId).catch(() => {});
+      // A table, view, routine… created, changed or dropped here: the
+      // explorer shows it without "Actualizar" (where it ran, and where a
+      // `USE` in the script left the tab).
+      if (CHANGES_STRUCTURE.test(script)) {
+        for (const db of new Set([fields.database, props.tab.database])) conns.structureChanged(props.tab.connectionId, db, script);
+      }
       const firstLine = script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? '';
       if (o.error) output.add('error', `${firstLine}\n${tb(o.error)}`, { where, elapsedMs: o.elapsed_ms });
       else output.add('info', firstLine, { where, elapsedMs: o.elapsed_ms });

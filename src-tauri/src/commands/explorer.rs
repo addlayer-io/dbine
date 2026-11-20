@@ -1,5 +1,5 @@
 use crate::error::{CommandError, CommandResult};
-use crate::state::{driver_info, meta_key, AppState, SessionEntry};
+use crate::state::{driver_info, meta_key, AppState, Lane, SessionEntry};
 use dbine_core::cache::kinds as cache_kinds;
 use dbine_driver::sql::{create_table_from_columns, Quote};
 use dbine_driver::{ColumnInfo, DbObject, ObjectRef, SchemaInfo};
@@ -62,25 +62,32 @@ pub struct DatabaseObjects {
 }
 
 /// What the explorer tree loads for a database: `list_objects` plus the
-/// schema list, read on the same session and cached together.
+/// schema list, read on the same session (the tree's lane) and cached
+/// together.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn list_database_objects(
     state: State<'_, AppState>,
     args: DatabaseArgs,
 ) -> CommandResult<DatabaseObjects> {
     let read = state
-        .meta_read(&args.connection_id, &args.database, META_LIMIT, |s| {
-            Box::pin(async move {
-                let objects = s.list_objects().await?;
-                // The objects are what matters: a schema list that fails
-                // leaves the schemas derived from them.
-                let schemas = s.list_schemas().await.unwrap_or_else(|e| {
-                    tracing::warn!("list_schemas failed: {e}");
-                    None
-                });
-                Ok(DatabaseObjects { objects, schemas })
-            })
-        })
+        .meta_read_on(
+            Lane::Tree,
+            &args.connection_id,
+            &args.database,
+            META_LIMIT,
+            |s| {
+                Box::pin(async move {
+                    let objects = s.list_objects().await?;
+                    // The objects are what matters: a schema list that fails
+                    // leaves the schemas derived from them.
+                    let schemas = s.list_schemas().await.unwrap_or_else(|e| {
+                        tracing::warn!("list_schemas failed: {e}");
+                        None
+                    });
+                    Ok(DatabaseObjects { objects, schemas })
+                })
+            },
+        )
         .await?;
     state.cache_put(
         &args.connection_id,
@@ -151,10 +158,15 @@ pub async fn get_permissions(
     args: DatabaseArgs,
 ) -> CommandResult<dbine_driver::Permissions> {
     let db = Some(args.database.clone()).filter(|d| !d.is_empty());
+    // Asked when the tree opens a database: on the tree's lane.
     state
-        .meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| {
-            Box::pin(async move { s.permissions(db.as_deref()).await })
-        })
+        .meta_read_on(
+            Lane::Tree,
+            &args.connection_id,
+            &args.database,
+            META_LIMIT,
+            move |s| Box::pin(async move { s.permissions(db.as_deref()).await }),
+        )
         .await
 }
 
@@ -166,11 +178,16 @@ pub async fn get_index_usage(
     state: State<'_, AppState>,
     args: ObjectArgs,
 ) -> CommandResult<Option<dbine_driver::IndexUsageReport>> {
+    let lane = args.lane();
     let object = args.object;
     let report = state
-        .meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| {
-            Box::pin(async move { s.index_usage(&object).await })
-        })
+        .meta_read_on(
+            lane,
+            &args.connection_id,
+            &args.database,
+            META_LIMIT,
+            move |s| Box::pin(async move { s.index_usage(&object).await }),
+        )
         .await?;
     Ok(report.map(dbine_driver::IndexUsageReport::derived))
 }
@@ -224,7 +241,8 @@ pub async fn get_dependents(
     );
     let target = args.target;
     state
-        .meta_read(
+        .meta_read_on(
+            Lane::Long,
             &args.connection_id,
             &args.database,
             DEPENDENTS_LIMIT,
@@ -249,10 +267,15 @@ pub async fn scan_keys(
     args: ScanKeysArgs,
 ) -> CommandResult<dbine_driver::KeyPage> {
     let scan = args.scan;
+    // The tree's key folder: on the tree's lane.
     state
-        .meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| {
-            Box::pin(async move { s.scan_keys(&scan).await })
-        })
+        .meta_read_on(
+            Lane::Tree,
+            &args.connection_id,
+            &args.database,
+            META_LIMIT,
+            move |s| Box::pin(async move { s.scan_keys(&scan).await }),
+        )
         .await
 }
 
@@ -261,6 +284,20 @@ pub struct ObjectArgs {
     pub connection_id: String,
     pub database: String,
     pub object: ObjectRef,
+    /// Asked by the explorer tree (an object expanded there): read on the
+    /// tree's lane, not behind the editor's autocomplete.
+    #[serde(default)]
+    pub tree: bool,
+}
+
+impl ObjectArgs {
+    fn lane(&self) -> Lane {
+        if self.tree {
+            Lane::Tree
+        } else {
+            Lane::Default
+        }
+    }
 }
 
 /// Time limit of the explorer's structure reads.
@@ -285,9 +322,13 @@ pub async fn get_columns(
 ) -> CommandResult<Vec<ColumnInfo>> {
     let object = args.object.clone();
     let columns = state
-        .meta_read(&args.connection_id, &args.database, META_LIMIT, move |s| {
-            Box::pin(async move { s.columns(&object).await })
-        })
+        .meta_read_on(
+            args.lane(),
+            &args.connection_id,
+            &args.database,
+            META_LIMIT,
+            move |s| Box::pin(async move { s.columns(&object).await }),
+        )
         .await?;
     state.cache_put(
         &args.connection_id,

@@ -134,11 +134,12 @@ export const api = {
     invoke<Permissions>('get_permissions', { args: { connection_id: connectionId, database } }),
   scanKeys: (connectionId: string, database: string, scan: KeyScan) =>
     invoke<KeyPage>('scan_keys', { args: { connection_id: connectionId, database, scan } }),
-  getColumns: (connectionId: string, database: string, object: ObjectRef) =>
-    invoke<ColumnInfo[]>('get_columns', { args: { connection_id: connectionId, database, object } }),
+  /** `tree`: asked by the explorer tree (read on the tree's own session). */
+  getColumns: (connectionId: string, database: string, object: ObjectRef, tree = false) =>
+    invoke<ColumnInfo[]>('get_columns', { args: { connection_id: connectionId, database, object, tree } }),
   /** A table's indexes and their usage; null: the driver doesn't report it. */
-  getIndexUsage: (connectionId: string, database: string, object: ObjectRef) =>
-    invoke<IndexUsageReport | null>('get_index_usage', { args: { connection_id: connectionId, database, object } }),
+  getIndexUsage: (connectionId: string, database: string, object: ObjectRef, tree = false) =>
+    invoke<IndexUsageReport | null>('get_index_usage', { args: { connection_id: connectionId, database, object, tree } }),
   /** What depends on a table, column, view or routine ("Ver dependencias…"). */
   getDependents: (connectionId: string, database: string, target: DependencyTarget) =>
     invoke<DependencyReport>('get_dependents', { args: { connection_id: connectionId, database, target } }),

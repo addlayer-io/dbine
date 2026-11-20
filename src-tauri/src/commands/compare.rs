@@ -83,7 +83,8 @@ pub(crate) async fn load_model(state: &AppState, args: LoadArgs) -> CommandResul
         schemas.is_empty() || s.as_deref().is_some_and(|s| schemas.iter().any(|w| w == s))
     };
     let (tables, objects, warnings) = state
-        .meta_read(
+        .meta_read_on(
+            crate::state::Lane::Long,
             &args.connection_id,
             &args.database,
             crate::commands::explorer::SCHEMA_LIMIT,
