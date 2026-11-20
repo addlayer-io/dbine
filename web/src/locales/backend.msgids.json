@@ -4065,6 +4065,9 @@
  "BigQuery solo tiene índices vectoriales y de búsqueda: este índice no se crea.": [
   "crates/dbine-schema/src/dialect/bigquery.rs"
  ],
+ "Bigtable": [
+  "crates/drivers/bigquery/src/references.rs"
+ ],
  "Binaria": [
   "crates/drivers/redis/src/ddl.rs"
  ],
@@ -4775,6 +4778,9 @@
  ],
  "Buckets y tamaños": [
   "crates/drivers/influxdb/src/monitor.rs"
+ ],
+ "Buffer": [
+  "crates/drivers/clickhouse/src/references.rs"
  ],
  "Buffer cache hit ratio": [
   "crates/drivers/sqlserver/src/monitor.rs"
@@ -6499,6 +6505,9 @@
  ],
  "Carpeta temporal": [
   "crates/drivers/duckdb/src/monitor.rs"
+ ],
+ "Cassandra": [
+  "crates/drivers/clickhouse/src/references.rs"
  ],
  "Cassandra no expone el uso de CPU ni la memoria del JVM por CQL; para eso hace falta JMX (nodetool info / tpstats).": [
   "crates/drivers/cassandra/src/monitor.rs"
@@ -11115,6 +11124,7 @@
  "Databricks": [
   "crates/dbine-core/src/conn_import/mod.rs",
   "crates/dbine-schema/src/dialect/spark.rs",
+  "crates/drivers/databricks/src/references.rs",
   "crates/drivers/powerbi/src/references/m.rs"
  ],
  "Databricks Jobs API: la solicitud que DBine envía al ejecutar el job.": [
@@ -11190,6 +11200,9 @@
  ],
  "Databricks rechazó el inicio de sesión: {0}": [
   "crates/drivers/databricks/src/u2m.rs"
+ ],
+ "Databricks {0}": [
+  "crates/drivers/databricks/src/references.rs"
  ],
  "Datacenter": [
   "crates/drivers/cassandra/src/monitor.rs"
@@ -12317,6 +12330,7 @@
  ],
  "Dictionary": [
   "crates/drivers/clickhouse/src/lib.rs",
+  "crates/drivers/clickhouse/src/references.rs",
   "crates/drivers/influxdb/src/transfer.rs",
   "crates/drivers/influxdb/src/v3.rs"
  ],
@@ -14656,6 +14670,9 @@
  ],
  "El job {0} no se está ejecutando.": [
   "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
+ "El linaje de Unity Catalog no está disponible para este objeto (hace falta BROWSE o SELECT sobre la tabla y un catálogo de Unity Catalog): lo que usa sale de su definición, sin confirmar.": [
+  "crates/drivers/databricks/src/references.rs"
  ],
  "El log comparte espacio con los datos": [
   "crates/drivers/odbc/src/health.rs"
@@ -18759,6 +18776,9 @@
  "Exclusion join": [
   "crates/drivers/odbc/src/plan.rs"
  ],
+ "Executable": [
+  "crates/drivers/clickhouse/src/references.rs"
+ ],
  "Executes": [
   "crates/drivers/odbc/src/explain.rs",
   "crates/drivers/odbc/src/plan.rs"
@@ -19809,6 +19829,8 @@
  ],
  "File": [
   "crates/drivers/clickhouse/src/backup.rs",
+  "crates/drivers/clickhouse/src/references.rs",
+  "crates/drivers/databricks/src/references.rs",
   "crates/drivers/powerbi/src/references/m.rs"
  ],
  "Filesystem": [
@@ -21503,6 +21525,9 @@
  "Hoy": [
   "crates/drivers/odbc/src/scheduler/db2i.rs"
  ],
+ "Hudi": [
+  "crates/drivers/clickhouse/src/references.rs"
+ ],
  "Huella": [
   "crates/drivers/spanner/src/monitor.rs"
  ],
@@ -21640,6 +21665,7 @@
  ],
  "Iceberg": [
   "crates/drivers/athena/src/ddl.rs",
+  "crates/drivers/clickhouse/src/references.rs",
   "crates/drivers/odbc/src/design.rs"
  ],
  "Id": [
@@ -22251,6 +22277,9 @@
  ],
  "Informix y GBase 8s escriben el plan (SET EXPLAIN) en un archivo del servidor (sqexplain.out); no lo devuelven por ODBC.": [
   "crates/drivers/odbc/src/explain.rs"
+ ],
+ "Infos": [
+  "crates/drivers/databricks/src/references.rs"
  ],
  "Ingres": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs",
@@ -23052,6 +23081,9 @@
  ],
  "KAFKA (tipos primitivos)": [
   "crates/drivers/ksqldb/src/scheduler.rs"
+ ],
+ "Kafka": [
+  "crates/drivers/clickhouse/src/references.rs"
  ],
  "Kerberos": [
   "crates/drivers/odbc/src/security.rs"
@@ -25555,6 +25587,9 @@
  ],
  "Lo que se puede renombrar lo decide el conector del catálogo (memory e Iceberg renombran tablas, vistas y columnas; Hive no renombra algunas cosas): si el conector no puede, el servidor rechaza la sentencia. Las vistas y vistas materializadas que nombran lo renombrado no se actualizan solas, y DBine solo las lista para corregirlas a mano: recrearlas las pasaría al usuario que renombra, y una vista SECURITY DEFINER leería con sus permisos en lugar de los de su dueño. Las sentencias no son transaccionales: si una falla, las anteriores quedan hechas.": [
   "crates/drivers/trino/src/rename.rs"
+ ],
+ "Lo que usa sale de su definición, sin confirmar: confirmarlo con OBJECT_DEPENDENCIES necesita acceso a SNOWFLAKE.ACCOUNT_USAGE (IMPORTED PRIVILEGES sobre la base SNOWFLAKE).": [
+  "crates/drivers/snowflake/src/references.rs"
  ],
  "Lo que va entre los paréntesis: constantes o expresiones, separadas por comas.": [
   "crates/drivers/odbc/src/scheduler/altibase.rs"
@@ -35032,6 +35067,9 @@
  "Pull": [
   "src-tauri/src/commands/projects_git.rs"
  ],
+ "Pulsar": [
+  "crates/drivers/clickhouse/src/references.rs"
+ ],
  "Punto como geo_point: los valores van como lat/lon, WKT o GeoJSON.": [
   "crates/dbine-schema/src/dialect/elasticsearch.rs"
  ],
@@ -35661,6 +35699,7 @@
  ],
  "Redis": [
   "crates/dbine-driver/src/params.rs",
+  "crates/drivers/clickhouse/src/references.rs",
   "crates/drivers/redis/src/lib.rs",
   "crates/drivers/redis/src/monitor.rs"
  ],
@@ -35711,6 +35750,9 @@
  ],
  "Redondeo por defecto": [
   "crates/drivers/bigquery/src/properties.rs"
+ ],
+ "Redpanda": [
+  "crates/drivers/clickhouse/src/references.rs"
  ],
  "Redshift": [
   "crates/drivers/postgres/src/processes.rs"
@@ -37165,6 +37207,9 @@
  ],
  "SLM se inicia y se detiene para todo el clúster (POST /_slm/start, POST /_slm/stop), no por política": [
   "crates/drivers/elasticsearch/src/jobs.rs"
+ ],
+ "SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES se actualiza con hasta tres horas de demora: lo que todavía no registra sale de la definición, sin confirmar.": [
+  "crates/drivers/snowflake/src/references.rs"
  ],
  "SORT: ordena en memoria (ningún índice da el orden)": [
   "crates/drivers/mongodb/src/plan.rs"
@@ -40168,7 +40213,8 @@
  "Snowflake": [
   "crates/dbine-schema/src/dialect/snowflake.rs",
   "crates/drivers/powerbi/src/references/m.rs",
-  "crates/drivers/snowflake/src/lib.rs"
+  "crates/drivers/snowflake/src/lib.rs",
+  "crates/drivers/snowflake/src/references.rs"
  ],
  "Snowflake admite hasta 38 dígitos; el origen tiene {0}.": [
   "crates/dbine-schema/src/dialect/snowflake.rs"
@@ -40322,6 +40368,9 @@
  ],
  "Snowflake renombra la base con ALTER DATABASE … RENAME TO: sus esquemas, objetos y datos quedan en ella, y los permisos otorgados siguen al objeto. No se actualiza lo que nombra la base anterior por su nombre: el código de vistas, funciones y procedimientos, las tareas, los stages, los shares ni las aplicaciones que la usen; hay que revisarlos y corregirlos a mano.": [
   "crates/drivers/snowflake/src/rename.rs"
+ ],
+ "Snowflake stage": [
+  "crates/drivers/snowflake/src/references.rs"
  ],
  "Snowflake {0}": [
   "crates/drivers/snowflake/src/lib.rs"
@@ -43335,6 +43384,9 @@
  ],
  "Timeouts de bloqueo": [
   "crates/drivers/odbc/src/monitor.rs"
+ ],
+ "Timeplus": [
+  "crates/drivers/clickhouse/src/references.rs"
  ],
  "Timeplus Proton 3.0 todavía no ejecuta tareas con cron: las rechaza al crearlas.": [
   "crates/drivers/clickhouse/src/scheduler/task.rs"

@@ -489,3 +489,15 @@ backend:Excel
 backend:Item
 backend:Kind
 backend:Web
+backend:Bigtable
+backend:Buffer
+backend:Cassandra
+backend:Databricks {0}
+backend:Executable
+backend:Hudi
+backend:Infos
+backend:Kafka
+backend:Pulsar
+backend:Redpanda
+backend:Snowflake stage
+backend:Timeplus

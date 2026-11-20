@@ -19076,5 +19076,20 @@
   "Excel": "Excel",
   "Item": "Item",
   "Kind": "Kind",
-  "Web": "Web"
+  "Web": "Web",
+  "El linaje de Unity Catalog no está disponible para este objeto (hace falta BROWSE o SELECT sobre la tabla y un catálogo de Unity Catalog): lo que usa sale de su definición, sin confirmar.": "La lignée Unity Catalog n'est pas disponible pour cet objet (BROWSE ou SELECT sur la table et un catalogue Unity Catalog sont nécessaires) : ce qu'il utilise provient de sa définition, sans confirmation.",
+  "Lo que usa sale de su definición, sin confirmar: confirmarlo con OBJECT_DEPENDENCIES necesita acceso a SNOWFLAKE.ACCOUNT_USAGE (IMPORTED PRIVILEGES sobre la base SNOWFLAKE).": "Ce qu'il utilise provient de sa définition, sans confirmation : la confirmer avec OBJECT_DEPENDENCIES nécessite l'accès à SNOWFLAKE.ACCOUNT_USAGE (IMPORTED PRIVILEGES sur la base SNOWFLAKE).",
+  "SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES se actualiza con hasta tres horas de demora: lo que todavía no registra sale de la definición, sin confirmar.": "SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES est mise à jour avec jusqu'à trois heures de retard : ce qu'elle n'a pas encore enregistré provient de la définition, sans confirmation.",
+  "Bigtable": "Bigtable",
+  "Buffer": "Buffer",
+  "Cassandra": "Cassandra",
+  "Databricks {0}": "Databricks {0}",
+  "Executable": "Executable",
+  "Hudi": "Hudi",
+  "Infos": "Infos",
+  "Kafka": "Kafka",
+  "Pulsar": "Pulsar",
+  "Redpanda": "Redpanda",
+  "Snowflake stage": "Snowflake stage",
+  "Timeplus": "Timeplus"
 }

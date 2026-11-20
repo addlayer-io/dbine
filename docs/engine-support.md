@@ -4050,6 +4050,63 @@ Drivers whose engine records dependencies answer from their catalog instead:
   type's fields and a function's arguments and result, and an aggregate's
   state and final functions (`system_schema.aggregates`). CQL has no foreign
   keys. Keyspaces has only tables and types.
+- **ClickHouse and Timeplus:** What an object uses is read from
+  `system.tables`. A view's or materialized view's stored definition, which
+  ClickHouse keeps with its names qualified, is searched for the tables, views
+  and dictionaries it names (including those in `dictGet` and `joinGet`); they
+  are resolved in one query across the server's databases and are
+  **Probable**, with their lines. A materialized view's source tables are
+  **Confirmed**, because `system.tables` lists the view in their
+  `dependencies_table` (Timeplus does the same for plain views), and so are
+  its `TO` table (`INTO` on Timeplus) and a refreshable view's `DEPENDS ON`
+  views. On recent servers, `loading_dependencies_*` confirms a dictionary's
+  source table and the dictionaries a table's defaults read. A table's engine
+  arguments give Distributed's underlying table (an item when the cluster
+  includes this server, otherwise a source outside), the tables a Merge table
+  matches, Buffer's destination and Dictionary's dictionary, all
+  **Confirmed**. MySQL, PostgreSQL, MongoDB, S3, URL, File, Kafka and similar
+  engines, a dictionary's non-local `SOURCE`, and table functions such as
+  `remote()`, `mysql()` or `s3()` in a view are listed as sources outside the
+  database, keeping only their host, database, table, path or URL. An object
+  in another database of the server is listed with that database as its
+  schema.
+- **BigQuery:** Metadata queries are billed jobs, so what an object uses is
+  read only from the REST API: a view's or materialized view's query from
+  `tables.get`, a SQL function's or procedure's body from `routines.get`. The
+  names they use (`project.dataset.table`, `dataset.table`, or a bare name in
+  the object's own dataset) are looked up with `tables.get` or `routines.get`,
+  or one `tables.list` per dataset when there are many, and are **Probable**,
+  with their lines; CTEs and aliases drop out. A table's declared foreign keys
+  and the base table of a snapshot or clone are **Confirmed**. Tables of
+  another project, an external table's files, `EXTERNAL_QUERY` connections
+  (with the tables their query names), JavaScript libraries and remote
+  function endpoints are listed as sources outside the database.
+- **Snowflake:** What an object uses comes from
+  `SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES` (**Confirmed**), merged with
+  its own definition read as in the default version (**Probable**).
+  Procedures, which the view doesn't track, and objects newer than its lag of
+  up to three hours come from the definition alone, and when the catalog has
+  nothing yet a note says so. Objects of another database, stages,
+  integrations and an external table's location
+  (`INFORMATION_SCHEMA.EXTERNAL_TABLES`) are listed as sources outside the
+  database. A table's foreign keys are **Confirmed**. Without access to
+  ACCOUNT_USAGE (IMPORTED PRIVILEGES on the SNOWFLAKE database), the
+  definition is used and a note says so. Not yet tested against a real
+  account.
+- **Databricks:** For tables, views and materialized views, what they use
+  comes from Unity Catalog's lineage API
+  (`/api/2.0/lineage-tracking/table-lineage`): upstream tables of the same
+  catalog are **Confirmed**, with the notebooks or jobs that carried them.
+  Tables of other catalogs, upstream files, and the notebooks, jobs,
+  pipelines, queries and dashboards that wrote the table are listed as sources
+  outside the database, each with a link to it in the workspace. Views,
+  materialized views and functions also have their definition read as in the
+  default version (**Probable** until lineage confirms it), where a name of
+  another catalog is a source outside. Unity Catalog's informational foreign
+  keys are **Confirmed**. Lineage covers what has run since September 2024.
+  For `hive_metastore`, or without BROWSE or SELECT on the table, the
+  definition and the keys are used and a note says so. Not yet tested against
+  a real workspace.
 
 The engines not listed here use the default version. A driver process
 published before answers `References` with Unsupported, and the app runs the

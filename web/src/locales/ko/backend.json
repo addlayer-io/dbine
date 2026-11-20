@@ -19076,5 +19076,20 @@
   "Excel": "Excel",
   "Item": "Item",
   "Kind": "Kind",
-  "Web": "Web"
+  "Web": "Web",
+  "El linaje de Unity Catalog no está disponible para este objeto (hace falta BROWSE o SELECT sobre la tabla y un catálogo de Unity Catalog): lo que usa sale de su definición, sin confirmar.": "이 객체에서는 Unity Catalog 계보를 사용할 수 없습니다(테이블에 대한 BROWSE 또는 SELECT 권한과 Unity Catalog 카탈로그가 필요합니다). 사용하는 대상은 정의에서 가져온 것이며 확인되지 않았습니다.",
+  "Lo que usa sale de su definición, sin confirmar: confirmarlo con OBJECT_DEPENDENCIES necesita acceso a SNOWFLAKE.ACCOUNT_USAGE (IMPORTED PRIVILEGES sobre la base SNOWFLAKE).": "사용하는 대상은 정의에서 가져온 것이며 확인되지 않았습니다. OBJECT_DEPENDENCIES로 확인하려면 SNOWFLAKE.ACCOUNT_USAGE에 대한 접근(SNOWFLAKE 데이터베이스의 IMPORTED PRIVILEGES)이 필요합니다.",
+  "SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES se actualiza con hasta tres horas de demora: lo que todavía no registra sale de la definición, sin confirmar.": "SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES는 최대 3시간 늦게 업데이트됩니다. 아직 기록되지 않은 내용은 정의에서 가져온 것이며 확인되지 않았습니다.",
+  "Bigtable": "Bigtable",
+  "Buffer": "Buffer",
+  "Cassandra": "Cassandra",
+  "Databricks {0}": "Databricks {0}",
+  "Executable": "Executable",
+  "Hudi": "Hudi",
+  "Infos": "Infos",
+  "Kafka": "Kafka",
+  "Pulsar": "Pulsar",
+  "Redpanda": "Redpanda",
+  "Snowflake stage": "Snowflake stage",
+  "Timeplus": "Timeplus"
 }

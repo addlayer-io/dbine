@@ -19076,5 +19076,20 @@
   "Excel": "Excel",
   "Item": "Item",
   "Kind": "Kind",
-  "Web": "Web"
+  "Web": "Web",
+  "El linaje de Unity Catalog no está disponible para este objeto (hace falta BROWSE o SELECT sobre la tabla y un catálogo de Unity Catalog): lo que usa sale de su definición, sin confirmar.": "此对象无法使用 Unity Catalog 沿袭（需要对该表具有 BROWSE 或 SELECT 权限，并使用 Unity Catalog 目录）：它所使用的对象来自其定义，未经确认。",
+  "Lo que usa sale de su definición, sin confirmar: confirmarlo con OBJECT_DEPENDENCIES necesita acceso a SNOWFLAKE.ACCOUNT_USAGE (IMPORTED PRIVILEGES sobre la base SNOWFLAKE).": "它所使用的对象来自其定义，未经确认：通过 OBJECT_DEPENDENCIES 确认需要访问 SNOWFLAKE.ACCOUNT_USAGE（对 SNOWFLAKE 数据库的 IMPORTED PRIVILEGES）。",
+  "SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES se actualiza con hasta tres horas de demora: lo que todavía no registra sale de la definición, sin confirmar.": "SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES 最多会延迟三小时更新：其中尚未记录的内容来自定义，未经确认。",
+  "Bigtable": "Bigtable",
+  "Buffer": "Buffer",
+  "Cassandra": "Cassandra",
+  "Databricks {0}": "Databricks {0}",
+  "Executable": "Executable",
+  "Hudi": "Hudi",
+  "Infos": "Infos",
+  "Kafka": "Kafka",
+  "Pulsar": "Pulsar",
+  "Redpanda": "Redpanda",
+  "Snowflake stage": "Snowflake stage",
+  "Timeplus": "Timeplus"
 }
