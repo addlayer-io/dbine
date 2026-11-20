@@ -33,7 +33,7 @@
     {
       "source": "osv",
       "date": "2026-11-20",
-      "revision": "e3dfa066f602",
+      "revision": "0257c2214503",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -41,7 +41,7 @@
     {
       "source": "trivy",
       "date": "2026-11-20",
-      "revision": "e3dfa066f602",
+      "revision": "0257c2214503",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -57,10 +57,10 @@
     {
       "source": "scorecard",
       "date": "2026-11-20",
-      "revision": "fb9e2683b041",
+      "revision": "e3dfa066f602",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 7.4
+      "score": 7.5
     }
   ],
   "findings": [
@@ -4508,7 +4508,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "CI-Tests: 5/10 — 7 out of 13 merged PRs checked by a CI test -- score normalized to 5",
+      "title": "CI-Tests: 6/10 — 9 out of 13 merged PRs checked by a CI test -- score normalized to 6",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
       "found": "2026-11-15",
@@ -4556,17 +4556,6 @@
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained",
       "found": "2026-10-21",
-      "status": "open"
-    },
-    {
-      "id": "SC-SAST",
-      "source": "scorecard",
-      "severity": "MEDIUM",
-      "kind": "Repository practice",
-      "title": "SAST: 9/10 — SAST tool detected but not run on all commits",
-      "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#sast",
-      "found": "2026-11-20",
       "status": "open"
     },
     {
