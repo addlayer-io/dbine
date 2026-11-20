@@ -73,6 +73,11 @@ const INLINE_MAX: usize = 16 * 1024 * 1024;
 
 const READ_SRIDS: &str = "SELECT COLUMN_NAME, SRS_ID FROM SYS.ST_GEOMETRY_COLUMNS WHERE SCHEMA_NAME = ? AND TABLE_NAME = ?";
 
+/// A table's columns in order, with their type and length (a vector's
+/// dimension).
+const READ_COLUMNS: &str = "SELECT COLUMN_NAME, DATA_TYPE_NAME, LENGTH FROM SYS.TABLE_COLUMNS
+  WHERE SCHEMA_NAME = ? AND TABLE_NAME = ? ORDER BY POSITION";
+
 pub(crate) async fn read_batches(
     s: &mut HanaSession,
     spec: &ReadSpec,
@@ -80,9 +85,44 @@ pub(crate) async fn read_batches(
 ) -> Result<u64> {
     let owner = s.owner(&spec.table);
     let table = format!("{}.{}", quote(&owner), quote(&spec.table.name));
-    let cols = match &spec.columns {
-        Some(c) if !c.is_empty() => c.iter().map(|c| quote(c)).collect::<Vec<_>>().join(", "),
-        _ => "*".to_string(),
+    // REAL_VECTOR and HALF_VECTOR columns (the client can't decode them)
+    // are read as text, so the select list names every column.
+    let catalog = s.rows(READ_COLUMNS, &[&owner, &spec.table.name]).await?;
+    let vectors: HashMap<String, crate::vector::Declared> = catalog
+        .iter()
+        .filter_map(|r| {
+            Some((
+                r.first().and_then(super::text)?,
+                crate::vector::Declared::new(
+                    &r.get(1).and_then(super::text)?,
+                    r.get(2).and_then(super::int),
+                )?,
+            ))
+        })
+        .collect();
+    let named: Option<Vec<String>> = match &spec.columns {
+        Some(c) if !c.is_empty() => Some(c.clone()),
+        _ if !vectors.is_empty() => Some(
+            catalog
+                .iter()
+                .filter_map(|r| r.first().and_then(super::text))
+                .collect(),
+        ),
+        _ => None,
+    };
+    let cols = match &named {
+        Some(c) => c
+            .iter()
+            .map(|c| {
+                if vectors.contains_key(c) {
+                    crate::vector::read_expr(&quote(c))
+                } else {
+                    quote(c)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", "),
+        None => "*".to_string(),
     };
     // Described first: spatial columns are read through an expression.
     let meta = s
@@ -116,6 +156,9 @@ pub(crate) async fn read_batches(
             if let Some(srid) = srids.get(&name) {
                 type_name = format!("{type_name}({srid})");
             }
+            if let Some(d) = vectors.get(&name) {
+                type_name = d.type_name();
+            }
             TransferColumn {
                 name,
                 type_name,
@@ -125,7 +168,17 @@ pub(crate) async fn read_batches(
         .collect();
     let select: Vec<String> = meta
         .iter()
-        .map(|m| read_expr(m.displayname(), m.type_id()))
+        .map(|m| {
+            if vectors.contains_key(m.displayname()) {
+                crate::vector::read_expr(&quote(m.displayname()))
+            } else {
+                read_expr(m.displayname(), m.type_id())
+            }
+        })
+        .collect();
+    let is_vector: Vec<bool> = meta
+        .iter()
+        .map(|m| vectors.contains_key(m.displayname()))
         .collect();
     let sql = select_sql(&select, &table, spec.filter.as_deref());
     let widths: Vec<usize> = meta
@@ -136,7 +189,7 @@ pub(crate) async fn read_batches(
     let (fetch, lob) = (s.conn.fetch_size().await, s.conn.lob_read_length().await);
     s.conn.set_fetch_size(fetch_rows(&widths)).await;
     s.conn.set_lob_read_length(LOB_READ).await;
-    let r = read(s, &sql, &columns, &sink).await;
+    let r = read(s, &sql, &columns, &is_vector, &sink).await;
     s.conn.set_fetch_size(fetch).await;
     s.conn.set_lob_read_length(lob).await;
     r
@@ -146,6 +199,7 @@ async fn read(
     s: &HanaSession,
     sql: &str,
     columns: &[TransferColumn],
+    is_vector: &[bool],
     sink: &BatchSinkRef,
 ) -> Result<u64> {
     let lock_err = |_| Error::State("destino de lotes".into());
@@ -154,8 +208,15 @@ async fn read(
     let mut builder = BatchBuilder::new();
     while let Some(row) = rs.next_row().await.map_err(err)? {
         let mut cells = Vec::with_capacity(row.len());
-        for v in row {
-            cells.push(to_cell(v).await?);
+        for (i, v) in row.into_iter().enumerate() {
+            let cell = match to_cell(v).await? {
+                // A vector's text, in the canonical form.
+                Cell::Text(t) if is_vector.get(i).copied().unwrap_or(false) => {
+                    Cell::Text(crate::vector::canonical(&t))
+                }
+                c => c,
+            };
+            cells.push(cell);
         }
         builder.push(cells, &mut *sink.lock().map_err(lock_err)?)?;
     }
@@ -402,6 +463,10 @@ enum Mode {
     Spatial {
         srid: i64,
     },
+    /// `REAL_VECTOR` or `HALF_VECTOR` (the catalog's name): its text
+    /// through `TO_REAL_VECTOR` or `TO_HALF_VECTOR` (the client has no
+    /// vector type, and HANA casts neither a string nor the other type).
+    Vector(&'static str),
 }
 
 /// A target column being loaded.
@@ -475,6 +540,8 @@ fn plan(qualified: &str, targets: &HashMap<String, Target>, spec: &LoadSpec) -> 
             Mode::Spatial {
                 srid: t.srid.unwrap_or(0),
             }
+        } else if let Some(kind) = crate::vector::kind_of(&t.data_type) {
+            Mode::Vector(kind)
         } else {
             Mode::Plain
         };
@@ -497,6 +564,7 @@ fn insert_sql(table: &str, cols: &[Col]) -> String {
         .iter()
         .map(|c| match c.mode {
             Mode::Plain => "?".to_string(),
+            Mode::Vector(kind) => format!("TO_{kind}(?)"),
             Mode::Spatial { srid } => {
                 format!("COALESCE(ST_GeomFromWKB(?, {srid}), ST_GeomFromText(?, {srid}))")
             }
@@ -676,6 +744,14 @@ fn row_params(
         let c = &row[col.index];
         match col.mode {
             Mode::Plain => out.push(param(c, slots[out.len()]).map_err(|e| (ci, e))?),
+            Mode::Vector(_) => {
+                // Another engine's JSON array, in the canonical form.
+                let c = match c {
+                    Cell::Text(t) | Cell::Json(t) => Cell::Text(crate::vector::canonical(t)),
+                    other => other.clone(),
+                };
+                out.push(param(&c, slots[out.len()]).map_err(|e| (ci, e))?)
+            }
             Mode::Spatial { srid } => {
                 let (wkb, wkt) = spatial(c, srid).map_err(|e| (ci, e))?;
                 let wkb = match wkb {
@@ -1731,6 +1807,74 @@ async fn move_identity(
 mod tests {
     use super::*;
     use dbine_driver::ObjectRef;
+
+    #[test]
+    fn vectors_load_through_their_columns_constructor() {
+        let cols = vec![
+            Col {
+                name: "ID".into(),
+                index: 0,
+                mode: Mode::Plain,
+                identity: false,
+            },
+            Col {
+                name: "EMB".into(),
+                index: 1,
+                mode: Mode::Vector(crate::vector::TYPE),
+                identity: false,
+            },
+            Col {
+                name: "HALF".into(),
+                index: 2,
+                mode: Mode::Vector(crate::vector::HALF),
+                identity: false,
+            },
+        ];
+        assert_eq!(
+            insert_sql("\"T\"", &cols),
+            "INSERT INTO \"T\" (\"ID\", \"EMB\", \"HALF\") VALUES (?, TO_REAL_VECTOR(?), TO_HALF_VECTOR(?))"
+        );
+        let slots = [
+            Slot::from(TypeId::INT),
+            Slot::from(TypeId::NVARCHAR),
+            Slot::from(TypeId::NVARCHAR),
+        ];
+        let row = [
+            Cell::Int(1),
+            Cell::Text("[1, 2.5, -3]".into()),
+            Cell::Json("[0.5,1]".into()),
+        ];
+        let p = row_params(&cols, &row, &slots).unwrap();
+        assert_eq!(p[1], Param::Text("[1,2.5,-3]".into()));
+        assert_eq!(p[2], Param::Text("[0.5,1]".into()));
+        let targets: HashMap<String, Target> = [
+            (
+                "ID".to_string(),
+                Target {
+                    data_type: "INTEGER".into(),
+                    ..Default::default()
+                },
+            ),
+            (
+                "EMB".to_string(),
+                Target {
+                    data_type: "REAL_VECTOR".into(),
+                    ..Default::default()
+                },
+            ),
+            (
+                "HALF".to_string(),
+                Target {
+                    data_type: "HALF_VECTOR".into(),
+                    ..Default::default()
+                },
+            ),
+        ]
+        .into();
+        let planned = plan("\"T\"", &targets, &spec(&["ID", "EMB", "HALF"], false)).unwrap();
+        assert_eq!(planned[1].mode, Mode::Vector("REAL_VECTOR"));
+        assert_eq!(planned[2].mode, Mode::Vector("HALF_VECTOR"));
+    }
 
     fn spec(columns: &[&str], keep_identity: bool) -> LoadSpec {
         LoadSpec {

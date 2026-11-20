@@ -9,6 +9,13 @@
 //! Ids are the element ids when the server has them (Neo4j 5), the numeric
 //! ids otherwise (Memgraph, Neo4j 4). Temporal values become ISO strings,
 //! points `{"srid", "x", "y"[, "z"]}`, durations ISO 8601 (`P1M2DT3.5S`).
+//!
+//! Neo4j 2025's VECTOR (Bolt 6) is `{"~vector": [numbers],
+//! "~coordinateType": "FLOAT32"}`: a result column of them reads as the
+//! vector text (see the driver's `mark_vectors`), and a node edited as
+//! JSON writes it back as `vector(…)`, so it stays a VECTOR and doesn't
+//! become a list. A value the negotiated protocol can't carry is
+//! `{"~unsupported": type, "~minimumProtocol", "~message"}`.
 
 use crate::packstream::{tag, Value};
 use chrono::{DateTime, NaiveDate, NaiveTime};
@@ -159,8 +166,152 @@ fn local_datetime(secs: i64, nanos: i64) -> Option<String> {
     Some(format!("{}{}", dt.format("%Y-%m-%dT%H:%M:%S"), frac(nanos)))
 }
 
+/// A Bolt 6 VECTOR (`Vector::Structure(type_marker, data)`, big-endian
+/// numbers of one type).
+#[derive(Debug, Clone, PartialEq)]
+pub struct NativeVector {
+    /// Cypher's coordinate type: `FLOAT32`, `FLOAT64`, `INTEGER8`…
+    pub coordinate: &'static str,
+    pub values: Numbers,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Numbers {
+    F32(Vec<f32>),
+    F64(Vec<f64>),
+    Int(Vec<i64>),
+}
+
+impl NativeVector {
+    /// From the structure's fields; `None` when they aren't a vector's.
+    pub fn decode(f: &[Value]) -> Option<NativeVector> {
+        let (Some(Value::Bytes(marker)), Some(Value::Bytes(data))) = (f.first(), f.get(1)) else {
+            return None;
+        };
+        let (coordinate, width) = match marker.as_slice() {
+            [0xC8] => ("INTEGER8", 1),
+            [0xC9] => ("INTEGER16", 2),
+            [0xCA] => ("INTEGER32", 4),
+            [0xCB] => ("INTEGER64", 8),
+            [0xC6] => ("FLOAT32", 4),
+            [0xC1] => ("FLOAT64", 8),
+            _ => return None,
+        };
+        if data.len() % width != 0 {
+            return None;
+        }
+        let chunks = data.chunks_exact(width);
+        let values = match marker[0] {
+            0xC6 => Numbers::F32(
+                chunks
+                    .map(|c| f32::from_be_bytes([c[0], c[1], c[2], c[3]]))
+                    .collect(),
+            ),
+            0xC1 => Numbers::F64(
+                chunks
+                    .map(|c| f64::from_be_bytes(c.try_into().unwrap_or([0; 8])))
+                    .collect(),
+            ),
+            _ => Numbers::Int(
+                chunks
+                    .map(|c| match c.len() {
+                        1 => i64::from(c[0] as i8),
+                        2 => i64::from(i16::from_be_bytes([c[0], c[1]])),
+                        4 => i64::from(i32::from_be_bytes([c[0], c[1], c[2], c[3]])),
+                        _ => i64::from_be_bytes(c.try_into().unwrap_or([0; 8])),
+                    })
+                    .collect(),
+            ),
+        };
+        Some(NativeVector { coordinate, values })
+    }
+
+    pub fn dims(&self) -> usize {
+        match &self.values {
+            Numbers::F32(v) => v.len(),
+            Numbers::F64(v) => v.len(),
+            Numbers::Int(v) => v.len(),
+        }
+    }
+
+    /// `VECTOR<FLOAT32>(3)`.
+    pub fn type_name(&self) -> String {
+        format!("VECTOR<{}>({})", self.coordinate, self.dims())
+    }
+
+    /// The vector text (`[0.1,2]`, FLOAT32 at its own precision), or
+    /// `None` with a NaN or ±∞ (which a VECTOR can't hold anyway).
+    pub fn text(&self) -> Option<String> {
+        match &self.values {
+            Numbers::F32(v) if v.iter().all(|x| x.is_finite()) => {
+                Some(dbine_driver::vector::text(v.iter().copied()))
+            }
+            Numbers::F64(v) if v.iter().all(|x| x.is_finite()) => {
+                Some(dbine_driver::vector::text(v.iter().copied()))
+            }
+            Numbers::Int(v) => Some(dbine_driver::vector::text(v.iter().map(|&x| x as f64))),
+            _ => None,
+        }
+    }
+
+    fn json(&self) -> Json {
+        let numbers: Vec<Json> = match &self.values {
+            // The shortest text of the 32-bit float, not its widened form.
+            Numbers::F32(v) => v
+                .iter()
+                .map(|x| json_f64(x.to_string().parse().unwrap_or(f64::from(*x))))
+                .collect(),
+            Numbers::F64(v) => v.iter().map(|x| json_f64(*x)).collect(),
+            Numbers::Int(v) => v.iter().map(|x| Json::from(*x)).collect(),
+        };
+        json!({ "~vector": numbers, "~coordinateType": self.coordinate })
+    }
+}
+
+/// The vector element of a Cypher coordinate type.
+pub fn coordinate_element(coordinate: &str) -> dbine_driver::VectorElement {
+    use dbine_driver::VectorElement as E;
+    match coordinate.to_ascii_uppercase().as_str() {
+        "FLOAT32" => E::F32,
+        "FLOAT64" | "FLOAT" => E::F64,
+        "INTEGER8" | "INT8" => E::I8,
+        _ => E::Other,
+    }
+}
+
+/// A VECTOR's JSON form (`{"~vector": […], "~coordinateType": …}`) as
+/// (coordinate type, numbers).
+pub fn native_vector_json(v: &Json) -> Option<(&str, &Vec<Json>)> {
+    let o = v.as_object()?;
+    if o.len() != 2 {
+        return None;
+    }
+    Some((
+        o.get("~coordinateType")?.as_str()?,
+        o.get("~vector")?.as_array()?,
+    ))
+}
+
 fn structure(t: u8, f: &[Value]) -> Json {
     let s = match t {
+        tag::VECTOR => {
+            if let Some(v) = NativeVector::decode(f) {
+                return v.json();
+            }
+            None
+        }
+        // What the negotiated protocol can't carry (a type of a newer one).
+        tag::UNSUPPORTED => {
+            return json!({
+                "~unsupported": f.first().map(to_json),
+                "~minimumProtocol": format!(
+                    "{}.{}",
+                    f.get(1).and_then(Value::as_i64).unwrap_or(0),
+                    f.get(2).and_then(Value::as_i64).unwrap_or(0)
+                ),
+                "~message": f.get(3).and_then(|e| e.get("message")).map(to_json),
+            })
+        }
         tag::NODE => return node(f),
         tag::RELATIONSHIP => return relationship(f),
         tag::PATH => return path(f),
@@ -261,6 +412,17 @@ pub fn cell(v: &Json) -> Json {
     }
 }
 
+/// [`type_name`], with a Neo4j 2025 VECTOR (its JSON form) as its own
+/// type: `VECTOR<FLOAT32>(3)`.
+pub fn type_text(v: &Json) -> String {
+    match native_vector_json(v) {
+        Some((c, numbers)) if !c.is_empty() && c.chars().all(|x| x.is_ascii_alphanumeric()) => {
+            format!("VECTOR<{c}>({})", numbers.len())
+        }
+        _ => type_name(v).to_string(),
+    }
+}
+
 /// Type name of a property value as Cypher calls it.
 pub fn type_name(v: &Json) -> &'static str {
     match v {
@@ -269,6 +431,14 @@ pub fn type_name(v: &Json) -> &'static str {
         Json::Number(n) if n.is_f64() => "FLOAT",
         Json::Number(_) => "INTEGER",
         Json::String(_) => "STRING",
+        // Floats only: what a vector index indexes (an embedding).
+        Json::Array(a)
+            if !a.is_empty()
+                && a.iter()
+                    .all(|x| x.as_number().is_some_and(serde_json::Number::is_f64)) =>
+        {
+            "LIST<FLOAT>"
+        }
         Json::Array(_) => "LIST",
         Json::Object(o) if o.contains_key("srid") => "POINT",
         Json::Object(_) => "MAP",
@@ -277,6 +447,102 @@ pub fn type_name(v: &Json) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    /// Bolt 6 VECTOR structures (big-endian numbers after a type marker)
+    /// for each coordinate type, and the unsupported-type placeholder.
+    #[test]
+    fn bolt6_vectors() {
+        let v = |marker: u8, data: Vec<u8>| {
+            Value::Struct(
+                tag::VECTOR,
+                vec![Value::Bytes(vec![marker]), Value::Bytes(data)],
+            )
+        };
+        let f32s: Vec<u8> = [0.1f32, -2.5, 3.0]
+            .iter()
+            .flat_map(|x| x.to_be_bytes())
+            .collect();
+        let j = to_json(&v(0xC6, f32s.clone()));
+        assert_eq!(
+            j,
+            json!({"~vector": [0.1, -2.5, 3.0], "~coordinateType": "FLOAT32"})
+        );
+        let n = NativeVector::decode(&[Value::Bytes(vec![0xC6]), Value::Bytes(f32s)]).unwrap();
+        assert_eq!(n.type_name(), "VECTOR<FLOAT32>(3)");
+        assert_eq!(n.text().as_deref(), Some("[0.1,-2.5,3]"));
+        assert_eq!(
+            coordinate_element(n.coordinate),
+            dbine_driver::VectorElement::F32
+        );
+        let f64s: Vec<u8> = [1e-7f64, 2.0]
+            .iter()
+            .flat_map(|x| x.to_be_bytes())
+            .collect();
+        let n = NativeVector::decode(&[Value::Bytes(vec![0xC1]), Value::Bytes(f64s)]).unwrap();
+        assert_eq!(
+            (n.coordinate, n.text().unwrap().as_str()),
+            ("FLOAT64", "[0.0000001,2]")
+        );
+        let n =
+            NativeVector::decode(&[Value::Bytes(vec![0xC8]), Value::Bytes(vec![1, 0xFF, 0x80])])
+                .unwrap();
+        assert_eq!(
+            (n.coordinate, n.text().unwrap().as_str()),
+            ("INTEGER8", "[1,-1,-128]")
+        );
+        let n = NativeVector::decode(&[
+            Value::Bytes(vec![0xC9]),
+            Value::Bytes(vec![0xFF, 0xFE, 0, 7]),
+        ])
+        .unwrap();
+        assert_eq!(n.text().as_deref(), Some("[-2,7]"));
+        let n = NativeVector::decode(&[
+            Value::Bytes(vec![0xCA]),
+            Value::Bytes(70000i32.to_be_bytes().to_vec()),
+        ])
+        .unwrap();
+        assert_eq!(
+            (n.type_name().as_str(), n.text().unwrap().as_str()),
+            ("VECTOR<INTEGER32>(1)", "[70000]")
+        );
+        let n = NativeVector::decode(&[
+            Value::Bytes(vec![0xCB]),
+            Value::Bytes((-5i64).to_be_bytes().to_vec()),
+        ])
+        .unwrap();
+        assert_eq!(n.text().as_deref(), Some("[-5]"));
+        // A bad marker or a short payload isn't a vector.
+        assert!(NativeVector::decode(&[Value::Bytes(vec![0x01]), Value::Bytes(vec![])]).is_none());
+        assert!(
+            NativeVector::decode(&[Value::Bytes(vec![0xC6]), Value::Bytes(vec![1, 2])]).is_none()
+        );
+        // NaN has no vector text.
+        let nan: Vec<u8> = f32::NAN.to_be_bytes().to_vec();
+        assert!(
+            NativeVector::decode(&[Value::Bytes(vec![0xC6]), Value::Bytes(nan)])
+                .unwrap()
+                .text()
+                .is_none()
+        );
+        let j = json!({"~vector": [1, 2], "~coordinateType": "INTEGER8"});
+        assert_eq!(
+            native_vector_json(&j).map(|(c, v)| (c, v.len())),
+            Some(("INTEGER8", 2))
+        );
+        assert!(native_vector_json(&json!({"~vector": [1]})).is_none());
+
+        let u = to_json(&Value::Struct(
+            tag::UNSUPPORTED,
+            vec![
+                "UUID".into(),
+                Value::Int(6),
+                Value::Int(1),
+                map([("message", "needs 6.1".into())]),
+            ],
+        ));
+        assert_eq!(u["~unsupported"], json!("UUID"));
+        assert_eq!(u["~minimumProtocol"], json!("6.1"));
+    }
+
     use super::*;
     use crate::packstream::map;
 

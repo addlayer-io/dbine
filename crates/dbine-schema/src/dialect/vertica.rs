@@ -147,6 +147,7 @@ impl Dialect for Vertica {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {
                 1..=8 => Rendered::exact("INTEGER"),
@@ -257,6 +258,8 @@ impl Dialect for Vertica {
             comments: false,
             max_identifier: 128,
             case: IdentCase::Preserve,
+            vector_indexes: false,
+            vectors: false,
         }
     }
 

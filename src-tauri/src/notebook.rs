@@ -128,6 +128,10 @@ pub struct StoredColumn {
     pub name: String,
     #[serde(default)]
     pub type_name: String,
+    /// Set when the column holds vectors (the result's mark): kept in the
+    /// file (`dbine_vector`), so a result read back still shows them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector: Option<dbine_driver::VectorMeta>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -1022,6 +1026,9 @@ fn read_statement(dr: Option<&Value>, md: Option<&Map<String, Value>>) -> Stored
                 .or_else(|| str_of(f, "type"))
                 .unwrap_or_default()
                 .to_string(),
+            vector: f
+                .get("dbine_vector")
+                .and_then(|v| serde_json::from_value(v.clone()).ok()),
         })
         .collect();
     let rows: Vec<Vec<Value>> = dr
@@ -1478,6 +1485,9 @@ pub(crate) fn result_outputs(
                     if !c.type_name.is_empty() {
                         f["dbine_type"] = json!(c.type_name);
                     }
+                    if let Some(v) = &c.vector {
+                        f["dbine_vector"] = json!(v);
+                    }
                     f
                 })
                 .collect();
@@ -1811,6 +1821,7 @@ mod tests {
                 .map(|c| StoredColumn {
                     name: c.to_string(),
                     type_name: "int".into(),
+                    vector: None,
                 })
                 .collect(),
             rows_kept: rows.len() as u64,
@@ -1995,6 +2006,34 @@ mod tests {
             .as_str()
             .unwrap()
             .starts_with("3 / 3 rows · 2026-10-18T14:32:05Z · 412 ms · Ventas prod › ventas"));
+    }
+
+    /// A vector column keeps its mark in the file (`dbine_vector`, only
+    /// where there is one), and a result read back says it again.
+    #[test]
+    fn vector_columns_keep_their_mark_in_the_file() {
+        let meta = dbine_driver::VectorMeta::dense(Some(3), dbine_driver::VectorElement::F16);
+        let mut st = stmt(&["id", "emb"], vec![vec![json!(1), json!("[1,0.5,-2]")]], 1);
+        st.columns[1].type_name = "halfvec(3)".into();
+        st.columns[1].vector = Some(meta.clone());
+        let nb = notebook(vec![sql_cell("c", "SELECT", Some(result(vec![st])))]);
+        let text = serialize(&nb, PreviewLimits::default());
+        let v: Value = serde_json::from_str(&text).unwrap();
+        let fields = &v["cells"][0]["outputs"][0]["data"][DATARESOURCE]["schema"]["fields"];
+        assert!(fields[0].get("dbine_vector").is_none(), "{fields}");
+        assert_eq!(
+            fields[1]["dbine_vector"],
+            json!({ "dims": 3, "element": "f16" })
+        );
+        let back = parse(&text).unwrap();
+        let cols = &back.cells[0].result.as_ref().unwrap().results[0].columns;
+        assert_eq!(cols[0].vector, None);
+        assert_eq!(cols[1].vector, Some(meta));
+        assert_eq!(cols[1].type_name, "halfvec(3)");
+        // As the UI gets it: the mark on the column, left out where none.
+        let ui = serde_json::to_value(&cols[..]).unwrap();
+        assert!(ui[0].get("vector").is_none());
+        assert_eq!(ui[1]["vector"]["dims"], 3);
     }
 
     #[test]

@@ -687,8 +687,10 @@ pub(super) async fn native_ddl(
     .chain([new_name.to_string()])
     .collect();
     let mut indexes = Vec::new();
+    let mut hnsw = false;
     let mut left_out = Vec::new();
     let mut moved = Vec::new();
+    let mut no_vector = Vec::new();
     for r in strings(s, &index_sql).await? {
         let mut r = r.into_iter();
         let (Some(name), Some(sql)) = (r.next().flatten(), r.next().flatten()) else {
@@ -699,6 +701,14 @@ pub(super) async fn native_ddl(
                 .ok()
                 .is_some_and(|k| is_word(k.get(1), "UNIQUE"));
             left_out.push((name, unique));
+            continue;
+        }
+        // A libSQL vector index in a file SQLite opens: SQLite can't create
+        // it (no `libsql_vector_idx`).
+        if id == "sqlite" && sql.to_ascii_lowercase().contains("libsql_vector_idx") {
+            no_vector.push(format!(
+                "el índice vectorial «{name}» no se crea en el clon: SQLite no tiene libsql_vector_idx (es de libSQL); hay que crearlo desde una conexión libSQL"
+            ));
             continue;
         }
         let (base, _) = rename_constraint(&name, &t.name, new_name, 0);
@@ -714,6 +724,13 @@ pub(super) async fn native_ddl(
             moved.push(format!(
                 "el índice «{name}» del clon se llama «{to}»: «{base}» ya existe en el esquema"
             ));
+        }
+        // DuckDB: vss's HNSW index needs vss loaded and, in a file, its
+        // persistence on (as the driver's own DDL does). libSQL's vector
+        // index (`libsql_vector_idx(…)`) needs nothing: the rewrite keeps it.
+        if !sqlite && !hnsw && is_hnsw(&sql) {
+            indexes.push(HNSW_PRELUDE.to_string());
+            hnsw = true;
         }
         // SQLite: the index's name carries the schema, the table's can't;
         // DuckDB: the other way round.
@@ -740,6 +757,7 @@ pub(super) async fn native_ddl(
         });
     }
     let mut notes = moved;
+    notes.extend(no_vector);
     if !left_out.is_empty() {
         let names = |u: bool| {
             left_out
@@ -770,6 +788,18 @@ pub(super) async fn native_ddl(
         renames,
         notes,
     }))
+}
+
+/// What DuckDB needs before creating an HNSW index (vss's vector index).
+const HNSW_PRELUDE: &str =
+    "INSTALL vss;\nLOAD vss;\nSET hnsw_enable_experimental_persistence = true";
+
+/// A stored `CREATE INDEX … USING HNSW …`.
+fn is_hnsw(sql: &str) -> bool {
+    tokens(sql, false).is_ok_and(|k| {
+        k.windows(2)
+            .any(|w| is_word(w.first(), "USING") && is_word(w.get(1), "HNSW"))
+    })
 }
 
 /// Puts `n` into the plan and the DDL: its statements instead of the ones
@@ -1295,6 +1325,25 @@ mod tests {
         assert_eq!(
             r.sql,
             "CREATE TABLE main.\"tq2\"(k VARCHAR PRIMARY KEY, v INTEGER, CHECK((\"tq2\".v >= 0)));"
+        );
+        // Vector indexes keep their settings: libSQL's and vss's HNSW.
+        assert_eq!(
+            rewrite_create_index(
+                "CREATE INDEX docs_emb ON docs (libsql_vector_idx(emb, 'metric=cosine', 'max_neighbors=16'))",
+                true,
+                "\"docs2_emb\"",
+                "\"docs2\"",
+                "docs",
+                "\"docs2\""
+            )
+            .unwrap(),
+            "CREATE INDEX \"docs2_emb\" ON \"docs2\" (libsql_vector_idx(emb, 'metric=cosine', 'max_neighbors=16'))"
+        );
+        let hnsw = "CREATE INDEX t_emb ON t USING HNSW (emb) WITH (metric = 'cosine', M = 16);";
+        assert!(is_hnsw(hnsw) && !is_hnsw("CREATE INDEX i ON t (hnsw)"));
+        assert_eq!(
+            rewrite_create_index(hnsw, false, "\"c_emb\"", "main.\"c\"", "t", "\"c\"").unwrap(),
+            "CREATE INDEX \"c_emb\" ON main.\"c\" USING HNSW (emb) WITH (metric = 'cosine', M = 16);"
         );
         // Partial and expression indexes.
         assert_eq!(

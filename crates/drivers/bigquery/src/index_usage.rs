@@ -4,7 +4,9 @@
 //! vector indexes (one per column), read from the dataset's
 //! `SEARCH_INDEXES` / `VECTOR_INDEXES` (definition from the `ddl` column,
 //! as `database_schema` reads them, so the schema sync can drop them; size
-//! `total_storage_bytes`; last write `last_refresh_time`). Primary and
+//! `total_storage_bytes`; last write `last_refresh_time`; a vector index's
+//! algorithm, distance and options as [`IndexUsage::vector`], the same as
+//! the schema's `IndexDef::vector`). Primary and
 //! foreign keys are unenforced constraints, not indexes: the primary key
 //! isn't listed (the explorer marks its columns from `columns`), the
 //! foreign keys come from `tables.get` (`tableConstraints.foreignKeys`).
@@ -116,6 +118,7 @@ pub fn indexes(kind: &str, rows: &[Row]) -> Vec<IndexUsage> {
                     .and_then(|b| b.parse::<u64>().ok())
                     .map(|b| b.div_ceil(1024)),
                 last_write: r.get("last_refresh_time").cloned(),
+                vector: def.vector,
                 ..Default::default()
             })
         })
@@ -343,6 +346,20 @@ mod tests {
             (Some(2), Some("2026-09-30 10:00:00"))
         );
         assert_eq!(ixs[1].kind, "VECTOR INDEX (PENDING DISABLEMENT)");
+        // The vector index's settings, as the schema reads them.
+        assert!(ixs[0].vector.is_none());
+        let def = indexes::parse(
+            "vx",
+            VECTOR,
+            "CREATE VECTOR INDEX vx ON `p.d.t`(emb) OPTIONS (index_type = 'IVF')",
+        )
+        .unwrap();
+        assert_eq!(ixs[1].vector, def.vector);
+        let v = ixs[1].vector.as_ref().unwrap();
+        assert_eq!(
+            (v.algorithm.as_deref(), v.metric.as_deref()),
+            (Some("ivf"), Some("l2"))
+        );
         let usage = row(&[
             ("search_used", "5"),
             ("search_last", "2026-10-01 09:00:00"),

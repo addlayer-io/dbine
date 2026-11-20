@@ -705,6 +705,71 @@ fn attachments(j: &str) -> Result<Value> {
     Ok(Value::Object(out))
 }
 
+/// Whether a source column's type holds dense vectors, whichever engine it
+/// comes from: `vector(3)`, `VECTOR(3, FLOAT32)`, `vector<float, 3>`,
+/// `frozen<vector<float, 3>>`, `halfvec(3)`, `dense_vector(3)`,
+/// `knn_vector(3)`, `float_vector(3)`, `REAL_VECTOR(3)`, `F32_BLOB(3)`,
+/// `vecf32(3)`, `ARRAY<FLOAT32>(vector_length=>3)`…, also with a crate's
+/// mark (`bson:vector(3, int8)`) or among `|` alternatives
+/// (`bson:vector(3)|bson:null`). Sparse vectors (`sparsevec`,
+/// `sparse_vector`, `VECTOR(…, SPARSE)`) aren't: their text isn't an
+/// array. The same list in every crate of the document family (the
+/// contract has no helper for it).
+pub(crate) fn is_vector_type(t: &str) -> bool {
+    t.split('|').any(|part| {
+        let p = part.trim().to_ascii_lowercase();
+        if p.contains("sparse") {
+            return false;
+        }
+        p.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .any(|tok| {
+                tok.ends_with("vector")
+                    || tok.ends_with("vec")
+                    || matches!(
+                        tok,
+                        "vecf32"
+                            | "vecf64"
+                            | "vector_length"
+                            | "f32_blob"
+                            | "f64_blob"
+                            | "f16_blob"
+                            | "fb16_blob"
+                            | "bf16_blob"
+                            | "f8_blob"
+                            | "f1bit_blob"
+                    )
+            })
+    })
+}
+
+/// Which loaded columns hold vectors, by their source column's type (by
+/// position when the load takes the read's columns, else by name).
+fn vector_columns(columns: &[TransferColumn], names: &[String]) -> Vec<bool> {
+    (0..names.len())
+        .map(|i| {
+            let c = if columns.len() == names.len() {
+                columns.get(i)
+            } else {
+                columns.iter().find(|c| c.name == names[i])
+            };
+            c.is_some_and(|c| is_vector_type(&c.type_name))
+        })
+        .collect()
+}
+
+/// A vector column's text (`"[0.1,0.2]"`) as the JSON array it is: CouchDB
+/// has no vector type, and a vector stays an array of numbers there (as
+/// the schema conversion makes it), not a string.
+fn vectors_as_arrays(row: &mut [Cell], vectors: &[bool]) {
+    for (c, _) in row.iter_mut().zip(vectors).filter(|(_, v)| **v) {
+        if let Cell::Text(t) = c {
+            if let Some(n) = dbine_driver::vector::parse(t) {
+                *c = Cell::Json(dbine_driver::vector::text(n));
+            }
+        }
+    }
+}
+
 /// A row as the document the insert script would write, appended to `out`
 /// as JSON.
 pub(crate) fn write_doc(names: &[String], row: &[Cell], out: &mut Vec<u8>) -> Result<()> {
@@ -1135,10 +1200,11 @@ impl CouchSession {
         } else {
             spec.columns.clone()
         };
+        let vectors = vector_columns(columns, &names);
         let path = format!("{}/_bulk_docs", self.db_path()?);
         let mut sent = InFlight(JoinSet::new());
         let r = self
-            .load_into(&path, &names, spec, source, progress, &mut sent)
+            .load_into(&path, &names, &vectors, spec, source, progress, &mut sent)
             .await;
         if r.is_err() {
             // What the server already has commits anyway: wait for it
@@ -1148,10 +1214,12 @@ impl CouchSession {
         r
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn load_into(
         &self,
         path: &str,
         names: &[String],
+        vectors: &[bool],
         spec: &LoadSpec,
         source: &mut dyn BatchSource,
         progress: Progress<'_>,
@@ -1182,7 +1250,8 @@ impl CouchSession {
             sent.0.spawn(send_docs(rq, body, n));
         };
         while let Some(batch) = source.next().await {
-            for row in batch.rows {
+            for mut row in batch.rows {
+                vectors_as_arrays(&mut row, vectors);
                 if row.len() != names.len() {
                     return Err(Error::Query(format!(
                         "la fila tiene {} valores y la carga {} columnas",
@@ -1260,6 +1329,83 @@ fn joined(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vector_types_of_every_engine() {
+        for t in [
+            "vector(3)",
+            "bson:vector(3)",
+            "bson:vector(3, int8)|bson:null",
+            "VECTOR(3, FLOAT32)",
+            "vector<float, 3>",
+            "frozen<vector<float, 3>>",
+            "halfvec(3)",
+            "dense_vector(3)",
+            "knn_vector(3)",
+            "float_vector(3)",
+            "REAL_VECTOR(3)",
+            "F32_BLOB(3)",
+            "vecf32(3)",
+            "ARRAY<FLOAT32>(vector_length=>3)",
+            "vector",
+        ] {
+            assert!(is_vector_type(t), "{t}");
+        }
+        for t in [
+            "sparsevec(5)",
+            "sparse_vector",
+            "VECTOR(3, FLOAT32, SPARSE)",
+            "varchar(20)",
+            "text",
+            "",
+            "bson:binData",
+            "bson:array",
+            "json",
+            "blob",
+        ] {
+            assert!(!is_vector_type(t), "{t}");
+        }
+    }
+
+    #[test]
+    fn vector_text_loads_as_an_array() {
+        let col = |n: &str, t: &str| TransferColumn {
+            name: n.into(),
+            type_name: t.into(),
+            nullable: true,
+        };
+        // MongoDB's BinData vector, Elasticsearch's dense_vector, pgvector
+        // (a JSON cell), and a plain string that looks like an array.
+        let cols = [
+            col("_id", "string"),
+            col("m", "bson:vector(3, int8)|bson:null"),
+            col("e", "dense_vector(3)"),
+            col("p", "vector(3)"),
+            col("s", "text"),
+        ];
+        let names: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
+        let vectors = vector_columns(&cols, &names);
+        assert_eq!(vectors, [false, true, true, true, false]);
+        let mut row = vec![
+            Cell::Text("a".into()),
+            Cell::Text("[1,-2,3]".into()),
+            Cell::Text("[0.5, 1e-7, 2]".into()),
+            Cell::Json("[0.25,0.5,1]".into()),
+            Cell::Text("[1,2]".into()),
+        ];
+        vectors_as_arrays(&mut row, &vectors);
+        let mut out = Vec::new();
+        write_doc(&names, &row, &mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            r#"{"_id":"a","m":[1,-2,3],"e":[0.5,0.0000001,2],"p":[0.25,0.5,1],"s":"[1,2]"}"#
+        );
+        // Loaded by name.
+        assert_eq!(
+            vector_columns(&cols[1..2], &["x".into(), "m".into()]),
+            [false, true]
+        );
+    }
 
     fn names(n: &[&str]) -> Vec<String> {
         n.iter().map(|s| s.to_string()).collect()

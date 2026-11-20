@@ -411,3 +411,11 @@ snippets.json:families.dax
 lint.json:groups.dax
 optimizer.json:rules.dax_selectedvalue.title
 editor.json:tableHover.kind.measure
+vectors.json:metric.l1
+vectors.json:metric.hamming
+vectors.json:metric.jaccard
+vectors.json:metricShort.hamming
+vectors.json:metricShort.jaccard
+vectors.json:viewer.norm
+vectors.json:viewer.min
+vectors.json:viewer.max

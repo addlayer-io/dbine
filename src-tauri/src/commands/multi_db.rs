@@ -225,6 +225,7 @@ pub fn merge(outcomes: Vec<DbOutcome>) -> (Option<StatementResult>, Vec<DbRun>) 
                     columns: std::iter::once(ResultColumn {
                         name: BASE_COLUMN.into(),
                         type_name: String::new(),
+                        vector: None,
                     })
                     .chain(set.columns.iter().cloned())
                     .collect(),
@@ -597,6 +598,7 @@ mod tests {
                 .map(|c| ResultColumn {
                     name: c.to_string(),
                     type_name: String::new(),
+                    vector: None,
                 })
                 .collect(),
             total_rows: rows.len() as u64,

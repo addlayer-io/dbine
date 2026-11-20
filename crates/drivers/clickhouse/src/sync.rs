@@ -76,6 +76,12 @@ fn index_kind(ix: &IndexDef) -> String {
 /// `bloom_filter(0.01)`, so a type without arguments matches by name.
 fn ix_same(old: &IndexDef, new: &IndexDef) -> bool {
     let cols = |x: &[String]| x.iter().map(|c| squash(c)).collect::<Vec<_>>();
+    // A vector index is the same when its settings and granularity are.
+    if old.vector.is_some() || new.vector.is_some() {
+        return cols(&old.columns) == cols(&new.columns)
+            && old.vector == new.vector
+            && crate::schema::vector_granularity(old) == crate::schema::vector_granularity(new);
+    }
     let (o, n) = (index_kind(old), index_kind(new));
     let base = |k: &str| k.split(['(', ' ']).next().unwrap_or("").to_string();
     let same_kind = o == n
@@ -371,6 +377,9 @@ fn alter(flavor: Flavor, old: &TableSchema, new: &TableSchema, p: &mut Plan) {
             })
         });
         if same.is_none_or(|o| !ix_same(o, n)) || on_dropped {
+            if crate::schema::legacy_vector_type(n).is_some() {
+                p.post.push(crate::vector::LEGACY_SET.into());
+            }
             p.post.push(format!("{head} ADD {};", index_clause(n)));
             p.post.push(format!(
                 "{head} MATERIALIZE {} {};",

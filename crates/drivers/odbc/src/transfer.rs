@@ -292,6 +292,8 @@ pub enum As {
     DateTimeTz,
     Uuid,
     Json,
+    /// Db2's vector text, canonical ([`crate::vector`]).
+    Vector,
 }
 
 /// How a result column is read.
@@ -362,6 +364,10 @@ fn is_json(type_name: &str) -> bool {
 
 /// How column `c` is read; `sizes`: the driver's text sizes can be trusted.
 pub fn plan(c: &Col, sizes: bool) -> Fetch {
+    // Db2's vectors: their text, whatever type the driver reports.
+    if crate::vector::is_vector(&c.type_name) {
+        return Fetch::LongText(As::Vector);
+    }
     let text_as = if is_json(&c.type_name) {
         As::Json
     } else {
@@ -460,6 +466,7 @@ pub fn text_cell(s: String, as_: As) -> Cell {
                 .to_ascii_lowercase(),
         ),
         As::Json => Cell::Json(s),
+        As::Vector => Cell::Text(crate::vector::canonical(s)),
     }
 }
 
@@ -780,6 +787,19 @@ pub struct Target {
 }
 
 impl Target {
+    /// A parameter of unbounded wide text, sized by its values (a vector's
+    /// text into `VECTOR(?, n, type)`).
+    pub fn text(name: &str) -> Target {
+        Target {
+            name: name.to_string(),
+            bind: Bind::Text,
+            sql_type: SQL_WVARCHAR,
+            size: 0,
+            digits: 0,
+            by_value: true,
+        }
+    }
+
     pub fn of(c: &Col) -> Target {
         let bind = match c.sql_type {
             SQL_TINYINT | SQL_SMALLINT | SQL_INTEGER => Bind::Int,
@@ -1134,8 +1154,29 @@ impl Window {
 }
 
 /// `INSERT INTO t (a, b) VALUES (?, ?)`.
+#[cfg(test)]
 pub fn insert_sql(quote: Quote, table: &str, columns: &[String]) -> String {
-    let marks = vec!["?"; columns.len()].join(", ");
+    insert_sql_with(quote, table, columns, &[])
+}
+
+/// [`insert_sql`] with some parameters inside an expression (`exprs[i]`,
+/// `None` or missing: a bare `?`).
+pub fn insert_sql_with(
+    quote: Quote,
+    table: &str,
+    columns: &[String],
+    exprs: &[Option<String>],
+) -> String {
+    let marks = (0..columns.len())
+        .map(|i| {
+            exprs
+                .get(i)
+                .cloned()
+                .flatten()
+                .unwrap_or_else(|| "?".into())
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "INSERT INTO {table} ({}) VALUES ({marks})",
         column_list(quote, columns)
@@ -1151,6 +1192,8 @@ struct Job {
     commit_bytes: u64,
     /// `SET IDENTITY_INSERT` when the target has an identity column.
     identity_insert: bool,
+    /// Db2 LUW: vector columns load through `VECTOR(?, n, type)`.
+    db2_vectors: bool,
 }
 
 enum Msg {
@@ -1522,7 +1565,22 @@ fn load(
             job.columns.len()
         )));
     }
-    let targets: Vec<Target> = described.iter().map(Target::of).collect();
+    let mut targets: Vec<Target> = described.iter().map(Target::of).collect();
+    // Db2's vector columns load from their text through VECTOR(?, n, type).
+    let exprs: Vec<Option<String>> = described
+        .iter()
+        .map(|d| {
+            let size = (d.size > 0).then_some(d.size as u64);
+            job.db2_vectors
+                .then(|| crate::vector::param(&d.type_name, size))
+                .flatten()
+        })
+        .collect();
+    for (t, e) in targets.iter_mut().zip(&exprs) {
+        if e.is_some() {
+            *t = Target::text(&t.name);
+        }
+    }
 
     // Dropped last: identity insert off, after the rollback of a failure.
     let mut _identity = Finally { c, slot, sql: None };
@@ -1533,7 +1591,12 @@ fn load(
     }
     let tx = Tx::begin(c);
     let st = c.stmt(slot)?;
-    let insert = wide(&insert_sql(job.quote, &job.table, &job.columns));
+    let insert = wide(&insert_sql_with(
+        job.quote,
+        &job.table,
+        &job.columns,
+        &exprs,
+    ));
     // SAFETY: the text outlives the call.
     if !ok(unsafe { (api.SQLPrepareW)(st.raw(), insert.as_ptr(), insert.len() as i32) }) {
         return Err(st.err());
@@ -1688,6 +1751,7 @@ pub(crate) async fn bulk_load(
             && (eng(s.preset) == Eng::Ase
                 || (s.preset.is_generic()
                     && (dbms.contains("sql server") || dbms.contains("adaptive server")))),
+        db2_vectors: eng(s.preset) == Eng::Db2,
     };
     let (tx, rx) = mpsc::channel::<Msg>(1);
     let (etx, mut erx) = mpsc::unbounded_channel::<Event>();
@@ -2086,6 +2150,30 @@ mod tests {
         assert_eq!(
             insert_sql(Quote::Backtick, "`t`", &["a".into(), "b".into()]),
             "INSERT INTO `t` (`a`, `b`) VALUES (?, ?)"
+        );
+    }
+
+    #[test]
+    fn db2_vectors_read_and_load_as_text() {
+        let v = col(-370, 0, "VECTOR(FLOAT32)");
+        assert_eq!(plan(&v, true), Fetch::LongText(As::Vector));
+        assert_eq!(
+            text_cell("[1.0E0,2.5E0]".into(), As::Vector),
+            Cell::Text("[1,2.5]".into())
+        );
+        assert_eq!(
+            insert_sql_with(
+                Quote::Double,
+                "\"T\"",
+                &["ID".into(), "V".into()],
+                &[None, Some("VECTOR(?, 3, FLOAT32)".into())]
+            ),
+            "INSERT INTO \"T\" (\"ID\", \"V\") VALUES (?, VECTOR(?, 3, FLOAT32))"
+        );
+        let t = Target::text("V");
+        assert_eq!(
+            (t.bind, t.sql_type, t.by_value),
+            (Bind::Text, SQL_WVARCHAR, true)
         );
     }
 

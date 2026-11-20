@@ -1,5 +1,6 @@
 import type {
-  CellKind, CellResult, Notebook, NotebookCell, NotebookTarget, QueryOutcome, StatementResult, StoredStatement, WriteCell, WriteMode, WriteSummary,
+  CellKind, CellResult, Notebook, NotebookCell, NotebookTarget, QueryOutcome, ResultColumn, StatementResult, StoredColumn, StoredStatement,
+  WriteCell, WriteMode, WriteSummary,
 } from '../api/types';
 
 // The notebook's model on the UI side (docs/notebooks.md): new cells, the
@@ -140,10 +141,18 @@ export const emptyTarget = (t: NotebookTarget | null | undefined) => !t || (!t.c
 
 // -- results --------------------------------------------------------------------------------
 
+/** A result column as the cell keeps it. A vector column keeps its mark,
+ *  in the file too (read back, the result still says it holds vectors). */
+function keptColumn(c: ResultColumn): StoredColumn {
+  const out: StoredColumn = { name: c.name, type_name: c.type_name };
+  if (c.vector) out.vector = c.vector;
+  return out;
+}
+
 /** A statement's result as the file keeps it. `statement`: its text, when known. */
 function stored(r: StatementResult, statement: string | null): StoredStatement {
   return {
-    columns: r.columns.map((c) => ({ name: c.name, type_name: c.type_name })),
+    columns: r.columns.map(keptColumn),
     rows: r.rows,
     rows_total: Math.max(r.total_rows, r.rows.length),
     rows_kept: r.rows.length,
@@ -188,7 +197,7 @@ export function outcomeToResult(o: QueryOutcome, o2: { script: string; ranAt: Da
 export function resultToOutcome(r: CellResult): QueryOutcome {
   return {
     results: r.results.map((s) => ({
-      columns: s.columns.map((c) => ({ name: c.name, type_name: c.type_name })),
+      columns: s.columns.map((c) => ({ name: c.name, type_name: c.type_name, ...(c.vector ? { vector: c.vector } : {}) })),
       rows: s.rows,
       total_rows: s.rows_total,
       truncated: s.truncated,

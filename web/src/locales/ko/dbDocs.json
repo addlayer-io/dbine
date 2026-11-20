@@ -79,6 +79,7 @@
     "unique": "고유",
     "included": "포함",
     "filter": "필터",
+    "vector": "벡터 인덱스",
     "checks": "CHECK 제약 조건",
     "condition": "조건",
     "name": "이름",

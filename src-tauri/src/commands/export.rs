@@ -494,6 +494,7 @@ impl RowSink for DatabasesSink {
                 let base = self.base.then(|| ResultColumn {
                     name: BASE_COLUMN.into(),
                     type_name: String::new(),
+                    vector: None,
                 });
                 let all: Vec<ResultColumn> =
                     base.into_iter().chain(columns.iter().cloned()).collect();

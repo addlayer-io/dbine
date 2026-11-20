@@ -361,7 +361,29 @@ const READS: &[&str] = &[
     "FT.INFO",
     "FT._LIST",
     "FT.EXPLAIN",
+    "FT.EXPLAINCLI",
     "FT.PROFILE",
+    "FT.TAGVALS",
+    "FT.SPELLCHECK",
+    "FT.SYNDUMP",
+    "FT.DICTDUMP",
+    "FT.SUGGET",
+    "FT.SUGLEN",
+    "FT.ALIASLIST",
+    "FT.MGET",
+    "FT.GET",
+    "FT.HYBRID",
+    // vector sets (Redis 8)
+    "VSIM",
+    "VEMB",
+    "VCARD",
+    "VDIM",
+    "VINFO",
+    "VLINKS",
+    "VRANDMEMBER",
+    "VGETATTR",
+    "VISMEMBER",
+    "VRANGE",
     "TS.GET",
     "TS.MGET",
     "TS.RANGE",
@@ -415,6 +437,8 @@ const READ_SUBCOMMANDS: &[(&str, &[&str])] = &[
     ),
     ("XINFO", &["STREAM", "GROUPS", "CONSUMERS", "HELP"]),
     ("MODULE", &["LIST", "HELP"]),
+    ("FT.CURSOR", &["READ"]),
+    ("FT.CONFIG", &["GET", "HELP"]),
     ("FUNCTION", &["LIST", "DUMP", "STATS", "HELP"]),
     ("SCRIPT", &["EXISTS", "HELP"]),
     (
@@ -671,5 +695,35 @@ mod tests {
         assert!(!read("FLUSHALL"));
         assert!(!read("EVAL \"return 1\" 0"));
         assert!(!read("DEL a"));
+        // Vector sets and search indexes: their reads only.
+        for r in [
+            "VSIM vs VALUES 3 0.1 0.2 0.3 WITHSCORES COUNT 5",
+            "VEMB vs a",
+            "VCARD vs",
+            "VDIM vs",
+            "VINFO vs",
+            "VLINKS vs a WITHSCORES",
+            "VRANDMEMBER vs 5",
+            "VGETATTR vs a",
+            "VISMEMBER vs a",
+            "VRANGE vs - + 10",
+            "FT.SEARCH idx *",
+            "ft.info idx",
+            "FT.CURSOR READ idx 1",
+            "FT.CONFIG GET *",
+        ] {
+            assert!(read(r), "{r}");
+        }
+        for w in [
+            "VADD vs VALUES 1 0 a",
+            "VREM vs a",
+            "VSETATTR vs a {}",
+            "FT.CREATE idx SCHEMA a TEXT",
+            "FT.DROPINDEX idx",
+            "FT.CURSOR DEL idx 1",
+            "FT.CONFIG SET x 1",
+        ] {
+            assert!(!read(w), "{w}");
+        }
     }
 }

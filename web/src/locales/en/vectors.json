@@ -1,0 +1,77 @@
+{
+  "cell": {
+    "dims_one": "{{count}} dimension",
+    "dims_other": "{{count}} dimensions",
+    "sparse": "sparse"
+  },
+  "viewer": {
+    "element": "Type",
+    "dims": "Dimensions",
+    "declared": "(the column declares {{dims}})",
+    "norm": "Norm (L2)",
+    "min": "Minimum",
+    "max": "Maximum",
+    "empty": "Empty vector",
+    "sparse": "Sparse vector: shown as the engine writes it.",
+    "copyJson": "Copy as JSON"
+  },
+  "edit": {
+    "format": "“{{column}}” is a vector column: write the value as a JSON array of numbers, for example [0.12, -0.03, 0.88]. To leave it NULL, use “$t(results:grid.setNull)”.",
+    "dims": "“{{column}}” holds vectors of {{expected}} dimensions and the value has {{got}}.",
+    "range": "“{{column}}” takes integers from {{min}} to {{max}}: number {{position}} of the vector is {{value}}.",
+    "overflow": "“{{column}}” stores {{element}} numbers, up to ±{{max}}: number {{position}} of the vector is {{value}}.",
+    "empty": "“{{column}}” doesn't take an empty vector: write its numbers, for example [0.12, -0.03, 0.88].",
+    "skippedColumns": "The vector columns ({{columns}}) are left out of the WHERE."
+  },
+  "filter": {
+    "onlyNull": "“{{column}}” is a vector column: filter it by NULL or NOT NULL, or with an SQL condition from the filter's menu."
+  },
+  "sort": {
+    "local": "vector columns aren't sorted on the server"
+  },
+  "compare": {
+    "from": "from #{{position}}",
+    "firstDiff": "{{side}}: they differ from number {{position}} of {{dims}}. Double-click to see the whole vector."
+  },
+  "metric": {
+    "cosine": "Cosine",
+    "l2": "Euclidean (L2)",
+    "ip": "Inner product",
+    "l1": "Manhattan (L1)",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "metricShort": {
+    "cosine": "Cosine",
+    "l2": "L2",
+    "ip": "IP",
+    "l1": "L1",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "param": {
+    "m": "Links per node (m)",
+    "ef_construction": "Build candidates (ef_construction)",
+    "lists": "Lists (lists)",
+    "quantization": "Quantization"
+  },
+  "designer": {
+    "toggle": "Vector",
+    "toggleHint": "A similarity search index on a vector column",
+    "algorithm": "Algorithm",
+    "metric": "Distance",
+    "vectorColumn": "Vector column",
+    "vectorColumnPlaceholder": "Pick the vector column",
+    "filterColumns": "Filter columns",
+    "filterColumnsPlaceholder": "None",
+    "paramPlaceholder": "Engine default",
+    "vectorType": "vector",
+    "notVectorColumn": "Index “{{label}}” is a vector index and “{{column}}” isn't a vector column.",
+    "noFilterColumns": "Index “{{label}}” is a vector index: on this engine it takes only the vector column.",
+    "rebuilt": "Vector index “{{label}}” changes: it's dropped and created again, and rebuilding it can take a while on large tables."
+  },
+  "index": {
+    "summary": "Vector: {{text}}",
+    "column": "Vector index"
+  }
+}

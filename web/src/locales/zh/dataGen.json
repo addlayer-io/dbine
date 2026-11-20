@@ -39,7 +39,8 @@
     "company": "公司",
     "address": "地址",
     "list": "来自列表",
-    "foreign_key": "来自被引用的表"
+    "foreign_key": "来自被引用的表",
+    "vector": "向量（随机数）"
   },
   "param": {
     "value": "值",
@@ -50,6 +51,7 @@
     "scale": "小数位数",
     "from": "起始 YYYY-MM-DD",
     "to": "截止 YYYY-MM-DD",
-    "values": "值，以逗号分隔"
+    "values": "值，以逗号分隔",
+    "dims": "维度"
   }
 }

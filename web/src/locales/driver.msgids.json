@@ -2538,6 +2538,9 @@
   "Nuevo tópico": [
     "tdengine"
   ],
+  "Nuevo vector set de Redis 8": [
+    "redis"
+  ],
   "Nuevo índice": [
     "couchbase",
     "documentdb",
@@ -2571,7 +2574,21 @@
     "dynamodb"
   ],
   "Nuevo índice vectorial": [
-    "neo4j"
+    "neo4j",
+    "scylladb"
+  ],
+  "Nuevo índice vectorial (SAI)": [
+    "cassandra"
+  ],
+  "Nuevo índice vectorial (documentos JSON)": [
+    "dragonfly",
+    "redis",
+    "valkey"
+  ],
+  "Nuevo índice vectorial (hashes)": [
+    "dragonfly",
+    "redis",
+    "valkey"
   ],
   "OAuth de service principal": [
     "databricks"
@@ -4566,6 +4583,11 @@
     "opendistro",
     "opensearch",
     "orientdb"
+  ],
+  "Índices de búsqueda": [
+    "dragonfly",
+    "redis",
+    "valkey"
   ],
   "Índices secundarios": [
     "dynamodb"

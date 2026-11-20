@@ -47,7 +47,13 @@
 //! (Java 17 outside 10⁻³⁰..10¹⁵), the copy is refused. A negative zero
 //! keeps its sign, and a float field takes a decimal only if Solr prints
 //! the float back as that decimal.
+//!
+//! Vectors (`DenseVectorField`): read as the canonical JSON array text of
+//! the float32 (or byte) values Solr stores, typed `knn_vector(n)`; loaded
+//! from vector text (any engine's), each number checked to be a float32
+//! (or a byte for BYTE fields) and the length the field's dimension.
 
+use crate::vectors::VectorType;
 use crate::{solr_error_message, SolrSession};
 use dbine_driver::transfer::{
     BatchBuilder, BatchSinkRef, BatchSource, Cell, LoadSpec, Progress, ReadSpec, TransferColumn,
@@ -90,6 +96,8 @@ pub enum Kind {
     Binary,
     Uuid,
     Text,
+    /// A dense vector (`DenseVectorField`).
+    Vector,
     /// Unknown field (schemaless, or a type DBine doesn't know).
     Other,
 }
@@ -108,6 +116,7 @@ impl Kind {
             "UUIDField" => Kind::Uuid,
             "StrField" | "TextField" | "SortableTextField" | "ICUCollationField"
             | "CollationField" => Kind::Text,
+            c if c.ends_with("DenseVectorField") => Kind::Vector,
             _ => Kind::Other,
         }
     }
@@ -127,6 +136,8 @@ pub struct FieldType {
     pub type_name: String,
     pub kind: Kind,
     pub multi: bool,
+    /// A vector field's dimension and encoding.
+    pub vector: Option<VectorType>,
 }
 
 /// The parts of a collection's schema a transfer needs.
@@ -146,6 +157,8 @@ pub struct Schema {
     flags: std::collections::HashMap<String, [Option<bool>; 3]>,
     /// The schema's `version` (docValues default on from 1.7).
     version: f64,
+    /// The vector field types, by name.
+    vectors: std::collections::HashMap<String, VectorType>,
 }
 
 impl Schema {
@@ -191,8 +204,22 @@ impl Schema {
                 );
             }
         }
+        let vectors = s
+            .get("fieldTypes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|t| {
+                let j = dbine_driver_elasticsearch::json::J::parse(&t.to_string()).ok()?;
+                Some((
+                    t.get("name")?.as_str()?.to_string(),
+                    VectorType::from_field_type(&j)?,
+                ))
+            })
+            .collect();
         Schema {
             flags,
+            vectors,
             version: s
                 .get("version")
                 .and_then(|v| v.as_f64().or_else(|| v.as_str()?.parse().ok()))
@@ -271,10 +298,21 @@ impl Schema {
         let t = self.types.iter().find(|t| t.0 == *ty);
         let multi = mv.or(t.and_then(|t| t.2)).unwrap_or(false);
         let kind = t.map_or(Kind::Other, |t| Kind::from_class(&t.1));
+        let vector = self
+            .vectors
+            .get(ty)
+            .copied()
+            .filter(|_| kind == Kind::Vector);
         Some(FieldType {
-            type_name: if multi { format!("{ty}[]") } else { ty.clone() },
+            type_name: match vector {
+                // The vector it holds, as the designer spells it.
+                Some(v) => v.spelling(),
+                None if multi => format!("{ty}[]"),
+                None => ty.clone(),
+            },
             kind,
             multi,
+            vector,
         })
     }
 
@@ -444,6 +482,20 @@ pub fn cell_date_to_solr(c: &Cell) -> Option<String> {
 
 /// A document's value as a cell, for a field of kind `kind`.
 pub fn to_cell(v: &Value, kind: Kind) -> Cell {
+    if let (Kind::Vector, Value::Array(_)) = (kind, v) {
+        // The float32 (or byte) values Solr stores, as their shortest text.
+        let mut t = VectorType {
+            dims: None,
+            byte: false,
+        }
+        .cells();
+        if v.as_array().is_some_and(|a| a.iter().all(|x| x.is_i64())) {
+            t.single = false;
+        }
+        if let Some(text) = dbine_driver_elasticsearch::vectors::raw_text(&v.to_string(), &t) {
+            return Cell::Text(text);
+        }
+    }
     match v {
         Value::Null => Cell::Null,
         Value::Bool(b) => Cell::Bool(*b),
@@ -639,6 +691,8 @@ pub struct Col {
     pub hidden: bool,
     /// How the server's Java prints numbers (see [`java_double_on`]).
     pub java: JavaText,
+    /// A vector field's dimension and encoding.
+    pub vector: Option<VectorType>,
 }
 
 impl Col {
@@ -650,6 +704,7 @@ impl Col {
             fed_by: Vec::new(),
             hidden: false,
             java: JavaText::Unknown,
+            vector: None,
         }
     }
 }
@@ -1116,7 +1171,11 @@ pub fn load_cols(schema: &Schema, names: &[String]) -> Result<Vec<Col>> {
     let mut cols = Vec::with_capacity(names.len());
     for n in names {
         match schema.field(n) {
-            Some(f) => cols.push(Col { hidden: !schema.retrievable(n), ..Col::new(n, f.kind, f.multi) }),
+            Some(f) => cols.push(Col {
+                hidden: !schema.retrievable(n),
+                vector: f.vector,
+                ..Col::new(n, f.kind, f.multi)
+            }),
             None if SKIP.contains(&n.as_str()) => cols.push(Col::new(n, Kind::Other, false)),
             None => {
                 return Err(Error::Unsupported(format!(
@@ -1540,9 +1599,60 @@ fn write_bool(buf: &mut Vec<u8>, c: &Cell, col: &Col) -> Result<()> {
     Ok(())
 }
 
+/// A vector (JSON array text, from any engine) for the vector field
+/// `col`: each number a float32 as it is (or a byte, for BYTE fields), as
+/// many as the field's dimension. Solr would round the rest without a word.
+fn write_vector(buf: &mut Vec<u8>, c: &Cell, col: &Col) -> Result<()> {
+    let refuse = |why: String| {
+        Error::Query(format!(
+            "El valor no entra sin pérdida en el campo vectorial «{}» de Solr: {why}. La carga se detiene.",
+            col.name
+        ))
+    };
+    let values = match c {
+        Cell::Text(s) | Cell::Json(s) => dbine_driver::vector::parse(s),
+        _ => None,
+    }
+    .ok_or_else(|| refuse("no es un vector (un arreglo JSON de números)".into()))?;
+    let v = col.vector.unwrap_or(VectorType {
+        dims: None,
+        byte: false,
+    });
+    if let Some(d) = v.dims.filter(|d| *d as usize != values.len()) {
+        return Err(refuse(format!(
+            "tiene {} dimensiones y el campo, {d}",
+            values.len()
+        )));
+    }
+    for x in &values {
+        let fits = if v.byte {
+            x.fract() == 0.0 && (-128.0..=127.0).contains(x)
+        } else {
+            // A float32 exactly, or the shortest text of one.
+            let f = *x as f32;
+            f64::from(f) == *x || f.to_string().parse::<f64>().ok() == Some(*x)
+        };
+        if !fits {
+            return Err(refuse(format!(
+                "{x} no es un {}",
+                if v.byte {
+                    "byte (entero de -128 a 127)"
+                } else {
+                    "float de 32 bits"
+                }
+            )));
+        }
+    }
+    buf.extend_from_slice(dbine_driver::vector::text(values).as_bytes());
+    Ok(())
+}
+
 /// One value for the field `col`.
 pub fn write_value(buf: &mut Vec<u8>, c: &Cell, col: &Col) -> Result<()> {
     let kind = col.kind;
+    if kind == Kind::Vector && !matches!(c, Cell::Null) {
+        return write_vector(buf, c, col);
+    }
     match c {
         Cell::Null => buf.extend_from_slice(b"null"),
         Cell::Int(_) | Cell::UInt(_) | Cell::Float(_) if kind.is_int() || kind.is_float() => {
@@ -2663,7 +2773,8 @@ mod tests {
             Some(FieldType {
                 type_name: "string".into(),
                 kind: Kind::Text,
-                multi: false
+                multi: false,
+                vector: None,
             })
         );
         assert_eq!(s.field("tags").unwrap().type_name, "string[]");
@@ -2673,7 +2784,8 @@ mod tests {
             Some(FieldType {
                 type_name: "strings[]".into(),
                 kind: Kind::Text,
-                multi: true
+                multi: true,
+                vector: None,
             })
         );
         assert_eq!(s.field("when_dt").unwrap().kind, Kind::Date);
@@ -2798,6 +2910,61 @@ mod tests {
         let mut buf = Vec::new();
         encode_doc(&mut buf, cols, row)?;
         Ok(String::from_utf8(buf).unwrap())
+    }
+
+    #[test]
+    fn vectors_read_and_load_exactly() {
+        let s = Schema::parse(&json!({"schema": {
+            "uniqueKey": "id",
+            "fields": [{"name": "id", "type": "string"}, {"name": "v", "type": "knn3"}, {"name": "b", "type": "kb"}],
+            "fieldTypes": [
+                {"name": "string", "class": "solr.StrField"},
+                {"name": "knn3", "class": "solr.DenseVectorField", "vectorDimension": "3", "similarityFunction": "cosine"},
+                {"name": "kb", "class": "solr.DenseVectorField", "vectorDimension": 2, "vectorEncoding": "BYTE"}
+            ]
+        }}));
+        let v = s.field("v").unwrap();
+        assert_eq!(
+            (v.type_name.as_str(), v.kind),
+            ("knn_vector(3)", Kind::Vector)
+        );
+        assert_eq!(s.field("b").unwrap().type_name, "knn_vector(2, BYTE)");
+        // Read: the float32 values' shortest text; bytes as they are.
+        assert_eq!(
+            to_cell(&json!([1.0, 0.1, 3.6379788e-12]), Kind::Vector),
+            Cell::Text("[1,0.1,0.000000000003637979]".into())
+        );
+        assert_eq!(
+            to_cell(&json!([1, -2]), Kind::Vector),
+            Cell::Text("[1,-2]".into())
+        );
+        // Load: vector text from any engine, checked.
+        let cols = load_cols(&s, &["id".to_string(), "v".to_string(), "b".to_string()]).unwrap();
+        let t = |x: &str| Cell::Text(x.into());
+        assert_eq!(
+            encode(
+                &cols,
+                &[
+                    t("1"),
+                    t("[0.1, 0.30000001192092896, -2]"),
+                    Cell::Json("[1,-128]".into())
+                ]
+            )
+            .unwrap(),
+            r#"{"id":"1","v":[0.1,0.30000001192092896,-2],"b":[1,-128]}"#
+        );
+        for (v, b, why) in [
+            ("[0.30000001,0,0]", "[1,2]", "float de 32 bits"),
+            ("[1,2]", "[1,2]", "dimensiones"),
+            ("[1,2,3]", "[1.5,2]", "byte"),
+            ("[1,2,3]", "[1,300]", "byte"),
+            ("hola", "[1,2]", "no es un vector"),
+        ] {
+            let e = encode(&cols, &[t("1"), t(v), t(b)])
+                .unwrap_err()
+                .to_string();
+            assert!(e.contains(why), "{v} {b}: {e}");
+        }
     }
 
     #[test]

@@ -7,15 +7,16 @@ import { errorMessage } from '../api/client';
 import type { ObjectRef } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { runTask } from '../stores/tasks';
+import { autoOf, generatorOptions, paramsOf, sampleVectorOf, sentSpecs, type GenColumn, type GenSpec } from '../composables/dataGenColumns';
+import { vectorPreview } from '../composables/vector';
+import VectorValue from './VectorValue.vue';
 
 // "Generar datos de prueba…" (docs/test-data.md): one row per column
 // with its generator ("auto" picks by name and type), its settings and the
 // share of NULLs; a sample from the backend, and the run as a background
 // task with progress and cancel.
 
-interface Column { name: string; data_type: string; nullable: boolean; primary_key: boolean; auto_increment: boolean; foreign_key: string | null; auto: string }
-interface Preview { table_columns: Column[]; generators: string[]; columns: string[]; rows: unknown[][] }
-interface Spec { generator: string; params: Record<string, string>; null_percent: number }
+interface Preview { table_columns: GenColumn[]; generators: string[]; columns: string[]; rows: unknown[][] }
 
 const props = defineProps<{ connectionId: string; database: string; table: ObjectRef }>();
 const emit = defineEmits<{ close: [] }>();
@@ -26,36 +27,27 @@ const open = ref(true);
 const loading = ref(true);
 const error = ref<string | null>(null);
 const preview = ref<Preview | null>(null);
-const specs = ref<Record<string, Spec>>({});
+const specs = ref<Record<string, GenSpec>>({});
 const count = ref(100);
 const seed = ref(Math.floor(Math.random() * 1e9));
 
-/** The settings each generator takes. */
-const PARAMS: Record<string, string[]> = {
-  fixed: ['value'],
-  sequence: ['start', 'step'],
-  integer: ['min', 'max'],
-  decimal: ['min', 'max', 'scale'],
-  date: ['from', 'to'],
-  datetime: ['from', 'to'],
-  text: ['min', 'max'],
-  list: ['values'],
-};
-
-function payload() {
-  return Object.entries(specs.value)
-    .filter(([, s]) => s.generator !== 'auto' || s.null_percent > 0)
-    .map(([name, s]) => ({ name, generator: s.generator, params: s.params, null_percent: s.null_percent }));
-}
+/** What the backend gets (composables/dataGenColumns.ts). */
+const payload = () => sentSpecs(preview.value?.table_columns ?? [], specs.value);
 
 async function load() {
   loading.value = true;
   error.value = null;
   try {
-    preview.value = await invoke<Preview>('datagen_preview', {
-      args: { connection_id: props.connectionId, database: props.database, table: props.table, columns: payload(), rows: 8, seed: seed.value },
-    });
-    for (const c of preview.value.table_columns) specs.value[c.name] ??= { generator: 'auto', params: {}, null_percent: 0 };
+    // Twice at most: once the columns are known, a vector the backend
+    // didn't read as one is asked again with the vector generator.
+    for (let i = 0; i < 2; i++) {
+      const sent = payload();
+      preview.value = await invoke<Preview>('datagen_preview', {
+        args: { connection_id: props.connectionId, database: props.database, table: props.table, columns: sent, rows: 8, seed: seed.value },
+      });
+      for (const c of preview.value.table_columns) specs.value[c.name] ??= { generator: 'auto', params: {}, null_percent: 0 };
+      if (JSON.stringify(payload()) === JSON.stringify(sent)) break;
+    }
   } catch (e) {
     error.value = errorMessage(e);
   } finally {
@@ -73,9 +65,17 @@ function cell(v: unknown): string {
   if (v === null || v === undefined) return 'NULL';
   return typeof v === 'object' ? JSON.stringify(v) : String(v);
 }
+/** How each sample column shows its vectors. */
+const sampleVectors = computed(() => (preview.value?.columns ?? []).map((name) =>
+  sampleVectorOf(preview.value?.table_columns.find((x) => x.name === name), specs.value[name])));
+/** A sample vector as its first numbers and dims; null: shown as text. */
+function sampleVector(v: unknown, j: number) {
+  const meta = sampleVectors.value[j]?.meta;
+  return meta && v !== null && v !== undefined ? vectorPreview(typeof v === 'string' ? v : JSON.stringify(v), meta) : null;
+}
 
 const genLabel = (g: string) => t(`dataGen:gen.${g}`);
-const options = computed(() => ['auto', ...(preview.value?.generators ?? [])]);
+const options = computed(() => generatorOptions(preview.value?.generators ?? [], preview.value?.table_columns ?? []));
 
 async function generate() {
   if (!preview.value) return;
@@ -146,12 +146,12 @@ function close() {
               <td class="nm-muted">{{ c.data_type }}</td>
               <td>
                 <el-select v-model="specs[c.name].generator" size="small" filterable style="width: 190px">
-                  <el-option v-for="g in options" :key="g" :value="g" :label="g === 'auto' ? `${genLabel('auto')} · ${genLabel(c.auto)}` : genLabel(g)" />
+                  <el-option v-for="g in options" :key="g" :value="g" :label="g === 'auto' ? `${genLabel('auto')} · ${genLabel(autoOf(c))}` : genLabel(g)" />
                 </el-select>
               </td>
               <td class="dg-params">
                 <el-input
-                  v-for="p in PARAMS[specs[c.name].generator] ?? []"
+                  v-for="p in paramsOf(c, specs[c.name])"
                   :key="p"
                   v-model="specs[c.name].params[p]"
                   size="small"
@@ -171,7 +171,12 @@ function close() {
         <table>
           <thead><tr><th v-for="c in preview.columns" :key="c">{{ c }}</th></tr></thead>
           <tbody>
-            <tr v-for="(r, i) in preview.rows" :key="i"><td v-for="(v, j) in r" :key="j" :class="{ null: v === null }">{{ cell(v) }}</td></tr>
+            <tr v-for="(r, i) in preview.rows" :key="i">
+              <td v-for="(v, j) in r" :key="j" :class="{ null: v === null }">
+                <VectorValue v-if="sampleVector(v, j)" :preview="sampleVector(v, j)!" :meta="sampleVectors[j]?.shown" />
+                <template v-else>{{ cell(v) }}</template>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>

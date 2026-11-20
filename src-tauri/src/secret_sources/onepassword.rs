@@ -560,7 +560,7 @@ mod tests {
         .unwrap();
         std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755)).unwrap();
         let old = std::env::var_os("PATH").unwrap_or_default();
-        let mut paths = vec![dir.clone()];
+        let mut paths = vec![dir.to_path_buf()];
         paths.extend(std::env::split_paths(&old));
         // This ignored test runs alone (`--test-threads=1`).
         std::env::set_var("PATH", std::env::join_paths(paths).unwrap());
@@ -602,7 +602,7 @@ mod tests {
         std::fs::write(&op, script).unwrap();
         std::fs::set_permissions(&op, std::fs::Permissions::from_mode(0o755)).unwrap();
         let old = std::env::var_os("PATH").unwrap_or_default();
-        let mut paths = vec![dir.clone()];
+        let mut paths = vec![dir.to_path_buf()];
         paths.extend(std::env::split_paths(&old));
         std::env::set_var("PATH", std::env::join_paths(paths).unwrap());
         let calls = || {

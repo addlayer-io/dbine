@@ -4,6 +4,7 @@
 
 import type { Cell, ResultColumn, SortKey } from '../api/types';
 import { columnKind, type ColumnKind } from './gridFilter';
+import { compareVectors, parseVector, shownVectorMeta } from './vector';
 
 export type { SortKey };
 
@@ -53,17 +54,21 @@ function compareValues(a: Cell, b: Cell, kind: ColumnKind): number {
 
 /**
  * The rows sorted by `keys` (a new array; the rows are the same objects).
- * NULLs go last in either direction; equal rows keep their order.
+ * NULLs go last in either direction; equal rows keep their order. Vector
+ * columns sort number by number (each cell read once); a cell that isn't a
+ * vector goes after the vectors, by its text.
  */
 export function sortRows(rows: Cell[][], columns: ResultColumn[], keys: SortKey[]): Cell[][] {
+  type Key = { i: number; desc: boolean; kind: ColumnKind; vectors: (number[] | null)[] | null };
   const by = keys
-    .map((k) => {
+    .map((k): Key | null => {
       const i = columns.findIndex((c) => c.name === k.column);
       if (i < 0) return null;
       const sample = rows.find((r) => r[i] !== null)?.[i];
-      return { i, desc: k.descending, kind: columnKind(columns[i].type_name, sample) };
+      const kind = shownVectorMeta(columns[i]) ? 'vector' : columnKind(columns[i].type_name, sample);
+      return { i, desc: k.descending, kind, vectors: kind === 'vector' ? rows.map((r) => parseVector(r[i])) : null };
     })
-    .filter((k): k is { i: number; desc: boolean; kind: ColumnKind } => k !== null);
+    .filter((k): k is Key => k !== null);
   if (!by.length) return rows.slice();
   return rows
     .map((r, n) => ({ r, n }))
@@ -75,7 +80,9 @@ export function sortRows(rows: Cell[][], columns: ResultColumn[], keys: SortKey[
           if (a === b) continue;
           return a === null ? 1 : -1;
         }
-        const c = compareValues(a, b, k.kind);
+        const x = k.vectors?.[p.n];
+        const y = k.vectors?.[q.n];
+        const c = x && y ? compareVectors(x, y) : x ? -1 : y ? 1 : compareValues(a, b, k.kind);
         if (c) return k.desc ? -c : c;
       }
       return p.n - q.n;

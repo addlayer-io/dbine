@@ -22,7 +22,7 @@ const ROWS: &str = "SELECT t.table_name, t.num_rows,
    FROM all_tables t
   WHERE t.owner = :1 AND t.num_rows IS NOT NULL
     AND t.dropped = 'NO' AND t.nested = 'NO' AND t.secondary = 'N'
-    AND t.table_name NOT LIKE 'BIN$%'";
+    AND t.table_name NOT LIKE 'BIN$%' AND NOT REGEXP_LIKE(t.table_name, '^VECTOR\\$.+\\$[0-9]+_[0-9]+_[0-9]+\\$')";
 
 const VIEW_COMMENTS: &str = "SELECT table_name, comments FROM all_tab_comments
   WHERE owner = :1 AND table_type = 'VIEW' AND comments IS NOT NULL";
@@ -114,6 +114,15 @@ impl OracleSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vector_index_internals_have_no_estimate() {
+        let not = format!(
+            "NOT REGEXP_LIKE(t.table_name, {})",
+            crate::vector::INTERNAL_TABLES
+        );
+        assert!(ROWS.contains(&not), "{ROWS}");
+    }
 
     #[test]
     fn container_tables_are_materialized_views() {

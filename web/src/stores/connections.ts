@@ -1,5 +1,6 @@
 import { acceptHMRUpdate, defineStore } from 'pinia';
 import { ElMessageBox } from 'element-plus';
+import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { api, errorDetail, errorKind, errorMessage } from '../api/client';
 import { askRunProxyCommand, askTrustSshHost } from '../composables/sshTrust';
@@ -7,6 +8,7 @@ import { askAllowLegacyTls } from '../composables/legacyTls';
 import { askApproveSecretSource } from '../composables/secretSourceApproval';
 import { askMasterPassword, unlockOf } from '../composables/secretSourceUnlock';
 import type { ColumnInfo, ConnectDetail, ConnectionFolder, DbObject, DriverInfo, KeyEntry, ObjectQuery, Permissions, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
+import { hasOtherKinds, LatestRead, readOtherKinds, type OtherKinds } from '../composables/keyKinds';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import { rt } from '../composables/i18nLabels';
@@ -79,6 +81,9 @@ const KEY_ENOUGH = 50;
 const KEY_SEARCH_MS = 4000;
 /** The latest search per database: a slower, older reply is dropped. */
 const keySeq: Record<string, number> = {};
+/** The same for a key database's other kinds (`loadOtherKinds`); a
+ *  connection forgotten drops its reads in flight too. */
+const otherReads = new LatestRead();
 /** The connect in flight per connection: every caller shares it. */
 const connecting = new Map<string, Promise<boolean>>();
 /** Bumped by each disconnect: a connect that ends after one (a server or
@@ -194,6 +199,9 @@ export const useConnectionsStore = defineStore('connections', {
     migrationRuns: {} as Record<string, RunInfo>,
     listeningMigrations: false,
     keys: {} as Record<string, KeyBrowse>,
+    /** A key database's objects of its driver's other kinds (Redis' search
+     *  indexes), by `dbKey`: its keys are searched (`keys`), these listed. */
+    otherKinds: {} as Record<string, OtherKinds>,
     /** What the login may do, by `dbKey` ('' database: the server's actions). */
     permissions: {} as Record<string, Permissions>,
     /** Downloads in progress, by component. */
@@ -344,10 +352,12 @@ export const useConnectionsStore = defineStore('connections', {
     forget(id: string) {
       delete this.live[id];
       const prefix = `${id}\u0000`;
-      for (const map of [this.objects, this.schemas, this.levels, this.objectFolders, this.found, this.columns, this.queries, this.migrations, this.keys, this.permissions]) {
+      for (const map of [this.objects, this.schemas, this.levels, this.objectFolders, this.found, this.columns, this.queries, this.migrations, this.keys, this.otherKinds, this.permissions]) {
         for (const k of Object.keys(map)) if (k.startsWith(prefix)) delete map[k];
       }
       for (const m of [searches, lookupMisses]) for (const k of [...m.keys()]) if (k.startsWith(prefix)) m.delete(k);
+      // A read that lands after this doesn't bring the old list back.
+      otherReads.forget(prefix);
     },
 
     /** Follow engine library downloads (the first connection to DuckDB). */
@@ -564,7 +574,10 @@ export const useConnectionsStore = defineStore('connections', {
           return;
         }
         this.objects[k] = { status: 'ready', items: [], error: null };
-        return this.searchKeys(connectionId, database, last?.pattern ?? '', last?.keyType ?? '');
+        const search = this.searchKeys(connectionId, database, last?.pattern ?? '', last?.keyType ?? '');
+        if (!hasOtherKinds(this.driverOf(connectionId)?.object_kinds)) return search;
+        await Promise.all([search, this.loadOtherKinds(connectionId, database)]);
+        return;
       }
       const cur = this.levels[k];
       if (!force && cur?.status === 'ready') {
@@ -830,6 +843,20 @@ export const useConnectionsStore = defineStore('connections', {
       } finally {
         if (objectsLoading.get(k) === run) objectsLoading.delete(k);
       }
+    },
+
+    /** A key database's objects of its driver's other kinds (Redis' search
+     *  indexes), from its schema read, next to the key search
+     *  (composables/keyKinds.ts). A failed read shows in their folder, with
+     *  why; a refresh asks again. */
+    async loadOtherKinds(connectionId: string, database: string) {
+      const d = this.driverOf(connectionId);
+      if (!d) return;
+      const failed = await readOtherKinds({
+        state: this.otherKinds, latest: otherReads, key: dbKey(connectionId, database), kinds: d.object_kinds,
+        connectionId, database, call: (cmd, args) => invoke(cmd, args), errorText: errorMessage,
+      });
+      if (failed) void this.recheckAfter(connectionId, failed);
     },
 
     /** Start a key search: the first page of the keys matching `pattern`. */

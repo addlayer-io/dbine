@@ -9,6 +9,7 @@ import { tb } from '../i18n/backend';
 import { newQuery } from '../composables/actions';
 import { dropIndexScript, indexUsageOf, runDropIndex, toggleIndexScript, type DropIndexTarget } from '../composables/dropIndex';
 import { indexUsageEntry, sharePct } from '../composables/indexUsage';
+import { indexVector, vectorLine } from '../composables/indexVectors';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 
 // "Eliminar índice…": the index, how much it's used, and the engine's script
@@ -38,6 +39,12 @@ const usageLine = computed(() => {
   if (i.unused) return t('explorer:indexes.drop.usageUnused', { writes: num(i.updates) });
   if (i.read_share == null) return t('explorer:indexes.drop.usageNone');
   return t('explorer:indexes.drop.usageShare', { share: sharePct(i.read_share), seeks: num(i.seeks), scans: num(i.scans), lookups: num(i.lookups) });
+});
+
+/** A vector index: how it searches (what is dropped, or disabled). */
+const vectorText = computed(() => {
+  const i = indexUsageOf(props.target);
+  return vectorLine(indexVector(props.target.connectionId, props.target.database, props.target.table, i ?? props.target.index));
 });
 
 const script = ref<SyncScript | null>(null);
@@ -139,6 +146,7 @@ async function run() {
     :close-on-click-modal="false" :close-on-press-escape="!running" :show-close="!running" @close="emit('close')"
   >
     <p class="di-p">{{ $t(k('intro'), { name: target.index, table: qualified }) }}</p>
+    <p v-if="vectorText" class="di-p di-usage">{{ $t('vectors:index.summary', { text: vectorText }) }}</p>
     <p v-if="usageLine" class="di-p di-usage">{{ usageLine }}</p>
     <el-alert v-for="w in script?.warnings ?? []" :key="w" type="warning" :title="tb(w)" :closable="false" show-icon class="di-warn" />
 

@@ -32,7 +32,7 @@ pub fn designer() -> DesignerSpec {
                 .placeholder("(sin vencimiento)")
                 .help("Crea un lease con ese TTL y lo asocia a la clave: al vencer, la clave se borra."),
         ],
-        columns_required: false,
+        columns_required: false, vector_indexes: None,
     }
 }
 

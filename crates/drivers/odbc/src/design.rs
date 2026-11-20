@@ -284,6 +284,8 @@ pub fn capabilities(p: &Preset) -> Capabilities {
         database_properties: crate::properties::supported(p),
         jobs: crate::jobs::supported(p),
         scheduler: crate::scheduler::supported(p),
+        // Db2 LUW 12.1.2+'s VECTOR (see `crate::vector`).
+        vectors: eng(p) == Eng::Db2,
     }
 }
 
@@ -941,6 +943,13 @@ pub fn designer(p: &Preset) -> DesignerSpec {
             "UUID",
         ],
     };
+    let mut types = types;
+    if e == Eng::Db2 {
+        // Db2 LUW 12.1.2 and later (see `crate::vector`); no vector
+        // indexes in that release.
+        types.push("VECTOR(1536, FLOAT32)");
+        types.push("VECTOR(1536, INT8)");
+    }
     let mut d = DesignerSpec::sql_table(types);
     d.schemas = p.has_schemas;
     d.comments = flavor(p).comment_on || flavor(p).inline_comments;
@@ -1384,10 +1393,122 @@ fn hive_ddl(e: Eng, t: &TableSchema, parts: DdlParts) -> String {
 fn literal(p: &Preset, v: &Value) -> String {
     let bs = |s: &str| format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"));
     match v {
+        // Db2 LUW 12.1.2+ builds a vector from its text with VECTOR().
+        Value::Array(_) if eng(p) == Eng::Db2 => {
+            crate::vector::literal(v).unwrap_or_else(|| ddl::sql_literal(&flavor(p), v))
+        }
         Value::String(s) if backslash_strings(p) => bs(s),
         Value::Array(_) | Value::Object(_) if backslash_strings(p) => bs(&v.to_string()),
         other => ddl::sql_literal(&flavor(p), other),
     }
+}
+
+/// A value for a column whose type the caller knows (a result's or a
+/// describe's). Db2 LUW: a vector column's through `VECTOR('[…]', n,
+/// FLOAT32 | INT8)` with its own coordinate type, also from the grid's
+/// text ([`crate::vector::typed_literal`]); another column's array as its
+/// JSON text, never as a vector. Every other value, and every other
+/// preset, as [`literal`].
+pub fn typed_literal(p: &Preset, c: Option<&dbine_driver::ResultColumn>, v: &Value) -> String {
+    match c {
+        Some(c) if eng(p) == Eng::Db2 => {
+            if c.vector.is_some() || crate::vector::is_vector(&c.type_name) {
+                crate::vector::typed_literal(&c.type_name, c.vector.as_ref(), v)
+                    .unwrap_or_else(|| literal(p, v))
+            } else if !c.type_name.trim().is_empty() && v.is_array() {
+                ddl::sql_literal(&flavor(p), v)
+            } else {
+                literal(p, v)
+            }
+        }
+        _ => literal(p, v),
+    }
+}
+
+/// A value already written as its literal, for the generic script
+/// builders ([`as_written`] gives it back); a NULL stays a null, which they
+/// write as `IS NULL` in a key.
+fn written(literal: String, v: &Value) -> Value {
+    if v.is_null() {
+        Value::Null
+    } else {
+        Value::String(literal)
+    }
+}
+
+/// The literal [`written`] kept.
+fn as_written(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        _ => "NULL".into(),
+    }
+}
+
+/// [`insert_script`] with each value written for its column's type
+/// ([`typed_literal`]); `columns` in the rows' order.
+pub fn insert_script_typed(
+    p: &Preset,
+    schema: Option<&str>,
+    table: &str,
+    columns: &[dbine_driver::ResultColumn],
+    rows: &[Vec<Value>],
+) -> String {
+    let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+    let rows: Vec<Vec<Value>> = rows
+        .iter()
+        .map(|r| {
+            r.iter()
+                .enumerate()
+                .map(|(i, v)| written(typed_literal(p, columns.get(i), v), v))
+                .collect()
+        })
+        .collect();
+    ddl::insert_script_with(&flavor(p), schema, table, &names, &rows, 100, &as_written)
+}
+
+/// [`update_script`] with the new values written for their columns' types
+/// (found by name, in any case); the key's as untyped.
+pub fn update_script_typed(
+    p: &Preset,
+    schema: Option<&str>,
+    table: &str,
+    changes: &[RowChange],
+    types: &[dbine_driver::ResultColumn],
+) -> Result<String> {
+    if eng(p) == Eng::NetSuite {
+        return Err(Error::Unsupported(
+            "SuiteAnalytics Connect de NetSuite es de solo lectura".into(),
+        ));
+    }
+    let ty = |k: &str| {
+        types
+            .iter()
+            .find(|c| c.name == k)
+            .or_else(|| types.iter().find(|c| c.name.eq_ignore_ascii_case(k)))
+    };
+    let changes: Vec<RowChange> = changes
+        .iter()
+        .map(|c| RowChange {
+            key: c
+                .key
+                .iter()
+                .map(|(k, v)| (k.clone(), written(literal(p, v), v)))
+                .collect(),
+            set: c
+                .set
+                .iter()
+                .map(|(k, v)| (k.clone(), written(typed_literal(p, ty(k), v), v)))
+                .collect(),
+            row: Vec::new(),
+        })
+        .collect();
+    Ok(ddl::update_script_with(
+        flavor(p).quote,
+        schema,
+        table,
+        &changes,
+        &as_written,
+    ))
 }
 
 fn backslash_strings(p: &Preset) -> bool {
@@ -2062,6 +2183,118 @@ mod tests {
             .unwrap(),
             "SELECT FIRST 200 *\nFROM \"t\"\nWHERE \"activo\" = 't'"
         );
+    }
+
+    #[test]
+    fn db2_luw_has_vectors() {
+        let db2 = preset("db2");
+        assert!(capabilities(db2).vectors);
+        assert!(designer(db2).data_types.contains(&"VECTOR(1536, FLOAT32)"));
+        assert!(
+            designer(db2).vector_indexes.is_none(),
+            "no vector indexes in 12.1.2"
+        );
+        for other in [
+            "db2i", "db2zos", "informix", "teradata", "vertica", "netezza", "exasol",
+        ] {
+            let p = preset(other);
+            assert!(!capabilities(p).vectors, "{other}");
+            assert!(
+                !designer(p)
+                    .data_types
+                    .iter()
+                    .any(|t| t.starts_with("VECTOR")),
+                "{other}"
+            );
+        }
+        let ins = insert_script(
+            db2,
+            Some("APP"),
+            "DOCS",
+            &["ID".into(), "V".into()],
+            &[vec![json!(1), json!([0.5, 1.0, -2.0])]],
+        );
+        assert_eq!(
+            ins,
+            "INSERT INTO \"APP\".\"DOCS\" (\"ID\", \"V\") VALUES\n  (1, VECTOR('[0.5,1,-2]', 3, FLOAT32));"
+        );
+        let up = update_script(
+            db2,
+            None,
+            "DOCS",
+            &[RowChange {
+                key: vec![("ID".into(), json!(1))],
+                set: vec![("V".into(), json!([1, 2]))],
+                ..Default::default()
+            }],
+        )
+        .unwrap();
+        assert!(
+            up.contains("SET \"V\" = VECTOR('[1,2]', 2, FLOAT32) WHERE"),
+            "{up}"
+        );
+        // Elsewhere an array stays the generic literal.
+        let other = insert_script(
+            preset("db2i"),
+            None,
+            "T",
+            &["V".into()],
+            &[vec![json!([1, 2])]],
+        );
+        assert!(!other.contains("VECTOR("), "{other}");
+    }
+
+    #[test]
+    fn typed_scripts_write_db2_vectors_by_their_columns_type() {
+        use dbine_driver::ResultColumn;
+        let db2 = preset("db2");
+        let cols = [
+            ResultColumn::new("ID", "INTEGER"),
+            ResultColumn::new("V8", "VECTOR(3, INT8)"),
+            ResultColumn::new("VF", "VECTOR(2, FLOAT32)"),
+            ResultColumn::new("DOC", "CLOB"),
+        ];
+        let ins = insert_script_typed(
+            db2,
+            Some("APP"),
+            "DOCS",
+            &cols,
+            &[vec![
+                serde_json::json!(1),
+                serde_json::json!([1, -2, 3]),
+                serde_json::json!("[0.5,1]"),
+                serde_json::json!([1, 2]),
+            ]],
+        );
+        assert!(
+            ins.ends_with(
+                "(1, VECTOR('[1,-2,3]', 3, INT8), VECTOR('[0.5,1]', 2, FLOAT32), '[1,2]');"
+            ),
+            "{ins}"
+        );
+        let up = update_script_typed(
+            db2,
+            None,
+            "DOCS",
+            &[RowChange {
+                key: vec![("ID".into(), serde_json::json!(1))],
+                set: vec![("v8".into(), serde_json::json!("[4,5,6]"))],
+                ..Default::default()
+            }],
+            &cols,
+        )
+        .unwrap();
+        assert!(
+            up.contains("SET \"v8\" = VECTOR('[4,5,6]', 3, INT8) WHERE"),
+            "{up}"
+        );
+        // Other presets: as untyped.
+        let gen = preset("odbc");
+        assert_eq!(
+            typed_literal(gen, cols.get(1), &serde_json::json!("x'")),
+            literal(gen, &serde_json::json!("x'"))
+        );
+        assert!(update_script_typed(preset("netsuite"), None, "T", &[], &cols).is_err());
     }
 
     #[test]

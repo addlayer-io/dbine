@@ -2470,7 +2470,7 @@ esac
             ),
         );
         let old = std::env::var_os("PATH").unwrap_or_default();
-        std::env::set_var("PATH", &dir);
+        std::env::set_var("PATH", dir.as_os_str());
         let detect = |k: &str| detect_secret_account(DetectAccountArgs { kind: k.into() });
         let op = detect("onepassword").await.unwrap();
         assert_eq!(op["installed"], true);

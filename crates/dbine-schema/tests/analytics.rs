@@ -357,7 +357,8 @@ fn postgres_to_duckdb_and_back() {
     assert_eq!(ty(t, "h"), "numeric(39, 0)");
     assert_eq!(ty(t, "u"), "numeric(39, 0)");
     assert_eq!(ty(t, "l"), "integer[]");
-    assert_eq!(ty(t, "f"), "double precision[]");
+    // DOUBLE[n] is a DuckDB vector: pgvector keeps it as a vector, in float32.
+    assert_eq!(ty(t, "f"), "vector(3)");
     assert_eq!(ty(t, "m"), "jsonb");
     assert_eq!(ty(t, "s"), "jsonb");
     assert_eq!(ty(t, "e"), "varchar(1)");

@@ -155,6 +155,7 @@ impl Dialect for Kdb {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("boolean"),
             L::Int {
                 bytes: 1,
@@ -319,6 +320,9 @@ impl Dialect for Kdb {
             comments: false,
             max_identifier: 255,
             case: IdentCase::Preserve,
+            // No vector indexes: `convert` leaves them out, said.
+            vector_indexes: false,
+            vectors: false,
         }
     }
 

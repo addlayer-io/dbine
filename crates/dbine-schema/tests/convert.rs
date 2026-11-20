@@ -697,3 +697,243 @@ fn unreadable_definitions_are_issues_not_empty_ddl() {
     assert!(unreadable.iter().any(|i| i.message.contains("CK_y")));
     assert!(unreadable.iter().any(|i| i.message.contains("CK_x")));
 }
+
+/// The IDE converts with the target driver's caps (`Options::for_target`):
+/// what an engine of the family lacks is left out and said, by its
+/// designer.
+#[test]
+fn conversions_take_the_target_driver_s_caps() {
+    use dbine_schema::dialect::target_caps;
+    let driver = |id: &str| &**dbine_drivers::find(id).unwrap();
+    let opts = |id: &str| Options::default().for_target(driver(id));
+    // CrateDB speaks PostgreSQL without foreign keys, secondary indexes or
+    // comments.
+    let r = convert(&pg_pedidos(), "postgres", "cratedb", &opts("cratedb")).unwrap();
+    assert!(r.tables[1].foreign_keys.is_empty());
+    assert!(r.tables[1].indexes.is_empty());
+    for code in [IssueCode::ForeignKeyDropped, IssueCode::IndexDropped] {
+        assert!(
+            r.issues.iter().any(|i| i.code == code),
+            "{code:?}: {:?}",
+            r.issues
+        );
+    }
+    // Without the driver, the family's caps: PostgreSQL's.
+    let r = convert(&pg_pedidos(), "postgres", "cratedb", &Options::default()).unwrap();
+    assert_eq!(r.tables[1].foreign_keys.len(), 1);
+    // Neo4j's and Memgraph's designer creates one index on a label: it
+    // doesn't take away a label's indexes. GreptimeDB's lists no ordinary
+    // indexes but has vector ones.
+    for id in ["neo4j", "memgraph", "greptimedb"] {
+        let caps = target_caps(driver(id)).unwrap();
+        assert!(caps.indexes && caps.vector_indexes, "{id}");
+    }
+    assert!(target_caps(driver("neo4j")).unwrap().foreign_keys);
+    // A family's engine without vector indexes.
+    for id in ["sqlite", "h2", "yellowbrick", "babelfish", "mysql"] {
+        assert!(!target_caps(driver(id)).unwrap().vector_indexes, "{id}");
+    }
+    for id in ["libsql", "postgres", "mariadb", "sqlserver"] {
+        assert!(target_caps(driver(id)).unwrap().vector_indexes, "{id}");
+    }
+}
+
+/// A vector moving into an engine of its family without vectors takes the
+/// family's list of numbers, said, and its vector index is left out.
+#[test]
+fn vectors_into_engines_of_the_family_without_them() {
+    use dbine_driver::VectorIndex;
+    let driver = |id: &str| &**dbine_drivers::find(id).unwrap();
+    let opts = |id: &str| Options::default().for_target(driver(id));
+    let docs = |ty: &str, kind: &str| {
+        let mut t = table(
+            "docs",
+            vec![not_null(col("id", "integer")), col("emb", ty)],
+            &["id"],
+        );
+        t.indexes.push(IndexDef {
+            name: "docs_emb".into(),
+            columns: vec!["emb".into()],
+            kind: Some(kind.into()),
+            vector: Some(VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        vec![t]
+    };
+    let approximated = |r: &dbine_schema::Conversion| {
+        r.issues.iter().any(|i| {
+            i.code == IssueCode::TypeApproximated
+                && i.object.as_deref() == Some("emb")
+                && i.message.contains("vectorial")
+        })
+    };
+    let no_vector_index = |r: &dbine_schema::Conversion| {
+        r.tables[0].indexes.is_empty()
+            && r.issues.iter().any(|i| {
+                i.code == IssueCode::IndexDropped && i.object.as_deref() == Some("docs_emb")
+            })
+    };
+    for to in [
+        "materialize",
+        "h2",
+        "yellowbrick",
+        "redshift",
+        "denodo",
+        "dsql",
+    ] {
+        let r = convert(&docs("vector(3)", "hnsw"), "postgres", to, &opts(to)).unwrap();
+        assert_eq!(ty(&r.tables[0], "emb"), "real[]", "{to}");
+        assert!(approximated(&r), "{to}: {:?}", r.issues);
+        assert!(no_vector_index(&r), "{to}: {:?}", r.issues);
+    }
+    // Without the driver, the family's caps keep it.
+    let r = convert(
+        &docs("vector(3)", "hnsw"),
+        "postgres",
+        "h2",
+        &Options::default(),
+    )
+    .unwrap();
+    assert_eq!(ty(&r.tables[0], "emb"), "vector(3)");
+    // Into an engine of the family with vectors it stays.
+    for to in ["postgres", "timescaledb", "yugabytedb"] {
+        let r = convert(&docs("vector(3)", "hnsw"), "postgres", to, &opts(to)).unwrap();
+        assert_eq!(ty(&r.tables[0], "emb"), "vector(3)", "{to}");
+        assert_eq!(r.tables[0].indexes.len(), 1, "{to}: {:?}", r.issues);
+    }
+    // libSQL into SQLite.
+    let r = convert(
+        &docs("F32_BLOB(3)", "vector"),
+        "libsql",
+        "sqlite",
+        &opts("sqlite"),
+    )
+    .unwrap();
+    assert_ne!(ty(&r.tables[0], "emb"), "F32_BLOB(3)");
+    assert!(approximated(&r), "{:?}", r.issues);
+    assert!(no_vector_index(&r), "{:?}", r.issues);
+    let r = convert(
+        &docs("F32_BLOB(3)", "vector"),
+        "libsql",
+        "libsql",
+        &opts("libsql"),
+    )
+    .unwrap();
+    assert_eq!(ty(&r.tables[0], "emb"), "F32_BLOB(3)");
+    // SQL Server into Fabric and Babelfish: their dialect has no vectors,
+    // with the driver or without it.
+    for to in ["fabric", "babelfish"] {
+        for o in [opts(to), Options::default()] {
+            let r = convert(&docs("vector(3)", "vector"), "sqlserver", to, &o).unwrap();
+            assert_ne!(ty(&r.tables[0], "emb"), "vector(3)", "{to}");
+            assert!(approximated(&r), "{to}: {:?}", r.issues);
+            assert!(r.tables[0].indexes.is_empty(), "{to}");
+        }
+    }
+}
+
+/// pgvector's binary vectors are `bit(n)` columns: one searched by a
+/// Hamming or Jaccard index moves as a binary vector of n dimensions.
+#[test]
+fn pgvector_bit_vectors_move_as_binary_vectors() {
+    use dbine_driver::VectorIndex;
+    let driver = |id: &str| &**dbine_drivers::find(id).unwrap();
+    let opts = |id: &str| Options::default().for_target(driver(id));
+    let docs = |metric: Option<&str>| {
+        let mut t = table(
+            "docs",
+            vec![not_null(col("id", "integer")), col("bits", "bit(16)")],
+            &["id"],
+        );
+        if let Some(m) = metric {
+            t.indexes.push(IndexDef {
+                name: "docs_bits".into(),
+                columns: vec!["bits".into()],
+                kind: Some("hnsw".into()),
+                vector: Some(VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some(m.into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            });
+        }
+        vec![t]
+    };
+    let metric = |r: &dbine_schema::Conversion| {
+        r.tables[0]
+            .indexes
+            .iter()
+            .find_map(|i| i.vector.as_ref())
+            .and_then(|v| v.metric.clone())
+    };
+    // Into MongoDB: a bit vector, searched by euclidean (said).
+    let r = convert(
+        &docs(Some("hamming")),
+        "postgres",
+        "mongodb",
+        &opts("mongodb"),
+    )
+    .unwrap();
+    assert_eq!(ty(&r.tables[0], "bits"), "vector(16, bit)");
+    assert_eq!(metric(&r).as_deref(), Some("l2"), "{:?}", r.issues);
+    assert!(r
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::IndexChanged && i.message.contains("hamming")));
+    // Into Oracle: a BINARY vector, with both distances.
+    for m in ["hamming", "jaccard"] {
+        let r = convert(&docs(Some(m)), "postgres", "oracle", &opts("oracle")).unwrap();
+        assert_eq!(ty(&r.tables[0], "BITS"), "VECTOR(16, BINARY)", "{m}");
+        assert_eq!(metric(&r).as_deref(), Some(m), "{m}: {:?}", r.issues);
+    }
+    // Into libSQL: a 1-bit vector; its index measures by cosine, which on
+    // 1-bit vectors is the Hamming distance: kept as cosine, said. A
+    // Jaccard one has no equal there and is left out, with the reason.
+    let r = convert(
+        &docs(Some("hamming")),
+        "postgres",
+        "libsql",
+        &opts("libsql"),
+    )
+    .unwrap();
+    assert_eq!(ty(&r.tables[0], "bits"), "F1BIT_BLOB(16)");
+    assert_eq!(metric(&r).as_deref(), Some("cosine"), "{:?}", r.issues);
+    let changed = r
+        .issues
+        .iter()
+        .find(|i| i.code == IssueCode::IndexChanged)
+        .expect("the change is said");
+    assert!(changed.message.contains("hamming"), "{changed:?}");
+    assert!(!r.issues.iter().any(|i| i.code == IssueCode::IndexDropped));
+    let r = convert(
+        &docs(Some("jaccard")),
+        "postgres",
+        "libsql",
+        &opts("libsql"),
+    )
+    .unwrap();
+    let dropped = r
+        .issues
+        .iter()
+        .find(|i| i.code == IssueCode::IndexDropped)
+        .expect("the index is left out");
+    assert!(dropped.message.contains("jaccard"), "{dropped:?}");
+    assert!(!dropped.message.contains("no es un vector"), "{dropped:?}");
+    // A bit string no vector index searches stays a bit string.
+    let r = convert(&docs(None), "postgres", "oracle", &opts("oracle")).unwrap();
+    assert!(!ty(&r.tables[0], "BITS").starts_with("VECTOR"));
+    // Within the family it stays bit(16).
+    let r = convert(
+        &docs(Some("hamming")),
+        "postgres",
+        "postgres",
+        &opts("postgres"),
+    )
+    .unwrap();
+    assert_eq!(ty(&r.tables[0], "bits"), "bit(16)");
+}

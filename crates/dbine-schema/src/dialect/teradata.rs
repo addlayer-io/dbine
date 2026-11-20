@@ -141,6 +141,7 @@ impl Dialect for Teradata {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BYTEINT").with(Info, TypeChanged, "Teradata no tiene BOOLEAN: se usa BYTEINT (0/1)."),
             L::Int { bytes: 1, unsigned: false } => Rendered::exact("BYTEINT"),
             L::Int { bytes, unsigned } => {
@@ -246,6 +247,8 @@ impl Dialect for Teradata {
             comments: true,
             max_identifier: 128,
             case: IdentCase::Preserve,
+            vector_indexes: false,
+            vectors: false,
         }
     }
 }

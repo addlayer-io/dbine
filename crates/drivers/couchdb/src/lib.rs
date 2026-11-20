@@ -889,6 +889,7 @@ pub fn push_docs(out: &mut QueryOutcome, docs: &[Value], max_rows: usize) {
             .map(|k| ResultColumn {
                 name: k.clone(),
                 type_name: String::new(),
+                vector: None,
             })
             .collect(),
     );
@@ -1546,6 +1547,7 @@ fn push_reply(out: &mut QueryOutcome, reply: &Value, max_rows: usize) {
             out.begin_result(vec![ResultColumn {
                 name: "result".into(),
                 type_name: String::new(),
+                vector: None,
             }]);
             out.push_row(vec![cell(reply)], max_rows);
         }

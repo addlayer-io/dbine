@@ -77,7 +77,7 @@ pub(crate) fn designer() -> DesignerSpec {
             )
             .default_value("none"),
         ],
-        columns_required: true,
+        columns_required: true, vector_indexes: None,
     }
 }
 

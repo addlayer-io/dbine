@@ -28,6 +28,7 @@ mod stats;
 mod sync;
 mod tls;
 mod transfer;
+mod vector;
 
 use async_trait::async_trait;
 use dbine_driver::sql::{
@@ -268,6 +269,9 @@ impl Driver for ClickHouseDriver {
             jobs: true,
             // The same, managed whole; see `scheduler`.
             scheduler: true,
+            // Array(Float32) / Array(BFloat16) and vector_similarity indexes;
+            // Timeplus has array(float32) and the distances, no vector index.
+            vectors: true,
             ..Default::default()
         }
     }
@@ -306,6 +310,9 @@ impl Driver for ClickHouseDriver {
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
+        if parts.indexes {
+            schema::check_vector_indexes(table)?;
+        }
         Ok(schema::table_ddl(self.flavor, table, parts))
     }
 
@@ -323,6 +330,13 @@ impl Driver for ClickHouseDriver {
         &self,
         changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
+        for ch in changes {
+            if let dbine_driver::TableChange::Create { table: t }
+            | dbine_driver::TableChange::Alter { new: t, .. } = ch
+            {
+                schema::check_vector_indexes(t)?;
+            }
+        }
         sync::sync_script(self.flavor, changes)
     }
 
@@ -757,6 +771,39 @@ impl ClickHouseSession {
         Ok(out.results.pop().map(|r| r.rows).unwrap_or_default())
     }
 
+    /// A browse of a table whose `vector_similarity` index searches an
+    /// `Array(Float64)` column marks it as a vector (the result alone
+    /// doesn't say it: ClickHouse's general arrays are Float64 too). One
+    /// catalog read, only when the result has such a column; nothing
+    /// changes when it fails.
+    async fn mark_browsed_vectors(&self, stmt: &str, out: &mut QueryOutcome) {
+        if self.flavor != Flavor::ClickHouse {
+            return;
+        }
+        let Some(result) = out.results.last_mut() else {
+            return;
+        };
+        let wide = result.columns.iter().any(|c| {
+            c.vector.is_none() && base_type(&c.type_name).replace(' ', "") == "array(float64)"
+        });
+        let Some((db, table)) = wide.then(|| vector::browse_target(stmt)).flatten() else {
+            return;
+        };
+        let db = db.unwrap_or_else(|| self.database.clone());
+        let Ok(rows) = self
+            .rows(
+                vector::INDEXED_ARRAYS_SQL,
+                &[("db", db.as_str()), ("t", table.as_str())],
+            )
+            .await
+        else {
+            return;
+        };
+        let pairs: Vec<(String, String)> =
+            rows.iter().map(|r| (text(&r[0]), text(&r[1]))).collect();
+        vector::mark_indexed_arrays(result, &vector::indexed_arrays(&pairs));
+    }
+
     fn done(&self) {
         *self.in_flight.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
@@ -846,6 +893,16 @@ fn stmt_err(e: Error, script: &str, start: usize) -> Error {
         se = se.at_line(script[..start].matches('\n').count() as u32 + 1);
     }
     se.into()
+}
+
+/// A statement's error with what the server's version lacks, when that's
+/// the likely reason (a vector index or `BFloat16` on an older server).
+fn with_version_hint(e: Error, stmt: &str) -> Error {
+    let Error::Query(msg) = e else { return e };
+    match exception_code(&msg).and_then(|c| vector::version_hint(stmt, c, &msg)) {
+        Some(hint) => Error::Query(format!("{msg}\n{hint}")),
+        None => Error::Query(msg),
+    }
 }
 
 /// `Code: 516. DB::Exception: …` → the right error kind.
@@ -989,6 +1046,7 @@ async fn read_rows(
     let mut lines = Lines::new(resp);
     let mut header: Vec<Vec<String>> = Vec::new();
     let mut types: Vec<String> = Vec::new();
+    let mut vectors: Vec<bool> = Vec::new();
     while let Some(line) = lines.next().await? {
         if line.trim().is_empty() {
             continue;
@@ -1016,13 +1074,17 @@ async fn read_rows(
             );
             if header.len() == 2 {
                 types = header[1].clone();
+                vectors = types.iter().map(|t| vector::meta(t).is_some()).collect();
                 out.begin_result(
                     header[0]
                         .iter()
                         .zip(&types)
-                        .map(|(n, t)| ResultColumn {
-                            name: n.clone(),
-                            type_name: t.clone(),
+                        .map(|(n, t)| {
+                            let col = ResultColumn::new(n.clone(), t.clone());
+                            match vector::meta(t) {
+                                Some(m) => col.with_vector(m),
+                                None => col,
+                            }
                         })
                         .collect(),
                 );
@@ -1032,7 +1094,19 @@ async fn read_rows(
         let row = cells
             .into_iter()
             .enumerate()
-            .map(|(i, raw)| raw_cell(raw, types.get(i).map_or("", String::as_str)))
+            .map(|(i, raw)| {
+                // A vector column's cell as DBine's vector text.
+                match vectors
+                    .get(i)
+                    .copied()
+                    .unwrap_or(false)
+                    .then(|| vector::cell_text(raw))
+                    .flatten()
+                {
+                    Some(t) => Value::String(t),
+                    None => raw_cell(raw, types.get(i).map_or("", String::as_str)),
+                }
+            })
             .collect();
         out.push_row(row, max_rows);
         if stop_at_limit && out.results.last().is_some_and(|r| r.truncated) {
@@ -1051,6 +1125,7 @@ async fn read_text(resp: reqwest::Response, out: &mut QueryOutcome, max_rows: us
     out.begin_result(vec![ResultColumn {
         name: "result".into(),
         type_name: String::new(),
+        vector: None,
     }]);
     while let Some(line) = lines.next().await? {
         if line.trim() == "__exception__" {
@@ -1505,11 +1580,13 @@ impl Session for ClickHouseSession {
                                     "Se detuvo la consulta al llegar a {max_rows} filas."
                                 ));
                             }
+                            self.mark_browsed_vectors(&stmt, out).await;
                         }
                     }
                     Ok::<(), Error>(())
                 };
-                one.await.map_err(|e| stmt_err(e, text, start))?;
+                one.await
+                    .map_err(|e| stmt_err(with_version_hint(e, &stmt), text, start))?;
                 self.done();
                 // Requests carry `database=`, which would undo the USE on
                 // the next one: the session follows it instead, and so

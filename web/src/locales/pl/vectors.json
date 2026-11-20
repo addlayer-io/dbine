@@ -1,0 +1,79 @@
+{
+  "cell": {
+    "dims_one": "{{count}} wymiar",
+    "dims_few": "{{count}} wymiary",
+    "dims_many": "{{count}} wymiarów",
+    "dims_other": "{{count}} wymiaru",
+    "sparse": "rzadki"
+  },
+  "viewer": {
+    "element": "Typ",
+    "dims": "Wymiary",
+    "declared": "(kolumna deklaruje {{dims}})",
+    "norm": "Norma (L2)",
+    "min": "Minimum",
+    "max": "Maksimum",
+    "empty": "Pusty wektor",
+    "sparse": "Wektor rzadki: wyświetlany tak, jak zapisuje go silnik.",
+    "copyJson": "Kopiuj jako JSON"
+  },
+  "edit": {
+    "format": "„{{column}}” to kolumna wektorowa: wartość zapisz jako tablicę JSON liczb, na przykład [0.12, -0.03, 0.88]. Aby zostawić NULL, użyj „$t(results:grid.setNull)”.",
+    "dims": "„{{column}}” zawiera wektory o {{expected}} wymiarach, a wartość ma ich {{got}}.",
+    "range": "„{{column}}” przyjmuje liczby całkowite od {{min}} do {{max}}: liczba {{position}} wektora to {{value}}.",
+    "overflow": "„{{column}}” przechowuje liczby {{element}} do ±{{max}}: liczba {{position}} wektora to {{value}}.",
+    "empty": "„{{column}}” nie przyjmuje pustego wektora: wpisz jego liczby, na przykład [0.12, -0.03, 0.88].",
+    "skippedColumns": "Kolumny wektorowe ({{columns}}) są pomijane w WHERE."
+  },
+  "filter": {
+    "onlyNull": "„{{column}}” to kolumna wektorowa: filtruj ją według NULL lub NOT NULL albo warunkiem SQL z menu filtra."
+  },
+  "sort": {
+    "local": "kolumny wektorowe nie są sortowane na serwerze"
+  },
+  "compare": {
+    "from": "od nr {{position}}",
+    "firstDiff": "{{side}}: różnią się od liczby {{position}} z {{dims}}. Kliknij dwukrotnie, aby zobaczyć cały wektor."
+  },
+  "metric": {
+    "cosine": "Cosinusowa",
+    "l2": "Euklidesowa (L2)",
+    "ip": "Iloczyn skalarny",
+    "l1": "Manhattan (L1)",
+    "hamming": "Hamminga",
+    "jaccard": "Jaccarda"
+  },
+  "metricShort": {
+    "cosine": "Cosinus",
+    "l2": "L2",
+    "ip": "IP",
+    "l1": "L1",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "param": {
+    "m": "Połączenia na węzeł (m)",
+    "ef_construction": "Kandydaci podczas budowy (ef_construction)",
+    "lists": "Listy (lists)",
+    "quantization": "Kwantyzacja"
+  },
+  "designer": {
+    "toggle": "Wektorowy",
+    "toggleHint": "Indeks wyszukiwania podobieństwa w kolumnie wektorowej",
+    "algorithm": "Algorytm",
+    "metric": "Odległość",
+    "vectorColumn": "Kolumna wektorowa",
+    "vectorColumnPlaceholder": "Wybierz kolumnę wektorową",
+    "filterColumns": "Kolumny filtra",
+    "filterColumnsPlaceholder": "Brak",
+    "paramPlaceholder": "Domyślne silnika",
+    "vectorType": "wektorowa",
+    "notVectorColumn": "Indeks „{{label}}” jest wektorowy, a „{{column}}” nie jest kolumną wektorową.",
+    "noFilterColumns": "Indeks „{{label}}” jest wektorowy: w tym silniku obejmuje tylko kolumnę wektorową.",
+    "rebuilt": "Indeks wektorowy „{{label}}” zmienia się: jest usuwany i tworzony ponownie, a odbudowa dużych tabel może potrwać."
+  },
+  "index": {
+    "summary": "Wektorowy: {{text}}",
+    "column": "Indeks wektorowy"
+  }
+}

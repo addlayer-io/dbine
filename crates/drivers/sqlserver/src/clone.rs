@@ -171,6 +171,9 @@ pub(crate) struct Caps {
     /// ORDER on a nonclustered columnstore index (SQL Server 2025, Azure
     /// SQL Database).
     pub ordered_nonclustered_columnstore: bool,
+    /// `vector(n)` columns (`sys.columns.vector_dimensions`) and vector
+    /// indexes (`sys.vector_indexes`): SQL Server 2025, Azure SQL.
+    pub vectors: bool,
 }
 
 impl Caps {
@@ -194,7 +197,9 @@ const CAPS_SQL: &str = "SELECT CAST(SERVERPROPERTY('EngineEdition') AS int),
         CAST(CASE WHEN COL_LENGTH('sys.tables', 'is_node') IS NULL THEN 0 ELSE 1 END AS bit),
         CAST(CASE WHEN COL_LENGTH('sys.tables', 'ledger_type') IS NULL THEN 0 ELSE 1 END AS bit),
         CAST(CASE WHEN CAST(SERVERPROPERTY('EngineEdition') AS int) = 5
-                    OR CAST(SERVERPROPERTY('ProductMajorVersion') AS int) >= 17 THEN 1 ELSE 0 END AS bit)";
+                    OR CAST(SERVERPROPERTY('ProductMajorVersion') AS int) >= 17 THEN 1 ELSE 0 END AS bit),
+        CAST(CASE WHEN COL_LENGTH('sys.columns', 'vector_dimensions') IS NULL
+                    OR OBJECT_ID('sys.vector_indexes') IS NULL THEN 0 ELSE 1 END AS bit)";
 
 fn caps_of(r: &Row) -> Caps {
     Caps {
@@ -212,6 +217,7 @@ fn caps_of(r: &Row) -> Caps {
         graph: b(r, 11),
         ledger: b(r, 12),
         ordered_nonclustered_columnstore: b(r, 13),
+        vectors: b(r, 14),
     }
 }
 
@@ -338,6 +344,9 @@ pub(crate) struct Index {
     pub xml_for: Option<String>,
     pub spatial: Option<Spatial>,
     pub bucket_count: Option<i64>,
+    /// A vector index (kind 8): its type (`DiskANN`) and distance
+    /// (`COSINE`, `EUCLIDEAN`, `DOT`).
+    pub vector: Option<(String, String)>,
 }
 
 impl Index {
@@ -836,6 +845,23 @@ fn source_queries(c: &Caps) -> Vec<String> {
         "CAST(CASE WHEN seq.current_value <> seq.start_value THEN 1 ELSE 0 END AS bit),
          CAST(CASE WHEN seq.current_value = seq.start_value THEN 1 ELSE 0 END AS bit)"
     };
+    let vector_index = if c.vectors {
+        "CAST(vi.vector_index_type AS nvarchar(60)), CAST(vi.distance_metric AS nvarchar(60))"
+    } else {
+        "CAST(NULL AS nvarchar(60)), CAST(NULL AS nvarchar(60))"
+    };
+    let vector_join = if c.vectors {
+        "LEFT JOIN sys.vector_indexes vi ON vi.object_id = i.object_id AND vi.index_id = i.index_id"
+    } else {
+        ""
+    };
+    // A vector column's dimensions and element type in place of its
+    // precision and scale.
+    let shape = if c.vectors {
+        crate::vector::SHAPE
+    } else {
+        crate::vector::PRECISION_SCALE
+    };
     let retention_db = if c.retention {
         "(SELECT is_temporal_history_retention_enabled FROM sys.databases WHERE database_id = DB_ID())"
     } else {
@@ -864,7 +890,7 @@ fn source_queries(c: &Caps) -> Vec<String> {
         format!(
             "SELECT c.object_id, c.name, TYPE_NAME(c.system_type_id), ty.name, SCHEMA_NAME(ty.schema_id),
                     ty.is_user_defined, ty.is_assembly_type,
-                    CAST(c.max_length AS int), CAST(c.precision AS int), CAST(c.scale AS int),
+                    CAST(c.max_length AS int), {shape},
                     c.is_nullable, c.is_identity,
                     CAST(idc.seed_value AS nvarchar(40)), CAST(idc.increment_value AS nvarchar(40)),
                     CAST(ISNULL(idc.is_not_for_replication, 0) AS bit), CAST(idc.last_value AS nvarchar(40)),
@@ -889,7 +915,7 @@ fn source_queries(c: &Caps) -> Vec<String> {
                     pxi.name, xi.secondary_type_desc,
                     tes.tessellation_scheme, tes.bounding_box_xmin, tes.bounding_box_ymin, tes.bounding_box_xmax, tes.bounding_box_ymax,
                     tes.level_1_grid_desc, tes.level_2_grid_desc, tes.level_3_grid_desc, tes.level_4_grid_desc,
-                    CAST(tes.cells_per_object AS int), CAST(hx.bucket_count AS bigint)
+                    CAST(tes.cells_per_object AS int), CAST(hx.bucket_count AS bigint), {vector_index}
                FROM sys.indexes i
                JOIN ({OBJECTS}) o ON o.object_id = i.object_id
                LEFT JOIN sys.stats sx ON sx.object_id = i.object_id AND sx.stats_id = i.index_id
@@ -898,6 +924,7 @@ fn source_queries(c: &Caps) -> Vec<String> {
                LEFT JOIN sys.indexes pxi ON pxi.object_id = xi.object_id AND pxi.index_id = xi.using_xml_index_id
                LEFT JOIN sys.spatial_index_tessellations tes ON tes.object_id = i.object_id AND tes.index_id = i.index_id
                LEFT JOIN sys.hash_indexes hx ON hx.object_id = i.object_id AND hx.index_id = i.index_id
+               {vector_join}
               WHERE i.type > 0 AND i.is_hypothetical = 0
               ORDER BY i.object_id, i.index_id"
         ),
@@ -1316,6 +1343,12 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
             xml_for: s(&r, 20),
             spatial,
             bucket_count: r.try_get::<i64, _>(31).ok().flatten(),
+            vector: (kind == 8).then(|| {
+                (
+                    s(&r, 32).unwrap_or_else(|| "DiskANN".into()),
+                    s(&r, 33).unwrap_or_else(|| "COSINE".into()),
+                )
+            }),
             ..Default::default()
         };
         if is_ps {
@@ -1356,6 +1389,8 @@ fn parse(mut rows: Vec<Vec<Row>>) -> Source {
                     i.keys.push((col, false));
                 }
             }
+            // A vector index's column has no key ordinal.
+            8 => i.keys.push((col, false)),
             _ => {
                 if key_ordinal > 0 {
                     i.keys.push((col, desc));
@@ -1682,6 +1717,21 @@ fn build(mut src: Source, target: &Target, requested: &[ObjectRef]) -> Result<Cl
                 h,
                 &src.hidden_cause,
             ));
+        }
+    }
+    // `vector(n)` columns need a target that has the type.
+    if !tc.vectors {
+        if let Some((t, c)) = picked.iter().find_map(|t| {
+            t.columns
+                .iter()
+                .find(|c| c.type_name.eq_ignore_ascii_case("vector"))
+                .map(|c| (t, c))
+        }) {
+            return Err(Error::Unsupported(format!(
+                "la columna «{}» de {} es vector y el destino no tiene ese tipo (SQL Server 2025 o Azure SQL)",
+                c.name,
+                t.qname()
+            )));
         }
     }
     // Graph and ledger tables: the engine writes their internal columns
@@ -2763,6 +2813,10 @@ fn type_sql(c: &Column) -> String {
 /// The column's declared type: its alias or CLR type as on the source,
 /// typed XML with its collection.
 fn declared_type(c: &Column) -> String {
+    // `vector(n[, float16])`: a system type on a varbinary base.
+    if !c.user_defined && c.type_name.eq_ignore_ascii_case("vector") {
+        return crate::vector::format_type(c.max_length, c.precision, c.scale);
+    }
     if c.assembly {
         return if c.user_defined {
             qn(&c.type_schema, &c.type_name)
@@ -3124,6 +3178,20 @@ pub(crate) fn create_index(owner: &str, i: &Index) -> String {
         // Only on a memory-optimized table, whose indexes normally come in
         // its CREATE TABLE; added afterwards the only way it allows.
         7 => format!("ALTER TABLE {owner} ADD INDEX {name} {}", memory_index(i)),
+        // After the data, like every index: the table takes no more rows
+        // while it has one.
+        8 => {
+            let (ty, metric) = i
+                .vector
+                .clone()
+                .unwrap_or_else(|| ("DiskANN".into(), "COSINE".into()));
+            let col = i.keys.first().map(|(c, _)| q(c)).unwrap_or_default();
+            format!(
+                "CREATE VECTOR INDEX {name} ON {owner} ({col}) WITH (METRIC = {}, TYPE = {})",
+                lit(&metric.to_ascii_lowercase()),
+                lit(&ty)
+            )
+        }
         _ if i.unique_constraint => {
             format!(
                 "ALTER TABLE {owner} ADD CONSTRAINT {name} UNIQUE {} ({}){}{on}",

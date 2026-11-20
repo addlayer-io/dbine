@@ -657,10 +657,12 @@ mod tests {
             dbine_driver::ResultColumn {
                 name: "id".into(),
                 type_name: "int".into(),
+                vector: None,
             },
             dbine_driver::ResultColumn {
                 name: "nombre".into(),
                 type_name: String::new(),
+                vector: None,
             },
         ];
         crate::export::export_rows(
@@ -836,6 +838,7 @@ mod tests {
         let cols = vec![dbine_driver::ResultColumn {
             name: "n".into(),
             type_name: "int".into(),
+            vector: None,
         }];
         crate::export::export_rows(
             &p,

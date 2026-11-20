@@ -44,6 +44,7 @@ fn col(name: &str, type_name: &str) -> ResultColumn {
     ResultColumn {
         name: name.into(),
         type_name: type_name.into(),
+        vector: None,
     }
 }
 
@@ -320,6 +321,7 @@ async fn compare_held(
         key: Vec::new(),
         wanted: Vec::new(),
         cols: [named(&pairs, 0), named(&pairs, 1)],
+        ..Default::default()
     };
     let how = How {
         pairs: Some(pairs),
@@ -1448,5 +1450,173 @@ async fn a_duckdb_host_too_far_ahead_stops_the_compare() {
     assert!(e.contains("más rápido") && e.contains("izquierda"), "{e}");
     let read = emitted.load(Ordering::SeqCst);
     assert!(read <= bound, "{read} rows read (at most {bound})");
+    assert_eq!(leftovers(&root.0), Vec::<String>::new());
+}
+
+// ---------------------------------------------------------------------------
+// Vectors
+
+/// Two queries' vector columns compare by value on both paths, in process
+/// and as a host pushes rows: a float64 result's column against a float32
+/// one compares as float32, a vector against a result's text or array
+/// column (a schemaless engine's field) by value too. The kept difference
+/// marks them, so its exported lists write arrays.
+#[tokio::test(flavor = "multi_thread")]
+async fn query_vectors_compare_by_value_at_the_lower_precision() {
+    use dbine_driver::{VectorElement, VectorMeta};
+    let root = temp_dir("vectors");
+    let ctl = Arc::new(Ctl::default());
+    let meta = |e| VectorMeta::dense(Some(2), e);
+    let left_cols = || {
+        vec![
+            col("id", "int"),
+            col("v", "DOUBLE[2]").with_vector(meta(VectorElement::F64)),
+            col("w", "vector(2)").with_vector(meta(VectorElement::F32)),
+        ]
+    };
+    let right_cols = || {
+        vec![
+            col("id", "int"),
+            col("v", "vector(2)").with_vector(meta(VectorElement::F32)),
+            col("w", "array"),
+        ]
+    };
+    let left_rows = rows(json!([
+        [1, "[0.123456789, 1]", "[1,2]"],
+        [2, "[0.10000000149011612, 2]", "[0.5,0.25]"],
+        [3, "[0.5, 3]", "[1,2]"],
+    ]));
+    let right_rows = rows(json!([
+        [1, "[0.12345679,1]", [1.0, 2.0]],
+        [2, "[0.1,2]", "[0.5, 0.25]"],
+        [3, "[0.25,3]", [1.0, 2.0]],
+    ]));
+    let pairs = vec![
+        ColumnPair {
+            left: "id".into(),
+            right: "id".into(),
+            key: true,
+        },
+        ColumnPair {
+            left: "v".into(),
+            right: "v".into(),
+            key: false,
+        },
+        ColumnPair {
+            left: "w".into(),
+            right: "w".into(),
+            key: false,
+        },
+    ];
+    for remote in [false, true] {
+        for in_memory_rows in [1_000_000, 1] {
+            let mut l = Fixture::one(left_cols(), left_rows.clone());
+            let mut r = Fixture::one(right_cols(), right_rows.clone());
+            l.remote = remote;
+            r.remote = remote;
+            let c = compare(
+                &mut l,
+                "q",
+                &mut r,
+                "q",
+                &pairs,
+                QueryOptions::default(),
+                &opts(in_memory_rows, &root.0),
+                &ctl,
+            )
+            .await
+            .unwrap();
+            let how = format!("remote {remote}, in memory {in_memory_rows}");
+            assert_eq!(c.spilled, in_memory_rows == 1, "{how}");
+            assert_eq!((c.counts.same, c.counts.changed), (2, 1), "{how}");
+            assert_eq!(c.changed[0].left[0], json!(3), "{how}");
+            if remote || in_memory_rows == 1 {
+                continue;
+            }
+            let side = |c: &str| QuerySide {
+                connection_id: c.into(),
+                database: String::new(),
+                query: "q".into(),
+            };
+            let out = keep(side("l"), side("r"), c, &opts(1_000_000, Path::new("")));
+            let d = data_compare::diffs()
+                .lock()
+                .unwrap()
+                .get(&out.result.id)
+                .cloned()
+                .unwrap();
+            let marked = |v: &[Option<dbine_driver::VectorMeta>]| {
+                v.iter().map(Option::is_some).collect::<Vec<_>>()
+            };
+            assert_eq!(marked(&d.left_vectors), [false, true, true]);
+            assert_eq!(marked(&d.right_vectors), [false, true, false]);
+            // The screen gets each column's vectors: the left's, else the right's.
+            assert_eq!(marked(&out.result.vectors), [false, true, true]);
+            assert_eq!(out.result.vectors[1], d.left_vectors[1]);
+        }
+    }
+    assert_eq!(leftovers(&root.0), Vec::<String>::new());
+}
+
+/// A result's array of floats that its driver didn't mark (Neo4j's
+/// `LIST<FLOAT>`, Spanner's `ARRAY<FLOAT32>`) shows as a vector, as the
+/// results grid shows it, while it compares and exports as it came: only a
+/// driver's mark makes it compare by value or export as a vector.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_unmarked_array_of_floats_shows_as_a_vector() {
+    use dbine_driver::{VectorElement, VectorMeta};
+    let root = temp_dir("float-arrays");
+    let ctl = Arc::new(Ctl::default());
+    let cols = |ty: &str| vec![col("id", "int"), col("emb", ty)];
+    let data = rows(json!([[1, "[0.5,1]"], [2, "[2,3]"]]));
+    let mut l = Fixture::one(cols("LIST<FLOAT>"), data.clone());
+    let mut r = Fixture::one(cols("ARRAY<FLOAT32>"), data);
+    let pairs = vec![
+        ColumnPair {
+            left: "id".into(),
+            right: "id".into(),
+            key: true,
+        },
+        ColumnPair {
+            left: "emb".into(),
+            right: "emb".into(),
+            key: false,
+        },
+    ];
+    let c = compare(
+        &mut l,
+        "q",
+        &mut r,
+        "q",
+        &pairs,
+        QueryOptions::default(),
+        &opts(1_000_000, &root.0),
+        &ctl,
+    )
+    .await
+    .unwrap();
+    assert_eq!(c.counts.same, 2);
+    let side = |c: &str| QuerySide {
+        connection_id: c.into(),
+        database: String::new(),
+        query: "q".into(),
+    };
+    let out = keep(side("l"), side("r"), c, &opts(1_000_000, Path::new("")));
+    assert_eq!(
+        out.result.vectors,
+        [None, Some(VectorMeta::dense(None, VectorElement::F32))]
+    );
+    let d = data_compare::diffs()
+        .lock()
+        .unwrap()
+        .get(&out.result.id)
+        .cloned()
+        .unwrap();
+    assert!(d
+        .left_vectors
+        .iter()
+        .chain(&d.right_vectors)
+        .all(Option::is_none));
+    assert_eq!(d.shown_vectors(), out.result.vectors);
     assert_eq!(leftovers(&root.0), Vec::<String>::new());
 }

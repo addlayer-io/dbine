@@ -595,6 +595,7 @@ mod tests {
         let col = |n: &str| crate::ResultColumn {
             name: n.into(),
             type_name: String::new(),
+            vector: None,
         };
         j.begin(0, &[col("a"), col("b"), col("c")]).unwrap();
         j.row(

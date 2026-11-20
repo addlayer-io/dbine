@@ -15,8 +15,8 @@ pub mod markdown;
 
 use dbine_driver::dependencies::{find_mentions, schema_dependents};
 use dbine_driver::{
-    kinds, ColumnDef, Confidence, DependencyTarget, Driver, KeyDef, ObjectRef, Relation, Session,
-    TableSchema,
+    kinds, ColumnDef, Confidence, DependencyTarget, Driver, IndexDef, KeyDef, ObjectRef, Relation,
+    Session, TableSchema,
 };
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -793,6 +793,35 @@ impl Anchors {
     }
 }
 
+/// A vector index's settings as one line: its algorithm, its distance and
+/// its build parameters (`hnsw · cosine · ef_construction=64, m=16`), the
+/// engine's names as the driver gives them. Empty for an ordinary index.
+pub fn vector_text(ix: &IndexDef) -> String {
+    let Some(v) = &ix.vector else {
+        return String::new();
+    };
+    let params = v
+        .params
+        .iter()
+        .filter(|(_, v)| !v.trim().is_empty())
+        .map(|(k, v)| format!("{k}={}", v.trim()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    [v.algorithm.clone(), v.metric.clone(), Some(params)]
+        .into_iter()
+        .flatten()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+/// Whether a table's indexes include a vector index: its index table gets
+/// the column that shows their settings.
+pub fn has_vector_index(t: &TableSchema) -> bool {
+    t.indexes.iter().any(|ix| ix.vector.is_some())
+}
+
 /// `schema.name`, or the name alone.
 pub fn qualified(schema: Option<&str>, name: &str) -> String {
     shown(schema, name)
@@ -819,6 +848,49 @@ pub fn key_marks(t: &TableSchema, column: &str) -> String {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    /// An HNSW cosine index on `emb`, with an empty parameter left out.
+    pub fn vector_index() -> dbine_driver::IndexDef {
+        dbine_driver::IndexDef {
+            name: "ix_emb".into(),
+            columns: vec!["emb".into()],
+            kind: Some("hnsw".into()),
+            vector: Some(dbine_driver::VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                params: BTreeMap::from([
+                    ("m".to_string(), "16".to_string()),
+                    ("ef_construction".to_string(), "64".to_string()),
+                    ("lists".to_string(), " ".to_string()),
+                ]),
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_vector_index_reads_as_one_line() {
+        assert_eq!(
+            vector_text(&vector_index()),
+            "hnsw · cosine · ef_construction=64, m=16"
+        );
+        let mut ix = vector_index();
+        ix.vector.as_mut().unwrap().algorithm = None;
+        ix.vector.as_mut().unwrap().params.clear();
+        assert_eq!(vector_text(&ix), "cosine");
+        ix.vector = None;
+        assert_eq!(vector_text(&ix), "");
+    }
+
+    /// The indexes of `doc`'s first table that has some.
+    pub fn indexed(doc: &mut Doc) -> &mut Vec<dbine_driver::IndexDef> {
+        doc.schemas
+            .iter_mut()
+            .flat_map(|s| s.tables.iter_mut())
+            .map(|t| &mut t.table.indexes)
+            .find(|ix| !ix.is_empty())
+            .expect("a table with indexes")
+    }
 
     /// A small document with what needs escaping in every place.
     pub fn sample() -> Doc {

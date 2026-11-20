@@ -2,7 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { t } from '../i18n';
-import type { Cell, ResultColumn } from '../api/types';
+import type { Cell, ResultColumn, VectorMeta } from '../api/types';
+import { isDense, vectorMeta, vectorPreview, vectorValueProblem } from '../composables/vector';
+import { vectorProblemText } from '../composables/vectorLabels';
 import type { Edits } from '../composables/gridEdit';
 import { columnKind, parseFilter, type FilterState } from '../composables/gridFilter';
 import { isSaveShortcut } from '../composables/shortcuts';
@@ -403,6 +405,14 @@ function scalarText(n: TreeNode): string {
   if (n.kind === 'objectId') return `ObjectId("${v}")`;
   return String(v);
 }
+/** A closed field of a vector column: its first numbers and dimensions, as
+ *  the grid shows them (composables/vector.ts). Null for any other node. */
+function vecNode(n: TreeNode) {
+  if (n.path.length !== 1 || n.kind !== 'array') return null;
+  const c = colIndex(n.path[0]);
+  const meta = c >= 0 ? vectorMeta(props.columns[c]) : null;
+  return isDense(meta) ? vectorPreview(cellAt(n.row, c), meta) : null;
+}
 /** `{ nombre: "Ana", edad: 31, … }` / `[1, 2, 3, …]`: a closed container's preview. */
 function preview(v: unknown, budget = 90): string {
   const one = (x: unknown): string => {
@@ -460,15 +470,18 @@ function explainNoEdit(n: TreeNode) {
 }
 /** Sets (or removes) the value at the node's path: a top-level scalar goes as
  *  is; anything else rewrites its top-level field as JSON text, the way the
- *  driver sends nested values. Back to the server's value: the edit goes. */
-function change(n: TreeNode, op: { set: unknown } | { remove: true }) {
+ *  driver sends nested values. Back to the server's value: the edit goes.
+ *  A vector column's field must stay a vector it holds (or NULL): an edit
+ *  that leaves anything else (a removed or wrong number, another type) is
+ *  refused with the reason, and the result is the message (null: done). */
+function change(n: TreeNode, op: { set: unknown } | { remove: true }): string | null {
   const [field, ...rest] = n.path;
   const c = colIndex(field);
-  if (c < 0) return;
+  if (c < 0) return null;
   const r = n.row;
   let next: unknown;
   if (!rest.length) {
-    if ('remove' in op) return;
+    if ('remove' in op) return null;
     next = op.set;
   } else {
     const root = structuredClone(rowObject(r)[field as string]);
@@ -481,9 +494,16 @@ function change(n: TreeNode, op: { set: unknown } | { remove: true }) {
     } else (parent as Record<string, unknown>)[last as string] = op.set;
     next = root;
   }
+  const problem = vectorValueProblem(next, vectorMeta(props.columns[c]));
+  if (problem) {
+    const message = vectorProblemText(problem, props.columns[c].name);
+    ElMessage.warning({ message, duration: 5000 });
+    return message;
+  }
   const cell: Cell = next !== null && typeof next === 'object' ? JSON.stringify(next) : (next as Cell);
-  if (r < base.value && same(parseCell(cell), originalField(r, c))) { emit('edit', r, c, undefined); return; }
+  if (r < base.value && same(parseCell(cell), originalField(r, c))) { emit('edit', r, c, undefined); return null; }
   emit('edit', r, c, cell);
+  return null;
 }
 
 const editing = ref<{ id: string; text: string } | null>(null);
@@ -515,7 +535,9 @@ function typed(n: TreeNode, text: string): unknown {
     default: return text;
   }
 }
-function commitEdit(move = 0) {
+/** `keep`: a refused value (a vector's number that isn't one) leaves the
+ *  editor open (Enter, Tab) instead of dropping the text (leaving it). */
+function commitEdit(move = 0, keep = false) {
   const e = editing.value;
   if (!e) return;
   editing.value = null;
@@ -523,7 +545,11 @@ function commitEdit(move = 0) {
   const n = flat.value[i];
   if (n) {
     const v = typed(n, e.text);
-    if (!same(v, n.value)) change(n, { set: v });
+    if (!same(v, n.value) && change(n, { set: v }) && keep) {
+      editing.value = e;
+      nextTick(() => (Array.isArray(editInput.value) ? editInput.value[0] : editInput.value)?.focus());
+      return;
+    }
     if (move) nextTick(() => select(Math.max(0, Math.min(flat.value.length - 1, i + move))));
   }
   scroller.value?.focus();
@@ -533,8 +559,8 @@ function cancelEdit() {
   scroller.value?.focus();
 }
 function onEditKey(ev: KeyboardEvent) {
-  if (ev.key === 'Enter') { ev.preventDefault(); commitEdit(1); }
-  else if (ev.key === 'Tab') { ev.preventDefault(); commitEdit(ev.shiftKey ? -1 : 1); }
+  if (ev.key === 'Enter') { ev.preventDefault(); commitEdit(1, true); }
+  else if (ev.key === 'Tab') { ev.preventDefault(); commitEdit(ev.shiftKey ? -1 : 1, true); }
   else if (ev.key === 'Escape') { ev.preventDefault(); cancelEdit(); }
   // ⌘S keeps the value and goes on to the pane, which saves.
   else if (isSaveShortcut(ev)) { commitEdit(); return; }
@@ -556,8 +582,10 @@ function saveJson() {
     j.error = t('results:addDocument.invalidJson', { error: e instanceof Error ? e.message : String(e) });
     return;
   }
+  // A vector it doesn't hold: the dialog stays, saying why.
+  const problem = same(v, j.node.value) ? null : change(j.node, { set: v });
+  if (problem) { j.error = problem; return; }
   jsonEdit.value = null;
-  if (!same(v, j.node.value)) change(j.node, { set: v });
 }
 function toggleDelete(n: TreeNode) {
   if (n.row >= base.value) { emit('delete', [n.row], true); return; }
@@ -583,9 +611,11 @@ function copyValue(n: TreeNode) { copy(asJson(n)); }
 function pathText(n: TreeNode): string {
   return n.path.reduce<string>((acc, s) => (typeof s === 'number' ? `${acc}[${s}]` : acc ? `${acc}.${s}` : s), '');
 }
-const viewer = ref<{ title: string; value: Cell } | null>(null);
+const viewer = ref<{ title: string; value: Cell; vector: VectorMeta | null } | null>(null);
 function openViewer(n: TreeNode) {
-  viewer.value = { title: pathText(n) || keyText(n), value: asJson(n) };
+  // A field of a vector column shows as a vector (its dimensions, norm…).
+  const col = n.path.length === 1 && n.kind !== 'chunk' ? props.columns.find((c) => c.name === n.key) : undefined;
+  viewer.value = { title: pathText(n) || keyText(n), value: asJson(n), vector: vectorMeta(col) };
 }
 const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
 function onContext(e: MouseEvent, i: number) {
@@ -684,6 +714,7 @@ function onContext(e: MouseEvent, i: number) {
             <span class="jt-colon">:</span>
             <span v-if="isContainer(n)" class="jt-preview" :class="{ edited: isEditedNode(n) }">
               <template v-if="isOpenNode(n)">{{ n.kind === 'array' ? `[ ${n.size} ]` : `{ ${n.size} }` }}</template>
+              <template v-else-if="vecNode(n)">{{ vecNode(n)!.text }}<span v-if="vecNode(n)!.dims != null" class="jt-vdims">{{ vecNode(n)!.dims }}</span></template>
               <template v-else>{{ preview(n.value) }}</template>
             </span>
             <input
@@ -707,7 +738,7 @@ function onContext(e: MouseEvent, i: number) {
       <div v-if="!flat.length" class="jt-empty nm-muted">{{ search ? $t('results:tree.noMatches') : $t('results:tree.empty') }}</div>
     </div>
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
-    <CellViewer v-if="viewer" :title="viewer.title" :value="viewer.value" @close="viewer = null" />
+    <CellViewer v-if="viewer" :title="viewer.title" :value="viewer.value" :vector="viewer.vector" @close="viewer = null" />
     <el-dialog
       :model-value="!!jsonEdit"
       :title="jsonEdit ? $t('results:tree.editJsonTitle', { path: pathText(jsonEdit.node) }) : ''"
@@ -763,6 +794,11 @@ function onContext(e: MouseEvent, i: number) {
 .jt-key.idx { color: var(--nm-text-dim); }
 .jt-colon { color: var(--nm-text-dim); }
 .jt-preview { color: var(--nm-text-dim); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* A vector field's dimensions, after its first numbers (as in the grid). */
+.jt-vdims {
+  margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10.5px; line-height: 15px; font-variant-numeric: tabular-nums;
+  color: var(--nm-syn-type); background: color-mix(in srgb, var(--nm-syn-type) 14%, transparent);
+}
 .jt-val { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .k-string { color: var(--nm-syn-string); }
 .k-number { color: var(--nm-syn-number); }

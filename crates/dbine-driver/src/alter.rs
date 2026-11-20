@@ -250,6 +250,7 @@ fn ix_same(a: &IndexDef, b: &IndexDef) -> bool {
         && kind(&a.kind) == kind(&b.kind)
         && inc(&a.include) == inc(&b.include)
         && a.options == b.options
+        && crate::vector::same_index(&a.vector, &b.vector)
 }
 
 fn is_fulltext(ix: &IndexDef) -> bool {

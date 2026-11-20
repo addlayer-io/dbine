@@ -64,7 +64,7 @@ use dbine_driver::transfer::{
 };
 use dbine_driver::{kinds, Error, Result};
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tokio::runtime::{Handle, RuntimeFlavor};
@@ -775,6 +775,57 @@ fn lock_err<T>(_: T) -> Error {
 }
 
 impl CbSession {
+    /// The vector fields of a collection's indexes (GSI vector keys and
+    /// the Search service's vector fields), each with its dimension and
+    /// whether it keeps base64 vectors (see `vector`). Empty when they
+    /// can't be read.
+    async fn collection_vectors(
+        &self,
+        schema: Option<&str>,
+        coll: &str,
+    ) -> HashMap<String, (Option<u32>, bool)> {
+        let (bucket, scope) = match schema.and_then(crate::ddl::split_schema) {
+            Some((b, s)) => (b.to_string(), s.to_string()),
+            None => match &self.bucket {
+                Some(b) => (b.clone(), "_default".to_string()),
+                None => return HashMap::new(),
+            },
+        };
+        let lit = |x: &str| serde_json::to_string(x).unwrap_or_default();
+        let filter = if scope == "_default" && coll == "_default" {
+            format!(
+                "((i.bucket_id = {b} AND i.scope_id = '_default' AND i.keyspace_id = '_default') OR (i.bucket_id IS MISSING AND i.keyspace_id = {b}))",
+                b = lit(&bucket)
+            )
+        } else {
+            format!(
+                "i.bucket_id = {} AND i.scope_id = {} AND i.keyspace_id = {}",
+                lit(&bucket),
+                lit(&scope),
+                lit(coll)
+            )
+        };
+        let rows = self
+            .results(&format!(
+                "SELECT i.index_key, i.`with` FROM system:indexes AS i
+                 WHERE i.`using` = 'gsi' AND {filter}
+                   AND ANY k IN i.index_key SATISFIES UPPER(k) LIKE '% VECTOR' END"
+            ))
+            .await
+            .unwrap_or_default();
+        let mut out: HashMap<String, (Option<u32>, bool)> = crate::vector::fields(&rows)
+            .into_iter()
+            .map(|(k, (m, b64))| (k, (m.dims, b64)))
+            .collect();
+        if let Ok(body) = self.conn.mgmt_get("/_p/fts/api/index").await {
+            for f in crate::vector::fts_collection_fields(&body, &bucket, &scope, coll) {
+                out.entry(f.path)
+                    .or_insert((f.dims.map(|n| n as u32), f.base64));
+            }
+        }
+        out
+    }
+
     pub(crate) async fn transfer_read(
         &mut self,
         spec: &ReadSpec,
@@ -845,6 +896,15 @@ impl CbSession {
             ));
         }
 
+        // Base64 vector fields: their cells are the numbers (a JSON
+        // array, as every vector's), their type says the form.
+        let vectors = self
+            .collection_vectors(spec.table.schema(), &spec.table.name)
+            .await;
+        let base64: Vec<usize> = (0..shape.names.len())
+            .filter(|&i| Some(i) != shape.key)
+            .filter(|&i| vectors.get(&shape.names[i]).is_some_and(|v| v.1))
+            .collect();
         let cols: Vec<TransferColumn> = shape
             .names
             .iter()
@@ -853,7 +913,13 @@ impl CbSession {
                 let key = Some(i) == shape.key;
                 TransferColumn {
                     name: n.clone(),
-                    type_name: if key { "string".into() } else { String::new() },
+                    type_name: if key {
+                        "string".into()
+                    } else if base64.contains(&i) {
+                        crate::vector::base64_type_name(vectors.get(n).and_then(|v| v.0))
+                    } else {
+                        String::new()
+                    },
                     nullable: !key,
                 }
             })
@@ -878,7 +944,7 @@ impl CbSession {
                     None => String::new(),
                 };
                 let doc = r.get("v").unwrap_or(&Value::Null);
-                builder.push(shape.row(&key, doc)?, &mut *s)?;
+                builder.push(base64_cells(shape.row(&key, doc)?, &base64), &mut *s)?;
             }
         }
         scanner.finish()?;
@@ -909,6 +975,37 @@ impl CbSession {
             spec.columns.clone()
         };
         let key_col = key_column(&names);
+        // Columns of another engine's vector type (pgvector's `vector`,
+        // `VECTOR(…)`…): their text cells are arrays of numbers here.
+        let vectors: Vec<bool> = (0..names.len())
+            .map(|i| {
+                let c = if columns.len() == names.len() {
+                    columns.get(i)
+                } else {
+                    columns.iter().find(|c| c.name == names[i])
+                };
+                c.is_some_and(|c| vector_type(&c.type_name))
+            })
+            .collect();
+        // Fields that keep base64 vectors: the target's own indexes say
+        // so, else the source's type (a base64 field of another
+        // collection, whose indexes may come after the documents).
+        let target = self
+            .collection_vectors(spec.table.schema(), &spec.table.name)
+            .await;
+        let to_base64: Vec<bool> = (0..names.len())
+            .map(|i| match target.get(&names[i]) {
+                Some((_, b64)) => *b64,
+                None => {
+                    let c = if columns.len() == names.len() {
+                        columns.get(i)
+                    } else {
+                        columns.iter().find(|c| c.name == names[i])
+                    };
+                    c.is_some_and(|c| crate::vector::is_base64(&c.type_name))
+                }
+            })
+            .collect();
 
         // Every statement of the load carries this id: a dropped load stops
         // them all on the server. The interrupter doesn't get it: it only
@@ -963,7 +1060,8 @@ impl CbSession {
                             names.len()
                         )));
                     }
-                    l.add(&entry_bytes(&names, key_col, row, rows)?).await?;
+                    let row = to_base64_cells(vector_cells(row, &vectors), &to_base64);
+                    l.add(&entry_bytes(&names, key_col, &row, rows)?).await?;
                 }
                 l.reap()?;
             }
@@ -987,9 +1085,187 @@ impl CbSession {
     }
 }
 
+/// Whether a source column's type holds dense vectors, whichever engine it
+/// comes from: `vector(3)`, `VECTOR(3, FLOAT32)`, `vector<float, 3>`,
+/// `frozen<vector<float, 3>>`, `halfvec(3)`, `dense_vector(3)`,
+/// `knn_vector(3)`, `float_vector(3)`, `REAL_VECTOR(3)`, `F32_BLOB(3)`,
+/// `vecf32(3)`, `ARRAY<FLOAT32>(vector_length=>3)`…, also with a crate's
+/// mark (`bson:vector(3, int8)`) or among `|` alternatives
+/// (`bson:vector(3)|bson:null`). Sparse vectors (`sparsevec`,
+/// `sparse_vector`, `VECTOR(…, SPARSE)`) aren't: their text isn't an
+/// array. The same list in every crate of the document family (the
+/// contract has no helper for it).
+fn vector_type(t: &str) -> bool {
+    t.split('|').any(|part| {
+        let p = part.trim().to_ascii_lowercase();
+        if p.contains("sparse") {
+            return false;
+        }
+        p.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .any(|tok| {
+                tok.ends_with("vector")
+                    || tok.ends_with("vec")
+                    || matches!(
+                        tok,
+                        "vecf32"
+                            | "vecf64"
+                            | "vector_length"
+                            | "f32_blob"
+                            | "f64_blob"
+                            | "f16_blob"
+                            | "fb16_blob"
+                            | "bf16_blob"
+                            | "f8_blob"
+                            | "f1bit_blob"
+                    )
+            })
+    })
+}
+
+/// `row` with its base64 vector cells (at `at`) as the numbers' JSON
+/// array; a cell that isn't one stays as it is.
+fn base64_cells(mut row: Vec<Cell>, at: &[usize]) -> Vec<Cell> {
+    for &i in at {
+        if let Some(Cell::Text(t)) = row.get(i) {
+            if let Some(v) = crate::vector::base64_text(t) {
+                row[i] = Cell::Json(v);
+            }
+        }
+    }
+    row
+}
+
+/// `row` with its vector cells (a JSON array, as text or JSON) written as
+/// base64 where `at` says so.
+fn to_base64_cells(row: Vec<Cell>, at: &[bool]) -> Vec<Cell> {
+    row.into_iter()
+        .zip(at.iter().chain(std::iter::repeat(&false)))
+        .map(|(c, b)| match &c {
+            Cell::Text(t) | Cell::Json(t) if *b => dbine_driver::vector::parse(t)
+                .filter(|n| !n.is_empty())
+                .map(|n| Cell::Text(crate::vector::encode_base64(&n)))
+                .unwrap_or(c),
+            _ => c,
+        })
+        .collect()
+}
+
+/// `row` with the text of its vector columns as JSON arrays.
+fn vector_cells(row: &[Cell], vectors: &[bool]) -> Vec<Cell> {
+    row.iter()
+        .zip(vectors.iter().chain(std::iter::repeat(&false)))
+        .map(|(c, v)| match c {
+            Cell::Text(t) if *v => dbine_driver::vector::parse(t)
+                .map(|n| Cell::Json(dbine_driver::vector::text(n)))
+                .unwrap_or_else(|| c.clone()),
+            other => other.clone(),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vector_types_of_every_engine() {
+        for t in [
+            "vector(3)",
+            "bson:vector(3)",
+            "bson:vector(3, int8)|bson:null",
+            "VECTOR(3, FLOAT32)",
+            "vector<float, 3>",
+            "frozen<vector<float, 3>>",
+            "halfvec(3)",
+            "dense_vector(3)",
+            "knn_vector(3)",
+            "float_vector(3)",
+            "REAL_VECTOR(3)",
+            "F32_BLOB(3)",
+            "vecf32(3)",
+            "ARRAY<FLOAT32>(vector_length=>3)",
+            "vector",
+        ] {
+            assert!(vector_type(t), "{t}");
+        }
+        for t in [
+            "sparsevec(5)",
+            "sparse_vector",
+            "VECTOR(3, FLOAT32, SPARSE)",
+            "varchar(20)",
+            "text",
+            "",
+            "bson:binData",
+            "bson:array",
+            "json",
+            "blob",
+        ] {
+            assert!(!vector_type(t), "{t}");
+        }
+    }
+
+    #[test]
+    fn vector_text_loads_as_arrays() {
+        let row = [
+            Cell::Text("k".into()),
+            Cell::Text("[0.5,1e-7]".into()),
+            Cell::Text("[1]".into()),
+        ];
+        let out = vector_cells(&row, &[false, true]);
+        assert_eq!(
+            out,
+            [
+                Cell::Text("k".into()),
+                Cell::Json("[0.5,0.0000001]".into()),
+                Cell::Text("[1]".into())
+            ]
+        );
+        let bytes = entry_bytes(&names(&["_id", "emb"]), Some(0), &out[..2], 1).unwrap();
+        let v: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(v.to_string().contains("[0.5,1e-7]"), "{v}");
+    }
+
+    #[test]
+    fn base64_vectors_read_as_arrays_and_load_back() {
+        // A read: the base64 field's cell is the numbers.
+        let row = vec![
+            Cell::Text("k".into()),
+            Cell::Text("AACAPwAAAEAAAEBA".into()),
+            Cell::Text("AACAPwAAAEAAAEBA".into()),
+            Cell::Text("not a vector".into()),
+        ];
+        let out = base64_cells(row, &[1, 3]);
+        assert_eq!(
+            out,
+            [
+                Cell::Text("k".into()),
+                Cell::Json("[1,2,3]".into()),
+                Cell::Text("AACAPwAAAEAAAEBA".into()),
+                Cell::Text("not a vector".into()),
+            ]
+        );
+        // A load: arrays (as text or JSON) go back to base64 where the
+        // field keeps it; other cells stay.
+        let row = vec![
+            Cell::Text("k".into()),
+            Cell::Json("[1,2,3]".into()),
+            Cell::Text("[1,2,3]".into()),
+            Cell::Json("[1,2,3]".into()),
+            Cell::Null,
+        ];
+        let out = to_base64_cells(row, &[false, true, true, false, true]);
+        assert_eq!(
+            out,
+            [
+                Cell::Text("k".into()),
+                Cell::Text("AACAPwAAAEAAAEBA".into()),
+                Cell::Text("AACAPwAAAEAAAEBA".into()),
+                Cell::Json("[1,2,3]".into()),
+                Cell::Null,
+            ]
+        );
+        assert!(vector_type("vector(3, base64)"));
+    }
 
     fn names(n: &[&str]) -> Vec<String> {
         n.iter().map(|s| s.to_string()).collect()

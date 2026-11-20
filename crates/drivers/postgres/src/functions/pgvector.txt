@@ -1,0 +1,49 @@
+# pgvector's functions and operators (see dbine_driver::functions::parse_catalog),
+# from github.com/pgvector/pgvector, with the extension version that added
+# each one. The driver reads pg_proc where it can; this catalog joins
+# PostgreSQL's static one when it can't and the extension is installed.
+
+# Distances (vector)
+s l2_distance(vector, vector) -> double precision since=0.1.0
+s inner_product(vector, vector) -> double precision since=0.1.0
+s cosine_distance(vector, vector) -> double precision since=0.1.0
+s l1_distance(vector, vector) -> double precision since=0.5.0
+# Distances (halfvec, sparsevec, bit)
+s l2_distance(halfvec, halfvec) -> double precision since=0.7.0
+s inner_product(halfvec, halfvec) -> double precision since=0.7.0
+s cosine_distance(halfvec, halfvec) -> double precision since=0.7.0
+s l1_distance(halfvec, halfvec) -> double precision since=0.7.0
+s l2_distance(sparsevec, sparsevec) -> double precision since=0.7.0
+s inner_product(sparsevec, sparsevec) -> double precision since=0.7.0
+s cosine_distance(sparsevec, sparsevec) -> double precision since=0.7.0
+s l1_distance(sparsevec, sparsevec) -> double precision since=0.7.0
+s hamming_distance(bit, bit) -> double precision since=0.7.0
+s jaccard_distance(bit, bit) -> double precision since=0.7.0
+
+# Vector functions
+s vector_dims(vector) -> integer since=0.1.0
+s vector_norm(vector) -> double precision since=0.1.0
+s vector_dims(halfvec) -> integer since=0.7.0
+s l2_norm(halfvec) -> double precision since=0.7.0
+s l2_norm(sparsevec) -> double precision since=0.7.0
+s l2_normalize(vector) -> vector since=0.7.0
+s l2_normalize(halfvec) -> halfvec since=0.7.0
+s l2_normalize(sparsevec) -> sparsevec since=0.7.0
+s binary_quantize(vector) -> bit since=0.7.0
+s binary_quantize(halfvec) -> bit since=0.7.0
+s subvector(vector, start integer, count integer) -> vector since=0.7.0
+s subvector(halfvec, start integer, count integer) -> halfvec since=0.7.0
+
+# Aggregates
+a avg(vector) -> vector since=0.4.0
+a sum(vector) -> vector since=0.5.0
+a avg(halfvec) -> halfvec since=0.7.0
+a sum(halfvec) -> halfvec since=0.7.0
+
+# Operators
+o <-> (vector, vector) -> double precision since=0.1.0
+o <#> (vector, vector) -> double precision since=0.1.0
+o <=> (vector, vector) -> double precision since=0.1.0
+o <+> (vector, vector) -> double precision since=0.7.0
+o <~> (bit, bit) -> double precision since=0.7.0
+o <%> (bit, bit) -> double precision since=0.7.0

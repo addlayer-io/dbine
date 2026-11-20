@@ -175,6 +175,7 @@ impl<'a> Stream for MessageStream<'a> {
                             name: x.col_name.to_string(),
                             column_type: ColumnType::from(&x.base.ty),
                             udt_name: crate::row::udt_name_of(&x.base.ty),
+                            vector_type: crate::row::vector_type_of(&x.base.ty),
                         })
                         .collect();
                     let columns = Arc::new(columns);

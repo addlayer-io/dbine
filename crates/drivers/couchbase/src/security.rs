@@ -302,6 +302,16 @@ fn role_object(r: &Value) -> (Option<String>, Option<String>) {
     }
 }
 
+/// A role as `GRANT` and the REST API name it: `system:user_info` and
+/// `system:group_info` name the query roles by their short names
+/// (`select`, `insert`, `update`, `delete`; seen on 8.0).
+fn role_name(role: String) -> String {
+    match role.as_str() {
+        "select" | "insert" | "update" | "delete" => format!("query_{role}"),
+        _ => role,
+    }
+}
+
 /// A user's or group's roles, one grant per origin (the user itself or
 /// each group it comes from).
 fn grants_of(p: &Value, is_group: bool) -> Vec<Grant> {
@@ -309,7 +319,7 @@ fn grants_of(p: &Value, is_group: bool) -> Vec<Grant> {
     for r in array(p, "roles") {
         let (object, object_kind) = role_object(r);
         let grant = |via: Option<String>| Grant {
-            privilege: s(r, "role"),
+            privilege: role_name(s(r, "role")),
             object: object.clone(),
             object_kind: object_kind.clone(),
             via,
@@ -636,6 +646,28 @@ mod tests {
         assert!(g.iter().any(|x| x.privilege == "query_select"
             && x.object.as_deref() == Some("b1.s.c")
             && x.object_kind.as_deref() == Some(kinds::COLLECTION)));
+        // The query service's short names are the roles GRANT names.
+        let short = json!({"id": "b", "roles": [
+            {"role": "select", "bucket_name": "b1", "scope_name": "s", "collection_name": "*", "origins": [{"type": "user"}]},
+            {"role": "insert", "bucket_name": "b1", "origins": [{"type": "user"}]},
+            {"role": "update", "bucket_name": "b1", "origins": [{"type": "user"}]},
+            {"role": "delete", "bucket_name": "b1", "origins": [{"type": "user"}]},
+            {"role": "data_reader", "bucket_name": "b1", "origins": [{"type": "user"}]},
+        ]});
+        let names: Vec<String> = grants_of(&short, false)
+            .into_iter()
+            .map(|g| g.privilege)
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "query_select",
+                "query_insert",
+                "query_update",
+                "query_delete",
+                "data_reader"
+            ]
+        );
         assert!(g
             .iter()
             .any(|x| x.privilege == "ro_admin" && x.object.is_none()));

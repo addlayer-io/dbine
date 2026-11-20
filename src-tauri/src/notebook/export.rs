@@ -659,6 +659,7 @@ mod tests {
                 columns: vec![StoredColumn {
                     name: "<b>col</b>".into(),
                     type_name: String::new(),
+                    vector: None,
                 }],
                 rows: vec![vec![json!("<script>alert(1)</script>")], vec![Value::Null]],
                 rows_total: 2,

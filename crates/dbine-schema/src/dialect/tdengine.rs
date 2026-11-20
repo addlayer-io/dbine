@@ -114,6 +114,7 @@ impl Dialect for TDengine {
             Rendered::exact(format!("NCHAR({TEXT_LEN})")).with(Warning, TypeApproximated, why)
         };
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOL"),
             L::Int { bytes, unsigned } => {
                 let u = if *unsigned { " UNSIGNED" } else { "" };
@@ -278,6 +279,9 @@ impl Dialect for TDengine {
             comments: true,
             max_identifier: 64,
             case: IdentCase::Lower,
+            // No vector indexes: `convert` leaves them out, said.
+            vector_indexes: false,
+            vectors: false,
         }
     }
 

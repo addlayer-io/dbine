@@ -28,6 +28,7 @@ mod stats;
 mod structure;
 mod transfer;
 mod variant;
+mod vector;
 
 use dbine_driver::sql::{qualified_name, select_top, Limit, Quote};
 use dbine_driver::{
@@ -98,6 +99,12 @@ pub struct SqlServerSession {
     /// Off: `SET IMPLICIT_TRANSACTIONS ON` (manual transactions), restored
     /// on reconnect.
     autocommit: bool,
+    /// Whether `sys.columns` describes vector columns (SQL Server 2025,
+    /// Azure SQL): asked once ([`SqlServerSession::vector_shape`]).
+    vector_catalog: Option<bool>,
+    /// The float16 vector columns (name, dimensions) of the table the
+    /// running query browses ([`SqlServerSession::browsed_float16`]).
+    browse_f16: Vec<(String, u32)>,
 }
 
 /// How to stop what runs on the session's current connection.
@@ -160,6 +167,7 @@ impl Driver for SqlServerDriver {
                 "este motor no deshabilita índices".into(),
             ));
         }
+        index_usage::refuse_vector_toggle(index)?;
         Ok(index_usage::toggle_script(table, index, enable))
     }
 
@@ -322,6 +330,9 @@ impl Driver for SqlServerDriver {
             // servers as `jobs`; Azure SQL Database answers with no kinds
             // and a note.
             scheduler: jobs::supported(self.variant),
+            // `vector(n)` (SQL Server 2025, Azure SQL): results, describes,
+            // scripts, transfers and DiskANN vector indexes.
+            vectors: vectors(self.variant),
         }
     }
 
@@ -329,7 +340,13 @@ impl Driver for SqlServerDriver {
         Some(if self.variant == Variant::Fabric {
             schema::fabric_designer()
         } else {
-            schema::designer()
+            let mut d = schema::designer();
+            // Babelfish has no vector type.
+            if !vectors(self.variant) {
+                d.data_types.retain(|t| !t.starts_with("vector"));
+                d.vector_indexes = None;
+            }
+            d
         })
     }
 
@@ -434,6 +451,51 @@ impl Driver for SqlServerDriver {
         keys: &[Vec<(String, serde_json::Value)>],
     ) -> Result<String> {
         Ok(schema::delete_script(target.schema(), &target.name, keys))
+    }
+
+    /// Each value written for its column's type ([`schema::typed_literal`]):
+    /// a vector column's value as its JSON text, a character column's
+    /// string never taken for a binary.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        Ok(schema::insert_script_typed(
+            target.schema(),
+            &target.name,
+            columns,
+            rows,
+        ))
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        Ok(schema::update_script_typed(
+            target.schema(),
+            &target.name,
+            changes,
+            types,
+        ))
+    }
+
+    fn delete_script_typed(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        Ok(schema::delete_script_typed(
+            target.schema(),
+            &target.name,
+            keys,
+            types,
+        ))
     }
 
     /// T-SQL: `GO` batches (`GO N`), not split inside comments or strings.
@@ -564,6 +626,8 @@ impl SqlServerDriver {
             profiler: None,
             database: None,
             autocommit: true,
+            vector_catalog: None,
+            browse_f16: Vec::new(),
         };
         let rows = s.rows("SELECT CAST(@@SPID AS int)", &[]).await?;
         s.spid = rows.first().and_then(|r| r.get::<i32, _>(0)).unwrap_or(0);
@@ -885,8 +949,18 @@ fn build_config(
     if cfg.read_only {
         c.readonly(true);
     }
+    // `vector` columns as their own TDS type (SQL Server 2025, Azure SQL),
+    // so every result says which columns hold vectors and their dimensions.
+    // Servers without vectors ignore it; legacy-TLS servers are too old.
+    c.vector_support(vectors(variant) && !legacy_tls_on(cfg, variant));
     c.authentication(auth_method(login)?);
     Ok(c)
+}
+
+/// The variants whose engine has the `vector` type: SQL Server 2025 and
+/// Azure SQL (not a Fabric warehouse nor Babelfish).
+fn vectors(v: Variant) -> bool {
+    matches!(v, Variant::SqlServer | Variant::AzureSql)
 }
 
 /// Whether this build negotiates TLS 1.0/1.1 (the `sqlserver_legacy` host,
@@ -1049,6 +1123,17 @@ pub(crate) fn spatial_cell(data: ColumnData<'static>, spatial: bool) -> serde_js
     }
 }
 
+/// A `vector` column's cell: its binary form as JSON-array text, whole.
+pub(crate) fn vector_cell(data: ColumnData<'static>) -> serde_json::Value {
+    match data {
+        ColumnData::Binary(Some(b)) => match vector::decode(&b) {
+            Some(t) => t.into(),
+            None => json_bytes(&b),
+        },
+        d => cell(d),
+    }
+}
+
 pub(crate) fn cell(data: ColumnData<'static>) -> serde_json::Value {
     use serde_json::Value;
     fn opt<T>(v: Option<T>, f: impl FnOnce(T) -> Value) -> Value {
@@ -1147,6 +1232,60 @@ impl SqlServerSession {
     async fn catalog_rows(&mut self, sql: &str, params: &[&str]) -> Result<Vec<Row>> {
         let sql = catalog_sql(self.variant, sql);
         self.rows(&sql, params).await
+    }
+
+    /// `sql` (a catalog query on `sys.columns c`) with each vector column's
+    /// dimensions and element type in place of its precision and scale,
+    /// where the server describes them (SQL Server 2025, Azure SQL); as is
+    /// elsewhere.
+    pub(crate) async fn vector_shape(&mut self, sql: &str) -> String {
+        if self.has_vector_catalog().await {
+            sql.replace(vector::PRECISION_SCALE, vector::SHAPE)
+        } else {
+            sql.to_string()
+        }
+    }
+
+    /// Whether `sys.columns` describes vector columns, asked once.
+    async fn has_vector_catalog(&mut self) -> bool {
+        if self.vector_catalog.is_none() {
+            let has = vectors(self.variant)
+                && self
+                    .rows(vector::CATALOG_SQL, &[])
+                    .await
+                    .ok()
+                    .and_then(|r| r.first().and_then(|r| r.get::<bool, _>(0)))
+                    .unwrap_or(false);
+            self.vector_catalog = Some(has);
+        }
+        self.vector_catalog == Some(true)
+    }
+
+    /// The float16 vector columns of the table `sql` browses (the browse
+    /// query, filtered or sorted or not), as (name, dimensions). Version 1
+    /// of the vector feature carries float32 only: a float16 vector (a
+    /// preview type) arrives as `varchar(max)` JSON text, so the table's
+    /// catalog says which of those columns are vectors. Empty for any other
+    /// query, and where the server has no vectors.
+    async fn browsed_float16(&mut self, sql: &str) -> Vec<(String, u32)> {
+        let Some(table) = vector::browsed_table(sql) else {
+            return Vec::new();
+        };
+        if !self.has_vector_catalog().await {
+            return Vec::new();
+        }
+        self.rows(vector::FLOAT16_COLUMNS_SQL, &[&table])
+            .await
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|r| {
+                        let name = r.get::<&str, _>(0)?.to_string();
+                        let dims = u32::try_from(r.get::<i32, _>(1)?).ok()?;
+                        Some((name, dims))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     async fn try_rows(&mut self, sql: &str, params: &[&str]) -> tiberius::Result<Vec<Row>> {
@@ -1395,9 +1534,8 @@ impl Session for SqlServerSession {
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let schema = obj.schema().unwrap_or_default();
-        let rows = self
-            .catalog_rows(
-                &format!("SELECT c.name, TYPE_NAME(c.user_type_id), CAST(c.max_length AS int),
+        let sql = self
+            .vector_shape(&format!("SELECT c.name, TYPE_NAME(c.user_type_id), CAST(c.max_length AS int),
                         CAST(c.precision AS int), CAST(c.scale AS int),
                         c.is_nullable, c.is_identity, OBJECT_DEFINITION(c.default_object_id),
                         CAST(CASE WHEN EXISTS (
@@ -1407,10 +1545,9 @@ impl Session for SqlServerSession {
                         ) THEN 1 ELSE 0 END AS bit)
                    FROM sys.columns c
                   WHERE c.object_id = {OBJECT_BY_NAME}
-                  ORDER BY c.column_id"),
-                &[&obj.name, schema],
-            )
-            .await?;
+                  ORDER BY c.column_id"))
+            .await;
+        let rows = self.catalog_rows(&sql, &[&obj.name, schema]).await?;
         Ok(rows
             .iter()
             .map(|r| {
@@ -1454,7 +1591,9 @@ impl Session for SqlServerSession {
 
     async fn execute(&mut self, sql: &str, max_rows: usize, out: &mut QueryOutcome) -> Result<()> {
         self.cancelled.store(false, Ordering::SeqCst);
+        self.browse_f16 = self.browsed_float16(sql).await;
         let res = self.run_batches(sql, max_rows, out, None).await;
+        self.browse_f16.clear();
         match res {
             Err(_) if self.cancelled.swap(false, Ordering::SeqCst) => Err(Error::Cancelled),
             other => other,
@@ -1590,7 +1729,8 @@ impl Session for SqlServerSession {
         // Definitions the catalog returns as NULL (no VIEW DEFINITION): said
         // as the tables' warnings, never written empty.
         let mut hidden = Vec::new();
-        for r in self.catalog_rows(schema::COLUMNS_SQL, &[]).await? {
+        let columns_sql = self.vector_shape(schema::COLUMNS_SQL).await;
+        for r in self.catalog_rows(&columns_sql, &[]).await? {
             let (s, t) = (
                 text(&r, 0).unwrap_or_default(),
                 text(&r, 1).unwrap_or_default(),
@@ -2146,6 +2286,8 @@ fn format_type(ty: &str, max_len: i32, precision: i32, scale: i32) -> String {
         "nvarchar" | "nchar" => format!("{ty}({})", len(2)),
         "decimal" | "numeric" => format!("{ty}({precision},{scale})"),
         "datetime2" | "time" | "datetimeoffset" => format!("{ty}({scale})"),
+        // Dimensions and element type from the catalog (`vector_shape`).
+        "vector" => vector::format_type(max_len, precision, scale),
         _ => ty.to_string(),
     }
 }
@@ -2177,6 +2319,23 @@ mod tests {
         }
         for v in [Variant::Fabric, Variant::Babelfish] {
             assert_eq!(catalog_sql(v, q), q);
+        }
+    }
+
+    /// Vectors where the engine has them: SQL Server 2025 and Azure SQL.
+    #[test]
+    fn vectors_where_the_engine_has_them() {
+        for d in crate::drivers() {
+            let v = matches!(d.info().id, "sqlserver" | "azuresql");
+            assert_eq!(d.capabilities().vectors, v, "{}", d.info().id);
+            let spec = d.designer().unwrap();
+            assert_eq!(spec.vector_indexes.is_some(), v, "{}", d.info().id);
+            assert_eq!(
+                spec.data_types.iter().any(|t| t.starts_with("vector")),
+                v,
+                "{}",
+                d.info().id
+            );
         }
     }
 

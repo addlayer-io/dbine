@@ -414,6 +414,26 @@ fn renamed_index(ix: &IndexDef, old: &str, new: &str) -> Option<IndexDef> {
             changed = true;
         }
     }
+    // A vector search index's whole definition: its fields' paths.
+    if let Some(mut d) = out.options.get("definition").and_then(|s| json(s)) {
+        let mut moved = false;
+        if let Some(fields) = d.get_mut("fields").and_then(Value::as_array_mut) {
+            for f in fields {
+                if let Some(n) = f
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .and_then(|p| rename_path(p, old, new))
+                {
+                    f["path"] = Value::String(n);
+                    moved = true;
+                }
+            }
+        }
+        if moved {
+            out.options.insert("definition".into(), d.to_string());
+            changed = true;
+        }
+    }
     for k in ["weights", "wildcardProjection"] {
         if let Some(Value::Object(mut m)) = out.options.get(k).and_then(|s| json(s)) {
             if rename_keys(&mut m, old, new) {
@@ -475,10 +495,18 @@ fn field(
         "Renombrar un campo reescribe cada documento de «{name}» que lo tiene (updateMany con $rename): en una colección grande tarda y carga el oplog. No es atómico: si se corta, volver a correrlo termina el trabajo."
     )];
     let mut indexes = Vec::new();
+    // Vector search indexes are updated in place, after the documents.
+    let mut search = Vec::new();
     match schema {
         Some(t) => {
             for ix in &t.indexes {
-                if let Some(r) = renamed_index(ix, old, new) {
+                // The dimension comes from the field's type, under its old name.
+                let ix = crate::vector::with_dims(t, ix);
+                if let Some(r) = renamed_index(&ix, old, new) {
+                    if crate::vector::is_search(&r) {
+                        search.push(r);
+                        continue;
+                    }
                     statements.push(format!("{c}.dropIndex({})", q(&ix.name)));
                     indexes.push(r);
                 }
@@ -507,6 +535,16 @@ fn field(
     ));
     for ix in &indexes {
         statements.push(create_index(name, ix)?);
+    }
+    for ix in &search {
+        statements.push(crate::vector::update_search(&c, ix)?);
+    }
+    if !search.is_empty() {
+        let names: Vec<String> = search.iter().map(|i| format!("«{}»", i.name)).collect();
+        warnings.push(format!(
+            "Los índices de búsqueda vectorial que usan el campo se actualizan con updateSearchIndex para que nombren el campo nuevo: {}. Hasta que terminan de reconstruirse no encuentran los documentos movidos.",
+            names.join(", ")
+        ));
     }
     if !indexes.is_empty() {
         let names: Vec<String> = indexes.iter().map(|i| format!("«{}»", i.name)).collect();
@@ -821,6 +859,58 @@ mod tests {
             .iter()
             .any(|w| w.contains("«ux_pepe», «ix_otro»")));
         // Every statement parses in the driver's own language.
+        for st in &s.statements {
+            parsed(st);
+        }
+    }
+
+    #[test]
+    fn vector_fields_carry_their_indexes() {
+        use dbine_driver::{ColumnDef, VectorIndex};
+        let vector = |name: &str, kind: &str, cols: &[&str]| IndexDef {
+            kind: Some(kind.into()),
+            vector: Some(VectorIndex {
+                metric: Some("cosine".into()),
+                ..Default::default()
+            }),
+            ..ix(name, cols, false)
+        };
+        let t = TableSchema {
+            kind: "collection".into(),
+            name: "docs".into(),
+            columns: vec![ColumnDef {
+                name: "emb".into(),
+                data_type: "vector(3)".into(),
+                ..Default::default()
+            }],
+            indexes: vec![
+                vector("vs", "vectorSearch", &["emb", "cat"]),
+                vector("vc", "cosmosSearch", &["emb"]),
+            ],
+            ..Default::default()
+        };
+        let mut r = req(
+            RenameTarget::Column {
+                table: obj("collection", "docs"),
+                column: "emb".into(),
+            },
+            "embedding",
+        );
+        r.table = Some(t);
+        let s = script(Flavor::Mongo, &r).unwrap();
+        assert_eq!(
+            s.statements,
+            [
+                r#"db.getCollection("docs").dropIndex("vc")"#,
+                r#"db.getCollection("docs").updateMany({ "emb": { "$exists": true } }, { "$rename": { "emb": "embedding" } })"#,
+                r#"db.getCollection("docs").createIndex({"embedding":"cosmosSearch"}, {"name":"vc","cosmosSearchOptions":{"kind":"vector-hnsw","similarity":"COS","dimensions":3}})"#,
+                r#"db.getCollection("docs").updateSearchIndex("vs", {"fields":[{"type":"vector","path":"embedding","numDimensions":3,"similarity":"cosine"},{"type":"filter","path":"cat"}]})"#,
+            ]
+        );
+        assert!(s
+            .warnings
+            .iter()
+            .any(|w| w.contains("updateSearchIndex") && w.contains("«vs»")));
         for st in &s.statements {
             parsed(st);
         }

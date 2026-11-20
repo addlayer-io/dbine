@@ -10,12 +10,19 @@
 //!   indexes.
 //! - CQL has no foreign keys.
 
-use crate::{map_value, text, CassandraSession, Column};
+use crate::{map_entries, map_value, text, CassandraSession, Column};
 use dbine_driver::{IndexUsage, IndexUsageReport, ObjectRef, Result};
+use std::collections::BTreeMap;
 
 /// One `system_schema.indexes` row: name, kind (`COMPOSITES`, `KEYS`,
-/// `CUSTOM`), target, class name.
-pub(crate) type IndexRow = (String, String, String, Option<String>);
+/// `CUSTOM`), target, class name, and the rest of its options.
+pub(crate) type IndexRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    BTreeMap<String, String>,
+);
 
 pub(crate) const NOTE: &str =
     "Cassandra y ScyllaDB no cuentan el uso de cada índice: se listan sin contadores.";
@@ -56,11 +63,29 @@ pub(crate) fn assemble(columns: &[Column], indexes: &[IndexRow]) -> Vec<IndexUsa
             ..Default::default()
         });
     }
-    for (name, kind, target, class) in indexes {
+    for (name, kind, target, class, options) in indexes {
+        // A ScyllaDB vector index with filter columns: the vector column,
+        // then them.
+        let key_columns = match crate::json_target(target) {
+            Some((columns, _)) => columns,
+            None => vec![target.trim_matches('"').to_string()],
+        };
+        // A vector index's settings, as the table's schema reads them.
+        let (vector, _) = crate::index_vector(
+            crate::index_kind(class.as_deref()).as_deref(),
+            target,
+            options.clone(),
+            |c| {
+                columns
+                    .iter()
+                    .any(|x| x.name == c && x.typ.trim().starts_with("vector<"))
+            },
+        );
         out.push(IndexUsage {
             name: name.clone(),
             kind: kind_of(kind, class.as_deref()),
-            key_columns: vec![target.trim_matches('"').to_string()],
+            key_columns,
+            vector,
             ..Default::default()
         });
     }
@@ -83,7 +108,13 @@ impl CassandraSession {
             .await
             .unwrap_or_default()
             .iter()
-            .map(|r| (text(r, 0), text(r, 1), map_value(r, 2, "target").unwrap_or_default(), map_value(r, 2, "class_name")))
+            .map(|r| {
+                let options = map_entries(r, 2)
+                    .into_iter()
+                    .filter(|(k, _)| k != "target" && k != "class_name")
+                    .collect();
+                (text(r, 0), text(r, 1), map_value(r, 2, "target").unwrap_or_default(), map_value(r, 2, "class_name"), options)
+            })
             .collect();
         Ok(Some(IndexUsageReport {
             stats_available: false,
@@ -122,24 +153,28 @@ mod tests {
                 "COMPOSITES".to_string(),
                 "cliente".to_string(),
                 None,
+                BTreeMap::new(),
             ),
             (
                 "ix_sai".to_string(),
                 "CUSTOM".to_string(),
                 "\"Fecha\"".to_string(),
                 Some("StorageAttachedIndex".to_string()),
+                BTreeMap::new(),
             ),
             (
                 "ix_sasi".to_string(),
                 "CUSTOM".to_string(),
                 "x".to_string(),
                 Some("org.apache.cassandra.index.sasi.SASIIndex".to_string()),
+                BTreeMap::new(),
             ),
             (
                 "ix_keys".to_string(),
                 "KEYS".to_string(),
                 "keys(m)".to_string(),
                 None,
+                BTreeMap::new(),
             ),
         ];
         let r = IndexUsageReport {
@@ -163,5 +198,69 @@ mod tests {
             .indexes
             .iter()
             .all(|i| !i.unused && i.read_share.is_none()));
+    }
+
+    /// Vector indexes carry their settings, as the schema reads them: an
+    /// SAI index on a vector column (Cassandra), and a ScyllaDB
+    /// vector_index with filter and partition columns (its JSON target).
+    #[test]
+    fn vector_indexes_carry_their_settings() {
+        use dbine_driver::vector::{metric, param};
+        let mut cols = vec![
+            col("id", "partition_key", 0, false),
+            col("lang", "regular", -1, false),
+            col("emb", "regular", -1, false),
+        ];
+        cols[2].typ = "vector<float, 3>".into();
+        let opts = |kv: &[(&str, &str)]| -> BTreeMap<String, String> {
+            kv.iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let ix = vec![
+            (
+                "ix_emb".to_string(),
+                "CUSTOM".to_string(),
+                "emb".to_string(),
+                Some("org.apache.cassandra.index.sai.StorageAttachedIndex".to_string()),
+                opts(&[
+                    ("similarity_function", "DOT_PRODUCT"),
+                    ("maximum_node_connections", "32"),
+                ]),
+            ),
+            (
+                "ix_scylla".to_string(),
+                "CUSTOM".to_string(),
+                r#"{"tc":"emb","fc":["lang"],"pk":["id"]}"#.to_string(),
+                Some("vector_index".to_string()),
+                opts(&[
+                    ("similarity_function", "euclidean"),
+                    ("quantization", "i8"),
+                    ("index_version", "x"),
+                ]),
+            ),
+            // SAI on a text column: no vector.
+            (
+                "ix_lang".to_string(),
+                "CUSTOM".to_string(),
+                "lang".to_string(),
+                Some("StorageAttachedIndex".to_string()),
+                opts(&[("case_sensitive", "false")]),
+            ),
+        ];
+        let r = assemble(&cols, &ix);
+        let sai = r[1].vector.as_ref().unwrap();
+        assert_eq!(sai.metric.as_deref(), Some(metric::IP));
+        assert_eq!(sai.params.get(param::M).map(String::as_str), Some("32"));
+        let scylla = &r[2];
+        assert_eq!(scylla.key_columns, ["emb", "lang"]);
+        let v = scylla.vector.as_ref().unwrap();
+        assert_eq!(v.metric.as_deref(), Some(metric::L2));
+        assert_eq!(
+            v.params.get(param::QUANTIZATION).map(String::as_str),
+            Some("i8")
+        );
+        assert!(!v.params.contains_key("pk") && !v.params.contains_key("index_version"));
+        assert!(r[3].vector.is_none() && r[0].vector.is_none());
     }
 }

@@ -1,19 +1,25 @@
 import type { Cell, ObjectRef, ResultColumn } from '../api/types';
 import { t } from '../i18n';
 import { useConnectionsStore } from '../stores/connections';
+import { isDense, scriptValue, vectorMeta } from './vector';
 
 // Editing cells of a result: which table the rows come from, which columns
 // identify a row, and the changes to turn into UPDATE code (the driver writes
 // it: `update_script`). DBine never runs it: the code goes to the query.
+// Vector columns are never in the WHERE, and their values go to the driver
+// as JSON arrays of numbers (composables/vector.ts).
 
 /** Edited values: row index → column index → new value. */
 export type Edits = Record<number, Record<number, Cell>>;
 
+/** A value as the driver's scripts take it: a cell, or a vector's numbers. */
+export type ScriptValue = Cell | number[];
+
 export interface RowChange {
   key: [string, Cell][];
-  set: [string, Cell][];
+  set: [string, ScriptValue][];
   /** The whole original row (engines that rewrite rows whole use it). */
-  row: [string, Cell][];
+  row: [string, ScriptValue][];
 }
 
 export interface EditSetup {
@@ -225,13 +231,17 @@ export function sameValue(a: Cell, b: Cell) {
 
 /** Column types whose values can't be matched with `=` in a WHERE, or come
  *  cut (binary is shown as `0x…` hex, up to 1 KiB): binary, LOBs, XML,
- *  spatial. SQL Server's legacy `text` and `timestamp` (rowversion) can't
+ *  spatial (and vectors: `comparableType`). SQL Server's legacy `text` and `timestamp` (rowversion) can't
  *  be compared either. Only the column's type decides: a text value that
  *  reads like hex (`'0xAB'`) is still compared, or the WHERE would match
  *  more rows than the one edited. */
 const UNCOMPARABLE = /blob|binary|bytea|^bytes\b|^byte$|bindata|bytearray|octets|image|clob|ntext|xml|geometry|geography|^raw$|long raw|hierarchyid|sql_variant/i;
 
-function comparableType(col: ResultColumn | undefined, dialect: string) {
+/** Whether a WHERE can match the column's values with `=`. Never a vector
+ *  column (the driver's mark, or a vector type name): engines compare them
+ *  approximately or not at all, and their text isn't the stored value. */
+export function comparableType(col: ResultColumn | undefined, dialect: string) {
+  if (vectorMeta(col)) return false;
   const ty = col?.type_name ?? '';
   // SQL Server's `timestamp` is rowversion (binary), not a date.
   return !UNCOMPARABLE.test(ty) && !((dialect === 'mssql' || dialect === 'sybase') && /^(text|timestamp|rowversion)$/i.test(ty));
@@ -264,34 +274,46 @@ export function rowKey(columns: ResultColumn[], row: Cell[], setup: EditSetup, d
   return key;
 }
 
-/** The edits as changes: key = original key values, set = new values. Rows
- *  in `skip` (marked for deletion) are left out. */
+/** The edits as changes: key = original key values, set = new values (a
+ *  vector's as its numbers, in `row` too). Rows in `skip` (marked for
+ *  deletion) are left out. */
 export function buildChanges(columns: ResultColumn[], rows: Cell[][], edits: Edits, setup: EditSetup, dialect = '', skip: Set<number> = new Set()): RowChange[] {
   const names = columns.map((c) => c.name);
+  const metas = columns.map(vectorMeta);
   return Object.entries(edits)
     .filter(([r]) => !skip.has(Number(r)))
     .map(([r, cells]) => {
       const row = rows[Number(r)];
-      const set = Object.entries(cells).map(([c, v]) => [names[Number(c)], v] as [string, Cell]);
-      return { key: rowKey(columns, row, setup, dialect), set, row: names.map((c, i) => [c, row[i] ?? null] as [string, Cell]) };
+      const set = Object.entries(cells).map(([c, v]) => [names[Number(c)], scriptValue(metas[Number(c)], v)] as [string, ScriptValue]);
+      return {
+        key: rowKey(columns, row, setup, dialect),
+        set,
+        row: names.map((c, i) => [c, scriptValue(metas[i], row[i] ?? null)] as [string, ScriptValue]),
+      };
     })
     .filter((c) => c.set.length);
 }
 
 /** Rows added in the grid as new rows: only the cells the user set (an
- *  untouched cell takes the column's default). Rows with nothing set are
- *  left out. */
+ *  untouched cell takes the column's default; a vector goes as its
+ *  numbers). Rows with nothing set are left out. */
 export function buildInserts(columns: ResultColumn[], added: Record<number, Cell>[]): NewRow[] {
+  const metas = columns.map(vectorMeta);
   return added
-    .map((cells) => Object.entries(cells).map(([c, v]) => [columns[Number(c)]?.name, v] as [string, Cell]).filter(([n]) => n !== undefined))
+    .map((cells) => Object.entries(cells)
+      .map(([c, v]) => [columns[Number(c)]?.name, scriptValue(metas[Number(c)], v)] as [string, ScriptValue])
+      .filter(([n]) => n !== undefined))
     .filter((r) => r.length);
 }
 
 /** What the user typed in a new row's cell, as a value of the column's type
- *  (a new row has no original value to take the type from). */
+ *  (a new row has no original value to take the type from). A vector's text
+ *  stays text: the grid checks it (`checkVector`), and the scripts get its
+ *  numbers. */
 export function coerceNew(typeName: string, text: string): Cell {
   const v = text.trim();
   const ty = typeName.toLowerCase();
+  if (isDense(vectorMeta({ type_name: typeName }))) return text;
   if (/^(bit|bool|boolean)\b/.test(ty)) {
     if (/^(true|verdadero|1|sí|si)$/i.test(v)) return true;
     if (/^(false|falso|0|no)$/i.test(v)) return false;

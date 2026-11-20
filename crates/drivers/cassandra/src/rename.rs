@@ -52,6 +52,10 @@ fn written(name: &str, dialect: &ScriptDialect) -> String {
 /// The column a secondary index's target names: `pepe`, `"Pepe"`,
 /// `values(pepe)`, `keys(m)`, `entries(m)`, `full(l)`.
 fn index_column(target: &str) -> String {
+    // A ScyllaDB vector index with filter columns names its vector column.
+    if let Some((columns, _)) = crate::json_target(target) {
+        return columns.into_iter().next().unwrap_or_default();
+    }
     let t = target.trim();
     let inner = match (t.find('('), t.ends_with(')')) {
         (Some(open), true) => &t[open + 1..t.len() - 1],

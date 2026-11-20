@@ -344,6 +344,7 @@ fn table(cols: &[&str], rows: Vec<Vec<Value>>) -> Table {
             .map(|n| ResultColumn {
                 name: (*n).into(),
                 type_name: String::new(),
+                vector: None,
             })
             .collect(),
         rows,

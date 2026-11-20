@@ -2,7 +2,7 @@
 //! (and the primary index) are dropped and made again. Documents have no
 //! schema: field changes are warnings.
 
-use crate::ddl::{path, q, table_ddl};
+use crate::ddl::{path, table_ddl};
 use dbine_driver::{ColumnDef, DdlParts, IndexDef, Result, SyncScript, TableChange, TableSchema};
 
 const CREATE: DdlParts = DdlParts {
@@ -61,6 +61,12 @@ fn ix_same(a: &IndexDef, b: &IndexDef) -> bool {
             .to_lowercase()
     };
     let kind = |x: &IndexDef| x.kind.as_deref().unwrap_or("").to_uppercase();
+    // A vector index by what it creates (kind, defaults and dimension
+    // filled in).
+    if crate::vector::is_vector(a) || crate::vector::is_vector(b) {
+        let text = |x: &IndexDef| crate::ddl::index_ddl("k", x, false).ok();
+        return text(a).is_some() && text(a) == text(b);
+    }
     cols(&a.columns) == cols(&b.columns)
         && w(&a.filter) == w(&b.filter)
         && kind(a) == kind(b)
@@ -98,7 +104,22 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
         (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
     for ch in changes {
         match ch {
-            TableChange::Create { table } => creates.push(table_ddl(table, CREATE)?),
+            TableChange::Create { table } => {
+                let vectors: Vec<String> = table
+                    .indexes
+                    .iter()
+                    .filter(|i| crate::vector::is_vector(i) && !crate::vector::is_search(i))
+                    .map(|i| format!("«{}»", i.name))
+                    .collect();
+                if !vectors.is_empty() {
+                    warnings.push(format!(
+                        "Los índices vectoriales {} de {} se crean diferidos: Couchbase los entrena con los documentos; después de cargarlos, construilos con BUILD INDEX.",
+                        vectors.join(", "),
+                        display(table)
+                    ));
+                }
+                creates.push(table_ddl(table, CREATE)?)
+            }
             TableChange::Drop { table } => {
                 warnings.push(format!(
                     "Se borra la colección {} con todos sus documentos.",
@@ -119,22 +140,30 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
                     warnings.push(format!("{tname}: el TTL máximo de una colección no se cambia con SQL++; se deja como está."));
                 }
                 field_warnings(&tname, &old.columns, &new.columns, &mut warnings);
-                for o in &old.indexes {
-                    if new
-                        .indexes
+                // Each with the dimension of its vector field.
+                let olds: Vec<IndexDef> = old
+                    .indexes
+                    .iter()
+                    .map(|i| crate::vector::with_dims(old, i))
+                    .collect();
+                let news: Vec<IndexDef> = new
+                    .indexes
+                    .iter()
+                    .map(|i| crate::vector::with_dims(new, i))
+                    .collect();
+                for o in &olds {
+                    if news
                         .iter()
                         .find(|n| eq_name(&n.name, &o.name))
                         .is_none_or(|n| !ix_same(o, n))
                     {
-                        pre.push(format!("DROP INDEX {} ON {ks};", q(&o.name)));
+                        pre.push(crate::ddl::drop_index(&ks, o));
                     }
                 }
-                let add: Vec<IndexDef> = new
-                    .indexes
+                let add: Vec<IndexDef> = news
                     .iter()
                     .filter(|n| {
-                        old.indexes
-                            .iter()
+                        olds.iter()
                             .find(|o| eq_name(&o.name, &n.name))
                             .is_none_or(|o| !ix_same(o, n))
                     })
@@ -252,6 +281,53 @@ mod tests {
         assert_eq!(
             s.warnings,
             vec!["Se borra la colección app.inv.old con todos sus documentos."]
+        );
+    }
+
+    #[test]
+    fn search_vector_indexes_are_dropped_and_made_again() {
+        use dbine_driver::VectorIndex;
+        let search = |metric: &str| IndexDef {
+            name: "vs".into(),
+            columns: vec!["emb".into()],
+            kind: Some("SEARCH".into()),
+            vector: Some(VectorIndex {
+                metric: Some(metric.into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let old = coll("items", vec![col("emb", "vector(3)")], vec![search("ip")]);
+        // Unchanged: nothing.
+        let s = sync_script(&[TableChange::Alter {
+            old: old.clone(),
+            new: old.clone(),
+        }])
+        .unwrap();
+        assert!(s.statements.is_empty(), "{:?}", s.statements);
+        let new = coll("items", vec![col("emb", "vector(3)")], vec![search("l2")]);
+        let s = sync_script(&[TableChange::Alter { old, new }]).unwrap();
+        assert_eq!(
+            s.statements[0],
+            "DROP SEARCH INDEX `vs` ON `app`.`inv`.`items`;"
+        );
+        assert!(
+            s.statements[1].starts_with("CREATE SEARCH INDEX `vs` ON `app`.`inv`.`items` WITH {")
+                && s.statements[1].contains("\"similarity\":\"l2_norm\""),
+            "{:?}",
+            s.statements
+        );
+        // A new collection: the Search index isn't deferred (it doesn't
+        // train), so no BUILD INDEX warning for it.
+        let s = sync_script(&[TableChange::Create {
+            table: coll("n", vec![col("emb", "vector(3)")], vec![search("ip")]),
+        }])
+        .unwrap();
+        assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+        assert!(
+            !s.statements[0].contains("defer_build"),
+            "{:?}",
+            s.statements
         );
     }
 }

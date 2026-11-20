@@ -106,3 +106,7 @@ lint.json:groups.dax
 optimizer.json:rules.dax_selectedvalue.title
 backend:DRIVER={ODBC Driver 18 for SQL Server};SERVER=host,1433;UID=usuario;PWD=…
 backend:database: mibase
+vectors.json:metric.hamming
+vectors.json:metric.jaccard
+vectors.json:metricShort.hamming
+vectors.json:metricShort.jaccard

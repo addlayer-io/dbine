@@ -42,6 +42,113 @@ fn json_type(t: &str) -> L {
     }
 }
 
+/// A document engine's vector field type: `vector`, `vector(N)`,
+/// `vector(N, <element>)` with `elements` naming the element types it
+/// takes (`float32` is always the default), alone or with `array` (the
+/// form it's stored in). `None` for any other type.
+pub(crate) fn parse_vector_field(
+    raw: &str,
+    elements: &[(&str, dbine_driver::VectorElement)],
+) -> Option<L> {
+    use super::mongodb::type_list;
+    let types = type_list(raw);
+    let mut found = None;
+    for t in &types {
+        match vector_field(t, elements) {
+            Some(v) => found = Some(v),
+            None if t == "array" || t == "bindata" => {}
+            None => return None,
+        }
+    }
+    found
+}
+
+fn vector_field(t: &str, elements: &[(&str, dbine_driver::VectorElement)]) -> Option<L> {
+    use dbine_driver::VectorElement as E;
+    let rest = t.trim().strip_prefix("vector")?.trim();
+    let mut dims = None;
+    let mut element = E::F32;
+    if !rest.is_empty() {
+        let inner = rest.strip_prefix('(')?.strip_suffix(')')?;
+        for part in inner
+            .split(',')
+            .map(|p| p.trim().to_ascii_lowercase())
+            .filter(|p| !p.is_empty())
+        {
+            if let Ok(n) = part.parse::<u32>() {
+                dims = Some(n);
+            } else if matches!(part.as_str(), "float32" | "float" | "number") {
+                element = E::F32;
+            } else {
+                element = elements.iter().find(|(n, _)| *n == part)?.1;
+            }
+        }
+    }
+    Some(L::Vector {
+        dims,
+        element,
+        sparse: false,
+    })
+}
+
+/// A dense vector as a document engine's vector field (`vector(N)`, or
+/// `vector(N, <element>)` for the `elements` it names); any other element
+/// as numbers (`vector(N)`), exact. `None` for a sparse vector.
+pub(crate) fn render_vector_field(
+    t: &L,
+    elements: &[(&str, dbine_driver::VectorElement)],
+) -> Option<Rendered> {
+    let L::Vector {
+        dims,
+        element,
+        sparse: false,
+    } = t
+    else {
+        return None;
+    };
+    let el = elements.iter().find(|(_, e)| e == element).map(|(n, _)| *n);
+    Some(Rendered::exact(match (dims, el) {
+        (Some(n), Some(e)) => format!("vector({n}, {e})"),
+        (Some(n), None) => format!("vector({n})"),
+        (None, Some(e)) => format!("vector({e})"),
+        (None, None) => "vector".into(),
+    }))
+}
+
+/// A vector index in a family with `metrics` (standard names) and the
+/// `algorithms` it takes as they are; other algorithms and parameters are
+/// left to the driver's defaults. `None` kind: the driver's.
+pub(crate) fn map_vector_index(
+    v: &dbine_driver::VectorIndex,
+    engine: &str,
+    metrics: &[&str],
+    algorithms: &[&str],
+    params: &[&str],
+) -> Result<(Option<String>, dbine_driver::VectorIndex), String> {
+    let mut out = dbine_driver::VectorIndex::default();
+    if let Some(m) = v.metric.as_deref() {
+        if !metrics.contains(&m) {
+            return Err(format!(
+                "{engine} no tiene la distancia «{m}» ({})",
+                metrics.join(", ")
+            ));
+        }
+        out.metric = Some(m.to_string());
+    }
+    out.algorithm = v
+        .algorithm
+        .as_deref()
+        .and_then(|a| algorithms.iter().find(|x| x.eq_ignore_ascii_case(a)))
+        .map(|a| a.to_string());
+    out.params = v
+        .params
+        .iter()
+        .filter(|(k, _)| params.contains(&k.as_str()))
+        .map(|(k, x)| (k.clone(), x.clone()))
+        .collect();
+    Ok((None, out))
+}
+
 /// A JSON-document type (`string`, `integer | string`…) as a logical one.
 pub(crate) fn parse_json_type(t: &TypeSpec) -> L {
     let raw = t.raw.trim();
@@ -63,6 +170,9 @@ pub(crate) fn render_json_type(t: &L, doubles_only: bool) -> Rendered {
     use IssueCode::*;
     use Severity::*;
     match t {
+        // Without a vector type (CouchDB; Cosmos DB and Couchbase render
+        // theirs before coming here): an array of numbers.
+        L::Vector { .. } => Rendered::exact("array").with(Warning, TypeApproximated, format!("{}: el destino no tiene tipo vectorial; queda un arreglo de números, sin la dimensión.", t.describe())),
         L::Bool => Rendered::exact("boolean"),
         L::Int { bytes, unsigned } => {
             let r = Rendered::exact("integer");
@@ -115,6 +225,8 @@ pub(crate) fn json_caps(max_identifier: usize) -> Caps {
         comments: false,
         max_identifier,
         case: IdentCase::Lower,
+        vector_indexes: true,
+        vectors: true,
     }
 }
 
@@ -191,8 +303,14 @@ impl Dialect for CouchDb {
         None
     }
 
+    /// No vector type nor vector indexes (Couchbase and Cosmos DB, which
+    /// share `json_caps`, have both).
     fn caps(&self) -> Caps {
-        json_caps(238)
+        Caps {
+            vector_indexes: false,
+            vectors: false,
+            ..json_caps(238)
+        }
     }
 
     fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
@@ -216,7 +334,34 @@ impl Dialect for CouchDb {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
+
+    #[test]
+    fn vectors_have_no_native_type() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        // CouchDB has no vectors: an array of numbers, with a warning, and
+        // no vector index.
+        let r = CouchDb.render_type(&L::Vector {
+            dims: Some(3),
+            element: E::F32,
+            sparse: false,
+        });
+        assert_eq!(r.native, "array");
+        assert!(r
+            .notes
+            .iter()
+            .any(|n| n.code == IssueCode::TypeApproximated));
+        assert!(CouchDb
+            .vector_index_pair(&VectorIndex::default(), None)
+            .is_err());
+        assert_eq!(
+            CouchDb.parse_type(&parse("vector(3)")),
+            L::Other {
+                native: "vector(3)".into()
+            }
+        );
+    }
 
     #[test]
     fn parses_json_types() {

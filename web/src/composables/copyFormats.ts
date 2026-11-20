@@ -2,6 +2,7 @@ import type { Cell, ResultColumn } from '../api/types';
 import { t } from '../i18n';
 import { useSettingsStore } from '../stores/settings';
 import { rt } from './i18nLabels';
+import { isDense, parseVector, vectorMeta } from './vector';
 
 // Copying grid rows to the clipboard in several formats.
 // The default format (what ⌘C copies) is a user preference (synced).
@@ -49,6 +50,10 @@ export interface CopyContext {
   dialect?: string;
   /** WHERE columns of SQL UPDATEs; guessed ("id", else the first) when empty. */
   keyColumns?: string[];
+  /** SQL INSERTs / UPDATEs of rows with vectors, written by the table's
+   *  driver (its engine's vector literal; null when it can't: the generic
+   *  SQL goes). Absent: always the generic SQL. */
+  script?: ((format: 'sql_insert' | 'sql_update', columns: ResultColumn[], rows: Cell[][]) => Promise<string | null>) | null;
 }
 
 function quoteIdent(dialect: string, name: string) {
@@ -72,8 +77,10 @@ function csvField(s: string) {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-function yamlScalar(v: Cell): string {
+function yamlScalar(v: Cell | number[]): string {
   if (v === null) return 'null';
+  // A vector: a flow sequence (`[0.1, 0.2]`).
+  if (Array.isArray(v)) return `[${v.join(', ')}]`;
   if (typeof v !== 'string') return String(v);
   // Quote when YAML would read it as something else.
   return /^$|^[\s\-?:,[\]{}#&*!|>'"%@`]|: |\s#|^(true|false|null|yes|no|~|[-+]?\d[\d._]*(e[-+]?\d+)?)$/i.test(v) || v.includes('\n')
@@ -81,8 +88,14 @@ function yamlScalar(v: Cell): string {
     : v;
 }
 
+/** Rows as objects; a dense vector's text as its numbers (JSON arrays in
+ *  JSON, YAML and Mongo). */
 function objects(columns: ResultColumn[], rows: Cell[][]) {
-  return rows.map((r) => Object.fromEntries(columns.map((c, i) => [c.name, r[i] ?? null])));
+  const vec = columns.map((c) => isDense(vectorMeta(c)));
+  return rows.map((r) => Object.fromEntries(columns.map((c, i) => {
+    const v = r[i] ?? null;
+    return [c.name, vec[i] ? parseVector(v) ?? v : v];
+  })));
 }
 
 export function formatRows(format: CopyFormat, columns: ResultColumn[], rows: Cell[][], ctx: CopyContext = {}): string {
@@ -113,10 +126,12 @@ export function formatRows(format: CopyFormat, columns: ResultColumn[], rows: Ce
       return rows.map((r) => `INSERT INTO ${tableName} (${cols}) VALUES (${r.map(sqlLiteral).join(', ')});`).join('\n');
     }
     case 'sql_update': {
+      // Never a vector column in the WHERE: engines don't compare them with `=`.
+      const vec = new Set(columns.flatMap((c, i) => (vectorMeta(c) ? [i] : [])));
       const keys = ctx.keyColumns?.length
         ? ctx.keyColumns
-        : [names.find((n) => n.toLowerCase() === 'id') ?? names[0]];
-      const keyIdx = keys.map((k) => names.indexOf(k)).filter((i) => i >= 0);
+        : [names.find((n, i) => n.toLowerCase() === 'id' && !vec.has(i)) ?? names.find((_, i) => !vec.has(i)) ?? names[0]];
+      const keyIdx = keys.map((k) => names.indexOf(k)).filter((i) => i >= 0 && !vec.has(i));
       return rows
         .map((r) => {
           const sets = names.map((n, i) => (keyIdx.includes(i) ? null : `${quoteIdent(dialect, n)} = ${sqlLiteral(r[i])}`)).filter(Boolean);

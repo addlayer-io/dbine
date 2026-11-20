@@ -31,6 +31,7 @@ pub fn designer() -> DesignerSpec {
     DesignerSpec {
         schemas: true,
         comments: true,
+        vector_indexes: Some(vector_index_spec()),
         ..DesignerSpec::sql_table(vec![
             "int",
             "bigint",
@@ -60,7 +61,20 @@ pub fn designer() -> DesignerSpec {
             "varbinary(50)",
             "xml",
             "rowversion",
+            "vector(1536)",
         ])
+    }
+}
+
+/// `CREATE VECTOR INDEX … WITH (METRIC = …, TYPE = 'DiskANN')`: one
+/// algorithm, three distances, no build parameters to set.
+pub fn vector_index_spec() -> dbine_driver::VectorIndexSpec {
+    use dbine_driver::vector::metric;
+    dbine_driver::VectorIndexSpec {
+        algorithms: vec!["diskann"],
+        metrics: vec![metric::COSINE, metric::L2, metric::IP],
+        params: Vec::new(),
+        filter_columns: false,
     }
 }
 
@@ -502,7 +516,9 @@ pub fn literal(v: &Value) -> String {
     match v {
         Value::String(s) if is_hex_binary(s) => s.clone(),
         Value::String(s) => nlit(s),
-        Value::Array(_) | Value::Object(_) => nlit(&v.to_string()),
+        // A vector as its JSON text, which the server converts.
+        Value::Array(_) => crate::vector::literal(v).unwrap_or_else(|| nlit(&v.to_string())),
+        Value::Object(_) => nlit(&v.to_string()),
         other => ddl::sql_literal(&FLAVOR, other),
     }
 }
@@ -518,13 +534,29 @@ pub fn insert_script(
     columns: &[String],
     rows: &[Vec<Value>],
 ) -> String {
+    insert_rows(schema, table, columns, rows, &|_, v| literal(v))
+}
+
+/// `INSERT … VALUES` in batches, each value written by `lit` (its column's
+/// position and the value).
+fn insert_rows(
+    schema: Option<&str>,
+    table: &str,
+    columns: &[String],
+    rows: &[Vec<Value>],
+    lit: &dyn Fn(usize, &Value) -> String,
+) -> String {
     let name = qualified_name(Quote::Bracket, schema.filter(|s| !s.is_empty()), table);
     let cols: Vec<String> = columns.iter().map(|c| q(c)).collect();
     rows.chunks(INSERT_BATCH)
         .map(|chunk| {
             let tuples: Vec<String> = chunk
                 .iter()
-                .map(|r| format!("({})", r.iter().map(literal).collect::<Vec<_>>().join(", ")))
+                .map(|r| {
+                    let values: Vec<String> =
+                        r.iter().enumerate().map(|(i, v)| lit(i, v)).collect();
+                    format!("({})", values.join(", "))
+                })
                 .collect();
             format!(
                 "INSERT INTO {name} ({}) VALUES\n  {};",
@@ -547,6 +579,129 @@ pub fn delete_script(
     keys: &[Vec<(String, serde_json::Value)>],
 ) -> String {
     ddl::delete_script_with(Quote::Bracket, schema, table, keys, &literal)
+}
+
+/// A value as a T-SQL literal for a column of a known type:
+/// - a vector column takes its JSON text in a Unicode string (the server
+///   converts it to the column's `float32` or `float16` elements), whether
+///   the value came as numbers or as that text;
+/// - a character, XML or JSON column takes a string as it is, also one
+///   that looks like a binary (`0x41`), and an array or object as its own
+///   JSON text, not rewritten as a vector's;
+/// - any other column, or one whose type isn't known, as [`literal`].
+pub fn typed_literal(column: Option<&dbine_driver::ResultColumn>, v: &Value) -> String {
+    let Some(c) = column else {
+        return literal(v);
+    };
+    let base = c
+        .type_name
+        .split('(')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    if c.vector.is_some() || base == "vector" {
+        return match v {
+            Value::Array(_) => literal(v),
+            Value::String(s) => nlit(s),
+            Value::Object(_) => nlit(&v.to_string()),
+            other => literal(other),
+        };
+    }
+    // `nvarchar(50)` from a describe, `NVarchar` / `BigVarChar` from a result.
+    let textual = base.contains("char")
+        || base.contains("text")
+        || matches!(base.as_str(), "xml" | "json" | "sysname");
+    match v {
+        Value::String(s) if textual => nlit(s),
+        Value::Array(_) | Value::Object(_) if textual => nlit(&v.to_string()),
+        other => literal(other),
+    }
+}
+
+/// The column named `name` among `types` (the same spelling first, then
+/// any case: T-SQL names don't tell case apart by default).
+pub fn column_type<'a>(
+    types: &'a [dbine_driver::ResultColumn],
+    name: &str,
+) -> Option<&'a dbine_driver::ResultColumn> {
+    types
+        .iter()
+        .find(|c| c.name == name)
+        .or_else(|| types.iter().find(|c| c.name.eq_ignore_ascii_case(name)))
+}
+
+/// [`insert_script`] with each value written for its column's type
+/// ([`typed_literal`]); `columns` in the rows' order.
+pub fn insert_script_typed(
+    schema: Option<&str>,
+    table: &str,
+    columns: &[dbine_driver::ResultColumn],
+    rows: &[Vec<Value>],
+) -> String {
+    let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+    insert_rows(schema, table, &names, rows, &|i, v| {
+        typed_literal(columns.get(i), v)
+    })
+}
+
+/// [`update_script`] with each value written for its column's type.
+pub fn update_script_typed(
+    schema: Option<&str>,
+    table: &str,
+    changes: &[RowChange],
+    types: &[dbine_driver::ResultColumn],
+) -> String {
+    let lit = |k: &str, v: &Value| written(typed_literal(column_type(types, k), v), v);
+    let changes: Vec<RowChange> = changes
+        .iter()
+        .map(|c| RowChange {
+            key: c.key.iter().map(|(k, v)| (k.clone(), lit(k, v))).collect(),
+            set: c.set.iter().map(|(k, v)| (k.clone(), lit(k, v))).collect(),
+            row: Vec::new(),
+        })
+        .collect();
+    ddl::update_script_with(Quote::Bracket, schema, table, &changes, &as_written)
+}
+
+/// [`delete_script`] with each key value written for its column's type.
+pub fn delete_script_typed(
+    schema: Option<&str>,
+    table: &str,
+    keys: &[Vec<(String, Value)>],
+    types: &[dbine_driver::ResultColumn],
+) -> String {
+    let keys: Vec<Vec<(String, Value)>> = keys
+        .iter()
+        .map(|k| {
+            k.iter()
+                .map(|(c, v)| {
+                    let w = written(typed_literal(column_type(types, c), v), v);
+                    (c.clone(), w)
+                })
+                .collect()
+        })
+        .collect();
+    ddl::delete_script_with(Quote::Bracket, schema, table, &keys, &as_written)
+}
+
+/// A value already written as its literal, for the generic script
+/// builders ([`as_written`] gives it back): a NULL stays a null, which
+/// they write as `IS NULL` in a key.
+fn written(literal: String, v: &Value) -> Value {
+    if v.is_null() {
+        Value::Null
+    } else {
+        Value::String(literal)
+    }
+}
+
+/// The literal [`written`] kept.
+fn as_written(v: &Value) -> String {
+    match v {
+        Value::String(s) => s.clone(),
+        _ => "NULL".into(),
+    }
 }
 
 // --- Catalog --------------------------------------------------------------
@@ -586,7 +741,7 @@ SELECT s.name, t.name, i.name, i.is_primary_key, i.is_unique, i.type_desc, i.fil
   JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
   JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
  WHERE t.is_ms_shipped = 0 AND i.index_id > 0 AND i.is_hypothetical = 0
-   AND (ic.key_ordinal > 0 OR ic.is_included_column = 1 OR i.type IN (5, 6))
+   AND (ic.key_ordinal > 0 OR ic.is_included_column = 1 OR i.type IN (5, 6, 8))
  ORDER BY s.name, t.name, i.name, ic.is_included_column, ic.key_ordinal, ic.index_column_id";
 
 pub const FOREIGN_KEYS_SQL: &str = "
@@ -788,6 +943,70 @@ mod tests {
         assert_eq!(
             update_script(Some("dbo"), "clientes", &[c]),
             "UPDATE [dbo].[clientes] SET [nombre] = N'O''Brien', [baja] = NULL WHERE [id] = 7 AND [region] IS NULL;"
+        );
+    }
+
+    #[test]
+    fn typed_scripts_write_each_value_for_its_column() {
+        use dbine_driver::{ResultColumn, VectorElement, VectorMeta};
+        let cols = [
+            ResultColumn::new("id", "int"),
+            // From a result: the vector type and its meta.
+            ResultColumn::new("v", "vector(3)")
+                .with_vector(VectorMeta::dense(Some(3), VectorElement::F32)),
+            // From a describe: the declared type alone.
+            ResultColumn::new("h", "vector(2, float16)"),
+            ResultColumn::new("code", "NVarchar"),
+            ResultColumn::new("doc", "json"),
+            ResultColumn::new("raw", "varbinary(10)"),
+        ];
+        let rows = vec![vec![
+            json!(1),
+            json!([1.0, 2.5, -3]),
+            json!("[0.5,1]"),
+            json!("0x41"),
+            json!([1.0, 2]),
+            json!("0x41"),
+        ]];
+        assert_eq!(
+            insert_script_typed(Some("dbo"), "docs", &cols, &rows),
+            "INSERT INTO [dbo].[docs] ([id], [v], [h], [code], [doc], [raw]) VALUES\n  (1, N'[1,2.5,-3]', N'[0.5,1]', N'0x41', N'[1.0,2]', 0x41);"
+        );
+        // Untyped, a string that looks like a binary is one.
+        let names: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
+        assert!(insert_script(Some("dbo"), "docs", &names, &rows)
+            .contains("(1, N'[1,2.5,-3]', N'[0.5,1]', 0x41, N'[1,2]', 0x41)"));
+
+        // Updates and deletes find the types by name, in any case; a
+        // column without one keeps the untyped literal.
+        let c = RowChange {
+            key: vec![
+                ("CODE".into(), json!("0x42")),
+                ("region".into(), Value::Null),
+            ],
+            set: vec![
+                ("h".into(), json!([3, 4])),
+                ("raw".into(), json!("0xff")),
+                ("other".into(), json!("0x10")),
+                ("doc".into(), Value::Null),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            update_script_typed(Some("dbo"), "docs", &[c], &cols),
+            "UPDATE [dbo].[docs] SET [h] = N'[3,4]', [raw] = 0xff, [other] = 0x10, [doc] = NULL WHERE [CODE] = N'0x42' AND [region] IS NULL;"
+        );
+        let keys = vec![vec![
+            ("code".to_string(), json!("0x43")),
+            ("id".to_string(), json!(2)),
+        ]];
+        assert_eq!(
+            delete_script_typed(Some("dbo"), "docs", &keys, &cols),
+            "DELETE FROM [dbo].[docs] WHERE [code] = N'0x43' AND [id] = 2;"
+        );
+        assert_eq!(
+            delete_script(Some("dbo"), "docs", &keys),
+            "DELETE FROM [dbo].[docs] WHERE [code] = 0x43 AND [id] = 2;"
         );
     }
 

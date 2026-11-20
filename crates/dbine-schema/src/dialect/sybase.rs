@@ -168,6 +168,7 @@ impl Dialect for Ase {
             format!("{what}({n}) supera el máximo de ASE con páginas de 2 KB: se usa un tipo de texto largo.")
         };
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("bit"),
             L::Int {
                 bytes: 1,
@@ -409,6 +410,8 @@ impl Dialect for Ase {
             comments: false,
             max_identifier: 255,
             case: IdentCase::Preserve,
+            vector_indexes: false,
+            vectors: false,
         }
     }
 
@@ -549,6 +552,7 @@ impl Dialect for SqlAnywhere {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("bit"),
             L::Int { bytes: 1, unsigned: true } => Rendered::exact("tinyint"),
             L::Int { bytes: 1 | 2, unsigned: false } => Rendered::exact("smallint"),
@@ -660,6 +664,8 @@ impl Dialect for SqlAnywhere {
             comments: true,
             max_identifier: 128,
             case: IdentCase::Preserve,
+            vector_indexes: false,
+            vectors: false,
         }
     }
 }

@@ -481,3 +481,17 @@ lint.json:groups.dax
 optimizer.json:rules.dax_selectedvalue.title
 editor.json:tableHover.format
 backend:Servicio / SID
+vectors.json:metric.l1
+vectors.json:metric.hamming
+vectors.json:metric.jaccard
+vectors.json:metricShort.hamming
+vectors.json:metricShort.jaccard
+dataGen.json:param.dims
+vectors.json:cell.dims_one
+vectors.json:cell.dims_other
+vectors.json:viewer.element
+vectors.json:viewer.dims
+vectors.json:viewer.min
+vectors.json:viewer.max
+vectors.json:designer.metric
+backend:Divergencia

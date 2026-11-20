@@ -807,6 +807,8 @@ mod tests {
                 .iter()
                 .map(|s| s.to_string())
                 .collect(),
+            left_vectors: Vec::new(),
+            right_vectors: Vec::new(),
             partial: false,
             diff_truncated: false,
             counts,

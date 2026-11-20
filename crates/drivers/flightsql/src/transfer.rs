@@ -1025,6 +1025,9 @@ impl FlightSession {
 
 // ---- Arrow → cells ----
 
+/// The read's columns: the SQL type name the server sent, else a vector's
+/// as `FLOAT[3]` (so a target that knows vectors by their type sees one;
+/// GizmoSQL's query results carry no names), else Arrow's type.
 fn transfer_columns(schema: &Schema) -> Vec<TransferColumn> {
     schema
         .fields()
@@ -1035,6 +1038,7 @@ fn transfer_columns(schema: &Schema) -> Vec<TransferColumn> {
                 .metadata()
                 .get(SQL_TYPE)
                 .cloned()
+                .or_else(|| crate::vector_type_name(f.data_type()))
                 .unwrap_or_else(|| f.data_type().to_string()),
             nullable: f.is_nullable(),
         })
@@ -1330,6 +1334,12 @@ pub(crate) fn to_cell(a: &dyn Array, row: usize, uuid: bool) -> std::result::Res
                 TimeUnit::Nanosecond => a.as_primitive::<TimestampNanosecondType>().value(row),
             };
             timestamp_cell(v, unit, tz.as_deref())
+        }
+        // A list of floats (a vector): its text, each number at its precision.
+        DataType::List(_) | DataType::LargeList(_) | DataType::FixedSizeList(..)
+            if cells::float_list_text(a, row).is_some() =>
+        {
+            Cell::Json(cells::float_list_text(a, row).unwrap_or_default())
         }
         DataType::List(_)
         | DataType::LargeList(_)
@@ -2239,6 +2249,22 @@ mod tests {
     use super::*;
     use arrow_array::{BinaryArray, FixedSizeBinaryArray, Float32Array, Int64Array, StringArray};
     use std::collections::HashMap;
+
+    #[test]
+    fn vector_columns_are_named_by_their_sql_type() {
+        use arrow_schema::{DataType, Field};
+        let item = Arc::new(Field::new("item", DataType::Float32, true));
+        let schema = Schema::new(vec![
+            Field::new("emb", DataType::FixedSizeList(item.clone(), 3), true),
+            Field::new("id", DataType::Int32, false),
+            Field::new("named", DataType::FixedSizeList(item, 2), true)
+                .with_metadata([(SQL_TYPE.to_string(), "FLOAT[2]".to_string())].into()),
+        ]);
+        let c = transfer_columns(&schema);
+        assert_eq!(c[0].type_name, "FLOAT[3]");
+        assert_eq!(c[1].type_name, "Int32");
+        assert_eq!(c[2].type_name, "FLOAT[2]");
+    }
 
     #[test]
     fn arrow_to_cells() {

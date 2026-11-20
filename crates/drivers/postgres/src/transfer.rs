@@ -262,7 +262,14 @@ pub(crate) async fn read_batches(
             .columns
             .as_deref()
             .map_or_else(|| "*".to_string(), column_list);
-        return read_text(s, &select_sql(&table, &cols, spec.filter.as_deref()), sink).await;
+        let types = info_schema_types(s, &spec.table).await;
+        return read_text(
+            s,
+            &select_sql(&table, &cols, spec.filter.as_deref()),
+            &types,
+            sink,
+        )
+        .await;
     }
     let cols = probe(s, &table, spec.columns.as_deref()).await?;
     let described = describe(s, &table, &cols).await;
@@ -280,21 +287,23 @@ pub(crate) async fn read_batches(
         .unzip();
     let select = select_sql(&table, &exprs.join(", "), spec.filter.as_deref());
     sink.lock().map_err(lock_err)?.begin(&described)?;
+    let dense = dense_vector_columns(s.variant, &described);
 
     if binary_copy(s.variant) || s.variant.mpp() {
         let copy = format!("COPY ({select}) TO STDOUT (FORMAT binary)");
         match s.client.copy_out(&copy).await {
-            Ok(stream) => return read_copy(stream, &described, &kinds, &sink).await,
+            Ok(stream) => return read_copy(stream, &described, &kinds, &dense, &sink).await,
             Err(e) => tracing::debug!("{:?}: binary COPY TO refused, reading rows: {e}", s.variant),
         }
     }
-    read_rows(s, &select, &described, &kinds, &sink).await
+    read_rows(s, &select, &described, &kinds, &dense, &sink).await
 }
 
 async fn read_copy(
     stream: tokio_postgres::CopyOutStream,
     cols: &[TransferColumn],
     kinds: &[Kind],
+    dense: &[bool],
     sink: &BatchSinkRef,
 ) -> Result<u64> {
     pin_mut!(stream);
@@ -306,14 +315,14 @@ async fn read_copy(
         parser.feed(&chunk);
         let mut guard = None;
         while parser.next_tuple(&mut fields).map_err(Error::Query)? {
-            let row = decode_row(&parser.buf, &fields, kinds, cols)?;
+            let row = decode_row(&parser.buf, &fields, kinds, cols, dense)?;
             if guard.is_none() {
                 guard = Some(sink.lock().map_err(lock_err)?);
             }
             builder.push(row, &mut **guard.as_mut().expect("locked"))?;
         }
     }
-    if !parser.done {
+    if !parser.complete() {
         return Err(Error::Query("el COPY terminó sin su marca de fin".into()));
     }
     builder.flush(&mut *sink.lock().map_err(lock_err)?)?;
@@ -325,8 +334,9 @@ fn decode_row(
     fields: &[Option<Range<usize>>],
     kinds: &[Kind],
     cols: &[TransferColumn],
+    dense: &[bool],
 ) -> Result<Vec<Cell>> {
-    fields
+    let mut row = fields
         .iter()
         .zip(kinds)
         .enumerate()
@@ -335,7 +345,30 @@ fn decode_row(
             Some(r) => decode(*k, &buf[r.clone()])
                 .map_err(|e| Error::Query(format!("columna «{}»: {e}", cols[i].name))),
         })
+        .collect::<Result<Vec<Cell>>>()?;
+    vectors_as_json(&mut row, dense);
+    Ok(row)
+}
+
+/// The dense vector columns of a read (`vector(3)`, `halfvec(3)`, a
+/// CockroachDB `VECTOR`): their text is a JSON array, so their cells go
+/// as `Cell::Json` (a target that writes literals gets an array of
+/// numbers). A sparse vector keeps its own text.
+fn dense_vector_columns(v: Variant, cols: &[TransferColumn]) -> Vec<bool> {
+    cols.iter()
+        .map(|c| crate::vectors::meta_of_type(v, &c.type_name).is_some_and(|m| !m.sparse))
         .collect()
+}
+
+/// Dense vector cells as `Cell::Json` ([`dense_vector_columns`]).
+fn vectors_as_json(row: &mut [Cell], dense: &[bool]) {
+    for (c, d) in row.iter_mut().zip(dense) {
+        if *d {
+            if let Cell::Text(s) = c {
+                *c = Cell::Json(std::mem::take(s));
+            }
+        }
+    }
 }
 
 /// A column's value as the server sent it (binary).
@@ -359,6 +392,7 @@ async fn read_rows(
     select: &str,
     cols: &[TransferColumn],
     kinds: &[Kind],
+    dense: &[bool],
     sink: &BatchSinkRef,
 ) -> Result<u64> {
     let stmt = s.client.prepare(select).await.map_err(err)?;
@@ -382,18 +416,61 @@ async fn read_rows(
                     .map_err(|e| Error::Query(format!("columna «{}»: {e}", cols[i].name)))?,
             });
         }
+        vectors_as_json(&mut cells, dense);
         builder.push(cells, &mut *sink.lock().map_err(lock_err)?)?;
     }
     builder.flush(&mut *sink.lock().map_err(lock_err)?)?;
     Ok(builder.rows)
 }
 
-/// The read over the simple protocol: every value is the server's text.
-async fn read_text(s: &PgSession, select: &str, sink: BatchSinkRef) -> Result<u64> {
+/// The column types of a table read over the simple protocol, from
+/// `information_schema` where the variant has vectors there (CrateDB's
+/// `FLOAT_VECTOR(n)`, RisingWave's `vector(n)`); empty otherwise or when it
+/// can't be read.
+async fn info_schema_types(s: &PgSession, t: &ObjectRef) -> Vec<(String, String)> {
+    if !matches!(s.variant, Variant::CrateDb | Variant::RisingWave) {
+        return Vec::new();
+    }
+    let v = s.variant;
+    let schema = match t.schema() {
+        Some(sc) => crate::catalog::lit(v, sc),
+        None => "current_schema()".into(),
+    };
+    let sql = format!(
+        "SELECT column_name, data_type, character_maximum_length FROM information_schema.columns
+         WHERE table_schema = {schema} AND table_name = {}",
+        crate::catalog::lit(v, &t.name)
+    );
+    match s.client.simple_query(&sql).await {
+        Ok(msgs) => crate::catalog::rows(msgs)
+            .iter()
+            .filter_map(|r| {
+                let ty = crate::catalog::info_type(r.get(1)?, r.get(2), None, None);
+                Some((r.get(0)?.to_string(), ty))
+            })
+            .collect(),
+        Err(e) => {
+            tracing::debug!("{v:?}: column types unavailable: {e}");
+            Vec::new()
+        }
+    }
+}
+
+/// The read over the simple protocol: every value is the server's text;
+/// `types` (by column name) name the columns' types where known, and their
+/// vectors go as JSON arrays (CrateDB's `{"1.0","2.5"}` rewritten).
+async fn read_text(
+    s: &PgSession,
+    select: &str,
+    types: &[(String, String)],
+    sink: BatchSinkRef,
+) -> Result<u64> {
     let stream = s.client.simple_query_raw(select).await.map_err(err)?;
     pin_mut!(stream);
     let mut builder = BatchBuilder::new();
     let mut begun = false;
+    let mut dense: Vec<bool> = Vec::new();
+    let crate_db = s.variant == Variant::CrateDb;
     while let Some(msg) = stream.next().await {
         match msg.map_err(err)? {
             SimpleQueryMessage::RowDescription(cols) if !begun => {
@@ -402,15 +479,28 @@ async fn read_text(s: &PgSession, select: &str, sink: BatchSinkRef) -> Result<u6
                     .iter()
                     .map(|c| TransferColumn {
                         name: c.name().to_string(),
-                        type_name: String::new(),
+                        type_name: types
+                            .iter()
+                            .find(|(n, _)| n == c.name())
+                            .map(|(_, t)| t.clone())
+                            .unwrap_or_default(),
                         nullable: true,
                     })
                     .collect();
+                dense = dense_vector_columns(s.variant, &cols);
                 sink.lock().map_err(lock_err)?.begin(&cols)?;
             }
             SimpleQueryMessage::Row(r) => {
                 let cells = (0..r.len())
-                    .map(|i| r.get(i).map_or(Cell::Null, |t| Cell::Text(t.to_string())))
+                    .map(|i| match r.get(i) {
+                        None => Cell::Null,
+                        Some(t) if dense.get(i) == Some(&true) => Cell::Json(if crate_db {
+                            crate::vectors::crate_text(t).unwrap_or_else(|| t.to_string())
+                        } else {
+                            t.to_string()
+                        }),
+                        Some(t) => Cell::Text(t.to_string()),
+                    })
                     .collect();
                 builder.push(cells, &mut *sink.lock().map_err(lock_err)?)?;
             }
@@ -444,6 +534,13 @@ impl CopyParser {
     /// Bytes of `buf` taken by the header and the tuples read so far.
     pub(crate) fn consumed(&self) -> usize {
         self.pos
+    }
+
+    /// The stream ended where a tuple did: with its trailer, or without
+    /// one, as openGauss sends it (PostgreSQL's COPY FROM takes the end of
+    /// the data as the end too). Not after a cut tuple.
+    pub(crate) fn complete(&self) -> bool {
+        self.done || (self.header && self.pos == self.buf.len())
     }
 
     pub(crate) fn feed(&mut self, chunk: &[u8]) {
@@ -1180,6 +1277,18 @@ pub(crate) async fn bulk_load(
     let cols = column_list(&spec.columns);
     let probe = probe(s, &table, Some(&spec.columns)).await?;
     let kinds: Vec<Option<Kind>> = probe.iter().map(|(_, t)| Kind::of(t.oid())).collect();
+    // A vector going into a `sparsevec` or `bit(n)` column is written as
+    // that type reads it ([`shaped`]). Neither type has a binary `Kind`, so
+    // such a load always goes as text.
+    let shapes: Vec<Option<&str>> = probe
+        .iter()
+        .map(|(_, t)| match t.name() {
+            "sparsevec" if crate::vectors::pgvector(s.variant) => Some("sparsevec"),
+            "bit" | "varbit" => Some("bit"),
+            _ => None,
+        })
+        .collect();
+    let any_shaped = shapes.iter().any(Option::is_some);
     let binary = binary_copy(s.variant) && kinds.iter().all(Option::is_some);
     let copy = if binary {
         format!("COPY {table} ({cols}) FROM STDIN (FORMAT binary)")
@@ -1228,6 +1337,13 @@ pub(crate) async fn bulk_load(
                         ))
                     })?;
                 }
+            } else if any_shaped {
+                let row: Vec<Cell> = row
+                    .iter()
+                    .zip(&shapes)
+                    .map(|(c, shape)| shaped(c, *shape))
+                    .collect();
+                encode_text_row(&row, &kinds, &mut buf);
             } else {
                 encode_text_row(row, &kinds, &mut buf);
             }
@@ -1250,6 +1366,24 @@ pub(crate) async fn bulk_load(
         progress(total);
     }
     Ok(total)
+}
+
+/// A cell going into a column of `shape` (`"sparsevec"`, `"bit"`; `None`
+/// for any other type): a dense vector (a JSON array, the contract's form)
+/// or Oracle's sparse text (`[5,[0,3],[1.5,-2]]`) into a `sparsevec` as
+/// its notation (`{1:1.5,4:-2}/5`); a binary vector (one 0 or 1 per
+/// dimension, the contract's form) into a `bit(n)` as its bit string
+/// (`1011`). Anything else goes as it is.
+fn shaped(c: &Cell, shape: Option<&str>) -> Cell {
+    match (c, shape) {
+        (Cell::Text(t) | Cell::Json(t), Some("sparsevec")) => {
+            Cell::Text(crate::vectors::sparse_text(t).into_owned())
+        }
+        (Cell::Text(t) | Cell::Json(t), Some(_)) => {
+            Cell::Text(crate::vectors::bit_text(t).into_owned())
+        }
+        (c, _) => c.clone(),
+    }
 }
 
 async fn finish(sink: &mut Sink, buf: &mut Vec<u8>, binary: bool) -> Result<u64> {
@@ -1394,7 +1528,7 @@ pub(crate) async fn copy_native(
                 sent = end;
             }
         }
-        if !parser.done {
+        if !parser.complete() {
             return Err(Error::Query(
                 "el COPY de origen terminó sin su marca de fin".into(),
             ));
@@ -1453,6 +1587,33 @@ mod tests {
 
     fn same(kind: Kind, cell: Cell) {
         assert_eq!(round(kind, cell.clone()), cell, "{kind:?}");
+    }
+
+    /// Other engines' vectors into `sparsevec` and `bit(n)`: a dense
+    /// array, Oracle's sparse text (positions from 0) and the contract's
+    /// binary vector (one 0 / 1 per dimension, as libSQL's F1BIT and
+    /// Oracle's BINARY read) as pgvector's own text.
+    #[test]
+    fn vectors_load_as_sparsevec_and_bit_take_them() {
+        let text = |s: &str| Cell::Text(s.into());
+        let json = |s: &str| Cell::Json(s.into());
+        let sp = Some("sparsevec");
+        assert_eq!(shaped(&json("[0,1.5,0,-2,0]"), sp), text("{2:1.5,4:-2}/5"));
+        assert_eq!(
+            shaped(&text("[5,[0,3],[1.5,-2]]"), sp),
+            text("{1:1.5,4:-2}/5")
+        );
+        assert_eq!(shaped(&text("[5,[],[]]"), sp), text("{}/5"));
+        assert_eq!(shaped(&text("{1:1.5}/5"), sp), text("{1:1.5}/5"));
+        assert_eq!(shaped(&Cell::Null, sp), Cell::Null);
+        let bit = Some("bit");
+        assert_eq!(
+            shaped(&text("[1,1,0,0,1,0,0,1,0,0,0,0,1,1,1,1]"), bit),
+            text("1100100100001111")
+        );
+        assert_eq!(shaped(&json("[0,1]"), bit), text("01"));
+        assert_eq!(shaped(&text("1011"), bit), text("1011"));
+        assert_eq!(shaped(&text("[1,0]"), None), text("[1,0]"));
     }
 
     #[test]
@@ -1673,6 +1834,27 @@ mod tests {
             assert!(p.done, "chunks of {size}");
             assert_eq!(got, rows, "chunks of {size}");
         }
+        // openGauss sends no trailer: the stream ends after a whole tuple.
+        let without = &stream[..stream.len() - 2];
+        let mut p = CopyParser::new(3);
+        let mut fields = Vec::new();
+        p.feed(without);
+        let mut n = 0;
+        while p.next_tuple(&mut fields).unwrap() {
+            n += 1;
+        }
+        assert_eq!(n, 3);
+        assert!(!p.done && p.complete());
+        // A tuple cut short is not an end.
+        let mut p = CopyParser::new(3);
+        p.feed(&without[..without.len() - 1]);
+        while p.next_tuple(&mut fields).unwrap() {}
+        assert!(!p.complete());
+        // Nothing but the header: no rows.
+        let mut p = CopyParser::new(3);
+        p.feed(HEADER);
+        assert!(!p.next_tuple(&mut fields).unwrap());
+        assert!(p.complete());
     }
 
     #[test]

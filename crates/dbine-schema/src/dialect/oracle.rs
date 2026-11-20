@@ -22,6 +22,95 @@ use dbine_driver::TableSchema;
 
 pub struct Oracle;
 
+/// Most dimensions of a `VECTOR`.
+const MAX_VECTOR_DIMS: u32 = 65535;
+
+/// `VECTOR(n, FLOAT32)`, `VECTOR(*, INT8)`, `VECTOR(n, FLOAT32, SPARSE)`…
+fn render_vector(t: &L) -> Rendered {
+    use dbine_driver::VectorElement as E;
+    use IssueCode::*;
+    use Severity::*;
+    let L::Vector {
+        dims,
+        element,
+        sparse,
+    } = t
+    else {
+        return Rendered::exact("VECTOR(*, *)");
+    };
+    let mut notes: Vec<(Severity, IssueCode, String)> = Vec::new();
+    let mut format = match element {
+        E::F32 => "FLOAT32",
+        E::F64 => "FLOAT64",
+        E::I8 => "INT8",
+        // Oracle has no 32-bit integers; FLOAT64 holds them exactly.
+        E::I32 => {
+            notes.push((
+                Info,
+                TypeChanged,
+                format!("{}: como FLOAT64 (sin pérdida).", t.describe()),
+            ));
+            "FLOAT64"
+        }
+        E::Bit => "BINARY",
+        E::F16 | E::Bf16 => {
+            notes.push((
+                Info,
+                TypeChanged,
+                format!("{}: como FLOAT32 (sin pérdida).", t.describe()),
+            ));
+            "FLOAT32"
+        }
+        E::U8 | E::Other => {
+            notes.push((
+                Info,
+                TypeChanged,
+                format!("{}: como FLOAT32.", t.describe()),
+            ));
+            "FLOAT32"
+        }
+    };
+    let dims = match dims {
+        Some(n) if *n > MAX_VECTOR_DIMS => {
+            notes.push((
+                Warning,
+                TypeApproximated,
+                format!("Oracle admite vectores de hasta {MAX_VECTOR_DIMS} dimensiones: queda sin dimensión fija (*)."),
+            ));
+            "*".to_string()
+        }
+        Some(n) => {
+            // BINARY packs 8 dimensions per byte.
+            if format == "BINARY" && n % 8 != 0 {
+                notes.push((
+                    Info,
+                    TypeChanged,
+                    "Un vector BINARY de Oracle tiene una cantidad de dimensiones múltiplo de 8: queda como INT8.".to_string(),
+                ));
+                format = "INT8";
+            }
+            n.to_string()
+        }
+        None => "*".to_string(),
+    };
+    let native = if *sparse {
+        if format == "BINARY" {
+            notes.push((
+                Info,
+                TypeChanged,
+                "Oracle no tiene vectores BINARY dispersos: queda FLOAT32.".to_string(),
+            ));
+            format = "FLOAT32";
+        }
+        format!("VECTOR({dims}, {format}, SPARSE)")
+    } else {
+        format!("VECTOR({dims}, {format})")
+    };
+    notes
+        .into_iter()
+        .fold(Rendered::exact(native), |r, (s, c, m)| r.with(s, c, m))
+}
+
 /// Longest VARCHAR2 with the default `MAX_STRING_SIZE = STANDARD`, in bytes.
 const MAX_VARCHAR2: u32 = 4000;
 /// Longest CHAR, in bytes.
@@ -118,6 +207,21 @@ impl Dialect for Oracle {
             },
             "boolean" => L::Bool,
             "json" => L::Json { binary: true },
+            // 23ai: `VECTOR(dims|*, FLOAT32|FLOAT64|INT8|BINARY|*, DENSE|SPARSE)`.
+            "vector" => {
+                use dbine_driver::VectorElement as E;
+                let arg = |i: usize| t.args.get(i).map(|a| a.trim().to_ascii_uppercase());
+                L::Vector {
+                    dims: p(0),
+                    element: match arg(1).as_deref() {
+                        Some("FLOAT64") => E::F64,
+                        Some("INT8") => E::I8,
+                        Some("BINARY") => E::Bit,
+                        _ => E::F32,
+                    },
+                    sparse: arg(2).as_deref() == Some("SPARSE"),
+                }
+            }
             "xmltype" | "sys.xmltype" => L::Xml,
             "sdo_geometry" | "mdsys.sdo_geometry" => L::Geometry {
                 kind: None,
@@ -144,6 +248,7 @@ impl Dialect for Oracle {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => render_vector(t),
             L::Bool => Rendered::exact("NUMBER(1)").with(Info, TypeChanged, "Booleano como NUMBER(1) (Oracle recién tiene BOOLEAN desde 23ai)."),
             L::Int { bytes, unsigned } => {
                 let digits = match (bytes, unsigned) {
@@ -256,6 +361,99 @@ impl Dialect for Oracle {
         }
     }
 
+    /// `CREATE VECTOR INDEX … ORGANIZATION INMEMORY NEIGHBOR GRAPH` (HNSW)
+    /// or `NEIGHBOR PARTITIONS` (IVF); another family's graph index
+    /// (DiskANN, HNSW variants) becomes HNSW, its list index IVF.
+    ///
+    /// The column's format (as [`render_vector`] writes it) decides the
+    /// distances Oracle takes (verified on 23.26): a BINARY vector only
+    /// HAMMING and JACCARD (a distance not given becomes HAMMING, said:
+    /// COSINE, the default, is refused there), JACCARD only a BINARY one,
+    /// HAMMING only BINARY or INT8.
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
+        use dbine_driver::vector::{metric, param};
+        let algorithm = match v
+            .algorithm
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
+            Some("ivf" | "ivfflat" | "ivf_flat" | "ivf_pq" | "ivf_sq") => "ivf",
+            _ => "hnsw",
+        };
+        let m = v.metric.as_deref().map(str::to_ascii_lowercase);
+        let metric = match m.as_deref() {
+            None => None,
+            Some(
+                x @ (metric::COSINE
+                | metric::L2
+                | metric::IP
+                | metric::L1
+                | metric::HAMMING
+                | metric::JACCARD),
+            ) => Some(x.to_string()),
+            Some("euclidean") => Some(metric::L2.into()),
+            Some("dot" | "inner_product") => Some(metric::IP.into()),
+            Some("manhattan") => Some(metric::L1.into()),
+            Some(other) => return Err(format!("Oracle no tiene la distancia «{other}»")),
+        };
+        let format = column
+            .filter(|c| matches!(c, L::Vector { .. }))
+            .map(|c| render_vector(c).native);
+        let binary = format.as_deref().is_some_and(|f| f.contains("BINARY"));
+        let int8 = format.as_deref().is_some_and(|f| f.contains("INT8"));
+        let mut notes = Vec::new();
+        let metric = match metric.as_deref() {
+            None if binary => {
+                notes.push(
+                    "sin distancia, sobre un vector BINARY queda HAMMING: Oracle no admite ahí la suya por defecto (COSINE), solo HAMMING y JACCARD"
+                        .to_string(),
+                );
+                Some(metric::HAMMING.to_string())
+            }
+            Some(metric::HAMMING | metric::JACCARD) if binary => metric,
+            Some(m) if binary => {
+                return Err(format!(
+                    "Oracle compara vectores BINARY solo con las distancias HAMMING y JACCARD, no «{m}»"
+                ))
+            }
+            Some(metric::JACCARD) if format.is_some() => {
+                return Err("Oracle usa la distancia JACCARD solo con vectores BINARY".into())
+            }
+            Some(metric::HAMMING) if format.is_some() && !int8 => {
+                return Err(
+                    "Oracle usa la distancia HAMMING solo con vectores BINARY o INT8".into(),
+                )
+            }
+            _ => metric,
+        };
+        let keep: &[&str] = if algorithm == "hnsw" {
+            &[param::M, param::EF_CONSTRUCTION, "target_accuracy"]
+        } else {
+            &[param::LISTS, "target_accuracy"]
+        };
+        let params = v
+            .params
+            .iter()
+            .filter(|(k, _)| keep.contains(&k.as_str()))
+            .map(|(k, x)| (k.clone(), x.clone()))
+            .collect();
+        Ok(super::VectorIndexMapping {
+            kind: Some("VECTOR".into()),
+            index: dbine_driver::VectorIndex {
+                algorithm: Some(algorithm.into()),
+                metric,
+                params,
+            },
+            notes,
+        })
+    }
+
     fn caps(&self) -> Caps {
         Caps {
             foreign_keys: true,
@@ -270,6 +468,8 @@ impl Dialect for Oracle {
             comments: true,
             max_identifier: 128,
             case: IdentCase::Upper,
+            vector_indexes: true,
+            vectors: true,
         }
     }
 
@@ -350,6 +550,7 @@ fn multibyte(r: Rendered, n: u32, max_bytes: u32) -> Rendered {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
 
     fn ty(s: &str) -> L {
         Oracle.parse_type(&parse(s))
@@ -526,5 +727,215 @@ mod tests {
             )
             .unwrap()
             .starts_with("LOWER("));
+    }
+
+    #[test]
+    fn vectors_round_trip() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        let v = |dims, element, sparse| L::Vector {
+            dims,
+            element,
+            sparse,
+        };
+        assert_eq!(ty("VECTOR(3, FLOAT32)"), v(Some(3), E::F32, false));
+        assert_eq!(ty("VECTOR(*, *)"), v(None, E::F32, false));
+        assert_eq!(ty("VECTOR(16, BINARY)"), v(Some(16), E::Bit, false));
+        assert_eq!(ty("VECTOR(5, FLOAT32, SPARSE)"), v(Some(5), E::F32, true));
+        assert_eq!(ty("VECTOR(2, FLOAT64)"), v(Some(2), E::F64, false));
+        for native in [
+            "VECTOR(3, FLOAT32)",
+            "VECTOR(16, BINARY)",
+            "VECTOR(4, INT8)",
+            "VECTOR(2, FLOAT64)",
+            "VECTOR(5, FLOAT32, SPARSE)",
+            "VECTOR(*, FLOAT32)",
+        ] {
+            assert_eq!(Oracle.render_type(&ty(native)).native, native);
+        }
+        // pgvector's vector(3), halfvec(3), bit(12), sparsevec(5).
+        assert_eq!(
+            Oracle.render_type(&v(Some(3), E::F32, false)).native,
+            "VECTOR(3, FLOAT32)"
+        );
+        let half = Oracle.render_type(&v(Some(3), E::F16, false));
+        assert_eq!(half.native, "VECTOR(3, FLOAT32)");
+        assert!(!half.notes.is_empty());
+        assert_eq!(
+            Oracle.render_type(&v(Some(12), E::Bit, false)).native,
+            "VECTOR(12, INT8)"
+        );
+        assert_eq!(
+            Oracle.render_type(&v(Some(5), E::F32, true)).native,
+            "VECTOR(5, FLOAT32, SPARSE)"
+        );
+        // Indexes: HNSW and IVF keep their parameters; other graphs become HNSW.
+        let hnsw = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("ip".into()),
+            params: [
+                ("m".to_string(), "16".to_string()),
+                ("ef_construction".to_string(), "64".to_string()),
+                ("lists".to_string(), "9".to_string()),
+            ]
+            .into(),
+        };
+        let (kind, m) = Oracle.vector_index_pair(&hnsw, None).unwrap();
+        assert_eq!(kind.as_deref(), Some("VECTOR"));
+        assert_eq!(m.algorithm.as_deref(), Some("hnsw"));
+        assert_eq!(m.params.len(), 2);
+        let ivf = VectorIndex {
+            algorithm: Some("ivfflat".into()),
+            metric: Some("l2".into()),
+            params: [("lists".to_string(), "100".to_string())].into(),
+        };
+        let (_, m) = Oracle.vector_index_pair(&ivf, None).unwrap();
+        assert_eq!(m.algorithm.as_deref(), Some("ivf"));
+        assert_eq!(m.params.get("lists").map(String::as_str), Some("100"));
+        let diskann = VectorIndex {
+            algorithm: Some("diskann".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            Oracle
+                .vector_index_pair(&diskann, None)
+                .unwrap()
+                .1
+                .algorithm
+                .as_deref(),
+            Some("hnsw")
+        );
+        let odd = VectorIndex {
+            metric: Some("chebyshev".into()),
+            ..Default::default()
+        };
+        assert!(Oracle.vector_index_pair(&odd, None).is_err());
+    }
+
+    /// Moved here from another family: pgvector's sparsevec keeps its
+    /// index (Oracle indexes SPARSE vectors), a searched float array with a
+    /// stated dimension becomes a VECTOR, and a distance the column's
+    /// format can't take leaves the index out with why.
+    #[test]
+    fn vector_indexes_moved_into_oracle() {
+        use super::super::clickhouse::tests::vector_table;
+        use crate::convert::{convert, Options};
+        use crate::issue::IssueCode;
+        let one = |t, from: &str| {
+            let r = convert(&[t], from, "oracle", &Options::default()).unwrap();
+            (r.tables[0].clone(), r.issues)
+        };
+        let (t, _) = one(vector_table("sparsevec(5)", None, &[]), "postgres");
+        assert_eq!(t.columns[1].data_type, "VECTOR(5, FLOAT32, SPARSE)");
+        assert_eq!(t.indexes.len(), 1);
+        let (t, _) = one(
+            vector_table(
+                "Array(Float64)",
+                Some("vector_similarity"),
+                &[("dimensions", "3")],
+            ),
+            "clickhouse",
+        );
+        assert_eq!(t.columns[1].data_type, "VECTOR(3, FLOAT64)");
+        assert_eq!(
+            t.indexes[0].vector.as_ref().unwrap().metric.as_deref(),
+            Some("cosine")
+        );
+        // An Int8 array searched with cosine is INT8 here and keeps it; a
+        // float one searched with hamming (which Oracle refuses there) is
+        // left out.
+        let (t, _) = one(
+            vector_table(
+                "Array(Int8)",
+                Some("vector_similarity"),
+                &[("dimensions", "3")],
+            ),
+            "clickhouse",
+        );
+        assert_eq!(t.columns[1].data_type, "VECTOR(3, INT8)");
+        assert_eq!(t.indexes.len(), 1);
+        let mut hamming = vector_table(
+            "Array(Float32)",
+            Some("vector_similarity"),
+            &[("dimensions", "3")],
+        );
+        hamming.indexes[0].vector.as_mut().unwrap().metric = Some("hamming".into());
+        let (t, issues) = one(hamming, "clickhouse");
+        assert_eq!(t.columns[1].data_type, "VECTOR(3, FLOAT32)");
+        assert!(t.indexes.is_empty());
+        assert!(
+            issues
+                .iter()
+                .any(|i| i.code == IssueCode::IndexDropped && i.message.contains("HAMMING")),
+            "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn vector_index_distances_follow_the_columns_format() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        let v = |dims, element, sparse| L::Vector {
+            dims,
+            element,
+            sparse,
+        };
+        let ix = |metric: Option<&str>| VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: metric.map(str::to_string),
+            ..Default::default()
+        };
+        let metric_on = |m: Option<&str>, c: &L| {
+            Oracle
+                .vector_index_pair(&ix(m), Some(c))
+                .map(|(_, v)| v.metric)
+        };
+        let bits = v(Some(16), E::Bit, false);
+        // pgvector's bit(16) with bit_hamming_ops / bit_jaccard_ops.
+        assert_eq!(
+            metric_on(Some("hamming"), &bits),
+            Ok(Some("hamming".into()))
+        );
+        assert_eq!(
+            metric_on(Some("jaccard"), &bits),
+            Ok(Some("jaccard".into()))
+        );
+        // No distance: HAMMING, not Oracle's default COSINE, said.
+        assert_eq!(metric_on(None, &bits), Ok(Some("hamming".into())));
+        let ctx = crate::dialect::VectorIndexCtx {
+            column: Some(&bits),
+            target_driver: Some("oracle"),
+        };
+        let notes = Oracle.vector_index(&ix(None), &ctx).unwrap().notes;
+        assert!(
+            notes.len() == 1 && notes[0].contains("HAMMING"),
+            "{notes:?}"
+        );
+        assert!(Oracle
+            .vector_index(&ix(Some("hamming")), &ctx)
+            .unwrap()
+            .notes
+            .is_empty());
+        assert!(metric_on(Some("cosine"), &bits)
+            .unwrap_err()
+            .contains("BINARY"));
+        // JACCARD needs BINARY; HAMMING BINARY or INT8 (a bit vector whose
+        // dimension isn't a multiple of 8 goes as INT8).
+        let floats = v(Some(3), E::F32, false);
+        assert!(metric_on(Some("jaccard"), &floats).is_err());
+        assert!(metric_on(Some("hamming"), &floats).is_err());
+        assert!(metric_on(Some("hamming"), &v(Some(3), E::F32, true)).is_err());
+        assert_eq!(
+            metric_on(Some("hamming"), &v(Some(4), E::I8, false)),
+            Ok(Some("hamming".into()))
+        );
+        assert_eq!(
+            metric_on(Some("hamming"), &v(Some(12), E::Bit, false)),
+            Ok(Some("hamming".into()))
+        );
+        // Sparse vectors take an index (IVF verified on 23.26).
+        assert_eq!(
+            metric_on(Some("l2"), &v(Some(5), E::F32, true)),
+            Ok(Some("l2".into()))
+        );
+        assert_eq!(metric_on(None, &floats), Ok(None));
     }
 }

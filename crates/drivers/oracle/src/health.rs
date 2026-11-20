@@ -168,7 +168,8 @@ const STATS: &str = "SELECT s.table_name, CASE WHEN s.last_analyzed IS NULL THEN
    FROM all_tab_statistics s
    JOIN all_tables t ON t.owner = s.owner AND t.table_name = s.table_name
   WHERE s.owner = :1 AND s.object_type = 'TABLE' AND t.temporary = 'N' AND t.dropped = 'NO'
-    AND s.table_name NOT LIKE 'BIN$%' AND NVL(s.stattype_locked, 'NONE') = 'NONE'
+    AND s.table_name NOT LIKE 'BIN$%' AND NOT REGEXP_LIKE(s.table_name, '^VECTOR\\$.+\\$[0-9]+_[0-9]+_[0-9]+\\$')
+    AND NVL(s.stattype_locked, 'NONE') = 'NONE'
     AND (s.stale_stats = 'YES' OR s.last_analyzed IS NULL)
     AND NOT EXISTS (SELECT 1 FROM all_external_tables x WHERE x.owner = s.owner AND x.table_name = s.table_name)
     AND ROWNUM <= 200
@@ -182,11 +183,12 @@ const FK_COLUMNS: &str =
 
 const INDEX_COLUMNS: &str =
     "SELECT table_name, index_owner || '.' || index_name, column_name, TO_CHAR(column_position)
-   FROM all_ind_columns WHERE table_owner = :1";
+   FROM all_ind_columns WHERE table_owner = :1 AND NOT REGEXP_LIKE(table_name, '^VECTOR\\$.+\\$[0-9]+_[0-9]+_[0-9]+\\$')";
 
 const NO_PK: &str = "SELECT t.table_name FROM all_tables t
   WHERE t.owner = :1 AND t.temporary = 'N' AND t.nested = 'NO' AND t.secondary = 'N' AND t.dropped = 'NO'
     AND t.table_name NOT LIKE 'BIN$%' AND t.table_name NOT LIKE 'MLOG$%' AND t.table_name NOT LIKE 'RUPD$%'
+    AND NOT REGEXP_LIKE(t.table_name, '^VECTOR\\$.+\\$[0-9]+_[0-9]+_[0-9]+\\$')
     AND NOT EXISTS (SELECT 1 FROM all_constraints c WHERE c.owner = t.owner AND c.table_name = t.table_name AND c.constraint_type = 'P')
     AND NOT EXISTS (SELECT 1 FROM all_mviews m WHERE m.owner = t.owner AND m.container_name = t.table_name)
     AND NOT EXISTS (SELECT 1 FROM all_external_tables x WHERE x.owner = t.owner AND x.table_name = t.table_name)
@@ -514,6 +516,14 @@ impl OracleSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vector_index_internals_are_not_checked() {
+        let p = crate::vector::INTERNAL_TABLES;
+        assert!(STATS.contains(&format!("NOT REGEXP_LIKE(s.table_name, {p})")));
+        assert!(INDEX_COLUMNS.contains(&format!("NOT REGEXP_LIKE(table_name, {p})")));
+        assert!(NO_PK.contains(&format!("NOT REGEXP_LIKE(t.table_name, {p})")));
+    }
 
     fn rows(v: &[(&str, &str, &str, i64)]) -> Rows {
         v.iter()

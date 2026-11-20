@@ -1887,6 +1887,7 @@ fn same_index(a: &IndexDef, b: &IndexDef) -> bool {
         && a.filter == b.filter
         && a.include == b.include
         && a.options == b.options
+        && a.vector == b.vector
 }
 
 /// What the clone's history table's indexes need to be the original

@@ -123,6 +123,9 @@ impl Dialect for InfluxDb {
             comments: false,
             max_identifier: 255,
             case: IdentCase::Preserve,
+            // No vector indexes: `convert` leaves them out, said.
+            vector_indexes: false,
+            vectors: false,
         }
     }
 

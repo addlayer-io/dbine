@@ -34,6 +34,7 @@ fn col(name: &str, type_name: &str) -> ResultColumn {
     ResultColumn {
         name: name.into(),
         type_name: type_name.into(),
+        vector: None,
     }
 }
 
@@ -49,6 +50,11 @@ fn sample(rows: usize) -> QueryOutcome {
             col("flag", "bool"),
             col("big", "int8"),
             col("when", "timestamptz"),
+            // A vector column: its mark and its whole text come back.
+            col("emb", "vector(3)").with_vector(dbine_driver::VectorMeta::dense(
+                Some(3),
+                dbine_driver::VectorElement::F32,
+            )),
         ],
         rows: (0..rows)
             .map(|i| {
@@ -60,6 +66,7 @@ fn sample(rows: usize) -> QueryOutcome {
                     if i % 2 == 0 { json!(true) } else { Value::Null },
                     json!("9223372036854775807"),
                     json!("2026-11-11 19:01:57.594977+00"),
+                    json!(format!("[{i},0.5,-1e-7]")),
                 ]
             })
             .collect(),
@@ -192,6 +199,14 @@ async fn saves_reads_and_encrypts() {
     assert!(saved.stored);
     // Back exactly as it went in, rows and everything else.
     let back = s.outcome("run-1").await.unwrap().expect("stored");
+    assert_eq!(
+        back.results[0].columns[7].vector,
+        Some(dbine_driver::VectorMeta::dense(
+            Some(3),
+            dbine_driver::VectorElement::F32
+        ))
+    );
+    assert_eq!(back.results[0].rows[2][7], json!("[2,0.5,-1e-7]"));
     assert_eq!(
         serde_json::to_value(&back).unwrap(),
         serde_json::to_value(&out).unwrap()

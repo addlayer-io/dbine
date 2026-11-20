@@ -3,6 +3,13 @@
 
 use serde_json::Value;
 
+/// A character that ends a `//` comment, exactly as Neo4j's grammar has it
+/// (`'//' ~[\r\n]*`): LF or CR. Reading a comment as longer or shorter than
+/// the server does could hide a write from `write_reason`.
+fn line_break(c: char) -> bool {
+    matches!(c, '\n' | '\r')
+}
+
 /// Walks the tokens of a statement, skipping comments and whitespace:
 /// `on(start, end, kind)` in char offsets, kind `w` (word), `s` (string),
 /// `q` (quoted name) or `p` (punctuation). Returning `false` stops.
@@ -13,7 +20,7 @@ fn scan(text: &str, mut on: impl FnMut(usize, usize, char) -> bool) {
         let c = b[i];
         let start = i;
         if c == '/' && b.get(i + 1) == Some(&'/') {
-            while i < b.len() && b[i] != '\n' {
+            while i < b.len() && !line_break(b[i]) {
                 i += 1;
             }
             continue;
@@ -119,7 +126,9 @@ fn trivia(s: &str) -> usize {
         if i < b.len() && b[i].is_ascii_whitespace() {
             i += 1;
         } else if b[i..].starts_with(b"//") {
-            i = s[i..].find('\n').map_or(b.len(), |n| i + n + 1);
+            i = s[i..].find(line_break).map_or(b.len(), |n| {
+                i + n + s[i + n..].chars().next().map_or(0, char::len_utf8)
+            });
         } else if b[i..].starts_with(b"/*") {
             i = s[i + 2..].find("*/").map_or(b.len(), |n| i + 2 + n + 2);
         } else {
@@ -310,6 +319,13 @@ const READ_PROCEDURES: &[&str] = &[
     "GDS.LIST",
     "GDS.VERSION",
     "NEPTUNE.READ",
+    // Vector and full-text searches (Neo4j's; Memgraph's `vector_search`).
+    "DB.INDEX.VECTOR.QUERYNODES",
+    "DB.INDEX.VECTOR.QUERYRELATIONSHIPS",
+    "DB.INDEX.FULLTEXT.QUERYNODES",
+    "DB.INDEX.FULLTEXT.QUERYRELATIONSHIPS",
+    "VECTOR_SEARCH.SEARCH",
+    "VECTOR_SEARCH.SHOW_INDEX_INFO",
 ];
 
 /// Why a statement isn't a read, or `None` when it only reads.
@@ -405,8 +421,14 @@ pub fn literal(v: &Value) -> String {
 }
 
 /// A property value: maps (and lists holding maps) aren't valid property
-/// values, so they go as JSON text.
+/// values, so they go as JSON text. A Neo4j 2025 VECTOR as read
+/// (`{"~vector": […], "~coordinateType"}`) is written back as one
+/// ([`vector_literal`]), not as a list or text.
 pub fn property(v: &Value) -> String {
+    native_literal(v).unwrap_or_else(|| plain(v))
+}
+
+fn plain(v: &Value) -> String {
     match v {
         Value::Object(_) => string(&v.to_string()),
         Value::Array(a) if a.iter().any(|x| x.is_object() || x.is_array()) => {
@@ -416,9 +438,139 @@ pub fn property(v: &Value) -> String {
     }
 }
 
+/// `vector([…], n, FLOAT32)`, Neo4j 2025's VECTOR constructor. Only
+/// Cypher 25 has it (a database's default language is Cypher 5): a
+/// statement that writes one starts with [`CYPHER_25`].
+fn vector_literal(numbers: &[Value], coordinate: &str) -> String {
+    let items: Vec<String> = numbers.iter().map(literal).collect();
+    format!(
+        "vector([{}], {}, {coordinate})",
+        items.join(", "),
+        numbers.len()
+    )
+}
+
+/// The prefix of a statement that writes a VECTOR value.
+pub const CYPHER_25: &str = "CYPHER 25 ";
+
+/// A VECTOR's JSON form as its `vector(…)`.
+fn native_literal(v: &Value) -> Option<String> {
+    let (coordinate, numbers) = crate::value::native_vector_json(v)?;
+    let coordinate = vector_coordinate(&format!("VECTOR<{coordinate}>"))?;
+    (!numbers.is_empty() && numbers.iter().all(Value::is_number))
+        .then(|| vector_literal(numbers, coordinate))
+}
+
+/// A JSON array of numbers into a `VECTOR<…>` column as its `vector(…)`.
+fn typed_literal(v: &Value, column: Option<&dbine_driver::ResultColumn>) -> Option<String> {
+    let coordinate = vector_coordinate(&column?.type_name)?;
+    match v {
+        Value::Array(a) if !a.is_empty() && a.iter().all(Value::is_number) => {
+            Some(vector_literal(a, coordinate))
+        }
+        _ => None,
+    }
+}
+
+/// A property value for a column whose type is known: a JSON array of
+/// numbers into a Neo4j 2025 `VECTOR<FLOAT32>(n)` column is written as a
+/// `vector(…)` (a list would turn the property into a LIST<FLOAT>);
+/// anything else as [`property`] writes it.
+pub fn property_typed(v: &Value, column: Option<&dbine_driver::ResultColumn>) -> String {
+    typed_literal(v, column).unwrap_or_else(|| property(v))
+}
+
+/// Whether [`property_typed`] writes `v` as a `vector(…)`, so its
+/// statement needs [`CYPHER_25`].
+pub fn writes_vector(v: &Value, column: Option<&dbine_driver::ResultColumn>) -> bool {
+    typed_literal(v, column).is_some() || native_literal(v).is_some()
+}
+
+/// `stmt` in Cypher 25 when it writes a VECTOR value.
+pub fn versioned(stmt: String, vectors: bool) -> String {
+    if vectors {
+        format!("{CYPHER_25}{stmt}")
+    } else {
+        stmt
+    }
+}
+
+/// The coordinate type of a `VECTOR<FLOAT32>(3)` column (a result's type,
+/// or a describe's in any case, Cypher's aliases too, with or without
+/// `NOT NULL`: `VECTOR<FLOAT32 NOT NULL>(3)`) as `vector()` takes it;
+/// `None` for any other type.
+pub fn vector_coordinate(type_name: &str) -> Option<&'static str> {
+    let t = type_name.trim().to_ascii_uppercase();
+    let inner = t.strip_prefix("VECTOR")?.trim_start().strip_prefix('<')?;
+    let (c, _) = inner.split_once('>')?;
+    let c = c.split_whitespace().collect::<Vec<_>>().join(" ");
+    let c = c.strip_suffix(" NOT NULL").unwrap_or(&c);
+    Some(match c {
+        "FLOAT32" => "FLOAT32",
+        "FLOAT64" | "FLOAT" => "FLOAT64",
+        "INTEGER8" | "INT8" => "INTEGER8",
+        "INTEGER16" | "INT16" => "INTEGER16",
+        "INTEGER32" | "INT32" => "INTEGER32",
+        "INTEGER64" | "INT64" | "INTEGER" | "INT" | "SIGNED INTEGER" => "INTEGER64",
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_vector_columns_take_vectors() {
+        use dbine_driver::ResultColumn;
+        let v = serde_json::json!([0.5, -2, 3]);
+        let col = |t: &str| ResultColumn::new("e", t);
+        assert_eq!(
+            property_typed(&v, Some(&col("VECTOR<FLOAT32>(3)"))),
+            "vector([0.5, -2, 3], 3, FLOAT32)"
+        );
+        assert_eq!(
+            property_typed(&v, Some(&col("vector<float>(3)"))),
+            "vector([0.5, -2, 3], 3, FLOAT64)"
+        );
+        assert_eq!(
+            property_typed(&serde_json::json!([1, 2]), Some(&col("VECTOR<INT8>(2)"))),
+            "vector([1, 2], 2, INTEGER8)"
+        );
+        // A float list column, an untyped one, a type that isn't one and a
+        // value that isn't numbers stay as before.
+        assert_eq!(
+            property_typed(&v, Some(&col("LIST<FLOAT>"))),
+            "[0.5, -2, 3]"
+        );
+        assert_eq!(property_typed(&v, None), "[0.5, -2, 3]");
+        assert_eq!(
+            property_typed(&v, Some(&col("VECTOR<STRING>(3)"))),
+            "[0.5, -2, 3]"
+        );
+        assert_eq!(
+            property_typed(&serde_json::json!(["a"]), Some(&col("VECTOR<FLOAT32>(1)"))),
+            "['a']"
+        );
+        assert_eq!(
+            property_typed(&serde_json::Value::Null, Some(&col("VECTOR<FLOAT32>(1)"))),
+            "null"
+        );
+        // valueType()'s spelling.
+        assert_eq!(
+            vector_coordinate("VECTOR<FLOAT32 NOT NULL>(3) NOT NULL"),
+            Some("FLOAT32")
+        );
+        // Only Cypher 25 has vector(): such statements say so.
+        assert!(writes_vector(&v, Some(&col("VECTOR<FLOAT32>(3)"))));
+        assert!(!writes_vector(&v, Some(&col("LIST<FLOAT>"))));
+        assert!(writes_vector(
+            &serde_json::json!({"~vector": [1], "~coordinateType": "FLOAT32"}),
+            None
+        ));
+        assert_eq!(versioned("RETURN 1".into(), true), "CYPHER 25 RETURN 1");
+        assert_eq!(versioned("RETURN 1".into(), false), "RETURN 1");
+    }
 
     #[test]
     fn a_name_cannot_end_a_line_comment() {
@@ -430,6 +582,26 @@ mod tests {
         assert_eq!(c.lines().count(), 1);
     }
     use serde_json::json;
+
+    #[test]
+    fn native_vectors_are_written_as_vectors() {
+        assert_eq!(
+            property(&json!({"~vector": [0.5, 2, -1.25], "~coordinateType": "FLOAT32"})),
+            "vector([0.5, 2, -1.25], 3, FLOAT32)"
+        );
+        assert_eq!(
+            property(&json!({"~vector": [1, -2], "~coordinateType": "INTEGER8"})),
+            "vector([1, -2], 2, INTEGER8)"
+        );
+        // Anything else that looks like it stays JSON text.
+        assert!(
+            property(&json!({"~vector": ["x"], "~coordinateType": "FLOAT32"})).starts_with('\'')
+        );
+        assert!(
+            property(&json!({"~vector": [1], "~coordinateType": "FLOAT32) RETURN 1 //"}))
+                .starts_with('\'')
+        );
+    }
 
     #[test]
     fn splits_outside_strings_and_comments() {
@@ -548,6 +720,19 @@ mod tests {
         assert!(!implicit_only("MATCH (n) RETURN n"));
     }
 
+    /// Comments end where Neo4j ends them (CR or LF): a write after `//…\r`
+    /// is a write, and the statement after a CR-ended comment is found.
+    /// After a Unicode line break the server is still in the comment.
+    #[test]
+    fn a_comment_ends_where_neo4j_ends_it() {
+        assert!(write_reason("MATCH (n) //\rDELETE n").is_some());
+        assert_eq!(write_reason("MATCH (n) //\u{2028}SET n.a = 1"), None);
+        assert_eq!(write_reason("MATCH (n) // DELETE n\r\nRETURN n"), None);
+        let units = script("// note\rCREATE (n)");
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].text, "CREATE (n)");
+    }
+
     #[test]
     fn writes() {
         assert_eq!(write_reason("MATCH (n) RETURN n.set, 'CREATE'"), None);
@@ -578,6 +763,29 @@ mod tests {
         assert_eq!(
             write_reason("CALL { CREATE (n) } IN TRANSACTIONS").as_deref(),
             Some("CREATE")
+        );
+        // Similarity searches read: Neo4j 2025's Cypher 25 functions and
+        // the vector index procedures (Memgraph's too); building an index
+        // or setting a vector writes.
+        for read in [
+            "CYPHER 25 MATCH (n:Doc) RETURN vector_distance(n.e, vector([1, 0], 2, FLOAT32), COSINE) AS d, vector_norm(n.e, EUCLIDEAN), vector_dimension_count(n.e)",
+            "MATCH (n:Doc) RETURN vector.similarity.cosine(n.e, $q) AS s ORDER BY s DESC LIMIT 5",
+            "CYPHER 25 CALL db.index.vector.queryNodes('ix', 5, vector([1, 0], 2, FLOAT32)) YIELD node, score RETURN node, score",
+            "CALL db.index.vector.queryRelationships('ix', 5, $q) YIELD relationship, score RETURN score",
+            "CALL db.index.fulltext.queryNodes('ft', 'hola') YIELD node RETURN node",
+            "CALL vector_search.search('ix', 5, [1.0, 0.0]) YIELD node, similarity RETURN node",
+        ] {
+            assert_eq!(write_reason(read), None, "{read}");
+        }
+        assert_eq!(
+            write_reason("CALL db.index.vector.createNodeIndex('ix', 'Doc', 'e', 2, 'cosine')")
+                .as_deref(),
+            Some("CALL db.index.vector.createnodeindex")
+        );
+        assert_eq!(
+            write_reason("MATCH (n) CALL db.create.setNodeVectorProperty(n, 'e', [1.0])")
+                .as_deref(),
+            Some("CALL db.create.setnodevectorproperty")
         );
     }
 

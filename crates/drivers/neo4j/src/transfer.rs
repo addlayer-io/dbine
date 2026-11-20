@@ -27,7 +27,10 @@
 //! other JSON as text (properties can't hold maps). Nulls are left out (a
 //! missing property is Cypher's null). Memgraph has no byte arrays (a Bolt
 //! byte array drops the connection): they go as `0x…` text, like the script
-//! path; its dates only go from year 0 to 9999. Leap seconds (`:60`) have
+//! path; its dates only go from year 0 to 9999. A vector (a source column
+//! whose type is a vector or a list of floats, see [`vector_type`]) goes as
+//! a list of floats, which vector indexes index; read back, a list of
+//! floats is its vector text (`[0.5,2]`). Leap seconds (`:60`) have
 //! no Cypher value: refused. Column names must be distinct and non-empty.
 //! Neptune takes each HTTP request as its own transaction, so a cancelled
 //! load could still commit after it returned: no bulk load there.
@@ -143,7 +146,7 @@ impl GraphSession {
             HashMap::new()
         } else {
             // Bolt types of a sample: the first value that isn't null.
-            let mut seen: Vec<Option<&'static str>> = vec![None; names.len()];
+            let mut seen: Vec<Option<String>> = vec![None; names.len()];
             self.bolt_run(
                 &format!("MATCH {pat} WITH n LIMIT 100 RETURN {list}"),
                 Bolt::Map(Vec::new()),
@@ -160,7 +163,7 @@ impl GraphSession {
                 .iter()
                 .cloned()
                 .zip(seen)
-                .filter_map(|(n, t)| Some((n, t?.to_string())))
+                .filter_map(|(n, t)| Some((n, t?)))
                 .collect()
         };
         let cols: Vec<TransferColumn> = names
@@ -222,6 +225,7 @@ impl GraphSession {
             };
             let q = format!("MATCH {pat}{where_} RETURN {ret}");
             let width = names.len();
+            let flavor = self.flavor;
             let mut failed: Option<std::io::Error> = None;
             let sink2 = sink.clone();
             let b = &mut builder;
@@ -231,7 +235,10 @@ impl GraphSession {
                 }
                 let r = match sink2.lock() {
                     Ok(mut s) => b.push(
-                        row.into_iter().take(width).map(bolt_cell).collect(),
+                        row.into_iter()
+                            .take(width)
+                            .map(|v| flavor_cell(flavor, v))
+                            .collect(),
                         &mut *s,
                     ),
                     Err(_) => Err(std::io::Error::other("destino de lotes")),
@@ -256,9 +263,14 @@ impl GraphSession {
     pub(crate) async fn transfer_load(
         &mut self,
         spec: &LoadSpec,
+        columns: &[TransferColumn],
         source: &mut dyn BatchSource,
         progress: Progress<'_>,
     ) -> Result<u64> {
+        // The source's vector columns, by position.
+        let vectors: Vec<bool> = (0..spec.columns.len())
+            .map(|i| columns.get(i).is_some_and(|c| vector_type(&c.type_name)))
+            .collect();
         self.refuse_if_read_only("Conexión de solo lectura: no se pueden cargar datos.")?;
         if spec.table.kind != LABEL {
             return Err(Error::Unsupported("la carga masiva crea nodos: las relaciones necesitan sus nodos de origen y destino".into()));
@@ -308,11 +320,15 @@ impl GraphSession {
                 }
                 let mut m = Vec::with_capacity(row.len());
                 // Moved, not copied: the batch's text goes into the window.
-                for (n, c) in spec.columns.iter().zip(row) {
+                for ((n, c), vector) in spec.columns.iter().zip(row).zip(&vectors) {
                     if c == Cell::Null {
                         continue;
                     }
-                    let v = cell_bolt_owned(c, utc, memgraph).map_err(|e| match e {
+                    let v = match vector_list(&c).filter(|_| *vector) {
+                        Some(v) => Ok(v),
+                        None => cell_bolt_owned(c, utc, memgraph),
+                    };
+                    let v = v.map_err(|e| match e {
                         Error::Query(e) => Error::Query(format!("propiedad {n}: {e}")),
                         Error::Unsupported(e) => Error::Unsupported(format!("propiedad {n}: {e}")),
                         e => e,
@@ -420,10 +436,119 @@ fn bolt_size(v: &Bolt) -> usize {
     }
 }
 
+// ---- vectors ----
+
+/// Whether a source column's type holds vectors (embeddings) or lists of
+/// floats, by its spelling: `vector(3)` (pgvector, MySQL, SQL Server,
+/// Cassandra's `vector<float, 3>`, Neo4j 2025's `VECTOR<FLOAT32>(3)`),
+/// `VECTOR(3, FLOAT32)` (Oracle), `VECTOR(FLOAT, 3)` (Snowflake),
+/// `halfvec(3)`, `ARRAY<FLOAT32>(vector_length=>3)` and `ARRAY<FLOAT64>`
+/// (Spanner, BigQuery), `Array(Float32)` (ClickHouse), `FLOAT[3]` (DuckDB),
+/// `float_vector` (CrateDB), `F32_BLOB(3)` (libSQL), `dense_vector`
+/// (Elasticsearch), `knn_vector` (OpenSearch, Solr), `REAL_VECTOR` /
+/// `HALF_VECTOR` (HANA), Arrow's `FixedSizeList`, a document field's
+/// `array|vector(3)`, and Neo4j's own `LIST<FLOAT>`. A sparse vector isn't
+/// (it isn't a list).
+pub(crate) fn vector_type(t: &str) -> bool {
+    let t = t.trim().to_ascii_lowercase().replace(' ', "");
+    if t.starts_with("sparsevec") || t.contains("sparse") {
+        return false;
+    }
+    // A field of documents with several types: any of them.
+    if t.contains('|') {
+        return t.split('|').any(vector_type);
+    }
+    t.starts_with("vector")
+        || t.starts_with("halfvec")
+        || t.contains("vector_length")
+        || t.starts_with("float_vector")
+        || t.starts_with("dense_vector")
+        || t.starts_with("knn_vector")
+        || t.starts_with("real_vector")
+        || t.starts_with("half_vector")
+        || t.starts_with("frozen<vector")
+        || ["f32_blob", "f64_blob", "f16_blob", "fb16_blob", "f8_blob"]
+            .iter()
+            .any(|p| t.starts_with(p))
+        || t.starts_with("fixedsizelist")
+        || [
+            "list<float>",
+            "array<float64>",
+            "array<float32>",
+            "array<float>",
+            "array<double>",
+            "array(float32)",
+            "array(float64)",
+            "array(bfloat16)",
+        ]
+        .contains(&t.as_str())
+        || ["float[", "double[", "real["]
+            .iter()
+            .any(|p| t.starts_with(p))
+}
+
+/// A vector cell (a JSON array of numbers, as text) as a list of floats.
+fn vector_list(c: &Cell) -> Option<Bolt> {
+    let (Cell::Json(s) | Cell::Text(s)) = c else {
+        return None;
+    };
+    let v = dbine_driver::vector::parse(s)?;
+    Some(Bolt::List(v.into_iter().map(Bolt::Float).collect()))
+}
+
+/// A vector's text (`[0.1,2]`). Memgraph keeps the vectors of a vector
+/// index as 32-bit floats (and sends them widened): when every number is a
+/// 32-bit float, they're written at that precision (`0.1`, not
+/// `0.10000000149011612`), which reads back as the same stored value.
+pub(crate) fn float_text(v: &[f64], f32_storage: bool) -> String {
+    if f32_storage && v.iter().all(|&x| f64::from(x as f32) == x) {
+        dbine_driver::vector::text(v.iter().map(|&x| x as f32))
+    } else {
+        dbine_driver::vector::text(v.iter().copied())
+    }
+}
+
+/// A list of floats (what vector indexes index) as its vector text.
+fn float_list_text(l: &[Bolt], f32_storage: bool) -> Option<String> {
+    if l.is_empty() {
+        return None;
+    }
+    // NaN and ±∞ have no vector text (it'd be `null`, a null element):
+    // such a list keeps its plain form.
+    let v = l
+        .iter()
+        .map(|x| match x {
+            Bolt::Float(f) if f.is_finite() => Some(*f),
+            _ => None,
+        })
+        .collect::<Option<Vec<f64>>>()?;
+    Some(float_text(&v, f32_storage))
+}
+
+/// [`bolt_cell`] on `f`: Memgraph's vectors at their 32-bit precision.
+fn flavor_cell(f: Flavor, v: Bolt) -> Cell {
+    match v {
+        Bolt::List(ref l) if f == Flavor::Memgraph => match float_list_text(l, true) {
+            Some(t) => Cell::Json(t),
+            None => bolt_cell(v),
+        },
+        other => bolt_cell(other),
+    }
+}
+
 // ---- Bolt → cell ----
 
 pub(crate) fn bolt_cell(v: Bolt) -> Cell {
+    // A Neo4j 2025 VECTOR (Bolt 6): its vector text.
+    if let Bolt::Struct(tag::VECTOR, f) = &v {
+        if let Some(t) = value::NativeVector::decode(f).and_then(|n| n.text()) {
+            return Cell::Json(t);
+        }
+    }
     match v {
+        Bolt::List(ref l) if float_list_text(l, false).is_some() => {
+            Cell::Json(float_list_text(l, false).unwrap_or_default())
+        }
         Bolt::Null => Cell::Null,
         Bolt::Bool(b) => Cell::Bool(b),
         Bolt::Int(i) => Cell::Int(i),
@@ -472,33 +597,42 @@ pub(crate) fn bolt_cell(v: Bolt) -> Cell {
 }
 
 /// A value's type as Cypher names it (`None` for null).
-fn bolt_type(v: &Bolt) -> Option<&'static str> {
-    Some(match v {
-        Bolt::Null => return None,
-        Bolt::Bool(_) => "BOOLEAN",
-        Bolt::Int(_) => "INTEGER",
-        Bolt::Float(_) => "FLOAT",
-        Bolt::Bytes(_) => "BYTES",
-        Bolt::String(_) => "STRING",
-        Bolt::List(_) => "LIST",
-        Bolt::Map(_) => "MAP",
-        Bolt::Struct(t, _) => match *t {
-            tag::DATE => "DATE",
-            tag::LOCAL_TIME => "LOCAL TIME",
-            tag::TIME => "ZONED TIME",
-            tag::LOCAL_DATE_TIME => "LOCAL DATETIME",
-            tag::DATE_TIME
-            | tag::LEGACY_DATE_TIME
-            | tag::DATE_TIME_ZONE_ID
-            | tag::LEGACY_DATE_TIME_ZONE_ID => "ZONED DATETIME",
-            tag::DURATION => "DURATION",
-            tag::POINT_2D | tag::POINT_3D => "POINT",
-            tag::NODE => "NODE",
-            tag::RELATIONSHIP | tag::UNBOUND_RELATIONSHIP => "RELATIONSHIP",
-            tag::PATH => "PATH",
-            _ => "ANY",
-        },
-    })
+fn bolt_type(v: &Bolt) -> Option<String> {
+    if let Bolt::Struct(tag::VECTOR, f) = v {
+        if let Some(n) = value::NativeVector::decode(f) {
+            return Some(n.type_name());
+        }
+    }
+    Some(
+        match v {
+            Bolt::Null => return None,
+            Bolt::Bool(_) => "BOOLEAN",
+            Bolt::Int(_) => "INTEGER",
+            Bolt::Float(_) => "FLOAT",
+            Bolt::Bytes(_) => "BYTES",
+            Bolt::String(_) => "STRING",
+            Bolt::List(l) if float_list_text(l, false).is_some() => "LIST<FLOAT>",
+            Bolt::List(_) => "LIST",
+            Bolt::Map(_) => "MAP",
+            Bolt::Struct(t, _) => match *t {
+                tag::DATE => "DATE",
+                tag::LOCAL_TIME => "LOCAL TIME",
+                tag::TIME => "ZONED TIME",
+                tag::LOCAL_DATE_TIME => "LOCAL DATETIME",
+                tag::DATE_TIME
+                | tag::LEGACY_DATE_TIME
+                | tag::DATE_TIME_ZONE_ID
+                | tag::LEGACY_DATE_TIME_ZONE_ID => "ZONED DATETIME",
+                tag::DURATION => "DURATION",
+                tag::POINT_2D | tag::POINT_3D => "POINT",
+                tag::NODE => "NODE",
+                tag::RELATIONSHIP | tag::UNBOUND_RELATIONSHIP => "RELATIONSHIP",
+                tag::PATH => "PATH",
+                _ => "ANY",
+            },
+        }
+        .to_string(),
+    )
 }
 
 /// A Neptune (JSON) value.
@@ -882,6 +1016,73 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn vectors_go_as_float_lists() {
+        for t in [
+            "vector(3)",
+            "VECTOR(3, FLOAT32)",
+            "VECTOR(FLOAT, 3)",
+            "halfvec(4)",
+            "ARRAY<FLOAT32>(vector_length=>3)",
+            "ARRAY<FLOAT64>",
+            "Array(Float32)",
+            "FLOAT[3]",
+            "F32_BLOB(3)",
+            "FixedSizeList<Float32>(3)",
+            "LIST<FLOAT>",
+            "VECTOR<FLOAT32>(3)",
+            "vector<float, 3>",
+            "frozen<vector<float, 3>>",
+            "float_vector(3)",
+            "dense_vector(3, float)",
+            "dense_vector",
+            "knn_vector(3)",
+            "REAL_VECTOR(3)",
+            "HALF_VECTOR(3)",
+            "array|vector(3)|null",
+        ] {
+            assert!(vector_type(t), "{t}");
+        }
+        assert!(!vector_type("string|integer"));
+        for t in ["sparsevec(5)", "integer", "LIST", "text[]", "jsonb", ""] {
+            assert!(!vector_type(t), "{t}");
+        }
+        // pgvector's text and a canonical one with whole numbers: floats.
+        assert_eq!(
+            vector_list(&Cell::Text("[1,0.5,-2]".into())),
+            Some(Bolt::List(vec![
+                Bolt::Float(1.0),
+                Bolt::Float(0.5),
+                Bolt::Float(-2.0)
+            ]))
+        );
+        assert_eq!(vector_list(&Cell::Text("{1:2}/3".into())), None);
+        assert_eq!(vector_list(&Cell::Int(1)), None);
+        // Read back: the vector text, typed LIST<FLOAT>.
+        let l = Bolt::List(vec![Bolt::Float(0.5), Bolt::Float(2.0)]);
+        assert_eq!(bolt_type(&l).as_deref(), Some("LIST<FLOAT>"));
+        assert_eq!(bolt_cell(l), Cell::Json("[0.5,2]".into()));
+        let ints = Bolt::List(vec![Bolt::Int(1), Bolt::Int(2)]);
+        assert_eq!(bolt_type(&ints).as_deref(), Some("LIST"));
+        assert_eq!(bolt_cell(ints), Cell::Json("[1,2]".into()));
+        // NaN or ±∞: no vector text (it'd load back as a null element).
+        let odd = Bolt::List(vec![Bolt::Float(0.5), Bolt::Float(f64::NAN)]);
+        assert_eq!(float_list_text(odd.as_list(), false), None);
+        assert_ne!(bolt_cell(odd), Cell::Json("[0.5,null]".into()));
+        // A Neo4j 2025 VECTOR (Bolt 6): typed as Neo4j spells it, read as
+        // its vector text.
+        let data: Vec<u8> = [0.25f32, -1.0]
+            .iter()
+            .flat_map(|x| x.to_be_bytes())
+            .collect();
+        let v = Bolt::Struct(
+            tag::VECTOR,
+            vec![Bolt::Bytes(vec![0xC6]), Bolt::Bytes(data)],
+        );
+        assert_eq!(bolt_type(&v).as_deref(), Some("VECTOR<FLOAT32>(2)"));
+        assert_eq!(bolt_cell(v), Cell::Json("[0.25,-1]".into()));
     }
 
     #[test]

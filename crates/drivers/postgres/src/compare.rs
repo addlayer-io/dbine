@@ -31,6 +31,7 @@ pub(crate) const NULLS_NOT_DISTINCT: &str = "nulls_not_distinct";
 pub(crate) const DISTRIBUTED_BY: &str = "distributed_by";
 const STRUCTURAL: &[&str] = &[
     KEYS,
+    crate::vectors::VECTOR_OPTION,
     CONSTRAINT,
     NULLS_NOT_DISTINCT,
     DISTRIBUTED_BY,
@@ -1312,7 +1313,9 @@ pub(crate) fn crate_create_indexes(create: &str, indexes: &[IndexDef]) -> String
     };
     let mut out = create.to_string();
     let mut lines = Vec::new();
-    for ix in indexes {
+    // A FLOAT_VECTOR column is indexed (HNSW) by being declared: a vector
+    // index has nothing to add.
+    for ix in indexes.iter().filter(|ix| ix.vector.is_none()) {
         let kind = ix.kind.as_deref().unwrap_or(FULLTEXT);
         if ix.options.contains_key(COLUMN_INDEX) {
             let Some(col) = ix.columns.first() else {
@@ -1370,7 +1373,16 @@ pub(crate) fn crate_sync(script: &mut dbine_driver::SyncScript, changes: &[Table
             None => new.name.clone(),
         };
         let mut what = Vec::new();
-        let (mut oi, mut ni) = (old.indexes.clone(), new.indexes.clone());
+        // A vector index (from a pgvector schema) is no index there: a
+        // FLOAT_VECTOR column is indexed by being declared.
+        let plain = |t: &dbine_driver::TableSchema| -> Vec<IndexDef> {
+            t.indexes
+                .iter()
+                .filter(|ix| ix.vector.is_none())
+                .cloned()
+                .collect()
+        };
+        let (mut oi, mut ni) = (plain(old), plain(new));
         oi.sort_by(|a, b| a.name.cmp(&b.name));
         ni.sort_by(|a, b| a.name.cmp(&b.name));
         if oi != ni {
@@ -1456,6 +1468,11 @@ pub(crate) fn parse_rw_index(name: &str, def: &str) -> Option<IndexDef> {
         if let Some(d) = paren_body(tail, at) {
             ix.options.insert(DISTRIBUTED_BY.into(), d.to_string());
         }
+    }
+    // A vector index (HNSW / FLAT): its distance and parameters.
+    if let Some(vi) = crate::vectors::from_rw_def(def) {
+        ix.kind = vi.algorithm.clone();
+        ix.vector = Some(vi);
     }
     Some(ix)
 }

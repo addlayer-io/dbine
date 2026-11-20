@@ -3,8 +3,16 @@
 //! through the Schema API in one `POST /solr/<name>/schema` with
 //! `delete-field`, `add-field` and `replace-field` lists. The uniqueKey
 //! comes from the configset and can't change.
+//!
+//! A vector column's field type goes first: `add-field-type` for one the
+//! schema doesn't have yet, `replace-field-type` (and a reindex warning)
+//! when its vector index changes. A field whose vector index goes is
+//! replaced with `indexed: false` and keeps its field type, which other
+//! fields may share.
 
-use crate::ddl::{check_name, collection_ddl, field_def, BUILTIN_FIELDS};
+use crate::ddl::{
+    check_name, collection_ddl, field_def, vector_field_type, vector_field_types, BUILTIN_FIELDS,
+};
 use dbine_driver::{ColumnDef, DdlParts, Result, SyncScript, TableChange, TableSchema};
 use dbine_driver_elasticsearch::json::J;
 
@@ -22,6 +30,11 @@ const DROP: DdlParts = DdlParts {
     indexes: false,
     foreign_keys: false,
 };
+
+/// A column's field type and vector index as [`field_def`] takes them.
+fn as_ref(v: &Option<(String, bool)>) -> Option<(&str, bool)> {
+    v.as_ref().map(|(n, i)| (n.as_str(), *i))
+}
 
 fn eq_name(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
@@ -69,6 +82,30 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
                 let mut delete = Vec::new();
                 let mut add = Vec::new();
                 let mut replace = Vec::new();
+                // Vector field types: the new ones, and the ones that change.
+                let old_types = vector_field_types(old)?;
+                let mut add_types = Vec::new();
+                let mut replace_types = Vec::new();
+                for (ty, def, indexed) in vector_field_types(new)? {
+                    match old_types.iter().find(|(o, _, _)| *o == ty) {
+                        None => add_types.push(J::Obj(def)),
+                        // Only fields without a vector index use it: its
+                        // distance and parameters don't matter to them.
+                        Some(_) if !indexed => {}
+                        Some((_, d, _)) if *d != def => {
+                            warnings.push(format!(
+                                "{name}: cambia el tipo de campo vectorial «{ty}» (distancia, parámetros del índice). Lo usan todos sus campos y los vectores ya indexados no cambian: hay que reindexarlos."
+                            ));
+                            replace_types.push(J::Obj(def));
+                        }
+                        Some(_) => {}
+                    }
+                }
+                let vector_of =
+                    |t: &TableSchema, c: &ColumnDef| -> Result<Option<(String, bool)>> {
+                        Ok(vector_field_type(t, c)?.map(|(n, _, indexed)| (n, indexed)))
+                    };
+
                 for c in oc
                     .iter()
                     .filter(|c| !nc.iter().any(|n| eq_name(&n.name, &c.name)))
@@ -80,18 +117,29 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
                     .iter()
                     .filter(|c| !oc.iter().any(|o| eq_name(&o.name, &c.name)))
                 {
-                    add.push(J::Obj(field_def(c)?));
+                    add.push(J::Obj(field_def(c, as_ref(&vector_of(new, c)?))?));
                 }
                 for n in &nc {
                     let Some(o) = oc.iter().find(|o| eq_name(&o.name, &n.name)) else {
                         continue;
                     };
-                    let nd = field_def(n)?;
-                    if J::Obj(field_def(o)?).compact() != J::Obj(nd.clone()).compact() {
-                        warnings.push(format!(
-                            "{name}.{}: cambia su definición ({} → {}). Los documentos ya indexados no cambian: hay que reindexarlos.",
-                            n.name, o.data_type, n.data_type
-                        ));
+                    let (nv, ov) = (vector_of(new, n)?, vector_of(old, o)?);
+                    let nd = field_def(n, as_ref(&nv))?;
+                    let od = field_def(o, as_ref(&ov))?;
+                    if J::Obj(od).compact() != J::Obj(nd.clone()).compact() {
+                        let index_only = o.data_type == n.data_type
+                            && matches!((&ov, &nv), (Some((_, a)), Some((_, b))) if a != b);
+                        warnings.push(if index_only {
+                            format!(
+                                "{name}.{}: cambia su índice vectorial. Los documentos ya indexados no cambian: hay que reindexarlos.",
+                                n.name
+                            )
+                        } else {
+                            format!(
+                                "{name}.{}: cambia su definición ({} → {}). Los documentos ya indexados no cambian: hay que reindexarlos.",
+                                n.name, o.data_type, n.data_type
+                            )
+                        });
                         replace.push(J::Obj(nd));
                     }
                 }
@@ -106,6 +154,8 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
                 let mut cmds = Vec::new();
                 for (cmd, list) in [
                     ("delete-field", delete),
+                    ("add-field-type", add_types),
+                    ("replace-field-type", replace_types),
                     ("add-field", add),
                     ("replace-field", replace),
                 ] {
@@ -140,7 +190,151 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dbine_driver::KeyDef;
+    use dbine_driver::{IndexDef, KeyDef, VectorIndex};
+
+    #[test]
+    fn vector_field_types_go_first() {
+        let old = coll("docs", vec![col("id", "string")]);
+        let mut new = old.clone();
+        new.columns.push(col("emb", "knn_vector(3)"));
+        new.indexes.push(IndexDef {
+            name: "emb".into(),
+            columns: vec!["emb".into()],
+            vector: Some(VectorIndex {
+                metric: Some("cosine".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let s = sync_script(&[TableChange::Alter {
+            old: old.clone(),
+            new: new.clone(),
+        }])
+        .unwrap();
+        assert_eq!(
+            s.statements,
+            ["POST /solr/docs/schema\n{\n  \"add-field-type\": [\n    {\"name\":\"knn_vector_3_cosine\",\"class\":\"solr.DenseVectorField\",\"vectorDimension\":3,\"similarityFunction\":\"cosine\"}\n  ],\n  \"add-field\": [\n    {\"name\":\"emb\",\"type\":\"knn_vector_3_cosine\"}\n  ]\n}"]
+        );
+        // Its distance changes: a field type of its own, and a reindex.
+        let mut l2 = new.clone();
+        l2.indexes[0].vector.as_mut().unwrap().metric = Some("l2".into());
+        let s = sync_script(&[TableChange::Alter {
+            old: new.clone(),
+            new: l2,
+        }])
+        .unwrap();
+        assert!(
+            s.statements[0].contains("\"add-field-type\"")
+                && s.statements[0].contains("knn_vector_3_euclidean"),
+            "{:?}",
+            s.statements
+        );
+        assert!(s.statements[0].contains("\"replace-field\""));
+        assert!(!s.warnings.is_empty());
+        // Read back with its field type's name: that type is replaced.
+        let mut named = new.clone();
+        named.columns[1]
+            .options
+            .insert("fieldType".into(), "knn".into());
+        let mut changed = named.clone();
+        changed.indexes[0].vector.as_mut().unwrap().metric = Some("ip".into());
+        let s = sync_script(&[TableChange::Alter {
+            old: named,
+            new: changed,
+        }])
+        .unwrap();
+        assert!(
+            s.statements[0].contains("\"replace-field-type\"")
+                && s.statements[0].contains("dot_product"),
+            "{:?}",
+            s.statements
+        );
+        assert!(!s.statements[0].contains("\"replace-field\""));
+        assert!(s.warnings[0].contains("reindex"), "{:?}", s.warnings);
+    }
+
+    #[test]
+    fn a_vector_index_dropped_leaves_the_field_unindexed() {
+        // As describe reads it: the field type's name in fieldType.
+        let mut old = coll("docs", vec![col("id", "string")]);
+        let mut emb = col("emb", "knn_vector(3)");
+        emb.options
+            .insert("fieldType".into(), "knn_vector_3_cosine".into());
+        old.columns.push(emb.clone());
+        let mut other = emb.clone();
+        other.name = "emb2".into();
+        old.columns.push(other);
+        for f in ["emb", "emb2"] {
+            old.indexes.push(IndexDef {
+                name: f.into(),
+                columns: vec![f.into()],
+                vector: Some(VectorIndex {
+                    metric: Some("cosine".into()),
+                    ..Default::default()
+                }),
+                options: [("similarityFunction".to_string(), "cosine".to_string())].into(),
+                ..Default::default()
+            });
+        }
+        let mut new = old.clone();
+        new.indexes.remove(0);
+        let s = sync_script(&[TableChange::Alter {
+            old: old.clone(),
+            new: new.clone(),
+        }])
+        .unwrap();
+        // The shared field type stays (emb2 still searches by cosine), and
+        // emb stops being indexed.
+        assert_eq!(
+            s.statements,
+            ["POST /solr/docs/schema\n{\n  \"replace-field\": [\n    {\"name\":\"emb\",\"type\":\"knn_vector_3_cosine\",\"indexed\":false}\n  ]\n}"]
+        );
+        assert_eq!(
+            s.warnings,
+            ["docs.emb: cambia su índice vectorial. Los documentos ya indexados no cambian: hay que reindexarlos."]
+        );
+        // And back: the field is indexed again with its type.
+        let s = sync_script(&[TableChange::Alter { old: new, new: old }]).unwrap();
+        assert!(
+            s.statements[0].contains(r#"{"name":"emb","type":"knn_vector_3_cosine"}"#),
+            "{:?}",
+            s.statements
+        );
+        assert!(!s.statements[0].contains("field-type"));
+        // A designer model's field (no fieldType) losing its index: a
+        // field type that only holds the vector.
+        let designed = |ix: bool| {
+            let mut t = coll(
+                "docs",
+                vec![col("id", "string"), col("emb", "knn_vector(3)")],
+            );
+            if ix {
+                t.indexes.push(IndexDef {
+                    name: "emb".into(),
+                    columns: vec!["emb".into()],
+                    vector: Some(VectorIndex {
+                        metric: Some("cosine".into()),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                });
+            }
+            t
+        };
+        let s = sync_script(&[TableChange::Alter {
+            old: designed(true),
+            new: designed(false),
+        }])
+        .unwrap();
+        assert!(
+            s.statements[0].contains(
+                r#"{"name":"knn_vector_3","class":"solr.DenseVectorField","vectorDimension":3}"#
+            ) && s.statements[0]
+                .contains(r#"{"name":"emb","type":"knn_vector_3","indexed":false}"#),
+            "{:?}",
+            s.statements
+        );
+    }
 
     fn col(name: &str, ty: &str) -> ColumnDef {
         ColumnDef {

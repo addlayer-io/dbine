@@ -104,6 +104,7 @@ impl Dialect for Exasol {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
                 let digits = match L::signed_bytes_for(*bytes, *unsigned) {
@@ -216,6 +217,8 @@ impl Dialect for Exasol {
             comments: true,
             max_identifier: 128,
             case: IdentCase::Upper,
+            vector_indexes: false,
+            vectors: false,
         }
     }
 

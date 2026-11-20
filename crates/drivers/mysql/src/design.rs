@@ -40,6 +40,7 @@ pub(crate) fn capabilities(v: Variant) -> Capabilities {
         database_properties: crate::properties::supported(v),
         jobs: crate::jobs::supported(v),
         scheduler: crate::jobs::supported(v),
+        vectors: crate::vectors::supported(v),
     }
 }
 
@@ -155,9 +156,12 @@ fn charset_fields() -> [Field; 2] {
 }
 
 pub(crate) fn designer(v: Variant) -> DesignerSpec {
-    let mut d = DesignerSpec::sql_table(data_types(v));
+    let mut types = data_types(v);
+    types.extend(crate::vectors::data_types(v));
+    let mut d = DesignerSpec::sql_table(types);
     d.comments = true;
     d.foreign_keys = v.has_foreign_keys();
+    d.vector_indexes = crate::vectors::designer(v);
     match v {
         Variant::MySql | Variant::MariaDb => {
             d.table_options =
@@ -233,7 +237,8 @@ pub(crate) fn designer(v: Variant) -> DesignerSpec {
         Variant::Databend => {
             d.primary_key = false;
             d.auto_increment = false;
-            d.indexes = false;
+            // Its vector indexes (the designer has no inverted / ngram ones).
+            d.indexes = true;
         }
         Variant::Manticore => {
             d.primary_key = false;
@@ -241,7 +246,8 @@ pub(crate) fn designer(v: Variant) -> DesignerSpec {
             d.defaults = false;
             d.nullability = false;
             d.comments = false;
-            d.indexes = false;
+            // Only vector (KNN) indexes, on float_vector columns.
+            d.indexes = true;
         }
         Variant::GreptimeDb => {
             d.auto_increment = false;
@@ -350,6 +356,42 @@ pub(crate) fn sync_script(
     let comments = |t: &TableSchema, c: Option<&dbine_driver::ColumnDef>, text: Option<&str>| {
         comment_change(v, t, c, text)
     };
+    // Vector indexes compared by what they build: the designer changes
+    // their vector settings, not the native options they were read with.
+    let compared: Vec<dbine_driver::TableChange> = changes
+        .iter()
+        .cloned()
+        .map(|mut c| {
+            if let dbine_driver::TableChange::Alter { old, new } = &mut c {
+                // The same build (an algorithm named or not, a default
+                // written out or not) is the same index: the generic
+                // planner also compares the vector settings as given.
+                for nix in new.indexes.iter_mut() {
+                    let same =
+                        old.indexes
+                            .iter()
+                            .find(|o| o.name == nix.name)
+                            .and_then(|o| match (&o.vector, &nix.vector) {
+                                (Some(ov), Some(nv))
+                                    if crate::vectors::settings_key(v, ov)
+                                        == crate::vectors::settings_key(v, nv) =>
+                                {
+                                    Some(ov.clone())
+                                }
+                                _ => None,
+                            });
+                    if let Some(ov) = same {
+                        nix.vector = Some(ov);
+                    }
+                }
+                for ix in old.indexes.iter_mut().chain(new.indexes.iter_mut()) {
+                    crate::vectors::for_sync(v, ix);
+                }
+            }
+            c
+        })
+        .collect();
+    let changes = compared.as_slice();
     let mut script = dbine_driver::alter::sync_script_with_comments(&st, Some(&comments), changes)?;
     if matches!(v, Variant::StarRocks | Variant::Doris | Variant::VeloDb)
         && changes
@@ -381,6 +423,27 @@ pub(crate) fn column_definition(
     // A MariaDB column CHECK goes after the rest of the column.
     let (ty, check) = column_check(&c.data_type);
     c.data_type = ty;
+    if let Some((ty, _)) = crate::vectors::family_type(v, &c.data_type) {
+        c.data_type = ty;
+    }
+    if v == Variant::Manticore {
+        // A float_vector added with its KNN settings.
+        if let Some(knn) = t
+            .indexes
+            .iter()
+            .find(|i| {
+                i.vector.is_some()
+                    && i.columns.len() == 1
+                    && i.columns[0].eq_ignore_ascii_case(&c.name)
+            })
+            .and_then(|ix| crate::vectors::manticore_knn(ix).ok())
+        {
+            c.data_type = format!(
+                "{} {knn}",
+                crate::vectors::manticore_base_type(&c.data_type)
+            );
+        }
+    }
     let def = ddl::column_def(&f, &t, &c);
     match check {
         Some(ch) => format!("{def} {ch}"),
@@ -610,6 +673,42 @@ fn engine_sync(
                 ));
             }
             Variant::Manticore => {
+                // KNN settings are the column's: no index to drop or create.
+                for o in &old.indexes {
+                    let drop = format!("ALTER TABLE {name} DROP INDEX {};", q(&o.name));
+                    script.statements.retain(|s| *s != drop);
+                }
+                let knn = |t: &TableSchema| {
+                    let mut k: Vec<(String, Option<dbine_driver::VectorIndex>)> = t
+                        .indexes
+                        .iter()
+                        .filter(|i| i.vector.is_some())
+                        .map(|i| (i.columns.join(",").to_lowercase(), i.vector.clone()))
+                        .collect();
+                    k.sort_by(|a, b| a.0.cmp(&b.0));
+                    k
+                };
+                let kept: Vec<String> = old
+                    .columns
+                    .iter()
+                    .filter(|c| {
+                        new.columns
+                            .iter()
+                            .any(|n| n.name.eq_ignore_ascii_case(&c.name))
+                    })
+                    .map(|c| c.name.to_lowercase())
+                    .collect();
+                let on_kept = |k: Vec<(String, Option<dbine_driver::VectorIndex>)>| {
+                    k.into_iter()
+                        .filter(|(c, _)| kept.contains(c))
+                        .collect::<Vec<_>>()
+                };
+                if on_kept(knn(old)) != on_kept(knn(new)) {
+                    script.warnings.push(format!(
+                        "{}: Manticore no cambia los ajustes KNN de una columna float_vector ya creada; hay que borrar la columna y agregarla de nuevo, o recrear la tabla.",
+                        new.name
+                    ));
+                }
                 let keys: std::collections::BTreeSet<&String> =
                     old.options.keys().chain(new.options.keys()).collect();
                 let set: Vec<String> = keys
@@ -634,8 +733,19 @@ pub(crate) fn table_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<
     match v {
         Variant::StarRocks | Variant::Doris => olap_ddl(v, t, parts),
         Variant::GreptimeDb => greptime_ddl(t, parts),
-        Variant::Manticore => Ok(manticore_ddl(t, parts)),
-        _ => Ok(mysql_ddl(v, t, parts)),
+        Variant::Manticore => manticore_ddl(t, parts),
+        _ => mysql_ddl(v, t, parts),
+    }
+}
+
+/// A vector index the engine can't take, as a comment in the script that
+/// says why (the rest of the table is still made); a value that can't go
+/// into the statement is an error.
+fn vector_index_or_note(r: Result<String>) -> Result<String> {
+    match r {
+        Ok(s) => Ok(s),
+        Err(Error::Unsupported(why)) => Ok(format!("-- {}", why.replace(['\n', '\r'], " "))),
+        Err(e) => Err(e),
     }
 }
 
@@ -765,6 +875,13 @@ fn singlestore_create(create: &str, t: &TableSchema) -> String {
 fn databend_index(t: &TableSchema, ix: &dbine_driver::IndexDef, create: bool) -> Result<String> {
     let kind = ix.kind.as_deref().unwrap_or("").trim().to_ascii_uppercase();
     let name = q(&ix.name);
+    if ix.vector.is_some() || kind == "VECTOR" {
+        return if create {
+            crate::vectors::create_index(Variant::Databend, &q(&t.name), ix, false)
+        } else {
+            Ok(format!("DROP VECTOR INDEX {name} ON {};", q(&t.name)))
+        };
+    }
     if kind == "AGGREGATING" {
         let query = ix.options.get("query").ok_or_else(|| {
             Error::Query(format!(
@@ -800,11 +917,20 @@ fn databend_index(t: &TableSchema, ix: &dbine_driver::IndexDef, create: bool) ->
     ))
 }
 
-fn mysql_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> String {
+fn mysql_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<String> {
     let f = flavor(v);
     let mut t = escaped_comments(t);
     if v == Variant::Databend {
         t.primary_key = None;
+    }
+    // Vector types of another engine of the family (SingleStore's element
+    // types, TiDB's long form), as this one writes them.
+    let mut type_notes = Vec::new();
+    for c in &mut t.columns {
+        if let Some((ty, note)) = crate::vectors::family_type(v, &c.data_type) {
+            c.data_type = ty;
+            type_notes.extend(note.map(|n| format!("-- {n}")));
+        }
     }
     // MariaDB column CHECKs: written last in their column's line.
     let mut column_checks: Vec<(String, String)> = Vec::new();
@@ -879,20 +1005,58 @@ fn mysql_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> String {
             if v == Variant::SingleStore {
                 s = singlestore_create(&s, &t);
             }
+            if !type_notes.is_empty() {
+                s = format!("{}\n{s}", type_notes.join("\n"));
+            }
         }
         out.push(s);
     }
     if parts.indexes && v != Variant::Databend {
         for ix in &t.indexes {
-            out.push(mysql_index(v, &t, ix, parts.if_exists));
+            if ix.vector.is_some() {
+                // MariaDB indexes NOT NULL vectors only.
+                let nullable = ix.columns.first().and_then(|c| {
+                    t.columns
+                        .iter()
+                        .find(|x| x.name.eq_ignore_ascii_case(c) && x.nullable)
+                });
+                if let (Variant::MariaDb, Some(c)) = (v, nullable) {
+                    out.push(vector_index_or_note(Err(Error::Unsupported(format!(
+                        "MariaDB indexa vectores de columnas NOT NULL: el índice vectorial «{}» pide «{}» NOT NULL",
+                        ix.name, c.name
+                    ))))?);
+                    continue;
+                }
+                out.push(vector_index_or_note(crate::vectors::create_index(
+                    v,
+                    &q(&t.name),
+                    ix,
+                    parts.if_exists,
+                ))?);
+            } else {
+                out.push(mysql_index(v, &t, ix, parts.if_exists));
+            }
         }
     }
     if parts.indexes && v == Variant::Databend {
         for ix in &t.indexes {
-            match databend_index(&t, ix, true) {
-                Ok(s) => out.push(s),
-                Err(e) => tracing::debug!("databend: {e}"),
+            if ix.vector.is_some() {
+                out.push(vector_index_or_note(crate::vectors::create_index(
+                    v,
+                    &q(&t.name),
+                    ix,
+                    parts.if_exists,
+                ))?);
+                continue;
             }
+            // An index Databend doesn't have: said in the script.
+            out.push(match databend_index(&t, ix, true) {
+                Ok(s) => s,
+                Err(Error::Unsupported(why) | Error::Query(why)) => {
+                    format!("-- {}", why.replace(['\n', '\r'], " "))
+                }
+                Err(e) => return Err(e),
+            });
         }
     }
     if parts.foreign_keys && v.has_foreign_keys() {
@@ -909,8 +1073,11 @@ fn mysql_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> String {
         }
     }
     out.retain(|s| !s.is_empty());
-    out.join("\n")
+    Ok(out.join("\n"))
 }
+
+/// StarRocks' FE setting its vector indexes need (they're experimental).
+const SR_VECTOR_FLAG: &str = "enable_experimental_vector";
 
 fn is_call(d: &str) -> bool {
     let d = d.trim();
@@ -918,6 +1085,25 @@ fn is_call(d: &str) -> bool {
         && d.split('(').next().is_some_and(|f| {
             !f.is_empty() && f.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
         })
+}
+
+/// The key model a StarRocks / Doris table is made with: the designer's
+/// `key_model`, else UNIQUE (Doris) / PRIMARY (StarRocks) with a primary
+/// key, DUPLICATE without one. An AGGREGATE KEY table as described is made
+/// DUPLICATE KEY (its columns' aggregation types aren't read).
+fn olap_model(v: Variant, t: &TableSchema) -> &'static str {
+    let pk = t
+        .primary_key
+        .as_ref()
+        .is_some_and(|k| !k.columns.is_empty());
+    match (opt(t, "key_model").unwrap_or("auto"), v) {
+        ("duplicate" | "aggregate", _) => "DUPLICATE",
+        ("primary", Variant::StarRocks) => "PRIMARY",
+        ("unique" | "primary", _) => "UNIQUE",
+        _ if !pk => "DUPLICATE",
+        (_, Variant::StarRocks) => "PRIMARY",
+        _ => "UNIQUE",
+    }
 }
 
 /// StarRocks and Doris: a key model, key columns first, hash distribution.
@@ -936,14 +1122,7 @@ fn olap_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<String> {
             .as_ref()
             .map(|k| k.columns.clone())
             .unwrap_or_default();
-        let model = match (opt(t, "key_model").unwrap_or("auto"), v) {
-            ("duplicate", _) => "DUPLICATE",
-            ("primary", Variant::StarRocks) => "PRIMARY",
-            ("unique" | "primary", _) => "UNIQUE",
-            _ if pk.is_empty() => "DUPLICATE",
-            (_, Variant::StarRocks) => "PRIMARY",
-            _ => "UNIQUE",
-        };
+        let model = olap_model(v, t);
         let keys: Vec<String> = match opt(t, "key_columns") {
             Some(k) => k
                 .split(',')
@@ -1067,7 +1246,93 @@ fn olap_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<String> {
             })
             .collect();
         let mut adds = Vec::new();
+        let mut notes = Vec::new();
+        // Said before the index statement.
+        let mut lead: Vec<String> = Vec::new();
         for ix in t.indexes.iter().filter(|i| !is_rollup(i)) {
+            if ix.vector.is_some() {
+                // The vectors of an ANN / VECTOR index can't be NULL.
+                if let Some(c) = ix.columns.first().and_then(|c| {
+                    t.columns
+                        .iter()
+                        .find(|x| x.name.eq_ignore_ascii_case(c) && x.nullable)
+                }) {
+                    notes.push(vector_index_or_note(Err(Error::Unsupported(format!(
+                        "{} indexa vectores de columnas NOT NULL: el índice vectorial «{}» pide «{}» NOT NULL",
+                        if v == Variant::Doris { "Doris" } else { "StarRocks" },
+                        ix.name,
+                        c.name
+                    ))))?);
+                    continue;
+                }
+                // Doris builds ANN indexes on DUPLICATE KEY tables only,
+                // StarRocks its vector indexes on DUPLICATE or PRIMARY KEY:
+                // never on an AGGREGATE KEY table (one that exists, as
+                // described; the designer makes none).
+                let model = if opt(t, "key_model") == Some("aggregate") {
+                    "AGGREGATE"
+                } else {
+                    olap_model(v, t)
+                };
+                match (v, model) {
+                    (_, "DUPLICATE") | (Variant::StarRocks, "PRIMARY") => {}
+                    (Variant::Doris, _) => {
+                        notes.push(vector_index_or_note(Err(Error::Unsupported(format!(
+                            "Doris crea índices ANN solo en tablas DUPLICATE KEY: el índice vectorial «{}» pide el modelo DUPLICATE KEY",
+                            ix.name
+                        ))))?);
+                        continue;
+                    }
+                    _ => {
+                        notes.push(vector_index_or_note(Err(Error::Unsupported(format!(
+                            "StarRocks crea índices vectoriales solo en tablas DUPLICATE KEY o PRIMARY KEY: el índice vectorial «{}» pide uno de esos modelos",
+                            ix.name
+                        ))))?);
+                        continue;
+                    }
+                }
+                // ANN (Doris) / VECTOR (StarRocks) with their properties.
+                let (kind, props, note) = match crate::vectors::olap_index(v, ix) {
+                    Ok(k) => k,
+                    Err(e) => {
+                        notes.push(vector_index_or_note(Err(e))?);
+                        continue;
+                    }
+                };
+                lead.extend(note);
+                if v == Variant::StarRocks && !lead.iter().any(|l| l.contains(SR_VECTOR_FLAG)) {
+                    lead.push(format!(
+                        "StarRocks crea índices vectoriales con {SR_VECTOR_FLAG} activado en el FE: ADMIN SET FRONTEND CONFIG (\"{SR_VECTOR_FLAG}\" = \"true\")"
+                    ));
+                }
+                let props: Vec<String> = props
+                    .iter()
+                    .map(|(k, val)| {
+                        format!("\"{}\" = \"{}\"", k.replace('"', ""), val.replace('"', ""))
+                    })
+                    .collect();
+                let props = if v == Variant::Doris {
+                    format!(" PROPERTIES({})", props.join(", "))
+                } else {
+                    format!(" ({})", props.join(", "))
+                };
+                let comment = ix
+                    .options
+                    .get("COMMENT")
+                    .map(|c| format!(" COMMENT {}", lit(c)))
+                    .unwrap_or_default();
+                let guard = if parts.if_exists && v == Variant::Doris {
+                    "IF NOT EXISTS "
+                } else {
+                    ""
+                };
+                let cols: Vec<String> = ix.columns.iter().map(|c| q(c)).collect();
+                adds.push((
+                    format!("{guard}{}", q(&ix.name)),
+                    format!("({}) USING {kind}{props}{comment}", cols.join(", ")),
+                ));
+                continue;
+            }
             if ix.unique {
                 return Err(Error::Unsupported(format!(
                     "{} no tiene índices únicos (índice «{}»): use el modelo UNIQUE KEY / PRIMARY KEY",
@@ -1119,17 +1384,26 @@ fn olap_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<String> {
         }
         // Each index change is a schema change job, and a table takes one
         // at a time: several indexes go in one ALTER TABLE.
+        let said = |s: String| {
+            let mut l: Vec<String> = lead
+                .iter()
+                .map(|n| format!("-- {}", n.replace(['\n', '\r'], " ")))
+                .collect();
+            l.push(s);
+            l.join("\n")
+        };
         match adds.as_slice() {
             [] => {}
-            [(n, rest)] => out.push(format!("CREATE INDEX {n} ON {name} {rest};")),
+            [(n, rest)] => out.push(said(format!("CREATE INDEX {n} ON {name} {rest};"))),
             _ => {
                 let all: Vec<String> = adds
                     .iter()
                     .map(|(n, rest)| format!("ADD INDEX {n} {rest}"))
                     .collect();
-                out.push(format!("ALTER TABLE {name} {};", all.join(", ")));
+                out.push(said(format!("ALTER TABLE {name} {};", all.join(", "))));
             }
         }
+        out.extend(notes);
         // Rollups: other sort orders of the table's data, one job for all.
         if !rollups.is_empty() {
             out.push(format!(
@@ -1167,25 +1441,30 @@ fn greptime_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
                 })?,
         };
         let t = escaped_comments(t);
-        let mut lines: Vec<String> = t
-            .columns
-            .iter()
-            .map(|c| {
-                let mut l = format!("    {} {}", q(&c.name), c.data_type);
-                l.push_str(if !c.nullable || c.name == ts {
-                    " NOT NULL"
-                } else {
-                    " NULL"
-                });
-                if let Some(d) = c.default_value.as_deref().filter(|d| !d.is_empty()) {
-                    l.push_str(&format!(" DEFAULT {d}"));
-                }
-                if let Some(cm) = c.comment.as_deref().filter(|s| !s.is_empty()) {
-                    l.push_str(&format!(" COMMENT '{}'", cm.replace('\'', "''")));
-                }
-                l
-            })
-            .collect();
+        let mut lines: Vec<String> = Vec::new();
+        for c in &t.columns {
+            let mut l = format!("    {} {}", q(&c.name), c.data_type);
+            l.push_str(if !c.nullable || c.name == ts {
+                " NOT NULL"
+            } else {
+                " NULL"
+            });
+            if let Some(d) = c.default_value.as_deref().filter(|d| !d.is_empty()) {
+                l.push_str(&format!(" DEFAULT {d}"));
+            }
+            if let Some(cm) = c.comment.as_deref().filter(|s| !s.is_empty()) {
+                l.push_str(&format!(" COMMENT '{}'", cm.replace('\'', "''")));
+            }
+            // A vector index is the column's, made with the table.
+            if let Some(ix) = t
+                .indexes
+                .iter()
+                .find(|i| i.vector.is_some() && i.columns.len() == 1 && i.columns[0] == c.name)
+            {
+                l.push_str(&crate::vectors::greptime_column_index(ix)?);
+            }
+            lines.push(l);
+        }
         lines.push(format!("    TIME INDEX ({})", q(&ts)));
         let tags: Vec<String> = t
             .primary_key
@@ -1229,6 +1508,12 @@ fn greptime_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     }
     if parts.indexes {
         for ix in &t.indexes {
+            if ix.vector.is_some() {
+                if !parts.create {
+                    out.push(greptime_index(t, ix, true)?);
+                }
+                continue;
+            }
             out.push(greptime_index(t, ix, true)?);
         }
     }
@@ -1243,6 +1528,15 @@ fn greptime_options(t: &TableSchema) -> impl Iterator<Item = (&String, &String)>
 /// GreptimeDB's indexes are column settings: `SET` (with their `WITH`
 /// options) or `UNSET` them.
 fn greptime_index(t: &TableSchema, ix: &dbine_driver::IndexDef, set: bool) -> Result<String> {
+    if ix.vector.is_some() {
+        // Its ALTER sets and unsets INVERTED, FULLTEXT and SKIPPING only.
+        return vector_index_or_note(Err(Error::Unsupported(format!(
+            "GreptimeDB {} un índice vectorial solo con la tabla: «{}» en «{}» pide recrear la tabla",
+            if set { "crea" } else { "quita" },
+            ix.name,
+            t.name
+        ))));
+    }
     let kind = ix.kind.as_deref().unwrap_or("").to_ascii_uppercase();
     let [col] = ix.columns.as_slice() else {
         return Err(Error::Unsupported(format!(
@@ -1327,8 +1621,33 @@ fn merge_olap_drops(statements: &mut Vec<String>) {
 }
 
 /// Manticore: attributes and full-text fields, nothing else (`id` is
-/// implicit; DESCRIBE's `mva` types are spelled `multi` in CREATE).
-fn manticore_ddl(t: &TableSchema, parts: DdlParts) -> String {
+/// implicit; DESCRIBE's `mva` types are spelled `multi` in CREATE). A
+/// `float_vector`'s KNN settings are its vector index, written in the
+/// column; other indexes don't exist.
+fn manticore_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
+    let knn_of = |col: &str| -> Result<Option<String>> {
+        match t.indexes.iter().find(|i| {
+            i.vector.is_some() && i.columns.len() == 1 && i.columns[0].eq_ignore_ascii_case(col)
+        }) {
+            Some(ix) => crate::vectors::manticore_knn(ix).map(Some),
+            None => Ok(None),
+        }
+    };
+    if parts.create {
+        if let Some(ix) = t.indexes.iter().find(|i| {
+            i.vector.is_none()
+                || !t.columns.iter().any(|c| {
+                    i.columns.len() == 1
+                        && c.name.eq_ignore_ascii_case(&i.columns[0])
+                        && crate::vectors::meta(Variant::Manticore, &c.data_type).is_some()
+                })
+        }) {
+            return Err(Error::Unsupported(format!(
+                "Manticore solo tiene índices KNN (vectoriales) sobre una columna float_vector (índice «{}»)",
+                ix.name
+            )));
+        }
+    }
     let name = q(&t.name);
     let mut out = Vec::new();
     if parts.drop {
@@ -1338,18 +1657,22 @@ fn manticore_ddl(t: &TableSchema, parts: DdlParts) -> String {
         ));
     }
     if parts.create {
-        let cols: Vec<String> = t
-            .columns
-            .iter()
-            .map(|c| {
-                let ty = match c.data_type.to_ascii_lowercase().as_str() {
-                    "mva" => "multi".to_string(),
-                    "mva64" => "multi64".to_string(),
-                    _ => c.data_type.clone(),
-                };
-                format!("    {} {ty}", q(&c.name))
-            })
-            .collect();
+        let mut cols: Vec<String> = Vec::new();
+        for c in &t.columns {
+            let ty = match c.data_type.to_ascii_lowercase().as_str() {
+                "mva" => "multi".to_string(),
+                "mva64" => "multi64".to_string(),
+                _ => c.data_type.clone(),
+            };
+            match knn_of(&c.name)? {
+                Some(knn) => cols.push(format!(
+                    "    {} {} {knn}",
+                    q(&c.name),
+                    crate::vectors::manticore_base_type(&ty)
+                )),
+                None => cols.push(format!("    {} {ty}", q(&c.name))),
+            }
+        }
         let settings: String = t
             .options
             .iter()
@@ -1365,7 +1688,16 @@ fn manticore_ddl(t: &TableSchema, parts: DdlParts) -> String {
             cols.join(",\n")
         ));
     }
-    out.join("\n")
+    Ok(out.join("\n"))
+}
+
+/// A value of an edit or insert as a literal: a vector (a JSON array of
+/// numbers) as the engine's vector literal, the rest as before.
+fn value_literal(v: Variant, f: &SqlFlavor, c: &Value) -> String {
+    match crate::vectors::edit_value(c) {
+        Some(values) => crate::vectors::literal(v, &values),
+        None => ddl::sql_literal(f, &escape_backslashes(c)),
+    }
 }
 
 pub(crate) fn insert_script(
@@ -1379,17 +1711,15 @@ pub(crate) fn insert_script(
     }
     // Backslashes are escapes in the default sql_mode (and in the
     // emulations); the builder doubles the quotes.
-    let rows: Vec<Vec<Value>> = rows
-        .iter()
-        .map(|r| r.iter().map(escape_backslashes).collect())
-        .collect();
-    ddl::insert_script(
-        &flavor(v),
+    let f = flavor(v);
+    ddl::insert_script_with(
+        &f,
         target.schema(),
         &target.name,
         columns,
-        &rows,
+        rows,
         100,
+        &|c| value_literal(v, &f, c),
     )
 }
 
@@ -1415,13 +1745,40 @@ pub(crate) fn update_script(
                     "Manticore no admite NULL: no se puede asignar un valor nulo".into(),
                 ));
             }
-            Ok(ddl::update_script_with(
+            // A float_vector with KNN settings isn't updated in place: the
+            // partial REPLACE (6.2+) rewrites the document's fields by id.
+            let (vectors, rest): (Vec<RowChange>, Vec<RowChange>) =
+                changes.iter().cloned().partition(|c| {
+                    c.set
+                        .iter()
+                        .any(|(_, v)| crate::vectors::edit_value(v).is_some())
+                        && matches!(c.key.as_slice(), [(k, _)] if k.eq_ignore_ascii_case("id"))
+                });
+            let mut out = Vec::new();
+            for c in &vectors {
+                let set: Vec<String> = c
+                    .set
+                    .iter()
+                    .map(|(k, v)| format!("{} = {}", q(k), manticore_value(v)))
+                    .collect();
+                out.push(format!(
+                    "REPLACE INTO {} SET {} WHERE id = {};",
+                    q(&target.name),
+                    set.join(", "),
+                    manticore_value(&c.key[0].1)
+                ));
+            }
+            let plain = ddl::update_script_with(
                 Quote::Backtick,
                 None,
                 &target.name,
-                changes,
+                &rest,
                 &manticore_value,
-            ))
+            );
+            if !plain.is_empty() {
+                out.push(plain);
+            }
+            Ok(out.join("\n"))
         }
         _ => {
             let f = flavor(v);
@@ -1430,7 +1787,7 @@ pub(crate) fn update_script(
                 target.schema(),
                 &target.name,
                 changes,
-                &|c| ddl::sql_literal(&f, &escape_backslashes(c)),
+                &|c| value_literal(v, &f, c),
             ))
         }
     }
@@ -1467,7 +1824,7 @@ pub(crate) fn delete_script(
                 target.schema(),
                 &target.name,
                 keys,
-                &|c| ddl::sql_literal(&f, &escape_backslashes(c)),
+                &|c| value_literal(v, &f, c),
             ))
         }
     }
@@ -1594,13 +1951,15 @@ fn regex_escape(s: &str) -> String {
 }
 
 /// A Manticore literal: `\'` escapes, `1`/`0` booleans, `(1,2)` multi-values.
-fn manticore_value(v: &Value) -> String {
+pub(crate) fn manticore_value(v: &Value) -> String {
     let text = |s: &str| format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"));
     match v {
         Value::Bool(b) => (if *b { "1" } else { "0" }).to_string(),
         Value::Number(n) => n.to_string(),
         Value::String(s) => text(s),
-        Value::Array(a) if a.iter().all(Value::is_number) => {
+        // Integers (multi-values) as they are, exactly; floats (a vector)
+        // the shortest way that reads back the same.
+        Value::Array(a) if a.iter().all(|n| n.is_i64() || n.is_u64()) => {
             format!(
                 "({})",
                 a.iter()
@@ -1608,6 +1967,10 @@ fn manticore_value(v: &Value) -> String {
                     .collect::<Vec<_>>()
                     .join(",")
             )
+        }
+        Value::Array(a) if a.iter().all(Value::is_number) => {
+            let values: Vec<f64> = a.iter().filter_map(Value::as_f64).collect();
+            crate::vectors::literal(crate::Variant::Manticore, &values)
         }
         other => text(&other.to_string()),
     }
@@ -2051,12 +2414,455 @@ mod tests {
         assert!(insert_script(Variant::Databend, &target, &cols, &rows).contains(", TRUE, "));
     }
 
+    fn vector_table(kind: Option<&str>, vi: dbine_driver::VectorIndex) -> TableSchema {
+        TableSchema {
+            name: "items".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "int".into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "v".into(),
+                    data_type: "vector(3)".into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![IndexDef {
+                name: "iv".into(),
+                columns: vec!["v".into()],
+                kind: kind.map(Into::into),
+                vector: Some(vi),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn vi(
+        algorithm: Option<&str>,
+        metric: Option<&str>,
+        p: &[(&str, &str)],
+    ) -> dbine_driver::VectorIndex {
+        dbine_driver::VectorIndex {
+            algorithm: algorithm.map(Into::into),
+            metric: metric.map(Into::into),
+            params: p
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn vector_indexes_are_scripted_never_as_plain_ones() {
+        let all = DdlParts {
+            create: true,
+            indexes: true,
+            ..Default::default()
+        };
+        let t = vector_table(Some("VECTOR"), vi(None, Some("cosine"), &[("m", "8")]));
+        let s = table_ddl(Variant::MariaDb, &t, all).unwrap();
+        assert!(s.contains("`v` vector(3) NOT NULL"), "{s}");
+        assert!(
+            s.ends_with("CREATE VECTOR INDEX `iv` ON `items` (`v`) M=8 DISTANCE=cosine;"),
+            "{s}"
+        );
+        assert!(!s.contains("CREATE INDEX"), "{s}");
+        // TiDB: the distance function; OceanBase: WITH; SingleStore: ALTER.
+        let t = vector_table(None, vi(Some("hnsw"), Some("l2"), &[]));
+        assert!(table_ddl(Variant::TiDb, &t, all)
+            .unwrap()
+            .ends_with("CREATE VECTOR INDEX `iv` ON `items` ((VEC_L2_DISTANCE(`v`))) USING HNSW;"));
+        assert!(table_ddl(Variant::OceanBase, &t, all).unwrap().ends_with(
+            "CREATE VECTOR INDEX `iv` ON `items` (`v`) WITH (distance=L2, type=hnsw, lib=vsag);"
+        ));
+        assert!(table_ddl(Variant::SingleStore, &t, all)
+            .unwrap()
+            .contains("ALTER TABLE `items` ADD VECTOR INDEX `iv` (`v`) INDEX_OPTIONS '{\"index_type\":\"HNSW_FLAT\",\"metric_type\":\"EUCLIDEAN_DISTANCE\"}';"));
+        // MySQL Community has none: the script says so and makes the table.
+        let s = table_ddl(Variant::MySql, &t, all).unwrap();
+        assert!(s.starts_with("CREATE TABLE"), "{s}");
+        assert!(
+            s.contains("\n-- MySQL no tiene índices vectoriales (solo HeatWave)"),
+            "{s}"
+        );
+        // A metric the engine lacks: noted, not turned into another index.
+        let s = table_ddl(
+            Variant::MariaDb,
+            &vector_table(None, vi(None, Some("ip"), &[])),
+            all,
+        )
+        .unwrap();
+        assert!(s.contains("-- MariaDB no tiene la distancia «ip»"), "{s}");
+        // MariaDB indexes NOT NULL columns only: said.
+        let mut nullable = vector_table(None, vi(None, Some("l2"), &[]));
+        nullable.columns[1].nullable = true;
+        let s = table_ddl(Variant::MariaDb, &nullable, all).unwrap();
+        assert!(
+            s.contains("-- MariaDB indexa vectores de columnas NOT NULL"),
+            "{s}"
+        );
+        // A parameter that isn't a number: refused.
+        assert!(table_ddl(
+            Variant::MariaDb,
+            &vector_table(None, vi(None, None, &[("m", "8 DISTANCE=x")])),
+            all
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn a_sync_sees_a_vector_index_change_whatever_options_it_was_read_with() {
+        use dbine_driver::TableChange;
+        // As MariaDB reads it back: the native settings mirrored in options.
+        let mut old = vector_table(Some("VECTOR"), vi(None, Some("cosine"), &[("m", "8")]));
+        old.indexes[0].options = [("DISTANCE", "cosine"), ("M", "8")]
+            .iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect();
+        // The designer changes the distance and leaves the options.
+        let mut new = old.clone();
+        new.indexes[0].vector.as_mut().unwrap().metric = Some("l2".into());
+        let s = sync_script(
+            Variant::MariaDb,
+            &[TableChange::Alter {
+                old: old.clone(),
+                new: new.clone(),
+            }],
+        )
+        .unwrap();
+        let all = s.statements.join("\n");
+        assert!(all.contains("DROP INDEX `iv`"), "{all}");
+        assert!(
+            all.contains("CREATE VECTOR INDEX `iv` ON `items` (`v`) M=8 DISTANCE=euclidean;"),
+            "{all}"
+        );
+        // Unchanged (an algorithm named or not, the default metric written
+        // out or not): nothing.
+        let mut same = old.clone();
+        same.indexes[0].vector.as_mut().unwrap().algorithm = Some("hnsw".into());
+        same.indexes[0].options.clear();
+        let s = sync_script(
+            Variant::MariaDb,
+            &[TableChange::Alter {
+                old: old.clone(),
+                new: same,
+            }],
+        )
+        .unwrap();
+        assert!(s.statements.is_empty(), "{:?}", s.statements);
+        // A build parameter changed (OceanBase's m).
+        let mut ob_old = vector_table(None, vi(Some("hnsw"), Some("l2"), &[("m", "16")]));
+        ob_old.indexes[0].options = [
+            ("distance", "L2"),
+            ("type", "HNSW"),
+            ("lib", "VSAG"),
+            ("m", "16"),
+        ]
+        .iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect();
+        let mut ob_new = ob_old.clone();
+        ob_new.indexes[0]
+            .vector
+            .as_mut()
+            .unwrap()
+            .params
+            .insert("m".into(), "32".into());
+        let s = sync_script(
+            Variant::OceanBase,
+            &[TableChange::Alter {
+                old: ob_old,
+                new: ob_new,
+            }],
+        )
+        .unwrap();
+        assert!(
+            s.statements.join("\n").contains("m=32"),
+            "{:?}",
+            s.statements
+        );
+    }
+
+    #[test]
+    fn olap_vector_indexes_say_what_their_engine_needs() {
+        let all = DdlParts {
+            create: true,
+            indexes: true,
+            ..Default::default()
+        };
+        let mut t = vector_table(None, vi(Some("hnsw"), Some("l2"), &[("dim", "3")]));
+        t.columns[1].data_type = "ARRAY<FLOAT>".into();
+        // StarRocks: its FE setting, said before the index.
+        let s = table_ddl(Variant::StarRocks, &t, all).unwrap();
+        assert!(
+            s.contains("-- StarRocks crea índices vectoriales con enable_experimental_vector activado en el FE: ADMIN SET FRONTEND CONFIG (\"enable_experimental_vector\" = \"true\")\nCREATE INDEX `iv`"),
+            "{s}"
+        );
+        assert!(!table_ddl(Variant::Doris, &t, all)
+            .unwrap()
+            .contains("enable_experimental_vector"));
+        // A nullable vector column: the index is said, not written.
+        t.columns[1].nullable = true;
+        for (v, engine) in [(Variant::Doris, "Doris"), (Variant::StarRocks, "StarRocks")] {
+            let s = table_ddl(v, &t, all).unwrap();
+            assert!(!s.contains("CREATE INDEX `iv`"), "{s}");
+            assert!(
+                s.contains(&format!("-- {engine} indexa vectores de columnas NOT NULL: el índice vectorial «iv» pide «v» NOT NULL")),
+                "{s}"
+            );
+        }
+    }
+
+    #[test]
+    fn databend_says_the_indexes_it_doesnt_have() {
+        let all = DdlParts {
+            create: true,
+            indexes: true,
+            ..Default::default()
+        };
+        let mut t = vector_table(None, vi(None, Some("l2"), &[]));
+        t.columns[1].data_type = "VECTOR(3)".into();
+        t.indexes.push(IndexDef {
+            name: "ix_id".into(),
+            columns: vec!["id".into()],
+            ..Default::default()
+        });
+        let s = table_ddl(Variant::Databend, &t, all).unwrap();
+        assert!(
+            s.contains("CREATE VECTOR INDEX `iv` ON `items`(`v`) distance='l2';"),
+            "{s}"
+        );
+        assert!(
+            s.contains(
+                "-- Databend solo tiene índices INVERTED, NGRAM y AGGREGATING (índice «ix_id»)"
+            ),
+            "{s}"
+        );
+    }
+
+    #[test]
+    fn vector_types_of_another_engine_of_the_family() {
+        let all = DdlParts {
+            create: true,
+            ..Default::default()
+        };
+        let mut t = vector_table(None, vi(None, None, &[]));
+        t.indexes.clear();
+        // SingleStore's half-precision vector on TiDB, MySQL, OceanBase.
+        t.columns[1].data_type = "vector(3, F16)".into();
+        for v in [
+            Variant::TiDb,
+            Variant::MySql,
+            Variant::OceanBase,
+            Variant::MariaDb,
+        ] {
+            let s = table_ddl(v, &t, all).unwrap();
+            assert!(s.contains("`v` vector(3) NOT NULL"), "{v:?}: {s}");
+            assert!(s.starts_with("-- "), "{v:?}: {s}");
+            assert!(s.contains("se guarda como float32"), "{v:?}: {s}");
+        }
+        assert!(table_ddl(Variant::SingleStore, &t, all)
+            .unwrap()
+            .contains("`v` vector(3, F16) NOT NULL"));
+        // F32 written out: the same type, nothing said.
+        t.columns[1].data_type = "vector(3, F32)".into();
+        let s = table_ddl(Variant::MySql, &t, all).unwrap();
+        assert!(
+            s.starts_with("CREATE TABLE") && s.contains("`v` vector(3) NOT NULL"),
+            "{s}"
+        );
+        // TiDB's long form: TiDB keeps it, the others write vector(n).
+        t.columns[1].data_type = "vector<float>(3)".into();
+        assert!(table_ddl(Variant::TiDb, &t, all)
+            .unwrap()
+            .contains("`v` vector<float>(3) NOT NULL"));
+        let s = table_ddl(Variant::MariaDb, &t, all).unwrap();
+        assert!(
+            s.starts_with("CREATE TABLE") && s.contains("`v` vector(3) NOT NULL"),
+            "{s}"
+        );
+        // A column change in a sync too.
+        assert_eq!(
+            column_definition(Variant::MySql, &t, &t.columns[1]),
+            "`v` vector(3) NOT NULL"
+        );
+    }
+
+    #[test]
+    fn olap_and_manticore_vector_indexes() {
+        let all = DdlParts {
+            create: true,
+            indexes: true,
+            ..Default::default()
+        };
+        let mut t = vector_table(
+            None,
+            vi(Some("hnsw"), Some("l2"), &[("dim", "3"), ("m", "32")]),
+        );
+        t.columns[1].data_type = "ARRAY<FLOAT>".into();
+        // Doris builds ANN indexes on DUPLICATE KEY tables only (a primary
+        // key alone makes it UNIQUE KEY): said in the script.
+        let s = table_ddl(Variant::Doris, &t, all).unwrap();
+        assert!(
+            s.contains("UNIQUE KEY(`id`)")
+                && s.contains("-- Doris crea índices ANN solo en tablas DUPLICATE KEY")
+                && !s.contains("USING ANN"),
+            "{s}"
+        );
+        // StarRocks: PRIMARY KEY (its default with a key) or DUPLICATE KEY.
+        let s = table_ddl(Variant::StarRocks, &t, all).unwrap();
+        assert!(
+            s.contains("PRIMARY KEY(`id`)") && s.contains("USING VECTOR"),
+            "{s}"
+        );
+        t.options.insert("key_model".into(), "unique".into());
+        let s = table_ddl(Variant::StarRocks, &t, all).unwrap();
+        assert!(
+            s.contains(
+                "-- StarRocks crea índices vectoriales solo en tablas DUPLICATE KEY o PRIMARY KEY"
+            ) && !s.contains("USING VECTOR"),
+            "{s}"
+        );
+        t.options.insert("key_model".into(), "duplicate".into());
+        let s = table_ddl(Variant::Doris, &t, all).unwrap();
+        assert!(s.contains("CREATE INDEX `iv` ON `items` (`v`) USING ANN PROPERTIES(\"index_type\" = \"hnsw\", \"metric_type\" = \"l2_distance\", \"dim\" = \"3\", \"max_degree\" = \"32\");"), "{s}");
+        let s = table_ddl(Variant::StarRocks, &t, all).unwrap();
+        assert!(s.contains("USING VECTOR (\"index_type\" = \"hnsw\", \"metric_type\" = \"l2_distance\", \"dim\" = \"3\", \"M\" = \"32\", \"is_vector_normed\" = \"false\")"), "{s}");
+        // An AGGREGATE KEY table as described (no primary key): neither
+        // engine builds a vector index on it. A sync adds only indexes.
+        let mut agg = t.clone();
+        agg.primary_key = None;
+        agg.options.insert("key_model".into(), "aggregate".into());
+        let indexes = DdlParts {
+            indexes: true,
+            ..Default::default()
+        };
+        for (v, note) in [
+            (
+                Variant::Doris,
+                "-- Doris crea índices ANN solo en tablas DUPLICATE KEY",
+            ),
+            (
+                Variant::StarRocks,
+                "-- StarRocks crea índices vectoriales solo en tablas DUPLICATE KEY o PRIMARY KEY",
+            ),
+        ] {
+            let s = table_ddl(v, &agg, indexes).unwrap();
+            assert!(
+                s.contains(note) && !s.contains("USING ANN") && !s.contains("USING VECTOR"),
+                "{v:?}: {s}"
+            );
+        }
+        // Its CREATE is still DUPLICATE KEY (the aggregation types of its
+        // columns aren't read).
+        agg.indexes.clear();
+        let s = table_ddl(Variant::Doris, &agg, all).unwrap();
+        assert!(s.contains("DUPLICATE KEY(`id`)"), "{s}");
+        // Without the dimension: said in the script.
+        t.indexes[0].vector = Some(vi(None, None, &[]));
+        assert!(table_ddl(Variant::Doris, &t, all)
+            .unwrap()
+            .contains("-- Doris: el índice vectorial «iv» necesita la dimensión"));
+        // Manticore: the KNN settings go in the column.
+        let mut t = vector_table(None, vi(Some("hnsw"), Some("cosine"), &[("knn_dims", "3")]));
+        t.primary_key = None;
+        t.columns.remove(0);
+        t.columns[0].data_type = "float_vector".into();
+        t.indexes[0].name = "v".into();
+        let s = table_ddl(Variant::Manticore, &t, all).unwrap();
+        assert!(
+            s.contains("`v` float_vector knn_type='hnsw' knn_dims='3' hnsw_similarity='COSINE'"),
+            "{s}"
+        );
+        t.indexes[0].vector = None;
+        assert!(table_ddl(Variant::Manticore, &t, all).is_err());
+    }
+
+    #[test]
+    fn vector_values_are_written_as_the_engines_literal() {
+        let target = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "t".into(),
+        };
+        let cols = ["id".into(), "v".into()];
+        let rows = vec![vec![json!(1), json!([1.0, 2.5, -3])]];
+        let ins = |v| insert_script(v, &target, &cols, &rows);
+        assert!(ins(Variant::MySql).contains("(1, STRING_TO_VECTOR('[1,2.5,-3]'))"));
+        assert!(ins(Variant::MariaDb).contains("(1, VEC_FromText('[1,2.5,-3]'))"));
+        assert!(ins(Variant::TiDb).contains("(1, '[1,2.5,-3]')"));
+        assert!(ins(Variant::Doris).contains("(1, [1,2.5,-3])"));
+        assert!(ins(Variant::Manticore).contains("VALUES (1, (1,2.5,-3))"));
+        let changes = vec![RowChange {
+            key: vec![("id".into(), json!(1))],
+            set: vec![("v".into(), json!([0.5, 4]))],
+            row: Vec::new(),
+        }];
+        assert_eq!(
+            update_script(Variant::MariaDb, &target, &changes).unwrap(),
+            "UPDATE `t` SET `v` = VEC_FromText('[0.5,4]') WHERE `id` = 1;"
+        );
+        assert_eq!(
+            update_script(Variant::MySql, &target, &changes).unwrap(),
+            "UPDATE `t` SET `v` = STRING_TO_VECTOR('[0.5,4]') WHERE `id` = 1;"
+        );
+        // Manticore: a KNN attribute is rewritten with a partial REPLACE.
+        assert_eq!(
+            update_script(Variant::Manticore, &target, &changes).unwrap(),
+            "REPLACE INTO `t` SET `v` = (0.5,4) WHERE id = 1;"
+        );
+        // Text (not an array) stays a string literal.
+        let rows = vec![vec![json!(1), json!("[1,2]")]];
+        assert!(insert_script(Variant::MySql, &target, &cols, &rows).contains("(1, '[1,2]')"));
+    }
+
+    #[test]
+    fn designers_offer_vector_types_and_indexes() {
+        for v in [
+            Variant::MySql,
+            Variant::MariaDb,
+            Variant::TiDb,
+            Variant::OceanBase,
+            Variant::SingleStore,
+        ] {
+            assert!(designer(v).data_types.contains(&"vector(1536)"), "{v:?}");
+            assert!(capabilities(v).vectors, "{v:?}");
+        }
+        assert!(designer(Variant::Doris)
+            .data_types
+            .contains(&"ARRAY<FLOAT>"));
+        assert!(designer(Variant::GreptimeDb)
+            .data_types
+            .contains(&"VECTOR(1536)"));
+        assert!(designer(Variant::MySql).vector_indexes.is_none());
+        let m = designer(Variant::MariaDb).vector_indexes.unwrap();
+        assert_eq!(m.metrics, ["l2", "cosine"]);
+        assert_eq!(m.params[0].key, "m");
+        assert!(designer(Variant::Doris)
+            .vector_indexes
+            .unwrap()
+            .params
+            .iter()
+            .any(|p| p.key == "dim"));
+    }
+
     #[test]
     fn designer_and_templates_follow_the_engine() {
         assert!(designer(Variant::MySql).foreign_keys && designer(Variant::MySql).comments);
         assert!(!designer(Variant::SingleStore).foreign_keys);
         let m = designer(Variant::Manticore);
-        assert!(!m.primary_key && !m.indexes && !m.defaults && !m.nullability);
+        assert!(!m.primary_key && !m.defaults && !m.nullability);
+        // Manticore's only indexes are a float_vector's KNN settings.
+        assert!(m.indexes && m.vector_indexes.is_some());
         assert!(designer(Variant::Doris)
             .table_options
             .iter()

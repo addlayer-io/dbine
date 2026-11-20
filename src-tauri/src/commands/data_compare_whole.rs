@@ -47,12 +47,13 @@
 //! too, from a few columns more per compared column.
 
 use super::{as_bool, canon, is_bool_type, sort_value, ChangedRow, Counts, SortValue};
+use crate::commands::vectors;
 use crate::error::{CommandError, CommandResult};
 use crate::local_duckdb;
 use dbine_driver::transfer::{BatchSource, Cell, LoadSpec, RowBatch, TransferColumn};
 use dbine_driver::{
     BatchSink, ColumnInfo, Driver, ObjectRef, QueryOutcome, ReadSpec, ResultColumn, RowSink,
-    RowSinkRef, Session,
+    RowSinkRef, Session, VectorElement,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -60,7 +61,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 use tokio::sync::{mpsc, Notify};
 
@@ -182,10 +183,15 @@ pub(crate) struct Options {
 
 /// What to compare: the key, the columns asked for (empty: all both sides
 /// have) and each side's columns from its catalog (names, types, booleans).
+#[derive(Default)]
 pub(crate) struct Input {
     pub key: Vec<String>,
     pub wanted: Vec<String>,
     pub cols: [Vec<ColumnInfo>; 2],
+    /// Each side's dense vector columns (lower-case names) and their
+    /// numbers' type, from its catalog: their cells compare by value
+    /// ([`vectors::compared`]). A query's result says its own as it begins.
+    pub vectors: [HashMap<String, VectorElement>; 2],
 }
 
 /// One side of a compare: its session and table.
@@ -343,8 +349,36 @@ pub(crate) struct Projection {
     pub nk: usize,
     /// Per side: the compared columns that hold booleans.
     bools: [Vec<bool>; 2],
+    /// Per side: the compared columns that hold dense vectors by its
+    /// catalog, with their numbers' type.
+    vectors: [Vec<Option<VectorElement>>; 2],
+    /// How each compared column's values compare when either side's
+    /// catalog says it holds dense vectors ([`vectors::pair_precision`]):
+    /// both sides' cells as compared, at the lower precision of the two.
+    precision: Vec<Option<vectors::Precision>>,
     pub only_left_columns: Vec<String>,
     pub only_right_columns: Vec<String>,
+}
+
+/// Per side, each compared column's vector element when its catalog says
+/// it holds dense vectors.
+fn vector_columns(input: &Input, columns: &[(String, String)]) -> [Vec<Option<VectorElement>>; 2] {
+    let of = |side: usize, name: &str| input.vectors[side].get(&name.to_lowercase()).copied();
+    [
+        columns.iter().map(|c| of(0, &c.0)).collect(),
+        columns.iter().map(|c| of(1, &c.1)).collect(),
+    ]
+}
+
+/// Each compared column's [`vectors::pair_precision`], from both sides'
+/// elements.
+fn pair_precisions(
+    l: &[Option<VectorElement>],
+    r: &[Option<VectorElement>],
+) -> Vec<Option<vectors::Precision>> {
+    (0..l.len().max(r.len()))
+        .map(|i| vectors::pair_precision(l.get(i).copied().flatten(), r.get(i).copied().flatten()))
+        .collect()
 }
 
 impl Projection {
@@ -389,6 +423,8 @@ impl Projection {
                 .map(|c| booleans(&input.cols[1], &c.1))
                 .collect(),
         ];
+        let vectors = vector_columns(input, &columns);
+        let precision = pair_precisions(&vectors[0], &vectors[1]);
         Ok(Projection {
             nk: input.key.len(),
             only_left_columns: lnames
@@ -403,6 +439,8 @@ impl Projection {
                 .collect(),
             columns,
             bools,
+            vectors,
+            precision,
         })
     }
 
@@ -453,6 +491,8 @@ impl Projection {
                 .map(|c| booleans(&input.cols[1], &c.1))
                 .collect(),
         ];
+        let vectors = vector_columns(input, &columns);
+        let precision = pair_precisions(&vectors[0], &vectors[1]);
         Ok(Projection {
             nk: pairs.nk,
             only_left_columns: lnames
@@ -467,6 +507,8 @@ impl Projection {
                 .collect(),
             columns,
             bools,
+            vectors,
+            precision,
         })
     }
 
@@ -723,6 +765,18 @@ struct Job {
     rules: Arc<dyn Rules>,
     /// The columns each side's query returned (none for tables).
     query_columns: [Mutex<Vec<ResultColumn>>; 2],
+    /// Per side, a query's compared columns' dense vector elements, as its
+    /// result said them as it began (`None` until then).
+    query_vectors: [Mutex<Option<Vec<Option<VectorElement>>>>; 2],
+    /// A query side's read is over (done or failed): its result's columns
+    /// won't come any more.
+    query_over: [AtomicBool; 2],
+    /// Wakes a query side waiting for the other's columns.
+    query_said: Notify,
+    /// How a query compare's columns compare their vectors
+    /// ([`vectors::pair_precision`]): decided once, as both results said
+    /// their columns (or one won't), and the same for both sides.
+    query_precision: OnceLock<Vec<Option<vectors::Precision>>>,
     in_memory_rows: usize,
     in_memory_bytes: usize,
     bufs: [Mutex<Buf>; 2],
@@ -754,6 +808,10 @@ impl Job {
             projection,
             rules: Arc::new(Exact),
             query_columns: Default::default(),
+            query_vectors: Default::default(),
+            query_over: Default::default(),
+            query_said: Notify::new(),
+            query_precision: OnceLock::new(),
             in_memory_rows: opts.in_memory_rows.max(1),
             in_memory_bytes: opts.in_memory_bytes.max(1),
             bufs: Default::default(),
@@ -818,6 +876,53 @@ impl Job {
             twice.min(QUEUE_BYTES as usize)
         } else {
             twice
+        }
+    }
+
+    /// A query side's result said its compared columns' vector elements.
+    fn said_columns(&self, side: usize, elements: Vec<Option<VectorElement>>) {
+        *lock(&self.query_vectors[side]) = Some(elements);
+        self.query_said.notify_waiters();
+    }
+
+    /// A query side's read is over: the other side stops waiting for its
+    /// columns.
+    fn query_ended(&self, side: usize) {
+        self.query_over[side].store(true, Ordering::SeqCst);
+        self.query_said.notify_waiters();
+    }
+
+    /// Whether `side` can decide how the query compare's vectors compare:
+    /// the other side said its columns, or never will.
+    fn other_said(&self, side: usize) -> bool {
+        let other = 1 - side;
+        lock(&self.query_vectors[other]).is_some() || self.query_over[other].load(Ordering::SeqCst)
+    }
+
+    /// How the query compare's columns compare their vectors: decided by the
+    /// first side that asks, from both results' marks (a side that hasn't
+    /// said its columns counts as having no vectors), and kept for both.
+    fn query_precision(&self) -> &[Option<vectors::Precision>] {
+        self.query_precision.get_or_init(|| {
+            let of = |side: usize| lock(&self.query_vectors[side]).clone().unwrap_or_default();
+            pair_precisions(&of(0), &of(1))
+        })
+    }
+
+    /// Wait until the other side said its columns, its read is over, or the
+    /// compare stopped.
+    async fn wait_for_other_columns(&self, side: usize) {
+        loop {
+            let n = self.query_said.notified();
+            tokio::pin!(n);
+            n.as_mut().enable();
+            if self.other_said(side) || self.ctl.is_stopped() {
+                return;
+            }
+            tokio::select! {
+                () = n => {}
+                () = self.ctl.stopped() => return,
+            }
         }
     }
 
@@ -1076,6 +1181,7 @@ impl BatchSink for SideSink {
             )));
         };
         let bools = &self.job.projection.bools[self.side];
+        let precision = &self.job.projection.precision;
         let rows = batch
             .rows
             .into_iter()
@@ -1093,7 +1199,11 @@ impl BatchSink for SideSink {
                             value_of(c)
                         }
                     };
-                    out.push(if bools[i] { as_bool(v) } else { v });
+                    out.push(if bools[i] {
+                        as_bool(v)
+                    } else {
+                        vectors::compared(v, precision.get(i).copied().flatten())
+                    });
                 }
                 (out, size)
             })
@@ -1223,6 +1333,10 @@ struct Relay {
     index: Option<usize>,
     pick: Vec<(usize, Option<usize>)>,
     bools: Vec<bool>,
+    /// The rows read, their vectors not yet as compared: until the other
+    /// side's result says its columns (or won't), how a column compares
+    /// isn't known ([`Job::query_precision`]), so they wait here, up to
+    /// [`Relay::cap`].
     batch: Vec<(Vec<Value>, usize)>,
     batch_bytes: usize,
 }
@@ -1234,14 +1348,43 @@ impl Relay {
         io
     }
 
+    /// The batch, its vector cells as compared: a column that holds dense
+    /// vectors on either side ([`Job::query_precision`]), at the precision
+    /// both sides use.
+    fn take_batch(&mut self) -> Vec<(Vec<Value>, usize)> {
+        let mut rows = std::mem::take(&mut self.batch);
+        let precision = self.job.query_precision();
+        if precision.iter().any(Option::is_some) {
+            for (row, _) in &mut rows {
+                for (i, v) in row.iter_mut().enumerate() {
+                    if let Some(p) = precision.get(i).copied().flatten() {
+                        if !self.bools.get(i).copied().unwrap_or(false) {
+                            *v = vectors::compared(std::mem::take(v), Some(p));
+                        }
+                    }
+                }
+            }
+        }
+        rows
+    }
+
     /// Hand the batch over: to the compare on the runtime, else (a host's
-    /// reader thread) to the task that reads, within [`Relay::cap`].
+    /// reader thread) to the task that reads, within [`Relay::cap`]. Not
+    /// before the other side's result said its columns (or won't): the
+    /// rows wait here meanwhile, up to [`Relay::cap`], past which this
+    /// side's own marks decide.
     fn send(&mut self) -> std::io::Result<()> {
         if self.batch.is_empty() {
             return Ok(());
         }
+        if self.job.query_precision.get().is_none()
+            && !self.job.other_said(self.side)
+            && self.batch_bytes <= self.cap
+        {
+            return Ok(());
+        }
         let bytes = std::mem::take(&mut self.batch_bytes);
-        let rows = std::mem::take(&mut self.batch);
+        let rows = self.take_batch();
         if tokio::runtime::Handle::try_current().is_ok() {
             return self.job.take(self.side, rows);
         }
@@ -1325,7 +1468,9 @@ impl RowSink for Relay {
         };
         let mut pick: Vec<(usize, Option<usize>)> = Vec::new();
         let mut bools = Vec::new();
-        for name in self.job.projection.names(self.side) {
+        let mut vecs: Vec<Option<VectorElement>> = Vec::new();
+        let catalog = &self.job.projection.vectors[self.side];
+        for (i, name) in self.job.projection.names(self.side).into_iter().enumerate() {
             let Some(at) = find(&name) else {
                 return Err(self.refuse(CommandError::BadRequest(format!(
                     "el resultado de {} no trae la columna «{name}»: volvé a leer sus columnas",
@@ -1335,11 +1480,17 @@ impl RowSink for Relay {
             let earlier = pick.iter().position(|(x, _)| *x == at);
             pick.push((at, earlier));
             bools.push(is_bool_type(&columns[at].type_name));
+            vecs.push(match &columns[at].vector {
+                Some(m) if !m.sparse => Some(m.element),
+                Some(_) => None,
+                None => catalog.get(i).copied().flatten(),
+            });
         }
         *lock(&self.job.query_columns[self.side]) = columns.to_vec();
         self.index = Some(index);
         self.pick = pick;
         self.bools = bools;
+        self.job.said_columns(self.side, vecs);
         Ok(())
     }
 
@@ -1361,6 +1512,8 @@ impl RowSink for Relay {
                     v
                 }
             };
+            // Vector cells are made as compared as the batch goes
+            // ([`Relay::take_batch`]).
             out.push(if self.bools[i] { as_bool(v) } else { v });
         }
         self.batch.push((out, size));
@@ -1399,6 +1552,14 @@ async fn read_query(
         batch: Vec::new(),
         batch_bytes: 0,
     }));
+    // However this read ends, the other side stops waiting for its columns.
+    struct Ended<'a>(&'a Job, usize);
+    impl Drop for Ended<'_> {
+        fn drop(&mut self) {
+            self.0.query_ended(self.1);
+        }
+    }
+    let _ended = Ended(job, side);
     let mut out = QueryOutcome {
         sink: Some(RowSinkRef(relay.clone())),
         ..Default::default()
@@ -1442,11 +1603,20 @@ async fn read_query(
     let Some(ran) = ran.filter(|_| !job.ctl.is_stopped()) else {
         return Err(job.ctl.error());
     };
-    // What's still queued, then the batch the relay was filling.
+    // What's still queued, then the batch the relay was filling: its vector
+    // cells compare as the other side's, once that side said its columns
+    // (or won't).
     while let Ok(rows) = rx.try_recv() {
         unqueue(rows, &mut fed);
     }
-    let rest = std::mem::take(&mut lock(&relay).batch);
+    job.query_ended(side);
+    if !lock(&relay).batch.is_empty() {
+        job.wait_for_other_columns(side).await;
+        if job.ctl.is_stopped() {
+            return Err(job.ctl.error());
+        }
+    }
+    let rest = lock(&relay).take_batch();
     give(rest, &mut fed);
     let failed =
         |e: String| CommandError::Sql(format!("la consulta de {} falló: {e}", side_name(side)));

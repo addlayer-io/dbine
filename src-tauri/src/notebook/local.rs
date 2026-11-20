@@ -230,6 +230,14 @@ pub enum DuckType {
     /// `GEOMETRY`, e.g. `st_read`'s): loaded as text, then rebuilt with
     /// `ST_GeomFromWKB` ([`load_rows`]).
     Geometry,
+    /// A dense vector column ([`ResultColumn::vector`]): `FLOAT[n]` (an
+    /// array, what `array_cosine_similarity` and its kin take), `DOUBLE[n]`
+    /// for 64-bit numbers, or a list (`FLOAT[]`) when its vectors don't all
+    /// have one length ([`vector_type`]).
+    Vector {
+        dims: Option<u32>,
+        double: bool,
+    },
     Varchar,
 }
 
@@ -248,6 +256,13 @@ impl DuckType {
             DuckType::Uuid => "UUID".into(),
             DuckType::Json => "JSON".into(),
             DuckType::Geometry => "GEOMETRY".into(),
+            DuckType::Vector { dims, double } => {
+                let of = if *double { "DOUBLE" } else { "FLOAT" };
+                match dims {
+                    Some(n) => format!("{of}[{n}]"),
+                    None => format!("{of}[]"),
+                }
+            }
             DuckType::Varchar => "VARCHAR".into(),
         }
     }
@@ -424,6 +439,8 @@ fn fits<'a>(ty: DuckType, mut values: impl Iterator<Item = &'a Value>) -> bool {
                 DuckType::Uuid => v.as_str().is_some_and(looks_uuid),
                 DuckType::Json => is_json(v),
                 DuckType::Geometry => v.as_str().is_some_and(looks_wkb),
+                DuckType::Vector { dims, .. } => dbine_driver::vector::parse_value(v)
+                    .is_some_and(|n| dims.is_none_or(|d| n.len() == d as usize)),
                 DuckType::Varchar => true,
             }
     })
@@ -538,6 +555,33 @@ where
     } else {
         DuckType::Varchar
     }
+}
+
+/// A dense vector column's DuckDB type: an array of the column's
+/// dimension when every vector has it (the dimension the vectors share when
+/// the column doesn't say one), else a list. `None`: not a vector column, or
+/// a value that doesn't read as a vector (the column goes by [`infer`]).
+pub fn vector_type<'a, I>(col: &ResultColumn, values: I) -> Option<DuckType>
+where
+    I: Iterator<Item = &'a Value>,
+{
+    let meta = col.vector.as_ref().filter(|m| !m.sparse)?;
+    // 32-bit integers fit doubles exactly, not floats.
+    let double = matches!(
+        meta.element,
+        dbine_driver::VectorElement::F64 | dbine_driver::VectorElement::I32
+    );
+    let mut lens = HashSet::new();
+    for v in values.filter(|v| !v.is_null()) {
+        lens.insert(dbine_driver::vector::parse_value(v)?.len() as u32);
+    }
+    let dims = match (meta.dims, lens.len()) {
+        (Some(d), 0) => Some(d),
+        (Some(d), 1) if lens.contains(&d) => Some(d),
+        (None, 1) => lens.into_iter().next().filter(|n| *n > 0),
+        _ => None,
+    };
+    Some(DuckType::Vector { dims, double })
 }
 
 fn text_of(v: &Value) -> String {
@@ -1014,10 +1058,9 @@ async fn load_rows(
 ) -> CommandResult<(u64, Vec<String>)> {
     let inferred: Vec<DuckType> = (0..columns.len())
         .map(|i| {
-            infer(
-                &columns[i].type_name,
-                rows.iter().map(move |r| r.get(i).unwrap_or(&Value::Null)),
-            )
+            let values = rows.iter().map(move |r| r.get(i).unwrap_or(&Value::Null));
+            vector_type(&columns[i], values.clone())
+                .unwrap_or_else(|| infer(&columns[i].type_name, values))
         })
         .collect();
     let types: Vec<DuckType> = inferred

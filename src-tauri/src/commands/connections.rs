@@ -17,6 +17,10 @@ pub struct DriverDescriptor {
     supports_explain: bool,
     /// "Comparar esquemas" can apply changes to it.
     supports_schema_sync: bool,
+    /// The kinds "Comparar esquemas" applies changes to, when they differ
+    /// by kind (`dbine_driver::schema_sync_kinds`); `None`:
+    /// `supports_schema_sync` for every kind.
+    schema_sync_kinds: Option<Vec<String>>,
     supports_profiler: bool,
     /// A table's indexes with their usage (`Session::index_usage`).
     supports_index_usage: bool,
@@ -61,6 +65,7 @@ pub async fn list_drivers() -> CommandResult<Vec<DriverDescriptor>> {
             query_help: d.query_help(),
             supports_explain: d.supports_explain(),
             supports_schema_sync: d.supports_schema_sync(),
+            schema_sync_kinds: dbine_driver::schema_sync_kinds(d.as_ref()),
             supports_profiler: d.supports_profiler(),
             supports_index_usage: d.supports_index_usage(),
             cross_database: d.cross_database(),

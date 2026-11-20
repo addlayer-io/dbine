@@ -43,6 +43,83 @@ pub enum TypeInfo {
     },
     /// A CLR user-defined type (UDT), MS-TDS §2.2.5.5.4.
     Udt(UdtInfo),
+    // PATCH(dbine): the vector type, sent only to clients that asked for it
+    // (`Config::vector_support`).
+    /// A `vector(n[, float32|float16])` column (SQL Server 2025, Azure SQL).
+    Vector(VectorType),
+}
+
+// PATCH(dbine): the vector type.
+/// The element type of a `vector` column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VectorBaseType {
+    /// `float32` (4 bytes per element), the default.
+    Float32,
+    /// `float16` (2 bytes per element).
+    Float16,
+    /// A base type this build doesn't know, by its TDS code.
+    Other(u8),
+}
+
+impl VectorBaseType {
+    /// The TDS code of the base type.
+    pub fn code(self) -> u8 {
+        match self {
+            Self::Float32 => 0,
+            Self::Float16 => 1,
+            Self::Other(c) => c,
+        }
+    }
+
+    /// The base type of a TDS code.
+    pub fn from_code(c: u8) -> Self {
+        match c {
+            0 => Self::Float32,
+            1 => Self::Float16,
+            c => Self::Other(c),
+        }
+    }
+
+    /// Bytes per element (`None` for an unknown base type).
+    pub fn size(self) -> Option<usize> {
+        match self {
+            Self::Float32 => Some(4),
+            Self::Float16 => Some(2),
+            Self::Other(_) => None,
+        }
+    }
+
+    /// The name T-SQL gives it (`float32`, `float16`).
+    pub fn name(self) -> Option<&'static str> {
+        match self {
+            Self::Float32 => Some("float32"),
+            Self::Float16 => Some("float16"),
+            Self::Other(_) => None,
+        }
+    }
+}
+
+/// The shape of a `vector` column: its size on the wire and element type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VectorType {
+    /// The value's size in bytes: the 8-byte header plus the elements.
+    pub size: u16,
+    /// The element type.
+    pub base_type: VectorBaseType,
+}
+
+/// Bytes before the elements in a vector's binary form: layout format
+/// (0xA9), layout version (1), element count (u16 LE), element type and
+/// three reserved bytes.
+pub const VECTOR_HEADER_SIZE: usize = 8;
+
+impl VectorType {
+    /// The declared dimensions, from the size and the element type.
+    pub fn dimensions(&self) -> Option<u16> {
+        let each = self.base_type.size()?;
+        let body = (self.size as usize).checked_sub(VECTOR_HEADER_SIZE)?;
+        (body % each == 0).then(|| (body / each) as u16)
+    }
 }
 
 /// Metadata describing a CLR user-defined type (UDT) column, as defined by the
@@ -209,6 +286,8 @@ uint_enum! {
         Image = 0x22,
         NText = 0x63,
         // sql_variant; fully decoded/encoded (see column_data/sql_variant.rs).
+        // PATCH(dbine): the vector type (see `TypeInfo::Vector`).
+        Vector = 0xF5,
         SSVariant = 0x62, // legacy types (not supported since post-7.2):
                           // Char = 0x2F,
                           // Binary = 0x2D,
@@ -249,6 +328,8 @@ uint_enum! {
         Image = 0x22,
         NText = 0x63,
         // sql_variant; fully decoded/encoded (see column_data/sql_variant.rs).
+        // PATCH(dbine): the vector type (see `TypeInfo::Vector`).
+        Vector = 0xF5,
         SSVariant = 0x62, // legacy types (not supported since post-7.2):
                           // Char = 0x2F,
                           // Binary = 0x2D,
@@ -294,6 +375,12 @@ impl Encode<BytesMut> for TypeInfo {
                 } else {
                     dst.put_u8(0);
                 }
+            }
+            // PATCH(dbine): the vector type: its size and element type.
+            TypeInfo::Vector(v) => {
+                dst.put_u8(VarLenType::Vector as u8);
+                dst.put_u16_le(v.size);
+                dst.put_u8(v.base_type.code());
             }
             TypeInfo::Udt(info) => {
                 dst.put_u8(VarLenType::Udt as u8);
@@ -374,6 +461,13 @@ impl TypeInfo {
                     schema,
                     size: 0xfffffffffffffffe_usize,
                 })
+            }
+            // PATCH(dbine): the vector type: USHORTLEN size, then the
+            // element type.
+            Ok(VarLenType::Vector) => {
+                let size = src.read_u16_le().await?;
+                let base_type = VectorBaseType::from_code(src.read_u8().await?);
+                Ok(TypeInfo::Vector(VectorType { size, base_type }))
             }
             Ok(VarLenType::Udt) => {
                 // UDT_INFO, MS-TDS §2.2.5.5.4
@@ -507,6 +601,15 @@ mod tests {
                 assembly_qualified_name:
                     "Microsoft.SqlServer.Types.SqlGeometry, Microsoft.SqlServer.Types".to_string(),
             }),
+            // PATCH(dbine): the vector type.
+            TypeInfo::Vector(VectorType {
+                size: 20,
+                base_type: VectorBaseType::Float32,
+            }),
+            TypeInfo::Vector(VectorType {
+                size: 14,
+                base_type: VectorBaseType::Float16,
+            }),
         ];
 
         for ti in types {
@@ -522,6 +625,22 @@ mod tests {
 
             assert_eq!(nti, ti)
         }
+    }
+
+    // PATCH(dbine): dimensions from the size and the element type.
+    #[test]
+    fn vector_dimensions() {
+        let v = |size, base_type| VectorType { size, base_type };
+        assert_eq!(v(20, VectorBaseType::Float32).dimensions(), Some(3));
+        assert_eq!(v(14, VectorBaseType::Float16).dimensions(), Some(3));
+        assert_eq!(
+            v(8 + 4 * 1998, VectorBaseType::Float32).dimensions(),
+            Some(1998)
+        );
+        assert_eq!(v(21, VectorBaseType::Float32).dimensions(), None);
+        assert_eq!(v(4, VectorBaseType::Float32).dimensions(), None);
+        assert_eq!(v(20, VectorBaseType::Other(9)).dimensions(), None);
+        assert_eq!(VectorBaseType::from_code(1).name(), Some("float16"));
     }
 
     // The XML schema db_name/owner length prefixes are B_VARCHARs (u8). The

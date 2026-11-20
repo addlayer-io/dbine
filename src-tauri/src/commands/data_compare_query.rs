@@ -504,6 +504,7 @@ async fn compare_queries(
         key: Vec::new(),
         wanted: Vec::new(),
         cols: [named(&pairs, 0), named(&pairs, 1)],
+        ..Default::default()
     };
     let how = whole::How {
         pairs: Some(pairs),
@@ -564,6 +565,27 @@ fn keep(
         .iter()
         .map(|x| type_of(&c.query_columns[1], &x.1))
         .collect();
+    // Each compared column's vectors, by its result's mark: the screen
+    // shows them, exported lists write dense ones as arrays.
+    let vectors_of = |side: usize| -> Vec<Option<dbine_driver::VectorMeta>> {
+        p.columns
+            .iter()
+            .map(|x| {
+                let name = if side == 0 { &x.0 } else { &x.1 };
+                let cols = &c.query_columns[side];
+                cols.iter()
+                    .find(|col| &col.name == name)
+                    .or_else(|| cols.iter().find(|col| col.name.eq_ignore_ascii_case(name)))
+                    .and_then(|col| col.vector.clone())
+            })
+            .collect()
+    };
+    let (left_vectors, right_vectors) = (vectors_of(0), vectors_of(1));
+    let shown_vectors = data_compare::shown_vectors(
+        p.columns.len(),
+        [&left_vectors, &right_vectors],
+        [&left_types, &right_types],
+    );
     // What each result has that isn't compared.
     let unpaired = |side: usize| -> Vec<String> {
         c.query_columns[side]
@@ -611,6 +633,7 @@ fn keep(
             only_right: c.only_right.len() as u64,
             equal: c.equal.len() as u64,
         },
+        vectors: shown_vectors,
     };
     let out = QueryCompareResult {
         right_columns: p.columns.iter().map(|x| x.1.clone()).collect(),
@@ -639,6 +662,8 @@ fn keep(
             equal: c.equal,
             left_types,
             right_types,
+            left_vectors,
+            right_vectors,
             partial: false,
             diff_truncated: c.diff_truncated,
             counts: c.counts,

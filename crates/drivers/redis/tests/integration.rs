@@ -348,8 +348,20 @@ async fn designer_and_scripts(driver: &str, s: &mut Box<dyn Session>) {
     // No tables to draw.
     assert!(s.database_schema().await.unwrap().is_empty());
 
-    // Templates run as they are.
+    // Templates run as they are. The search index ones need the query
+    // engine and database 0 (the vectors test runs them); the vector set's,
+    // Redis 8.
     for (i, t) in d.create_templates().iter().enumerate() {
+        if t.kind == kinds::INDEX {
+            continue;
+        }
+        if t.template.starts_with("VADD") {
+            let mut out = QueryOutcome::default();
+            s.execute("COMMAND INFO VADD", 10, &mut out).await.unwrap();
+            if out.results[0].rows.iter().flatten().all(|v| v.is_null()) {
+                continue;
+            }
+        }
         let text = t.template.replace("{name}", &format!("tpl:{i}"));
         let mut out = QueryOutcome::default();
         if let Err(e) = s.execute(&text, 100, &mut out).await {

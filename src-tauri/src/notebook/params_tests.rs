@@ -497,6 +497,7 @@ fn the_file_keeps_definitions_and_the_values_of_each_result() {
             columns: vec![StoredColumn {
                 name: "n".into(),
                 type_name: String::new(),
+                vector: None,
             }],
             rows: vec![vec![json!(1)]],
             rows_total: 1,

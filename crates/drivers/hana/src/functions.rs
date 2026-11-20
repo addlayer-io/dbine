@@ -178,6 +178,20 @@ mod tests {
         assert!(has(Some("SAP HANA 4.00.000.00.1700000000"), "JSON_TABLE"));
         assert!(!has(Some("SAP HANA 1.00.122.27.1568902538"), "JSON_VALUE"));
         assert!(has(Some("SAP HANA 1.00.122.27.1568902538"), "STRING_AGG"));
+        // The vector engine is HANA Cloud's.
+        assert!(has(
+            Some("SAP HANA 4.00.000.00.1700000000"),
+            "COSINE_SIMILARITY"
+        ));
+        assert!(has(
+            Some("SAP HANA 4.00.000.00.1700000000"),
+            "TO_REAL_VECTOR"
+        ));
+        assert!(has(
+            Some("SAP HANA 4.00.000.00.1700000000"),
+            "TO_HALF_VECTOR"
+        ));
+        assert!(!has(Some("SAP HANA 2.00.070.00.1679989823"), "L2DISTANCE"));
         let c = builtins(None);
         assert_eq!(
             c.iter().find(|f| f.name == "STRING_AGG").unwrap().kind,

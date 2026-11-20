@@ -345,7 +345,7 @@ s inet_aton(expr)
 s inet_ntoa(expr)
 s initcap(str)
 s inner_product(array1, array2)
-s inner_product_approximate
+s inner_product_approximate(array1, array2)
 s insert(str,pos,len,newstr)
 s instr(str,substr)
 s int_to_uuid
@@ -436,7 +436,7 @@ a kurt_pop
 a kurtosis(expr)
 s l1_distance(array1, array2)
 s l2_distance(array1, array2)
-s l2_distance_approximate
+s l2_distance_approximate(array1, array2)
 w lag(expr [, offset [, default]])
 s last_day(date)
 s last_query_id

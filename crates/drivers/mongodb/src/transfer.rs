@@ -145,6 +145,55 @@ pub(crate) async fn read_batches(
     };
     let batch = batch_for(largest.max(biggest.unwrap_or(0)));
     let types = super::convert::infer_columns(&sample);
+    // Vector fields: those a vector index declares, and those holding
+    // BinData vectors (see `binary_vectors`). Their cells are the vector's
+    // numbers (see `vector_cell`).
+    let paths = s.vector_paths(&s.db, &spec.table.name).await;
+    let binary_candidates: Vec<&String> = names
+        .iter()
+        .filter(|n| !n.contains('.') && !n.starts_with('$'))
+        .filter(|n| {
+            found
+                .get(*n)
+                .cloned()
+                .or_else(|| {
+                    types
+                        .iter()
+                        .find(|c| c.name == **n)
+                        .map(|c| c.data_type.clone())
+                })
+                .is_some_and(|t| {
+                    t.split('|')
+                        .any(|p| p == "binData" || p.starts_with("vector"))
+                })
+        })
+        .collect();
+    let binary = binary_vectors(&coll, &filter, &binary_candidates, &s.tag).await?;
+    // A field with BinData vectors says their element: a load by rows
+    // writes its text cells (BinData here) as BinData of it, and its JSON
+    // cells (arrays here) as arrays, so a field that holds both keeps each
+    // document's form.
+    let vectors: HashMap<String, String> = names
+        .iter()
+        .filter_map(|n| {
+            let t = match (binary.get(n), paths.get(n)) {
+                (Some(m), _) => {
+                    let el = match m.element {
+                        dbine_driver::VectorElement::I8 => "int8",
+                        dbine_driver::VectorElement::Bit => "bit",
+                        _ => "float32",
+                    };
+                    match m.dims {
+                        Some(d) => format!("vector({d}, {el})"),
+                        None => format!("vector({el})"),
+                    }
+                }
+                (None, Some(m)) => crate::vector::type_name(m.dims),
+                (None, None) => return None,
+            };
+            Some((n.clone(), t))
+        })
+        .collect();
     let columns: Vec<TransferColumn> = names
         .iter()
         .map(|n| {
@@ -155,9 +204,10 @@ pub(crate) async fn read_batches(
                 // crate's: a load takes only marked ones for MongoDB's
                 // (see `hint`).
                 type_name: marked(
-                    &found
+                    &vectors
                         .get(n)
                         .cloned()
+                        .or_else(|| found.get(n).cloned())
                         .or_else(|| seen.map(|c| c.data_type.clone()))
                         .unwrap_or_default(),
                 ),
@@ -165,6 +215,7 @@ pub(crate) async fn read_batches(
             }
         })
         .collect();
+    let vector_at: Vec<bool> = names.iter().map(|n| vectors.contains_key(n)).collect();
     // A name asked for twice fills every position.
     let mut index: HashMap<&str, Vec<usize>> = HashMap::new();
     for (i, n) in names.iter().enumerate() {
@@ -196,8 +247,11 @@ pub(crate) async fn read_batches(
                 if std::mem::replace(&mut seen[at[0]], true) {
                     return Err(refused(&d, &format!("repite el campo «{k}»")));
                 }
-                let c = raw_cell(v)?
-                    .map_err(|why| refused(&d, &format!("tiene en el campo «{k}» {why}")))?;
+                let c = match vector_cell(v, vector_at[at[0]])? {
+                    Some(c) => c,
+                    None => raw_cell(v)?
+                        .map_err(|why| refused(&d, &format!("tiene en el campo «{k}» {why}")))?,
+                };
                 let (last, rest) = at.split_last().expect("one position at least");
                 for &i in rest {
                     row[i] = c.clone();
@@ -227,6 +281,88 @@ fn refused(d: &RawDocument, why: &str) -> Error {
         "El documento con _id {} {why}: por filas se perdería o cambiaría el dato. La copia directa entre bases MongoDB lo conserva tal cual.",
         id.as_deref().unwrap_or("(sin _id)")
     ))
+}
+
+/// A vector value as its numbers: a BinData vector anywhere as text, an
+/// array of numbers in a vector field as JSON (the same numbers; the cell's
+/// kind tells a MongoDB load which form it was, see `bson`). `None` for
+/// anything else.
+fn vector_cell(v: RawBsonRef<'_>, vector_field: bool) -> Result<Option<Cell>> {
+    match v {
+        RawBsonRef::Binary(b) if b.subtype == BinarySubtype::Vector => {
+            Ok(crate::vector::decode(b.bytes).map(|t| Cell::Text(t.0)))
+        }
+        RawBsonRef::Array(_) if vector_field => {
+            let b = Bson::try_from(v).map_err(raw_err)?;
+            Ok(crate::vector::text_of(&b).map(Cell::Json))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Documents a read looks at, at most, to learn the element of its BinData
+/// vector fields…
+const BINARY_SCAN: i64 = 100_000;
+/// …stopping at this many with one.
+const BINARY_SAMPLE: i64 = 64;
+
+/// The BinData vector fields among `fields` (each of which holds BinData
+/// somewhere): dimension (when every sampled one has the same) and element.
+/// One query for all of them, over the first [`BINARY_SCAN`] documents of
+/// the read, up to [`BINARY_SAMPLE`] with a BinData in one of the fields.
+/// A field whose vectors mix elements is `float32`, which holds int8 and
+/// bit values as they are (a load never quantizes, see `bson`).
+async fn binary_vectors(
+    coll: &mongodb::Collection<Document>,
+    filter: &Document,
+    fields: &[&String],
+    tag: &str,
+) -> Result<HashMap<String, dbine_driver::VectorMeta>> {
+    let mut out: HashMap<String, dbine_driver::VectorMeta> = HashMap::new();
+    if fields.is_empty() {
+        return Ok(out);
+    }
+    let any: Vec<Document> = fields
+        .iter()
+        .map(|n| doc! { n.as_str(): { "$type": "binData" } })
+        .collect();
+    let mut project = doc! { "_id": 0 };
+    for n in fields {
+        project.insert(n.as_str(), 1);
+    }
+    let pipeline = vec![
+        doc! { "$match": filter.clone() },
+        doc! { "$limit": BINARY_SCAN },
+        doc! { "$match": { "$or": any } },
+        doc! { "$limit": BINARY_SAMPLE },
+        doc! { "$project": project },
+    ];
+    let mut cur = coll.aggregate(pipeline).comment(tag).await.map_err(err)?;
+    while let Some(d) = cur.try_next().await.map_err(err)? {
+        for n in fields {
+            let Some(Bson::Binary(b)) = d.get(n.as_str()) else {
+                continue;
+            };
+            if b.subtype != BinarySubtype::Vector {
+                continue;
+            }
+            let Some((_, el, dims)) = crate::vector::decode(&b.bytes) else {
+                continue;
+            };
+            let dims = Some(dims as u32);
+            out.entry((*n).clone())
+                .and_modify(|m| {
+                    if m.element != el {
+                        m.element = dbine_driver::VectorElement::F32;
+                    }
+                    if m.dims != dims {
+                        m.dims = None;
+                    }
+                })
+                .or_insert(dbine_driver::VectorMeta::dense(dims, el));
+        }
+    }
+    Ok(out)
 }
 
 /// A raw field value as a cell, or why the cell can't hold it as it is
@@ -677,6 +813,12 @@ fn cell(v: Bson) -> Cell {
             ))
         }
         Bson::Binary(b) if matches!(b.subtype, BinarySubtype::Generic) => Cell::Bytes(b.bytes),
+        Bson::Binary(b) if b.subtype == BinarySubtype::Vector => {
+            match crate::vector::binary_text(&b) {
+                Some(t) => Cell::Text(t),
+                None => Cell::Json(Bson::Binary(b).into_canonical_extjson().to_string()),
+            }
+        }
         other => Cell::Json(other.into_canonical_extjson().to_string()),
     }
 }
@@ -740,6 +882,69 @@ struct Hint {
     long: bool,
     /// A MongoDB column: JSON cells are canonical Extended JSON.
     extjson: bool,
+    /// A vector column: its cells (a JSON array of numbers, as text or
+    /// JSON) are stored as an array of doubles, or as a BinData vector of
+    /// this element when the source field held them so.
+    vector: Option<VectorForm>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum VectorForm {
+    Array,
+    Binary(dbine_driver::VectorElement),
+}
+
+/// What a column type says about the vectors in it: this crate's
+/// `vector(N)` (an array) and `vector(N, float32 | int8 | bit)` (BinData),
+/// or another engine's vector type ([`is_vector_type`]), loaded as an
+/// array.
+fn vector_form(part: &str, mongo: bool) -> Option<VectorForm> {
+    let p = part.trim().to_ascii_lowercase();
+    if mongo {
+        crate::vector::parse_type(&p)?;
+        return Some(match crate::vector::binary_element(&p) {
+            Some(el) => VectorForm::Binary(el),
+            None => VectorForm::Array,
+        });
+    }
+    is_vector_type(&p).then_some(VectorForm::Array)
+}
+
+/// Whether a source column's type holds dense vectors, whichever engine it
+/// comes from: `vector(3)`, `VECTOR(3, FLOAT32)`, `vector<float, 3>`,
+/// `frozen<vector<float, 3>>`, `halfvec(3)`, `dense_vector(3)`,
+/// `knn_vector(3)`, `float_vector(3)`, `REAL_VECTOR(3)`, `F32_BLOB(3)`,
+/// `vecf32(3)`, `ARRAY<FLOAT32>(vector_length=>3)`…, also with a crate's
+/// mark (`bson:vector(3, int8)`) or among `|` alternatives
+/// (`bson:vector(3)|bson:null`). Sparse vectors (`sparsevec`,
+/// `sparse_vector`, `VECTOR(…, SPARSE)`) aren't: their text isn't an
+/// array. The same list in every crate of the document family (the
+/// contract has no helper for it).
+pub(crate) fn is_vector_type(t: &str) -> bool {
+    t.split('|').any(|part| {
+        let p = part.trim().to_ascii_lowercase();
+        if p.contains("sparse") {
+            return false;
+        }
+        p.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .any(|tok| {
+                tok.ends_with("vector")
+                    || tok.ends_with("vec")
+                    || matches!(
+                        tok,
+                        "vecf32"
+                            | "vecf64"
+                            | "vector_length"
+                            | "f32_blob"
+                            | "f64_blob"
+                            | "f16_blob"
+                            | "fb16_blob"
+                            | "bf16_blob"
+                            | "f8_blob"
+                            | "f1bit_blob"
+                    )
+            })
+    })
 }
 
 /// BSON type names, as `convert::type_name` and `$type` give them (every
@@ -810,12 +1015,27 @@ fn hint(c: &TransferColumn) -> Result<Hint> {
         object_id: has("objectid"),
         long: bare.iter().any(wide),
         extjson: mongo,
+        vector: bare.iter().find_map(|p| vector_form(p, mongo)),
     })
 }
 
 /// A cell as BSON for its column (`None`: the field is left out). The
 /// error says why the value can't be stored as it is.
 fn bson(cell: Cell, h: Hint) -> std::result::Result<Option<Bson>, String> {
+    // A vector: BinData where the source had one (a MongoDB read sends
+    // those as text, its arrays as JSON), in the column's element when the
+    // numbers fit it (else float32: never rounded); an array of doubles
+    // otherwise.
+    if let (Some(form), Cell::Text(s) | Cell::Json(s)) = (h.vector, &cell) {
+        if let Some(n) = dbine_driver::vector::parse(s) {
+            return Ok(Some(match form {
+                VectorForm::Binary(el) if matches!(cell, Cell::Text(_)) => {
+                    Bson::Binary(crate::vector::encode(&n, crate::vector::fitting(el, &n)))
+                }
+                _ => Bson::Array(n.into_iter().map(Bson::Double).collect()),
+            }));
+        }
+    }
     Ok(Some(match cell {
         Cell::Null => return Ok(None),
         Cell::Bool(b) => Bson::Boolean(b),
@@ -1810,12 +2030,50 @@ pub(crate) async fn copy_native(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vector_types_of_every_engine() {
+        for t in [
+            "vector(3)",
+            "bson:vector(3)",
+            "bson:vector(3, int8)|bson:null",
+            "VECTOR(3, FLOAT32)",
+            "vector<float, 3>",
+            "frozen<vector<float, 3>>",
+            "halfvec(3)",
+            "dense_vector(3)",
+            "knn_vector(3)",
+            "float_vector(3)",
+            "REAL_VECTOR(3)",
+            "F32_BLOB(3)",
+            "vecf32(3)",
+            "ARRAY<FLOAT32>(vector_length=>3)",
+            "vector",
+        ] {
+            assert!(is_vector_type(t), "{t}");
+        }
+        for t in [
+            "sparsevec(5)",
+            "sparse_vector",
+            "VECTOR(3, FLOAT32, SPARSE)",
+            "varchar(20)",
+            "text",
+            "",
+            "bson:binData",
+            "bson:array",
+            "json",
+            "blob",
+        ] {
+            assert!(!is_vector_type(t), "{t}");
+        }
+    }
     use mongodb::bson::{Regex, Timestamp};
 
     const PLAIN: Hint = Hint {
         object_id: false,
         long: false,
         extjson: true,
+        vector: None,
     };
 
     fn col(t: &str) -> TransferColumn {
@@ -1828,6 +2086,93 @@ mod tests {
 
     fn round_trip(v: Bson, h: Hint) -> Option<Bson> {
         bson(cell(v), h).unwrap()
+    }
+
+    #[test]
+    fn vectors_travel_as_their_numbers() {
+        use dbine_driver::VectorElement as E;
+        // A BinData vector reads as its numbers, and loads back as one of
+        // the same element into a column of this crate's mark.
+        let f = Bson::Binary(crate::vector::encode(&[0.5, -1.0, 2.0], E::F32));
+        assert_eq!(cell(f.clone()), Cell::Text("[0.5,-1,2]".into()));
+        let h = hint(&col("bson:vector(3, float32)")).unwrap();
+        assert_eq!(h.vector, Some(VectorForm::Binary(E::F32)));
+        assert_eq!(
+            round_trip(f, h),
+            Some(Bson::Binary(crate::vector::encode(
+                &[0.5, -1.0, 2.0],
+                E::F32
+            )))
+        );
+        let i = Bson::Binary(crate::vector::encode(&[1.0, -2.0], E::I8));
+        let h = hint(&col("bson:vector(2, int8)|bson:null")).unwrap();
+        assert_eq!(round_trip(i.clone(), h), Some(i));
+        // An array vector field stays an array (of doubles).
+        let h = hint(&col("bson:vector(3)")).unwrap();
+        assert_eq!(h.vector, Some(VectorForm::Array));
+        assert_eq!(
+            bson(Cell::Text("[1,2.5,3]".into()), h).unwrap(),
+            Some(Bson::Array(vec![
+                Bson::Double(1.0),
+                Bson::Double(2.5),
+                Bson::Double(3.0)
+            ]))
+        );
+        // Other engines' vector types: arrays; their text isn't a string.
+        for t in [
+            "vector(3)",
+            "VECTOR(3, FLOAT32)",
+            "halfvec(3)",
+            "vector<float, 3>",
+            "F32_BLOB(3)",
+            "REAL_VECTOR(3)",
+        ] {
+            let h = hint(&col(t)).unwrap();
+            assert_eq!(h.vector, Some(VectorForm::Array), "{t}");
+            assert_eq!(
+                bson(Cell::Text("[1,0]".into()), h).unwrap(),
+                Some(Bson::Array(vec![Bson::Double(1.0), Bson::Double(0.0)])),
+                "{t}"
+            );
+        }
+        for t in ["varchar(10)", "vectorize", "sparsevec(5)", "array"] {
+            assert_eq!(hint(&col(t)).unwrap().vector, None, "{t}");
+        }
+        // Elasticsearch, OpenSearch, CrateDB / Manticore: arrays too.
+        for t in ["dense_vector(3)", "knn_vector(3)", "float_vector(3)"] {
+            assert_eq!(
+                hint(&col(t)).unwrap().vector,
+                Some(VectorForm::Array),
+                "{t}"
+            );
+        }
+        // A field that mixes forms: its arrays come as JSON and stay
+        // arrays; its BinData as text, in the column's element when the
+        // numbers fit it, else float32 (never rounded).
+        let h = hint(&col("bson:vector(2, int8)|bson:array")).unwrap();
+        assert_eq!(
+            bson(Cell::Json("[1,2]".into()), h).unwrap(),
+            Some(Bson::Array(vec![Bson::Double(1.0), Bson::Double(2.0)]))
+        );
+        assert_eq!(
+            bson(Cell::Text("[1,2]".into()), h).unwrap(),
+            Some(Bson::Binary(crate::vector::encode(&[1.0, 2.0], E::I8)))
+        );
+        assert_eq!(
+            bson(Cell::Text("[0.5,2]".into()), h).unwrap(),
+            Some(Bson::Binary(crate::vector::encode(&[0.5, 2.0], E::F32)))
+        );
+        let bits = hint(&col("bson:vector(2, bit)")).unwrap();
+        assert_eq!(
+            bson(Cell::Text("[3,1]".into()), bits).unwrap(),
+            Some(Bson::Binary(crate::vector::encode(&[3.0, 1.0], E::F32)))
+        );
+        // A cell that isn't a vector keeps today's rules.
+        let h = hint(&col("vector(3)")).unwrap();
+        assert_eq!(
+            bson(Cell::Text("abc".into()), h).unwrap(),
+            Some(Bson::String("abc".into()))
+        );
     }
 
     #[test]
@@ -1853,6 +2198,7 @@ mod tests {
             object_id: false,
             long: false,
             extjson: false,
+            vector: None,
         };
         let inj = bson(Cell::Json(r#"{"$gt": ""}"#.into()), h)
             .unwrap()

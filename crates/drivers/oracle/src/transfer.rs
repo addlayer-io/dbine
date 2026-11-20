@@ -259,7 +259,12 @@ fn read(
         .iter()
         .map(|m| TransferColumn {
             name: m.name().to_string(),
-            type_name: m.data_type(),
+            // A vector as DDL declares it: `VECTOR(3, FLOAT32)`, `…, SPARSE)`.
+            type_name: if m.db_type().name() == "DB_TYPE_VECTOR" {
+                crate::vector::column_shape(&m.data_type(), m.is_sparse_vector()).ddl()
+            } else {
+                m.data_type()
+            },
             nullable: m.nullable(),
         })
         .collect();
@@ -439,6 +444,28 @@ enum Kind {
     Bool,
     /// Textual JSON (the server parses it into a `JSON` column).
     Json,
+    /// A `VECTOR(n, BINARY)` (`None`: `*` dimensions): one 0 / 1 per
+    /// dimension packed into Oracle's bytes ([`crate::vector::binary_text`]).
+    Bits(Option<u32>),
+    /// A `VECTOR(n, …, SPARSE)`: a dense vector or pgvector's sparse text
+    /// in Oracle's sparse text ([`crate::vector::sparse_text`]).
+    Sparse(Option<u32>),
+    /// Any other `VECTOR`: a sparse vector's text spread out
+    /// ([`crate::vector::dense_text`]); Oracle converts neither way.
+    Dense,
+}
+
+/// The load kind of a vector column from its `VECTOR_INFO`; `None` when it
+/// isn't one (or the dictionary doesn't say).
+fn vector_kind(info: &str) -> Option<Kind> {
+    let s = crate::vector::Shape::parse(info)?;
+    Some(if s.sparse {
+        Kind::Sparse(s.dims)
+    } else if s.format.as_deref() == Some("BINARY") {
+        Kind::Bits(s.dims)
+    } else {
+        Kind::Dense
+    })
 }
 
 fn kind_of(data_type: &str) -> Kind {
@@ -479,7 +506,10 @@ impl Kind {
             | Kind::TimestampTz
             | Kind::IntervalDs
             | Kind::IntervalYm
-            | Kind::Json => oracledb::DB_TYPE_VARCHAR,
+            | Kind::Json
+            | Kind::Bits(_)
+            | Kind::Sparse(_)
+            | Kind::Dense => oracledb::DB_TYPE_VARCHAR,
         }
     }
 
@@ -577,6 +607,16 @@ struct Col {
     raw_text: RawText,
 }
 
+impl Col {
+    /// The same column bound as plain text.
+    fn as_text(&self) -> Col {
+        Col {
+            kind: Kind::Text,
+            ..self.clone()
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Plan {
     table: String,
@@ -625,6 +665,8 @@ impl Plan {
 /// The target's columns and identities, checked against the load.
 /// `source_types`: the source columns' types, in the batches' order
 /// (empty when unknown).
+/// `vector_info`: the dictionary has `VECTOR_INFO`
+/// ([`crate::vector::info_column`]), which tells a BINARY vector column.
 fn plan(
     c: &Connection,
     owner: &str,
@@ -632,15 +674,23 @@ fn plan(
     spec: &LoadSpec,
     source_types: &[String],
     native: bool,
+    vector_info: bool,
 ) -> Result<Plan> {
     let (o, t) = (owner.to_string(), table.to_string());
     let mut types = std::collections::HashMap::new();
-    for row in c
-        .query("SELECT column_name, data_type FROM all_tab_columns WHERE owner = :1 AND table_name = :2", &[&o, &t])
-        .map_err(err)?
-    {
+    let mut vectors = std::collections::HashMap::new();
+    let sql = format!(
+        "SELECT c.column_name, c.data_type, {} FROM all_tab_columns c WHERE c.owner = :1 AND c.table_name = :2",
+        crate::vector::info_expr(vector_info)
+    );
+    for row in c.query(&sql, &[&o, &t]).map_err(err)? {
         let row = row.map_err(err)?;
-        let (name, ty): (String, Option<String>) = (row.get(0).map_err(err)?, row.get(1).map_err(err)?);
+        let (name, ty): (String, Option<String>) =
+            (row.get(0).map_err(err)?, row.get(1).map_err(err)?);
+        let info: Option<String> = row.get(2).map_err(err)?;
+        if let Some(kind) = info.as_deref().and_then(vector_kind) {
+            vectors.insert(name.clone(), kind);
+        }
         types.insert(name, ty.unwrap_or_default());
     }
     if types.is_empty() {
@@ -684,7 +734,7 @@ fn plan(
         );
         cols.push(Col {
             name: name.clone(),
-            kind: kind_of(ty),
+            kind: vectors.get(name).copied().unwrap_or_else(|| kind_of(ty)),
             index,
             lob: matches!(upper.as_str(), "CLOB" | "NCLOB" | "BLOB"),
             raw_text: source_types
@@ -761,8 +811,12 @@ async fn load_with(
     let (owner, table, spec2) = (s.owner(&spec.table), spec.table.name.clone(), spec.clone());
     let source_types: Vec<String> = columns.iter().map(|c| c.type_name.clone()).collect();
     // Through `run`: reconnects first if the interrupter killed the session.
+    let shared = s.shared.clone();
     let plan = s
-        .run(move |c| plan(c, &owner, &table, &spec2, &source_types, native))
+        .run(move |c| {
+            let info = crate::vector::info_column(c, &shared.vector_info);
+            plan(c, &owner, &table, &spec2, &source_types, native, info)
+        })
         .await?;
 
     let gate = Arc::new(Gate::default());
@@ -1153,6 +1207,24 @@ fn bind(cell: Cell, col: &Col, native: bool) -> Result<B> {
             Cell::Text(s) => s,
             other => return Err(bad(&other, col)),
         }),
+        Kind::Bits(dims) => {
+            let text = match cell {
+                Cell::Text(s) | Cell::Json(s) => s,
+                other => return Err(bad(&other, col)),
+            };
+            B::S(crate::vector::binary_text(&text, dims).unwrap_or(text))
+        }
+        // Other cells as any text column takes them.
+        Kind::Sparse(dims) => match cell {
+            Cell::Text(s) | Cell::Json(s) => {
+                B::S(crate::vector::sparse_text(&s, dims).unwrap_or(s))
+            }
+            other => return bind(other, &col.as_text(), native),
+        },
+        Kind::Dense => match cell {
+            Cell::Text(s) | Cell::Json(s) => B::S(crate::vector::dense_text(&s).unwrap_or(s)),
+            other => return bind(other, &col.as_text(), native),
+        },
         Kind::Text | Kind::Json => B::S(match cell {
             Cell::Text(s)
             | Cell::Json(s)
@@ -1467,6 +1539,71 @@ mod tests {
             lob: false,
             raw_text: RawText::Unknown,
         }
+    }
+
+    #[test]
+    fn binary_vectors_load_packed() {
+        let s = |c: Cell, k: Kind| match bind(c, &col(k), false).unwrap() {
+            B::S(s) => s,
+            _ => panic!("not text"),
+        };
+        let bits = "[1,1,0,0,1,0,0,1,0,0,0,0,1,1,1,1]";
+        assert_eq!(s(Cell::Text(bits.into()), Kind::Bits(Some(16))), "[201,15]");
+        assert_eq!(s(Cell::Text(bits.into()), Kind::Bits(None)), "[201,15]");
+        assert_eq!(
+            s(Cell::Text("1100100100001111".into()), Kind::Bits(Some(16))),
+            "[201,15]"
+        );
+        // Bytes already: as they come.
+        assert_eq!(
+            s(Cell::Text("[201,15]".into()), Kind::Bits(Some(16))),
+            "[201,15]"
+        );
+        // A float vector stays as it is.
+        assert_eq!(s(Cell::Text(bits.into()), Kind::Text), bits);
+        assert!(bind(Cell::Int(1), &col(Kind::Bits(None)), false).is_err());
+        assert!(matches!(
+            bind(Cell::Null, &col(Kind::Bits(None)), false).unwrap(),
+            B::Null(_)
+        ));
+    }
+
+    #[test]
+    fn sparse_and_dense_vectors_load_in_their_columns_form() {
+        let s = |c: Cell, k: Kind| match bind(c, &col(k), false).unwrap() {
+            B::S(s) => s,
+            _ => panic!("not text"),
+        };
+        assert_eq!(
+            vector_kind("VECTOR(5,FLOAT32,SPARSE)"),
+            Some(Kind::Sparse(Some(5)))
+        );
+        assert_eq!(
+            vector_kind("VECTOR(16,BINARY,DENSE)"),
+            Some(Kind::Bits(Some(16)))
+        );
+        assert_eq!(vector_kind("VECTOR(3,FLOAT32,DENSE)"), Some(Kind::Dense));
+        assert_eq!(vector_kind("NUMBER"), None);
+        // pgvector's sparsevec and a dense array into a SPARSE column.
+        for t in ["{2:1.5,5:3}/5", "[0,1.5,0,0,3]", "[5,[1,4],[1.5,3]]"] {
+            assert_eq!(
+                s(Cell::Text(t.into()), Kind::Sparse(Some(5))),
+                "[5,[1,4],[1.5,3]]",
+                "{t}"
+            );
+        }
+        // A sparse vector into a dense column; a dense one as it is.
+        assert_eq!(
+            s(Cell::Text("{2:1.5,5:3}/5".into()), Kind::Dense),
+            "[0,1.5,0,0,3]"
+        );
+        assert_eq!(s(Cell::Text("[1,2]".into()), Kind::Dense), "[1,2]");
+        // Other cells as a text column takes them.
+        assert_eq!(s(Cell::Int(7), Kind::Dense), "7");
+        assert!(matches!(
+            bind(Cell::Null, &col(Kind::Sparse(None)), false).unwrap(),
+            B::Null(_)
+        ));
     }
 
     #[test]

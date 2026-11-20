@@ -29,6 +29,13 @@ pub fn union_keys<'a>(docs: impl IntoIterator<Item = &'a Document>) -> Vec<Strin
 pub fn cell(b: &Bson) -> Value {
     match b {
         Bson::Document(_) | Bson::Array(_) => Value::String(plain(b).to_string()),
+        // A BinData vector: its numbers, whole (see `vector`).
+        Bson::Binary(bin) if bin.subtype == BinarySubtype::Vector => {
+            match crate::vector::binary_text(bin) {
+                Some(t) => Value::String(t),
+                None => plain(b),
+            }
+        }
         other => plain(other),
     }
 }
@@ -58,6 +65,13 @@ pub fn plain(b: &Bson) -> Value {
                 &h[16..20],
                 &h[20..32]
             ))
+        }
+        // A BinData vector nested in a document: its numbers.
+        Bson::Binary(bin) if bin.subtype == BinarySubtype::Vector => {
+            match crate::vector::binary_text(bin).and_then(|t| serde_json::from_str(&t).ok()) {
+                Some(v) => v,
+                None => json_bytes(&bin.bytes),
+            }
         }
         Bson::Binary(bin) => json_bytes(&bin.bytes),
         Bson::Document(d) => Value::Object(
@@ -107,19 +121,34 @@ pub fn type_name(b: &Bson) -> &'static str {
     }
 }
 
+/// A field's type for the schema: the BSON type, or `vector(N, float32 |
+/// int8 | bit)` for a BinData vector (an array of numbers is `array`).
+pub fn field_type(b: &Bson) -> std::borrow::Cow<'static, str> {
+    match b {
+        Bson::Binary(bin) if bin.subtype == BinarySubtype::Vector => {
+            match crate::vector::decode(&bin.bytes) {
+                Some((_, el, n)) => crate::vector::binary_type_name(Some(n as u32), el).into(),
+                None => "binData".into(),
+            }
+        }
+        other => type_name(other).into(),
+    }
+}
+
 /// Fields inferred from a sample: the types seen (most frequent first,
 /// joined with `|`), nullable unless present and non-null in every document.
+/// BinData vectors are `vector(N)`.
 pub fn infer_columns(docs: &[Document]) -> Vec<ColumnInfo> {
     union_keys(docs)
         .into_iter()
         .map(|name| {
-            let mut types: Vec<(&'static str, usize)> = Vec::new();
+            let mut types: Vec<(std::borrow::Cow<'static, str>, usize)> = Vec::new();
             let mut present = 0;
             let mut null_seen = false;
             for d in docs {
                 if let Some(v) = d.get(&name) {
                     present += 1;
-                    let t = type_name(v);
+                    let t = field_type(v);
                     null_seen |= matches!(v, Bson::Null | Bson::Undefined);
                     if !matches!(v, Bson::Null | Bson::Undefined) {
                         match types.iter_mut().find(|(n, _)| *n == t) {
@@ -133,7 +162,11 @@ pub fn infer_columns(docs: &[Document]) -> Vec<ColumnInfo> {
             let data_type = if types.is_empty() {
                 "null".into()
             } else {
-                types.iter().map(|t| t.0).collect::<Vec<_>>().join("|")
+                types
+                    .iter()
+                    .map(|t| t.0.as_ref())
+                    .collect::<Vec<_>>()
+                    .join("|")
             };
             ColumnInfo {
                 primary_key: name == "_id",
@@ -194,5 +227,24 @@ mod tests {
         assert_eq!(cols[1].data_type, "string|int");
         assert!(!cols[1].nullable);
         assert!(cols[2].nullable);
+    }
+
+    #[test]
+    fn bindata_vectors_are_numbers() {
+        use dbine_driver::VectorElement;
+        let v = Bson::Binary(crate::vector::encode(&[0.5, -1.0, 2.0], VectorElement::F32));
+        assert_eq!(cell(&v), Value::String("[0.5,-1,2]".into()));
+        let nested = Bson::Document(doc! { "e": v.clone() });
+        assert_eq!(cell(&nested), Value::String(r#"{"e":[0.5,-1,2]}"#.into()));
+        let i8v = Bson::Binary(crate::vector::encode(&[1.0, 2.0], VectorElement::I8));
+        let docs = vec![
+            doc! { "_id": 1, "v": v.clone(), "q": i8v.clone() },
+            doc! { "_id": 2, "v": v, "q": i8v },
+        ];
+        let cols = infer_columns(&docs);
+        // BinData vectors say their element: float32 too (`vector(3)` is an
+        // array of numbers).
+        assert_eq!(cols[1].data_type, "vector(3, float32)");
+        assert_eq!(cols[2].data_type, "vector(2, int8)");
     }
 }

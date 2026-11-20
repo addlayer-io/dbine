@@ -83,6 +83,37 @@ impl Endpoints for AppEndpoints {
     async fn open_target(&self) -> dbine_driver::Result<Box<dyn Session>> {
         self.open(false).await
     }
+    fn vector_columns(&self, table: &dbine_driver::TableSchema) -> Vec<String> {
+        vector_columns(table, |t| {
+            crate::commands::vectors::of_type(self.driver.info().id, t)
+        })
+    }
+    fn column_types(
+        &self,
+        columns: &[dbine_driver::TransferColumn],
+    ) -> Vec<dbine_driver::ResultColumn> {
+        crate::commands::typed_scripts::of_describe(
+            self.driver.info().id,
+            columns
+                .iter()
+                .map(|c| (c.name.as_str(), c.type_name.as_str())),
+        )
+    }
+}
+
+/// `table`'s columns that hold dense vectors by `of` (their type on the
+/// clone's engine): a clone on an engine without a bulk load sends their
+/// cells to `insert_script` as arrays.
+pub(crate) fn vector_columns(
+    table: &dbine_driver::TableSchema,
+    of: impl Fn(&str) -> Option<dbine_driver::VectorMeta>,
+) -> Vec<String> {
+    table
+        .columns
+        .iter()
+        .filter(|c| of(&c.data_type).is_some_and(|m| !m.sparse))
+        .map(|c| c.name.clone())
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -196,4 +227,75 @@ pub async fn clone_table_cancel(args: CancelArgs) -> CommandResult<bool> {
         }
         None => false,
     })
+}
+
+#[cfg(test)]
+mod vector_tests {
+    use super::*;
+    use crate::commands::vectors::{of_type_in, tests::WithVectors};
+
+    /// The engine's dialect says which columns are dense vectors.
+    #[test]
+    fn a_clones_vector_columns_are_its_engines() {
+        let t = dbine_driver::TableSchema {
+            kind: "table".into(),
+            name: "items".into(),
+            columns: [
+                "id integer",
+                "emb vector(3)",
+                "half halfvec(2)",
+                "note text",
+            ]
+            .iter()
+            .map(|c| {
+                let (name, ty) = c.split_once(' ').unwrap();
+                dbine_driver::ColumnDef {
+                    name: name.into(),
+                    data_type: ty.into(),
+                    ..Default::default()
+                }
+            })
+            .collect(),
+            ..Default::default()
+        };
+        assert_eq!(
+            vector_columns(&t, |ty| of_type_in(&WithVectors, ty)),
+            ["emb", "half"]
+        );
+        assert!(vector_columns(&t, |_| None).is_empty());
+    }
+
+    /// A clone that goes by insert script is typed by its engine: each
+    /// column's type with the vector that type holds there. The transfer's
+    /// default would give the names and types only.
+    #[test]
+    fn a_clones_scripts_are_typed_by_its_engine() {
+        let e = AppEndpoints {
+            state: AppState::new(dbine_core::StateStore::open_in_memory().unwrap()),
+            run_id: "t".into(),
+            connection_id: "c".into(),
+            database: String::new(),
+            driver: dbine_drivers::find("postgres").unwrap().clone(),
+            seq: AtomicU64::new(0),
+        };
+        let col = |name: &str, ty: &str| dbine_driver::TransferColumn {
+            name: name.into(),
+            type_name: ty.into(),
+            nullable: true,
+        };
+        let types = e.column_types(&[col("id", "integer"), col("emb", "halfvec(2)")]);
+        let named: Vec<(&str, &str)> = types
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_name.as_str()))
+            .collect();
+        assert_eq!(named, [("id", "integer"), ("emb", "halfvec(2)")]);
+        assert!(types[0].vector.is_none());
+        assert_eq!(
+            types[1].vector,
+            Some(dbine_driver::VectorMeta::dense(
+                Some(2),
+                dbine_driver::VectorElement::F16
+            ))
+        );
+    }
 }

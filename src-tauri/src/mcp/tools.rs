@@ -96,13 +96,13 @@ pub fn definitions() -> Value {
         },
         {
             "name": "describe_object",
-            "description": "Columns (type, nullability, default), primary key, foreign keys and indexes of a table or other object.",
+            "description": "Columns (type, nullability, default), primary key, foreign keys and indexes of a table or other object; a vector index also gives its algorithm, distance metric and build parameters.",
             "inputSchema": { "type": "object", "properties": { "connection": conn, "database": db, "object": obj }, "required": ["connection", "database", "object"] },
             "annotations": ro,
         },
         {
             "name": "index_usage",
-            "description": "A table's indexes and how they're used since the server's counters started: kind, key columns, size, reads (seeks, scans, lookups), writes, share of the table's reads, unused (written, never read) and disabled.",
+            "description": "A table's indexes and how they're used since the server's counters started: kind, key columns, size, reads (seeks, scans, lookups), writes, share of the table's reads, unused (written, never read) and disabled; a vector index also gives its algorithm, distance metric and build parameters.",
             "inputSchema": { "type": "object", "properties": { "connection": conn, "database": db, "object": obj }, "required": ["connection", "database", "object"] },
             "annotations": ro,
         },
@@ -463,6 +463,9 @@ async fn run(
             let routed = reads::route(
                 approval_free(&conn, query),
                 async {
+                    if !extension_calls_ok(inner, &key, &entry, &conn, query, limit).await {
+                        return Ok(Attempt::NotEnforced);
+                    }
                     match run_op(
                         inner,
                         &key,
@@ -513,6 +516,9 @@ async fn run(
             let routed = reads::route(
                 approval_free(&conn, query),
                 async {
+                    if !extension_calls_ok(inner, &key, &entry, &conn, query, limit).await {
+                        return Ok(Attempt::NotEnforced);
+                    }
                     match run_op(inner, &key, entry.clone(), Op::Probe, limit).await {
                         Err(RunFail::Unsupported) => Ok(Attempt::NotEnforced),
                         _ => run_on(
@@ -692,6 +698,105 @@ async fn find_object(
 const OVERVIEW_TABLES: usize = 400;
 const OVERVIEW_TIME: Duration = Duration::from_secs(120);
 
+/// An index as index_usage lists it: kind, key and included columns, a
+/// vector index's settings ([`vector_settings`]), size, reads and writes,
+/// share and flags.
+fn usage_line(i: &dbine_driver::IndexUsage, writes_counted: bool) -> String {
+    let mut flags = Vec::new();
+    if i.primary_key {
+        flags.push("PK");
+    }
+    if i.unique {
+        flags.push("UNIQUE");
+    }
+    if i.disabled {
+        flags.push("DISABLED");
+    }
+    if i.unused {
+        flags.push("UNUSED (written, never read)");
+    }
+    let share = i
+        .read_share
+        .map(|r| format!(" share {:.0}%", r * 100.0))
+        .unwrap_or_default();
+    let writes = if writes_counted {
+        format!(" writes {}", i.updates)
+    } else {
+        String::new()
+    };
+    let size = i.size_kb.map(|k| format!(" {k} KB")).unwrap_or_default();
+    format!(
+        "  {} {} ({}){}{}{} reads {} (seeks {}, scans {}, lookups {}){writes}{share}{}",
+        i.name,
+        i.kind,
+        i.key_columns.join(", "),
+        if i.included_columns.is_empty() {
+            String::new()
+        } else {
+            format!(" include ({})", i.included_columns.join(", "))
+        },
+        i.vector.as_ref().map(vector_settings).unwrap_or_default(),
+        size,
+        i.reads,
+        i.seeks,
+        i.scans,
+        i.lookups,
+        if flags.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", flags.join(", "))
+        },
+    )
+}
+
+/// An index as describe_object lists it: name, UNIQUE, columns, the
+/// engine's kind and, for a vector index, its settings ([`vector_settings`]).
+fn index_line(i: &dbine_driver::IndexDef) -> String {
+    format!(
+        "  {}{} ({}){}{}",
+        i.name,
+        if i.unique { " UNIQUE" } else { "" },
+        i.columns.join(", "),
+        i.kind
+            .as_deref()
+            .map(|k| format!(" {k}"))
+            .unwrap_or_default(),
+        i.vector.as_ref().map(vector_settings).unwrap_or_default()
+    )
+}
+
+/// A vector index's settings for the assistant: the algorithm, the
+/// distance metric (a similarity query uses the index only with that
+/// metric's operator or function) and the build parameters, in the
+/// engine's names as the driver gives them; a setting the driver doesn't
+/// state is the engine's default.
+fn vector_settings(v: &dbine_driver::VectorIndex) -> String {
+    let mut parts = Vec::new();
+    if let Some(a) = v
+        .algorithm
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+    {
+        parts.push(format!("algorithm {a}"));
+    }
+    parts.push(format!(
+        "metric {}",
+        v.metric
+            .as_deref()
+            .map(str::trim)
+            .filter(|m| !m.is_empty())
+            .unwrap_or("engine default")
+    ));
+    parts.extend(
+        v.params
+            .iter()
+            .filter(|(_, x)| !x.trim().is_empty())
+            .map(|(k, x)| format!("{k}={}", x.trim())),
+    );
+    format!(" [vector index: {}]", parts.join(", "))
+}
+
 /// index_usage without an object: every table of the database, summed up in
 /// what an analysis needs (unused, disabled, never read), not every index.
 async fn index_overview(inner: &Inner, conn: &SavedConnection, db: &str) -> Result<Done, String> {
@@ -734,10 +839,11 @@ async fn index_overview(inner: &Inner, conn: &SavedConnection, db: &str) -> Resu
         for i in &r.indexes {
             total += 1;
             let line = format!(
-                "  {table}.{} ({}; {}){}",
+                "  {table}.{} ({}; {}){}{}",
                 i.name,
                 i.kind,
                 i.key_columns.join(", "),
+                i.vector.as_ref().map(vector_settings).unwrap_or_default(),
                 i.size_kb.map(|k| format!(" {k} KB")).unwrap_or_default()
             );
             if i.disabled {
@@ -820,52 +926,12 @@ async fn index_usage(
                 .unwrap_or_default()
         ));
     }
-    for i in &report.indexes {
-        let mut flags = Vec::new();
-        if i.primary_key {
-            flags.push("PK");
-        }
-        if i.unique {
-            flags.push("UNIQUE");
-        }
-        if i.disabled {
-            flags.push("DISABLED");
-        }
-        if i.unused {
-            flags.push("UNUSED (written, never read)");
-        }
-        let share = i
-            .read_share
-            .map(|r| format!(" share {:.0}%", r * 100.0))
-            .unwrap_or_default();
-        let writes = if report.writes_counted {
-            format!(" writes {}", i.updates)
-        } else {
-            String::new()
-        };
-        let size = i.size_kb.map(|k| format!(" {k} KB")).unwrap_or_default();
-        out.push(format!(
-            "  {} {} ({}){}{} reads {} (seeks {}, scans {}, lookups {}){writes}{share}{}",
-            i.name,
-            i.kind,
-            i.key_columns.join(", "),
-            if i.included_columns.is_empty() {
-                String::new()
-            } else {
-                format!(" include ({})", i.included_columns.join(", "))
-            },
-            size,
-            i.reads,
-            i.seeks,
-            i.scans,
-            i.lookups,
-            if flags.is_empty() {
-                String::new()
-            } else {
-                format!(" [{}]", flags.join(", "))
-            },
-        ));
-    }
+    out.extend(
+        report
+            .indexes
+            .iter()
+            .map(|i| usage_line(i, report.writes_counted)),
+    );
     if report.indexes.is_empty() {
         out.push("  (no indexes)".into());
     }
@@ -958,18 +1024,7 @@ async fn describe(
                     }
                     if !t.indexes.is_empty() {
                         out.push("indexes:".into());
-                        for i in &t.indexes {
-                            out.push(format!(
-                                "  {}{} ({}){}",
-                                i.name,
-                                if i.unique { " UNIQUE" } else { "" },
-                                i.columns.join(", "),
-                                i.kind
-                                    .as_deref()
-                                    .map(|k| format!(" {k}"))
-                                    .unwrap_or_default()
-                            ));
-                        }
+                        out.extend(t.indexes.iter().map(index_line));
                     }
                     if let Some(c) = t.comment.as_deref().filter(|c| !c.is_empty()) {
                         out.push(format!("comment: {}", cut(c, 500)));
@@ -1012,8 +1067,65 @@ fn approval_free(conn: &SavedConnection, query: &str) -> bool {
         if info.language == Language::Dax {
             return reads::dax_approval_free(&d.split_script(query)).is_ok();
         }
-        reads::approval_free(info.language, info.dialect, &d.script_dialect(), query).is_ok()
+        reads::approval_free(
+            info.language,
+            info.id,
+            info.dialect,
+            &d.script_dialect(),
+            query,
+        )
+        .is_ok()
     })
+}
+
+/// Before a read that calls an extension's vector functions (pgvector's,
+/// `reads::vector_extension`) skips the approval: whether the server says
+/// every function of those names is the extension's or a built-in, asked
+/// on the read-only session. `false` (a user's function of that name, in
+/// any schema, or the check failed): the user approves the read instead.
+async fn extension_calls_ok(
+    inner: &Inner,
+    key: &str,
+    entry: &Arc<SessionEntry>,
+    conn: &SavedConnection,
+    query: &str,
+    limit: Duration,
+) -> bool {
+    let Some(driver) = dbine_drivers::find(&conn.config.driver) else {
+        return false;
+    };
+    let id = driver.info().id;
+    let Some(extension) = reads::vector_extension(id) else {
+        return true;
+    };
+    let names = reads::extension_calls(id, &driver.script_dialect(), query);
+    if names.is_empty() {
+        return true;
+    }
+    let sql = reads::extension_check_sql(extension, &names);
+    match run_op(inner, key, entry.clone(), Op::ReadOnly(sql, 1), limit).await {
+        Ok(out) => only_zero(&out),
+        Err(RunFail::Failed(e)) => {
+            tracing::debug!(%e, "mcp: the extension's functions weren't checked");
+            false
+        }
+        Err(RunFail::Unsupported) => false,
+    }
+}
+
+/// Whether a one-cell result says 0.
+fn only_zero(out: &QueryOutcome) -> bool {
+    let cell = out
+        .results
+        .iter()
+        .find(|r| !r.columns.is_empty())
+        .and_then(|r| r.rows.first())
+        .and_then(|row| row.first());
+    match cell {
+        Some(Value::Number(n)) => n.as_u64() == Some(0),
+        Some(Value::String(s)) => s.trim() == "0",
+        _ => false,
+    }
 }
 
 fn refuse_writes(conn: &SavedConnection, query: &str) -> Result<(), String> {
@@ -1354,6 +1466,62 @@ fn plans_text(out: &QueryOutcome) -> Done {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// describe_object's index lines and index_usage's give a vector
+    /// index's algorithm, metric and parameters; an ordinary index's line
+    /// stays as it was.
+    #[test]
+    fn vector_indexes_show_their_settings() {
+        let hnsw = dbine_driver::VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("cosine".into()),
+            params: [
+                ("m", "16"),
+                ("ef_construction", "64"),
+                ("quantization", " "),
+            ]
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect(),
+        };
+        let ix = |name: &str, vector: Option<dbine_driver::VectorIndex>| dbine_driver::IndexDef {
+            name: name.into(),
+            columns: vec!["emb".into()],
+            kind: Some("hnsw".into()),
+            vector,
+            ..Default::default()
+        };
+        assert_eq!(
+            index_line(&ix("items_emb", Some(hnsw.clone()))),
+            "  items_emb (emb) hnsw [vector index: algorithm hnsw, metric cosine, ef_construction=64, m=16]"
+        );
+        assert_eq!(index_line(&ix("plain", None)), "  plain (emb) hnsw");
+        assert_eq!(
+            vector_settings(&dbine_driver::VectorIndex::default()),
+            " [vector index: metric engine default]"
+        );
+        let usage = dbine_driver::IndexUsage {
+            name: "items_emb".into(),
+            kind: "hnsw".into(),
+            key_columns: vec!["emb".into()],
+            scans: 3,
+            reads: 3,
+            vector: Some(hnsw),
+            ..Default::default()
+        };
+        assert_eq!(
+            usage_line(&usage, false),
+            "  items_emb hnsw (emb) [vector index: algorithm hnsw, metric cosine, ef_construction=64, m=16] reads 3 (seeks 0, scans 3, lookups 0)"
+        );
+        let plain = dbine_driver::IndexUsage {
+            vector: None,
+            ..usage
+        };
+        assert_eq!(
+            usage_line(&plain, true),
+            "  items_emb hnsw (emb) reads 3 (seeks 0, scans 3, lookups 0) writes 0"
+        );
+    }
 
     #[test]
     fn mcp_run_query_refuses_writes() {

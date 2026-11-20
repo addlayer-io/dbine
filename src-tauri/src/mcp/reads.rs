@@ -14,7 +14,10 @@
 use std::future::Future;
 
 mod allowlist;
-pub(crate) use allowlist::{approval_free, dax_approval_free};
+mod cypher;
+pub(crate) use allowlist::{
+    approval_free, dax_approval_free, extension_calls, extension_check_sql, vector_extension,
+};
 
 /// How a read was allowed to run: the activity log says it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -217,6 +220,7 @@ mod tests {
         // outside the read-only transaction: nothing runs before the approval.
         let free = approval_free(
             dbine_driver::Language::Sql,
+            "postgres",
             "postgres",
             &dbine_driver::ScriptDialect::postgres(),
             "SELECT pg_wal_replay_pause()",

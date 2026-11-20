@@ -46,6 +46,18 @@ impl Default for Options {
     }
 }
 
+impl Options {
+    /// These options for a conversion into `driver`'s engine: its caps
+    /// narrowed by what the driver says the engine has
+    /// ([`dialect::target_caps`]), so the report says what an engine of
+    /// the family lacks (Redshift's indexes, SQLite's vector indexes)
+    /// instead of its DDL failing or leaving it out.
+    pub fn for_target(mut self, driver: &dyn dbine_driver::Driver) -> Self {
+        self.target_caps = dialect::target_caps(driver);
+        self
+    }
+}
+
 /// One column's journey, for the review table.
 #[derive(Debug, Clone, Serialize)]
 pub struct ColumnMapping {
@@ -170,9 +182,19 @@ pub fn convert(
             ..Default::default()
         };
         let mut mappings = Vec::new();
+        let searched = vector_searched(t);
         for c in &t.columns {
-            let (mut col, mapping) =
-                column(t, c, src, dst, &caps, &names, same_family, &mut report);
+            let (mut col, mapping) = column(
+                t,
+                c,
+                src,
+                dst,
+                &caps,
+                &names,
+                same_family,
+                searched.get(c.name.as_str()).copied(),
+                &mut report,
+            );
             col.options.insert(ORIGIN.into(), c.name.clone());
             target.columns.push(col);
             mappings.push(mapping);
@@ -187,9 +209,21 @@ pub fn convert(
             }
         }
         for ix in &t.indexes {
+            // The logical type of the column a vector index searches.
+            let vector_column = ix.vector.as_ref().and(ix.columns.first()).and_then(|c| {
+                t.columns.iter().find(|x| &x.name == c).map(|x| {
+                    let l = logical_of(src, &parse::parse(&x.data_type));
+                    match searched.get(x.name.as_str()) {
+                        Some(s) if !same_family => searched_as_vector(l, *s),
+                        _ => l,
+                    }
+                })
+            });
             if let Some(ix) = index(
                 t,
                 ix,
+                dst,
+                vector_column.as_ref(),
                 &caps,
                 &names,
                 same_family,
@@ -295,14 +329,23 @@ fn column(
     caps: &Caps,
     names: &Names,
     same_family: bool,
+    searched: Option<Searched>,
     report: &mut Report,
 ) -> (ColumnDef, ColumnMapping) {
     let spec = parse::parse(&c.data_type);
-    let logical = logical_of(src, &spec);
+    let mut logical = logical_of(src, &spec);
+    // A list of numbers a vector index searches is a vector (ClickHouse,
+    // BigQuery, Doris keep embeddings as arrays): it moves as one.
+    if let (Some(s), false) = (searched, same_family) {
+        logical = searched_as_vector(logical, s);
+    }
     let col_name = c.name.as_str();
 
-    // Type.
-    let native = if same_family {
+    // Type. A vector into an engine without vectors, even one of the same
+    // family (pgvector into Redshift, libSQL into SQLite), takes the
+    // family's list of numbers, said.
+    let fallback = !caps.vectors && matches!(logical, LogicalType::Vector { .. });
+    let native = if same_family && !fallback {
         c.data_type.clone()
     } else if let LogicalType::Other { native } = &logical {
         report.push(
@@ -314,7 +357,12 @@ fn column(
         );
         native.clone()
     } else {
-        let r = dst.render_type(&logical);
+        // A family without vectors renders its own fallback.
+        let r = if fallback && dst.caps().vectors {
+            dialect::vector_fallback(dst, &logical)
+        } else {
+            dst.render_type(&logical)
+        };
         for n in r.notes {
             report.push(n.severity, n.code, &t.name, Some(col_name), n.message);
         }
@@ -602,6 +650,8 @@ fn max_index_columns(target_family: &str) -> Option<usize> {
 fn index(
     t: &TableSchema,
     ix: &IndexDef,
+    target: &dyn Dialect,
+    vector_column: Option<&LogicalType>,
     caps: &Caps,
     names: &Names,
     same_family: bool,
@@ -708,7 +758,63 @@ fn index(
         );
         filter = None;
     }
-    let kind = if same_family {
+    // A vector index moves only to an engine that has them, on a column
+    // that is a vector there too, in its family's terms.
+    if ix.vector.is_some() {
+        let why = if !caps.vector_indexes || !caps.vectors {
+            Some("el destino no tiene índices vectoriales".to_string())
+        } else if !same_family && !matches!(vector_column, Some(LogicalType::Vector { .. })) {
+            Some("su columna no es un vector".to_string())
+        } else {
+            None
+        };
+        if let Some(why) = why {
+            report.push(
+                Severity::Dropped,
+                IssueCode::IndexDropped,
+                &t.name,
+                Some(&ix.name),
+                format!("El índice vectorial «{}» no se crea: {why}.", ix.name),
+            );
+            return None;
+        }
+    }
+    let mut vector = ix.vector.clone();
+    let mut vector_kind = None;
+    if let (Some(v), false) = (&ix.vector, same_family) {
+        let ctx = dialect::VectorIndexCtx {
+            column: vector_column,
+            target_driver: Some(engine),
+        };
+        match target.vector_index(v, &ctx) {
+            Ok(m) => {
+                vector_kind = Some(m.kind);
+                vector = Some(m.index);
+                for n in m.notes {
+                    report.push(
+                        Severity::Warning,
+                        IssueCode::IndexChanged,
+                        &t.name,
+                        Some(&ix.name),
+                        format!("El índice vectorial «{}»: {n}", ix.name),
+                    );
+                }
+            }
+            Err(why) => {
+                report.push(
+                    Severity::Dropped,
+                    IssueCode::IndexDropped,
+                    &t.name,
+                    Some(&ix.name),
+                    format!("El índice vectorial «{}» no se crea: {why}.", ix.name),
+                );
+                return None;
+            }
+        }
+    }
+    let kind = if let Some(k) = vector_kind {
+        k
+    } else if same_family {
         ix.kind.clone()
     } else {
         if let Some(k) = ix
@@ -775,7 +881,103 @@ fn index(
         filter,
         include,
         options,
+        vector,
     })
+}
+
+/// How a vector index searches a column ([`vector_searched`]).
+#[derive(Debug, Clone, Copy)]
+struct Searched {
+    /// The dimension the index states, when it states one.
+    dims: Option<u32>,
+    /// By a distance between bits (Hamming, Jaccard).
+    bits: bool,
+}
+
+/// The columns a vector index searches (its first column), and how.
+fn vector_searched(t: &TableSchema) -> std::collections::HashMap<&str, Searched> {
+    t.indexes
+        .iter()
+        .filter_map(|ix| {
+            let v = ix.vector.as_ref()?;
+            let c = ix.columns.first()?;
+            let dims = [
+                "dimensions",
+                "dimension",
+                "dims",
+                "dim",
+                "numdimensions",
+                "vector.dimensions",
+            ]
+            .iter()
+            .find_map(|k| {
+                v.params
+                    .iter()
+                    .chain(ix.options.iter())
+                    .find(|(p, _)| p.eq_ignore_ascii_case(k))
+                    .and_then(|(_, x)| x.trim().parse::<u32>().ok())
+            });
+            let bits = v.metric.as_deref().is_some_and(|m| {
+                let m = m.trim();
+                m.eq_ignore_ascii_case(dbine_driver::vector::metric::HAMMING)
+                    || m.eq_ignore_ascii_case(dbine_driver::vector::metric::JACCARD)
+            });
+            Some((c.as_str(), Searched { dims, bits }))
+        })
+        .collect()
+}
+
+/// A list of numbers searched by a vector index whose dimension the index
+/// states, as a vector of them; a bit string (pgvector's `bit(n)`) searched
+/// by a distance between bits, as a binary vector of its length; any other
+/// type as it is (a list without a dimension can't be a vector column on
+/// most engines).
+fn searched_as_vector(l: LogicalType, searched: Searched) -> LogicalType {
+    use dbine_driver::VectorElement as E;
+    let dims = searched.dims;
+    let element = match &l {
+        LogicalType::Bit { len } if searched.bits => {
+            return match len.or(dims) {
+                Some(n) => LogicalType::Vector {
+                    dims: Some(n),
+                    element: E::Bit,
+                    sparse: false,
+                },
+                None => l,
+            }
+        }
+        LogicalType::Array { .. } if dims.is_none() => return l,
+        LogicalType::Array { of } => match **of {
+            LogicalType::Float { bytes: 8 } => E::F64,
+            LogicalType::Float { .. } => E::F32,
+            LogicalType::Int {
+                bytes: 1,
+                unsigned: false,
+            } => E::I8,
+            LogicalType::Int {
+                bytes: 1,
+                unsigned: true,
+            } => E::U8,
+            _ => return l,
+        },
+        LogicalType::Vector {
+            dims: None,
+            element,
+            sparse,
+        } => {
+            return LogicalType::Vector {
+                dims,
+                element: *element,
+                sparse: *sparse,
+            }
+        }
+        _ => return l,
+    };
+    LogicalType::Vector {
+        dims,
+        element,
+        sparse: false,
+    }
 }
 
 /// An index column in the target's names. MySQL reports prefix indexes as

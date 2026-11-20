@@ -137,6 +137,10 @@ export interface DriverInfo {
   supports_explain: boolean;
   /** "Comparar esquemas" can apply changes to it. */
   supports_schema_sync: boolean;
+  /** The kinds of objects "Comparar esquemas" applies changes to, when
+   *  they differ by kind (Redis: its search indexes, not its keys); absent
+   *  or null: `supports_schema_sync` for every kind. */
+  schema_sync_kinds?: string[] | null;
   /** Users and permissions (docs/users-and-permissions.md); null: not offered. */
   security?: SecuritySpec | null;
   /** The engine's own backups (docs/backups.md); null: only DBine's copies. */
@@ -210,6 +214,8 @@ export interface IndexUsage {
   seek_ratio?: number | null;
   /** good ≥ 0.8, warn ≥ 0.5, bad below (columnstore: never bad); null without seeks or scans. */
   seek_health?: 'good' | 'warn' | 'bad' | null;
+  /** Set for a vector (similarity search) index: algorithm, metric and build parameters. */
+  vector?: import('./schema-types').VectorIndex;
 }
 
 /** A table's indexes, their usage and its foreign keys. */
@@ -514,9 +520,23 @@ export interface ColumnInfo {
 
 export type Cell = null | boolean | number | string;
 
+/** The type of a vector's numbers (`dbine_driver::VectorElement`). */
+export type VectorElement = 'f32' | 'f64' | 'f16' | 'bf16' | 'i8' | 'u8' | 'i32' | 'bit' | 'other';
+
+/** What a column knows about the vectors (embeddings) in it (`dbine_driver::VectorMeta`). */
+export interface VectorMeta {
+  /** Declared dimensions (absent: any length, or not known). */
+  dims?: number;
+  element: VectorElement;
+  /** Only the non-zero positions are stored; the cells keep the engine's text. */
+  sparse?: boolean;
+}
+
 export interface ResultColumn {
   name: string;
   type_name: string;
+  /** Set when the column holds vectors: its cells are a JSON array of numbers as text, whole. */
+  vector?: VectorMeta;
 }
 
 /** One key of the data grid's column sort (`dbine_driver::SortKey`); the
@@ -1247,7 +1267,12 @@ export interface WriteSummary {
   error: string | null;
   warnings?: string[];
 }
-export interface StoredColumn { name: string; type_name: string }
+export interface StoredColumn {
+  name: string;
+  type_name: string;
+  /** Set when the column holds vectors (the result's mark); the file keeps it. */
+  vector?: VectorMeta;
+}
 export interface StoredStatement {
   columns: StoredColumn[];
   rows: Cell[][];

@@ -322,8 +322,13 @@ pub fn pair_columns(
     Ok(pairs)
 }
 
-/// A type's broad family, to tell when a value changes kind on the way.
+/// A type's broad family, to tell when a value changes kind on the way. A
+/// vector type (`vector(3)`, `VECTOR(768, FLOAT32)`, DuckDB's `FLOAT[3]`…)
+/// is its own: its `(n)` is a dimension, never a text length.
 pub fn family(type_name: &str) -> &'static str {
+    if crate::commands::vectors::looks_like_vector_type(type_name) {
+        return "vector";
+    }
     let t = type_name.trim().to_ascii_lowercase();
     let base = t.split(['(', ' ']).next().unwrap_or("");
     match base {
@@ -717,7 +722,8 @@ fn create_plan(
     let opts = dbine_schema::Options {
         target_schema: t.schema.clone(),
         ..Default::default()
-    };
+    }
+    .for_target(driver);
     let conv = dbine_schema::convert(&[table], "duckdb", driver.info().id, &opts)
         .map_err(|e| CommandError::BadRequest(e.to_string()))?;
     let made = conv

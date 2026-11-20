@@ -3,6 +3,7 @@
 //! `insertMany`, `_bulk`…) run in batches, so every engine imports the same way.
 
 use crate::commands::schema::driver_of;
+use crate::commands::{typed_scripts, vectors};
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_core::import::{self, ImportFormat, ImportOptions, Preview};
@@ -72,7 +73,7 @@ pub struct ImportResult {
 /// background pass has counted the records). `phase` is a key the UI
 /// translates: `reading` while the file is parsed, `inserting` after.
 #[derive(Clone, Serialize)]
-struct ImportProgress {
+pub(crate) struct ImportProgress {
     id: String,
     rows: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -181,8 +182,23 @@ pub async fn import_file(
     state: State<'_, AppState>,
     args: ImportArgs,
 ) -> CommandResult<ImportResult> {
+    let progress: Progress = Arc::new(move |p: ImportProgress| {
+        let _ = app.emit("import-progress", p);
+    });
+    import_with(&state, args, progress).await
+}
+
+/// Where an import's progress goes (the `import-progress` event).
+pub(crate) type Progress = Arc<dyn Fn(ImportProgress) + Send + Sync>;
+
+/// [`import_file`]'s work, its progress through `progress`.
+pub(crate) async fn import_with(
+    state: &AppState,
+    args: ImportArgs,
+    progress: Progress,
+) -> CommandResult<ImportResult> {
     let started = std::time::Instant::now();
-    let driver = driver_of(&state, &args.connection_id)?;
+    let driver = driver_of(state, &args.connection_id)?;
     let key = format!("import:{}", args.import_id);
     let entry = state
         .dedicated_session(&key, &args.connection_id, &args.database, false)
@@ -190,15 +206,12 @@ pub async fn import_file(
 
     let path = PathBuf::from(&args.path);
     let emit = |rows: u64, total: Option<u64>, phase: &'static str| {
-        let _ = app.emit(
-            "import-progress",
-            ImportProgress {
-                id: args.import_id.clone(),
-                rows,
-                total,
-                phase,
-            },
-        );
+        progress(ImportProgress {
+            id: args.import_id.clone(),
+            rows,
+            total,
+            phase,
+        });
     };
     // CSV/TSV are read as a stream: a background pass counts their records
     // for the total and stops when the import ends.
@@ -234,49 +247,47 @@ pub async fn import_file(
 
         // Formats parsed whole into memory already hold every row: take them
         // out of the reader to know how many there are.
-        let mut source: Box<dyn Iterator<Item = std::io::Result<Vec<Value>>> + Send> =
-            match reader.format {
-                ImportFormat::Json
-                | ImportFormat::JsonLines
-                | ImportFormat::Xlsx
-                | ImportFormat::Xml => {
-                    let all = reader.collect::<std::io::Result<Vec<_>>>().map_err(|e| {
-                        CommandError::BadRequest(format!("error leyendo el archivo: {e}"))
-                    })?;
-                    total.store(all.len() as u64, Ordering::Relaxed);
-                    Box::new(all.into_iter().map(Ok))
-                }
-                format => {
-                    let (total, stop) = (total.clone(), stop_count.clone());
-                    let delim = csv_delimiter(&path, format, &args.options);
-                    let (path, header) = (path.clone(), args.options.header);
-                    let (app, id, done) = (app.clone(), args.import_id.clone(), done.clone());
-                    tokio::task::spawn_blocking(move || {
-                        let Ok(Some(records)) =
-                            std::fs::File::open(&path).and_then(|f| count_records(f, delim, &stop))
-                        else {
-                            return;
-                        };
-                        // The import's own events carry it from here; this one
-                        // only matters when batches are slow.
-                        let n = records.saturating_sub(header as u64);
-                        total.store(n, Ordering::Relaxed);
-                        if !stop.load(Ordering::Relaxed) {
-                            let rows = done.load(Ordering::Relaxed);
-                            let _ = app.emit(
-                                "import-progress",
-                                ImportProgress {
-                                    id,
-                                    rows,
-                                    total: Some(n),
-                                    phase: "inserting",
-                                },
-                            );
-                        }
-                    });
-                    Box::new(reader)
-                }
-            };
+        let mut source: Box<dyn Iterator<Item = std::io::Result<Vec<Value>>> + Send> = match reader
+            .format
+        {
+            ImportFormat::Json
+            | ImportFormat::JsonLines
+            | ImportFormat::Xlsx
+            | ImportFormat::Xml => {
+                let all = reader.collect::<std::io::Result<Vec<_>>>().map_err(|e| {
+                    CommandError::BadRequest(format!("error leyendo el archivo: {e}"))
+                })?;
+                total.store(all.len() as u64, Ordering::Relaxed);
+                Box::new(all.into_iter().map(Ok))
+            }
+            format => {
+                let (total, stop) = (total.clone(), stop_count.clone());
+                let delim = csv_delimiter(&path, format, &args.options);
+                let (path, header) = (path.clone(), args.options.header);
+                let (progress, id, done) = (progress.clone(), args.import_id.clone(), done.clone());
+                tokio::task::spawn_blocking(move || {
+                    let Ok(Some(records)) =
+                        std::fs::File::open(&path).and_then(|f| count_records(f, delim, &stop))
+                    else {
+                        return;
+                    };
+                    // The import's own events carry it from here; this one
+                    // only matters when batches are slow.
+                    let n = records.saturating_sub(header as u64);
+                    total.store(n, Ordering::Relaxed);
+                    if !stop.load(Ordering::Relaxed) {
+                        let rows = done.load(Ordering::Relaxed);
+                        progress(ImportProgress {
+                            id,
+                            rows,
+                            total: Some(n),
+                            phase: "inserting",
+                        });
+                    }
+                });
+                Box::new(reader)
+            }
+        };
         let known = || Some(total.load(Ordering::Relaxed)).filter(|t| *t != u64::MAX);
         emit(0, known(), "inserting");
 
@@ -305,6 +316,24 @@ pub async fn import_file(
                 .await
                 .map_err(|e| CommandError::Sql(format!("no se pudo crear {}: {e}", t.name)))?;
         }
+
+        // The target's vector columns take the file's vectors (JSON-array
+        // text, or arrays) as arrays.
+        let types: Vec<(String, String)> = match &args.create_table {
+            Some(t) => t
+                .columns
+                .iter()
+                .map(|c| (c.name.clone(), c.data_type.clone()))
+                .collect(),
+            None => {
+                let mut s = entry.session.lock().await;
+                s.columns(&args.target)
+                    .await
+                    .map(|cols| cols.into_iter().map(|c| (c.name, c.data_type)).collect())
+                    .unwrap_or_default()
+            }
+        };
+        let target = Target::new(driver.info().id, &columns, &types);
 
         let mut rows = 0u64;
         let mut last_emit = Instant::now();
@@ -337,7 +366,7 @@ pub async fn import_file(
                 break;
             }
             let n = chunk.len() as u64;
-            let script = driver.insert_script(&args.target, &columns, &chunk)?;
+            let script = target.script(driver.as_ref(), &args.target, &columns, chunk)?;
             exec(script)
                 .await
                 .map_err(|e| CommandError::Sql(format!("filas {}–{}: {e}", rows + 1, rows + n)))?;
@@ -360,9 +389,140 @@ pub async fn import_file(
     })
 }
 
+/// The import's target columns as its insert scripts write them.
+struct Target {
+    /// Which of the columns are dense vector columns: the file's vectors
+    /// (JSON-array text, or arrays) reach the script as arrays.
+    vector_at: Vec<bool>,
+    /// The target's columns with their types (as it describes them, or as
+    /// the import creates them): the insert script writes each value as
+    /// its column takes it.
+    typed: Vec<dbine_driver::ResultColumn>,
+}
+
+impl Target {
+    /// The target `columns` by the table's `types` (name, native type) on
+    /// `driver_id`'s engine.
+    fn new(driver_id: &str, columns: &[String], types: &[(String, String)]) -> Target {
+        Target {
+            vector_at: vector_targets(columns, types, |t| {
+                vectors::of_type(driver_id, t).is_some_and(|m| !m.sparse)
+            }),
+            typed: typed_scripts::of_describe(
+                driver_id,
+                types.iter().map(|(n, t)| (n.as_str(), t.as_str())),
+            ),
+        }
+    }
+
+    /// A batch of the file's rows (in `columns`' order) as `driver`'s insert
+    /// script into `target`, typed by the target's columns.
+    fn script(
+        &self,
+        driver: &dyn dbine_driver::Driver,
+        target: &ObjectRef,
+        columns: &[String],
+        chunk: Vec<Vec<Value>>,
+    ) -> dbine_driver::Result<String> {
+        let chunk = vectors::script_rows(&self.vector_at, chunk);
+        typed_scripts::insert(driver, target, columns, &self.typed, &chunk)
+    }
+}
+
+/// Which of the import's target `columns` are vector columns, by the
+/// target table's `types` (name, native type; names compared ignoring
+/// case).
+fn vector_targets(
+    columns: &[String],
+    types: &[(String, String)],
+    is_vector: impl Fn(&str) -> bool,
+) -> Vec<bool> {
+    columns
+        .iter()
+        .map(|c| {
+            types
+                .iter()
+                .find(|(n, _)| n == c)
+                .or_else(|| types.iter().find(|(n, _)| n.eq_ignore_ascii_case(c)))
+                .is_some_and(|(_, t)| is_vector(t))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn vector_columns_of_the_target_take_arrays() {
+        let d = crate::commands::vectors::tests::WithVectors;
+        let is_vector = |t: &str| crate::commands::vectors::of_type_in(&d, t).is_some();
+        let columns = vec![
+            "id".to_string(),
+            "Embedding".to_string(),
+            "note".to_string(),
+        ];
+        let types = vec![
+            ("id".to_string(), "integer".to_string()),
+            ("embedding".to_string(), "vector(3)".to_string()),
+            ("note".to_string(), "text".to_string()),
+        ];
+        let at = vector_targets(&columns, &types, is_vector);
+        assert_eq!(at, [false, true, false]);
+        // CSV gives text, JSON arrays; both reach the script as arrays. A
+        // text column with an array's text stays text.
+        let chunk = vec![
+            vec![json!("1"), json!("[1, 2.5, -3]"), json!("[1,2]")],
+            vec![json!("2"), json!([0.5, 1, 0]), json!(null)],
+            vec![json!("3"), json!(""), json!("x")],
+        ];
+        assert_eq!(
+            vectors::script_rows(&at, chunk),
+            vec![
+                vec![json!("1"), json!([1.0, 2.5, -3.0]), json!("[1,2]")],
+                vec![json!("2"), json!([0.5, 1, 0]), json!(null)],
+                vec![json!("3"), json!(""), json!("x")],
+            ]
+        );
+        assert_eq!(vector_targets(&columns, &[], is_vector), [false; 3]);
+    }
+
+    /// A batch goes to the target driver's typed insert script, each
+    /// column with the type the target describes (a vector column with its
+    /// vector) and its vectors as arrays; a target that describes no
+    /// columns gets the untyped script, as before.
+    #[test]
+    fn a_batch_is_typed_by_the_targets_columns() {
+        use crate::commands::typed_scripts::tests::{table, Recorder};
+        let rec = Recorder::default();
+        let columns = vec!["id".to_string(), "Embedding".to_string()];
+        let types = vec![
+            ("id".to_string(), "integer".to_string()),
+            ("embedding".to_string(), "vector(3)".to_string()),
+        ];
+        let target = Target::new("postgres", &columns, &types);
+        assert_eq!(target.vector_at, [false, true]);
+        let chunk = vec![vec![json!("1"), json!("[1, 2, 3]")]];
+        target
+            .script(&rec, &table("t"), &columns, chunk.clone())
+            .unwrap();
+        let calls = rec.take();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].0, "insert_typed");
+        let named: Vec<(&str, &str)> = calls[0]
+            .1
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_name.as_str()))
+            .collect();
+        assert_eq!(named, [("id", "integer"), ("Embedding", "vector(3)")]);
+        assert_eq!(calls[0].1[1].vector.as_ref().and_then(|m| m.dims), Some(3));
+        assert!(calls[0].1[0].vector.is_none());
+
+        let untyped = Target::new("postgres", &columns, &[]);
+        untyped.script(&rec, &table("t"), &columns, chunk).unwrap();
+        assert_eq!(rec.take()[0].0, "insert");
+    }
 
     fn count(text: &str, delim: u8) -> u64 {
         count_records(text.as_bytes(), delim, &AtomicBool::new(false))

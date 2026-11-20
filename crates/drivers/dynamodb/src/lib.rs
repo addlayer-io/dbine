@@ -375,6 +375,7 @@ impl DynamoSession {
                 .map(|c| ResultColumn {
                     name: c.clone(),
                     type_name: String::new(),
+                    vector: None,
                 })
                 .collect(),
         );

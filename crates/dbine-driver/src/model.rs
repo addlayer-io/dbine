@@ -53,11 +53,33 @@ pub struct ColumnInfo {
     pub default_value: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ResultColumn {
     pub name: String,
-    /// Engine type name when the driver knows it ("" otherwise).
+    /// Engine type name when the driver knows it ("" otherwise), with the
+    /// dimension for vectors (`vector(1536)`, `VECTOR(3, FLOAT32)`…) when the
+    /// engine reports it.
     pub type_name: String,
+    /// Set when the column holds vectors (embeddings): its cells are a JSON
+    /// array of numbers as text, whole ([`crate::vector`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector: Option<crate::vector::VectorMeta>,
+}
+
+impl ResultColumn {
+    pub fn new(name: impl Into<String>, type_name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            type_name: type_name.into(),
+            vector: None,
+        }
+    }
+
+    /// The column holds vectors.
+    pub fn with_vector(mut self, meta: crate::vector::VectorMeta) -> Self {
+        self.vector = Some(meta);
+        self
+    }
 }
 
 /// One statement's outcome: a result set (`columns` not empty) and/or a
@@ -707,6 +729,7 @@ mod tests {
         o.begin_result(vec![ResultColumn {
             name: "a".into(),
             type_name: String::new(),
+            vector: None,
         }]);
         o.push_row(vec![1.into()], 1);
         o.push_row(vec![2.into()], 1);

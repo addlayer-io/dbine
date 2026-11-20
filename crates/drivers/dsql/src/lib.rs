@@ -295,6 +295,7 @@ impl Driver for DsqlDriver {
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
+        sync::no_vectors(table)?;
         Ok(table_ddl(table, parts))
     }
 
@@ -693,6 +694,7 @@ impl DsqlSession {
                                     .get(i)
                                     .map(|t| t.name().to_string())
                                     .unwrap_or_default(),
+                                vector: None,
                             })
                             .collect(),
                     );

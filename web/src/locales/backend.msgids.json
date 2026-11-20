@@ -2,6 +2,9 @@
  "\n    ABS ACOS ASIN ATAN ATAN2 BITAND CEIL COS COSH EXP FLOOR LN LOG MOD POWER ROUND SIGN SIN SINH\n    SQRT TAN TANH TRUNC\n    ASCII CHR CONCAT INITCAP INSTR INSTRB LENGTH LENGTHB LOWER LPAD LTRIM REGEXP_INSTR REGEXP_LIKE\n    REGEXP_REPLACE REGEXP_SUBSTR REPLACE RPAD RTRIM SOUNDEX SUBSTR SUBSTRB TRANSLATE TRIM UPPER\n    ADD_MONTHS CURRENT_DATE CURRENT_TIMESTAMP DBTIMEZONE EXTRACT FROM_TZ LAST_DAY LOCALTIMESTAMP\n    MONTHS_BETWEEN NEXT_DAY NUMTODSINTERVAL NUMTOYMINTERVAL SESSIONTIMEZONE SYSDATE SYSTIMESTAMP\n    TO_TIMESTAMP TZ_OFFSET\n    CAST COALESCE DECODE GREATEST HEXTORAW LEAST NULLIF NVL NVL2 RAWTOHEX TO_BLOB TO_CHAR TO_DATE\n    TO_NUMBER\n    EMPTY_BLOB EMPTY_CLOB SYS_CONNECT_BY_PATH SYS_CONTEXT SYS_GUID UID USER USERENV\n    AVG CORR COUNT COVAR_POP COVAR_SAMP GROUPING LISTAGG MAX MEDIAN MIN PERCENTILE_CONT\n    PERCENTILE_DISC STDDEV STDDEV_POP STDDEV_SAMP SUM VAR_POP VAR_SAMP VARIANCE\n    CUME_DIST DENSE_RANK FIRST_VALUE LAG LAST_VALUE LEAD NTH_VALUE NTILE PERCENT_RANK RANK\n    RATIO_TO_REPORT ROW_NUMBER\n": [
   "crates/drivers/odbc/src/functions.rs"
  ],
+ "\n# FT.INFO de este servidor no informa la configuración de {0}: completá su algoritmo, TYPE, DIM y DISTANCE_METRIC antes de ejecutarlo.": [
+  "crates/drivers/redis/src/lib.rs"
+ ],
  "\n-- Dremio no tiene WITH GRANT OPTION: poder otorgar es MANAGE GRANTS sobre la carpeta.\nGRANT MANAGE GRANTS ON {0} TO {1};": [
   "crates/drivers/dremio/src/security.rs"
  ],
@@ -55,6 +58,10 @@
  ],
  " (quedaron escritos {0} ítems en {1}": [
   "crates/drivers/dynamodb/src/transfer.rs"
+ ],
+ " (un índice sobre la columna convertida a halfvec llega a 4000)": [
+  "crates/dbine-schema/src/dialect/postgres.rs",
+  "crates/drivers/postgres/src/vectors.rs"
  ],
  " (y una muestra del {0} %)": [
   "crates/drivers/mongodb/src/profiler.rs"
@@ -164,6 +171,12 @@
  " · en cola {0} ms": [
   "crates/drivers/cassandra/src/profiler.rs"
  ],
+ " — Oracle {0} no tiene el tipo VECTOR ni índices vectoriales: llegaron en Oracle Database 23ai.": [
+  "crates/drivers/oracle/src/vector.rs"
+ ],
+ " — SAP HANA {0} no tiene los tipos REAL_VECTOR y HALF_VECTOR ni índices vectoriales: son de SAP HANA Cloud (HALF_VECTOR, desde la versión QRC 2/2025).": [
+  "crates/drivers/hana/src/vector.rs"
+ ],
  "\"admin\" usa un token DbConnectAdmin; cualquier otro rol, un token DbConnect.": [
   "crates/drivers/dsql/src/lib.rs",
   "driver dsql"
@@ -211,6 +224,9 @@
   "crates/drivers/elasticsearch/src/security.rs"
  ],
  "# Ya definidos por el configset: {0}.\n": [
+  "crates/drivers/solr/src/ddl.rs"
+ ],
+ "# {0}: más de {1} dimensiones. Solr las toma desde la 9.5 (en la 9.4, con SchemaCodecFactory en el solrconfig.xml de la colección).\n": [
   "crates/drivers/solr/src/ddl.rs"
  ],
  "# «{0}»: no hay cambios que guardar.\n": [
@@ -334,6 +350,9 @@
  ],
  "(el id de la organización de la conexión)": [
   "crates/drivers/influxdb/src/create_db.rs"
+ ],
+ "(el nombre de la key hasta su último «:»)": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "(el predeterminado)": [
   "crates/drivers/flightsql/src/lib.rs",
@@ -507,6 +526,9 @@
  "(sin nombre)": [
   "crates/drivers/postgres/src/scheduler/cron.rs"
  ],
+ "(sin reducir)": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "(sin vencimiento)": [
   "crates/drivers/etcd/src/ddl.rs",
   "crates/drivers/redis/src/ddl.rs"
@@ -577,6 +599,9 @@
  "-- Backup {0} de {1}\n": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
+ "-- BigQuery solo tiene índices vectoriales y de búsqueda: el índice {0} no se crea.": [
+  "crates/drivers/bigquery/src/ddl.rs"
+ ],
  "-- Borra la reflexión «{0}» de {1} (por su id: otra de la tabla puede llamarse igual)\n{2};\n": [
   "crates/drivers/dremio/src/scheduler/reflection.rs"
  ],
@@ -613,8 +638,20 @@
  "-- El schedule está en pausa: después de crearlo, PAUSE SCHEDULE <id>.\n": [
   "crates/drivers/postgres/src/jobs/cockroach.rs"
  ],
+ "-- El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.\n": [
+  "crates/drivers/couchbase/src/vector.rs"
+ ],
  "-- El índice local {0} solo se puede crear junto con la tabla (CREATE TABLE).": [
   "crates/drivers/dynamodb/src/ddl.rs"
+ ],
+ "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": [
+  "crates/drivers/sqlserver/src/structure.rs"
+ ],
+ "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": [
+  "crates/drivers/oracle/src/vector.rs"
+ ],
+ "-- El índice vectorial «": [
+  "crates/drivers/sqlite/src/schema.rs"
  ],
  "-- Elegí cuántos días guardar antes de correrlo:\n{0}": [
   "crates/drivers/bigquery/src/health.rs"
@@ -702,6 +739,9 @@
  "-- {0} solo en el destino: no se borran (opción «Incluir borrados»).\n": [
   "src-tauri/src/tasks/steps.rs"
  ],
+ "-- {0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": [
+  "crates/drivers/couchbase/src/ddl.rs"
+ ],
  "-- {0}: no hay cambios que guardar.\n": [
   "crates/drivers/dremio/src/scheduler/mod.rs",
   "crates/drivers/hana/src/scheduler/mod.rs",
@@ -715,6 +755,13 @@
   "crates/drivers/postgres/src/scheduler/mod.rs",
   "crates/drivers/sqlserver/src/agent/mod.rs",
   "crates/drivers/tdengine/src/scheduler/mod.rs"
+ ],
+ "-- Índice vectorial {0} omitido: {1}.": [
+  "crates/drivers/hana/src/schema.rs",
+  "crates/drivers/oracle/src/ddl.rs"
+ ],
+ "-- Índice vectorial: SQL Server 2025 lo crea con ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, y mientras exista el índice, la tabla no admite INSERT, UPDATE ni DELETE.": [
+  "crates/drivers/sqlserver/src/structure.rs"
  ],
  "-- Índice {0} ({1}) omitido: se crea a mano.": [
   "crates/drivers/sqlserver/src/structure.rs"
@@ -1017,6 +1064,7 @@
   "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "3<instancia>15 en una base única; 3<instancia>41 (SQL del tenant) o 3<instancia>13 (SYSTEMDB) en contenedores; 443 en SAP HANA Cloud.": [
+  "crates/drivers/hana/src/lib.rs",
   "driver hana"
  ],
  "4 días": [
@@ -1550,6 +1598,7 @@
   "crates/drivers/firebird/src/properties.rs"
  ],
  "Activada": [
+  "crates/drivers/neo4j/src/ddl.rs",
   "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
  "Activala si el cluster tiene la autenticación IAM habilitada: firma cada pedido con las credenciales de abajo.": [
@@ -2239,11 +2288,23 @@
  "Amazon Keyspaces no renombra columnas, tablas ni keyspaces.": [
   "crates/drivers/cassandra/src/rename.rs"
  ],
+ "Amazon Keyspaces no tiene vectores: {0} pasa a {1}, sin la dimensión.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "Amazon Keyspaces no tiene vectores: {0} pasa de {1} a {2}, sin la dimensión.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
  "Amazon Keyspaces no tiene índices secundarios: los cambios de índices de {0} no se aplican.": [
   "crates/drivers/cassandra/src/sync.rs"
  ],
  "Amazon Keyspaces no tiene índices secundarios: los índices de {0} no se crean.": [
   "crates/drivers/cassandra/src/sync.rs"
+ ],
+ "Amazon Keyspaces no tiene índices vectoriales": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "Amazon Keyspaces no tiene índices vectoriales.": [
+  "crates/drivers/cassandra/src/ddl.rs"
  ],
  "Amazon Redshift no tiene jobs en la base: sus consultas programadas viven en Query Editor v2 y EventBridge": [
   "crates/drivers/postgres/src/jobs.rs"
@@ -2820,6 +2881,12 @@
  ],
  "Aurora DSQL no informa cuánto se usa cada índice. Se listan los índices sin estadísticas de uso.": [
   "crates/drivers/dsql/src/index_usage.rs"
+ ],
+ "Aurora DSQL no tiene vectores (no carga extensiones como pgvector): la columna «{0}» es {1}. Cambiá su tipo antes de crearla.": [
+  "crates/drivers/dsql/src/sync.rs"
+ ],
+ "Aurora DSQL no tiene índices vectoriales: el índice «{0}» no se puede crear.": [
+  "crates/drivers/dsql/src/sync.rs"
  ],
  "Aurora DSQL no usa bloqueos (control de concurrencia optimista): no hay bloqueos en espera que mostrar.": [
   "crates/drivers/dsql/src/monitor.rs"
@@ -3914,11 +3981,17 @@
  "BigQuery es un servicio administrado: no expone CPU, memoria ni conexiones; el consumo se mide en slots y bytes procesados.": [
   "crates/drivers/bigquery/src/monitor.rs"
  ],
+ "BigQuery lo hace solo sobre ARRAY<FLOAT64> y un vector disperso queda como JSON": [
+  "crates/dbine-schema/src/dialect/bigquery.rs"
+ ],
  "BigQuery no actualiza las vistas ni las rutinas que nombran lo renombrado: DBine las vuelve a crear con CREATE OR REPLACE. Las sentencias DDL no corren dentro de una transacción. Al renombrar una tabla se pierden sus índices de búsqueda y vectoriales; una tabla que recibe datos por streaming no se puede renombrar hasta que el streaming termina. Las referencias escritas con el camino entero entre un solo par de comillas invertidas (`proyecto.dataset.tabla`) no se detectan: hay que revisarlas.": [
   "crates/drivers/bigquery/src/rename.rs"
  ],
  "BigQuery no agrega columnas NOT NULL a una tabla existente: {0}.{1} se agrega como NULLABLE.": [
   "crates/drivers/bigquery/src/sync.rs"
+ ],
+ "BigQuery no declara la dimensión de un vector: nada controla que tenga {0} números.": [
+  "crates/dbine-schema/src/dialect/bigquery.rs"
  ],
  "BigQuery no devolvió la dirección de subida de la carga": [
   "crates/drivers/bigquery/src/transfer.rs"
@@ -3965,6 +4038,9 @@
  "BigQuery no tiene enumerados: queda como texto. Valores: {0}.": [
   "crates/dbine-schema/src/dialect/bigquery.rs"
  ],
+ "BigQuery no tiene la distancia «{0}» (solo coseno, euclídea y producto escalar)": [
+  "crates/dbine-schema/src/dialect/bigquery.rs"
+ ],
  "BigQuery no tiene mapas: se guarda como JSON.": [
   "crates/dbine-schema/src/dialect/bigquery.rs"
  ],
@@ -3982,6 +4058,15 @@
  ],
  "BigQuery solo tiene índices de búsqueda y vectoriales: se omite {0}.{1}.": [
   "crates/drivers/bigquery/src/sync.rs"
+ ],
+ "BigQuery solo tiene índices vectoriales y de búsqueda: el índice {0} no se crea.": [
+  "crates/drivers/bigquery/src/indexes.rs"
+ ],
+ "BigQuery solo tiene índices vectoriales y de búsqueda: este índice no se crea.": [
+  "crates/dbine-schema/src/dialect/bigquery.rs"
+ ],
+ "Binaria": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "Binario como String (en ClickHouse String guarda bytes).": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
@@ -5358,6 +5443,12 @@
  "CQL no tiene enteros sin signo: se usa un tipo más grande con signo.": [
   "crates/dbine-schema/src/dialect/cassandra.rs"
  ],
+ "CQL no tiene la distancia «{0}» para índices vectoriales: solo coseno (COSINE), euclídea (EUCLIDEAN) y producto punto (DOT_PRODUCT).": [
+  "crates/drivers/cassandra/src/ddl.rs"
+ ],
+ "CQL no tiene la distancia «{0}»: solo coseno, euclídea y producto punto": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
  "CQL no tiene tipos espaciales: queda como texto (WKT).": [
   "crates/dbine-schema/src/dialect/cassandra.rs"
  ],
@@ -6146,8 +6237,21 @@
  "Campo {0}, {1}: «{2}» no es true ni false.": [
   "crates/drivers/solr/src/ddl.rs"
  ],
+ "Campo {0}: Open Distro solo tiene vectores de números float.": [
+  "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "Campo {0}: Solr necesita la dimensión del vector (knn_vector(n)).": [
+  "crates/drivers/solr/src/vectors.rs"
+ ],
  "Campo {0}: el mapping extra debe ser un objeto JSON.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "Campo {0}: el tipo dice {1} dimensiones y la opción, {2}.": [
+  "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "Campo {0}: tiene un índice vectorial y la opción «Indexado» en No.": [
+  "crates/drivers/elasticsearch/src/ddl.rs",
+  "crates/drivers/solr/src/ddl.rs"
  ],
  "Campos de runtime": [
   "crates/drivers/elasticsearch/src/scheduler/es_transform.rs"
@@ -6206,6 +6310,9 @@
   "crates/drivers/powerbi/src/monitor.rs",
   "crates/drivers/powerbi/src/refresh/mod.rs"
  ],
+ "Candidatos al construir (ef_construction)": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
  "Cannot execute query on non idempotent": [
   "crates/drivers/orientdb/src/lib.rs"
  ],
@@ -6233,6 +6340,7 @@
   "crates/drivers/cosmosdb/src/monitor.rs",
   "crates/drivers/databricks/src/monitor.rs",
   "crates/drivers/dynamodb/src/monitor.rs",
+  "crates/drivers/neo4j/src/ddl.rs",
   "crates/drivers/postgres/src/monitor.rs",
   "crates/drivers/powerbi/src/monitor.rs",
   "crates/drivers/powerbi/src/properties.rs",
@@ -6394,6 +6502,9 @@
  ],
  "Cassandra no expone el uso de CPU ni la memoria del JVM por CQL; para eso hace falta JMX (nodetool info / tpstats).": [
   "crates/drivers/cassandra/src/monitor.rs"
+ ],
+ "Cassandra no mide la distancia coseno en vectores de una dimensión": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
  ],
  "Cassandra no otorga permisos sobre objetos «{0}»": [
   "crates/drivers/cassandra/src/security.rs"
@@ -6904,6 +7015,15 @@
  "ClickHouse admite hasta Decimal(76, S); el origen tiene {0} dígitos.": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
  ],
+ "ClickHouse lo crea sobre columnas Array(Float32), Array(Float64) o Array(BFloat16)": [
+  "crates/dbine-schema/src/dialect/clickhouse.rs"
+ ],
+ "ClickHouse necesita la dimensión del vector (parámetro «dimensions») para crear el índice": [
+  "crates/drivers/clickhouse/src/vector.rs"
+ ],
+ "ClickHouse necesita la dimensión del vector, y ni el índice ni la columna del origen la dan": [
+  "crates/dbine-schema/src/dialect/clickhouse.rs"
+ ],
  "ClickHouse no actualiza las vistas que usan lo renombrado: DBine las vuelve a crear con CREATE OR REPLACE. Una vista materializada se reemplaza por una nueva: si no tiene TO y guarda sus propios datos, se pierden. No se renombran columnas de la clave de ordenamiento, de la primaria, de la partición o de muestreo, ni las que lee una vista materializada. Las tablas Distributed que apuntan a la tabla no se detectan: hay que revisarlas. Las bases de datos solo se renombran con el motor Atomic.": [
   "crates/drivers/clickhouse/src/rename.rs"
  ],
@@ -6919,7 +7039,13 @@
  "ClickHouse no da cifras reales por operador: se muestran los planes estimados.": [
   "crates/drivers/clickhouse/src/lib.rs"
  ],
+ "ClickHouse no fija la dimensión en el tipo: la exige el índice vector_similarity ({0}).": [
+  "crates/dbine-schema/src/dialect/clickhouse.rs"
+ ],
  "ClickHouse no guarda intervalos en columnas: queda como texto.": [
+  "crates/dbine-schema/src/dialect/clickhouse.rs"
+ ],
+ "ClickHouse no indexa vectores dispersos, que quedan como texto": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
  ],
  "ClickHouse no mueve a otra base de datos una vista con tabla propia: cambiarle la base de datos la crea en la nueva y borra esta; su tabla propia empieza vacía, hasta el primer refresco.": [
@@ -7216,6 +7342,9 @@
  "Codificación (encoding)": [
   "crates/drivers/postgres/src/create_db.rs",
   "crates/drivers/postgres/src/properties.rs"
+ ],
+ "Coeficiente de crecimiento": [
+  "crates/drivers/neo4j/src/ddl.rs"
  ],
  "Cola": [
   "crates/drivers/databricks/src/jobs.rs"
@@ -8246,6 +8375,9 @@
  "Conexiones nuevas que aceptó el servidor. Un ritmo alto y sostenido indica clientes que abren una conexión por operación en lugar de reusar un pool.": [
   "crates/drivers/redis/src/monitor.rs"
  ],
+ "Conexiones por nodo (M)": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
  "Conexiones que aceptó searchd, por cualquier protocolo.": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
@@ -8318,6 +8450,9 @@
  ],
  "Conexión de solo lectura: no se cierran conexiones de otros.": [
   "crates/drivers/kdb/src/lib.rs"
+ ],
+ "Conexión de solo lectura: no se crean ni se borran índices de búsqueda.": [
+  "crates/drivers/couchbase/src/lib.rs"
  ],
  "Conexión de solo lectura: no se puede borrar el historial de un job.": [
   "crates/dbine-driver/src/read_only.rs"
@@ -9575,6 +9710,9 @@
  "Corta las ejecuciones en curso de la consulta programada (KILL QUERY).": [
   "crates/drivers/odbc/src/scheduler/mod.rs"
  ],
+ "Coseno": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
  "Cosmos DB acepta consultas SELECT, `USE <contenedor>` y estas sentencias de DBine: CREATE CONTAINER [IF NOT EXISTS] \"c\" {0} · DROP CONTAINER [IF EXISTS] \"c\" · INSERT INTO \"c\" {1} · UPSERT INTO \"c\" {2} · UPDATE \"c\" SET {3} WHERE {4} · DELETE FROM \"c\" WHERE {5} · CREATE USER \"u\" · DROP USER \"u\" · GRANT ALL|READ ON \"c\" TO \"u\" · REVOKE ALL|READ ON \"c\" FROM \"u\"": [
   "crates/drivers/cosmosdb/src/ddl.rs"
  ],
@@ -9584,11 +9722,23 @@
  "Cosmos DB es un servicio administrado: CPU, memoria, RU/s consumidas, throttling (429) y latencias están en Azure Monitor, no en la API de datos.": [
   "crates/drivers/cosmosdb/src/monitor.rs"
  ],
+ "Cosmos DB guarda los vectores como float32, int8 o uint8: queda float32.": [
+  "crates/dbine-schema/src/dialect/cosmosdb.rs"
+ ],
  "Cosmos DB identifica cada documento por «id» (texto): al copiar hay que llenarlo con la clave ({0}).": [
+  "crates/dbine-schema/src/dialect/cosmosdb.rs"
+ ],
+ "Cosmos DB indexa vectores de hasta {0} dimensiones, y su columna tiene {1}": [
   "crates/dbine-schema/src/dialect/cosmosdb.rs"
  ],
  "Cosmos DB no lleva la cuenta del uso de cada índice (las métricas de índices son por consulta): se listan sin contadores.": [
   "crates/drivers/cosmosdb/src/index_usage.rs"
+ ],
+ "Cosmos DB no tiene la distancia «{0}» (cosine, euclidean o dotproduct).": [
+  "crates/drivers/cosmosdb/src/vector.rs"
+ ],
+ "Cosmos DB no tiene vectores de bits: quedan como float32 (0 y 1).": [
+  "crates/dbine-schema/src/dialect/cosmosdb.rs"
  ],
  "Cosmos DB ordena en el servidor por un solo campo: varios necesitan un índice compuesto, y se ordena en la grilla": [
   "crates/drivers/cosmosdb/src/ddl.rs"
@@ -9705,11 +9855,17 @@
  "Couchbase cuenta las escrituras de un índice junto con los documentos de su construcción inicial, sin distinguirlas: no se muestran escrituras y ningún índice se marca sin uso.": [
   "crates/drivers/couchbase/src/index_usage.rs"
  ],
+ "Couchbase indexa vectores de hasta {0} dimensiones, y su columna tiene {1}": [
+  "crates/dbine-schema/src/dialect/couchbase.rs"
+ ],
  "Couchbase no renombra buckets, scopes ni colecciones": [
   "crates/drivers/couchbase/src/rename.rs"
  ],
  "Couchbase no renombra buckets, scopes ni colecciones: desde DBine se renombran campos, con un UPDATE que reescribe cada documento que tiene el campo. Hace falta un índice que sirva para encontrarlos (uno sobre el campo o el primario). Las funciones SQL++ que nombran el campo se muestran y no se reescriben.": [
   "crates/drivers/couchbase/src/rename.rs"
+ ],
+ "Couchbase no tiene la distancia «{0}» (cosine, l2, l2_squared o dot).": [
+  "crates/drivers/couchbase/src/vector.rs"
  ],
  "Couchbase rechazó el usuario o la contraseña.": [
   "crates/drivers/couchbase/src/backup/mod.rs",
@@ -10140,6 +10296,12 @@
  "Cuando una secuencia sin CYCLE llega a su límite, NEXTVAL falla (ORA-08004) y con ella los INSERT que la usan. Ampliá el límite si la columna admite valores más grandes.": [
   "crates/drivers/oracle/src/health.rs"
  ],
+ "Cuantización": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
+ "Cuantización del vector set": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "Cuarta": [
   "crates/drivers/odbc/src/scheduler/db2i.rs"
  ],
@@ -10300,6 +10462,9 @@
  ],
  "Cuánto atrasa esta réplica respecto de su origen, en el canal más atrasado. Si crece, la réplica no da abasto con los cambios del origen; no se informa con el hilo SQL detenido.": [
   "crates/drivers/mysql/src/monitor.rs"
+ ],
+ "Cuánto crece la capacidad del índice cuando se llena.": [
+  "crates/drivers/neo4j/src/ddl.rs"
  ],
  "Cuánto después del comienzo de cada período refresca (EVERY 1 DAY OFFSET 2 HOUR: a las 2:00); menor que el intervalo.": [
   "crates/drivers/clickhouse/src/scheduler/refresh.rs"
@@ -10648,6 +10813,9 @@
  "DBine no encuentra la tabla de este schedule de TTL.": [
   "crates/drivers/postgres/src/scheduler/crdb.rs"
  ],
+ "DBine no leyó todavía el índice {0}: abrilo de nuevo para que lea sus campos": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "DBine no otorga permisos sobre objetos «{0}» de Dremio": [
   "crates/drivers/dremio/src/security.rs"
  ],
@@ -10687,6 +10855,9 @@
  ],
  "DBine no sabe correr una tarea de tipo «{0}».": [
   "crates/drivers/couchbase/src/backup/repo.rs"
+ ],
+ "DBine no sabe para cuál de las conexiones abiertas es este script: {0}. Cerrá la conexión que no corresponde o escribí el comando a mano.": [
+  "crates/drivers/redis/src/vectors.rs"
  ],
  "DBine no sabe qué configuración del clúster tiene la programación de este schedule.": [
   "crates/drivers/postgres/src/scheduler/crdb.rs"
@@ -10890,7 +11061,8 @@
  "Databend": [
   "crates/dbine-schema/src/dialect/databend.rs",
   "crates/drivers/mysql/src/lib.rs",
-  "crates/drivers/mysql/src/security/databend.rs"
+  "crates/drivers/mysql/src/security/databend.rs",
+  "crates/drivers/mysql/src/vectors.rs"
  ],
  "Databend guarda TIMESTAMP en UTC: los valores sin zona se interpretan en la zona de la sesión.": [
   "crates/dbine-schema/src/dialect/databend.rs"
@@ -11254,6 +11426,12 @@
  ],
  "Db2 for z/OS: los cambios de columnas pueden dejar el tablespace con REORG pendiente; corré el utilitario REORG después.": [
   "crates/drivers/odbc/src/sync.rs"
+ ],
+ "Db2 guarda vectores de FLOAT32 o INT8: los enteros de 32 bits pasados de 16777216 (2^24) se redondean.": [
+  "crates/dbine-schema/src/dialect/db2.rs"
+ ],
+ "Db2 guarda vectores de FLOAT32 o INT8: los float64 pierden precisión.": [
+  "crates/dbine-schema/src/dialect/db2.rs"
  ],
  "Db2 muestra solo las tareas que creó este usuario.": [
   "crates/drivers/odbc/src/jobs/db2.rs"
@@ -11663,6 +11841,9 @@
  "Desacoplado": [
   "crates/drivers/oracle/src/scheduler/program.rs"
  ],
+ "Desactivada": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
  "Desactivada (off)": [
   "crates/drivers/couchbase/src/properties.rs"
  ],
@@ -11828,6 +12009,9 @@
  ],
  "Desde 400, de a 100. El mínimo real depende de los contenedores y del almacenamiento.": [
   "crates/drivers/cosmosdb/src/properties.rs"
+ ],
+ "Desde ClickHouse 25.8 el índice vector_similarity lleva la dimensión del vector, y este índice (de ClickHouse 24.8 a 25.7) no la tiene: indicala en el parámetro «dimensions» del índice.": [
+  "crates/drivers/clickhouse/src/vector.rs"
  ],
  "Desde cuándo corre, en la hora del servidor. Vacío: desde que se crea.": [
   "crates/drivers/hana/src/scheduler/mod.rs"
@@ -12152,13 +12336,11 @@
   "crates/drivers/kdb/src/props.rs"
  ],
  "Dimensiones": [
-  "crates/drivers/dremio/src/scheduler/reflection.rs"
+  "crates/drivers/dremio/src/scheduler/reflection.rs",
+  "crates/drivers/neo4j/src/ddl.rs"
  ],
  "Dimensiones (agregada)": [
   "crates/drivers/dremio/src/scheduler/reflection.rs"
- ],
- "Dimensiones (vectores)": [
-  "crates/drivers/elasticsearch/src/ddl.rs"
  ],
  "Direcciones": [
   "crates/drivers/odbc/src/monitor.rs",
@@ -12480,6 +12662,9 @@
   "crates/drivers/sqlserver/src/agent/job.rs",
   "crates/drivers/sqlserver/src/agent/proxy.rs"
  ],
+ "Divergencia": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
  "Dnodes": [
   "crates/drivers/tdengine/src/lib.rs"
  ],
@@ -12621,10 +12806,17 @@
  "Doris": [
   "crates/dbine-schema/src/dialect/starrocks.rs",
   "crates/drivers/mysql/src/design.rs",
-  "crates/drivers/mysql/src/monitor.rs"
+  "crates/drivers/mysql/src/monitor.rs",
+  "crates/drivers/mysql/src/vectors.rs"
  ],
  "Doris borra con el job su historial de tareas y sus contadores.": [
   "crates/drivers/mysql/src/scheduler/doris.rs"
+ ],
+ "Doris crea índices ANN solo en tablas DUPLICATE KEY": [
+  "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
+ "Doris crea índices ANN solo en tablas DUPLICATE KEY: el índice vectorial «{0}» pide el modelo DUPLICATE KEY": [
+  "crates/drivers/mysql/src/design.rs"
  ],
  "Doris no admite STRING en la clave: se usa VARCHAR(65533).": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
@@ -12925,8 +13117,10 @@
  "DuckDB no publica su librería para esta plataforma": [
   "crates/drivers/duckdb/src/loader.rs"
  ],
+ "DuckDB no registra cuántas veces se usa cada índice ni su tamaño: se listan los índices (ART, y los de extensiones como el HNSW vectorial de vss) con sus columnas, sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución (INDEX_SCAN; uno vectorial aparece como HNSW Index Scan).": [
+  "crates/drivers/duckdb/src/index_usage.rs"
+ ],
  "DuckDB no registra cuántas veces se usa cada índice ni su tamaño: se listan los índices ART con sus columnas, sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución (INDEX_SCAN).": [
-  "crates/drivers/duckdb/src/index_usage.rs",
   "crates/drivers/flightsql/src/index_usage.rs"
  ],
  "DuckDB no renombra esquemas": [
@@ -13281,6 +13475,9 @@
  ],
  "EDB busca los objetos de DBMS_SCHEDULER por su nombre, sin su dueño: DBine solo cambia los de tu usuario.": [
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
+ ],
+ "EF de construcción del vector set": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "EXPORT DATABASE escribe en una carpeta de esta computadora el esquema, un script de carga y un archivo por tabla. IMPORT DATABASE la carga en la base elegida, que tiene que estar vacía (o al menos sin esas tablas). Para restaurar, indicá la carpeta del backup.": [
   "crates/drivers/duckdb/src/backup.rs"
@@ -13665,6 +13862,12 @@
  "El agente del Scheduler (destino externo) que se conecta a la base remota.": [
   "crates/drivers/oracle/src/scheduler/destination.rs"
  ],
+ "El algoritmo SVS-VAMANA indexa solo vectores FLOAT32 y FLOAT16.": [
+  "crates/drivers/redis/src/vectors.rs"
+ ],
+ "El algoritmo SVS-VAMANA indexa vectores FLOAT32 o FLOAT16, no {0}: cambiá el tipo de {1} o el algoritmo.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "El alias «{0}» no apunta a ningún índice.": [
   "crates/drivers/elasticsearch/src/rename.rs"
  ],
@@ -13803,6 +14006,9 @@
  "El campo tiene que estar presente (aunque sea null).": [
   "crates/drivers/orientdb/src/ddl.rs"
  ],
+ "El campo vectorial {0} necesita la dimensión: vector(N).": [
+  "crates/drivers/cosmosdb/src/vector.rs"
+ ],
  "El campo {0} apareció durante la lectura: los datos cambiaron mientras se copiaban. Volvé a copiar.": [
   "crates/drivers/redis/src/transfer.rs"
  ],
@@ -13811,6 +14017,10 @@
  ],
  "El campo «{0}» está repetido.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "El campo «{0}» tiene más de un índice vectorial.": [
+  "crates/drivers/elasticsearch/src/ddl.rs",
+  "crates/drivers/solr/src/ddl.rs"
  ],
  "El campo «{0}» tiene subcampos: su tipo tiene que ser object o nested, no {1}.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
@@ -13971,6 +14181,9 @@
  "El dataset de los snapshots tiene que ser otro": [
   "crates/drivers/bigquery/src/backup.rs"
  ],
+ "El dataset factura el almacenamiento {0} ({1}). La facturación física cobra los bytes comprimidos al doble de precio, más los de time travel; conviene cuando los datos comprimen más de 2 a 1. Es una estimación con los tamaños actuales; el modelo se puede cambiar una vez cada 14 días.": [
+  "crates/drivers/bigquery/src/health.rs"
+ ],
  "El dataset «{0}» está en {1} y la consulta programada en {2}: tienen que estar en la misma ubicación.": [
   "crates/drivers/bigquery/src/scheduler.rs"
  ],
@@ -14047,7 +14260,8 @@
   "crates/dbine-schema/src/convert.rs"
  ],
  "El destino no tiene índices secundarios.": [
-  "crates/dbine-schema/src/convert.rs"
+  "crates/dbine-schema/src/convert.rs",
+  "crates/dbine-schema/src/dialect/starrocks.rs"
  ],
  "El destino sale también de los grupos de destinos que lo incluyen: {0}.": [
   "crates/drivers/oracle/src/scheduler/destination.rs"
@@ -14107,6 +14321,9 @@
  ],
  "El editor no admite {0}: deja la conexión ocupada.": [
   "crates/drivers/redis/src/lib.rs"
+ ],
+ "El elemento {0} necesita su vector como valor por defecto: p. ej. [0.1, 0.2, 0.3].": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "El emulador de Spanner no tiene backups ni programas de backup.": [
   "crates/drivers/spanner/src/jobs.rs"
@@ -14265,6 +14482,9 @@
  ],
  "El grupo «{0}» tiene tareas ({1}): pasalas a otro grupo antes de borrarlo.": [
   "crates/drivers/odbc/src/scheduler/informix.rs"
+ ],
+ "El hash necesita al menos un campo con valor: Redis no guarda hashes vacíos.": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "El historial de actualizaciones necesita permiso de escritura en el modelo.": [
   "crates/drivers/powerbi/src/monitor.rs"
@@ -15014,6 +15234,9 @@
  "El resultado pasa los 25 MiB que Databricks entrega en la respuesta, y no se pudo leer de su almacenamiento en la nube: {0}. Probá con un LIMIT o con menos columnas.": [
   "crates/drivers/databricks/src/results.rs"
  ],
+ "El resultado tiene una columna REAL_VECTOR y el cliente de HANA que usa DBine no lee ese tipo: pedila como texto con TO_NVARCHAR(columna).": [
+  "crates/drivers/hana/src/vector.rs"
+ ],
  "El rol actual no puede listar usuarios (SHOW USERS): se ve solo el propio": [
   "crates/drivers/snowflake/src/security.rs"
  ],
@@ -15055,6 +15278,9 @@
  "El servicio (cola de trabajo) de SQream.": [
   "crates/drivers/odbc/src/presets.rs",
   "driver sqream"
+ ],
+ "El servicio Search no tiene la distancia «{0}» (dot_product, l2_norm o cosine).": [
+  "crates/drivers/couchbase/src/vector.rs"
  ],
  "El servicio de backup de Couchbase no borra el historial de tareas de un repositorio: lo rota solo, por tamaño (ver la configuración del servicio).": [
   "crates/drivers/couchbase/src/backup/repo.rs"
@@ -15128,6 +15354,9 @@
  "El servidor no devolvió el plan de la consulta: {0}": [
   "crates/drivers/cosmosdb/src/lib.rs"
  ],
+ "El servidor no devolvió la política de vectores de {0}: de {1} se toma la distancia cosine y elementos float32. Revisalos antes de copiar o sincronizar el contenedor.": [
+  "crates/drivers/cosmosdb/src/vector.rs"
+ ],
  "El servidor no devolvió métricas de la consulta (x-ms-documentdb-query-metrics).": [
   "crates/drivers/cosmosdb/src/lib.rs"
  ],
@@ -15148,6 +15377,9 @@
  ],
  "El servidor no informa la E/S de disco (fs.io_stats solo existe en Linux con acceso a /proc/diskstats).": [
   "crates/drivers/elasticsearch/src/lib.rs"
+ ],
+ "El servidor no informa la configuración del campo vectorial {0} (RediSearch anterior a 2.8 no la muestra en FT.INFO): indicá su tipo y dimensión, p. ej. VECTOR(3, FLOAT32), y su algoritmo y distancia.": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "El servidor no mandó el snapshot": [
   "crates/drivers/etcd/src/backup.rs"
@@ -15323,11 +15555,20 @@
  "El tiempo máximo va de 1 segundo a 24 horas.": [
   "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
+ "El tipo BFloat16 es de ClickHouse 25.1 o posterior (experimental desde 24.11).": [
+  "crates/drivers/clickhouse/src/vector.rs"
+ ],
  "El tipo JSON necesita ClickHouse 24.8 o posterior.": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
  ],
  "El tipo JSON requiere Oracle 21c o posterior; en versiones anteriores, CLOB con IS JSON.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
+ ],
+ "El tipo VECTOR de Db2 existe desde Db2 LUW 12.1.2.": [
+  "crates/dbine-schema/src/dialect/db2.rs"
+ ],
+ "El tipo de campo «{0}» se define distinto para dos campos vectoriales.": [
+  "crates/drivers/solr/src/ddl.rs"
  ],
  "El tipo de relación": [
   "crates/drivers/neo4j/src/sync.rs"
@@ -15470,11 +15711,17 @@
  "El valor de una alerta de rendimiento no puede ser negativo.": [
   "crates/drivers/sqlserver/src/agent/alert.rs"
  ],
+ "El valor de {0} no es un vector: escribilo como [0.1, 0.2, 0.3].": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "El valor del parámetro {0} es demasiado largo.": [
   "crates/drivers/hana/src/scheduler/mod.rs"
  ],
  "El valor del parámetro «{0}» no es válido: {1}": [
   "src-tauri/src/notebook/params.rs"
+ ],
+ "El valor no entra sin pérdida en el campo vectorial «{0}» de Solr: {1}. La carga se detiene.": [
+  "crates/drivers/solr/src/transfer.rs"
  ],
  "El valor no es un JSON válido: {0}": [
   "crates/drivers/redis/src/ddl.rs"
@@ -15521,6 +15768,33 @@
  "El valor «{0}» tiene {1} caracteres y la columna es {2}: no entra sin recortarlo.": [
   "crates/drivers/athena/src/transfer.rs"
  ],
+ "El vector de un elemento se escribe como [0.1, 0.2, 0.3]; para quitar el elemento, borrá la fila.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "El vector de {0} tiene {1} dimensiones y la columna, {2}.": [
+  "crates/drivers/cassandra/src/ddl.rs"
+ ],
+ "El vector de {0} tiene {1} dimensiones y su tipo, {2}.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "El vector de {0} tiene {1} dimensiones y su índice lo declara de {2}: el servidor lo guardaría sin indexarlo.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "El vector no declara su dimensión: queda sin vector_length, y Spanner no le crea un índice vectorial hasta fijarla.": [
+  "crates/dbine-schema/src/dialect/spanner.rs"
+ ],
+ "El vector no tiene dimensión fija: libSQL no crea índices vectoriales sobre una columna sin dimensión.": [
+  "crates/dbine-schema/src/dialect/sqlite.rs"
+ ],
+ "El vector no tiene dimensión fija: queda como lista; las distancias array_* y los índices HNSW de DuckDB piden un FLOAT[n].": [
+  "crates/dbine-schema/src/dialect/duckdb.rs"
+ ],
+ "El vector queda como lista de FLOAT.": [
+  "crates/dbine-schema/src/dialect/graph.rs"
+ ],
+ "El vector queda como lista de FLOAT: la propiedad no fija su dimensión ({0}); la fija el índice vectorial.": [
+  "crates/dbine-schema/src/dialect/graph.rs"
+ ],
  "El warehouse {0} está suspendido: el monitor no lo reanuda, así que el historial de consultas, la carga y el almacenamiento muestran la última lectura.": [
   "crates/drivers/snowflake/src/monitor.rs"
  ],
@@ -15554,6 +15828,18 @@
   "crates/drivers/sqlserver/src/variant.rs",
   "driver fabric"
  ],
+ "El índice de búsqueda necesita bucket.scope.colección.": [
+  "crates/drivers/couchbase/src/vector.rs"
+ ],
+ "El índice de búsqueda {0} no existía.": [
+  "crates/drivers/couchbase/src/lib.rs"
+ ],
+ "El índice de búsqueda {0} se crea de nuevo: Redis no cambia sus campos; vuelve a indexar sus documentos.": [
+  "crates/drivers/redis/src/lib.rs"
+ ],
+ "El índice de búsqueda {0} ya existía.": [
+  "crates/drivers/couchbase/src/lib.rs"
+ ],
  "El índice de la hipertabla por el que se reordenan los chunks.": [
   "crates/drivers/postgres/src/scheduler/timescale.rs"
  ],
@@ -15578,6 +15864,9 @@
  "El índice local {0}.{1} solo se crea junto con la tabla: no se agrega sin recrearla.": [
   "crates/drivers/dynamodb/src/sync.rs"
  ],
+ "El índice necesita un nombre.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "El índice primario no descarta gránulos: lee los {0} (~{1} filas)": [
   "crates/drivers/clickhouse/src/plan.rs"
  ],
@@ -15598,6 +15887,128 @@
  "El índice tiene {0} columnas y el destino admite hasta {1} por índice: se omite.": [
   "crates/dbine-schema/src/convert.rs"
  ],
+ "El índice vectorial de Cassandra (SAI) no tiene columnas de filtro: indexa solo {0} (quedan fuera {1}).": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "El índice vectorial se creó diferido: {0} no tiene documentos con qué entrenarlo ({1}). Construilo con BUILD INDEX cuando estén cargados.": [
+  "crates/drivers/couchbase/src/lib.rs"
+ ],
+ "El índice vectorial {0} de {1} queda quantizedFlat: flat indexa vectores de hasta 505 dimensiones, y este tiene {2}.": [
+  "crates/drivers/cosmosdb/src/vector.rs"
+ ],
+ "El índice vectorial {0} de {1}: la distancia hamming queda euclidean (Cosmos DB no tiene hamming; sobre vectores de 0 y 1 los vecinos más cercanos son los mismos).": [
+  "crates/drivers/cosmosdb/src/vector.rs"
+ ],
+ "El índice vectorial {0} de {1}: la distancia {2} queda euclidean (Cosmos DB no tiene la euclídea al cuadrado; los vecinos más cercanos son los mismos).": [
+  "crates/drivers/cosmosdb/src/vector.rs"
+ ],
+ "El índice vectorial {0} lleva una sola columna en Cassandra (SAI no tiene columnas de filtro).": [
+  "crates/drivers/cassandra/src/ddl.rs"
+ ],
+ "El índice vectorial {0} necesita la columna del vector.": [
+  "crates/drivers/cassandra/src/ddl.rs"
+ ],
+ "El índice vectorial {0} necesita la dimensión: el campo «{1}» tiene que ser de tipo vector(N).": [
+  "crates/drivers/couchbase/src/vector.rs"
+ ],
+ "El índice vectorial {0} necesita que el campo «{1}» sea de tipo vector(N) (la política de vectores del contenedor).": [
+  "crates/drivers/cosmosdb/src/vector.rs"
+ ],
+ "El índice vectorial {0} no toma el parámetro «{1}» (lists y quantization; los demás van como opciones de WITH).": [
+  "crates/drivers/couchbase/src/vector.rs"
+ ],
+ "El índice vectorial {0} queda con la distancia l2 (euclidean) en lugar de hamming: Atlas Vector Search compara los vectores de bits solo con la euclídea, que ordena los vecinos igual.": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
+ "El índice vectorial {0} queda con la distancia l2 (euclidean) en lugar de {1}: Atlas Vector Search compara los vectores de bits solo con la euclídea.": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
+ "El índice vectorial {0} {1}: {2}.": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
+ "El índice vectorial «{0}» ({1}) pasa a ser el índice de grafo de CQL.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "El índice vectorial «{0}» era local a cada partición: en Cassandra es de toda la tabla.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "El índice vectorial «{0}» es sobre «{1}», que no es un campo knn_vector.": [
+  "crates/drivers/solr/src/ddl.rs"
+ ],
+ "El índice vectorial «{0}» es sobre «{1}», que no es un campo {2}.": [
+  "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "El índice vectorial «{0}» mide con distancia L2 los vectores de 1 bit de «{1}» ({2}): libSQL lo acepta, pero esos vectores solo los mide con coseno, así que sus búsquedas salen mal ordenadas. Conviene crearlo de nuevo con métrica coseno.": [
+  "crates/drivers/sqlite/src/schema.rs"
+ ],
+ "El índice vectorial «{0}» necesita la búsqueda k-NN del índice (index.knn), que está en No.": [
+  "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "El índice vectorial «{0}» no lleva {1}: Cassandra no los tiene.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "El índice vectorial «{0}» no lleva {1}: ScyllaDB no los tiene.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "El índice vectorial «{0}» no puede ser único ni filtrado en Solr.": [
+  "crates/drivers/solr/src/ddl.rs"
+ ],
+ "El índice vectorial «{0}» no puede ser único ni filtrado en {1}.": [
+  "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "El índice vectorial «{0}» no se crea: SQLite no tiene libsql_vector_idx (es de libSQL); hay que crearlo desde una conexión libSQL.": [
+  "crates/drivers/sqlite/src/schema.rs"
+ ],
+ "El índice vectorial «{0}» no se crea: {1}.": [
+  "crates/dbine-schema/src/convert.rs",
+  "crates/dbine-schema/src/dialect/cassandra.rs",
+  "crates/dbine-schema/src/dialect/elasticsearch.rs",
+  "crates/dbine-schema/src/dialect/graph.rs",
+  "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
+ "El índice vectorial «{0}» pide un keyspace con tablets: ScyllaDB no crea índices vectoriales en uno sin ellos, y los tablets de un keyspace no se cambian después de crearlo.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "El índice vectorial «{0}» se crea con el grafo por defecto de Cassandra: sus parámetros ({1}) piden la opción cassandra.sai.vector.allow_custom_parameters en el servidor.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "El índice vectorial «{0}» va sobre un solo campo vectorial.": [
+  "crates/drivers/elasticsearch/src/ddl.rs",
+  "crates/drivers/solr/src/ddl.rs"
+ ],
+ "El índice vectorial «{0}»: Open Distro no tiene el parámetro «{1}» (solo m y ef_construction).": [
+  "crates/drivers/elasticsearch/src/vectors.rs"
+ ],
+ "El índice vectorial «{0}»: Open Distro solo tiene HNSW, no «{1}».": [
+  "crates/drivers/elasticsearch/src/vectors.rs"
+ ],
+ "El índice vectorial «{0}»: OpenSearch busca los vectores binary solo con la distancia hamming, no «{1}».": [
+  "crates/drivers/elasticsearch/src/vectors.rs"
+ ],
+ "El índice vectorial «{0}»: Solr no tiene la distancia «{1}».": [
+  "crates/drivers/solr/src/vectors.rs"
+ ],
+ "El índice vectorial «{0}»: vss (el índice HNSW de DuckDB) solo indexa columnas FLOAT[n] de dimensión fija, y «{1}» es {2}.": [
+  "crates/drivers/duckdb/src/schema.rs"
+ ],
+ "El índice vectorial «{0}»: {1}": [
+  "crates/dbine-schema/src/convert.rs",
+  "crates/dbine-schema/src/dialect/elasticsearch.rs",
+  "crates/dbine-schema/src/dialect/graph.rs"
+ ],
+ "El índice vectorial «{0}»: {1} no tiene la distancia «{2}».": [
+  "crates/drivers/elasticsearch/src/vectors.rs"
+ ],
+ "El índice vectorial «{0}»: {1}.": [
+  "crates/drivers/clickhouse/src/schema.rs",
+  "crates/drivers/sqlite/src/schema.rs"
+ ],
+ "El índice {0} necesita al menos un campo.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "El índice {0} necesita al menos una columna.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "El índice {0} necesita uno o dos atributos: clave de partición y, opcional, de ordenación.": [
   "crates/drivers/dynamodb/src/ddl.rs"
  ],
@@ -15606,10 +16017,30 @@
  ],
  "El índice {0} no tiene campos.": [
   "crates/drivers/cosmosdb/src/ddl.rs",
-  "crates/drivers/couchbase/src/ddl.rs"
+  "crates/drivers/couchbase/src/ddl.rs",
+  "crates/drivers/couchbase/src/vector.rs"
  ],
  "El índice {0} tiene que tener exactamente una columna.": [
   "crates/drivers/cassandra/src/ddl.rs"
+ ],
+ "El índice {0} usa la columna {1}, que no existe.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "El índice «{0}» no se crea: {1}.": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs",
+  "crates/dbine-schema/src/dialect/solr.rs"
+ ],
+ "El índice «{0}»: el parámetro {1} tiene que ser un número, no «{2}».": [
+  "crates/drivers/postgres/src/vectors.rs"
+ ],
+ "El índice «{0}»: {1} indexa hasta {2} dimensiones de {3} y la columna tiene {4}{5}.": [
+  "crates/drivers/postgres/src/vectors.rs"
+ ],
+ "El índice «{0}»: {1} no indexa columnas {2}.": [
+  "crates/drivers/postgres/src/vectors.rs"
+ ],
+ "El índice «{0}»: {1} no tiene la distancia {2} para {3} (tiene {4}).": [
+  "crates/drivers/postgres/src/vectors.rs"
  ],
  "El ítem con la clave {0} ocupa unos {1} KB y DynamoDB admite hasta 400 KB por ítem.": [
   "crates/drivers/dynamodb/src/transfer.rs"
@@ -15634,6 +16065,16 @@
   "crates/drivers/sqlserver/src/create_db.rs"
  ],
  "Elasticsearch": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs",
+  "crates/drivers/elasticsearch/src/lib.rs"
+ ],
+ "Elasticsearch 7 no tiene índices vectoriales (ANN): el de {0} no tiene efecto; se busca con script_score.": [
+  "crates/drivers/elasticsearch/src/lib.rs"
+ ],
+ "Elasticsearch deja los vectores ({0}) fuera de _source: para verlos, agregá \"_source\": {\"exclude_vectors\": false} a la búsqueda.": [
+  "crates/drivers/elasticsearch/src/lib.rs"
+ ],
+ "Elasticsearch deja los vectores ({0}) fuera de _source: para verlos, agregá ?_source_exclude_vectors=false a la petición.": [
   "crates/drivers/elasticsearch/src/lib.rs"
  ],
  "Elasticsearch no deja cambiar en el lugar el id de un transform, su pivot o su latest, ni convertir uno por lotes en continuo (o al revés): para eso DBine lo borra y lo vuelve a crear, y se pierden sus checkpoints y estadísticas (el índice de destino se conserva).": [
@@ -15863,6 +16304,12 @@
  ],
  "En Memgraph, {0} lleva una sola propiedad.": [
   "crates/drivers/neo4j/src/ddl.rs"
+ ],
+ "En Open Distro la distancia y los parámetros k-NN son del índice: todos sus índices vectoriales tienen que usar los mismos.": [
+  "crates/drivers/elasticsearch/src/vectors.rs"
+ ],
+ "En OpenSearch 2.18, Faiss (el motor por defecto) no tiene la distancia coseno, así que el índice vectorial por coseno usa Lucene. Campos: {0}.": [
+  "crates/drivers/elasticsearch/src/lib.rs"
  ],
  "En Power BI el modelo se va a llamar «{0}».": [
   "crates/drivers/powerbi/src/admin/mod.rs"
@@ -17857,6 +18304,9 @@
  "Este servidor no es un servidor maestro (MSX): el job se ejecuta en el servidor local.": [
   "crates/drivers/sqlserver/src/agent/job.rs"
  ],
+ "Este servidor no indexa vectores {0}: solo {1}.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "Este servidor no muestra los argumentos (no tiene la vista *_scheduler_program_args / *_scheduler_job_args): los que tenga no se ven ni se cambian.": [
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
  ],
@@ -17898,6 +18348,9 @@
  ],
  "Este servidor no tiene ejecución programada de procedimientos (llega con Vertica 11.1.1).": [
   "crates/drivers/odbc/src/jobs/vertica.rs"
+ ],
+ "Este servidor no tiene el algoritmo {0} para índices vectoriales.": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "Este servidor no tiene jobs (CREATE JOB llega con Altibase 6.3.1).": [
   "crates/drivers/odbc/src/jobs/altibase.rs"
@@ -18134,6 +18587,12 @@
  ],
  "Etiquetas nuevas": [
   "crates/drivers/bigquery/src/properties.rs"
+ ],
+ "Euclídea": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
+ "Euclídea al cuadrado (l2sq)": [
+  "crates/drivers/neo4j/src/ddl.rs"
  ],
  "Evaluar cada": [
   "crates/drivers/oracle/src/scheduler/chain.rs"
@@ -18401,6 +18860,9 @@
  "Fabric (prueba)": [
   "crates/drivers/powerbi/src/catalog.rs"
  ],
+ "Fabric Warehouse y Babelfish no tienen tipo vectorial ni índices vectoriales": [
+  "crates/dbine-schema/src/dialect/mssql.rs"
+ ],
  "Fabric no aceptó el cambio del modelo": [
   "crates/drivers/powerbi/src/admin/mod.rs"
  ],
@@ -18561,6 +19023,9 @@
  "Falta EVALUATE después de DEFINE": [
   "crates/drivers/powerbi/src/dax/split.rs"
  ],
+ "Falta WITH con la definición": [
+  "crates/drivers/couchbase/src/vector.rs"
+ ],
  "Falta cada cuánto se dispara el trigger.": [
   "crates/drivers/influxdb/src/scheduler/trigger.rs"
  ],
@@ -18680,6 +19145,9 @@
  ],
  "Falta el nombre del repositorio archivado.": [
   "crates/drivers/couchbase/src/backup/repo.rs"
+ ],
+ "Falta el nombre del índice": [
+  "crates/drivers/couchbase/src/vector.rs"
  ],
  "Falta el nombre del índice.": [
   "crates/drivers/elasticsearch/src/ddl.rs"
@@ -20131,6 +20599,9 @@
  "GreptimeDB solo tiene índices INVERTED, FULLTEXT y SKIPPING (índice «{0}»)": [
   "crates/drivers/mysql/src/design.rs"
  ],
+ "GreptimeDB {0} un índice vectorial solo con la tabla: «{1}» en «{2}» pide recrear la tabla": [
+  "crates/drivers/mysql/src/design.rs"
+ ],
  "Group": [
   "crates/drivers/powerbi/src/admin/mod.rs",
   "crates/drivers/powerbi/src/security.rs"
@@ -20244,6 +20715,9 @@
  "Guarda los cambios sin comprobar el origen y el destino (defer_validation).": [
   "crates/drivers/elasticsearch/src/scheduler/es_transform.rs"
  ],
+ "Guarda los vectores del índice comprimidos: ocupa menos y pierde algo de precisión (Neo4j 5.23 o posterior).": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
  "Guardados desde el inicio": [
   "crates/drivers/redis/src/backup.rs"
  ],
@@ -20318,6 +20792,9 @@
  "H2 tiene una base por archivo y no la modifica con ALTER DATABASE": [
   "crates/drivers/postgres/src/properties.rs"
  ],
+ "HALF_VECTOR es de SAP HANA Cloud QRC 2/2025 en adelante; en una versión anterior, cambialo a REAL_VECTOR.": [
+  "crates/dbine-schema/src/dialect/hana.rs"
+ ],
  "HANA admite hasta {0} dígitos fijos; el origen tiene {1}: se usa DECIMAL flotante (34 dígitos significativos).": [
   "crates/dbine-schema/src/dialect/hana.rs"
  ],
@@ -20336,6 +20813,9 @@
  "HANA no tiene columnas JSON (solo colecciones del JSON Document Store): se guarda como NCLOB.": [
   "crates/dbine-schema/src/dialect/hana.rs"
  ],
+ "HANA no tiene el algoritmo «{0}» (solo HNSW)": [
+  "crates/drivers/hana/src/vector.rs"
+ ],
  "HANA no tiene enteros sin signo (salvo TINYINT): se usa un tipo más grande con signo.": [
   "crates/dbine-schema/src/dialect/hana.rs"
  ],
@@ -20344,6 +20824,10 @@
  ],
  "HANA no tiene intervalos: se guardan como texto.": [
   "crates/dbine-schema/src/dialect/hana.rs"
+ ],
+ "HANA no tiene la distancia «{0}» (solo coseno y euclidiana)": [
+  "crates/dbine-schema/src/dialect/hana.rs",
+  "crates/drivers/hana/src/vector.rs"
  ],
  "HANA no tiene tipo XML: se guarda como NCLOB.": [
   "crates/dbine-schema/src/dialect/hana.rs"
@@ -20468,8 +20952,14 @@
  "Hacen falta tantos nodos de datos como réplicas más uno.": [
   "crates/drivers/couchbase/src/properties.rs"
  ],
+ "Hacer un backup pide BACKUP ADMIN o BACKUP OPERATOR; los archivos quedan en el servidor (basepath_databackup) o en la herramienta de Backint. Restaurar se hace conectado a SYSTEMDB (puerto 3<instancia>13, sin tenant): el script detiene el tenant, lo recupera desde un backup completo sin aplicar logs y el tenant vuelve a arrancar solo. SYSTEMDB no se restaura por SQL. Eliminar saca el backup del catálogo y borra sus archivos; el último backup de datos no se puede borrar.": [
+  "crates/drivers/hana/src/backup.rs"
+ ],
  "Haiku: el más rápido": [
   "crates/dbine-ai/src/detect.rs"
+ ],
+ "Hamming": [
+  "crates/drivers/neo4j/src/ddl.rs"
  ],
  "Handle": [
   "crates/drivers/kdb/src/monitor.rs"
@@ -20556,6 +21046,9 @@
  "Hasta las": [
   "crates/drivers/sqlserver/src/agent/schedule.rs"
  ],
+ "Haversine": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
  "Hay dos excepciones con la misma fecha y hora: pgAgent guarda una sola por fecha y hora.": [
   "crates/drivers/postgres/src/scheduler/pgagent.rs"
  ],
@@ -20611,6 +21104,7 @@
   "crates/drivers/postgres/src/scheduler/mod.rs"
  ],
  "Hay una transacción abierta en esta sesión: confirmala (COMMIT) o deshacela (ROLLBACK) antes de una lectura protegida.": [
+  "crates/drivers/neo4j/src/lib.rs",
   "crates/drivers/postgres/src/session.rs"
  ],
  "Hay una transacción abierta en esta sesión: confirmala o deshacela antes de cambiar el Scheduler (DBMS_SCHEDULER confirma la transacción en cada cambio).": [
@@ -20664,6 +21158,9 @@
  "Heap de Java en uso, sumado entre nodos, sobre la suma de sus máximos. Dremio procesa los datos de las consultas en memoria directa, así que el heap lo ocupan sobre todo la planificación y los metadatos.": [
   "crates/drivers/dremio/src/lib.rs",
   "crates/drivers/flightsql/src/lib.rs"
+ ],
+ "Heap de Java en uso, sumado entre nodos; el máximo es la suma de los heaps configurados. Oscila con cada recolección: si el piso queda por encima del 75 %, el recolector trabaja de más y las pausas se alargan; cerca del 95 % saltan los circuit breakers y se rechazan pedidos.": [
+  "crates/drivers/elasticsearch/src/monitor.rs"
  ],
  "Heap de Java en uso, sumado entre todos los drillbits, sobre la suma de sus máximos. Drill guarda los datos de las consultas en memoria directa, así que el heap suele quedar holgado.": [
   "crates/drivers/drill/src/lib.rs"
@@ -21329,6 +21826,9 @@
  "Igual a": [
   "crates/drivers/odbc/src/scheduler/db2zos.rs"
  ],
+ "Illegal type code 96": [
+  "crates/drivers/hana/src/vector.rs"
+ ],
  "Imagen (copia de los archivos de la base)": [
   "crates/drivers/odbc/src/backup.rs"
  ],
@@ -21521,6 +22021,9 @@
  ],
  "Indicá el snapshot como repositorio/snapshot/fecha (la fecha como la muestra SHOW SNAPSHOT).": [
   "crates/drivers/mysql/src/backup.rs"
+ ],
+ "Indicá la dimensión del vector de {0}: p. ej. VECTOR(3, FLOAT32).": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "Indicá la etiqueta o el tipo de relación.": [
   "crates/drivers/neo4j/src/ddl.rs"
@@ -23206,6 +23709,9 @@
  "La columna «{0}» tiene el índice secundario «{1}» y Cassandra no la renombra así: borrá el índice, renombrá la columna y volvé a crearlo.": [
   "crates/drivers/cassandra/src/rename.rs"
  ],
+ "La columna «{0}» tiene un vector que no entra en una celda de Excel (32.767 caracteres): exportá en CSV o JSON": [
+  "crates/dbine-core/src/export.rs"
+ ],
  "La columna «{0}» trae un JSON inválido: {1}": [
   "crates/drivers/etcd/src/transfer.rs"
  ],
@@ -23415,6 +23921,9 @@
  "La definición del modelo pasa de 64 MB: DBine no la lee.": [
   "crates/drivers/powerbi/src/definition/mod.rs"
  ],
+ "La definición del índice de búsqueda {0} no es JSON: {1}": [
+  "crates/drivers/couchbase/src/vector.rs"
+ ],
  "La definición leída del servidor no es JSON válido: {0}": [
   "crates/drivers/elasticsearch/src/rename.rs"
  ],
@@ -23423,6 +23932,9 @@
  ],
  "La definición no es un modelo TMSL (falta «model»).": [
   "crates/drivers/powerbi/src/definition/tmsl.rs"
+ ],
+ "La definición no es un objeto JSON": [
+  "crates/drivers/couchbase/src/vector.rs"
  ],
  "La definición tiene un «;» o un comentario sin cerrar: el script no sería una sola instrucción.": [
   "crates/drivers/clickhouse/src/scheduler/mod.rs"
@@ -23453,6 +23965,9 @@
  ],
  "La descripción del modelo en Power BI y Fabric.": [
   "crates/drivers/powerbi/src/properties.rs"
+ ],
+ "La dimensión del vector ({0}) sale de su índice vectorial «{1}».": [
+  "crates/dbine-schema/src/dialect/starrocks.rs"
  ],
  "La ejecuta el trigger «{0}»": [
   "src-tauri/src/commands/rename.rs"
@@ -23509,8 +24024,17 @@
  "La fila tiene {0} valores y la carga {1} columnas.": [
   "crates/drivers/spanner/src/transfer.rs"
  ],
- "La fila {0} guarda «{1}», que es el final de su key {2}: al leerla se tomaría como fila de {3} y no de {4}. Poné primero otra columna, que forme keys sin esa ambigüedad.": [
-  "crates/drivers/redis/src/transfer.rs"
+ "La fila {0} necesita el vector del elemento, como [0.1, 0.2, 0.3].": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "La fila {0} necesita un valor en id: la key del documento nuevo.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "La fila {0} necesita un valor en {1}.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "La fila {0} no tiene ningún campo con valor: Redis no guarda hashes vacíos.": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "La fila {0} no tiene valor en la primera columna ({1}), que forma el nombre de la key.": [
   "crates/drivers/redis/src/ddl.rs"
@@ -23659,6 +24183,9 @@
  ],
  "La primera columna («{0}») es la clave de cada fila en etcd y viene nula en una fila.": [
   "crates/drivers/etcd/src/transfer.rs"
+ ],
+ "La primera columna del índice vectorial {0} tiene que ser un vector: p. ej. VECTOR(3, FLOAT32).": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "La primera sentencia comprueba que la base tenga exactamente las tablas, vistas, rutinas y triggers que DBine leyó y ningún evento ni secuencia: si tiene algo más (eventos, secuencias de MariaDB, objetos que tu usuario no puede leer o creados después de leerla), falla a propósito con «Table '…DBine: hay eventos, secuencias u objetos sin leer; nada cambió' doesn't exist» antes de cambiar nada. Esas bases no se renombran desde DBine.": [
   "crates/drivers/mysql/src/rename_db.rs"
@@ -23922,6 +24449,9 @@
  ],
  "La tabla pasa los 25 MiB que Databricks entrega en la respuesta, y Databricks rechazó entregarla por enlaces externos, que no tienen ese límite: {0}. No se usa una lectura incompleta.": [
   "crates/drivers/databricks/src/transfer.rs"
+ ],
+ "La tabla tiene un índice HNSW, de la extensión vss de DuckDB, que no está cargada: ejecutá INSTALL vss; LOAD vss; (la primera vez descarga la extensión) y volvé a intentarlo.": [
+  "crates/drivers/duckdb/src/lib.rs"
  ],
  "La tabla {0} no es Delta (formato {1}): la carga masiva de Databricks confirma por tandas y solo en una tabla Delta puede deshacerlas si la carga falla.": [
   "crates/drivers/databricks/src/transfer.rs"
@@ -24250,6 +24780,12 @@
  ],
  "Las columnas que guarda la reflexión RAW.": [
   "crates/drivers/dremio/src/scheduler/reflection.rs"
+ ],
+ "Las columnas son las entradas. Hash y stream: campo (nombre) y valor (valor por defecto). List y set: elemento. Sorted set: miembro (nombre) y score (valor por defecto).": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "Las columnas son las entradas. Hash y stream: campo (nombre) y valor (valor por defecto). List y set: elemento. Sorted set: miembro (nombre) y score (valor por defecto). Vector set: elemento (nombre) y su vector (valor por defecto, p. ej. [0.1, 0.2, 0.3]).": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "Las condiciones del evento no se pudieron leer como pares de event_condition: se dejan como están en el servidor y la lista queda solo para lectura.": [
   "crates/drivers/odbc/src/scheduler/sqla.rs"
@@ -24683,6 +25219,9 @@
  "Lecturas = consultas de los últimos 180 días que usaron el índice (INFORMATION_SCHEMA.JOBS). BigQuery registra el uso por consulta, no por tabla: una consulta que une esta tabla con otra y usa solo el índice de la otra puede contar acá, así que el número es un máximo. BigQuery no cuenta escrituras. Leer JOBS es una consulta facturada (180 días de trabajos de la región) y se repite cada vez que se abre esta carpeta.": [
   "crates/drivers/bigquery/src/index_usage.rs"
  ],
+ "Lecturas = consultas que leyeron cada índice (READ_QUERY_COUNT); escrituras = WRITE_COUNT + DELETE_COUNT; de SPANNER_SYS.TABLE_OPERATIONS_STATS_HOUR, que guarda los últimos 30 días. Spanner no separa búsquedas de recorridos. Hora en UTC.": [
+  "crates/drivers/spanner/src/index_usage.rs"
+ ],
  "Lecturas concurrentes": [
   "crates/drivers/cassandra/src/monitor.rs"
  ],
@@ -24776,6 +25315,9 @@
  ],
  "Leer los eventos del servicio de backup requiere Couchbase Server 7.1 o posterior y el permiso de ver los eventos del cluster (Read-Only Admin, Backup Full Admin o Full Admin).": [
   "crates/drivers/couchbase/src/backup/logs.rs"
+ ],
+ "Letras minúsculas, dígitos, _ y -; empieza con una letra y termina con letra o dígito; de 2 a 60 caracteres. No se puede cambiar después.": [
+  "crates/drivers/spanner/src/scheduler.rs"
  ],
  "Letras, dígitos, guion y guion bajo, hasta 50.": [
   "crates/drivers/couchbase/src/backup/plan.rs"
@@ -24919,6 +25461,9 @@
   "crates/drivers/odbc/src/backup.rs"
  ],
  "Lo hace el creador del databank o quien tenga el permiso BACKUP. Restaurar pide copiar antes el archivo del backup en lugar del databank (a mano, en el servidor) y después aplicar el log con ALTER DATABANK … RESTORE: no se hace solo por SQL. El historial muestra el último backup de cada databank.": [
+  "crates/drivers/odbc/src/backup.rs"
+ ],
+ "Lo hace un usuario con el permiso BACKUP DATABASE; los archivos quedan en la máquina del servidor. Una imagen se restaura copiando sus archivos con la base detenida; un archivo único, con RESTORE DATABASE conectado a utility_db. El servidor anota cada backup en backup.syb, que no se lee por SQL.": [
   "crates/drivers/odbc/src/backup.rs"
  ],
  "Lo máximo que llegó a ocupar el heap desde que arrancó el proceso.": [
@@ -25117,6 +25662,9 @@
   "crates/drivers/postgres/src/scheduler/mod.rs"
  ],
  "Los arreglos de BigQuery no admiten elementos NULL ni ser NULL (quedan vacíos).": [
+  "crates/dbine-schema/src/dialect/bigquery.rs"
+ ],
+ "Los arreglos de BigQuery no admiten elementos NULL ni ser NULL: un vector NULL queda vacío.": [
   "crates/dbine-schema/src/dialect/bigquery.rs"
  ],
  "Los atributos del job que este formulario no muestra (como su clase) no se copian: el job nuevo los toma por defecto.": [
@@ -25476,6 +26024,18 @@
  "Los índices de ClickHouse son de salto de datos: queda de tipo minmax.": [
   "crates/dbine-schema/src/dialect/clickhouse.rs"
  ],
+ "Los índices de búsqueda (FT.CREATE … PREFIX) cubren las keys que empiezan así: hashes o documentos JSON.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "Los índices de búsqueda (FT.CREATE … PREFIX) cubren las keys que empiezan así: hashes o documentos JSON. Los vectores FLOAT16 y BFLOAT16 piden Redis Stack 7.4 o Redis 8, los INT8 y UINT8 piden Redis 8.0, y el algoritmo SVS-VAMANA pide Redis 8.2 y solo toma FLOAT32 o FLOAT16.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "Los índices de búsqueda son de hashes o de documentos JSON: cambiá el tipo de la key o quitá los índices.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "Los índices de búsqueda vectorial que usan el campo se actualizan con updateSearchIndex para que nombren el campo nuevo: {0}. Hasta que terminan de reconstruirse no encuentran los documentos movidos.": [
+  "crates/drivers/mongodb/src/rename.rs"
+ ],
  "Los índices de {0} son de una sola columna.": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
  ],
@@ -25499,6 +26059,18 @@
  ],
  "Los índices van en minúsculas y sin caracteres especiales: «{0}» pasa a «{1}».": [
   "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
+ "Los índices vector_similarity, tal como los escribe DBine (con la dimensión del vector), son de ClickHouse 25.8 o posterior, y la distancia dotProduct (producto interno) de 26.4 o posterior; antes de 25.8 el índice era experimental y no llevaba dimensión.": [
+  "crates/drivers/clickhouse/src/vector.rs"
+ ],
+ "Los índices vectoriales de Cosmos DB no tienen campos de filtro: quedan fuera {0}.": [
+  "crates/dbine-schema/src/dialect/cosmosdb.rs"
+ ],
+ "Los índices vectoriales de Couchbase toman arreglos de float32: los números se guardan como tales.": [
+  "crates/dbine-schema/src/dialect/couchbase.rs"
+ ],
+ "Los índices vectoriales {0} de {1} se crean diferidos: Couchbase los entrena con los documentos; después de cargarlos, construilos con BUILD INDEX.": [
+  "crates/drivers/couchbase/src/sync.rs"
  ],
  "Los índices, restricciones y secuencias de la tabla conservan sus nombres (por ejemplo, «…_pkey»).": [
   "crates/drivers/dsql/src/rename.rs",
@@ -25673,6 +26245,9 @@
  "López": [
   "src-tauri/src/commands/datagen.rs"
  ],
+ "M del vector set": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "MAX_DELAY necesita su demora máxima.": [
   "crates/drivers/tdengine/src/scheduler/stream.rs"
  ],
@@ -25773,13 +26348,12 @@
   "crates/drivers/postgres/src/health.rs"
  ],
  "Manticore": [
-  "crates/drivers/mysql/src/session.rs"
+  "crates/dbine-schema/src/dialect/manticore.rs",
+  "crates/drivers/mysql/src/session.rs",
+  "crates/drivers/mysql/src/vectors.rs"
  ],
  "Manticore Search no ofrece planes de ejecución por SQL": [
   "crates/drivers/mysql/src/session.rs"
- ],
- "Manticore Search no tiene carga masiva: se usan INSERT": [
-  "crates/drivers/mysql/src/transfer.rs"
  ],
  "Manticore Search no tiene jobs del servidor": [
   "crates/drivers/mysql/src/jobs.rs"
@@ -25838,6 +26412,12 @@
  "Manticore solo tiene float de 32 bits: el doble se redondea a unos 7 dígitos.": [
   "crates/dbine-schema/src/dialect/manticore.rs"
  ],
+ "Manticore solo tiene índices KNN (vectoriales) sobre una columna float_vector (índice «{0}»)": [
+  "crates/drivers/mysql/src/design.rs"
+ ],
+ "Manticore: el índice KNN «{0}» necesita la dimensión de los vectores (knn_dims)": [
+  "crates/drivers/mysql/src/vectors.rs"
+ ],
  "Manticore: la tabla no devolvió la columna id": [
   "crates/drivers/mysql/src/transfer.rs"
  ],
@@ -25891,11 +26471,17 @@
  "MariaDB (userstat) cuenta filas leídas por cada índice sin separar búsquedas de recorridos: «seeks» son esas filas, «scans» de la clave primaria las leídas recorriendo la tabla (InnoDB) y «updates», las filas escritas en la tabla.": [
   "crates/drivers/mysql/src/index_usage.rs"
  ],
+ "MariaDB indexa vectores de columnas NOT NULL: el índice vectorial «{0}» pide «{1}» NOT NULL": [
+  "crates/drivers/mysql/src/design.rs"
+ ],
  "MariaDB no está contando el uso de índices: activá userstat (SET GLOBAL userstat = 1, sin reiniciar) o performance_schema (en la configuración, con reinicio). Se listan los índices sin estadísticas de uso.": [
   "crates/drivers/mysql/src/index_usage.rs"
  ],
  "MariaDB no expone el uso de CPU del servidor por SQL.": [
   "crates/drivers/mysql/src/monitor.rs"
+ ],
+ "MariaDB, TiDB, OceanBase y SingleStore no indexan vectores dispersos": [
+  "crates/dbine-schema/src/dialect/mysql.rs"
  ],
  "Martes": [
   "crates/drivers/couchbase/src/backup/plan.rs",
@@ -26059,8 +26645,12 @@
   "crates/drivers/powerbi/src/security.rs"
  ],
  "Memgraph": [
+  "crates/dbine-schema/src/dialect/graph.rs",
   "crates/drivers/neo4j/src/functions.rs",
   "crates/drivers/neo4j/src/lib.rs"
+ ],
+ "Memgraph necesita la dimensión en el índice y ni el índice ni la columna de origen la dicen; crealo a mano con su dimension": [
+  "crates/dbine-schema/src/dialect/graph.rs"
  ],
  "Memgraph no deshabilita usuarios: cambiale la contraseña o borralo": [
   "crates/drivers/neo4j/src/security.rs"
@@ -26082,6 +26672,12 @@
  ],
  "Memgraph no tiene jobs programados: sus triggers se disparan con los cambios y sus procedimientos periodic corren dentro de la consulta que los llama": [
   "crates/drivers/neo4j/src/jobs.rs"
+ ],
+ "Memgraph no tiene la cuantización «{0}» (solo f16, bf16, f64, i8 y b1x8)": [
+  "crates/dbine-schema/src/dialect/graph.rs"
+ ],
+ "Memgraph no tiene la distancia «{0}»": [
+  "crates/dbine-schema/src/dialect/graph.rs"
  ],
  "Memgraph no tiene un comando para borrar un snapshot: los viejos se descartan según --storage-snapshot-retention-count": [
   "crates/drivers/neo4j/src/backup.rs"
@@ -27550,6 +28146,9 @@
  "MySQL no tiene versión de fila automática: no se actualiza sola.": [
   "crates/dbine-schema/src/dialect/mysql.rs"
  ],
+ "MySQL no tiene índices vectoriales (solo HeatWave): el índice «{0}» no se puede crear": [
+  "crates/drivers/mysql/src/vectors.rs"
+ ],
  "MySQL recibe los parámetros de una sentencia por vez": [
   "crates/drivers/mysql/src/session.rs"
  ],
@@ -27558,6 +28157,9 @@
  ],
  "Más de un 20 % de filas muertas: la tabla ocupa más de lo que necesita y las lecturas recorren filas que ya no existen. Si se repite, autovacuum no alcanza: revisá transacciones largas o bajá autovacuum_vacuum_scale_factor de esas tablas.": [
   "crates/drivers/postgres/src/health.rs"
+ ],
+ "Más de {0} dimensiones. Solr las toma desde la 9.5 (en la 9.4, con SchemaCodecFactory en el solrconfig.xml de la colección).": [
+  "crates/dbine-schema/src/dialect/solr.rs"
  ],
  "Más retención ocupa más almacenamiento; con menos, ya no se puede leer ni restaurar más atrás que el nuevo plazo.": [
   "crates/drivers/spanner/src/properties.rs"
@@ -27664,6 +28266,7 @@
  ],
  "Métrica": [
   "crates/drivers/databricks/src/scheduler/form.rs",
+  "crates/drivers/neo4j/src/ddl.rs",
   "crates/drivers/oracle/src/monitor.rs"
  ],
  "Métricas": [
@@ -27852,6 +28455,9 @@
  "Neo4j no programa jobs por su cuenta y este servidor no tiene APOC (apoc.periodic)": [
   "crates/drivers/neo4j/src/jobs.rs"
  ],
+ "Neo4j no tiene la similitud «{0}» (solo coseno y euclídea)": [
+  "crates/dbine-schema/src/dialect/graph.rs"
+ ],
  "Neo4j no tiene un planificador propio: estos son los jobs en segundo plano de APOC (apoc.periodic.repeat, submit y countdown).": [
   "crates/drivers/neo4j/src/scheduler/mod.rs"
  ],
@@ -27884,6 +28490,9 @@
  ],
  "Neptune no tiene transacciones explícitas.": [
   "crates/drivers/neo4j/src/lib.rs"
+ ],
+ "Neptune no tiene índices definidos por el usuario": [
+  "crates/dbine-schema/src/dialect/graph.rs"
  ],
  "Neptune no tiene índices ni restricciones definidos por el usuario": [
   "crates/drivers/neo4j/src/ddl.rs"
@@ -28232,6 +28841,9 @@
  ],
  "No existe el usuario {0}.": [
   "crates/drivers/redis/src/security.rs"
+ ],
+ "No existe el índice de búsqueda {0}: crealo antes de cargarle documentos.": [
+  "crates/drivers/redis/src/transfer.rs"
  ],
  "No existe ese evento programado en esta base.": [
   "crates/drivers/orientdb/src/scheduler/mod.rs"
@@ -28772,6 +29384,15 @@
  "No se pudieron leer los índices (SHOW INDEXES): {0}. Se listan solo los de las restricciones, sin contadores.": [
   "crates/drivers/neo4j/src/index_usage.rs"
  ],
+ "No se pudieron leer los índices de búsqueda de «{0}» ({1}): la copia, la comparación y la sincronización no los incluyen.": [
+  "crates/drivers/mongodb/src/lib.rs"
+ ],
+ "No se pudieron leer los índices de búsqueda: {0}": [
+  "crates/drivers/mongodb/src/index_usage.rs"
+ ],
+ "No se pudieron leer los índices del servicio Search ({0}): la copia, la comparación y la sincronización no los incluyen.": [
+  "crates/drivers/couchbase/src/lib.rs"
+ ],
  "No se pudieron leer: {0}": [
   "crates/drivers/powerbi/src/properties.rs"
  ],
@@ -28798,6 +29419,9 @@
  ],
  "No se pudo activar events_statements_history_long ({0})": [
   "crates/drivers/mysql/src/profiler.rs"
+ ],
+ "No se pudo activar la traza de sentencias costosas ({0}; hace falta INIFILE ADMIN): se muestrean las sentencias en curso; las muy rápidas pueden no verse.": [
+  "crates/drivers/hana/src/profiler.rs"
  ],
  "No se pudo activar {0} ({1}): no se ve la CPU.": [
   "crates/drivers/mysql/src/profiler.rs"
@@ -28997,6 +29621,9 @@
  ],
  "No se pudo leer el uso de los clústeres (mz_internal.mz_cluster_replica_utilization)": [
   "crates/drivers/postgres/src/monitor.rs"
+ ],
+ "No se pudo leer el índice de búsqueda {0}: no existe o el servidor no tiene el módulo de búsqueda.": [
+  "crates/drivers/redis/src/transfer.rs"
  ],
  "No se pudo leer information_schema.cluster_info ({0}).": [
   "crates/drivers/mysql/src/monitor.rs"
@@ -29800,6 +30427,7 @@
   "driver db2zos"
  ],
  "Nombre del driver ODBC tal como figura en odbcinst.ini. Opciones: FreeTDS (libre; en macOS `brew install freetds` y registrar libtdsodbc en odbcinst.ini; se usa TDS 5.0) o el driver «Adaptive Server Enterprise» del SAP ASE SDK / SDK for SAP ASE.": [
+  "crates/drivers/odbc/src/presets.rs",
   "driver sybase"
  ],
  "Nombre del driver ODBC tal como figura en odbcinst.ini. Se usa el driver Simba de Spark (el «Databricks ODBC Driver» / «Simba Spark ODBC Driver»), que se descarga gratis; también sirve el driver de Cloudera para Hive, porque el servidor habla el protocolo de HiveServer2.": [
@@ -30860,6 +31488,10 @@
   "crates/drivers/tdengine/src/ddl.rs",
   "driver tdengine"
  ],
+ "Nuevo vector set de Redis 8": [
+  "crates/drivers/redis/src/ddl.rs",
+  "driver redis"
+ ],
  "Nuevo índice": [
   "crates/drivers/couchbase/src/ddl.rs",
   "crates/drivers/elasticsearch/src/ddl.rs",
@@ -30905,8 +31537,26 @@
   "driver dynamodb"
  ],
  "Nuevo índice vectorial": [
+  "crates/drivers/cassandra/src/ddl.rs",
   "crates/drivers/neo4j/src/ddl.rs",
-  "driver neo4j"
+  "driver neo4j",
+  "driver scylladb"
+ ],
+ "Nuevo índice vectorial (SAI)": [
+  "crates/drivers/cassandra/src/ddl.rs",
+  "driver cassandra"
+ ],
+ "Nuevo índice vectorial (documentos JSON)": [
+  "crates/drivers/redis/src/ddl.rs",
+  "driver dragonfly",
+  "driver redis",
+  "driver valkey"
+ ],
+ "Nuevo índice vectorial (hashes)": [
+  "crates/drivers/redis/src/ddl.rs",
+  "driver dragonfly",
+  "driver redis",
+  "driver valkey"
  ],
  "Null": [
   "crates/dbine-transfer/src/clone_table/analytics.rs",
@@ -31374,6 +32024,9 @@
   "crates/drivers/couchdb/src/replication/doc.rs",
   "crates/drivers/couchdb/src/replication/settings.rs"
  ],
+ "Opciones del índice {0}: {1}": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "Opción de recuperación desconocida: {0}.": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
@@ -31394,6 +32047,12 @@
  ],
  "OpenEdge respalda con la herramienta probkup, no con SQL": [
   "crates/drivers/odbc/src/backup.rs"
+ ],
+ "OpenSearch 3 no crea índices con el motor NMSLIB, el único con las distancias L1 y L∞. Campos que lo usan: {0}. Elegí otro motor (Faiss o Lucene), con L2, coseno o producto interno.": [
+  "crates/drivers/elasticsearch/src/lib.rs"
+ ],
+ "OpenSearch busca los vectores byte con Lucene, que no tiene la distancia «l1»": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
  ],
  "OpenSearch ejecuta este job según su programación: no hay forma de empezarlo a mano, ni en un paso": [
   "crates/drivers/elasticsearch/src/scheduler/mod.rs"
@@ -31549,11 +32208,17 @@
  "Oracle admite hasta 38 dígitos; el origen es ({0}, {1}): queda ({2}, {3}).": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
+ "Oracle admite vectores de hasta {0} dimensiones: queda sin dimensión fija (*).": [
+  "crates/dbine-schema/src/dialect/oracle.rs"
+ ],
  "Oracle anterior a 12.2 no cuenta cuántas veces se usa cada índice.": [
   "crates/drivers/oracle/src/index_usage.rs"
  ],
  "Oracle borra el job cuando ya no le quedan ejecuciones (se venció su fecha de fin o su máximo de ejecuciones).": [
   "crates/drivers/oracle/src/scheduler/job.rs"
+ ],
+ "Oracle compara vectores BINARY solo con las distancias HAMMING y JACCARD, no «{0}»": [
+  "crates/dbine-schema/src/dialect/oracle.rs"
  ],
  "Oracle confirma cada llamada: si una falla, las anteriores ya quedaron hechas.": [
   "crates/drivers/oracle/src/scheduler/script.rs"
@@ -31576,6 +32241,9 @@
  "Oracle limita la columna a {0} bytes: con caracteres de varios bytes pueden entrar menos de {1} caracteres.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
+ "Oracle lo crea con COSINE y sus valores por defecto": [
+  "crates/drivers/oracle/src/vector.rs"
+ ],
  "Oracle no admite «{0}» en {1} (hasta unos {2} bytes): pasa a {3}.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
@@ -31587,6 +32255,9 @@
  ],
  "Oracle no permite renombrar los objetos del Scheduler: el nombre se elige al crearlo.": [
   "crates/drivers/oracle/src/scheduler/mod.rs"
+ ],
+ "Oracle no reconstruye índices vectoriales (ORA-51926): para volver a usarlo hay que eliminarlo y crearlo de nuevo.": [
+  "crates/drivers/oracle/src/index_usage.rs"
  ],
  "Oracle no renombra objetos de tipo «{0}».": [
   "crates/drivers/oracle/src/rename.rs"
@@ -31609,10 +32280,20 @@
  "Oracle no tiene conjuntos: queda como texto separado por comas. Valores: {0}.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
+ "Oracle no tiene el algoritmo «{0}» (HNSW o IVF)": [
+  "crates/drivers/oracle/src/vector.rs"
+ ],
  "Oracle no tiene enumerados: queda como texto. Valores: {0}.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
+ "Oracle no tiene la distancia «{0}»": [
+  "crates/dbine-schema/src/dialect/oracle.rs",
+  "crates/drivers/oracle/src/vector.rs"
+ ],
  "Oracle no tiene tipo hora: se guarda como TIMESTAMP, con una fecha.": [
+  "crates/dbine-schema/src/dialect/oracle.rs"
+ ],
+ "Oracle no tiene vectores BINARY dispersos: queda FLOAT32.": [
   "crates/dbine-schema/src/dialect/oracle.rs"
  ],
  "Oracle no tiene versión de fila automática: no se actualiza sola.": [
@@ -31638,6 +32319,12 @@
  ],
  "Oracle termina el proceso que lo ejecuta sin esperar a que se detenga solo: es para cuando «Detener» no alcanzó.": [
   "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
+ "Oracle usa la distancia HAMMING solo con vectores BINARY o INT8": [
+  "crates/dbine-schema/src/dialect/oracle.rs"
+ ],
+ "Oracle usa la distancia JACCARD solo con vectores BINARY": [
+  "crates/dbine-schema/src/dialect/oracle.rs"
  ],
  "Orden de clustering": [
   "crates/drivers/cassandra/src/ddl.rs"
@@ -31945,6 +32632,9 @@
  ],
  "Para cambiar el trabajo (procedimiento o JCL) cambiá también el «Nombre»: Db2 for z/OS no lo cambia en una tarea, así que se crea una nueva antes de borrar esta, y con el mismo nombre habría que borrarla primero y podrías quedarte sin ella.": [
   "crates/drivers/odbc/src/scheduler/db2zos.rs"
+ ],
+ "Para cargar el vector set {0} hace falta una columna vector (o una de tipo vectorial).": [
+  "crates/drivers/redis/src/transfer.rs"
  ],
  "Para cargar filas en una supertabla hace falta la columna tbname (la subtabla de cada fila).": [
   "crates/drivers/tdengine/src/transfer.rs"
@@ -32415,6 +33105,9 @@
  ],
  "País (LOCALE_COUNTRY)": [
   "crates/drivers/orientdb/src/properties.rs"
+ ],
+ "Pearson": [
+  "crates/drivers/neo4j/src/ddl.rs"
  ],
  "Pedido": [
   "crates/drivers/odbc/src/monitor.rs"
@@ -33416,6 +34109,9 @@
   "crates/drivers/etcd/src/lib.rs",
   "driver etcd"
  ],
+ "Prefijo de los índices": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "Prefijo ignorado al repartir tablas (TABLE_PREFIX)": [
   "crates/drivers/tdengine/src/properties.rs"
  ],
@@ -33725,6 +34421,9 @@
  "Producto cartesiano: join sin condición de igualdad": [
   "crates/drivers/databricks/src/plan.rs"
  ],
+ "Producto escalar": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
  "Profiling": [
   "crates/drivers/mongodb/src/properties.rs"
  ],
@@ -33899,6 +34598,7 @@
   "crates/drivers/dremio/src/properties.rs"
  ],
  "Properties": [
+  "crates/drivers/mysql/src/index_usage.rs",
   "crates/drivers/mysql/src/jobs/doris.rs",
   "crates/drivers/mysql/src/scheduler/doris.rs",
   "crates/drivers/mysql/src/session.rs"
@@ -34123,6 +34823,9 @@
  ],
  "Puede llevar variables como %job_name%, %event_type%, %error_message%. Vacío: el de Oracle.": [
   "crates/drivers/oracle/src/scheduler/job.rs"
+ ],
+ "Puede que este servidor no tenga {0}: FLOAT16 y BFLOAT16 están desde Redis Stack 7.4 (RediSearch 2.10), INT8 y UINT8 desde Redis 8.0, y SVS-VAMANA desde Redis 8.2.": [
+  "crates/drivers/redis/src/vectors.rs"
  ],
  "Puede ser el mismo nombre; no puede repetir el de otro repositorio archivado.": [
   "crates/drivers/couchbase/src/backup/repo.rs"
@@ -34400,6 +35103,9 @@
   "crates/drivers/powerbi/src/lib.rs",
   "driver powerbi"
  ],
+ "Q8: enteros de 8 bits (por defecto)": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "Quedó roto": [
   "crates/drivers/oracle/src/scheduler/job.rs"
  ],
@@ -34538,6 +35244,9 @@
  ],
  "READ COMMITTED con versiones (READ_COMMITTED_SNAPSHOT)": [
   "crates/drivers/sqlserver/src/properties.rs"
+ ],
+ "REAL_VECTOR guarda float32: los float64 pierden precisión.": [
+  "crates/dbine-schema/src/dialect/hana.rs"
  ],
  "REGION necesita al menos 3 regiones.": [
   "crates/drivers/postgres/src/create_db.rs",
@@ -34917,8 +35626,14 @@
  "Redis no restaura un RDB con un comando: hay que detener el servidor, copiar el archivo a su carpeta `dir` y volver a iniciarlo": [
   "crates/drivers/redis/src/backup.rs"
  ],
+ "Redis no tiene el algoritmo «{0}»: HNSW, FLAT o SVS-VAMANA": [
+  "crates/drivers/redis/src/vectors.rs"
+ ],
  "Redis no tiene esquema: las keys son datos (no tablas con columnas), así que no hay cambios de esquema que aplicar; para llevar keys de una base a otra usá la copia de datos o la exportación": [
   "crates/drivers/redis/src/lib.rs"
+ ],
+ "Redis no tiene la distancia «{0}»: coseno (COSINE), euclídea (L2) o producto interno (IP)": [
+  "crates/drivers/redis/src/vectors.rs"
  ],
  "Redis no tiene la opción de otorgar permisos a otros: solo un usuario con +acl administra las ACL.": [
   "crates/drivers/redis/src/security.rs"
@@ -34955,6 +35670,12 @@
  ],
  "Reducciones (trabajo de la VM)": [
   "crates/drivers/couchdb/src/monitor.rs"
+ ],
+ "Reducir a (dimensiones)": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "Reducir a tiene que ser un número entero: {0}": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "Reducir automáticamente (AUTO_SHRINK)": [
   "crates/drivers/sqlserver/src/properties.rs"
@@ -35571,6 +36292,9 @@
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
  ],
  "Requiere la extensión PostGIS.": [
+  "crates/dbine-schema/src/dialect/postgres.rs"
+ ],
+ "Requiere la extensión pgvector.": [
   "crates/dbine-schema/src/dialect/postgres.rs"
  ],
  "Require": [
@@ -36454,8 +37178,17 @@
  "SQL Server admite hasta 38 dígitos; el origen es ({0}, {1}): queda ({2}, {3}).": [
   "crates/dbine-schema/src/dialect/mssql.rs"
  ],
+ "SQL Server admite vectores de hasta {0} dimensiones": [
+  "crates/dbine-schema/src/dialect/mssql.rs"
+ ],
  "SQL Server deja de mantenerlo y libera su espacio: para volver a usarlo hay que reconstruirlo.": [
   "crates/drivers/sqlserver/src/index_usage.rs"
+ ],
+ "SQL Server guarda vectores de float32: los float64 pierden precisión.": [
+  "crates/dbine-schema/src/dialect/mssql.rs"
+ ],
+ "SQL Server necesita la dimensión del vector": [
+  "crates/dbine-schema/src/dialect/mssql.rs"
  ],
  "SQL Server no admite {0} {1} en una referencia a la misma tabla: queda NO ACTION.": [
   "crates/dbine-schema/src/dialect/mssql.rs"
@@ -36471,6 +37204,9 @@
  ],
  "SQL Server no deja renombrar «{0}» porque la usa la columna calculada {1}: hay que quitar la columna calculada, renombrar y volver a crearla": [
   "crates/drivers/sqlserver/src/rename.rs"
+ ],
+ "SQL Server no deshabilita ni reconstruye índices vectoriales: para dejar de usarlo hay que eliminarlo y crearlo de nuevo después.": [
+  "crates/drivers/sqlserver/src/index_usage.rs"
  ],
  "SQL Server no guarda la zona horaria de una hora.": [
   "crates/dbine-schema/src/dialect/mssql.rs"
@@ -36491,6 +37227,12 @@
   "crates/dbine-schema/src/dialect/mssql.rs"
  ],
  "SQL Server no tiene intervalos: queda como texto.": [
+  "crates/dbine-schema/src/dialect/mssql.rs"
+ ],
+ "SQL Server no tiene la distancia «{0}» (solo coseno, euclidiana y producto interno)": [
+  "crates/dbine-schema/src/dialect/mssql.rs"
+ ],
+ "SQL Server no tiene vectores dispersos": [
   "crates/dbine-schema/src/dialect/mssql.rs"
  ],
  "SQL Server recibe los parámetros de un lote por vez": [
@@ -36575,6 +37317,9 @@
  ],
  "SQLite no registra cuántas veces se usa cada índice: se listan los índices con sus columnas y tamaño, sin contadores. Para saber si una consulta usa un índice, mirá su plan de ejecución.": [
   "crates/drivers/sqlite/src/index_usage.rs"
+ ],
+ "SQLite no renombra el índice vectorial «{0}»: hay que crearlo de nuevo y SQLite no tiene libsql_vector_idx (es de libSQL); renombralo desde una conexión libSQL": [
+  "crates/drivers/sqlite/src/rename.rs"
  ],
  "SQLite no restaura ni borra copias por SQL: la copia es un archivo de base que se abre como cualquier otro": [
   "crates/drivers/sqlite/src/backup.rs"
@@ -36807,8 +37552,17 @@
  "Scripts de Python, wheels y dbt en serverless: el entorno con sus dependencias.": [
   "crates/drivers/databricks/src/scheduler/form.rs"
  ],
+ "ScyllaDB crea índices vectoriales solo en keyspaces con tablets, que no se activan después de crear el keyspace: la tabla tiene que ir a un keyspace nuevo con tablets y NetworkTopologyStrategy": [
+  "crates/drivers/cassandra/src/lib.rs"
+ ],
  "ScyllaDB publica el uso de CPU, el throughput y las latencias en su endpoint de Prometheus (puerto 9180); por CQL solo se leen memoria, caché, clientes, espacio y nodos.": [
   "crates/drivers/cassandra/src/monitor.rs"
+ ],
+ "ScyllaDB tiene vectores de hasta {0} dimensiones, y su columna tiene {1}": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "ScyllaDB tiene vectores de hasta {0} dimensiones: uno de {1} queda como {2}.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
  ],
  "Se actualiza con if_seq_no para conservar los valores que el clúster ocultó (::es_redacted::).": [
   "crates/drivers/elasticsearch/src/scheduler/watch.rs"
@@ -36893,6 +37647,9 @@
  ],
  "Se borra el grafo entero: la raíz y todas sus tareas.": [
   "crates/drivers/snowflake/src/scheduler/mod.rs"
+ ],
+ "Se borra el índice de búsqueda {0}; sus documentos quedan.": [
+  "crates/drivers/redis/src/lib.rs"
  ],
  "Se borra el índice {0} con todos sus documentos.": [
   "crates/drivers/elasticsearch/src/sync.rs"
@@ -38689,6 +39446,9 @@
  "Silva": [
   "src-tauri/src/commands/datagen.rs"
  ],
+ "Similitud": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
  "Simple": [
   "crates/drivers/sqlserver/src/create_db.rs",
   "crates/drivers/sqlserver/src/properties.rs"
@@ -38824,6 +39584,9 @@
  ],
  "Sin credenciales": [
   "crates/drivers/couchdb/src/replication/doc.rs"
+ ],
+ "Sin cuantizar (float32)": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "Sin desalojo (noEviction)": [
   "crates/drivers/couchbase/src/create_db.rs",
@@ -38984,7 +39747,8 @@
   "crates/drivers/postgres/src/monitor.rs"
  ],
  "Sin permiso": [
-  "crates/drivers/couchbase/src/jobs.rs"
+  "crates/drivers/couchbase/src/jobs.rs",
+  "crates/drivers/couchbase/src/lib.rs"
  ],
  "Sin permiso de administrador del modelo, las funciones INFO no muestran jerarquías, roles, perspectivas, particiones, expresiones ni funciones del modelo; de los grupos de cálculo se ven solo sus elementos.": [
   "crates/drivers/powerbi/src/meta/info.rs"
@@ -39876,6 +40640,18 @@
  "Solo para una credencial con la clave de la cuenta de almacenamiento (WITH CREDENTIAL).": [
   "crates/drivers/sqlserver/src/backup.rs"
  ],
+ "Solo para vector set: candidatos al construir el grafo (VADD … EF).": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "Solo para vector set: cómo guarda Redis cada vector (VADD … Q8 | NOQUANT | BIN).": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "Solo para vector set: proyecta cada vector a menos dimensiones al guardarlo (VADD … REDUCE).": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
+ "Solo para vector set: vecinos por nodo del grafo HNSW (VADD … M).": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "Solo protocolo simple": [
   "crates/drivers/postgres/src/lib.rs",
   "driver alloydb",
@@ -40017,11 +40793,23 @@
  "Solr guarda las fechas con precisión de milisegundos y «{0}» trae {1}: se perderían los dígitos de más.": [
   "crates/drivers/solr/src/transfer.rs"
  ],
+ "Solr guarda los vectores en float de 32 bits: los de 64 bits pierden precisión.": [
+  "crates/dbine-schema/src/dialect/solr.rs"
+ ],
+ "Solr lo crea sobre un campo vectorial solo, y «{0}» no lo es en el destino": [
+  "crates/dbine-schema/src/dialect/solr.rs"
+ ],
  "Solr lo guarda en la carpeta snapshot.<nombre>.": [
   "crates/drivers/solr/src/backup.rs"
  ],
  "Solr lo mostraría con otros dígitos según la versión de Java del servidor": [
   "crates/drivers/solr/src/transfer.rs"
+ ],
+ "Solr necesita la dimensión del vector": [
+  "crates/dbine-schema/src/dialect/solr.rs"
+ ],
+ "Solr necesita la dimensión del vector.": [
+  "crates/dbine-schema/src/dialect/solr.rs"
  ],
  "Solr no guarda listas vacías: «{0}» quedaría sin valor (NULL) en lugar de una lista vacía.": [
   "crates/drivers/solr/src/transfer.rs"
@@ -40062,6 +40850,12 @@
  "Solr no tiene intervalos: queda como texto.": [
   "crates/dbine-schema/src/dialect/solr.rs"
  ],
+ "Solr no tiene la distancia «{0}» en sus índices vectoriales": [
+  "crates/dbine-schema/src/dialect/solr.rs"
+ ],
+ "Solr no tiene vectores dispersos": [
+  "crates/dbine-schema/src/dialect/solr.rs"
+ ],
  "Solr no tiene versión de fila automática: no se actualiza sola.": [
   "crates/dbine-schema/src/dialect/solr.rs"
  ],
@@ -40091,6 +40885,9 @@
  ],
  "Son {0} horarios: este modelo admite hasta {1} por día.": [
   "crates/drivers/powerbi/src/refresh/scheduler.rs"
+ ],
+ "Sorensen": [
+  "crates/drivers/neo4j/src/ddl.rs"
  ],
  "Sort": [
   "crates/drivers/odbc/src/plan.rs"
@@ -40152,6 +40949,12 @@
  "Spanner lo borra al vencer. Entre 1 y 366 días.": [
   "crates/drivers/spanner/src/backup.rs"
  ],
+ "Spanner lo hace solo sobre un ARRAY<FLOAT32> o ARRAY<FLOAT64> con vector_length, y el vector de origen no declara su dimensión; fijala y crealo a mano": [
+  "crates/dbine-schema/src/dialect/spanner.rs"
+ ],
+ "Spanner necesita la distancia del índice (distance_type) y el origen no la dice": [
+  "crates/dbine-schema/src/dialect/spanner.rs"
+ ],
  "Spanner no abrió la transacción de lectura.": [
   "crates/drivers/spanner/src/transfer.rs"
  ],
@@ -40194,6 +40997,9 @@
  "Spanner no tiene enumerados: queda como texto. Valores: {0}.": [
   "crates/dbine-schema/src/dialect/spanner.rs"
  ],
+ "Spanner no tiene la distancia «{0}» (solo coseno, euclídea y producto escalar)": [
+  "crates/dbine-schema/src/dialect/spanner.rs"
+ ],
  "Spanner no tiene mapas: se guarda como JSON.": [
   "crates/dbine-schema/src/dialect/spanner.rs"
  ],
@@ -40204,6 +41010,9 @@
   "crates/dbine-schema/src/dialect/spanner.rs"
  ],
  "Spanner no tiene tipos espaciales: queda como texto (WKT).": [
+  "crates/dbine-schema/src/dialect/spanner.rs"
+ ],
+ "Spanner no tiene vectores dispersos": [
   "crates/dbine-schema/src/dialect/spanner.rs"
  ],
  "Spanner no tiene versión de fila automática.": [
@@ -40253,6 +41062,15 @@
  ],
  "Standby": [
   "crates/drivers/odbc/src/monitor.rs"
+ ],
+ "StarRocks crea índices vectoriales con {0} activado en el FE: ADMIN SET FRONTEND CONFIG (\"{1}\" = \"true\")": [
+  "crates/drivers/mysql/src/design.rs"
+ ],
+ "StarRocks crea índices vectoriales solo en tablas DUPLICATE KEY o PRIMARY KEY, y esta clave no entra en PRIMARY KEY": [
+  "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
+ "StarRocks crea índices vectoriales solo en tablas DUPLICATE KEY o PRIMARY KEY: el índice vectorial «{0}» pide uno de esos modelos": [
+  "crates/drivers/mysql/src/design.rs"
  ],
  "StarRocks guarda hasta 1 MB por valor de texto.": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
@@ -40837,6 +41655,9 @@
  ],
  "TDengine publica las consultas en curso con el latido de cada cliente (cerca de 1 s): solo se ven las que duran más que eso, con el tiempo que llevaban en ese latido.": [
   "crates/drivers/tdengine/src/profiler.rs"
+ ],
+ "TDengine renombra columnas de tablas comunes y tags de supertablas; no renombra tablas, supertablas, columnas de supertablas ni bases de datos. Los streams que usan el nombre se borran antes del cambio y se vuelven a crear después, reescritos, sobre la misma tabla de salida; lo que llegue mientras tanto no lo procesan.": [
+  "crates/drivers/tdengine/src/rename.rs"
  ],
  "TDengine solo borra por rango de tiempo: con una clave compuesta el borrado se llevaría también las otras filas de esa marca de tiempo": [
   "crates/drivers/tdengine/src/ddl.rs"
@@ -41625,6 +42446,9 @@
  "También se borran sus registros de estado: el historial de sus ejecuciones.": [
   "crates/drivers/odbc/src/scheduler/db2.rs"
  ],
+ "Tanimoto": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
  "Tarea": [
   "crates/drivers/couchbase/src/backup/repo.rs",
   "crates/drivers/mysql/src/jobs/starrocks.rs",
@@ -41940,6 +42764,9 @@
  ],
  "TiDB cuenta consultas: «seeks» son las que leyeron menos del 10% de las filas de la tabla por el índice y «scans», el resto. «updates» son las filas modificadas desde el último ANALYZE. La clave primaria agrupada no lleva contadores.": [
   "crates/drivers/mysql/src/index_usage.rs"
+ ],
+ "TiDB guarda los índices vectoriales en TiFlash: la tabla necesita una réplica de TiFlash (ALTER TABLE … SET TIFLASH REPLICA 1).": [
+  "crates/drivers/mysql/src/vectors.rs"
  ],
  "TiDB informa el uso de índices desde la versión 8.0 (information_schema.TIDB_INDEX_USAGE). Se listan los índices sin estadísticas de uso.": [
   "crates/drivers/mysql/src/index_usage.rs"
@@ -42478,6 +43305,9 @@
  "Timeplus Proton no tiene un registro de sus tareas: guarda solo la última ejecución de cada una.": [
   "crates/drivers/clickhouse/src/scheduler/mod.rs"
  ],
+ "Timeplus no tiene índices vectoriales": [
+  "crates/dbine-schema/src/dialect/clickhouse.rs"
+ ],
  "TimescaleDB": [
   "crates/drivers/postgres/src/monitor.rs"
  ],
@@ -42657,6 +43487,9 @@
  "Tipo de ejecución": [
   "crates/drivers/mysql/src/jobs/doris.rs"
  ],
+ "Tipo de elemento desconocido: queda vector de float32.": [
+  "crates/dbine-schema/src/dialect/postgres.rs"
+ ],
  "Tipo de error (ERRTYPE)": [
   "crates/drivers/odbc/src/scheduler/dameng.rs"
  ],
@@ -42665,6 +43498,9 @@
  ],
  "Tipo de key desconocido: {0}": [
   "crates/drivers/redis/src/ddl.rs"
+ ],
+ "Tipo de los números": [
+  "crates/drivers/neo4j/src/ddl.rs"
  ],
  "Tipo de monitor": [
   "crates/drivers/elasticsearch/src/scheduler/monitor.rs"
@@ -43745,6 +44581,9 @@
  "Un dispositivo necesita al menos una serie (medición).": [
   "crates/drivers/iotdb/src/lib.rs"
  ],
+ "Un documento nuevo necesita su key en la columna id.": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "Un entero que la aplicación usa a su criterio, casi siempre para sus migraciones. SQLite no lo usa.": [
   "crates/drivers/sqlite/src/properties.rs"
  ],
@@ -44066,6 +44905,9 @@
  "Un valor por partición (requiere claves de clustering).": [
   "crates/drivers/cassandra/src/ddl.rs"
  ],
+ "Un vector BINARY de Oracle tiene una cantidad de dimensiones múltiplo de 8: queda como INT8.": [
+  "crates/dbine-schema/src/dialect/oracle.rs"
+ ],
  "Un warehouse encendido cobra créditos por segundo aunque no corra nada. Sin AUTO_SUSPEND (o con uno largo) queda prendido sin uso; 60 a 300 segundos suele alcanzar. Vale para toda la cuenta, no solo para esta base.": [
   "crates/drivers/snowflake/src/health.rs"
  ],
@@ -44107,6 +44949,9 @@
  ],
  "Un índice secundario de CQL lleva una sola columna.": [
   "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "Un índice vectorial de Memgraph necesita la dimensión de los vectores.": [
+  "crates/drivers/neo4j/src/ddl.rs"
  ],
  "Un índice vectorial de Memgraph necesita un nombre.": [
   "crates/drivers/neo4j/src/ddl.rs"
@@ -44298,6 +45143,7 @@
  ],
  "Una lectura admite una sola sentencia.": [
   "crates/drivers/libsql/src/lib.rs",
+  "crates/drivers/neo4j/src/lib.rs",
   "crates/drivers/sqlite/src/read_only.rs"
  ],
  "Una lectura no admite {0}.": [
@@ -44423,6 +45269,9 @@
  ],
  "Una réplica (lo que propone el diseñador): subila en un clúster de varios nodos.": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
+ "Una réplica en solo lectura perdió la conexión con ClickHouse Keeper (o ZooKeeper) y rechaza los INSERT; una atrasada devuelve datos viejos. Revisá Keeper y el log del servidor; SYSTEM RESTART REPLICA reconecta la tabla.": [
+  "crates/drivers/clickhouse/src/health.rs"
  ],
  "Una sentencia por vez (separadas por ;)": [
   "crates/drivers/odbc/src/lib.rs",
@@ -44896,6 +45745,9 @@
  "Uso de memoria del host, en porcentaje, en la última muestra.": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
+ "Uso del CPU aprovisionado de la instancia (sus nodos o unidades de procesamiento), promedio del último minuto, de todas sus bases y con las tareas de sistema; en una configuración multirregión, el de la región más cargada. 100 % es toda la capacidad; si se mantiene alto, la instancia necesita más nodos o unidades de procesamiento.": [
+  "crates/drivers/spanner/src/monitor.rs"
+ ],
  "Uso promedio de los discos del sistema en el último intervalo de muestreo de recursos.": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
@@ -45186,6 +46038,9 @@
  ],
  "VARCHAR({0}) supera los {1} de NVARCHAR: se usa NCLOB.": [
   "crates/dbine-schema/src/dialect/hana.rs"
+ ],
+ "VECTOR de Snowflake guarda floats de 32 bits: los de 64 se redondean.": [
+  "crates/dbine-schema/src/dialect/snowflake.rs"
  ],
  "VERIFY_CA (verifica la CA de ssl-ca, no el nombre)": [
   "crates/drivers/mysql/src/lib.rs",
@@ -45701,7 +46556,7 @@
  "Vacío: lo que diga el cluster (1 en un servidor solo). Copias que aceptan escrituras.": [
   "crates/drivers/neo4j/src/create_db.rs"
  ],
- "Vacío: lo que diga el servidor (tablets activos por defecto desde ScyllaDB 6). No funciona con SimpleStrategy.": [
+ "Vacío: lo que diga el servidor (tablets activos por defecto desde ScyllaDB 6). No funciona con SimpleStrategy. Sin tablets el keyspace no admite índices vectoriales, y no se activan después.": [
   "crates/drivers/cassandra/src/create_db.rs"
  ],
  "Vacío: lo que diga «Si falla».": [
@@ -45994,6 +46849,64 @@
  ],
  "Veces que una transacción esperó un bloqueo, sumadas por índice.": [
   "crates/drivers/odbc/src/monitor.rs"
+ ],
+ "Vector binario como vector<float> de 0 y 1: CQL no tiene vectores de bits ni distancia de Hamming.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "Vector binario: cada bit queda como un número 0 o 1.": [
+  "crates/dbine-schema/src/dialect/clickhouse.rs",
+  "crates/dbine-schema/src/dialect/duckdb.rs"
+ ],
+ "Vector de bfloat16 como float32 (sin pérdida).": [
+  "crates/dbine-schema/src/dialect/mssql.rs"
+ ],
+ "Vector de bits como números (0 y 1): Open Distro no tiene vectores de bits.": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
+ "Vector de bits como números (0 y 1): {0} guarda bits solo de a 8 dimensiones.": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
+ "Vector de bytes como números float.": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
+ "Vector de bytes sin signo o de bits como números float: Solr solo tiene bytes con signo.": [
+  "crates/dbine-schema/src/dialect/solr.rs"
+ ],
+ "Vector de enteros de 32 bits como float de 32 bits: los valores pasados de 16777216 (2^24) se redondean.": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs",
+  "crates/dbine-schema/src/dialect/solr.rs"
+ ],
+ "Vector de enteros de 32 bits como float32: los valores pasados de 16777216 (2^24) se redondean.": [
+  "crates/dbine-schema/src/dialect/hana.rs",
+  "crates/dbine-schema/src/dialect/mssql.rs"
+ ],
+ "Vector de enteros de 32 bits como vector de float32: los valores pasados de 16777216 (2^24) se redondean.": [
+  "crates/dbine-schema/src/dialect/postgres.rs"
+ ],
+ "Vector de enteros de 32 bits como vector<float>: los índices vectoriales de CQL son de floats, y los valores pasados de 16777216 (2^24) se redondean.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "Vector de enteros de 8 bits como vector de float32: los valores se conservan.": [
+  "crates/dbine-schema/src/dialect/postgres.rs"
+ ],
+ "Vector de enteros de un byte como vector<float>: los índices vectoriales de CQL son de floats, y los valores caben exactos.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "Vector de media precisión como float de 32 bits.": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs",
+  "crates/dbine-schema/src/dialect/solr.rs"
+ ],
+ "Vector de medios floats como vector<float>: CQL no los tiene, y los valores caben exactos.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "Vector de números de tipo desconocido como vector<float>.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "Vector sin dimensión fija: Elasticsearch la toma del primer documento.": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
+ "Vector sin dimensión: queda «vector» (MySQL toma 2048 dimensiones; MariaDB y OceanBase exigen una).": [
+  "crates/dbine-schema/src/dialect/mysql.rs"
  ],
  "VeloDB Cloud exige TLS en los endpoints públicos.": [
   "crates/drivers/mysql/src/lib.rs",
@@ -47118,12 +48031,6 @@
  "_replicator, u otra base terminada en /_replicator.": [
   "crates/drivers/couchdb/src/replication/doc.rs"
  ],
- "`dimension` de un knn_vector (obligatorio).": [
-  "crates/drivers/elasticsearch/src/ddl.rs"
- ],
- "`dims` de un dense_vector (si se omite, la toma del primer documento).": [
-  "crates/drivers/elasticsearch/src/ddl.rs"
- ],
  "`show {0}` no está disponible (sí show dbs, collections, users y roles).": [
   "crates/drivers/mongodb/src/lib.rs"
  ],
@@ -47444,6 +48351,7 @@
   "crates/drivers/flightsql/src/lib.rs"
  ],
  "bolt+s cifra y verifica el certificado; bolt+ssc cifra sin verificarlo; bolt no cifra. Un esquema escrito en el servidor (neo4j+s://…) tiene prioridad.": [
+  "crates/drivers/neo4j/src/bolt.rs",
   "driver memgraph",
   "driver neo4j"
  ],
@@ -47468,6 +48376,9 @@
  ],
  "build": [
   "crates/drivers/iotdb/src/monitor.rs"
+ ],
+ "byte (entero de -128 a 127)": [
+  "crates/drivers/solr/src/transfer.rs"
  ],
  "bytea no limita el largo.": [
   "crates/dbine-schema/src/dialect/postgres.rs"
@@ -48041,6 +48952,12 @@
  "createIndexes espera un array de claves": [
   "crates/drivers/mongodb/src/shell.rs"
  ],
+ "createSearchIndex espera {0} o (nombre, [tipo,] definición)": [
+  "crates/drivers/mongodb/src/shell.rs"
+ ],
+ "createSearchIndexes espera un array de índices": [
+  "crates/drivers/mongodb/src/shell.rs"
+ ],
  "createView espera un array de etapas, no {0}": [
   "crates/drivers/mongodb/src/shell.rs"
  ],
@@ -48476,6 +49393,9 @@
  "dos columnas del DataFrame van a «{0}»": [
   "src-tauri/src/notebook/write.rs"
  ],
+ "dos servidores tienen un índice {0} con campos distintos": [
+  "crates/drivers/redis/src/vectors.rs"
+ ],
  "double de 64 bits": [
   "crates/drivers/solr/src/transfer.rs"
  ],
@@ -48492,6 +49412,9 @@
   "crates/dbine-plugin/src/updater.rs"
  ],
  "dropIndex necesita el nombre o las claves del índice": [
+  "crates/drivers/mongodb/src/shell.rs"
+ ],
+ "dropSearchIndex necesita el nombre del índice": [
   "crates/drivers/mongodb/src/shell.rs"
  ],
  "dsql: pg_proc listed no functions": [
@@ -48712,6 +49635,9 @@
  "el adjunto «{0}» llega sin su contenido (solo la referencia al original); no se puede copiar": [
   "crates/drivers/couchdb/src/transfer.rs"
  ],
+ "el algoritmo {0}": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
  "el alias de ~/.ssh/config no es válido": [
   "src-tauri/src/commands/ssh_profiles.rs"
  ],
@@ -48805,6 +49731,12 @@
  ],
  "el campo del usuario no es válido": [
   "crates/dbine-core/src/secret_sources.rs"
+ ],
+ "el campo {0} de {1} es {2} en un servidor y {3} en otro": [
+  "crates/drivers/redis/src/vectors.rs"
+ ],
+ "el campo {0} está en una ruta JSON compuesta ({1}): escribí ese documento con JSON.SET a mano": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "el campo «{0}» de la colección de destino no se guarda (stored=false y sin docValues): Solr aceptaría el valor y lo descartaría, así que después se leería como NULL. Cambiá el campo a stored=true o dejalo fuera de la carga.": [
   "crates/drivers/solr/src/transfer.rs"
@@ -49046,6 +49978,7 @@
   "src-tauri/src/secret_sources/bitwarden.rs"
  ],
  "el destino": [
+  "crates/dbine-schema/src/dialect/mysql.rs",
   "crates/dbine-schema/src/dialect/odbc_engines.rs",
   "crates/drivers/mysql/src/backup.rs",
   "crates/drivers/odbc/src/backup.rs"
@@ -49088,6 +50021,10 @@
  ],
  "el destino no tiene tablas temporales: {0} quedan como tablas comunes, sin versionado": [
   "crates/drivers/sqlserver/src/clone.rs"
+ ],
+ "el destino no tiene índices vectoriales": [
+  "crates/dbine-schema/src/convert.rs",
+  "crates/dbine-schema/src/dialect/mod.rs"
  ],
  "el diccionario": [
   "src-tauri/src/commands/compare.rs"
@@ -49440,7 +50377,8 @@
   "crates/drivers/elasticsearch/src/jobs.rs"
  ],
  "el motor": [
-  "crates/drivers/clickhouse/src/sync.rs"
+  "crates/drivers/clickhouse/src/sync.rs",
+  "crates/drivers/mysql/src/vectors.rs"
  ],
  "el motor cortó el resultado de {0}: no se comparan resultados parciales": [
   "src-tauri/src/commands/data_compare_whole.rs"
@@ -49987,7 +50925,7 @@
  "el servidor ignoró la sentencia": [
   "crates/drivers/neo4j/src/bolt.rs"
  ],
- "el servidor no acepta ninguna versión de Bolt entre 4.2 y 5.4": [
+ "el servidor no acepta ninguna versión de Bolt entre 4.2 y 6.0": [
   "crates/drivers/neo4j/src/bolt.rs"
  ],
  "el servidor no confirmó la transacción de solo lectura": [
@@ -50157,6 +51095,9 @@
  "el tipo de la columna «{0}» en el catálogo ({1}) no es un tipo de Athena que DBine reconozca, así que no la renombra: hacelo a mano con ALTER TABLE … CHANGE COLUMN": [
   "crates/drivers/athena/src/rename.rs"
  ],
+ "el tipo de sus números no se conoce: quedan como FLOAT64": [
+  "crates/dbine-schema/src/dialect/spanner.rs"
+ ],
  "el tipo de tabla": [
   "crates/drivers/mysql/src/design.rs"
  ],
@@ -50305,6 +51246,12 @@
  "el valor {0} tiene hora y no entra en un DATE sin perderla": [
   "crates/drivers/iotdb/src/transfer.rs"
  ],
+ "el vector tiene {0} dimensiones y la columna {1}": [
+  "crates/drivers/sqlserver/src/transfer.rs"
+ ],
+ "el vector tiene {0} dimensiones y la columna, {1}": [
+  "crates/drivers/cassandra/src/transfer.rs"
+ ],
  "el warehouse {0} está suspendido: el historial de las tareas no lo reanuda para no consumir créditos": [
   "crates/drivers/snowflake/src/jobs.rs"
  ],
@@ -50325,6 +51272,9 @@
  ],
  "el índice agregado «{0}» no tiene consulta": [
   "crates/drivers/mysql/src/design.rs"
+ ],
+ "el índice de búsqueda {0} no siguió a la colección al renombrarla y no se pudo crear de nuevo: {1}": [
+  "crates/dbine-transfer/src/clone_table/documents.rs"
  ],
  "el índice de drivers es de {0}, no de {1}": [
   "crates/dbine-plugin/src/updater.rs"
@@ -50347,15 +51297,41 @@
  "el índice necesita al menos un campo": [
   "crates/drivers/mongodb/src/shell.rs"
  ],
+ "el índice no dice su distancia": [
+  "crates/dbine-schema/src/dialect/postgres.rs"
+ ],
+ "el índice vectorial no tiene columna": [
+  "crates/drivers/hana/src/vector.rs",
+  "crates/drivers/oracle/src/vector.rs"
+ ],
+ "el índice vectorial {0} de DocumentDB no comprime los vectores": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
+ "el índice vectorial {0} de DocumentDB toma un solo campo, sin filtros": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
+ "el índice vectorial {0} necesita la dimensión: el campo «{1}» tiene que ser de tipo vector(N)": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
+ "el índice vectorial «{0}» no se crea en el clon: SQLite no tiene libsql_vector_idx (es de libSQL); hay que crearlo desde una conexión libSQL": [
+  "crates/dbine-transfer/src/clone_table/embedded.rs"
+ ],
  "el índice {0} de {1} nombra la columna «{2}», que la tabla no tiene.": [
   "crates/drivers/kdb/src/attrs.rs"
+ ],
+ "el índice {0} es de búsqueda vectorial (vectorSearch): se crea con createSearchIndex": [
+  "crates/drivers/mongodb/src/ddl.rs"
  ],
  "el índice {0} lee la misma tabla: en el clon lee el clon": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
  "el índice {0} no tiene campos": [
   "crates/drivers/couchdb/src/ddl.rs",
-  "crates/drivers/mongodb/src/ddl.rs"
+  "crates/drivers/mongodb/src/ddl.rs",
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
+ "el índice {0} no tiene un campo knnVector en «{1}»": [
+  "crates/drivers/mongodb/src/vector.rs"
  ],
  "el índice «{0}»": [
   "crates/dbine-schema/src/dialect/mssql.rs",
@@ -50579,8 +51555,14 @@
  "en MongoDB se otorgan roles sobre la base; los permisos sobre una colección van en un rol propio: creá el rol y agregale privilegios con grantPrivilegesToRole en el editor": [
   "crates/drivers/mongodb/src/security.rs"
  ],
+ "en Neo4j, {0} va de 1 a {1}, no {2}": [
+  "crates/dbine-schema/src/dialect/graph.rs"
+ ],
  "en Ocient los permisos se otorgan a usuarios o grupos; los roles son predefinidos": [
   "crates/drivers/odbc/src/security/misc.rs"
+ ],
+ "en Open Distro la distancia y los parámetros k-NN son de todo el índice, y ya los fija «{0}»": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
  ],
  "en Oracle la contraseña no puede tener comillas dobles (\")": [
   "crates/drivers/oracle/src/security.rs"
@@ -50733,8 +51715,14 @@
  "en {0} hay más de {1} ejecuciones recientes: puede faltar la última ejecución de algunas tareas": [
   "crates/drivers/snowflake/src/jobs.rs"
  ],
+ "en {0} la distancia de Hamming es solo de vectores de bits": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
  "en {0} los índices son parte de la definición de la tabla: el clon los lleva igual": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
+ ],
+ "en {0} un índice vectorial lleva una sola columna, la del vector": [
+  "crates/dbine-schema/src/dialect/starrocks.rs"
  ],
  "encabezado inválido": [
   "crates/drivers/clickhouse/src/transfer.rs"
@@ -50833,6 +51821,9 @@
  "error sin detalle": [
   "crates/drivers/sqlserver/src/entra.rs"
  ],
+ "es COSINE o EUCLIDEAN": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
  "es de muchos a muchos": [
   "crates/drivers/powerbi/src/objects.rs"
  ],
@@ -50853,6 +51844,13 @@
  ],
  "es parte de una clave primaria o foránea": [
   "crates/drivers/bigquery/src/rename.rs"
+ ],
+ "es true o false": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
+ "es un número entero mayor que cero": [
+  "crates/drivers/neo4j/src/ddl.rs",
+  "crates/drivers/spanner/src/structure.rs"
  ],
  "es una base de archivos sin servidor: no tiene jobs propios": [
   "crates/drivers/odbc/src/jobs.rs"
@@ -51365,6 +52363,7 @@
  "este motor no asegura lecturas de solo lectura en el servidor": [
   "crates/dbine-driver/src/lib.rs",
   "crates/drivers/mysql/src/session.rs",
+  "crates/drivers/neo4j/src/lib.rs",
   "src-tauri/src/mcp/tools.rs"
  ],
  "este motor no asigna logins del servidor a usuarios de la base": [
@@ -52589,6 +53588,9 @@
  "guarda la lista de roles de cada usuario (set-user-role la reemplaza)": [
   "crates/drivers/solr/src/security.rs"
  ],
+ "guarda «{0}», que es el final de su key {1}: al leerla se tomaría como fila de {2} y no de {3}. Poné primero otra columna, que forme keys sin esa ambigüedad": [
+  "crates/drivers/redis/src/transfer.rs"
+ ],
  "guardado en {0}": [
   "src-tauri/src/tasks/steps.rs"
  ],
@@ -53617,6 +54619,9 @@
  "la columna «{0}» de la clave es {1}: no sirve para comparar filas entre bases": [
   "crates/drivers/sqlserver/src/delta.rs"
  ],
+ "la columna «{0}» de {1} es vector y el destino no tiene ese tipo (SQL Server 2025 o Azure SQL)": [
+  "crates/drivers/sqlserver/src/clone.rs"
+ ],
  "la columna «{0}» del clon quedó sin su secuencia": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
@@ -53680,6 +54685,9 @@
  ],
  "la compresión": [
   "crates/drivers/iotdb/src/sync.rs"
+ ],
+ "la compresión de 1 bit (compress_neighbors=float1bit) solo va con distancia coseno": [
+  "crates/drivers/sqlite/src/schema.rs"
  ],
  "la computadora no respondió a tiempo": [
   "mobile/src-tauri/src/lib.rs"
@@ -53968,6 +54976,9 @@
  "la cuenta «{0}» no se pudo leer: {1}": [
   "crates/dbine-core/src/secret_accounts.rs"
  ],
+ "la definición completa de {0}": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
  "la definición de la vista «{0}»": [
   "crates/drivers/athena/src/rename.rs",
   "crates/drivers/dremio/src/rename.rs"
@@ -53984,6 +54995,9 @@
  "la definición de «{0}» tiene una línea que dice solo GO: al volver a crearla se partiría en varios lotes, así que no se renombra desde DBine": [
   "crates/drivers/sqlserver/src/rename.rs"
  ],
+ "la definición del índice {0} no es válida: {1}": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
  "la del tipo": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
@@ -53994,12 +55008,55 @@
  "la descarga quedó incompleta ({0} de {1} bytes): reintentá para retomarla": [
   "crates/dbine-ai/src/embedded.rs"
  ],
+ "la dimensión del índice vectorial no es un número: «{0}»": [
+  "crates/drivers/clickhouse/src/vector.rs"
+ ],
  "la dirección de Vault tiene que ser una URL https:// (https://vault.ejemplo.com:8200); http:// solo hacia esta computadora": [
   "crates/dbine-core/src/secret_sources.rs"
  ],
  "la dirección del servidor no es válida": [
   "src-tauri/src/enterprise/mod.rs",
   "src-tauri/src/enterprise/signin.rs"
+ ],
+ "la distancia hamming queda coseno en libSQL, que no tiene hamming: sobre vectores de 1 bit su distancia coseno cuenta los bits distintos, que es la distancia de Hamming": [
+  "crates/dbine-schema/src/dialect/sqlite.rs"
+ ],
+ "la distancia hamming queda euclidean (Cosmos DB no tiene hamming; sobre vectores de 0 y 1 los vecinos más cercanos son los mismos)": [
+  "crates/dbine-schema/src/dialect/cosmosdb.rs"
+ ],
+ "la distancia hamming queda l2 (euclidean) en {0}, que no tiene hamming: sobre vectores de bits ordena los vecinos igual": [
+  "crates/dbine-schema/src/dialect/mongodb.rs"
+ ],
+ "la distancia hamming queda l2 (euclidean: sobre vectores de bits los vecinos más cercanos son los mismos)": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
+ "la distancia {0} (queda cosine)": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
+ "la distancia {0} queda euclidean (Cosmos DB no tiene la euclídea al cuadrado; los vecinos más cercanos son los mismos)": [
+  "crates/dbine-schema/src/dialect/cosmosdb.rs"
+ ],
+ "la distancia {0} queda hamming: sobre vectores binarios (bit) los vecinos más cercanos son los mismos": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs",
+  "crates/dbine-schema/src/dialect/postgres.rs"
+ ],
+ "la distancia {0} queda l2 (euclidean) en {1}: los vecinos más cercanos son los mismos, y la distancia que devuelve es su raíz": [
+  "crates/dbine-schema/src/dialect/mongodb.rs"
+ ],
+ "la distancia {0} queda l2 (euclidean: los vecinos más cercanos son los mismos, la distancia que devuelve es su raíz)": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
+ "la distancia {0} queda l2: los vecinos más cercanos son los mismos, y la distancia que devuelve es su raíz": [
+  "crates/dbine-schema/src/dialect/postgres.rs"
+ ],
+ "la distancia «{0}» no está en este motor (COS, L2 o IP)": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
+ "la distancia «{0}» no está en este motor (cosine, euclidean o dotProduct)": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
+ "la distancia «{0}» no está en los índices vectoriales de MySQL, MariaDB, TiDB, OceanBase ni SingleStore": [
+  "crates/dbine-schema/src/dialect/mysql.rs"
  ],
  "la ejecución terminó sin respuesta": [
   "src-tauri/src/commands/multi_db.rs"
@@ -54149,6 +55206,9 @@
   "src-tauri/src/commands/data_compare_query.rs",
   "src-tauri/src/commands/data_compare_whole.rs"
  ],
+ "la key de un documento no se cambia desde la grilla: renombrala": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "la key no tiene la columna {0}": [
   "crates/drivers/redis/src/transfer.rs"
  ],
@@ -54297,11 +55357,17 @@
  "la política de seguridad por filas «{0}» nombra a la propia tabla «{1}» de una forma que no se puede pasar al clon ({2}); en el clon seguiría leyendo la original": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
+ "la política de vectores (vectorEmbeddingPolicy)": [
+  "crates/drivers/cosmosdb/src/sync.rs"
+ ],
  "la pregunta con la estructura de la base no entra en el modelo: desactivá «Incluir estructura» o usá un modelo más grande": [
   "crates/dbine-ai/src/embedded.rs"
  ],
  "la pregunta por los archivos ya no vale: ejecutá la celda de nuevo": [
   "src-tauri/src/notebook/access.rs"
+ ],
+ "la profundidad del árbol es 2 o 3": [
+  "crates/drivers/spanner/src/structure.rs"
  ],
  "la programación": [
   "crates/drivers/postgres/src/scheduler/dbms_scheduler.rs"
@@ -54922,14 +55988,35 @@
  "libSQL / Turso no expone las conexiones ni las consultas en curso: cada pedido Hrana es independiente y el servidor no tiene una vista ni una API para listarlas o cancelarlas": [
   "crates/drivers/libsql/src/lib.rs"
  ],
+ "libSQL lo crea sobre columnas vectoriales (F32_BLOB(n), F64_BLOB(n)…)": [
+  "crates/dbine-schema/src/dialect/sqlite.rs"
+ ],
+ "libSQL mide los vectores de 1 bit («{0}» es {1}) solo con distancia coseno": [
+  "crates/drivers/sqlite/src/schema.rs"
+ ],
+ "libSQL mide los vectores de 1 bit solo con distancia coseno, y el índice usa L2": [
+  "crates/dbine-schema/src/dialect/sqlite.rs"
+ ],
  "libSQL no deja cambiar «{0}»: lo administra el servidor": [
   "crates/drivers/sqlite/src/properties.rs"
  ],
  "libSQL no expone CPU, memoria ni sesiones por SQL: en Turso, el uso (filas leídas y escritas, almacenamiento) está en la consola o en la API de la plataforma.": [
   "crates/drivers/libsql/src/lib.rs"
  ],
+ "libSQL no indexa una columna vectorial sin dimensión, y ni el índice ni la columna del origen la dan": [
+  "crates/dbine-schema/src/dialect/sqlite.rs"
+ ],
+ "libSQL no indexa vectores dispersos, que quedan como texto": [
+  "crates/dbine-schema/src/dialect/sqlite.rs"
+ ],
  "libSQL no mide cifras reales: se muestran los planes estimados.": [
   "crates/drivers/libsql/src/lib.rs"
+ ],
+ "libSQL solo indexa columnas vectoriales con dimensión (F32_BLOB(n), F64_BLOB(n)…), y «{0}» es {1}": [
+  "crates/drivers/sqlite/src/schema.rs"
+ ],
+ "libSQL solo indexa con distancia coseno o L2, y el índice usa «{0}»": [
+  "crates/dbine-schema/src/dialect/sqlite.rs"
  ],
  "libSQL tiene una sola base («main»), no «{0}»": [
   "crates/drivers/sqlite/src/properties.rs"
@@ -55078,6 +56165,9 @@
  "los documentos tienen campos «_id» y «meta_id» propios, y la clave no tiene con qué nombre ir: pedí las columnas a copiar": [
   "crates/drivers/couchbase/src/transfer.rs"
  ],
+ "los filtros ({0})": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
  "los jobs de APOC (apoc.periodic) viven en la memoria del servidor: se pierden al reiniciarlo, y APOC no guarda la consulta que ejecutan ni su historial": [
   "crates/drivers/neo4j/src/jobs.rs"
  ],
@@ -55166,6 +56256,15 @@
  ],
  "los usuarios, roles y permisos de la base no forman parte del clon": [
   "crates/drivers/sqlserver/src/clone.rs"
+ ],
+ "los índices HNSW de DuckDB miden distancia L2, coseno o producto interno, y el índice usa «{0}»": [
+  "crates/dbine-schema/src/dialect/duckdb.rs"
+ ],
+ "los índices vector_similarity de ClickHouse miden distancia L2, coseno o producto interno, y el índice usa «{0}»": [
+  "crates/dbine-schema/src/dialect/clickhouse.rs"
+ ],
+ "los índices vectoriales de MariaDB, TiDB, OceanBase y SingleStore necesitan la dimensión de los vectores y no se conoce": [
+  "crates/dbine-schema/src/dialect/mysql.rs"
  ],
  "los índices {0}": [
   "crates/dbine-transfer/src/clone_table/embedded.rs"
@@ -55550,6 +56649,15 @@
  "no es un objeto": [
   "crates/drivers/elasticsearch/src/transfer.rs"
  ],
+ "no es un tipo de número de Memgraph": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
+ "no es un vector": [
+  "crates/drivers/sqlserver/src/transfer.rs"
+ ],
+ "no es un vector (un arreglo JSON de números)": [
+  "crates/drivers/solr/src/transfer.rs"
+ ],
  "no es una conexión Bolt": [
   "crates/drivers/neo4j/src/transfer.rs"
  ],
@@ -55561,6 +56669,9 @@
  ],
  "no es una librería de DuckDB": [
   "crates/drivers/duckdb/src/loader.rs"
+ ],
+ "no es una métrica de Memgraph": [
+  "crates/drivers/neo4j/src/ddl.rs"
  ],
  "no estaba definido": [
   "crates/drivers/hana/src/profiler.rs"
@@ -55575,6 +56686,9 @@
  "no está instalada": [
   "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "no está su columna «{0}»": [
+  "crates/dbine-schema/src/dialect/starrocks.rs"
  ],
  "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET": [
   "crates/drivers/sqlserver/src/entra.rs"
@@ -55863,6 +56977,12 @@
  ],
  "no free space acctg": [
   "crates/drivers/odbc/src/properties.rs"
+ ],
+ "no hace falta: Solr indexa cada campo por su definición": [
+  "crates/dbine-schema/src/dialect/solr.rs"
+ ],
+ "no hace falta: cada campo se indexa por su propio mapping": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
  ],
  "no handler found": [
   "crates/drivers/elasticsearch/src/permissions.rs",
@@ -57411,7 +58531,19 @@
  "no tiene hora": [
   "crates/drivers/hana/src/transfer.rs"
  ],
+ "no tiene ningún campo con valor: Redis no guarda hashes vacíos": [
+  "crates/drivers/redis/src/transfer.rs"
+ ],
+ "no tiene un vector en {0} (como [0.1, 0.2, 0.3])": [
+  "crates/drivers/redis/src/transfer.rs"
+ ],
  "no tiene valor en la primera columna ({0}), que forma el nombre de la key": [
+  "crates/drivers/redis/src/transfer.rs"
+ ],
+ "no tiene valor en {0}, el elemento": [
+  "crates/drivers/redis/src/transfer.rs"
+ ],
+ "no tiene valor en {0}, que forma la key del documento": [
   "crates/drivers/redis/src/transfer.rs"
  ],
  "no tiene zona": [
@@ -57706,6 +58838,9 @@
  "para borrar un documento de CouchDB hace falta su _id": [
   "crates/drivers/couchdb/src/ddl.rs"
  ],
+ "para borrar un documento del índice hace falta su key (columna id)": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "para borrar un documento hace falta su _id": [
   "crates/drivers/elasticsearch/src/ddl.rs"
  ],
@@ -57724,6 +58859,9 @@
  ],
  "para editar un documento de CouchDB hace falta su _id": [
   "crates/drivers/couchdb/src/ddl.rs"
+ ],
+ "para editar un documento del índice hace falta su key (columna id)": [
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "para el tamaño del log, indicá su dispositivo": [
   "crates/drivers/odbc/src/create_db.rs"
@@ -57765,6 +58903,9 @@
  ],
  "parámetros de clave inválidos: {0}": [
   "crates/dbine-sync/src/crypto.rs"
+ ],
+ "pasa de {0} a {1}": [
+  "crates/drivers/mongodb/src/vector.rs"
  ],
  "pasarla a UTC cambia el día, y antes de 1582-10-15 los calendarios no coinciden": [
   "crates/drivers/hana/src/transfer.rs"
@@ -57899,6 +59040,24 @@
  ],
  "pg_cron no permite detener un job en ejecución": [
   "crates/drivers/postgres/src/jobs.rs"
+ ],
+ "pgvector admite hasta {0} dimensiones en un vector: {1} no entra.": [
+  "crates/dbine-schema/src/dialect/postgres.rs"
+ ],
+ "pgvector guarda los vectores en float32: los valores de 64 bits se redondean.": [
+  "crates/dbine-schema/src/dialect/postgres.rs"
+ ],
+ "pgvector no tiene bfloat16: queda halfvec (media precisión IEEE), con menos rango.": [
+  "crates/dbine-schema/src/dialect/postgres.rs"
+ ],
+ "pgvector no tiene la distancia «{0}»": [
+  "crates/dbine-schema/src/dialect/postgres.rs"
+ ],
+ "pgvector no tiene la distancia «{0}» para vectores binarios (bit): tiene hamming y jaccard": [
+  "crates/dbine-schema/src/dialect/postgres.rs"
+ ],
+ "pgvector tiene la distancia «{0}» solo para vectores binarios (bit), no para {1}": [
+  "crates/dbine-schema/src/dialect/postgres.rs"
  ],
  "pid": [
   "crates/drivers/couchdb/src/monitor.rs"
@@ -58153,6 +59312,9 @@
   "crates/drivers/neo4j/src/profiler.rs",
   "crates/drivers/sqlserver/src/profiler.rs",
   "crates/drivers/tdengine/src/create_db.rs"
+ ],
+ "queda quantizedFlat: flat indexa vectores de hasta {0} dimensiones, y este tiene {1}": [
+  "crates/dbine-schema/src/dialect/cosmosdb.rs"
  ],
  "quedaron pedidos a Cosmos DB sin respuesta: el servidor podría escribir ítems después": [
   "crates/drivers/cosmosdb/src/transfer.rs"
@@ -58540,6 +59702,9 @@
   "crates/drivers/neo4j/src/monitor.rs",
   "crates/drivers/solr/src/monitor.rs"
  ],
+ "saludo Bolt inválido (número demasiado largo)": [
+  "crates/drivers/neo4j/src/bolt.rs"
+ ],
  "sampleRate = 1 (estaba en {0})": [
   "crates/drivers/mongodb/src/profiler.rs"
  ],
@@ -58636,6 +59801,9 @@
  ],
  "se cortó la respuesta del servidor: {0}": [
   "crates/drivers/libsql/src/transfer.rs"
+ ],
+ "se crea como {0}": [
+  "crates/drivers/mongodb/src/vector.rs"
  ],
  "se desadjuntó, pero no se pudo borrar {0}: {1}": [
   "crates/drivers/duckdb/src/lib.rs"
@@ -58769,7 +59937,8 @@
   "crates/dbine-schema/src/convert.rs"
  ],
  "se quitan las opciones del índice «{0}»: {1}": [
-  "crates/dbine-schema/src/convert.rs"
+  "crates/dbine-schema/src/convert.rs",
+  "crates/dbine-schema/src/dialect/cassandra.rs"
  ],
  "se reanuda (RESUME) desde donde quedó": [
   "crates/drivers/ksqldb/src/scheduler.rs"
@@ -58925,6 +60094,9 @@
  "sin detalle": [
   "crates/dbine-transfer/src/lib.rs",
   "crates/drivers/powerbi/src/definition/mod.rs"
+ ],
+ "sin distancia, sobre un vector BINARY queda HAMMING: Oracle no admite ahí la suya por defecto (COSINE), solo HAMMING y JACCARD": [
+  "crates/dbine-schema/src/dialect/oracle.rs"
  ],
  "sin entrada o salida": [
   "crates/dbine-plugin/src/remote.rs"
@@ -59096,6 +60268,9 @@
  "sobre un tópico, TDengine solo otorga SUBSCRIBE": [
   "crates/drivers/tdengine/src/security.rs"
  ],
+ "sobre un vector BINARY Oracle solo admite HAMMING y JACCARD, así que se crea con HAMMING y los valores por defecto de Oracle": [
+  "crates/drivers/oracle/src/vector.rs"
+ ],
  "solo las operaciones de más de {0} ms": [
   "crates/drivers/mongodb/src/profiler.rs"
  ],
@@ -59175,6 +60350,40 @@
  ],
  "strict: rechaza documentos con campos nuevos": [
   "crates/drivers/elasticsearch/src/ddl.rs"
+ ],
+ "su columna es un vector disperso, que en CQL queda como texto": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "su columna no dice su dimensión, así que en CQL queda como lista y no como vector<float, n>": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "su columna no es un REAL_VECTOR ni un HALF_VECTOR en HANA (HANA no tiene vectores dispersos)": [
+  "crates/dbine-schema/src/dialect/hana.rs"
+ ],
+ "su columna no es un vector": [
+  "crates/dbine-schema/src/convert.rs",
+  "crates/dbine-schema/src/dialect/cassandra.rs"
+ ],
+ "su columna no es un vector en SQL Server (es dispersa, no tiene dimensión o tiene demasiadas)": [
+  "crates/dbine-schema/src/dialect/mssql.rs"
+ ],
+ "su columna no es un vector en Solr": [
+  "crates/dbine-schema/src/dialect/solr.rs"
+ ],
+ "su columna no es un vector en {0}": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
+ "su columna vectorial no tiene dimensión, y Cosmos DB la necesita": [
+  "crates/dbine-schema/src/dialect/cosmosdb.rs"
+ ],
+ "su columna vectorial no tiene dimensión, y Couchbase la necesita": [
+  "crates/dbine-schema/src/dialect/couchbase.rs"
+ ],
+ "su columna vectorial no tiene dimensión, y {0} la necesita": [
+  "crates/dbine-schema/src/dialect/mongodb.rs"
+ ],
+ "su columna «{0}» no es un vector en {1}": [
+  "crates/dbine-schema/src/dialect/starrocks.rs"
  ],
  "su definición está cifrada (WITH ENCRYPTION) o no se puede leer": [
   "crates/drivers/sqlserver/src/clone.rs"
@@ -59433,6 +60642,9 @@
  "tiene en el campo «{0}» {1}": [
   "crates/drivers/mongodb/src/transfer.rs"
  ],
+ "tiene en {0} un vector de {1} dimensiones y su índice lo declara de {2} (el servidor lo guardaría sin indexarlo)": [
+  "crates/drivers/redis/src/transfer.rs"
+ ],
  "tiene más de {0} decimales (se redondearía)": [
   "crates/drivers/athena/src/transfer.rs"
  ],
@@ -59466,11 +60678,17 @@
  "tiene un valor semiestructurado con «{0}» ({1}), que JSON no puede representar; pasarlo como texto o como null cambiaría el dato, así que la tabla no se copia. Convertí esos valores en el origen (por ejemplo con un filtro) antes de copiarla": [
   "crates/drivers/snowflake/src/transfer.rs"
  ],
+ "tiene un vector de {0} dimensiones y el vector set {1}, de {2}": [
+  "crates/drivers/redis/src/transfer.rs"
+ ],
  "tiene una configuración de zona que el clon no puede tener ({0})": [
   "crates/dbine-transfer/src/clone_table/pg.rs"
  ],
  "tiene {0} caracteres (se recortaría)": [
   "crates/drivers/athena/src/transfer.rs"
+ ],
+ "tiene {0} dimensiones y el campo, {1}": [
+  "crates/drivers/solr/src/transfer.rs"
  ],
  "tiene {0} unidades CREATE y se esperaba {1}": [
   "crates/drivers/oracle/src/rename.rs"
@@ -59502,6 +60720,9 @@
  ],
  "tipo de bucket": [
   "crates/drivers/couchbase/src/create_db.rs"
+ ],
+ "tipo de elemento del vector desconocido": [
+  "crates/drivers/sqlserver/src/transfer.rs"
  ],
  "tipo de geometría WKB desconocido ({0})": [
   "crates/drivers/hana/src/transfer.rs"
@@ -59698,6 +60919,9 @@
  "un diccionario se carga desde su origen: no tiene datos propios": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
+ "un elemento de un vector set no se renombra: agregá uno nuevo y borrá este": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "un entero": [
   "crates/drivers/odbc/src/transfer.rs"
  ],
@@ -59831,8 +61055,14 @@
  "un valor espacial tiene que ser WKB o WKT, no {0}": [
   "crates/drivers/hana/src/transfer.rs"
  ],
+ "un vector set no tiene la columna {0}": [
+  "crates/drivers/redis/src/ddl.rs"
+ ],
  "un warehouse de Fabric se crea desde el portal de Fabric": [
   "crates/drivers/sqlserver/src/create_db.rs"
+ ],
+ "un índice de búsqueda vectorial no se deshabilita: se borra o se cambia": [
+  "crates/drivers/mongodb/src/lib.rs"
  ],
  "un índice espacial": [
   "crates/drivers/neo4j/src/ddl.rs"
@@ -59986,6 +61216,12 @@
  "unidad": [
   "crates/drivers/cassandra/src/monitor.rs"
  ],
+ "updateSearchIndex necesita el nombre del índice": [
+  "crates/drivers/mongodb/src/shell.rs"
+ ],
+ "updateSearchIndex necesita la definición del índice": [
+  "crates/drivers/mongodb/src/shell.rs"
+ ],
  "user add necesita una contraseña (user add <usuario> <contraseña>) o --no-password": [
   "crates/drivers/etcd/src/security.rs"
  ],
@@ -60029,6 +61265,18 @@
  ],
  "usuarios activos": [
   "crates/drivers/orientdb/src/monitor.rs"
+ ],
+ "va de 0 a 32": [
+  "crates/drivers/spanner/src/structure.rs"
+ ],
+ "va de 1 a 3200": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
+ "va de 1 a 4096": [
+  "crates/drivers/neo4j/src/ddl.rs"
+ ],
+ "va de 1 a 512": [
+  "crates/drivers/neo4j/src/ddl.rs"
  ],
  "vaciar el bucket": [
   "crates/drivers/couchbase/src/create_db.rs"
@@ -60088,6 +61336,12 @@
  "vacío: todas; si no, separadas por comas": [
   "crates/drivers/mysql/src/backup.rs"
  ],
+ "valkey-search devuelve como mucho {0} documentos por consulta KNN: el índice puede tener más, que no se leyeron.": [
+  "crates/drivers/redis/src/vectors.rs"
+ ],
+ "valkey-search indexa vectores FLOAT32 con HNSW o FLAT: no tiene {0}.": [
+  "crates/drivers/redis/src/vectors.rs"
+ ],
  "valor": [
   "crates/drivers/neo4j/src/monitor.rs"
  ],
@@ -60118,6 +61372,9 @@
  "variables de entorno": [
   "crates/drivers/powerbi/src/auth/service.rs",
   "crates/drivers/sqlserver/src/entra.rs"
+ ],
+ "vector de float16: en SQL Server 2025 necesita PREVIEW_FEATURES = ON.": [
+  "crates/dbine-schema/src/dialect/mssql.rs"
  ],
  "vence según Dremio": [
   "crates/drivers/dremio/src/scheduler/policy.rs"
@@ -60247,6 +61504,15 @@
  ],
  "volumen de almacenamiento": [
   "crates/drivers/mysql/src/create_db.rs"
+ ],
+ "vss solo indexa columnas FLOAT[n] de dimensión fija, y la columna queda como lista sin dimensión": [
+  "crates/dbine-schema/src/dialect/duckdb.rs"
+ ],
+ "vss solo indexa columnas FLOAT[n], y la columna queda DOUBLE[n] para no perder precisión": [
+  "crates/dbine-schema/src/dialect/duckdb.rs"
+ ],
+ "vss solo indexa columnas FLOAT[n], y un vector disperso no lo es": [
+  "crates/dbine-schema/src/dialect/duckdb.rs"
  ],
  "vértices": [
   "crates/drivers/orientdb/src/monitor.rs"
@@ -60463,6 +61729,9 @@
  "{0} = {1} (estaba en «{2}»)": [
   "crates/drivers/cassandra/src/profiler.rs"
  ],
+ "{0} = {1} queda {2} (Atlas Vector Search toma {3} de {4} a {5})": [
+  "crates/drivers/mongodb/src/vector.rs"
+ ],
  "{0} Convertido de {1} a {2}: tipos, valores por defecto, claves e índices (dbine-schema).\n": [
   "src-tauri/src/commands/scripts.rs"
  ],
@@ -60503,6 +61772,9 @@
  "{0} admite hasta {1} decimales; el origen tiene {2}.": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
  ],
+ "{0} admite hasta {1} dimensiones: queda sin dimensión fija.": [
+  "crates/dbine-schema/src/dialect/hana.rs"
+ ],
  "{0} admite hasta {1} dígitos: no entran los valores de {2}.": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
  ],
@@ -60518,11 +61790,20 @@
  "{0} admite una sola columna autoincremental por tabla: esta deja de serlo.": [
   "crates/dbine-schema/src/dialect/postgres.rs"
  ],
+ "{0} admite vectores de hasta {1} dimensiones": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
+ "{0} admite vectores de hasta {1} dimensiones.": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
  "{0} advertencia(s); SHOW WARNINGS para verlas": [
   "crates/drivers/mysql/src/session.rs"
  ],
  "{0} archivos de log virtuales (VLF)": [
   "crates/drivers/sqlserver/src/health.rs"
+ ],
+ "{0} busca los vectores de bits solo por distancia de Hamming, no «{1}»": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
  ],
  "{0} bytes inesperados para {1}": [
   "crates/drivers/postgres/src/transfer.rs"
@@ -60594,11 +61875,17 @@
  "{0} de estos modelos son de otro propietario: solo él puede cambiar su programación.": [
   "crates/drivers/powerbi/src/refresh/scheduler.rs"
  ],
+ "{0} de pgvector indexa hasta {1} dimensiones de {2} y la columna tiene {3}{4}": [
+  "crates/dbine-schema/src/dialect/postgres.rs"
+ ],
  "{0} de {1} ({2} fallidos)": [
   "crates/drivers/elasticsearch/src/backup.rs"
  ],
  "{0} de {1} conexiones en uso ({2} %)": [
   "src-tauri/src/commands/db_health.rs"
+ ],
+ "{0} de {1} dimensiones{2}": [
+  "crates/dbine-schema/src/logical.rs"
  ],
  "{0} de {1} documentos fallaron; el primero ({2}): {3} {4}": [
   "crates/drivers/couchdb/src/lib.rs"
@@ -60696,6 +61983,9 @@
  "{0} guarda los datos en memoria: el espacio usado es la memoria; no hay tamaños en disco por base.": [
   "crates/drivers/redis/src/monitor.rs"
  ],
+ "{0} guarda los vectores en float de 32 bits: los de 64 bits pierden precisión.": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
  "{0} guarda milisegundos: se pierden {1} decimales de segundo.": [
   "crates/dbine-schema/src/dialect/dremio.rs"
  ],
@@ -60705,8 +61995,23 @@
  "{0} hereda de tablas que no se clonan: se crea con todas sus columnas y sin INHERITS.": [
   "crates/drivers/postgres/src/clone.rs"
  ],
+ "{0} indexa vectores de columnas NOT NULL: el índice vectorial «{1}» pide «{2}» NOT NULL": [
+  "crates/drivers/mysql/src/design.rs"
+ ],
+ "{0} indexa vectores de hasta {1} dimensiones, y su columna tiene {2}": [
+  "crates/dbine-schema/src/dialect/mongodb.rs"
+ ],
+ "{0} indexa vectores de una columna NOT NULL: la columna queda NOT NULL.": [
+  "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
  "{0} lo administra etcd; no se edita": [
   "crates/drivers/etcd/src/ddl.rs"
+ ],
+ "{0} lo crea sobre un campo vectorial solo, y «{1}» no lo es en el destino": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
+ "{0} lo hace solo sobre listas de números y un vector disperso queda como texto": [
+  "crates/dbine-schema/src/dialect/graph.rs"
  ],
  "{0} mide VARCHAR en bytes: {1} caracteres son hasta {2} bytes.": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
@@ -60737,6 +62042,15 @@
  ],
  "{0} necesita el nombre o las claves del índice": [
   "crates/drivers/mongodb/src/shell.rs"
+ ],
+ "{0} necesita la dimensión de los vectores y no se conoce": [
+  "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
+ "{0} necesita la dimensión del vector": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
+ "{0} necesita la dimensión del vector.": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
  ],
  "{0} necesita las claves del índice": [
   "crates/drivers/mongodb/src/shell.rs"
@@ -60871,6 +62185,9 @@
  "{0} no es un valor de {1}": [
   "crates/drivers/clickhouse/src/transfer.rs"
  ],
+ "{0} no es un {1}": [
+  "crates/drivers/solr/src/transfer.rs"
+ ],
  "{0} no es una IP pública: Azure ve la IP pública de tu red (usá «Ver mi IP pública»)": [
   "src-tauri/src/commands/azure_firewall.rs"
  ],
@@ -60952,6 +62269,9 @@
   "crates/drivers/mongodb/src/monitor.rs"
  ],
  "{0} no indexa columnas de ese tipo.": [
+  "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
+ "{0} no indexa vectores dispersos": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
  ],
  "{0} no informa el tiempo de CPU del hilo principal (used_cpu_sys_main_thread: Redis 6.2 o posterior, solo en Linux y FreeBSD): sin ese dato no se muestra la CPU.": [
@@ -61156,11 +62476,17 @@
  "{0} no tiene conjuntos: queda como texto separado por comas. Valores: {1}.": [
   "crates/dbine-schema/src/dialect/odbc_engines.rs"
  ],
+ "{0} no tiene el ajuste «{1}» de OpenSearch: se quita.": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
  "{0} no tiene el campo «{1}»": [
   "crates/drivers/ksqldb/src/transfer.rs"
  ],
  "{0} no tiene el permiso {1} sobre {2}; no se revocó nada.": [
   "crates/drivers/cosmosdb/src/lib.rs"
+ ],
+ "{0} no tiene el tipo de vector {1} (o le falta la dimensión): la columna «{2}» no se puede crear así.": [
+  "crates/drivers/postgres/src/vectors.rs"
  ],
  "{0} no tiene en el destino una clave única sobre ({1}): no se puede sincronizar por filas": [
   "crates/drivers/sqlserver/src/delta.rs"
@@ -61192,6 +62518,22 @@
  "{0} no tiene la columna «{1}»": [
   "crates/drivers/ksqldb/src/transfer.rs"
  ],
+ "{0} no tiene la distancia «{1}» (cosine, l2 o ip)": [
+  "crates/dbine-schema/src/dialect/mongodb.rs"
+ ],
+ "{0} no tiene la distancia «{1}» ({2})": [
+  "crates/dbine-schema/src/dialect/couchdb.rs"
+ ],
+ "{0} no tiene la distancia «{1}» en sus índices vectoriales": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
+ "{0} no tiene la distancia «{1}» en sus índices vectoriales (tiene {2})": [
+  "crates/dbine-schema/src/dialect/databend.rs",
+  "crates/dbine-schema/src/dialect/greptimedb.rs",
+  "crates/dbine-schema/src/dialect/manticore.rs",
+  "crates/dbine-schema/src/dialect/starrocks.rs",
+  "crates/drivers/mysql/src/vectors.rs"
+ ],
  "{0} no tiene ninguna sentencia que ejecutar: DBine no arma el renombrado así; {1}": [
   "src-tauri/src/commands/rename.rs"
  ],
@@ -61210,6 +62552,9 @@
  "{0} no tiene un valor nulo: el parámetro necesita un valor": [
   "crates/dbine-driver/src/params.rs"
  ],
+ "{0} no tiene vectores: la columna «{1}» es {2}. Cambiá su tipo (por ejemplo, a una lista de números) antes de crearla.": [
+  "crates/drivers/postgres/src/vectors.rs"
+ ],
  "{0} no tiene versión de fila automática: no se actualiza sola.": [
   "crates/dbine-schema/src/dialect/dremio.rs",
   "crates/dbine-schema/src/dialect/kdb.rs",
@@ -61221,6 +62566,18 @@
  ],
  "{0} no tiene índices definidos por el usuario: se muestran la clave primaria y las claves foráneas.": [
   "crates/drivers/odbc/src/index_usage.rs"
+ ],
+ "{0} no tiene índices vectoriales (índice «{1}»)": [
+  "crates/drivers/mysql/src/vectors.rs"
+ ],
+ "{0} no tiene índices vectoriales de vectores dispersos": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs"
+ ],
+ "{0} no tiene índices vectoriales «{1}»: queda {2}.": [
+  "crates/drivers/mysql/src/vectors.rs"
+ ],
+ "{0} no tiene índices vectoriales: el índice «{1}» no se puede crear.": [
+  "crates/drivers/postgres/src/vectors.rs"
  ],
  "{0} no tiene índices únicos (índice «{1}»): use el modelo UNIQUE KEY / PRIMARY KEY": [
   "crates/drivers/mysql/src/design.rs"
@@ -61253,6 +62610,9 @@
  ],
  "{0} pasa de {1} a {2}: hay que borrarlo y crearlo de nuevo; se deja como está.": [
   "crates/drivers/ksqldb/src/sync.rs"
+ ],
+ "{0} pasa de {1} a {2}: los índices vectoriales de CQL son de vectores de floats.": [
+  "crates/dbine-schema/src/dialect/cassandra.rs"
  ],
  "{0} pasa de {1} caracteres.": [
   "crates/drivers/powerbi/src/admin/mod.rs"
@@ -61471,7 +62831,8 @@
   "crates/drivers/mysql/src/backup.rs"
  ],
  "{0} tiene que ser un número entero: {1}": [
-  "crates/drivers/cassandra/src/ddl.rs"
+  "crates/drivers/cassandra/src/ddl.rs",
+  "crates/drivers/redis/src/ddl.rs"
  ],
  "{0} tiene que ser un número.": [
   "crates/drivers/odbc/src/scheduler/sqla.rs"
@@ -61591,6 +62952,9 @@
   "crates/drivers/mysql/src/health.rs",
   "crates/drivers/postgres/src/health.rs",
   "crates/drivers/sqlserver/src/health.rs"
+ ],
+ "{0} — El tipo vector, los índices vectoriales y las funciones VECTOR_* son de SQL Server 2025 y Azure SQL.": [
+  "crates/drivers/sqlserver/src/vector.rs"
  ],
  "{0}({1}) supera el máximo de ASE con páginas de 2 KB: se usa un tipo de texto largo.": [
   "crates/dbine-schema/src/dialect/sybase.rs"
@@ -61739,6 +63103,9 @@
  "{0}.{1}: cambia su definición ({2} → {3}). Los documentos ya indexados no cambian: hay que reindexarlos.": [
   "crates/drivers/solr/src/sync.rs"
  ],
+ "{0}.{1}: cambia su índice vectorial. Los documentos ya indexados no cambian: hay que reindexarlos.": [
+  "crates/drivers/solr/src/sync.rs"
+ ],
  "{0}.{1}: el autoincremento no se cambia con ALTER en este motor; se deja como está.": [
   "crates/dbine-driver/src/alter.rs"
  ],
@@ -61749,6 +63116,9 @@
   "crates/drivers/bigquery/src/sync.rs",
   "crates/drivers/databricks/src/sync.rs",
   "crates/drivers/dsql/src/sync.rs"
+ ],
+ "{0}.{1}: el índice vectorial de un campo (distancia, algoritmo, parámetros) no se cambia ni se quita sin reindexar en uno nuevo; se deja como está.": [
+  "crates/drivers/elasticsearch/src/sync.rs"
  ],
  "{0}.{1}: en q un índice único es u#, y este es {2}#.": [
   "crates/drivers/kdb/src/attrs.rs"
@@ -61778,6 +63148,9 @@
   "crates/drivers/kdb/src/attrs.rs"
  ],
  "{0}.{1}: un campo no se puede quitar del mapping; queda (sin valores en los documentos nuevos). Para quitarlo, reindexá en otro índice.": [
+  "crates/drivers/elasticsearch/src/sync.rs"
+ ],
+ "{0}.{1}: un índice vectorial necesita la búsqueda k-NN (index.knn), que se fija al crear el índice: hay que reindexar en uno nuevo; el campo se agrega sin él.": [
   "crates/drivers/elasticsearch/src/sync.rs"
  ],
  "{0}.{1}: {2} de una serie no se cambia ({3} → {4}); se deja como está.": [
@@ -61849,14 +63222,26 @@
  "{0}: COPY … FROM STDIN lee los datos desde psql y el editor no los envía. Usá Importar datos, o COPY … FROM 'archivo' en el servidor.": [
   "crates/drivers/postgres/src/session.rs"
  ],
+ "{0}: CREATE SEARCH INDEX nombre ON bucket.scope.colección WITH {definición} o DROP SEARCH INDEX nombre ON bucket.scope.colección.": [
+  "crates/drivers/couchbase/src/vector.rs"
+ ],
+ "{0}: ClickHouse no tiene vectores dispersos; queda como texto, en la notación del origen.": [
+  "crates/dbine-schema/src/dialect/clickhouse.rs"
+ ],
  "{0}: CrateDB no agrega {1} a una tabla que ya existe. Para aplicarlos hay que recrear la tabla (crearla de nuevo, copiar los datos y reemplazar la vieja); la sincronización no lo hace.": [
   "crates/drivers/postgres/src/compare.rs"
  ],
  "{0}: Delta solo borra columnas con column mapping activado; si no lo está, antes corré ALTER TABLE {1} SET TBLPROPERTIES ('delta.columnMapping.mode' = 'name').": [
   "crates/drivers/databricks/src/sync.rs"
  ],
+ "{0}: DuckDB no tiene vectores dispersos; queda como texto, en la notación del origen.": [
+  "crates/dbine-schema/src/dialect/duckdb.rs"
+ ],
  "{0}: Hive no borra columnas; se reemplaza la lista entera con REPLACE COLUMNS, que cambia solo los metadatos (los datos de los archivos no se tocan).": [
   "crates/drivers/odbc/src/sync.rs"
+ ],
+ "{0}: Manticore no cambia los ajustes KNN de una columna float_vector ya creada; hay que borrar la columna y agregarla de nuevo, o recrear la tabla.": [
+  "crates/drivers/mysql/src/design.rs"
  ],
  "{0}: Otros atributos del clúster (JSON)": [
   "crates/drivers/databricks/src/scheduler/spec.rs"
@@ -61897,6 +63282,9 @@
  "{0}: cada uno necesita un nombre.": [
   "crates/drivers/databricks/src/scheduler/spec.rs"
  ],
+ "{0}: cambia el tipo de campo vectorial «{1}» (distancia, parámetros del índice). Lo usan todos sus campos y los vectores ya indexados no cambian: hay que reindexarlos.": [
+  "crates/drivers/solr/src/sync.rs"
+ ],
  "{0}: cambia el índice clúster; la tabla se reorganiza entera y puede tardar si tiene muchos datos.": [
   "crates/drivers/sqlserver/src/structure.rs"
  ],
@@ -61917,6 +63305,24 @@
  ],
  "{0}: capped, serie temporal y colección agrupada se fijan al crearla y no se cambian; se deja como está.": [
   "crates/drivers/mongodb/src/sync.rs"
+ ],
+ "{0}: como FLOAT32 (Db2 LUW 12.1.2 o posterior).": [
+  "crates/dbine-schema/src/dialect/db2.rs"
+ ],
+ "{0}: como FLOAT32 (sin pérdida).": [
+  "crates/dbine-schema/src/dialect/oracle.rs"
+ ],
+ "{0}: como FLOAT32.": [
+  "crates/dbine-schema/src/dialect/oracle.rs"
+ ],
+ "{0}: como FLOAT64 (sin pérdida).": [
+  "crates/dbine-schema/src/dialect/oracle.rs"
+ ],
+ "{0}: como REAL_VECTOR (float32).": [
+  "crates/dbine-schema/src/dialect/hana.rs"
+ ],
+ "{0}: como vector de float32.": [
+  "crates/dbine-schema/src/dialect/mssql.rs"
  ],
  "{0}: crecimiento automático": [
   "crates/drivers/sqlserver/src/properties.rs"
@@ -61942,6 +63348,12 @@
  "{0}: el destino no tiene cómo vaciarla; si la copia se corta, hay que vaciarla a mano antes de reanudar": [
   "src-tauri/src/commands/migration.rs"
  ],
+ "{0}: el destino no tiene tipo vectorial; queda un arreglo de números, sin la dimensión.": [
+  "crates/dbine-schema/src/dialect/couchdb.rs"
+ ],
+ "{0}: el destino no tiene tipo vectorial; queda {1}, sin la dimensión": [
+  "crates/dbine-schema/src/dialect/mod.rs"
+ ],
  "{0}: el escalado automático necesita el mínimo y el máximo de workers.": [
   "crates/drivers/databricks/src/scheduler/spec.rs"
  ],
@@ -61963,6 +63375,9 @@
  "{0}: el timestamp de Cassandra guarda milisegundos y este valor tiene más precisión, que se perdería": [
   "crates/drivers/cassandra/src/transfer.rs"
  ],
+ "{0}: el tipo de sus números no se conoce: quedan como FLOAT de 32 bits.": [
+  "crates/dbine-schema/src/dialect/snowflake.rs"
+ ],
  "{0}: el umbral de «{1}» no puede ser negativo.": [
   "crates/drivers/databricks/src/scheduler/lines.rs"
  ],
@@ -61975,6 +63390,9 @@
  "{0}: el índice queda completo (filtro: {1}).": [
   "crates/dbine-schema/src/convert.rs"
  ],
+ "{0}: el índice vectorial «{1}» necesita la dimensión de los vectores (parámetro dim)": [
+  "crates/drivers/mysql/src/vectors.rs"
+ ],
  "{0}: elegí al menos un día de la semana.": [
   "crates/drivers/odbc/src/scheduler/sqla.rs"
  ],
@@ -61983,6 +63401,9 @@
  ],
  "{0}: elegí al menos un día.": [
   "crates/drivers/odbc/src/scheduler/dameng.rs"
+ ],
+ "{0}: en Open Distro la distancia y los parámetros k-NN son del índice y se fijan al crearlo: hay que reindexar en uno nuevo; se dejan como están.": [
+  "crates/drivers/elasticsearch/src/sync.rs"
  ],
  "{0}: es una tabla de grafo (AS {1}) y no se clona: el motor genera sus columnas internas ($node_id, $from_id, $to_id) y no se pueden copiar tal cual": [
   "crates/drivers/sqlserver/src/clone.rs"
@@ -62047,6 +63468,12 @@
  "{0}: la columna time no guarda la zona horaria, que se perdería": [
   "crates/drivers/cassandra/src/transfer.rs"
  ],
+ "{0}: la distancia hamming queda L2_SQUARED (Couchbase no tiene hamming; sobre vectores de 0 y 1 es la misma distancia).": [
+  "crates/drivers/couchbase/src/vector.rs"
+ ],
+ "{0}: la distancia hamming queda l2_norm (el servicio Search no tiene hamming; sobre vectores de 0 y 1 los vecinos más cercanos son los mismos).": [
+  "crates/drivers/couchbase/src/vector.rs"
+ ],
  "{0}: la opción {1} se quitó en el origen; CQL no la vuelve al valor por defecto, se deja como está.": [
   "crates/drivers/cassandra/src/sync.rs"
  ],
@@ -62065,6 +63492,9 @@
  "{0}: la tabla no se puede crear igual porque la columna calculada [{1}] usa {2}": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
+ "{0}: la tabla queda DUPLICATE KEY({1}) y no garantiza la unicidad de su clave primaria.": [
+  "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
  "{0}: la tarea de cada iteración necesita su «task_key».": [
   "crates/drivers/databricks/src/scheduler/spec.rs"
  ],
@@ -62076,6 +63506,9 @@
  ],
  "{0}: las tablas Iceberg de Athena no tienen comentario; se deja como está.": [
   "crates/drivers/athena/src/sync.rs"
+ ],
+ "{0}: libSQL no tiene vectores dispersos; queda como texto, en la notación del origen.": [
+  "crates/dbine-schema/src/dialect/sqlite.rs"
  ],
  "{0}: los SETTINGS de {1} no se sincronizan; revisalos a mano (MODIFY SETTING).": [
   "crates/drivers/clickhouse/src/sync.rs"
@@ -62175,6 +63608,13 @@
  "{0}: se cortó la respuesta ({1})": [
   "crates/dbine-ai/src/openai.rs"
  ],
+ "{0}: se guarda como float32.": [
+  "crates/dbine-schema/src/dialect/databend.rs",
+  "crates/dbine-schema/src/dialect/greptimedb.rs",
+  "crates/dbine-schema/src/dialect/manticore.rs",
+  "crates/dbine-schema/src/dialect/mysql.rs",
+  "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
  "{0}: se leen las últimas 10 sentencias de cada conexión, así que una conexión muy activa, o que se cierra enseguida, puede perder algunas.": [
   "crates/drivers/mysql/src/profiler.rs"
  ],
@@ -62205,11 +63645,17 @@
  "{0}: un wheel toma argumentos o argumentos con nombre, no los dos.": [
   "crates/drivers/databricks/src/scheduler/spec.rs"
  ],
+ "{0}: un índice vectorial lleva una sola columna, la del vector (índice «{1}»)": [
+  "crates/drivers/mysql/src/vectors.rs"
+ ],
  "{0}: ya estaba copiada; solo faltan sus índices": [
   "crates/dbine-transfer/src/engine.rs"
  ],
  "{0}: ya se está copiando": [
   "crates/dbine-transfer/src/engine.rs"
+ ],
+ "{0}: {1} busca solo vectores guardados como arreglos de números (no BinData): sus valores van como números.": [
+  "crates/dbine-schema/src/dialect/mongodb.rs"
  ],
  "{0}: {1} de {2} grupos distintos": [
   "crates/dbine-transfer/src/delta.rs"
@@ -62237,6 +63683,9 @@
  ],
  "{0}: {1}. Reintento {2} de {3} en {4} s": [
   "crates/dbine-transfer/src/engine.rs"
+ ],
+ "{0}: {1}; queda como JSON en nvarchar(max).": [
+  "crates/dbine-schema/src/dialect/mssql.rs"
  ],
  "{0}: «Tarea de cada iteración (JSON)» no es un objeto JSON válido: {1}": [
   "crates/drivers/databricks/src/scheduler/spec.rs"
@@ -62333,6 +63782,9 @@
  ],
  "{0}: «{1}» no es una regla (MÉTRICA > valor).": [
   "crates/drivers/databricks/src/scheduler/lines.rs"
+ ],
+ "{0}: «{1}» se guarda como float32, {2}.": [
+  "crates/drivers/mysql/src/vectors.rs"
  ],
  "{0}; además, {1} usa tablas u objetos que no se clonan": [
   "crates/drivers/sqlserver/src/clone.rs"
@@ -62861,6 +64313,12 @@
  "«{0}.{1}» tiene que ser una lista de textos": [
   "crates/drivers/couchdb/src/properties.rs"
  ],
+ "«{0}» (sin dimensión: ningún ítem leído la tiene)": [
+  "crates/drivers/cosmosdb/src/vector.rs"
+ ],
+ "«{0}» ({1} dimensiones, de los ítems leídos)": [
+  "crates/drivers/cosmosdb/src/vector.rs"
+ ],
  "«{0}» admite como máximo {1} caracteres (tiene {2}).": [
   "crates/drivers/sqlserver/src/agent/mod.rs"
  ],
@@ -62959,6 +64417,9 @@
  ],
  "«{0}» es un solo carácter, TAB o SPACE.": [
   "crates/drivers/ksqldb/src/scheduler.rs"
+ ],
+ "«{0}» es un vector BYTE: toma enteros de -128 a 127, no {1} (Solr lo cambiaría sin avisar).": [
+  "crates/drivers/solr/src/vectors.rs"
  ],
  "«{0}» es una base del sistema de MongoDB y no se borra": [
   "crates/drivers/mongodb/src/lib.rs"
@@ -63682,6 +65143,9 @@
   "crates/drivers/flightsql/src/transfer.rs",
   "crates/drivers/ksqldb/src/transfer.rs"
  ],
+ "«{0}» no es un número válido para un parámetro del índice vectorial": [
+  "crates/drivers/mysql/src/vectors.rs"
+ ],
  "«{0}» no es un objeto": [
   "crates/drivers/flightsql/src/transfer.rs"
  ],
@@ -64000,8 +65464,17 @@
  "«{0}» no es un valor válido para los segundos en la regla cron (0 a 59).": [
   "crates/drivers/orientdb/src/scheduler/mod.rs"
  ],
+ "«{0}» no es un valor válido para un parámetro del índice vectorial": [
+  "crates/drivers/mysql/src/vectors.rs"
+ ],
  "«{0}» no es un valor {1}": [
   "crates/drivers/ksqldb/src/transfer.rs"
+ ],
+ "«{0}» no es un vector (un arreglo JSON de números)": [
+  "crates/drivers/sqlserver/src/transfer.rs"
+ ],
+ "«{0}» no es un índice vectorial": [
+  "crates/drivers/mysql/src/vectors.rs"
  ],
  "«{0}» no es una URI válida.": [
   "crates/drivers/iotdb/src/scheduler/plugin.rs"
@@ -64702,6 +66175,10 @@
  "«{0}» y «{1}» difieren en {2}.": [
   "src-tauri/src/tasks/steps.rs"
  ],
+ "«{0}» ya tiene su índice vectorial": [
+  "crates/dbine-schema/src/dialect/elasticsearch.rs",
+  "crates/dbine-schema/src/dialect/solr.rs"
+ ],
  "«{0}»: Databricks admite solo caracteres ASCII en estos argumentos.": [
   "crates/drivers/databricks/src/scheduler/run.rs"
  ],
@@ -64755,6 +66232,12 @@
  ],
  "«{0}»: el servidor respondió {1}": [
   "src-tauri/src/notebook/remote.rs"
+ ],
+ "«{0}»: el subconjunto es parcial, se leyeron {1}{2} filas y el origen tiene más.": [
+  "src-tauri/src/commands/subset/mod.rs"
+ ],
+ "«{0}»: el subconjunto es parcial, se leyeron {1}{2} filas: {3}": [
+  "src-tauri/src/commands/subset/mod.rs"
  ],
  "«{0}»: el valor de «{1}» tiene que ser un texto.": [
   "crates/drivers/databricks/src/scheduler/lines.rs"
@@ -64838,6 +66321,12 @@
  ],
  "«{0}»: un espacio de nombres se renombra a otro de primer nivel, como .ns2.": [
   "crates/drivers/kdb/src/rename.rs"
+ ],
+ "«{0}»: un vector de Solr se escribe knn_vector(dimensiones) o knn_vector(dimensiones, BYTE).": [
+  "crates/drivers/solr/src/vectors.rs"
+ ],
+ "«{0}»: un {1} se escribe {2}(dimensiones) o {3}(dimensiones, tipo de elemento).": [
+  "crates/drivers/elasticsearch/src/vectors.rs"
  ],
  "«{0}»: una URL https:// no puede ser un patrón; los patrones (*.parquet) van solo en s3://, gs:// y az://": [
   "src-tauri/src/notebook/remote.rs"
@@ -65056,6 +66545,12 @@
  "Índice automático: SQLite lo arma en cada ejecución; conviene crearlo": [
   "crates/drivers/sqlite/src/plan.rs"
  ],
+ "Índice de búsqueda {0} borrado.": [
+  "crates/drivers/couchbase/src/lib.rs"
+ ],
+ "Índice de búsqueda {0} creado.": [
+  "crates/drivers/couchbase/src/lib.rs"
+ ],
  "Índice de destino": [
   "crates/drivers/elasticsearch/src/scheduler/es_transform.rs",
   "crates/drivers/elasticsearch/src/scheduler/os_transform.rs"
@@ -65105,6 +66600,10 @@
  "Índice vectorial": [
   "crates/drivers/neo4j/src/ddl.rs"
  ],
+ "Índice vectorial {0}: {1} = {2} no sirve ({3}).": [
+  "crates/drivers/neo4j/src/ddl.rs",
+  "crates/drivers/spanner/src/structure.rs"
+ ],
  "Índice {0}": [
   "crates/drivers/clickhouse/src/plan.rs"
  ],
@@ -65113,6 +66612,12 @@
  ],
  "Índice {0} creado en {1}.": [
   "crates/drivers/dynamodb/src/admin.rs"
+ ],
+ "Índice «{0}»: Solr indexa cada campo por su propia definición; aparte solo se definen los índices vectoriales. Marcalo como vectorial o quitalo.": [
+  "crates/drivers/solr/src/ddl.rs"
+ ],
+ "Índice «{0}»: {1} indexa cada campo en su propio mapping; aparte solo se definen los índices vectoriales. Marcalo como vectorial o quitalo.": [
+  "crates/drivers/elasticsearch/src/ddl.rs"
  ],
  "Índice único como restricción UNIQUE, que Snowflake no hace cumplir.": [
   "crates/dbine-schema/src/dialect/snowflake.rs"
@@ -65145,6 +66650,12 @@
  ],
  "Índices con más esperas de bloqueo": [
   "crates/drivers/odbc/src/monitor.rs"
+ ],
+ "Índices de búsqueda": [
+  "crates/drivers/redis/src/lib.rs",
+  "driver dragonfly",
+  "driver redis",
+  "driver valkey"
  ],
  "Índices de origen": [
   "crates/drivers/elasticsearch/src/scheduler/es_transform.rs"
@@ -65433,6 +66944,9 @@
  ],
  "Único en la base. Cambiarlo crea el evento con el nombre nuevo y borra el anterior.": [
   "crates/drivers/orientdb/src/scheduler/mod.rs"
+ ],
+ "Único; empieza con una letra; sin comas.": [
+  "crates/drivers/odbc/src/scheduler/ase.rs"
  ],
  "árbitro": [
   "crates/drivers/mongodb/src/monitor.rs"

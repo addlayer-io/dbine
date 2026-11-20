@@ -143,7 +143,7 @@ pub fn script(f: Flavor, req: &RenameRequest) -> Result<SyncScript> {
             q(column)
         )],
         RenameTarget::Index { table, index } => {
-            index_script(engine, table, index, &req.new_name, req.table.as_ref())?
+            index_script(f, table, index, &req.new_name, req.table.as_ref())?
         }
         RenameTarget::Constraint { .. } => {
             return Err(Error::Unsupported(format!(
@@ -165,12 +165,13 @@ pub fn script(f: Flavor, req: &RenameRequest) -> Result<SyncScript> {
 /// The index created again with the new name (keys, order, collation and
 /// `WHERE` as the catalog reads them), then the old one dropped.
 fn index_script(
-    engine: &str,
+    f: Flavor,
     table: &ObjectRef,
     index: &str,
     new_name: &str,
     schema: Option<&TableSchema>,
 ) -> Result<Vec<String>> {
+    let engine = engine(f);
     if index.starts_with("sqlite_autoindex_") {
         return Err(Error::Unsupported(format!(
             "ese índice es el de una restricción PRIMARY KEY o UNIQUE: {engine} le pone el nombre y no se renombra"
@@ -197,6 +198,13 @@ fn index_script(
                 table.name
             ))
         })?;
+    // libSQL's vector index: SQLite can't create it again under a new name.
+    if f == Flavor::Sqlite && ix.vector.is_some() {
+        return Err(Error::Unsupported(format!(
+            "SQLite no renombra el índice vectorial «{}»: hay que crearlo de nuevo y SQLite no tiene libsql_vector_idx (es de libSQL); renombralo desde una conexión libSQL",
+            ix.name
+        )));
+    }
     let one = TableSchema {
         name: t.name.clone(),
         indexes: vec![dbine_driver::IndexDef {

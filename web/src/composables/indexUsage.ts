@@ -5,6 +5,7 @@ import type { ForeignKeyDef } from '../api/schema-types';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
+import { loadIndexVectors } from './indexVectors';
 
 // A table's indexes and how they're used (`get_index_usage`), shared by the
 // explorer's "Índices" folder, the "Índices" tab and schema compare: one
@@ -45,6 +46,8 @@ export function loadIndexUsage(connectionId: string, database: string, table: Ob
       if (!(await conns.ensureConnected(connectionId, { auto: !force }))) throw new Error(conns.live[connectionId]?.error ?? t('common:error'));
       const report = await api.getIndexUsage(connectionId, database, { kind: table.kind, schema: table.schema ?? null, name: table.name }, tree);
       entries[k] = { status: 'ready', report, error: null };
+      // Its vector indexes' algorithm, distance and parameters (engines with vectors).
+      if (report) loadIndexVectors(connectionId, database, table, report.indexes, force);
       return report;
     } catch (e) {
       entries[k] = { status: 'error', report: null, error: errorMessage(e) };

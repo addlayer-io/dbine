@@ -199,6 +199,8 @@ pub struct Exporter {
     writer: Option<Writer>,
     names: Vec<String>,
     numeric: Vec<bool>,
+    /// The columns that hold dense vectors ([`ResultColumn::vector`]).
+    vectors: Vec<bool>,
     rows: u64,
     /// SQL: rows in the INSERT being written.
     in_batch: usize,
@@ -218,6 +220,7 @@ impl Exporter {
             writer: None,
             names: Vec::new(),
             numeric: Vec::new(),
+            vectors: Vec::new(),
             rows: 0,
             in_batch: 0,
             progress: None,
@@ -250,7 +253,16 @@ impl Exporter {
 
     fn start(&mut self, columns: &[ResultColumn]) -> io::Result<()> {
         self.names = unique_names(columns);
-        self.numeric = columns.iter().map(|c| numeric_type(&c.type_name)).collect();
+        self.vectors = columns
+            .iter()
+            .map(|c| c.vector.as_ref().is_some_and(|v| !v.sparse))
+            .collect();
+        // `VECTOR(3, FLOAT32)` says "float" but holds vectors, not numbers.
+        self.numeric = columns
+            .iter()
+            .zip(&self.vectors)
+            .map(|(c, v)| !v && numeric_type(&c.type_name))
+            .collect();
         let o = &self.opts;
         match o.format {
             Format::Csv | Format::CsvSemicolon | Format::CsvExcel | Format::Tsv => {
@@ -349,10 +361,15 @@ impl Exporter {
                 // the column's declared type (SQLite keeps any text in an
                 // INTEGER column); a number written as text stays as is.
                 let safe = self.opts.formula_safe;
+                // A vector's text is only numbers (it reads as one): no
+                // formula, and a `'` after one of its commas would break it.
+                let vectors = &self.vectors;
                 let rec: Vec<String> = row
                     .iter()
-                    .map(|v| match (text(v), v) {
+                    .enumerate()
+                    .map(|(i, v)| match (text(v), v) {
                         (None, _) => null.clone(),
+                        (Some(t), _) if is_vector(vectors, i, v) => t,
                         (Some(t), Value::String(_)) if safe => formula_safe(t),
                         (Some(t), _) => t,
                     })
@@ -372,7 +389,11 @@ impl Exporter {
                     }
                     obj.push_str(&serde_json::to_string(name)?);
                     obj.push_str(if pretty { ": " } else { ":" });
-                    obj.push_str(&serde_json::to_string(v)?);
+                    // A vector as an array of numbers, not its text.
+                    match vector_array(&self.vectors, i, v) {
+                        Some(a) => obj.push_str(&serde_json::to_string(&a)?),
+                        None => obj.push_str(&serde_json::to_string(v)?),
+                    }
                 }
                 obj.push_str(if pretty { "\n  }" } else { "}" });
                 let json = self.opts.format == Format::Json;
@@ -448,6 +469,18 @@ impl Exporter {
                     ));
                 }
                 let numeric = self.numeric.clone();
+                // A vector is never cut: one that doesn't fit a cell stops
+                // the export (CSV and JSON take it whole).
+                for (i, v) in row.iter().enumerate() {
+                    if is_vector(&self.vectors, i, v)
+                        && text(v).is_some_and(|t| t.encode_utf16().count() > 32_767)
+                    {
+                        return Err(io::Error::other(format!(
+                            "La columna «{}» tiene un vector que no entra en una celda de Excel (32.767 caracteres): exportá en CSV o JSON",
+                            self.names.get(i).map_or("", String::as_str)
+                        )));
+                    }
+                }
                 if let Some(Writer::Xlsx(wb)) = self.writer.as_mut() {
                     let ws = wb.worksheet_from_index(0).map_err(xlsx_err)?;
                     for (i, v) in row.iter().enumerate() {
@@ -540,6 +573,30 @@ impl RowSink for Exporter {
         }
         Ok(())
     }
+}
+
+/// Whether cell `i` of a row is a dense vector (its column holds them and
+/// its value reads as one).
+fn is_vector(vectors: &[bool], i: usize, v: &Value) -> bool {
+    vectors.get(i).copied().unwrap_or(false) && dbine_driver::vector::parse_value(v).is_some()
+}
+
+/// A dense vector cell as a JSON array of its numbers; `None` for any
+/// other cell.
+fn vector_array(vectors: &[bool], i: usize, v: &Value) -> Option<Value> {
+    if !vectors.get(i).copied().unwrap_or(false) {
+        return None;
+    }
+    if v.is_array() {
+        return dbine_driver::vector::parse_value(v).map(|_| v.clone());
+    }
+    dbine_driver::vector::parse_value(v).map(|nums| {
+        Value::Array(
+            nums.into_iter()
+                .map(dbine_driver::model::json_f64)
+                .collect(),
+        )
+    })
 }
 
 fn xlsx_err(e: rust_xlsxwriter::XlsxError) -> io::Error {
@@ -922,18 +979,22 @@ mod tests {
             ResultColumn {
                 name: "id".into(),
                 type_name: "int".into(),
+                vector: None,
             },
             ResultColumn {
                 name: "nombre".into(),
                 type_name: "varchar".into(),
+                vector: None,
             },
             ResultColumn {
                 name: "total".into(),
                 type_name: "decimal".into(),
+                vector: None,
             },
             ResultColumn {
                 name: "id".into(),
                 type_name: "int".into(),
+                vector: None,
             },
         ]
     }
@@ -960,6 +1021,58 @@ mod tests {
         String::from_utf8_lossy(&std::fs::read(&p).unwrap()).to_string()
     }
 
+    /// Vectors: JSON and JSON Lines write an array of numbers; CSV, XML
+    /// and SQL the whole text, which the CSV guard never touches; Excel
+    /// takes it whole or stops the export.
+    #[test]
+    fn vector_columns_export_whole() {
+        use dbine_driver::{VectorElement, VectorMeta};
+        let cols = vec![
+            ResultColumn::new("id", "int"),
+            ResultColumn::new("emb", "VECTOR(3, FLOAT32)")
+                .with_vector(VectorMeta::dense(Some(3), VectorElement::F32)),
+            ResultColumn::new("txt", "text"),
+        ];
+        let rows = vec![
+            vec![json!(1), json!("[0.5,-1,2e-7]"), json!("[1,-2]")],
+            vec![json!(2), Value::Null, json!("x")],
+        ];
+        let out = |f: Format, cols: &[ResultColumn], rows: &[Vec<Value>]| {
+            let dir = tempfile::tempdir().unwrap();
+            let p = dir.path().join("out");
+            let o = ExportOptions {
+                format: f,
+                ..Default::default()
+            };
+            export_rows(&p, o, cols, rows).map(|_| std::fs::read(&p).unwrap())
+        };
+        let text = |f: Format| String::from_utf8(out(f, &cols, &rows).unwrap()).unwrap();
+        let json: Value = serde_json::from_str(&text(Format::Json)).unwrap();
+        assert_eq!(json[0]["emb"], json!([0.5, -1.0, 2e-7]));
+        assert_eq!(json[1]["emb"], Value::Null);
+        // Only the vector column: text that looks like one stays text.
+        assert_eq!(json[0]["txt"], json!("[1,-2]"));
+        let first: Value =
+            serde_json::from_str(text(Format::JsonLines).lines().next().unwrap()).unwrap();
+        assert_eq!(first["emb"], json!([0.5, -1.0, 2e-7]));
+        // CSV (`;`, unquoted): the vector as is; the text column guarded.
+        let csv = text(Format::CsvSemicolon);
+        assert!(csv.contains("1;[0.5,-1,2e-7];[1,'-2]"), "{csv}");
+        assert!(text(Format::Xml).contains("<emb>[0.5,-1,2e-7]</emb>"));
+        assert!(text(Format::Sql).contains("'[0.5,-1,2e-7]'"));
+        // Excel: whole, and a vector past a cell's limit stops the export.
+        assert!(out(Format::Xlsx, &cols, &rows).is_ok());
+        let long = format!("[{}]", vec!["0.123456789"; 3_100].join(","));
+        let e = out(
+            Format::Xlsx,
+            &cols,
+            &[vec![json!(1), json!(long), json!("")]],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("«emb»"), "{e}");
+    }
+
     #[test]
     fn csv_variants() {
         assert_eq!(
@@ -978,14 +1091,17 @@ mod tests {
             ResultColumn {
                 name: "=HYPERLINK(\"x\")".into(),
                 type_name: "varchar".into(),
+                vector: None,
             },
             ResultColumn {
                 name: "n".into(),
                 type_name: "varchar".into(),
+                vector: None,
             },
             ResultColumn {
                 name: "amount".into(),
                 type_name: "decimal".into(),
+                vector: None,
             },
         ];
         let rows = vec![
@@ -1055,6 +1171,7 @@ mod tests {
         let typed = vec![ResultColumn {
             name: "id".into(),
             type_name: "INTEGER".into(),
+            vector: None,
         }];
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("typed.csv");
@@ -1442,6 +1559,7 @@ mod tests {
             let cols = [ResultColumn {
                 name: "v".into(),
                 type_name: "varchar".into(),
+                vector: None,
             }];
             export_rows(&p, o, &cols, &[vec![json!(value)]]).unwrap();
             std::fs::read_to_string(&p).unwrap()

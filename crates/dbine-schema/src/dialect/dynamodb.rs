@@ -105,6 +105,7 @@ impl Dialect for DynamoDb {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOL"),
             L::Int { .. } | L::Year => Rendered::exact("N"),
             L::Decimal { precision: Some(p), .. } if *p <= 38 => Rendered::exact("N"),
@@ -148,6 +149,8 @@ impl Dialect for DynamoDb {
             comments: false,
             max_identifier: 255,
             case: IdentCase::Preserve,
+            vector_indexes: false,
+            vectors: false,
         }
     }
 
@@ -334,7 +337,27 @@ impl Dialect for DynamoDb {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
+
+    #[test]
+    fn vectors_have_no_native_type() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        // DynamoDB has no vectors: a list of numbers, with a warning, and
+        // no vector index.
+        let r = DynamoDb.render_type(&L::Vector {
+            dims: Some(3),
+            element: E::F32,
+            sparse: false,
+        });
+        assert!(r
+            .notes
+            .iter()
+            .any(|n| n.code == IssueCode::TypeApproximated));
+        assert!(DynamoDb
+            .vector_index_pair(&VectorIndex::default(), None)
+            .is_err());
+    }
 
     #[test]
     fn parses_type_codes() {

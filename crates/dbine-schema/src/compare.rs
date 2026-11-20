@@ -265,6 +265,9 @@ fn index_fields(l: &IndexDef, r: &IndexDef, o: &CompareOptions) -> Vec<&'static 
     if inc(&l.include) != inc(&r.include) {
         f.push("include");
     }
+    if !dbine_driver::vector::same_index(&l.vector, &r.vector) {
+        f.push("vector");
+    }
     if l.options != r.options {
         f.push("options");
     }

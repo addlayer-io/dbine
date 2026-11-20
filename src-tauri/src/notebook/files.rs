@@ -1686,6 +1686,7 @@ pub fn read_sqlite(
         .map(|c| dbine_driver::ResultColumn {
             name: c.name().to_string(),
             type_name: c.decl_type().unwrap_or("").to_string(),
+            vector: None,
         })
         .collect();
     let n = columns.len();

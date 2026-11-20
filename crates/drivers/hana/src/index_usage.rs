@@ -80,6 +80,9 @@ pub(crate) fn assemble(t: Option<&TableSchema>, sizes: &HashMap<String, u64>) ->
         key_columns: ix.columns.clone(),
         filter: ix.filter.clone(),
         size_kb: kb(&ix.name),
+        // An HNSW vector index's settings (SYS.VECTOR_INDEXES), as the
+        // schema reads them.
+        vector: ix.vector.clone(),
         ..Default::default()
     }));
     IndexUsageReport {
@@ -171,5 +174,29 @@ mod tests {
         assert!(r.indexes[0].primary_key && r.indexes[2].unique);
         assert_eq!(r.foreign_keys, t.foreign_keys);
         assert!(assemble(None, &sizes).indexes.is_empty());
+    }
+
+    #[test]
+    fn vector_indexes_carry_their_settings() {
+        let settings = dbine_driver::VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("cosine".into()),
+            params: [("m".to_string(), "32".to_string())].into(),
+        };
+        let t = TableSchema {
+            name: "DOCS".into(),
+            indexes: vec![IndexDef {
+                name: "IX_EMB".into(),
+                columns: vec!["EMB".into()],
+                kind: Some(crate::vector::KIND.into()),
+                vector: Some(settings.clone()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let r = assemble(Some(&t), &HashMap::new());
+        assert_eq!(r.indexes[0].kind, crate::vector::KIND);
+        assert_eq!(r.indexes[0].key_columns, ["EMB"]);
+        assert_eq!(r.indexes[0].vector, Some(settings));
     }
 }

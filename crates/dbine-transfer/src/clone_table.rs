@@ -33,8 +33,8 @@ use crate::state::{Store, TableStatus};
 use dbine_driver::sql::{qualified_name, Quote};
 use dbine_driver::{
     async_trait, kinds, ColumnDef, ConnectionConfig, DdlParts, Driver, Error, Family, KeyDef,
-    Language, LoadSpec, ObjectRef, QueryOutcome, ReadSpec, Result, Session, TableSchema,
-    TransferColumn,
+    Language, LoadSpec, ObjectRef, QueryOutcome, ReadSpec, Result, ResultColumn, Session,
+    TableSchema, TransferColumn,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1763,8 +1763,9 @@ fn ddl_of(driver: &dyn Driver, t: &TableSchema, o: &CloneOptions) -> Result<Ddl>
 
 /// Endpoints for the clone: the caller's, with SQLite's foreign keys off on
 /// the loading connections (a self reference would fail for rows loaded
-/// before the row they point to; the original already satisfied them).
-struct CloneEndpoints(Arc<dyn Endpoints>);
+/// before the row they point to; the original already satisfied them), and
+/// the clone's columns with their types (its one job's).
+struct CloneEndpoints(Arc<dyn Endpoints>, Vec<ResultColumn>);
 
 #[async_trait]
 impl Endpoints for CloneEndpoints {
@@ -1790,6 +1791,15 @@ impl Endpoints for CloneEndpoints {
     }
     fn native_copy_allowed(&self) -> bool {
         self.0.native_copy_allowed()
+    }
+    fn vector_columns(&self, table: &TableSchema) -> Vec<String> {
+        self.0.vector_columns(table)
+    }
+    fn column_types(&self, columns: &[TransferColumn]) -> Vec<ResultColumn> {
+        self.0.column_types(columns)
+    }
+    fn job_types(&self, _job: &TransferJob) -> Vec<ResultColumn> {
+        self.1.clone()
     }
 }
 
@@ -2439,6 +2449,41 @@ async fn cleanup(s: &mut dyn Session, drop_sql: &str, events: &(dyn Fn(CloneEven
     }
 }
 
+/// The loaded columns of `clone` with their types on its engine
+/// ([`Endpoints::column_types`]): where its rows go as the driver's insert
+/// script, each value is written as its column takes it.
+fn clone_column_types(
+    endpoints: &dyn Endpoints,
+    clone: &TableSchema,
+    loaded: &[String],
+) -> Vec<ResultColumn> {
+    let columns: Vec<TransferColumn> = clone
+        .columns
+        .iter()
+        .filter(|c| loaded.is_empty() || loaded.iter().any(|l| l.eq_ignore_ascii_case(&c.name)))
+        .map(|c| TransferColumn {
+            name: c.name.clone(),
+            type_name: c.data_type.clone(),
+            nullable: c.nullable,
+        })
+        .collect();
+    endpoints.column_types(&columns)
+}
+
+/// The loaded columns of `clone` that hold dense vectors on its engine
+/// ([`Endpoints::vector_columns`]).
+fn clone_vector_columns(
+    endpoints: &dyn Endpoints,
+    clone: &TableSchema,
+    loaded: &[String],
+) -> Vec<String> {
+    endpoints
+        .vector_columns(clone)
+        .into_iter()
+        .filter(|c| loaded.is_empty() || loaded.iter().any(|l| l.eq_ignore_ascii_case(c)))
+        .collect()
+}
+
 /// The rows, through the bulk transfer engine (one table, one job).
 #[allow(clippy::too_many_arguments)]
 async fn copy_rows(
@@ -2489,6 +2534,10 @@ async fn copy_rows(
         post: Vec::new(),
         preexisting: false,
         expected_columns: Vec::new(),
+        // Engines without a bulk load (Manticore, CockroachDB, CrateDB,
+        // RisingWave…) get the clone's vector cells through
+        // `insert_script`, as arrays.
+        vector_columns: clone_vector_columns(&**endpoints, clone, loaded),
         mode: TransferMode::Copy,
     };
     let dir = std::env::temp_dir();
@@ -2509,7 +2558,10 @@ async fn copy_rows(
         ..Default::default()
     };
     let ev = events.clone();
-    let wrapped: Arc<dyn Endpoints> = Arc::new(CloneEndpoints(endpoints.clone()));
+    let wrapped: Arc<dyn Endpoints> = Arc::new(CloneEndpoints(
+        endpoints.clone(),
+        clone_column_types(&**endpoints, clone, loaded),
+    ));
     let report = engine
         .run(vec![job], options, wrapped, move |e| match e {
             Event::TableProgress {
@@ -3034,6 +3086,156 @@ mod tests {
         driver("postgres", "postgres", Family::Relational, Language::Sql)
     }
 
+    /// Endpoints whose engine says `emb` holds vectors.
+    struct VectorEnds;
+
+    #[async_trait]
+    impl Endpoints for VectorEnds {
+        fn source_driver(&self) -> Arc<dyn Driver> {
+            Arc::new(pg())
+        }
+        fn target_driver(&self) -> Arc<dyn Driver> {
+            Arc::new(pg())
+        }
+        async fn open_source(&self) -> Result<Box<dyn Session>> {
+            Err(Error::Unsupported("test".into()))
+        }
+        async fn open_target(&self) -> Result<Box<dyn Session>> {
+            Err(Error::Unsupported("test".into()))
+        }
+        fn vector_columns(&self, table: &TableSchema) -> Vec<String> {
+            table
+                .columns
+                .iter()
+                .filter(|c| c.data_type.starts_with("vector"))
+                .map(|c| c.name.clone())
+                .collect()
+        }
+        fn column_types(&self, columns: &[TransferColumn]) -> Vec<ResultColumn> {
+            columns
+                .iter()
+                .map(|c| {
+                    let t = ResultColumn::new(c.name.clone(), c.type_name.clone());
+                    if c.type_name.starts_with("vector") {
+                        t.with_vector(dbine_driver::VectorMeta::dense(
+                            None,
+                            dbine_driver::VectorElement::F32,
+                        ))
+                    } else {
+                        t
+                    }
+                })
+                .collect()
+        }
+    }
+
+    /// A clone's job is typed by the endpoints' answer for the clone's
+    /// loaded columns (as the clone creates them), through its wrapper: an
+    /// engine without a bulk load writes each value as its column takes it.
+    #[test]
+    fn a_clones_column_types_come_from_the_endpoints() {
+        let mut t = sample();
+        t.columns.push(ColumnDef {
+            name: "emb".into(),
+            data_type: "vector(3)".into(),
+            ..Default::default()
+        });
+        let loaded: Vec<String> = ["ID", "emb"].iter().map(|n| n.to_string()).collect();
+        let types = clone_column_types(&VectorEnds, &t, &loaded);
+        let named: Vec<(&str, &str, bool)> = types
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_name.as_str(), c.vector.is_some()))
+            .collect();
+        assert_eq!(
+            named,
+            [("id", "integer", false), ("emb", "vector(3)", true)]
+        );
+        let wrapped = CloneEndpoints(Arc::new(VectorEnds), types);
+        let none = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "x".into(),
+        };
+        let job = TransferJob {
+            name: "x".into(),
+            source: ReadSpec {
+                table: none.clone(),
+                columns: None,
+                filter: None,
+            },
+            target: LoadSpec {
+                table: none,
+                columns: loaded,
+                table_lock: false,
+                keep_identity: false,
+                commit_rows: 1,
+                commit_bytes: 1,
+            },
+            row_estimate: None,
+            truncate: None,
+            empty_first: false,
+            before: String::new(),
+            after: String::new(),
+            post: Vec::new(),
+            preexisting: false,
+            expected_columns: Vec::new(),
+            vector_columns: Vec::new(),
+            mode: TransferMode::Copy,
+        };
+        let got = wrapped.job_types(&job);
+        assert_eq!(got.len(), 2);
+        assert!(got[1].vector.is_some());
+        // Every column when the load names none.
+        assert_eq!(
+            clone_column_types(&VectorEnds, &t, &[]).len(),
+            t.columns.len()
+        );
+    }
+
+    /// A clone's job takes its vector columns from the endpoints (through
+    /// the clone's own wrapper), so an engine without a bulk load gets
+    /// them as arrays; a column left out of the load isn't one of them.
+    #[test]
+    fn a_clones_vector_columns_come_from_the_endpoints() {
+        let mut t = sample();
+        t.columns.push(ColumnDef {
+            name: "emb".into(),
+            data_type: "vector(3)".into(),
+            ..Default::default()
+        });
+        t.columns.push(ColumnDef {
+            name: "otro".into(),
+            data_type: "vector(2)".into(),
+            ..Default::default()
+        });
+        let wrapped = CloneEndpoints(Arc::new(VectorEnds), Vec::new());
+        let loaded = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            clone_vector_columns(&wrapped, &t, &loaded(&["id", "EMB", "padre"])),
+            ["emb"]
+        );
+        // No column list: every column is loaded.
+        assert_eq!(clone_vector_columns(&wrapped, &t, &[]), ["emb", "otro"]);
+        // The default: none.
+        struct Plain;
+        #[async_trait]
+        impl Endpoints for Plain {
+            fn source_driver(&self) -> Arc<dyn Driver> {
+                Arc::new(pg())
+            }
+            fn target_driver(&self) -> Arc<dyn Driver> {
+                Arc::new(pg())
+            }
+            async fn open_source(&self) -> Result<Box<dyn Session>> {
+                Err(Error::Unsupported("test".into()))
+            }
+            async fn open_target(&self) -> Result<Box<dyn Session>> {
+                Err(Error::Unsupported("test".into()))
+            }
+        }
+        assert!(clone_vector_columns(&Plain, &t, &[]).is_empty());
+    }
+
     fn sample() -> TableSchema {
         TableSchema {
             kind: "table".into(),
@@ -3177,6 +3379,7 @@ mod tests {
                     .map(|c| ResultColumn {
                         name: c.to_string(),
                         type_name: String::new(),
+                        vector: None,
                     })
                     .collect(),
             );

@@ -3,6 +3,7 @@
 //! See docs/api-commands.md.
 
 use crate::commands::schema::driver_of;
+use crate::commands::{typed_scripts, vectors};
 use crate::error::{CommandError, CommandResult};
 use crate::state::{AppState, SessionEntry};
 use dbine_driver::{
@@ -11,7 +12,7 @@ use dbine_driver::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader, Write};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -101,6 +102,21 @@ struct InsertSink {
     /// Source column → target column (another engine may rename them).
     rename: HashMap<String, String>,
     columns: Vec<String>,
+    /// The target's vector columns (by its names), from its table.
+    vector_columns: HashSet<String>,
+    /// The source's engine when it's the target's too: a column its driver
+    /// marks as vectors is one in the target.
+    same_engine: Option<&'static str>,
+    /// Which of `columns` hold vectors: their cells go to the script as
+    /// arrays.
+    vectors: Vec<bool>,
+    /// The target table's columns with their types (its describe, by its
+    /// names), and the vector each holds.
+    target_types: Vec<ResultColumn>,
+    /// `columns` with their types: the target table's, else (same engine)
+    /// the source result's; the script writes each value as its column
+    /// takes it.
+    types: Vec<ResultColumn>,
     buf: Vec<Vec<Value>>,
     out: Arc<Mutex<Out>>,
     rows: u64,
@@ -111,11 +127,10 @@ impl InsertSink {
         if self.buf.is_empty() {
             return Ok(());
         }
-        let rows = std::mem::take(&mut self.buf);
-        let text = self
-            .driver
-            .insert_script(&self.target, &self.columns, &rows)
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        let rows = vectors::script_rows(&self.vectors, std::mem::take(&mut self.buf));
+        let text =
+            typed_scripts::insert_columns(self.driver.as_ref(), &self.target, &self.types, &rows)
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
         let mut out = self.out.lock().expect("script output");
         out.write(&text)?;
         out.write("\n")
@@ -132,6 +147,37 @@ impl RowSink for InsertSink {
                         .get(&c.name)
                         .cloned()
                         .unwrap_or_else(|| c.name.clone())
+                })
+                .collect();
+            self.vectors = columns
+                .iter()
+                .zip(&self.columns)
+                .map(|(c, name)| {
+                    self.vector_columns.contains(name)
+                        || self
+                            .same_engine
+                            .is_some_and(|id| vectors::of_column(id, c).is_some_and(|m| !m.sparse))
+                })
+                .collect();
+            self.types = columns
+                .iter()
+                .zip(&self.columns)
+                .map(|(c, name)| {
+                    let table =
+                        typed_scripts::for_names(std::slice::from_ref(name), &self.target_types)
+                            .remove(0);
+                    let mut t = match self.same_engine {
+                        // The same engine: the source's result says it too.
+                        Some(_) if table.type_name.is_empty() => ResultColumn {
+                            name: name.clone(),
+                            ..c.clone()
+                        },
+                        _ => table,
+                    };
+                    if t.vector.is_none() {
+                        t.vector = self.same_engine.and_then(|id| vectors::of_column(id, c));
+                    }
+                    t
                 })
                 .collect();
         }
@@ -414,7 +460,8 @@ pub(crate) async fn generate(
                     w.info().dialect,
                 ),
                 ..dbine_schema::Options::default()
-            };
+            }
+            .for_target(&**w);
             let conv = dbine_schema::convert(&sel, src_id, t, &opts)
                 .map_err(|e| CommandError::BadRequest(e.to_string()))?;
             for i in &conv.issues {
@@ -670,11 +717,40 @@ pub(crate) async fn generate(
                 },
                 _ => (*obj).clone(),
             };
+            // The target's columns with their types, as its engine spells
+            // them.
+            let target_types = table_schema(obj)
+                .map(|t| {
+                    typed_scripts::of_describe(
+                        w.info().id,
+                        t.columns
+                            .iter()
+                            .map(|c| (c.name.as_str(), c.data_type.as_str())),
+                    )
+                })
+                .unwrap_or_default();
+            // The target's vector columns, as its engine spells them.
+            let vector_columns: HashSet<String> = table_schema(obj)
+                .map(|t| {
+                    t.columns
+                        .iter()
+                        .filter(|c| {
+                            vectors::of_type(w.info().id, &c.data_type).is_some_and(|m| !m.sparse)
+                        })
+                        .map(|c| c.name.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
             let sink = Arc::new(Mutex::new(InsertSink {
                 driver: w,
                 target,
                 rename: renames.get(&key).cloned().unwrap_or_default(),
                 columns: Vec::new(),
+                vector_columns,
+                same_engine: other_engine.is_none().then_some(src_id),
+                vectors: Vec::new(),
+                target_types,
+                types: Vec::new(),
                 buf: Vec::new(),
                 out: out.clone(),
                 rows: 0,
@@ -905,6 +981,93 @@ pub async fn run_script_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dbine_driver::{VectorElement, VectorMeta};
+    use serde_json::json;
+
+    /// The data script hands vectors to the driver as arrays: a column the
+    /// source's driver marks (same engine), or one the target's table says
+    /// is a vector (by its name there); the other cells as they came.
+    #[test]
+    fn data_scripts_get_vectors_as_arrays() {
+        let sink = |vector_columns: &[&str], same_engine: Option<&'static str>| InsertSink {
+            driver: dbine_drivers::find("postgres").unwrap(),
+            target: ObjectRef {
+                kind: kinds::TABLE.into(),
+                schema: None,
+                name: "t".into(),
+            },
+            rename: HashMap::from([("emb".to_string(), "embedding".to_string())]),
+            columns: Vec::new(),
+            vector_columns: vector_columns.iter().map(|c| c.to_string()).collect(),
+            same_engine,
+            vectors: Vec::new(),
+            target_types: Vec::new(),
+            types: Vec::new(),
+            buf: Vec::new(),
+            out: Arc::new(Mutex::new(Out::Mem(String::new()))),
+            rows: 0,
+        };
+        let cols = [
+            ResultColumn::new("id", "int4"),
+            ResultColumn::new("emb", "vector")
+                .with_vector(VectorMeta::dense(Some(2), VectorElement::F32)),
+            ResultColumn::new("note", "text"),
+        ];
+        let typed = |s: &InsertSink| -> Vec<(String, String, Option<VectorMeta>)> {
+            s.types
+                .iter()
+                .map(|c| (c.name.clone(), c.type_name.clone(), c.vector.clone()))
+                .collect()
+        };
+        let mut same = sink(&[], Some("postgres"));
+        same.begin(0, &cols).unwrap();
+        assert_eq!(same.columns, ["id", "embedding", "note"]);
+        assert_eq!(same.vectors, [false, true, false]);
+        // The same engine with no table at hand: the result's types, renamed.
+        let f32_2 = Some(VectorMeta::dense(Some(2), VectorElement::F32));
+        assert_eq!(
+            typed(&same),
+            [
+                ("id".into(), "int4".into(), None),
+                ("embedding".into(), "vector".into(), f32_2.clone()),
+                ("note".into(), "text".into(), None),
+            ]
+        );
+        // Another engine: only what the target's table says, types too.
+        let mut other = sink(&["embedding"], None);
+        let f16_2 = Some(VectorMeta::dense(Some(2), VectorElement::F16));
+        other.target_types = vec![
+            ResultColumn::new("ID", "integer"),
+            ResultColumn::new("embedding", "halfvec(2)")
+                .with_vector(VectorMeta::dense(Some(2), VectorElement::F16)),
+        ];
+        other.begin(0, &cols).unwrap();
+        assert_eq!(other.vectors, [false, true, false]);
+        assert_eq!(
+            typed(&other),
+            [
+                ("id".into(), "integer".into(), None),
+                ("embedding".into(), "halfvec(2)".into(), f16_2),
+                ("note".into(), String::new(), None),
+            ]
+        );
+        let mut none = sink(&[], None);
+        none.begin(0, &cols).unwrap();
+        assert_eq!(none.vectors, [false, false, false]);
+        // The rows reach the script with the vector as an array.
+        same.row(0, &[json!(1), json!("[1,2.5]"), json!("[3]")])
+            .unwrap();
+        assert_eq!(
+            vectors::script_rows(&same.vectors, same.buf.clone()),
+            vec![vec![json!(1), json!([1.0, 2.5]), json!("[3]")]]
+        );
+        same.flush().unwrap();
+        let Out::Mem(text) = &*same.out.lock().unwrap() else {
+            panic!("in memory")
+        };
+        assert!(text.contains("INSERT"), "{text}");
+        assert!(text.contains("2.5"), "{text}");
+    }
 
     #[test]
     fn a_name_cannot_end_a_comment_line() {

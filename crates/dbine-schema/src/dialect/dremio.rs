@@ -152,6 +152,7 @@ impl Dialect for Dremio {
             _ => r,
         };
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {
                 1..=4 => Rendered::exact("INT"),
@@ -224,6 +225,9 @@ impl Dialect for Dremio {
             comments: false,
             max_identifier: 128,
             case: IdentCase::Preserve,
+            // No vector indexes: `convert` leaves them out, said.
+            vector_indexes: false,
+            vectors: false,
         }
     }
 

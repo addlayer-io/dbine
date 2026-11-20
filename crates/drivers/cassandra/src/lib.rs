@@ -276,6 +276,9 @@ impl Driver for CassandraDriver {
             // No CQL ends another client's query or connection.
             processes: processes::unsupported_reason(self.flavor).is_none(),
             database_properties: true,
+            // `vector<float, n>` with SAI (Cassandra 5) or `vector_index`
+            // (ScyllaDB); Keyspaces has no vector type.
+            vectors: self.flavor != Flavor::Keyspaces,
             ..Default::default()
         }
     }
@@ -289,7 +292,7 @@ impl Driver for CassandraDriver {
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
-        ddl::table_ddl(table, parts)
+        ddl::table_ddl(table, parts, self.flavor)
     }
 
     fn supports_schema_sync(&self) -> bool {
@@ -305,7 +308,7 @@ impl Driver for CassandraDriver {
         &self,
         changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
-        sync::sync_script(self.flavor == Flavor::Keyspaces, changes)
+        sync::sync_script(self.flavor, changes)
     }
 
     /// Primary key columns only (see [`rename`]).
@@ -343,6 +346,38 @@ impl Driver for CassandraDriver {
         keys: &[Vec<(String, serde_json::Value)>],
     ) -> Result<String> {
         ddl::delete_script(target, keys)
+    }
+
+    /// With the columns' types a text cell stays text (`'[1,2]'` in a
+    /// `text` column isn't a list) and a vector's text becomes its array,
+    /// checked against the dimension.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        let types: Vec<ddl::CellType> = columns.iter().map(ddl::CellType::of).collect();
+        ddl::insert_script_typed(target, &names, &types, rows)
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        ddl::update_script_typed(target, changes, types)
+    }
+
+    fn delete_script_typed(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        ddl::delete_script_typed(target, keys, types)
     }
 
     fn security(&self) -> Option<dbine_driver::SecuritySpec> {
@@ -765,13 +800,28 @@ fn cql_err(e: ExecutionError, stmt: &str) -> Error {
         return Error::Query(e.to_string());
     };
     let code = db.code(&scylla::frame::protocol_features::ProtocolFeatures::default());
-    let mut se = ScriptError::new(msg.clone()).with_code(format!("{code:04X}"));
+    let text = match refusal_hint(msg) {
+        Some(h) => format!("{} ({h})", msg.trim_end()),
+        None => msg.clone(),
+    };
+    let mut se = ScriptError::new(text).with_code(format!("{code:04X}"));
     if let Some((line, col)) = position(msg) {
         se = se
             .at_line(line)
             .at_offset(steps::offset_of(stmt, line, col + 1));
     }
     Error::Statement(Box::new(se))
+}
+
+/// What to do about a refusal the server doesn't explain: ScyllaDB creates
+/// vector indexes only in keyspaces with tablets ("Creating a vector index
+/// requires the base table's keyspace to use tablets"), which a keyspace
+/// can't turn on after it's created.
+fn refusal_hint(msg: &str) -> Option<&'static str> {
+    let m = msg.to_ascii_lowercase();
+    (m.contains("vector index") && m.contains("tablets")).then_some(
+        "ScyllaDB crea índices vectoriales solo en keyspaces con tablets, que no se activan después de crear el keyspace: la tabla tiene que ir a un keyspace nuevo con tablets y NetworkTopologyStrategy",
+    )
 }
 
 /// `line 1:7 no viable alternative…`: line (1-based) and column (0-based).
@@ -1132,9 +1182,12 @@ impl CassandraSession {
                 out.begin_result(
                     rows.column_specs()
                         .iter()
-                        .map(|c| ResultColumn {
-                            name: c.name().to_string(),
-                            type_name: type_name(c.typ()),
+                        .map(|c| {
+                            let col = ResultColumn::new(c.name(), type_name(c.typ()));
+                            match value::vector_meta(c.typ()) {
+                                Some(m) => col.with_vector(m),
+                                None => col,
+                            }
                         })
                         .collect(),
                 );
@@ -1202,6 +1255,10 @@ impl CassandraSession {
                 for (k, v) in m {
                     if matches!(k, CqlValue::Text(k) if k == "target") {
                         if let CqlValue::Text(t) = v {
+                            if let Some((cols, _)) = json_target(t) {
+                                keys.indexed.extend(cols);
+                                continue;
+                            }
                             // `values(tags)`, `"Name"`, `full(x)`…
                             let t = t
                                 .rsplit('(')
@@ -1217,6 +1274,79 @@ impl CassandraSession {
         }
         Ok(Some(keys))
     }
+}
+
+/// A ScyllaDB vector index's target as `system_schema.indexes` keeps it
+/// when the index has filter or partition columns
+/// (`{"tc":"v","fc":["a"],"pk":["g"]}`): the vector column with the filter
+/// columns after it, and a local index's partition columns. `None` for a
+/// plain target (`v`, `"V"`, `values(tags)`…).
+pub(crate) fn json_target(target: &str) -> Option<(Vec<String>, Vec<String>)> {
+    let t = target.trim();
+    if !t.starts_with('{') {
+        return None;
+    }
+    let j: serde_json::Value = serde_json::from_str(t).ok()?;
+    let list = |k: &str| -> Vec<String> {
+        j.get(k)
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let mut columns = vec![j.get("tc")?.as_str()?.to_string()];
+    columns.extend(list("fc"));
+    Some((columns, list("pk")))
+}
+
+/// A `system_schema.indexes` class as [`IndexDef::kind`]: `sai` for SAI
+/// (`StorageAttachedIndex`), the class as it is for other custom indexes
+/// (ScyllaDB's `vector_index`, SASI), `None` for a built-in one.
+pub(crate) fn index_kind(class: Option<&str>) -> Option<String> {
+    match class {
+        Some(c) if c.eq_ignore_ascii_case("sai") || c.ends_with("StorageAttachedIndex") => {
+            Some("sai".to_string())
+        }
+        Some(c) => Some(c.to_string()),
+        None => None,
+    }
+}
+
+/// An index's vector settings ([`IndexDef::vector`]) out of its options
+/// (without `target` and `class_name`), and the options that aren't: a
+/// ScyllaDB vector index with filter or partition columns (its JSON target;
+/// a local index's partition columns as the `pk` option), or an SAI or
+/// `vector_index` index whose column (`is_vector`) is a vector. The schema
+/// and the index usage report read them alike.
+pub(crate) fn index_vector(
+    kind: Option<&str>,
+    target: &str,
+    mut options: BTreeMap<String, String>,
+    is_vector: impl Fn(&str) -> bool,
+) -> (Option<dbine_driver::VectorIndex>, BTreeMap<String, String>) {
+    if let Some((_, pk)) = json_target(target) {
+        if !pk.is_empty() {
+            options.insert("pk".into(), pk.join(", "));
+        }
+        let (v, rest) = ddl::vector_of(options);
+        return (Some(v), rest);
+    }
+    if matches!(kind, Some("sai" | "vector_index")) && is_vector(unquote_target(target)) {
+        let (v, rest) = ddl::vector_of(options);
+        return (Some(v), rest);
+    }
+    (None, options)
+}
+
+/// The column a plain index target names (`v`, `"V"` → `V`).
+fn unquote_target(target: &str) -> &str {
+    let t = target.trim();
+    t.strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or(t)
 }
 
 /// `frozen<list<…>>`, `frozen<set<…>>` or `frozen<map<…>>`.
@@ -1618,15 +1748,30 @@ impl DbSession for CassandraSession {
             let Some(t) = out.iter_mut().find(|t| t.name == text(r, 0)) else {
                 continue;
             };
-            let class = map_value(r, 3, "class_name");
-            let kind = match class {
-                Some(c) if c.eq_ignore_ascii_case("sai") || c.ends_with("StorageAttachedIndex") => {
-                    Some("sai".to_string())
-                }
-                Some(c) => Some(c),
-                None => None,
-            };
+            let kind = index_kind(map_value(r, 3, "class_name").as_deref());
+            let options: BTreeMap<String, String> = map_entries(r, 3)
+                .into_iter()
+                .filter(|(k, _)| k != "target" && k != "class_name")
+                .collect();
             let mut target = map_value(r, 3, "target").unwrap_or_default();
+            let is_vector = |c: &str| {
+                t.columns
+                    .iter()
+                    .any(|x| x.name == c && x.data_type.trim().starts_with("vector<"))
+            };
+            // A ScyllaDB vector index with filter or partition columns.
+            if let Some((columns, _)) = json_target(&target) {
+                let (vector, rest) = index_vector(kind.as_deref(), &target, options, is_vector);
+                t.indexes.push(IndexDef {
+                    name: text(r, 1),
+                    columns,
+                    kind,
+                    options: rest,
+                    vector,
+                    ..Default::default()
+                });
+                continue;
+            }
             // Scylla reports an index on a set's values as `keys(col)`,
             // which its own CREATE INDEX refuses for sets.
             if let Some(col) = target
@@ -1654,11 +1799,13 @@ impl DbSession for CassandraSession {
                 }
             }
             // The rest of the map is the index's `WITH OPTIONS` (SAI's
-            // case_sensitive / normalize / similarity_function, SASI's mode…).
-            let options = map_entries(r, 3)
-                .into_iter()
-                .filter(|(k, _)| k != "target" && k != "class_name")
-                .collect();
+            // case_sensitive / normalize, SASI's mode…); a vector index's
+            // distance and graph settings are its `vector`.
+            let (vector, options) = index_vector(kind.as_deref(), &target, options, |c| {
+                t.columns
+                    .iter()
+                    .any(|x| x.name == c && x.data_type.trim().starts_with("vector<"))
+            });
             t.indexes.push(IndexDef {
                 name: text(r, 1),
                 columns: vec![target],
@@ -1666,6 +1813,7 @@ impl DbSession for CassandraSession {
                 kind,
                 filter: None,
                 options,
+                vector,
                 ..Default::default()
             });
         }
@@ -1985,6 +2133,31 @@ mod tests {
         );
         assert_eq!(position("line 3:0 mismatched input"), Some((3, 0)));
         assert_eq!(position("Undefined column name nope"), None);
+    }
+
+    #[test]
+    fn vector_index_without_tablets_is_explained() {
+        let h = refusal_hint(
+            "Creating a vector index requires the base table's keyspace to use tablets",
+        )
+        .unwrap();
+        assert!(h.contains("tablets") && h.contains("keyspace nuevo"), "{h}");
+        assert_eq!(refusal_hint("Undefined column name nope"), None);
+    }
+
+    #[test]
+    fn scylla_vector_targets() {
+        assert_eq!(
+            json_target(r#"{"tc":"v","fc":["id","Lang"]}"#),
+            Some((vec!["v".into(), "id".into(), "Lang".into()], vec![]))
+        );
+        assert_eq!(
+            json_target(r#"{"tc":"v","pk":["g"]}"#),
+            Some((vec!["v".into()], vec!["g".into()]))
+        );
+        assert_eq!(json_target("v"), None);
+        assert_eq!(json_target("values(tags)"), None);
+        assert_eq!(unquote_target("\"Emb\""), "Emb");
     }
 
     #[test]

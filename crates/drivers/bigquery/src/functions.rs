@@ -176,6 +176,12 @@ mod tests {
         assert_eq!(find("ROW_NUMBER").unwrap().kind, FunctionKind::Window);
         assert_eq!(find("APPENDS").unwrap().kind, FunctionKind::Table);
         assert_eq!(find("HOST").unwrap().schema, "NET");
+        // The vector functions.
+        for name in ["COSINE_DISTANCE", "EUCLIDEAN_DISTANCE", "VECTOR_SEARCH"] {
+            assert!(find(name).is_some(), "{name}");
+        }
+        assert_eq!(find("DISTANCE").unwrap().schema, "ML");
+        assert_eq!(find("LP_NORM").unwrap().schema, "ML");
         assert!(list.iter().all(|f| !f.name.contains('.')));
         // Spanner's, not BigQuery's.
         assert!(find("PENDING_COMMIT_TIMESTAMP").is_none());

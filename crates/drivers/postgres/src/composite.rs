@@ -13,33 +13,14 @@
 //! An anonymous `record` (`SELECT ROW(1, 'x')`) has no field names in the
 //! description, so it keeps its positional text.
 
-use dbine_driver::{json_i64, StatementResult};
+use dbine_driver::json_i64;
 use serde_json::Value;
 use tokio_postgres::types::{Kind, Type};
 
-/// Rewrites the cells of `r` whose column holds a composite.
-pub(crate) fn name_fields(r: &mut StatementResult, cols: &[tokio_postgres::Column]) {
-    let targets: Vec<(usize, &Type)> = cols
-        .iter()
-        .enumerate()
-        .filter(|(_, c)| has_composite(c.type_(), 0))
-        .map(|(i, c)| (i, c.type_()))
-        .collect();
-    if targets.is_empty() || cols.len() != r.columns.len() {
-        return;
-    }
-    for row in &mut r.rows {
-        for &(i, ty) in &targets {
-            if let Some(Value::String(s)) = row.get(i) {
-                if let Some(json) = render(s, ty) {
-                    row[i] = Value::String(json);
-                }
-            }
-        }
-    }
-}
-
-fn has_composite(ty: &Type, depth: usize) -> bool {
+/// Whether a column of type `ty` holds a composite (directly, in an array,
+/// a domain or another composite): its cells are rewritten with
+/// [`render`] (see `session::Shape`).
+pub(crate) fn has_composite(ty: &Type, depth: usize) -> bool {
     if depth > 32 {
         return false;
     }

@@ -45,7 +45,7 @@
 //!   transactions: rows another process writes into the source meanwhile
 //!   may or may not be copied (a read by batches sees one snapshot).
 
-use crate::{err, SqliteSession};
+use crate::{err, vector, SqliteSession};
 use dbine_driver::sql::{quote_ident, Quote};
 use dbine_driver::transfer::{
     BatchBuilder, BatchSinkRef, BatchSource, Cell, CopySpec, LoadSpec, Progress, ReadSpec,
@@ -210,6 +210,32 @@ fn not_null(c: &Connection, t: &ObjectRef) -> HashMap<String, bool> {
     .unwrap_or_default()
 }
 
+/// The libSQL vector format of each of `columns` of table `t` (`None`: not
+/// a vector column, or not found).
+fn vector_columns(c: &Connection, t: &ObjectRef, columns: &[String]) -> Vec<Option<vector::Kind>> {
+    let types: HashMap<String, String> = c
+        .prepare("SELECT name, type FROM pragma_table_info(?1, ?2)")
+        .and_then(|mut stmt| {
+            stmt.query_map([t.name.as_str(), t.schema().unwrap_or("main")], |r| {
+                Ok((
+                    r.get::<_, String>(0)?.to_lowercase(),
+                    r.get::<_, String>(1)?,
+                ))
+            })?
+            .collect()
+        })
+        .unwrap_or_default();
+    columns
+        .iter()
+        .map(|n| {
+            types
+                .get(&n.to_lowercase())
+                .and_then(|ty| vector::column_type(ty))
+                .map(|(k, _)| k)
+        })
+        .collect()
+}
+
 /// Read `spec` into `sink` on this (blocking) thread; the rows read.
 pub(crate) fn read(c: &Connection, spec: &ReadSpec, sink: &BatchSinkRef) -> Result<u64> {
     let mut stmt = c.prepare(&select_sql(spec)).map_err(err)?;
@@ -228,10 +254,24 @@ pub(crate) fn read(c: &Connection, spec: &ReadSpec, sink: &BatchSinkRef) -> Resu
     };
     lock()?.begin(&cols)?;
     let n = cols.len();
+    // libSQL's vector columns go as vector text.
+    let vectors: Vec<bool> = cols
+        .iter()
+        .map(|c| vector::column_type(&c.type_name).is_some())
+        .collect();
     let mut builder = BatchBuilder::new();
     let mut rows = stmt.raw_query();
     while let Some(row) = rows.next().map_err(err)? {
-        let cells = (0..n).map(|i| cell(row.get_ref_unwrap(i))).collect();
+        let cells = (0..n)
+            .map(|i| {
+                let c = cell(row.get_ref_unwrap(i));
+                if vectors[i] {
+                    vector::read_cell(c)
+                } else {
+                    c
+                }
+            })
+            .collect();
         builder.push(cells, &mut *lock()?)?;
     }
     builder.flush(&mut *lock()?)?;
@@ -518,6 +558,8 @@ fn load(
         .map_err(err)?;
     // The open window's write turn (`None`: no window open).
     let mut window: Option<Turn> = None;
+    // The target's libSQL vector columns take their blob, not vector text.
+    let vectors = vector_columns(c, &spec.table, &spec.columns);
     let mut run = || -> Result<u64> {
         let mut stmt = c.prepare(&insert_sql(spec, 1)).map_err(err)?;
         let (mut total, mut rows, mut bytes) = (0u64, 0u64, 0u64);
@@ -576,7 +618,11 @@ fn load(
                     window = Some(turn);
                 }
                 for (i, v) in row.iter().enumerate() {
-                    stmt.raw_bind_parameter(i + 1, Bind(v)).map_err(err)?;
+                    match vectors[i].and_then(|k| vector::load_cell(k, v)) {
+                        Some(b) => stmt.raw_bind_parameter(i + 1, Bind(&b)),
+                        None => stmt.raw_bind_parameter(i + 1, Bind(v)),
+                    }
+                    .map_err(err)?;
                 }
                 stmt.raw_execute().map_err(|e| match err(e) {
                     Error::Query(m) => Error::Query(format!("fila {at}: {m}")),

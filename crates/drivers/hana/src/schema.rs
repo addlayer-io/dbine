@@ -196,14 +196,31 @@ pub(crate) async fn read_tables(s: &HanaSession, only: Option<&str>) -> Result<V
         let table = &mut tables[ti];
         match table.indexes.last_mut().filter(|i| i.name == name) {
             Some(ix) => ix.columns.extend(t(4)),
-            None => table.indexes.push(IndexDef {
-                name,
-                columns: t(4).into_iter().collect(),
-                unique: t(3).is_some_and(|c| c.contains("UNIQUE")),
-                kind: t(2).filter(|k| !k.is_empty()),
-                filter: None,
-                ..Default::default()
-            }),
+            None => {
+                let kind = t(2).filter(|k| !k.is_empty());
+                // An HNSW vector index; its settings come from
+                // SYS.VECTOR_INDEXES (`structure::complete`).
+                let vector = kind.as_deref().is_some_and(|k| {
+                    let k = k.to_ascii_uppercase();
+                    k.contains("VECTOR") || k.contains("HNSW")
+                });
+                table.indexes.push(IndexDef {
+                    name,
+                    columns: t(4).into_iter().collect(),
+                    unique: t(3).is_some_and(|c| c.contains("UNIQUE")),
+                    kind: if vector {
+                        Some(crate::vector::KIND.into())
+                    } else {
+                        kind
+                    },
+                    filter: None,
+                    vector: vector.then(|| dbine_driver::VectorIndex {
+                        algorithm: Some("hnsw".into()),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                })
+            }
         }
     }
     // Unnamed unique constraints get a name the DDL can use.
@@ -282,6 +299,17 @@ const INDEX_TYPES: &[&str] = &[
     "INVERTED INDIVIDUAL",
 ];
 
+/// A vector index's settings: from the designer or the catalog, or an
+/// `HNSW VECTOR` kind without them (HANA's defaults).
+fn vector_of(ix: &IndexDef) -> Option<dbine_driver::VectorIndex> {
+    ix.vector.clone().or_else(|| {
+        ix.kind
+            .as_deref()
+            .is_some_and(|k| k.trim().eq_ignore_ascii_case(crate::vector::KIND))
+            .then(dbine_driver::VectorIndex::default)
+    })
+}
+
 pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
     let f = flavor();
     let schema = t.schema.as_deref().filter(|s| !s.is_empty());
@@ -342,6 +370,22 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
                 } else {
                     format!("{s};")
                 });
+                continue;
+            }
+            if let Some(v) = vector_of(ix) {
+                let col = ix.columns.first().map(|c| quote(c));
+                match crate::vector::index_sql(&name, &quote(&ix.name), col.as_deref(), &v) {
+                    Ok(s) => out.push(if parts.if_exists {
+                        guarded(&s, false, "SYS.INDEXES", "INDEX_NAME", schema, &ix.name)
+                    } else {
+                        format!("{s};")
+                    }),
+                    Err(why) => out.push(format!(
+                        "-- Índice vectorial {} omitido: {}.",
+                        ix.name.replace(['\r', '\n'], " "),
+                        why
+                    )),
+                }
                 continue;
             }
             let kind = ix
@@ -408,6 +452,18 @@ pub fn sync_script(changes: &[dbine_driver::TableChange]) -> Result<dbine_driver
                         n.comment = o.comment.clone();
                     }
                 }
+                // A vector index whose settings change is made again (the
+                // generic planner compares columns, kind and options).
+                let mut old = old.clone();
+                for ix in old.indexes.iter_mut() {
+                    if new
+                        .indexes
+                        .iter()
+                        .any(|n| n.name.eq_ignore_ascii_case(&ix.name) && n.vector != ix.vector)
+                    {
+                        ix.options.insert("rebuild".into(), "1".into());
+                    }
+                }
                 for ix in old.indexes.iter().filter(|i| crate::structure::is_fulltext(i)) {
                     let plain = format!("DROP INDEX {};", dbine_driver::sql::qualified_name(Quote::Double, schema, &ix.name));
                     unique_drops.push((plain, format!("DROP FULLTEXT INDEX {};", dbine_driver::sql::qualified_name(Quote::Double, schema, &ix.name))));
@@ -425,7 +481,7 @@ pub fn sync_script(changes: &[dbine_driver::TableChange]) -> Result<dbine_driver
                         ),
                     ));
                 }
-                TableChange::Alter { old: old.clone(), new }
+                TableChange::Alter { old, new }
             }
             other => other.clone(),
         })
@@ -502,8 +558,11 @@ pub fn designer() -> DesignerSpec {
         "TIME",
         "TIMESTAMP",
         "SECONDDATE",
+        "REAL_VECTOR(1536)",
+        "HALF_VECTOR(1536)",
     ]);
     d.comments = true;
+    d.vector_indexes = Some(crate::vector::spec());
     d.table_options = vec![Field::new(
         STORE,
         "Almacenamiento",
@@ -841,5 +900,65 @@ mod tests {
                 "COMMENT ON TABLE \"PEDIDOS\" IS 'Pedidos 2';",
             ]
         );
+    }
+
+    #[test]
+    fn vector_columns_and_indexes() {
+        use dbine_driver::{IndexDef, TableChange, VectorIndex};
+        let mut t = table();
+        t.columns.push(ColumnDef {
+            name: "EMB".into(),
+            data_type: "REAL_VECTOR(3)".into(),
+            nullable: true,
+            ..Default::default()
+        });
+        t.indexes = vec![IndexDef {
+            name: "IX_EMB".into(),
+            columns: vec!["EMB".into()],
+            vector: Some(VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                params: [("m".to_string(), "32".to_string())].into(),
+            }),
+            ..Default::default()
+        }];
+        let ddl = table_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        );
+        assert!(ddl.contains("\"EMB\" REAL_VECTOR(3)"), "{ddl}");
+        assert!(
+            ddl.contains("CREATE HNSW VECTOR INDEX \"IX_EMB\" ON \"PEDIDOS\" (\"EMB\") SIMILARITY FUNCTION COSINE_SIMILARITY BUILD CONFIGURATION '{\"M\":32}';"),
+            "{ddl}"
+        );
+        // A distance HANA lacks is said, not scripted as a plain index.
+        let mut odd = t.clone();
+        odd.indexes[0].vector.as_mut().unwrap().metric = Some("ip".into());
+        let ddl = table_ddl(
+            &odd,
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        );
+        assert!(
+            ddl.starts_with("-- Índice vectorial IX_EMB omitido"),
+            "{ddl}"
+        );
+        // A changed distance remakes the index.
+        let mut new = t.clone();
+        new.indexes[0].vector.as_mut().unwrap().metric = Some("l2".into());
+        let sync = sync_script(&[TableChange::Alter { old: t, new }]).unwrap();
+        let text = sync.statements.join("\n");
+        assert!(text.contains("DROP INDEX \"IX_EMB\""), "{text}");
+        assert!(text.contains("SIMILARITY FUNCTION L2DISTANCE"), "{text}");
+        let d = designer();
+        assert!(d.data_types.contains(&"REAL_VECTOR(1536)"));
+        assert!(d.data_types.contains(&"HALF_VECTOR(1536)"));
+        assert_eq!(d.vector_indexes.unwrap().algorithms, ["hnsw"]);
     }
 }

@@ -1123,6 +1123,7 @@ impl PhoenixSession {
                     .map(|c| ResultColumn {
                         name: c.name.clone(),
                         type_name: c.type_name.clone(),
+                        vector: None,
                     })
                     .collect(),
             );

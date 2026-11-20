@@ -549,7 +549,7 @@ pub(crate) mod tests {
         std::fs::write(&gcloud, "#!/bin/sh\n[ \"$1 $2\" = 'auth print-access-token' ] && { echo ya29.fake-token; exit 0; }\nexit 7\n").unwrap();
         std::fs::set_permissions(&gcloud, std::fs::Permissions::from_mode(0o755)).unwrap();
         let old = std::env::var_os("PATH").unwrap_or_default();
-        let mut paths = vec![dir.clone()];
+        let mut paths = vec![dir.to_path_buf()];
         paths.extend(std::env::split_paths(&old));
         std::env::set_var("PATH", std::env::join_paths(paths).unwrap());
         let (token, _, _) = cloud_auth::gcp_token(None, true).await.unwrap();

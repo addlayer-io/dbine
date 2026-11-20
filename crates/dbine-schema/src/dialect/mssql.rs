@@ -20,6 +20,75 @@ use dbine_driver::TableSchema;
 
 pub struct MsSql;
 
+/// Most dimensions of a `vector`: 1998 of float32, 3996 of float16.
+const MAX_VECTOR_DIMS: u32 = 1998;
+const MAX_VECTOR_DIMS_F16: u32 = 3996;
+
+/// `vector(n)` / `vector(n, float16)`; a vector SQL Server can't declare
+/// (sparse, no dimension, too many) goes as JSON text.
+fn render_vector(d: &dyn Dialect, t: &L) -> Rendered {
+    use dbine_driver::VectorElement as E;
+    use IssueCode::*;
+    use Severity::*;
+    let L::Vector {
+        dims,
+        element,
+        sparse,
+    } = t
+    else {
+        return d.render_type(t);
+    };
+    let max = if *element == E::F16 {
+        MAX_VECTOR_DIMS_F16
+    } else {
+        MAX_VECTOR_DIMS
+    };
+    match dims {
+        Some(n) if !*sparse && (1..=max).contains(n) => match element {
+            E::F32 => Rendered::exact(format!("vector({n})")),
+            E::F16 => Rendered::exact(format!("vector({n}, float16)")).with(
+                Info,
+                TypeChanged,
+                "vector de float16: en SQL Server 2025 necesita PREVIEW_FEATURES = ON.",
+            ),
+            E::F64 => Rendered::exact(format!("vector({n})")).with(
+                Loss,
+                PrecisionLoss,
+                "SQL Server guarda vectores de float32: los float64 pierden precisión.",
+            ),
+            E::Bf16 => Rendered::exact(format!("vector({n})")).with(
+                Info,
+                TypeChanged,
+                "Vector de bfloat16 como float32 (sin pérdida).",
+            ),
+            E::I32 => Rendered::exact(format!("vector({n})")).with(
+                Loss,
+                PrecisionLoss,
+                "Vector de enteros de 32 bits como float32: los valores pasados de 16777216 (2^24) se redondean.",
+            ),
+            _ => Rendered::exact(format!("vector({n})")).with(
+                Info,
+                TypeChanged,
+                format!("{}: como vector de float32.", t.describe()),
+            ),
+        },
+        _ => {
+            let why = if *sparse {
+                "SQL Server no tiene vectores dispersos".to_string()
+            } else if dims.is_none() {
+                "SQL Server necesita la dimensión del vector".to_string()
+            } else {
+                format!("SQL Server admite vectores de hasta {max} dimensiones")
+            };
+            Rendered::exact("nvarchar(max)").with(
+                Warning,
+                TypeApproximated,
+                format!("{}: {why}; queda como JSON en nvarchar(max).", t.describe()),
+            )
+        }
+    }
+}
+
 /// Index key limits, in bytes: clustered (the primary key by default) and
 /// nonclustered.
 const MAX_CLUSTERED_KEY: u32 = 900;
@@ -115,6 +184,20 @@ impl Dialect for MsSql {
             "xml" => L::Xml,
             // SQL Server 2025 / Azure SQL.
             "json" => L::Json { binary: true },
+            // SQL Server 2025 / Azure SQL: `vector(n[, float32|float16])`.
+            "vector" => L::Vector {
+                dims: p(0),
+                element: match t
+                    .args
+                    .get(1)
+                    .map(|a| a.trim().to_ascii_lowercase())
+                    .as_deref()
+                {
+                    Some("float16") => dbine_driver::VectorElement::F16,
+                    _ => dbine_driver::VectorElement::F32,
+                },
+                sparse: false,
+            },
             // In SQL Server `timestamp` is the old name of rowversion.
             "rowversion" | "timestamp" => L::RowVersion,
             "geometry" => L::Geometry {
@@ -137,6 +220,7 @@ impl Dialect for MsSql {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { .. } => render_vector(self, t),
             L::Bool => Rendered::exact("bit"),
             L::Int { bytes: 1, unsigned: true } => Rendered::exact("tinyint"),
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {
@@ -268,11 +352,55 @@ impl Dialect for MsSql {
             comments: true,
             max_identifier: 128,
             case: IdentCase::Preserve,
+            vector_indexes: true,
+            vectors: true,
         }
     }
 
     fn implies_auto_increment(&self, t: &TypeSpec) -> bool {
         t.has("identity")
+    }
+
+    /// `CREATE VECTOR INDEX … WITH (METRIC = 'cosine' | 'euclidean' |
+    /// 'dot', TYPE = 'DiskANN')`: SQL Server picks DiskANN's parameters.
+    /// Its column must be a `vector(n)` here (float32 or float16, both
+    /// indexed); one [`render_vector`] writes as JSON text (sparse, without
+    /// a dimension, too many) can't be indexed.
+    fn vector_index(
+        &self,
+        v: &dbine_driver::VectorIndex,
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let column = ctx.column;
+        use dbine_driver::vector::metric;
+        if let Some(c @ L::Vector { .. }) = column {
+            if !render_vector(self, c).native.starts_with("vector(") {
+                return Err(
+                    "su columna no es un vector en SQL Server (es dispersa, no tiene dimensión o tiene demasiadas)"
+                        .into(),
+                );
+            }
+        }
+        let m = v.metric.as_deref().map(str::to_ascii_lowercase);
+        let metric = match m.as_deref() {
+            None => None,
+            Some(metric::COSINE) => Some(metric::COSINE),
+            Some(metric::L2 | "euclidean") => Some(metric::L2),
+            Some(metric::IP | "dot" | "inner_product") => Some(metric::IP),
+            Some(other) => {
+                return Err(format!(
+                    "SQL Server no tiene la distancia «{other}» (solo coseno, euclidiana y producto interno)"
+                ))
+            }
+        };
+        Ok(super::VectorIndexMapping::new(
+            Some("VECTOR".into()),
+            dbine_driver::VectorIndex {
+                algorithm: Some("diskann".into()),
+                metric: metric.map(str::to_string),
+                params: Default::default(),
+            },
+        ))
     }
 
     /// What CREATE TABLE refuses otherwise: one IDENTITY of an integer
@@ -369,9 +497,66 @@ impl Dialect for MsSql {
     }
 }
 
+/// T-SQL engines without vectors (Fabric Warehouse, Babelfish): SQL
+/// Server's types and rules, but a vector goes as its numbers in JSON text
+/// (with a warning) and a vector index is left out with the reason, also
+/// from SQL Server (the same family).
+pub struct MsSqlNoVectors;
+
+impl Dialect for MsSqlNoVectors {
+    fn id(&self) -> &'static str {
+        MsSql.id()
+    }
+
+    fn parse_type(&self, t: &TypeSpec) -> L {
+        MsSql.parse_type(t)
+    }
+
+    fn render_type(&self, t: &L) -> Rendered {
+        match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
+            other => MsSql.render_type(other),
+        }
+    }
+
+    fn render_default(&self, d: &DefaultValue, ty: &L) -> Option<String> {
+        MsSql.render_default(d, ty)
+    }
+
+    fn caps(&self) -> Caps {
+        Caps {
+            vector_indexes: false,
+            vectors: false,
+            ..MsSql.caps()
+        }
+    }
+
+    fn implies_auto_increment(&self, t: &TypeSpec) -> bool {
+        MsSql.implies_auto_increment(t)
+    }
+
+    fn target_refusal(&self, driver_id: &str) -> Option<&'static str> {
+        MsSql.target_refusal(driver_id)
+    }
+
+    fn finalize(&self, t: &mut TableSchema, report: &mut Report) {
+        MsSql.finalize(t, report)
+    }
+
+    fn vector_index(
+        &self,
+        _: &dbine_driver::VectorIndex,
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        let _ = ctx;
+        Err("Fabric Warehouse y Babelfish no tienen tipo vectorial ni índices vectoriales".into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use dbine_driver::{ColumnDef, ForeignKeyDef, IndexDef, KeyDef};
 
     fn ty(s: &str) -> L {
@@ -501,5 +686,209 @@ mod tests {
         assert_eq!(t.columns[0].data_type, "bigint");
         assert_eq!(t.columns[1].data_type, "nvarchar(850)");
         assert_eq!(t.foreign_keys[0].on_delete, None);
+    }
+
+    /// Moved here from another family, a vector index keeps its column a
+    /// `vector(n)`: a searched float array whose index states the
+    /// dimension becomes one, and an index on what goes as JSON text (a
+    /// sparse vector, a list without a dimension) is left out with why.
+    #[test]
+    fn vector_indexes_moved_into_sql_server() {
+        use super::super::clickhouse::tests::vector_table;
+        use crate::convert::{convert, Options};
+        use crate::issue::IssueCode;
+        let one = |t, from: &str| {
+            let r = convert(&[t], from, "sqlserver", &Options::default()).unwrap();
+            (r.tables[0].clone(), r.issues)
+        };
+        let (t, _) = one(vector_table("vector(3)", None, &[]), "postgres");
+        assert_eq!(t.columns[1].data_type, "vector(3)");
+        assert_eq!(t.indexes[0].kind.as_deref(), Some("VECTOR"));
+        assert_eq!(
+            t.indexes[0].vector.as_ref().unwrap().algorithm.as_deref(),
+            Some("diskann")
+        );
+        let (t, _) = one(
+            vector_table(
+                "Array(Float32)",
+                Some("vector_similarity"),
+                &[("dimensions", "3")],
+            ),
+            "clickhouse",
+        );
+        assert_eq!(t.columns[1].data_type, "vector(3)");
+        assert_eq!(t.indexes.len(), 1);
+        for (t, from, why) in [
+            (
+                vector_table("sparsevec(5)", None, &[]),
+                "postgres",
+                "no es un vector en SQL Server",
+            ),
+            (
+                vector_table("Array(Float32)", Some("vector_similarity"), &[]),
+                "clickhouse",
+                "su columna no es un vector",
+            ),
+        ] {
+            let (t, issues) = one(t, from);
+            assert!(t.indexes.is_empty(), "{from}");
+            assert!(
+                issues
+                    .iter()
+                    .any(|i| i.code == IssueCode::IndexDropped && i.message.contains(why)),
+                "{issues:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn engines_without_vectors_take_them_as_json() {
+        let v = L::Vector {
+            dims: Some(3),
+            element: dbine_driver::VectorElement::F32,
+            sparse: false,
+        };
+        let r = MsSqlNoVectors.render_type(&v);
+        assert!(!r.native.contains("vector"), "{}", r.native);
+        assert_eq!(
+            r.native,
+            MsSql
+                .render_type(&L::Array {
+                    of: Box::new(L::Float { bytes: 4 })
+                })
+                .native
+        );
+        assert!(!r.notes.is_empty());
+        // The rest is SQL Server's.
+        assert_eq!(MsSqlNoVectors.render_type(&L::Bool).native, "bit");
+        assert_eq!(MsSqlNoVectors.id(), "mssql");
+        let e = MsSqlNoVectors
+            .vector_index_pair(&dbine_driver::VectorIndex::default(), None)
+            .unwrap_err();
+        assert!(e.contains("Fabric"), "{e}");
+    }
+
+    #[test]
+    fn vectors_round_trip_and_cross_families() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        let v = |dims, element, sparse| L::Vector {
+            dims,
+            element,
+            sparse,
+        };
+        assert_eq!(ty("vector(3)"), v(Some(3), E::F32, false));
+        assert_eq!(ty("vector(1536, float16)"), v(Some(1536), E::F16, false));
+        assert_eq!(MsSql.render_type(&ty("vector(3)")).native, "vector(3)");
+        assert_eq!(
+            MsSql.render_type(&ty("vector(8, float16)")).native,
+            "vector(8, float16)"
+        );
+        // pgvector's vector(3) and halfvec(3) as their logical types.
+        assert_eq!(
+            MsSql.render_type(&v(Some(3), E::F32, false)).native,
+            "vector(3)"
+        );
+        // What SQL Server can't declare goes as JSON text, said.
+        for odd in [
+            v(None, E::F32, false),
+            v(Some(5), E::F32, true),
+            v(Some(5000), E::F32, false),
+        ] {
+            let r = MsSql.render_type(&odd);
+            assert_eq!(r.native, "nvarchar(max)");
+            assert!(!r.notes.is_empty());
+        }
+        let r = MsSql.render_type(&v(Some(4), E::F64, false));
+        assert_eq!(r.native, "vector(4)");
+        assert!(r.notes.iter().any(|n| n.severity == Severity::Loss));
+        // A pgvector HNSW index: DiskANN with the same distance; one SQL
+        // Server lacks is refused.
+        let hnsw = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("l2".into()),
+            params: [("m".to_string(), "16".to_string())].into(),
+        };
+        let (kind, mapped) = MsSql.vector_index_pair(&hnsw, None).unwrap();
+        assert_eq!(kind.as_deref(), Some("VECTOR"));
+        assert_eq!(mapped.algorithm.as_deref(), Some("diskann"));
+        assert_eq!(mapped.metric.as_deref(), Some("l2"));
+        assert!(mapped.params.is_empty());
+        let l1 = VectorIndex {
+            metric: Some("l1".into()),
+            ..Default::default()
+        };
+        assert!(MsSql.vector_index_pair(&l1, None).is_err());
+        // The column decides: float32 and float16 vectors are indexed, a
+        // vector that goes as JSON text isn't.
+        let col = v;
+        for ok in [
+            col(Some(3), E::F32, false),
+            col(Some(3), E::F16, false),
+            col(Some(3), E::F64, false),
+            col(Some(3), E::Bit, false),
+        ] {
+            assert!(MsSql.vector_index_pair(&hnsw, Some(&ok)).is_ok(), "{ok:?}");
+        }
+        for no in [
+            col(Some(3), E::F32, true),
+            col(None, E::F32, false),
+            col(Some(4000), E::F32, false),
+        ] {
+            let e = MsSql.vector_index_pair(&hnsw, Some(&no)).unwrap_err();
+            assert!(e.contains("no es un vector"), "{no:?}: {e}");
+        }
+    }
+
+    #[test]
+    fn vector_tables_move_to_oracle_and_back() {
+        use dbine_driver::{ColumnDef, IndexDef, VectorIndex};
+        let t = TableSchema {
+            name: "docs".into(),
+            schema: Some("dbo".into()),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "int".into(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "emb".into(),
+                    data_type: "vector(3)".into(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            primary_key: Some(KeyDef {
+                name: None,
+                columns: vec!["id".into()],
+            }),
+            indexes: vec![IndexDef {
+                name: "ix_emb".into(),
+                columns: vec!["emb".into()],
+                kind: Some("VECTOR".into()),
+                vector: Some(VectorIndex {
+                    algorithm: Some("diskann".into()),
+                    metric: Some("cosine".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let opts = crate::convert::Options::default();
+        let ora = crate::convert(&[t], "sqlserver", "oracle", &opts).unwrap();
+        let emb = &ora.tables[0].columns[1];
+        assert_eq!(emb.data_type, "VECTOR(3, FLOAT32)");
+        let ix = &ora.tables[0].indexes[0];
+        assert_eq!(ix.kind.as_deref(), Some("VECTOR"));
+        let v = ix.vector.as_ref().unwrap();
+        assert_eq!(v.algorithm.as_deref(), Some("hnsw"));
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        let back = crate::convert(&ora.tables, "oracle", "sqlserver", &opts).unwrap();
+        assert_eq!(back.tables[0].columns[1].data_type, "vector(3)");
+        let v = back.tables[0].indexes[0].vector.as_ref().unwrap();
+        assert_eq!(v.algorithm.as_deref(), Some("diskann"));
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
     }
 }

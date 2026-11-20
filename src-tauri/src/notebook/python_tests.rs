@@ -308,6 +308,7 @@ fn previews_only_when_asked() {
             columns: vec![StoredColumn {
                 name: "region".into(),
                 type_name: String::new(),
+                vector: None,
             }],
             rows: (0..5).map(|i| vec![json!(format!("r{i}"))]).collect(),
             rows_total: 5,

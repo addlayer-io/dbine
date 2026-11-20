@@ -431,7 +431,8 @@ async fn prepare(state: &AppState, args: &PlanArgs) -> CommandResult<Prepared> {
         rename_schemas: default_schema_rename(source.info().dialect, target.info().dialect),
         target_schema: single_schema,
         ..Options::default()
-    };
+    }
+    .for_target(&**target);
     let conv = dbine_schema::convert(&chosen, source.info().id, &args.target_driver, &opts)
         .map_err(|e| CommandError::BadRequest(e.to_string()))?;
     let o = &args.options;
@@ -1440,6 +1441,16 @@ impl Endpoints for MigrationEndpoints {
         let (s, t) = (self.source_driver.info().id, self.target_driver.info().id);
         same_package(s, t) && self.source_driver.supports_native_copy(t)
     }
+    /// The target's described columns with the vector each type is on its
+    /// engine: the insert-script path writes each value as its column takes it.
+    fn column_types(&self, columns: &[TransferColumn]) -> Vec<dbine_driver::ResultColumn> {
+        crate::commands::typed_scripts::of_describe(
+            self.target_driver.info().id,
+            columns
+                .iter()
+                .map(|c| (c.name.as_str(), c.type_name.as_str())),
+        )
+    }
 }
 
 // -- the jobs ---------------------------------------------------------------------------------------
@@ -1650,6 +1661,37 @@ fn transfer_columns(cols: Vec<dbine_driver::ColumnInfo>) -> Vec<TransferColumn> 
             nullable: c.nullable,
         })
         .collect()
+}
+
+/// The target's vector columns, by their types on its engine (`driver`):
+/// the insert-script path writes their values as vectors.
+fn vector_columns(driver: &str, cols: &[TransferColumn]) -> Vec<String> {
+    cols.iter()
+        .filter(|c| {
+            crate::commands::vectors::of_type(driver, &c.type_name).is_some_and(|m| !m.sparse)
+        })
+        .map(|c| c.name.clone())
+        .collect()
+}
+
+/// [`vector_columns`] of a converted table: as the target describes it (`described`) and as
+/// the conversion made it (`made`). An engine that describes a collection by its documents
+/// (MongoDB) says nothing of a new, empty one, and its vectors still have to arrive as vectors
+/// (a pgvector `bit(n)` as its bits, not as the bit string `1011…`).
+fn converted_vector_columns(
+    driver: &str,
+    described: &[TransferColumn],
+    made: &TableSchema,
+) -> Vec<String> {
+    let mut out = vector_columns(driver, described);
+    for c in &made.columns {
+        let vector =
+            crate::commands::vectors::of_type(driver, &c.data_type).is_some_and(|m| !m.sparse);
+        if vector && !out.iter().any(|n| n.eq_ignore_ascii_case(&c.name)) {
+            out.push(c.name.clone());
+        }
+    }
+    out
 }
 
 /// A statement's first line, short (for the list of those that failed).
@@ -1908,6 +1950,7 @@ async fn structure(
                 after,
                 post,
                 preexisting: existed,
+                vector_columns: converted_vector_columns(p.target.info().id, &expected, target_t),
                 expected_columns: expected,
                 mode: TransferMode::Copy,
             });
@@ -2098,6 +2141,7 @@ async fn clone_structure(
                 after: String::new(),
                 post: ct.after_data.clone(),
                 preexisting: existed,
+                vector_columns: vector_columns(p.target.info().id, &expected),
                 expected_columns: expected,
                 mode: TransferMode::Copy,
             });
@@ -2220,6 +2264,7 @@ async fn sync_structure(
                 after: String::new(),
                 post: Vec::new(),
                 preexisting: true,
+                vector_columns: vector_columns(p.target.info().id, &expected),
                 expected_columns: expected,
                 mode: TransferMode::Delta {
                     key,
@@ -2848,6 +2893,108 @@ mod tests {
     use dbine_core::{SavedConnection, StateStore};
     use dbine_driver::ConnectionConfig;
 
+    /// A converted table's vector columns come from the target's describe and from the types
+    /// the conversion gave them: MongoDB describes an empty collection by no field at all.
+    #[test]
+    fn a_converted_tables_vector_columns_come_from_its_types_too() {
+        let made = |ty: &str| TableSchema {
+            name: "docs".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "int".into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "emb".into(),
+                    data_type: ty.into(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            converted_vector_columns("mongodb", &[], &made("vector(16, bit)")),
+            ["emb"]
+        );
+        let described = [TransferColumn {
+            name: "EMB".into(),
+            type_name: "F1BIT_BLOB(16)".into(),
+            nullable: true,
+        }];
+        assert_eq!(
+            converted_vector_columns("libsql", &described, &made("F1BIT_BLOB(16)")),
+            ["EMB"]
+        );
+        assert!(converted_vector_columns("postgres", &[], &made("bit(16)")).is_empty());
+    }
+
+    /// A migration's insert-script path is typed by the target: each
+    /// column's type as the target describes it (the job's expected
+    /// columns), with the vector that type holds on the target's engine.
+    /// The transfer's default would give the names and types only.
+    #[test]
+    fn a_migrations_scripts_are_typed_by_the_target() {
+        let pg = dbine_drivers::find("postgres").unwrap().clone();
+        let e = MigrationEndpoints {
+            state: AppState::new(StateStore::open_in_memory().unwrap()),
+            run_id: "t".into(),
+            source: ("src".into(), String::new()),
+            target: ("tgt".into(), String::new()),
+            source_driver: pg.clone(),
+            target_driver: pg,
+            seq: AtomicU64::new(0),
+        };
+        let col = |name: &str, ty: &str| TransferColumn {
+            name: name.into(),
+            type_name: ty.into(),
+            nullable: true,
+        };
+        let expected = vec![col("id", "integer"), col("emb", "vector(3)")];
+        let types = e.column_types(&expected);
+        let named: Vec<(&str, &str)> = types
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_name.as_str()))
+            .collect();
+        assert_eq!(named, [("id", "integer"), ("emb", "vector(3)")]);
+        assert!(types[0].vector.is_none());
+        assert_eq!(types[1].vector.as_ref().and_then(|m| m.dims), Some(3));
+        let table = ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: "t".into(),
+        };
+        let job = TransferJob {
+            name: "t".into(),
+            source: ReadSpec {
+                table: table.clone(),
+                columns: None,
+                filter: None,
+            },
+            target: LoadSpec {
+                table,
+                columns: vec!["id".into(), "emb".into()],
+                table_lock: false,
+                keep_identity: false,
+                commit_rows: LoadSpec::DEFAULT_COMMIT_ROWS,
+                commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
+            },
+            row_estimate: None,
+            truncate: None,
+            empty_first: false,
+            before: String::new(),
+            after: String::new(),
+            post: vec![],
+            preexisting: false,
+            expected_columns: expected,
+            vector_columns: vec!["emb".into()],
+            mode: TransferMode::Copy,
+        };
+        let by_job = e.job_types(&job);
+        assert_eq!(by_job.len(), 2);
+        assert_eq!(by_job[1].vector, types[1].vector);
+    }
+
     /// kdb+ empties a table in place: dropping and recreating it from the
     /// clone's column-less schema used to leave it without columns.
     #[test]
@@ -2946,14 +3093,31 @@ mod tests {
         );
     }
 
-    fn dir(tag: &str) -> PathBuf {
+    /// A test's own folder (its state, databases and runs), removed when
+    /// it's dropped, at the end of the test, passed or not.
+    struct Dir(PathBuf);
+
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    impl std::ops::Deref for Dir {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    fn dir(tag: &str) -> Dir {
         let d = std::env::temp_dir().join(format!(
             "dbine-migration-{tag}-{}-{}",
             std::process::id(),
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
         ));
         std::fs::create_dir_all(&d).unwrap();
-        d
+        Dir(d)
     }
 
     fn sqlite(state: &AppState, id: &str, path: &Path) {
@@ -3030,7 +3194,7 @@ mod tests {
         (Arc::new(move |v| s.lock().unwrap().push(v)), seen)
     }
 
-    async fn setup(tag: &str) -> (AppState, MigrationRuns, PathBuf) {
+    async fn setup(tag: &str) -> (AppState, MigrationRuns, Dir) {
         let d = dir(tag);
         let state = AppState::new(StateStore::open(&d.join("state.sqlite")).unwrap());
         sqlite(&state, "src", &d.join("src.db"));
@@ -3351,7 +3515,7 @@ mod tests {
 
     /// Two fresh databases on dbine-test-postgres, the source with a parent / child pair (a foreign
     /// key, an index, an identity, a check and a view).
-    async fn pg_setup(tag: &str) -> (AppState, MigrationRuns) {
+    async fn pg_setup(tag: &str) -> (AppState, MigrationRuns, Dir) {
         let d = dir(tag);
         let state = AppState::new(StateStore::open(&d.join("state.sqlite")).unwrap());
         postgres(&state, "admin", "postgres");
@@ -3377,7 +3541,8 @@ mod tests {
              INSERT INTO child SELECT g, g % 20 + 1, 'n' || g, decode(repeat('ab', g % 50), 'hex') FROM generate_series(1, 5000) g;",
         )
         .await;
-        (state, MigrationRuns::open(&d))
+        let runs = MigrationRuns::open(&d);
+        (state, runs, d)
     }
 
     async fn pg_scalar(state: &AppState, conn: &str, sql: &str) -> i64 {
@@ -3399,7 +3564,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     #[ignore = "needs dbine-test-postgres on localhost:25010"]
     async fn clones_then_syncs_postgres() {
-        let (state, runs) = pg_setup("pg").await;
+        let (state, runs, _d) = pg_setup("pg").await;
 
         // The preview: the driver's script, from the target's capabilities.
         let mut a = pg_args("pgc", MigrationMode::Clone);
@@ -3675,3 +3840,7 @@ mod tests {
         assert_eq!(before_label("SELECT 1"), "SELECT 1");
     }
 }
+
+#[cfg(test)]
+#[path = "migration_vector_live_tests.rs"]
+mod vector_live_tests;

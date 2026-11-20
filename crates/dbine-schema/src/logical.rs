@@ -105,6 +105,15 @@ pub enum LogicalType {
     MacAddr,
     /// Row identifier / version stamp (`rowversion`, `ROWID`).
     RowVersion,
+    /// An embedding: `dims` numbers of `element` (`None`: any length);
+    /// `sparse` when only the non-zero positions are stored (pgvector
+    /// `sparsevec`, Oracle `SPARSE`).
+    Vector {
+        dims: Option<u32>,
+        element: dbine_driver::VectorElement,
+        #[serde(default)]
+        sparse: bool,
+    },
     /// Not classified: the native spelling, kept as is.
     Other {
         native: String,
@@ -168,6 +177,29 @@ impl LogicalType {
             Self::Enum { .. } => "enumerado".into(),
             Self::Set { .. } => "conjunto".into(),
             Self::Array { of } => format!("arreglo de {}", of.describe()),
+            Self::Vector {
+                dims,
+                element,
+                sparse,
+            } => {
+                use dbine_driver::VectorElement as E;
+                let kind = if *sparse { "vector disperso" } else { "vector" };
+                let of = match element {
+                    E::F32 => " (float32)",
+                    E::F64 => " (float64)",
+                    E::F16 => " (float16)",
+                    E::Bf16 => " (bfloat16)",
+                    E::I8 => " (int8)",
+                    E::U8 => " (uint8)",
+                    E::I32 => " (int32)",
+                    E::Bit => " (bit)",
+                    E::Other => "",
+                };
+                match dims {
+                    Some(n) => format!("{kind} de {n} dimensiones{of}"),
+                    None => format!("{kind}{of}"),
+                }
+            }
             Self::Map { .. } => "mapa".into(),
             Self::Geometry { .. } => "espacial".into(),
             Self::Inet => "dirección IP".into(),

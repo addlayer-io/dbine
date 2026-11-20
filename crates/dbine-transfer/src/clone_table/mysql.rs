@@ -1386,3 +1386,411 @@ PARTITIONS 3 */";
         assert!(refuse(&parse(MYSQL).unwrap()).is_ok());
     }
 }
+
+/// Vectors against live servers: a clone of a vector table (MySQL 9,
+/// MariaDB with its vector index, TiDB) and moves between pgvector and the
+/// MySQL family's vector engines (MySQL 9, MariaDB, GreptimeDB) through
+/// the transfer's own copy, both ways where the family reads back. Ignored;
+/// each runs when its servers' URLs are set (`postgres://user:pw@host:port`,
+/// `mysql://user:pw@host:port`) and drops what it made, first and at the end:
+///
+/// ```sh
+/// docker start dbine-test-pgvector dbine-test-mysql9 dbine-test-mariadb \
+///   dbine-test-tidb8 dbine-test-greptimedb
+/// DBINE_TEST_PGVECTOR_URL=postgres://postgres:pw@127.0.0.1:27200 \
+/// DBINE_TEST_MYSQL9_URL=mysql://root:pw@127.0.0.1:27201 \
+/// DBINE_TEST_MARIADB_URL=mysql://root:pw@127.0.0.1:25012 \
+/// DBINE_TEST_TIDB8_URL=mysql://root@127.0.0.1:25044 \
+/// DBINE_TEST_GREPTIMEDB_URL=mysql://127.0.0.1:25017 \
+///   cargo test -p dbine-transfer --lib vector_live -- --ignored --nocapture
+/// ```
+#[cfg(test)]
+mod vector_live {
+    use crate::clone_table::{
+        clone_table, CloneControl, CloneOptions, CloneRequest, ConfigEndpoints,
+    };
+    use crate::copy::{copy_table, CopyInput};
+    use crate::TransferJob;
+    use dbine_driver::transfer::{LoadSpec, ReadSpec};
+    use dbine_driver::{kinds, ConnectionConfig, Driver, ObjectRef, QueryOutcome, Session};
+    use std::sync::Arc;
+
+    const ROWS: [&str; 3] = ["[1,0,0]", "[0.5,0.5,0]", "[-1,2.5,0.125]"];
+
+    fn driver(id: &str) -> Arc<dyn Driver> {
+        dbine_drivers::all()
+            .iter()
+            .find(|d| d.info().id == id)
+            .cloned()
+            .unwrap_or_else(|| panic!("no driver {id}"))
+    }
+
+    fn config(driver: &str, url: &str) -> ConnectionConfig {
+        let rest = url.split_once("://").map_or(url, |(_, r)| r);
+        let (auth, hostport) = rest.rsplit_once('@').unwrap_or(("", rest));
+        let (user, pass) = auth
+            .split_once(':')
+            .map_or((auth, None), |(u, p)| (u, Some(p)));
+        let (host, port) = hostport
+            .rsplit_once(':')
+            .map_or((hostport, 0), |(h, p)| (h, p.parse().unwrap()));
+        ConnectionConfig {
+            driver: driver.into(),
+            host: host.into(),
+            port,
+            username: (!user.is_empty()).then(|| user.into()),
+            password: pass.map(Into::into),
+            ..Default::default()
+        }
+    }
+
+    async fn run(s: &mut dyn Session, sql: &str) -> Result<QueryOutcome, String> {
+        let mut out = QueryOutcome::default();
+        s.execute(sql, 1000, &mut out)
+            .await
+            .map_err(|e| e.to_string())?;
+        match out.error.take() {
+            Some(e) => Err(e),
+            None => Ok(out),
+        }
+    }
+
+    async fn must(s: &mut dyn Session, sql: &str) -> QueryOutcome {
+        run(s, sql).await.unwrap_or_else(|e| panic!("{sql}: {e}"))
+    }
+
+    /// One column of a query, as text.
+    async fn texts(s: &mut dyn Session, sql: &str) -> Vec<String> {
+        must(s, sql).await.results[0]
+            .rows
+            .iter()
+            .map(|r| match &r[0] {
+                serde_json::Value::String(t) => t.clone(),
+                other => other.to_string(),
+            })
+            .collect()
+    }
+
+    fn table(schema: Option<&str>, name: &str) -> ObjectRef {
+        ObjectRef {
+            kind: kinds::TABLE.into(),
+            schema: schema.map(Into::into),
+            name: name.into(),
+        }
+    }
+
+    /// A server: its driver, its config and a session in the test's
+    /// database (made fresh; dropped again by [`Side::drop_db`]).
+    struct Side {
+        driver: Arc<dyn Driver>,
+        config: ConnectionConfig,
+        /// PostgreSQL keeps the table in a schema of its database.
+        pg: bool,
+        /// The test's database (PostgreSQL: schema), one per test, so
+        /// that the tests sharing a server run at the same time.
+        db: String,
+    }
+
+    impl Side {
+        fn new(driver_id: &str, env: &str, db: &str) -> Option<Self> {
+            let url = std::env::var(env).ok()?;
+            Some(Side {
+                driver: driver(driver_id),
+                config: config(driver_id, &url),
+                pg: driver_id == "postgres",
+                db: db.to_string(),
+            })
+        }
+
+        async fn admin(&self) -> Box<dyn Session> {
+            self.driver
+                .connect(&self.config, None)
+                .await
+                .unwrap_or_else(|e| panic!("connect {}: {e}", self.driver.info().id))
+        }
+
+        /// A session in the test's database (PostgreSQL: a schema).
+        async fn fresh(&self) -> Box<dyn Session> {
+            let mut a = self.admin().await;
+            let db = &self.db;
+            if self.pg {
+                let _ = run(&mut *a, &format!("DROP SCHEMA IF EXISTS {db} CASCADE")).await;
+                must(&mut *a, "CREATE EXTENSION IF NOT EXISTS vector").await;
+                must(&mut *a, &format!("CREATE SCHEMA {db}")).await;
+                return a;
+            }
+            let _ = run(&mut *a, &format!("DROP DATABASE IF EXISTS {db}")).await;
+            must(&mut *a, &format!("CREATE DATABASE {db}")).await;
+            self.driver
+                .connect(&self.config, Some(db))
+                .await
+                .expect("connect to the test database")
+        }
+
+        async fn drop_db(&self) {
+            let mut a = self.admin().await;
+            let db = &self.db;
+            let sql = if self.pg {
+                format!("DROP SCHEMA IF EXISTS {db} CASCADE")
+            } else {
+                format!("DROP DATABASE IF EXISTS {db}")
+            };
+            let _ = run(&mut *a, &sql).await;
+        }
+
+        fn schema(&self) -> Option<&str> {
+            self.pg.then_some(self.db.as_str())
+        }
+
+        /// The vector column's values, by id, as the engine prints them
+        /// (each engine's own text function, whatever the reader does).
+        fn as_text(&self, name: &str) -> String {
+            let v = match self.driver.info().id {
+                "postgres" => "v::text",
+                "mysql" => "VECTOR_TO_STRING(v)",
+                "mariadb" => "VEC_ToText(v)",
+                "tidb" => "VEC_AS_TEXT(v)",
+                _ => "v",
+            };
+            match self.schema() {
+                Some(s) => format!("SELECT {v} FROM {s}.{name} ORDER BY id"),
+                None => format!("SELECT {v} FROM {name} ORDER BY `id`"),
+            }
+        }
+    }
+
+    /// The source's `src` copied into the target's `dst` by the transfer.
+    async fn transfer(from: &Side, to: &Side, dst: &mut dyn Session) {
+        let job = TransferJob {
+            name: "vectors".into(),
+            source: ReadSpec {
+                table: table(from.schema(), "src"),
+                columns: Some(vec!["id".into(), "v".into()]),
+                filter: None,
+            },
+            target: LoadSpec {
+                table: table(to.schema(), "dst"),
+                columns: vec!["id".into(), "v".into()],
+                table_lock: false,
+                keep_identity: true,
+                commit_rows: LoadSpec::DEFAULT_COMMIT_ROWS,
+                commit_bytes: LoadSpec::DEFAULT_COMMIT_BYTES,
+            },
+            row_estimate: None,
+            truncate: None,
+            empty_first: false,
+            before: String::new(),
+            after: String::new(),
+            post: Vec::new(),
+            vector_columns: vec!["v".into()],
+            preexisting: false,
+            expected_columns: Vec::new(),
+            mode: Default::default(),
+        };
+        let src_session = from
+            .driver
+            .connect(&from.config, (!from.pg).then_some(from.db.as_str()))
+            .await
+            .unwrap();
+        let stats = copy_table(
+            CopyInput {
+                job: &job,
+                source_driver: &*from.driver,
+                target_driver: &*to.driver,
+                native: false,
+                progress: &|_| {},
+                log: &|_, _| {},
+                delta: None,
+            },
+            src_session,
+            dst,
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{} -> {}: {e}", from.driver.info().id, to.driver.info().id));
+        assert_eq!(stats.rows, 3);
+    }
+
+    /// A vector table made on `side` with its own SQL, rows in [`ROWS`].
+    async fn make(side: &Side, s: &mut dyn Session, name: &str, with_rows: bool) {
+        let ddl = match side.driver.info().id {
+            "postgres" => format!(
+                "CREATE TABLE {}.{name} (id int PRIMARY KEY, v vector(3))",
+                side.db
+            ),
+            // `id` is a keyword to GreptimeDB.
+            "greptimedb" => format!(
+                "CREATE TABLE {name} (`id` INT, v VECTOR(3), ts TIMESTAMP(3) DEFAULT '2024-01-01 00:00:00' TIME INDEX, PRIMARY KEY (`id`))"
+            ),
+            "mariadb" => format!(
+                "CREATE TABLE {name} (id INT PRIMARY KEY, v VECTOR(3) NOT NULL, VECTOR INDEX (v) M=8 DISTANCE=cosine)"
+            ),
+            _ => format!("CREATE TABLE {name} (id INT PRIMARY KEY, v VECTOR(3))"),
+        };
+        must(s, &ddl).await;
+        if !with_rows {
+            return;
+        }
+        let value = |t: &str| match side.driver.info().id {
+            "mysql" => format!("STRING_TO_VECTOR('{t}')"),
+            "mariadb" => format!("VEC_FromText('{t}')"),
+            _ => format!("'{t}'"),
+        };
+        let target = match side.schema() {
+            Some(sc) => format!("{sc}.{name}"),
+            None => name.to_string(),
+        };
+        let values: Vec<String> = ROWS
+            .iter()
+            .enumerate()
+            .map(|(i, t)| format!("({}, {})", i + 1, value(t)))
+            .collect();
+        let id = if side.pg { "id" } else { "`id`" };
+        must(
+            s,
+            &format!(
+                "INSERT INTO {target} ({id}, v) VALUES {}",
+                values.join(", ")
+            ),
+        )
+        .await;
+    }
+
+    /// The numbers of each row's vector, whatever the engine's spelling.
+    fn numbers(texts: &[String]) -> Vec<Vec<f64>> {
+        texts
+            .iter()
+            .map(|t| {
+                let inner = t.trim().trim_start_matches('[').trim_end_matches(']');
+                inner
+                    .split(',')
+                    .map(|x| x.trim().parse::<f64>().unwrap_or(f64::NAN))
+                    .collect()
+            })
+            .collect()
+    }
+
+    async fn both_ways(other_id: &str, env: &str, back: bool) {
+        let db = format!("dbine_vec_move_{other_id}");
+        let (Some(pg), Some(other)) = (
+            Side::new("postgres", "DBINE_TEST_PGVECTOR_URL", &db),
+            Side::new(other_id, env, &db),
+        ) else {
+            eprintln!("DBINE_TEST_PGVECTOR_URL or {env} not set; skipping");
+            return;
+        };
+        let mut p = pg.fresh().await;
+        let mut o = other.fresh().await;
+        let outcome = tokio::spawn(async move {
+            // pgvector -> the family.
+            make(&pg, &mut *p, "src", true).await;
+            make(&other, &mut *o, "dst", false).await;
+            transfer(&pg, &other, &mut *o).await;
+            let want = numbers(&texts(&mut *p, &pg.as_text("src")).await);
+            let got = numbers(&texts(&mut *o, &other.as_text("dst")).await);
+            assert_eq!(got, want, "pgvector -> {}", other.driver.info().id);
+            // …and back into pgvector.
+            if back {
+                make(&other, &mut *o, "src", true).await;
+                make(&pg, &mut *p, "dst", false).await;
+                transfer(&other, &pg, &mut *p).await;
+                let want = numbers(&texts(&mut *o, &other.as_text("src")).await);
+                let got = numbers(&texts(&mut *p, &pg.as_text("dst")).await);
+                assert_eq!(got, want, "{} -> pgvector", other.driver.info().id);
+            }
+            (pg, other)
+        })
+        .await;
+        // Whatever failed, the test's databases go.
+        let pg = Side::new("postgres", "DBINE_TEST_PGVECTOR_URL", &db).unwrap();
+        let other = Side::new(other_id, env, &db).unwrap();
+        pg.drop_db().await;
+        other.drop_db().await;
+        if let Err(e) = outcome {
+            std::panic::resume_unwind(e.into_panic());
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn pgvector_and_mysql9_vectors_move_both_ways() {
+        both_ways("mysql", "DBINE_TEST_MYSQL9_URL", true).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn pgvector_and_mariadb_vectors_move_both_ways() {
+        both_ways("mariadb", "DBINE_TEST_MARIADB_URL", true).await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn pgvector_and_greptimedb_vectors_move_both_ways() {
+        both_ways("greptimedb", "DBINE_TEST_GREPTIMEDB_URL", true).await;
+    }
+
+    /// "Clonar tabla" of a vector table: the rows' vectors the same as the
+    /// server prints them, and MariaDB's vector index kept.
+    async fn clone_vectors(id: &str, env: &str) {
+        let db = format!("dbine_vec_clone_{id}");
+        let Some(side) = Side::new(id, env, &db) else {
+            eprintln!("{env} not set; skipping");
+            return;
+        };
+        let mut s = side.fresh().await;
+        let id_owned = id.to_string();
+        let outcome = tokio::spawn(async move {
+            let id = id_owned.as_str();
+            make(&side, &mut *s, "src", true).await;
+            let endpoints = Arc::new(ConfigEndpoints {
+                driver: side.driver.clone(),
+                config: side.config.clone(),
+                database: Some(side.db.clone()),
+            });
+            let report = clone_table(
+                endpoints,
+                CloneRequest {
+                    source: table(None, "src"),
+                    new_name: "src_clone".into(),
+                    options: CloneOptions::default(),
+                },
+                &CloneControl::default(),
+                |_| {},
+            )
+            .await
+            .unwrap_or_else(|e| panic!("{id}: clone: {e}"));
+            assert_eq!(report.rows, 3, "{id}");
+            let want = texts(&mut *s, &side.as_text("src")).await;
+            let got = texts(&mut *s, &side.as_text("src_clone")).await;
+            assert_eq!(got, want, "{id}");
+            if id == "mariadb" {
+                let out = must(&mut *s, "SHOW CREATE TABLE src_clone").await;
+                let ddl = out.results[0].rows[0][1].as_str().unwrap_or("").to_string();
+                assert!(ddl.contains("VECTOR KEY"), "{ddl}");
+                assert!(ddl.contains("`DISTANCE`='cosine'"), "{ddl}");
+            }
+        })
+        .await;
+        Side::new(id, env, &db).unwrap().drop_db().await;
+        if let Err(e) = outcome {
+            std::panic::resume_unwind(e.into_panic());
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn mysql9_clone_keeps_vectors() {
+        clone_vectors("mysql", "DBINE_TEST_MYSQL9_URL").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn mariadb_clone_keeps_vectors_and_their_index() {
+        clone_vectors("mariadb", "DBINE_TEST_MARIADB_URL").await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn tidb_clone_keeps_vectors() {
+        clone_vectors("tidb", "DBINE_TEST_TIDB8_URL").await;
+    }
+}

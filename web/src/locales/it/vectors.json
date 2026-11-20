@@ -1,0 +1,78 @@
+{
+  "cell": {
+    "dims_one": "{{count}} dimensione",
+    "dims_many": "{{count}} dimensioni",
+    "dims_other": "{{count}} dimensioni",
+    "sparse": "sparso"
+  },
+  "viewer": {
+    "element": "Tipo",
+    "dims": "Dimensioni",
+    "declared": "(la colonna dichiara {{dims}})",
+    "norm": "Norma (L2)",
+    "min": "Minimo",
+    "max": "Massimo",
+    "empty": "Vettore vuoto",
+    "sparse": "Vettore sparso: mostrato come lo scrive il motore.",
+    "copyJson": "Copia come JSON"
+  },
+  "edit": {
+    "format": "«{{column}}» è una colonna vettoriale: il valore si scrive come array JSON di numeri, ad esempio [0.12, -0.03, 0.88]. Per lasciarla a NULL usa «$t(results:grid.setNull)».",
+    "dims": "«{{column}}» contiene vettori di {{expected}} dimensioni e il valore ne ha {{got}}.",
+    "range": "«{{column}}» accetta interi da {{min}} a {{max}}: il numero {{position}} del vettore è {{value}}.",
+    "overflow": "«{{column}}» memorizza numeri {{element}}, fino a ±{{max}}: il numero {{position}} del vettore è {{value}}.",
+    "empty": "«{{column}}» non accetta un vettore vuoto: scrivi i suoi numeri, ad esempio [0.12, -0.03, 0.88].",
+    "skippedColumns": "Le colonne vettoriali ({{columns}}) restano fuori dal WHERE."
+  },
+  "filter": {
+    "onlyNull": "«{{column}}» è una colonna vettoriale: filtra per NULL o NOT NULL, oppure con una condizione SQL dal menu del filtro."
+  },
+  "sort": {
+    "local": "le colonne vettoriali non vengono ordinate sul server"
+  },
+  "compare": {
+    "from": "dal n. {{position}}",
+    "firstDiff": "{{side}}: differiscono dal numero {{position}} di {{dims}}. Doppio clic per vedere l'intero vettore."
+  },
+  "metric": {
+    "cosine": "Coseno",
+    "l2": "Euclidea (L2)",
+    "ip": "Prodotto interno",
+    "l1": "Manhattan (L1)",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "metricShort": {
+    "cosine": "Coseno",
+    "l2": "L2",
+    "ip": "IP",
+    "l1": "L1",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "param": {
+    "m": "Connessioni per nodo (m)",
+    "ef_construction": "Candidati in costruzione (ef_construction)",
+    "lists": "Liste (lists)",
+    "quantization": "Quantizzazione"
+  },
+  "designer": {
+    "toggle": "Vettoriale",
+    "toggleHint": "Un indice di ricerca per similarità su una colonna vettoriale",
+    "algorithm": "Algoritmo",
+    "metric": "Distanza",
+    "vectorColumn": "Colonna vettoriale",
+    "vectorColumnPlaceholder": "Scegli la colonna vettoriale",
+    "filterColumns": "Colonne di filtro",
+    "filterColumnsPlaceholder": "Nessuna",
+    "paramPlaceholder": "Predefinito del motore",
+    "vectorType": "vettoriale",
+    "notVectorColumn": "L'indice «{{label}}» è vettoriale e «{{column}}» non è una colonna vettoriale.",
+    "noFilterColumns": "L'indice «{{label}}» è vettoriale: su questo motore include solo la colonna vettoriale.",
+    "rebuilt": "L'indice vettoriale «{{label}}» cambia: viene eliminato e ricreato, e la ricostruzione può richiedere tempo su tabelle grandi."
+  },
+  "index": {
+    "summary": "Vettoriale: {{text}}",
+    "column": "Indice vettoriale"
+  }
+}

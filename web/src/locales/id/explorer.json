@@ -24,6 +24,7 @@
     "migrations": "Migrasi",
     "noMigrations": "Tanpa migrasi: klik kanan › Migrasi baru…",
     "noSchemaObjects": "Tanpa objek",
+    "noObjectsCreate": "Tidak ada objek: klik kanan untuk membuat",
     "keys": "Kunci",
     "ofTotal": "dari {{total}}",
     "others": "Lainnya",

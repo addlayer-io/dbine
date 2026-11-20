@@ -6,7 +6,7 @@ use dbine_driver::{Cell, Error, TransferColumn};
 use dbine_transfer::{
     Bottleneck, CopyPath, Engine, Event, RunOptions, RunStatus, Store, TableStatus, CHANNEL_BATCHES,
 };
-use fake::{col, job, state_path, until, Events, Fake, FakeEndpoints, Fault, Native};
+use fake::{col, job, state_path, until, Events, Fake, FakeEndpoints, Fault, Native, StateFile};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,7 +20,9 @@ fn opts(parallel: usize) -> RunOptions {
     }
 }
 
-fn store(tag: &str) -> (Arc<Store>, std::path::PathBuf) {
+/// A run's store on a fresh state file; the file goes when the returned
+/// guard is dropped, so bind it until the test ends.
+fn store(tag: &str) -> (Arc<Store>, StateFile) {
     let p = state_path(tag);
     (Arc::new(Store::open(&p).unwrap()), p)
 }
@@ -52,7 +54,7 @@ async fn copies_every_table_with_bulk_load() {
     let fake = Arc::new(Fake::default());
     fake.table("a", 2_500);
     fake.table("b", 0);
-    let (st, _) = store("basic");
+    let (st, _state) = store("basic");
     let ev = Events::default();
     let engine = Engine::new(st.clone(), "r1");
     let report = engine
@@ -91,7 +93,7 @@ async fn parallel_limit_changes_live() {
     for n in names {
         fake.table(n, 10);
     }
-    let (st, _) = store("parallel");
+    let (st, _state) = store("parallel");
     let engine = Engine::new(st.clone(), "r");
     let control = engine.control();
     let jobs = names.iter().map(|n| job(n, Some(10))).collect();
@@ -132,7 +134,7 @@ async fn largest_tables_first() {
     for n in ["a", "b", "c", "d"] {
         fake.table(n, 5);
     }
-    let (st, _) = store("order");
+    let (st, _state) = store("order");
     let jobs = vec![
         job("a", Some(10)),
         job("b", Some(300)),
@@ -153,7 +155,7 @@ async fn memory_is_bounded_by_the_channel() {
         ..Default::default()
     });
     fake.table("wide", 80_000);
-    let (st, _) = store("memory");
+    let (st, _state) = store("memory");
     let ev = Events::default();
     Engine::new(st, "r")
         .run(
@@ -292,7 +294,7 @@ async fn transient_error_is_retried_after_emptying() {
         error: || Error::Connect("connection reset by peer".into()),
         times: 1,
     });
-    let (st, _) = store("transient");
+    let (st, _state) = store("transient");
     let ev = Events::default();
     let options = RunOptions {
         commit_rows: 1_000,
@@ -327,7 +329,7 @@ async fn other_errors_are_not_retried_and_retry_failed_recovers() {
         error: || Error::Query("Violation of PRIMARY KEY constraint".into()),
         times: 1,
     });
-    let (st, _) = store("fatal");
+    let (st, _state) = store("fatal");
     let options = RunOptions {
         commit_rows: 1_000,
         ..opts(1)
@@ -386,7 +388,7 @@ async fn column_mismatch_is_reported_and_the_table_skipped() {
     good.expected_columns = expected.clone();
     let mut bad = job("bad", Some(1));
     bad.expected_columns = expected;
-    let (st, _) = store("mismatch");
+    let (st, _state) = store("mismatch");
     let report = Engine::new(st.clone(), "r")
         .run(
             vec![good, bad],
@@ -413,7 +415,7 @@ async fn cancelling_one_table_leaves_the_others() {
     });
     fake.table("a", 10);
     fake.table("b", 10);
-    let (st, _) = store("cancel");
+    let (st, _state) = store("cancel");
     let ev = Events::default();
     let engine = Engine::new(st.clone(), "r");
     let control = engine.control();
@@ -456,7 +458,7 @@ async fn a_panic_fails_only_its_table() {
     });
     fake.table("boom", 10);
     fake.table("ok", 10);
-    let (st, _) = store("panic");
+    let (st, _state) = store("panic");
     let report = Engine::new(st.clone(), "r")
         .run(
             vec![job("boom", None), job("ok", None)],
@@ -485,7 +487,7 @@ async fn insert_script_when_there_is_no_bulk_load() {
     let mut j = job("t", None);
     j.before = "BEFORE t".into();
     j.after = "AFTER t".into();
-    let (st, _) = store("insert");
+    let (st, _state) = store("insert");
     let ev = Events::default();
     Engine::new(st, "r")
         .run(
@@ -525,7 +527,7 @@ async fn after_statements_run_on_every_path() {
         let mut j = job("t", None);
         j.before = "BEFORE t".into();
         j.after = "AFTER t".into();
-        let (st, _) = store(if allowed {
+        let (st, _state) = store(if allowed {
             "after-native"
         } else {
             "after-bulk"
@@ -555,7 +557,7 @@ async fn native_copy_when_allowed() {
         ..Default::default()
     });
     fake.table("t", 1_234);
-    let (st, _) = store("native");
+    let (st, _state) = store("native");
     let ev = Events::default();
     Engine::new(st, "r")
         .run(
@@ -578,7 +580,7 @@ async fn native_copy_when_allowed() {
         ..Default::default()
     });
     fake.table("t", 10);
-    let (st, _) = store("native-off");
+    let (st, _state) = store("native-off");
     Engine::new(st, "r")
         .run(
             vec![job("t", None)],
@@ -600,7 +602,7 @@ async fn native_copy_falls_back_on_unsupported() {
         ..Default::default()
     });
     fake.table("t", 1_500);
-    let (st, _) = store("native-fallback");
+    let (st, _state) = store("native-fallback");
     let ev = Events::default();
     Engine::new(st, "r")
         .run(
@@ -636,7 +638,7 @@ async fn preexisting_rows_are_never_overwritten_by_default() {
     let mut empty = job("empty", None);
     empty.preexisting = true;
     empty.empty_first = true;
-    let (st, _) = store("preexisting");
+    let (st, _state) = store("preexisting");
     let report = Engine::new(st.clone(), "r")
         .run(
             vec![keep, empty],
@@ -668,7 +670,7 @@ async fn live_queue_and_run_now() {
     for n in ["a", "b", "c"] {
         fake.table(n, 10);
     }
-    let (st, _) = store("queue");
+    let (st, _state) = store("queue");
     let engine = Engine::new(st.clone(), "r");
     let control = engine.control();
     let ep = FakeEndpoints::new(fake.clone());
@@ -706,7 +708,7 @@ async fn cancel_all_keeps_queued_tables_pending_for_resume() {
     for n in ["a", "b"] {
         fake.table(n, 10);
     }
-    let (st, _) = store("cancel-all");
+    let (st, _state) = store("cancel-all");
     let engine = Engine::new(st.clone(), "r");
     let control = engine.control();
     let ep = FakeEndpoints::new(fake.clone());
@@ -748,7 +750,7 @@ async fn the_table_waiting_for_a_slot_can_be_cancelled_or_run_now() {
     for n in ["a", "b", "c"] {
         fake.table(n, 10);
     }
-    let (st, _) = store("head-of-queue");
+    let (st, _state) = store("head-of-queue");
     let engine = Engine::new(st.clone(), "r");
     let control = engine.control();
     let ep = FakeEndpoints::new(fake.clone());
@@ -790,7 +792,7 @@ async fn a_reused_engine_does_not_queue_leftovers_twice() {
         error: || Error::Query("Violation of PRIMARY KEY constraint".into()),
         times: 1,
     });
-    let (st, _) = store("reuse");
+    let (st, _state) = store("reuse");
     let engine = Arc::new(Engine::new(st.clone(), "r"));
     let control = engine.control();
     let (e, ep) = (engine.clone(), FakeEndpoints::new(fake.clone()));
@@ -842,7 +844,7 @@ async fn rows_in_a_created_table_are_emptied_even_if_the_state_lost_them() {
             vec![Cell::Int(4), Cell::Null],
         ],
     );
-    let (st, _) = store("lost-state");
+    let (st, _state) = store("lost-state");
     let report = Engine::new(st.clone(), "r")
         .run(
             vec![job("t", None)],
@@ -855,4 +857,181 @@ async fn rows_in_a_created_table_are_emptied_even_if_the_state_lost_them() {
     assert_eq!(report.summary.done, 1);
     assert_eq!(fake.count("TRUNCATE t"), 1);
     assert_eq!(ids(&fake.target_rows("t")), (0..10).collect::<Vec<_>>());
+}
+
+/// Vectors move as the JSON-array text (or JSON) the source reads: a bulk
+/// load gets the cells as they came; the insert-script path gives the
+/// driver the job's vector columns as arrays of numbers, which it writes as
+/// its engine's vector literal. Other text that looks like an array, and a
+/// sparse vector's own text, stay as they are.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn vectors_pass_through_bulk_loads_and_reach_insert_scripts_as_arrays() {
+    let vectors = || -> Vec<Vec<Cell>> {
+        vec![
+            vec![Cell::Int(1), Cell::Text("[0.5,-1,2e-7]".into())],
+            vec![Cell::Int(2), Cell::Json("[1,2,3]".into())],
+            vec![Cell::Int(3), Cell::Null],
+            vec![Cell::Int(4), Cell::Text("{1:0.5,3:2}/4".into())],
+        ]
+    };
+    for bulk in [true, false] {
+        let fake = Arc::new(Fake {
+            bulk,
+            ..Default::default()
+        });
+        fake.table("emb", 0);
+        fake.source.lock().unwrap().insert("emb".into(), vectors());
+        let (st, _state) = store(if bulk { "vec-bulk" } else { "vec-insert" });
+        let mut j = job("emb", Some(4));
+        j.vector_columns = vec!["NAME".into()];
+        let report = Engine::new(st, "r")
+            .run(vec![j], opts(1), FakeEndpoints::new(fake.clone()), |_| {})
+            .await
+            .unwrap();
+        assert_eq!(report.summary.status, RunStatus::Finished);
+        let mut got = fake.target_rows("emb");
+        got.sort_by_key(|r| if let Cell::Int(i) = r[0] { i } else { -1 });
+        if bulk {
+            assert_eq!(fake.bulk_calls.load(Ordering::SeqCst), 1);
+            assert_eq!(got, vectors(), "a bulk load gets the cells unchanged");
+        } else {
+            // The fake's script is the rows as JSON: arrays come back as
+            // JSON cells, the rest as they went.
+            let arr = |v: serde_json::Value| Cell::Json(v.to_string());
+            assert_eq!(
+                got,
+                vec![
+                    vec![Cell::Int(1), arr(serde_json::json!([0.5, -1.0, 2e-7]))],
+                    vec![Cell::Int(2), arr(serde_json::json!([1, 2, 3]))],
+                    vec![Cell::Int(3), Cell::Null],
+                    vec![Cell::Int(4), Cell::Text("{1:0.5,3:2}/4".into())],
+                ]
+            );
+        }
+    }
+}
+
+/// A bit string (PostgreSQL's `bit(n)`, pgvector's binary vectors) going
+/// into a vector column goes as the contract's binary vector, the JSON
+/// array of its bits, on both paths: the target's loader or insert script
+/// takes that, not `1011`. Into a column that isn't a vector, or from a
+/// column that isn't a bit string, cells go as they came.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn bit_strings_into_vector_columns_go_as_arrays_of_bits() {
+    use dbine_driver::{ResultColumn, VectorElement, VectorMeta};
+    let rows = || -> Vec<Vec<Cell>> {
+        vec![
+            vec![Cell::Int(1), Cell::Text("1011".into())],
+            vec![Cell::Int(2), Cell::Null],
+            vec![Cell::Int(3), Cell::Text("0000".into())],
+        ]
+    };
+    let arrays = vec![
+        vec![Cell::Int(1), Cell::Json("[1,0,1,1]".into())],
+        vec![Cell::Int(2), Cell::Null],
+        vec![Cell::Int(3), Cell::Json("[0,0,0,0]".into())],
+    ];
+    let bits = VectorMeta::dense(Some(4), VectorElement::Bit);
+    // (read type, vector_columns, typed as a vector, converted)
+    let cases: [(&str, bool, bool, bool); 6] = [
+        ("bit(4)", true, false, true),
+        ("BIT VARYING(4)", false, true, true),
+        ("varbit", true, false, true),
+        ("bit(4)", false, false, false),
+        ("text", true, false, false),
+        ("vector(4)", true, false, false),
+    ];
+    for bulk in [true, false] {
+        for (k, (read_type, listed, typed, converted)) in cases.iter().enumerate() {
+            let fake = Arc::new(Fake {
+                bulk,
+                name_type: read_type,
+                ..Default::default()
+            });
+            fake.table("bits", 0);
+            fake.source.lock().unwrap().insert("bits".into(), rows());
+            if *typed {
+                *fake.job_types.lock().unwrap() = vec![
+                    ResultColumn::new("id", "integer"),
+                    ResultColumn::new("name", "F1BIT_BLOB(4)").with_vector(bits.clone()),
+                ];
+            }
+            let (st, _state) = store(&format!("vec-bits-{bulk}-{k}"));
+            let mut j = job("bits", Some(3));
+            if *listed {
+                j.vector_columns = vec!["NAME".into()];
+            }
+            let report = Engine::new(st, "r")
+                .run(vec![j], opts(1), FakeEndpoints::new(fake.clone()), |_| {})
+                .await
+                .unwrap();
+            assert_eq!(report.summary.status, RunStatus::Finished);
+            let mut got = fake.target_rows("bits");
+            got.sort_by_key(|r| if let Cell::Int(i) = r[0] { i } else { -1 });
+            let case = format!("bulk {bulk}, {read_type}, listed {listed}, typed {typed}");
+            let want = if *converted { arrays.clone() } else { rows() };
+            assert_eq!(got, want, "{case}");
+        }
+    }
+}
+
+/// The insert-script path writes with the target columns' types the
+/// endpoints give (`job_types`, by name, in the load's order): a vector
+/// column carries its vector, so the driver writes its engine's literal
+/// for that column's element. Without types (the default endpoints and no
+/// `expected_columns`), the untyped script, as before; a bulk load never
+/// asks.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_insert_script_path_is_typed_by_the_endpoints() {
+    use dbine_driver::{ResultColumn, VectorElement, VectorMeta};
+    let half = VectorMeta::dense(Some(3), VectorElement::F16);
+    for (bulk, typed) in [(false, true), (false, false), (true, true)] {
+        let fake = Arc::new(Fake {
+            bulk,
+            ..Default::default()
+        });
+        fake.table("emb", 0);
+        fake.source.lock().unwrap().insert(
+            "emb".into(),
+            vec![vec![Cell::Int(1), Cell::Text("[0.5,-1,2]".into())]],
+        );
+        if typed {
+            *fake.job_types.lock().unwrap() = vec![
+                ResultColumn::new("NAME", "halfvec(3)").with_vector(half.clone()),
+                ResultColumn::new("id", "integer"),
+            ];
+        }
+        let (st, _state) = store(&format!("vec-typed-{bulk}-{typed}"));
+        let report = Engine::new(st, "r")
+            .run(
+                vec![job("emb", Some(1))],
+                opts(1),
+                FakeEndpoints::new(fake.clone()),
+                |_| {},
+            )
+            .await
+            .unwrap();
+        assert_eq!(report.summary.status, RunStatus::Finished);
+        let calls = fake.typed_inserts.lock().unwrap().clone();
+        if bulk || !typed {
+            assert!(calls.is_empty(), "bulk {bulk}, typed {typed}: {calls:?}");
+            continue;
+        }
+        assert_eq!(calls.len(), 1);
+        let cols: Vec<(&str, &str)> = calls[0]
+            .iter()
+            .map(|c| (c.name.as_str(), c.type_name.as_str()))
+            .collect();
+        assert_eq!(cols, [("id", "integer"), ("name", "halfvec(3)")]);
+        assert_eq!(calls[0][1].vector, Some(half.clone()));
+        // A column the types mark as a vector goes as an array.
+        let got = fake.target_rows("emb");
+        assert_eq!(
+            got,
+            vec![vec![
+                Cell::Int(1),
+                Cell::Json(serde_json::json!([0.5, -1.0, 2.0]).to_string())
+            ]]
+        );
+    }
 }

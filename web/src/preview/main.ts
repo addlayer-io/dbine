@@ -24,6 +24,14 @@
 //   ("Conectar <gestor>", each step: preview/account-samples.ts)
 // |connstring[&include=1][&reveal=1][&engine=sqlserver] ("Copiar cadena de conexión…": preview/connstring-samples.ts)
 // |connection&source=vault-account|bitwarden-account|aws-account|keepass-account|onepassword-account|vault-missing (the account block of each manager)
+// |results&set=vectors[&edit=1] (vector columns: each cell's first numbers and dimensions; &edit=1 the grid editable, with the changes
+//   update_script would get under it)|vecviewer[&col=embedding|cuantizado|terminos] (a vector in the cell viewer)
+// |designer&engine=pgvector|oracle[&new=1][&section=indexes][&alter=1][&vtype=<the vector column's type>] (vector indexes in the
+//   table designer: preview/samples.ts; &alter=1 edits the table in place, &vtype=FLOAT[3]|Array(Float32)|float_vector(3)|… the types
+//   other engines keep vectors in)
+// |docs-edit&set=vectors (vector fields in the editable JSON tree)|adddoc&set=vectors ("Agregar documento" with vector fields)
+// |nbwrite&set=vectors (a write cell's preview with a vector column)|datagen&set=vectors (test data's sample with a vector column)
+// |vecwork[&tab=data|indexes|datacompare][&usage=vector][&vtype=…] (the workbench over a fake pgvector backend: preview/vecwork-samples.ts)
 import './lang';
 import I18NextVue from 'i18next-vue';
 import i18next, { i18nReady } from '../i18n';
@@ -78,7 +86,15 @@ import { installTauriMock, sampleImportTables, sampleKindLabels, sampleScriptObj
 import TableDesignerView, { type DesignerSection } from '../views/TableDesignerView.vue';
 import {
   sampleDesignerMssql, sampleDesignerMongo, sampleExistingTables, sampleDesignerInitialMssql, sampleDesignerInitialMongo,
+  sampleDesignerInitialPgvector, sampleDesignerOracleVector, sampleDesignerPgvector, sampleVectorDocuments, sampleVectorResult,
 } from './samples';
+import CellViewer from '../components/CellViewer.vue';
+import { buildChanges, buildInserts } from '../composables/gridEdit';
+import { rowsForScripts } from '../composables/vector';
+import AddDocumentDialog from '../components/AddDocumentDialog.vue';
+import GenerateDataDialog from '../components/GenerateDataDialog.vue';
+import { installVectorWorkbench } from './vecwork-samples';
+import type { Cell } from '../api/types';
 
 import MultiDbRunDialog from '../components/MultiDbRunDialog.vue';
 import App from '../App.vue';
@@ -145,9 +161,27 @@ function dialogView() {
 }
 if (['script', 'import', 'run'].includes(view)) installTauriMock();
 
-// view=designer[&engine=mongo][&new=1][&section=indexes|foreign_keys|options|script]
+// view=designer[&engine=mongo|pgvector|oracle][&new=1][&section=indexes|foreign_keys|options|script]
 function designer() {
-  const mongo = params.get('engine') === 'mongo';
+  const engine = params.get('engine');
+  if (engine === 'pgvector' || engine === 'oracle') {
+    // A table with a vector index (pgvector: HNSW / IVFFlat; Oracle: its own parameters and INCLUDE columns).
+    // `window.__pvDesigner.table`: the TableSchema it builds (what table_ddl would get).
+    // &vtype: the embedding's type (DuckDB's FLOAT[3], ClickHouse's Array(Float32)…); &alter=1: edit mode.
+    const vtype = params.get('vtype');
+    const initial = vtype
+      ? { ...sampleDesignerInitialPgvector, columns: sampleDesignerInitialPgvector.columns.map((c) => (c.name === 'embedding' ? { ...c, data_type: vtype } : c)) }
+      : sampleDesignerInitialPgvector;
+    return h(TableDesignerView, {
+      ref: (el: unknown) => { (window as unknown as Record<string, unknown>).__pvDesigner = el; },
+      connectionId: 'x', database: 'docs', spec: engine === 'oracle' ? sampleDesignerOracleVector : sampleDesignerPgvector,
+      schemas: ['public'], existingTables: [],
+      initial: params.get('new') ? undefined : initial, alter: !!params.get('alter'),
+      language: 'sql', dialect: engine === 'oracle' ? 'oracle' : 'postgres',
+      initialSection: (params.get('section') as DesignerSection | null) ?? 'indexes',
+    });
+  }
+  const mongo = engine === 'mongo';
   return h(TableDesignerView, {
     connectionId: 'x', database: mongo ? 'telemetria' : 'ventas',
     spec: mongo ? sampleDesignerMongo : sampleDesignerMssql,
@@ -198,9 +232,13 @@ const sampleDocuments = {
 // emits is applied to the sample and logged ("edit r c value").
 const pvDocEdits = reactive<Record<number, Record<number, string | number | boolean | null>>>({});
 const pvDocDeleted = ref(new Set<number>());
+// &set=vectors: documents with a vector field (4 numbers, the driver's
+// mark); `#pv-edits` shows the edits the tree let through.
 function docsEditView() {
-  return h(JsonTreeView, {
-    columns: sampleDocuments.columns, rows: sampleDocuments.rows, edits: pvDocEdits, deleted: pvDocDeleted.value,
+  const vectors = params.get('set') === 'vectors';
+  const docs = vectors ? sampleVectorDocuments : sampleDocuments;
+  const tree = h(JsonTreeView, {
+    columns: docs.columns, rows: docs.rows, edits: pvDocEdits, deleted: pvDocDeleted.value,
     editable: true, deletable: true, insertable: true,
     onEdit: (r: number, c: number, v: string | number | boolean | null | undefined) => {
       if (v === undefined) delete pvDocEdits[r]?.[c];
@@ -214,6 +252,77 @@ function docsEditView() {
       console.log('delete', JSON.stringify(rows), mark);
     },
   });
+  if (!vectors) return tree;
+  return h('div', { style: 'flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--ide-editor)' }, [
+    h('div', { style: 'flex: 1; min-height: 0; display: flex; flex-direction: column' }, [tree]),
+    h('pre', { id: 'pv-edits', style: 'height: 18vh; margin: 0; overflow: auto; padding: 6px 10px; font-size: 11px; border-top: 1px solid var(--nm-border); color: var(--nm-text)' },
+      JSON.stringify(pvDocEdits)),
+  ]);
+}
+
+// view=adddoc&set=vectors: "Agregar documento" over the vector documents;
+// `window.__pvAdded`: what it let through.
+function addDocView() {
+  return h(AddDocumentDialog, {
+    open: true, documents: true, fields: sampleVectorDocuments.columns.map((c) => c.name), columns: sampleVectorDocuments.columns,
+    onAdd: (docs: unknown[]) => { (window as unknown as Record<string, unknown>).__pvAdded = docs; console.log('add', JSON.stringify(docs)); },
+    onClose: () => console.log('close'),
+  });
+}
+
+// view=datagen&set=vectors: "Generar datos de prueba…" of a table with a
+// vector column, over a fake sample. &table=redis: a Redis search index,
+// whose `VECTOR(3, FLOAT32)` field an older backend didn't read as a vector
+// (no `vector` with the column, "auto" picks decimals), answered as
+// datagen_preview does for what it's sent. `window.__dgCalls`: the columns each preview was sent;
+// `window.__dgRuns`: what "Generar" sent (datagen_run, answered at once).
+function dataGenView() {
+  let cb = 0;
+  const sent: unknown[] = [];
+  const runs: unknown[] = [];
+  (window as unknown as Record<string, unknown>).__dgCalls = sent;
+  (window as unknown as Record<string, unknown>).__dgRuns = runs;
+  (window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
+  const redis = new URLSearchParams(location.search).get('table') === 'redis';
+  (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
+    transformCallback: () => ++cb, unregisterCallback: () => {}, convertFileSrc: (p: string) => p,
+    invoke: async (cmd: string, a?: { args?: { rows?: number; columns?: { name: string; generator: string; params: Record<string, string> }[] } }) => {
+      if (cmd === 'plugin:event|listen' || cmd === 'plugin:event|unlisten') return 0;
+      if (cmd === 'datagen_run') {
+        runs.push(a?.args ?? null);
+        return { rows: a?.args?.rows ?? 0 };
+      }
+      if (cmd !== 'datagen_preview') throw { kind: 'preview', message: `"${cmd}" no está disponible en la vista previa` };
+      sent.push(a?.args?.columns ?? null);
+      if (redis) {
+        const c = (name: string, data_type: string, auto: string) => ({ name, data_type, nullable: name !== 'id', primary_key: name === 'id', auto_increment: false, foreign_key: null, auto });
+        const asked = a?.args?.columns?.find((x) => x.name === 'embedding');
+        const dims = Number(asked?.params.dims ?? 8);
+        const value = (i: number) => (asked?.generator === 'vector'
+          ? Array.from({ length: dims }, (_, k) => Math.round(Math.cos(i * 5 + k) * 1000) / 1000)
+          : Math.round(Math.abs(Math.sin(i)) * 1e6) / 100);
+        return {
+          table_columns: [c('id', 'key', 'text'), c('title', 'TEXT', 'text'), c('embedding', 'VECTOR(3, FLOAT32)', 'decimal')],
+          generators: ['skip', 'null', 'fixed', 'text', 'decimal', 'list'],
+          columns: ['id', 'title', 'embedding'],
+          rows: Array.from({ length: 8 }, (_, i) => [`k${i + 1}`, `palabra ${i + 1}`, value(i)]),
+        };
+      }
+      const col = (name: string, data_type: string, auto: string) => ({ name, data_type, nullable: true, primary_key: name === 'id', auto_increment: name === 'id', foreign_key: null, auto });
+      const { rows } = sampleVectorResult;
+      // `resumen`: a vector field whose type doesn't say so (a document's
+      // `array`); the backend's "auto" says it's filled with vectors.
+      const small = (i: number) => JSON.stringify(Array.from({ length: 8 }, (_, k) => Math.round(Math.sin(i * 7 + k) * 1000) / 1000));
+      return {
+        table_columns: [col('id', 'int8', 'sequence'), col('titulo', 'text', 'text'), col('embedding', 'vector(1536)', 'vector'), col('resumen', 'array', 'vector')],
+        generators: ['fixed', 'sequence', 'text', 'vector'],
+        columns: ['id', 'titulo', 'embedding', 'resumen'],
+        rows: rows.slice(0, 8).map((r, i) => [r[0], r[1], r[2], small(i)]),
+      };
+    },
+  };
+  const table = redis ? { kind: 'index', schema: null, name: 'idx:docs' } : { kind: 'table', schema: 'public', name: 'documentos' };
+  return h(GenerateDataDialog, { connectionId: 'x', database: redis ? 'db0' : 'docs', table, onClose: () => console.log('close') });
 }
 
 // view=fkjump: a table's data with foreign keys from and to it ("Ir a la
@@ -235,6 +344,64 @@ function fkJumpView() {
   return h('div', { style: 'width: 760px; height: 300px; display: flex; flex-direction: column; background: var(--ide-editor)' }, [
     h(ResultGrid, { columns, rows, links, onFollow: (l: { table: { name: string } }, r: number) => console.log('follow', l.table.name, r) }),
   ]);
+}
+
+// view=results&set=vectors[&edit=1]: results with vector columns. With
+// &edit=1 the grid alone, editable (a vector edit is checked: a JSON array
+// of numbers with the column's dimensions), its edits applied here, and
+// under it the changes and new rows as update_script gets them (vectors as
+// arrays of numbers, never in the WHERE).
+const pvVecEdits = reactive<Record<number, Record<number, Cell>>>({});
+const pvVecAdded = reactive<Record<number, Cell>[]>([]);
+function vectorsView() {
+  const { columns, rows } = sampleVectorResult;
+  if (!params.get('edit')) {
+    return h(ResultsPane, {
+      running: false, title: 'documentos', dialect: 'postgres',
+      outcome: { results: [{ columns, rows, total_rows: rows.length, truncated: false, rows_affected: null }], messages: [], error: null, elapsed_ms: 21, plans: [] },
+    });
+  }
+  const setup = { target: { kind: 'table', schema: 'public', name: 'documentos' }, keyColumns: ['id'], all: false, note: null, identity: [] };
+  const all = [...rows, ...pvVecAdded.map(() => columns.map(() => null as Cell))];
+  const edits: Record<number, Record<number, Cell>> = { ...pvVecEdits };
+  pvVecAdded.forEach((cells, k) => { edits[rows.length + k] = cells; });
+  let changes = '';
+  try {
+    changes = JSON.stringify({ changes: buildChanges(columns, rows, pvVecEdits, setup, 'postgres'), inserts: buildInserts(columns, pvVecAdded) }, null, 1);
+  } catch (e) { changes = String(e); }
+  return h('div', { style: 'flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--ide-editor)' }, [
+    h('div', { style: 'flex: 1; min-height: 0; display: flex; flex-direction: column' }, [h(ResultGrid, {
+      columns, rows: all, editable: true, insertable: true, added: pvVecAdded.length, edits,
+      // "Copiar como SQL INSERTs / UPDATEs": a stand-in for the driver's script
+      // (`window.__pvNoScript`: the driver can't, the generic SQL goes).
+      copyContext: {
+        table: { schema: 'public', name: 'documentos' }, dialect: 'postgres', keyColumns: ['id'],
+        // `__pvScriptDelay`: the round trip takes that long; `__pvScriptThrow`: the driver fails.
+        script: async (format: string, cols: typeof columns, rs: Cell[][]) => {
+          const w = window as unknown as Record<string, unknown>;
+          if (w.__pvScriptDelay) await new Promise((r) => setTimeout(r, Number(w.__pvScriptDelay)));
+          w.__pvScriptDone = Date.now();
+          if (w.__pvScriptThrow) throw new Error('driver failed');
+          return w.__pvNoScript ? null : `-- ${format} (driver)\n${JSON.stringify(rowsForScripts(cols, rs))}`;
+        },
+      },
+      onAdd: () => pvVecAdded.push({}),
+      onEdit: (r: number, c: number, v: Cell | undefined) => {
+        const set = r >= rows.length ? pvVecAdded[r - rows.length] : (pvVecEdits[r] ??= {});
+        if (v === undefined) delete set[c]; else set[c] = v;
+        if (r < rows.length && !Object.keys(set).length) delete pvVecEdits[r];
+        console.log('edit', r, c, JSON.stringify(v));
+      },
+    })]),
+    h('pre', { id: 'pv-changes', style: 'height: 30vh; margin: 0; overflow: auto; padding: 6px 10px; font-size: 11px; border-top: 1px solid var(--nm-border); color: var(--nm-text)' }, changes),
+  ]);
+}
+
+// view=vecviewer[&col=embedding|cuantizado|terminos]: a vector in the cell viewer.
+function vecViewerView() {
+  const { columns, rows } = sampleVectorResult;
+  const c = Math.max(0, columns.findIndex((x) => x.name === (params.get('col') ?? 'embedding')));
+  return h(CellViewer, { title: columns[c].name, value: rows[1][c], vector: columns[c].vector ?? null, onClose: () => console.log('close') });
 }
 
 // view=filters: the column filter row, filtering the sample locally, and
@@ -315,7 +482,7 @@ function fontsPreview() {
 const app = createApp({
   render: () =>
     view === 'fonts' ? fontsPreview() :
-    view === 'projects' ? h(App) : view === 'split' ? splitPreview() : view === 'timeline' ? h(TimelinePreview) : h('div', { style: 'height: 100vh; display: flex; flex-direction: column;' }, [
+    view === 'projects' || view === 'vecwork' ? h(App) : view === 'split' ? splitPreview() : view === 'timeline' ? h(TimelinePreview) : h('div', { style: 'height: 100vh; display: flex; flex-direction: column;' }, [
       view === 'tabs' ? h('div', { style: 'width: 1100px; background: var(--ide-editor)' }, [h(EditorTabs)]) :
       view === 'keys' ? h('div', { style: 'width: 340px; height: 640px; background: var(--ide-sidebar)' }, [h(ExplorerSidebar)]) :
       view === 'connection' ? connectionTab() : view === 'monitor'
@@ -363,11 +530,15 @@ const app = createApp({
         : view === 'filters' ? filtersView()
         : view === 'fkjump' ? fkJumpView()
         : view === 'docs-edit' ? docsEditView()
+        : view === 'adddoc' ? addDocView()
+        : view === 'datagen' ? dataGenView()
         : view === 'docs'
           ? h(ResultsPane, {
             running: false, title: 'pedidos',
             outcome: { results: [{ ...sampleDocuments, total_rows: sampleDocuments.rows.length, truncated: false, rows_affected: null }], messages: [], error: null, elapsed_ms: 12, plans: [] },
           })
+        : view === 'vecviewer' ? vecViewerView()
+        : view === 'results' && params.get('set') === 'vectors' ? vectorsView()
         : view === 'results'
           ? h(ResultsPane, {
             running: false, title: 'Ventas', dialect: 'mssql',
@@ -563,6 +734,7 @@ if (view === 'schedule') setupScheduleConnections();
 if (view === 'jobs') setupJobs();
 if (view.startsWith('scheduler')) setupScheduler(params);
 if (view === 'projects') installProjectsPreview();
+if (view === 'vecwork') installVectorWorkbench(params);
 if (view === 'timeline') installTimelinePreview();
 // ?vim=1: the editors in Vim mode. ?bind=view.ai=Mod-b,…: the user's own
 // shortcuts. Again after a moment: the settings view loads its mock first.

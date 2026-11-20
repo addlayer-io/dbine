@@ -615,6 +615,8 @@ fn caps(
         comments: false,
         max_identifier: 128,
         case: IdentCase::Upper,
+        vector_indexes: false,
+        vectors: false,
     }
 }
 

@@ -6,7 +6,9 @@
 //!   `STORING` columns as the included ones, `WHERE` filter) and search and
 //!   vector indexes. The ones Spanner manages for foreign keys
 //!   (`SPANNER_IS_MANAGED`) are left out, as in `database_schema`, so every
-//!   listed index can be dropped through the schema sync.
+//!   listed index can be dropped through the schema sync. A vector index
+//!   carries its distance and tree sizes ([`IndexUsage::vector`]) from the
+//!   `OPTIONS` of its DDL, as `database_schema` reads them.
 //! - Counters: `SPANNER_SYS.TABLE_OPERATIONS_STATS_HOUR` has a row per
 //!   table and per index (`TABLE_NAME` is either) and hour, kept for 30
 //!   days. Reads (`seeks`) = the sum of `READ_QUERY_COUNT`, the queries
@@ -26,9 +28,9 @@
 //!   without `spanner.databases.select` on `SPANNER_SYS` leave it empty.
 //! - The foreign keys from `REFERENTIAL_CONSTRAINTS` / `KEY_COLUMN_USAGE`.
 
-use crate::{schema_of, SpannerSession};
+use crate::{schema_of, structure, SpannerSession};
 use dbine_driver::{ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// The counters were read.
 pub(crate) const NOTE: &str = "Lecturas = consultas que leyeron cada índice (READ_QUERY_COUNT); escrituras = WRITE_COUNT + DELETE_COUNT; de SPANNER_SYS.TABLE_OPERATIONS_STATS_HOUR, que guarda los últimos 30 días. Spanner no separa búsquedas de recorridos. Hora en UTC.";
@@ -144,6 +146,39 @@ pub(crate) fn assemble(
         .collect()
 }
 
+/// The vector indexes' settings ([`structure::vector_of`]) from the
+/// `OPTIONS` of the DDL, by schema-qualified index name. A vector index
+/// whose DDL wasn't read still says it's one, with no settings.
+pub(crate) fn vectors(
+    list: &mut [IndexUsage],
+    options: &BTreeMap<String, BTreeMap<String, String>>,
+    schema: Option<&str>,
+) {
+    for i in list.iter_mut().filter(|i| i.kind == structure::VECTOR) {
+        let full = match schema {
+            Some(s) => format!("{s}.{}", i.name),
+            None => i.name.clone(),
+        };
+        i.vector = Some(structure::vector_of(
+            options.get(&full).unwrap_or(&BTreeMap::new()),
+        ));
+    }
+}
+
+/// The search and vector indexes' `OPTIONS` from the database's DDL (the
+/// `GetDatabaseDdl` response), none when it couldn't be read.
+pub(crate) fn ddl_index_options(
+    ddl: Option<&serde_json::Value>,
+) -> BTreeMap<String, BTreeMap<String, String>> {
+    structure::index_options_from_ddl(
+        ddl.and_then(|d| d.get("statements"))
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str),
+    )
+}
+
 /// `FOREIGN_KEYS_SQL` rows grouped by constraint.
 pub(crate) fn foreign_keys(rows: &Rows) -> Vec<ForeignKeyDef> {
     let mut out: Vec<ForeignKeyDef> = Vec::new();
@@ -233,6 +268,20 @@ pub(crate) async fn report(s: &mut SpannerSession, table: &ObjectRef) -> Result<
         qualifier.as_deref(),
         &table.name,
     );
+    if list.iter().any(|i| i.kind == structure::VECTOR) {
+        // Vector indexes keep their OPTIONS only in the DDL.
+        let ddl = s
+            .api
+            .get(&format!("{}/ddl", s.database))
+            .await
+            .map_err(|e| tracing::debug!("spanner: vector index options not read: {e}"))
+            .ok();
+        vectors(
+            &mut list,
+            &ddl_index_options(ddl.as_ref()),
+            qualifier.as_deref(),
+        );
+    }
     let (stats_available, since, note) = match s.text_rows(OPERATIONS_SQL, &[]).await {
         Ok(rows) if rows.is_empty() => (false, None, NOTE_EMPTY),
         Ok(rows) => {
@@ -360,6 +409,50 @@ mod tests {
         // The default schema's names aren't qualified.
         let r = assemble(&indexes, &columns, &sizes, None, "t");
         assert_eq!(r[0].size_kb, Some(1));
+    }
+
+    #[test]
+    fn vector_indexes_carry_their_settings() {
+        let mut list = vec![
+            IndexUsage {
+                name: "vx".into(),
+                kind: "VECTOR".into(),
+                ..Default::default()
+            },
+            IndexUsage {
+                name: "ix".into(),
+                kind: "INDEX".into(),
+                ..Default::default()
+            },
+            IndexUsage {
+                name: "lost".into(),
+                kind: "VECTOR".into(),
+                ..Default::default()
+            },
+        ];
+        let ddl = serde_json::json!({"statements": [
+            "CREATE TABLE s.v (k INT64, e ARRAY<FLOAT32>(vector_length=>3)) PRIMARY KEY (k)",
+            "CREATE VECTOR INDEX s.vx ON s.v(e) WHERE e IS NOT NULL OPTIONS ( distance_type = 'COSINE', tree_depth = 3, num_leaves = 100 )",
+        ]});
+        let mut unread = list.clone();
+        vectors(&mut list, &ddl_index_options(Some(&ddl)), Some("s"));
+        let v = list[0].vector.as_ref().unwrap();
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        assert_eq!(v.params.get("lists").map(String::as_str), Some("100"));
+        assert_eq!(v.params.get("tree_depth").map(String::as_str), Some("3"));
+        assert!(list[1].vector.is_none());
+        // The same settings as the describe's IndexDef.vector.
+        let mut o = BTreeMap::new();
+        o.insert("distance_type".to_string(), "'COSINE'".to_string());
+        o.insert("tree_depth".to_string(), "3".to_string());
+        o.insert("num_leaves".to_string(), "100".to_string());
+        assert_eq!(Some(structure::vector_of(&o)), list[0].vector);
+        // Without its DDL it's still a vector index.
+        assert!(list[2].vector.is_some());
+        // So is every one when the DDL can't be read at all.
+        vectors(&mut unread, &ddl_index_options(None), Some("s"));
+        assert!(unread[0].vector.is_some() && unread[2].vector.is_some());
+        assert!(unread[1].vector.is_none());
     }
 
     #[test]

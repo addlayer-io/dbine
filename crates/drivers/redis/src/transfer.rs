@@ -13,6 +13,14 @@
 //! are every field of every row (and of every stream entry), found in a
 //! first pass; asked-for columns that no row has are an error.
 //!
+//! Vectors: a hash field that a search index's `VECTOR` field covers is
+//! read as the canonical vector text (its blob decoded by the index's
+//! `TYPE`), and a vector set as its elements with their vector and
+//! attributes. A load writes a vector (text holding a JSON array of
+//! numbers) as the blob of the type of the index that covers the target,
+//! or, into a column the source says is a vector (`vector(3)`,
+//! `vector<float, 3>`…), of that type (`FLOAT32` mostly).
+//!
 //! Loading: each row is `HSET <target>:<first cell> col value …` with null
 //! cells left out, as in the insert script. Binaries and JSON go as they
 //! are, byte for byte (the insert script, being text, writes binaries as
@@ -26,6 +34,7 @@
 //! rest of the window stays written, is counted and reported, and the load
 //! fails naming the rows that failed.
 
+use crate::vectors::{self, FtField, FtIndex, FtVector, VType};
 use crate::{err, shape, RedisSession};
 use dbine_driver::keys::glob_escape;
 use dbine_driver::transfer::{
@@ -85,6 +94,91 @@ fn score(v: Value) -> Cell {
             s.parse().map_or(Cell::Text(s), Cell::Float)
         }
     }
+}
+
+/// A hash field's value as a cell: a vector field of a search index that
+/// covers the hash (`vf`, by field name) as its text, the rest as [`cell`].
+fn vector_cell(vf: &[(String, FtVector)], field: &str, v: Value) -> Cell {
+    if let (Some((_, f)), Value::BulkString(b)) = (vf.iter().find(|(n, _)| n == field), &v) {
+        if let Some(t) = f.ty.decode(b, Some(f.dims)) {
+            return Cell::Text(t);
+        }
+    }
+    cell(v)
+}
+
+/// A vector set's elements (`VRANGE` pages, where the server has it; else
+/// all of them with `VRANDMEMBER`), each with its vector and attributes.
+async fn read_vectorset(
+    s: &mut RedisSession,
+    key: &[u8],
+    wanted: Option<&[String]>,
+    sink: BatchSinkRef,
+) -> Result<u64> {
+    let (dims, _) = s.vset_shape(key).await;
+    let vector = dims
+        .map(|d| vectors::spell(d as u32, VType::F32))
+        .unwrap_or_else(|| "VECTOR".into());
+    let mut out = Out::begin(
+        sink,
+        &[
+            ("element", "string"),
+            ("vector", vector.as_str()),
+            ("attributes", "json"),
+        ],
+        wanted,
+    )?;
+    let to_rows = |rows: Vec<(Vec<u8>, Option<String>, Option<String>)>| {
+        rows.into_iter()
+            .map(|(e, v, a)| {
+                vec![
+                    text_or_bytes(e),
+                    v.map_or(Cell::Null, Cell::Text),
+                    a.map_or(Cell::Null, Cell::Json),
+                ]
+            })
+            .collect::<Vec<_>>()
+    };
+    let elements = |v: Value| -> Vec<Vec<u8>> {
+        items(v)
+            .into_iter()
+            .filter_map(|e| match e {
+                Value::BulkString(b) => Some(b),
+                _ => None,
+            })
+            .collect()
+    };
+    if s.has_vrange().await {
+        let count = PAGE.to_string();
+        let mut start = b"-".to_vec();
+        loop {
+            let page = elements(
+                s.run(&[b"VRANGE", key, &start, b"+", count.as_bytes()])
+                    .await?,
+            );
+            let n = page.len();
+            let Some(last) = page.last() else { break };
+            start = [b"(".as_slice(), last].concat();
+            let rows = s.vset_rows(key, &page).await;
+            out.rows(to_rows(rows))?;
+            if n < PAGE {
+                break;
+            }
+        }
+    } else {
+        let card = s
+            .int(&[b"VCARD", key])
+            .await
+            .unwrap_or(0)
+            .max(0)
+            .to_string();
+        let all = elements(s.run(&[b"VRANDMEMBER", key, card.as_bytes()]).await?);
+        for page in all.chunks(PAGE) {
+            let rows = s.vset_rows(key, page).await;
+            out.rows(to_rows(rows))?;
+        }
+    }
+    out.finish()
 }
 
 fn items(v: Value) -> Vec<Value> {
@@ -197,6 +291,10 @@ pub async fn read(s: &mut RedisSession, spec: &ReadSpec, sink: BatchSinkRef) -> 
     let name = spec.table.name.clone();
     let key = name.as_bytes();
     let wanted = spec.columns.as_deref();
+    // A search index (the object a vector collection is): its documents.
+    if spec.table.kind == dbine_driver::kinds::INDEX {
+        return read_index(s, &name, wanted, sink).await;
+    }
     let count = PAGE.to_string();
     let t = s.key_type(&name).await?;
     match t.as_str() {
@@ -207,6 +305,11 @@ pub async fn read(s: &mut RedisSession, spec: &ReadSpec, sink: BatchSinkRef) -> 
             out.finish()
         }
         "hash" | "set" | "zset" => {
+            let vf = if t == "hash" {
+                s.hash_vectors(key).await
+            } else {
+                Vec::new()
+            };
             let (cmd, natural): (&[u8], &[(&str, &str)]) = match t.as_str() {
                 "hash" => (b"HSCAN", &[("field", "string"), ("value", "string")]),
                 "set" => (b"SSCAN", &[("value", "string")]),
@@ -226,7 +329,12 @@ pub async fn read(s: &mut RedisSession, spec: &ReadSpec, sink: BatchSinkRef) -> 
                     let mut it = page.into_iter();
                     let mut rows = Vec::new();
                     while let (Some(k), Some(v)) = (it.next(), it.next()) {
-                        rows.push(vec![cell(k), if t == "zset" { score(v) } else { cell(v) }]);
+                        let value = if t == "zset" {
+                            score(v)
+                        } else {
+                            vector_cell(&vf, &shape::text_of(&k), v)
+                        };
+                        rows.push(vec![cell(k), value]);
                     }
                     out.rows(rows)?;
                 }
@@ -256,6 +364,7 @@ pub async fn read(s: &mut RedisSession, spec: &ReadSpec, sink: BatchSinkRef) -> 
             out.finish()
         }
         "stream" => read_stream(s, key, wanted, sink).await,
+        "vectorset" => read_vectorset(s, key, wanted, sink).await,
         "ReJSON-RL" => {
             let mut out = Out::begin(sink, &[("value", "json")], wanted)?;
             let v = s.run(&[b"JSON.GET", key, b"$"]).await?;
@@ -266,6 +375,181 @@ pub async fn read(s: &mut RedisSession, spec: &ReadSpec, sink: BatchSinkRef) -> 
         // Time series and module types: what browsing gives.
         _ => transfer::read_via_execute(s, spec, sink).await,
     }
+}
+
+/// A hash document's value of a search index field as a cell: a vector
+/// field's blob as its text, a `NUMERIC` field as a number, the rest as
+/// [`cell`].
+fn field_cell(field: &FtField, v: Value) -> Cell {
+    if let (Some(vf), Value::BulkString(b)) = (&field.vector, &v) {
+        if let Some(t) = vf.ty.decode(b, Some(vf.dims)) {
+            return Cell::Text(t);
+        }
+    }
+    if field.kind == "NUMERIC" {
+        let t = shape::text_of(&v);
+        if let Ok(i) = t.trim().parse::<i64>() {
+            return Cell::Int(i);
+        }
+        if let Ok(f) = t.trim().parse::<f64>() {
+            return Cell::Float(f);
+        }
+    }
+    cell(v)
+}
+
+/// A JSON document's value (what its path matched) as a cell.
+fn json_cell(field: &FtField, j: J) -> Cell {
+    if field.vector.is_some() {
+        if let Some(v) = dbine_driver::vector::parse_value(&j) {
+            return Cell::Text(dbine_driver::vector::text(v));
+        }
+    }
+    match j {
+        J::Null => Cell::Null,
+        J::Bool(b) => Cell::Bool(b),
+        J::Number(n) => match n.as_i64() {
+            Some(i) => Cell::Int(i),
+            None => n.as_f64().map_or(Cell::Text(n.to_string()), Cell::Float),
+        },
+        J::String(t) => Cell::Text(t),
+        other => Cell::Json(other.to_string()),
+    }
+}
+
+/// The values of `paths` in a reply of `JSON.GET key <paths…>`: with one
+/// path, the array of its matches; with more, an object of each path's
+/// matches. The first match of each path.
+fn json_get_values(reply: &Value, paths: &[&str]) -> Option<Vec<Option<J>>> {
+    let text = match reply {
+        Value::BulkString(b) => std::str::from_utf8(b).ok()?.to_string(),
+        Value::Nil => return None,
+        other => shape::text_of(other),
+    };
+    let j: J = serde_json::from_str(&text).ok()?;
+    let first = |m: Option<&J>| match m {
+        Some(J::Array(a)) => a.first().cloned(),
+        _ => None,
+    };
+    Some(if paths.len() == 1 {
+        vec![first(Some(&j))]
+    } else {
+        paths.iter().map(|p| first(j.get(*p))).collect()
+    })
+}
+
+/// A search index's documents (the keys under its prefixes, of its type),
+/// one row each: `id` (the key) and each field of the index, as its
+/// describe gives them. A hash's vector field comes as its text, decoded
+/// by the field's type; a JSON document's values are read by their paths.
+/// The index's `FILTER` isn't applied: every document under its prefixes
+/// is read.
+async fn read_index(
+    s: &mut RedisSession,
+    name: &str,
+    wanted: Option<&[String]>,
+    sink: BatchSinkRef,
+) -> Result<u64> {
+    let ix = s.ft_index(name).await.ok_or_else(|| {
+        Error::Query(format!("No se pudo leer el índice de búsqueda {name}: no existe o el servidor no tiene el módulo de búsqueda."))
+    })?;
+    let cols = vectors::index_columns(&ix);
+    let natural: Vec<(&str, &str)> = cols.iter().map(|(n, t)| (n.as_str(), t.as_str())).collect();
+    let mut out = Out::begin(sink, &natural, wanted)?;
+    let prefixes: Vec<String> = {
+        let p: Vec<String> = ix
+            .prefixes
+            .iter()
+            .filter(|p| !p.is_empty())
+            .cloned()
+            .collect();
+        if p.is_empty() {
+            vec![String::new()]
+        } else {
+            p
+        }
+    };
+    let ids: Vec<&str> = ix.fields.iter().map(|f| f.identifier.as_str()).collect();
+    let count = PAGE.to_string();
+    for (pi, prefix) in prefixes.iter().enumerate() {
+        let pattern = format!("{}*", glob_escape(prefix));
+        let mut cursor = String::from("0");
+        loop {
+            let (next, page) = scan_page(
+                s,
+                &[
+                    b"SCAN",
+                    cursor.as_bytes(),
+                    b"MATCH",
+                    pattern.as_bytes(),
+                    b"COUNT",
+                    count.as_bytes(),
+                ],
+            )
+            .await?;
+            cursor = next;
+            // A key under an earlier prefix too was read with it.
+            let keys: Vec<Vec<u8>> = page
+                .into_iter()
+                .map(|k| match k {
+                    Value::BulkString(b) => b,
+                    other => shape::text_of(&other).into_bytes(),
+                })
+                .filter(|k| !prefixes[..pi].iter().any(|p| k.starts_with(p.as_bytes())))
+                .collect();
+            if !keys.is_empty() {
+                let mut pipe = redis::pipe();
+                pipe.ignore_errors();
+                for k in &keys {
+                    if ix.on_json {
+                        let c = pipe.cmd("JSON.GET").arg(k.as_slice());
+                        for id in &ids {
+                            c.arg(*id);
+                        }
+                    } else {
+                        let c = pipe.cmd("HMGET").arg(k.as_slice());
+                        for id in &ids {
+                            c.arg(*id);
+                        }
+                    }
+                }
+                let replies: Vec<Value> = pipe.query_async(&mut s.conn).await.map_err(err)?;
+                let mut rows = Vec::with_capacity(keys.len());
+                for (k, r) in keys.into_iter().zip(replies) {
+                    // Keys of another type under the prefix aren't documents.
+                    if matches!(r, Value::ServerError(_) | Value::Nil) {
+                        continue;
+                    }
+                    let mut row = vec![text_or_bytes(k)];
+                    if ix.on_json {
+                        let Some(values) = json_get_values(&r, &ids) else {
+                            continue;
+                        };
+                        for (f, v) in ix.fields.iter().zip(values) {
+                            row.push(v.map_or(Cell::Null, |j| json_cell(f, j)));
+                        }
+                    } else {
+                        let values = items(r);
+                        if values.iter().all(|v| matches!(v, Value::Nil)) {
+                            continue;
+                        }
+                        for (f, v) in ix.fields.iter().zip(values) {
+                            row.push(match v {
+                                Value::Nil => Cell::Null,
+                                v => field_cell(f, v),
+                            });
+                        }
+                    }
+                    rows.push(row);
+                }
+                out.rows(rows)?;
+            }
+            if cursor == "0" {
+                break;
+            }
+        }
+    }
+    out.finish()
 }
 
 /// Field names in order of appearance.
@@ -296,14 +580,29 @@ fn project(
     seen: &mut [bool],
     strict: bool,
 ) -> Result<Vec<Cell>> {
+    project_vectors(cols, dup, id, fields, seen, strict, &[])
+}
+
+/// [`project`], with the hashes' vector fields (`vf`) as their text.
+fn project_vectors(
+    cols: &[String],
+    dup: bool,
+    id: Option<&str>,
+    fields: Vec<(String, Value)>,
+    seen: &mut [bool],
+    strict: bool,
+    vf: &[(String, FtVector)],
+) -> Result<Vec<Cell>> {
     let mut h: HashMap<String, Value> = fields.into_iter().collect();
     let mut row = Vec::with_capacity(cols.len());
     for (i, c) in cols.iter().enumerate() {
         let v = match id {
             Some(id) if c == "id" => Some(Cell::Text(id.to_string())),
             // A column asked for twice gets the value twice.
-            _ if dup && cols[i + 1..].contains(c) => h.get(c).cloned().map(cell),
-            _ => h.remove(c).map(cell),
+            _ if dup && cols[i + 1..].contains(c) => {
+                h.get(c).cloned().map(|v| vector_cell(vf, c, v))
+            }
+            _ => h.remove(c).map(|v| vector_cell(vf, c, v)),
         };
         seen[i] |= v.is_some();
         row.push(v.unwrap_or(Cell::Null));
@@ -631,7 +930,21 @@ async fn read_hashes(
             (names.list, true)
         }
     };
-    let natural: Vec<(&str, &str)> = cols.iter().map(|c| (c.as_str(), "string")).collect();
+    // The vector fields of a search index over the table's hashes.
+    let vf = s.hash_vectors(format!("{name}:").as_bytes()).await;
+    let types: Vec<String> = cols
+        .iter()
+        .map(|c| {
+            vf.iter()
+                .find(|(n, _)| n == c)
+                .map_or_else(|| "string".into(), |(_, v)| vectors::spell(v.dims, v.ty))
+        })
+        .collect();
+    let natural: Vec<(&str, &str)> = cols
+        .iter()
+        .zip(&types)
+        .map(|(c, t)| (c.as_str(), t.as_str()))
+        .collect();
     let mut out = Out::begin(sink, &natural, None)?;
     let mut seen = vec![false; cols.len()];
     let dup = cols.iter().collect::<HashSet<_>>().len() != cols.len();
@@ -639,7 +952,9 @@ async fn read_hashes(
     hash_pages(s, name, true, |page| {
         let mut batch = Vec::with_capacity(page.len());
         for h in page {
-            batch.push(project(&cols, dup, None, h, &mut seen, strict)?);
+            batch.push(project_vectors(
+                &cols, dup, None, h, &mut seen, strict, &vf,
+            )?);
         }
         rows += batch.len() as u64;
         out.rows(batch)
@@ -664,10 +979,26 @@ fn arg(c: &Cell) -> Vec<u8> {
 
 /// A row's `HSET` arguments (after the command name): the key
 /// `<target>:<first cell>` and each non-null cell as `column value`.
+#[cfg(test)]
 pub fn hset_args(
     target: &str,
     columns: &[String],
     row: &[Cell],
+) -> std::result::Result<Vec<Vec<u8>>, String> {
+    hset_args_packed(target, columns, row, &[])
+}
+
+/// A vector column's type, and the dimension its index declares.
+pub(crate) type Pack = Option<(VType, Option<u32>)>;
+
+/// [`hset_args`], with each column's vector type (`pack`, by position;
+/// `None` or past its end: not a vector): a vector cell goes as its blob,
+/// once its length is the dimension its index declares.
+pub fn hset_args_packed(
+    target: &str,
+    columns: &[String],
+    row: &[Cell],
+    pack: &[Pack],
 ) -> std::result::Result<Vec<Vec<u8>>, String> {
     let id = match row.first() {
         Some(Cell::Null) | None => {
@@ -683,13 +1014,273 @@ pub fn hset_args(
     key.push(b':');
     key.extend_from_slice(&id);
     let mut out = vec![key];
-    for (c, v) in columns.iter().zip(row) {
+    for (i, (c, v)) in columns.iter().zip(row).enumerate() {
         if !matches!(v, Cell::Null) {
             out.push(c.as_bytes().to_vec());
-            out.push(arg(v));
+            let blob = match pack.get(i).copied().flatten() {
+                Some((t, dims)) => packed_dims(v, t, dims, c)?,
+                None => None,
+            };
+            out.push(blob.unwrap_or_else(|| arg(v)));
         }
     }
     Ok(out)
+}
+
+/// A vector cell (text or JSON holding a JSON array of numbers) as the blob
+/// of `t`, refusing one whose length isn't `dims`; `None` when it isn't a
+/// vector.
+fn packed_dims(
+    c: &Cell,
+    t: VType,
+    dims: Option<u32>,
+    column: &str,
+) -> std::result::Result<Option<Vec<u8>>, String> {
+    let Some(v) = cell_vector(c) else {
+        return Ok(None);
+    };
+    match dims {
+        Some(d) if d as usize != v.len() => Err(format!(
+            "tiene en {column} un vector de {} dimensiones y su índice lo declara de {d} (el servidor lo guardaría sin indexarlo)",
+            v.len()
+        )),
+        _ => Ok(Some(t.encode(&v))),
+    }
+}
+
+/// A cell that holds a vector (text or JSON with a JSON array of numbers).
+fn cell_vector(c: &Cell) -> Option<Vec<f64>> {
+    match c {
+        Cell::Text(s) | Cell::Json(s) => dbine_driver::vector::parse(s),
+        _ => None,
+    }
+}
+
+/// A cell as a JSON value: JSON as the JSON it holds, the rest as
+/// [`Cell::to_json`] gives it.
+fn cell_json(c: &Cell) -> J {
+    match c {
+        Cell::Json(s) => serde_json::from_str(s).unwrap_or_else(|_| J::String(s.clone())),
+        other => other.to_json(),
+    }
+}
+
+/// How a load writes each row.
+pub(crate) enum Writer {
+    /// A table's rows: `HSET <target>:<first cell> col value …`.
+    Hashes { target: String, pack: Vec<Pack> },
+    /// A vector set's elements: `VADD <key> FP32 <blob> <element> <flag>
+    /// [SETATTR <json>]`.
+    VectorSet {
+        key: String,
+        element: usize,
+        vector: usize,
+        attrs: Attrs,
+        /// The set's quantization (`NOQUANT` for a new one: a copy keeps
+        /// the values whole).
+        flag: String,
+        /// The set's dimension (a new one takes its first vector's).
+        dims: Option<usize>,
+    },
+    /// A search index's documents: `HSET` of each document's key, or
+    /// `JSON.SET` on a JSON index.
+    Index { index: FtIndex, id: usize },
+}
+
+/// Why a row can't be written: this row (`Row`), or any row like it
+/// (`Never`: the load is refused as unsupported).
+enum Bad {
+    Row(String),
+    Never(String),
+}
+
+impl From<String> for Bad {
+    fn from(m: String) -> Bad {
+        Bad::Row(m)
+    }
+}
+
+/// Where a vector set element's attributes come from.
+pub(crate) enum Attrs {
+    /// An `attributes` column (JSON text).
+    Column(usize),
+    /// The other columns, as a JSON object.
+    Others(Vec<usize>),
+}
+
+impl Writer {
+    /// A row's command and its arguments, or why the row can't be
+    /// written (completing "La fila n …"): `Unsupported` when no row like
+    /// it can be.
+    fn command(
+        &mut self,
+        columns: &[String],
+        row: &[Cell],
+    ) -> Result<(&'static str, Vec<Vec<u8>>)> {
+        self.command_of(columns, row).map_err(|e| match e {
+            Bad::Row(m) => Error::Query(m),
+            Bad::Never(m) => Error::Unsupported(m),
+        })
+    }
+
+    fn command_of(
+        &mut self,
+        columns: &[String],
+        row: &[Cell],
+    ) -> std::result::Result<(&'static str, Vec<Vec<u8>>), Bad> {
+        match self {
+            Writer::Hashes { target, pack } => {
+                let args = hset_args_packed(target, columns, row, pack)?;
+                if let Some(v) = shadowed(&args) {
+                    let key = &args[0];
+                    return Err(Bad::Never(format!(
+                        "guarda «{}», que es el final de su key {}: al leerla se tomaría como fila de {} y no de {target}. Poné primero otra columna, que forme keys sin esa ambigüedad",
+                        String::from_utf8_lossy(v),
+                        String::from_utf8_lossy(key),
+                        String::from_utf8_lossy(&key[..key.len() - v.len() - 1])
+                    )));
+                }
+                Ok(("HSET", args))
+            }
+            Writer::VectorSet {
+                key,
+                element,
+                vector,
+                attrs,
+                flag,
+                dims,
+            } => {
+                let col = |i: usize| columns.get(i).map_or("", String::as_str);
+                let e = match row.get(*element) {
+                    None | Some(Cell::Null) => {
+                        return Err(
+                            format!("no tiene valor en {}, el elemento", col(*element)).into()
+                        )
+                    }
+                    Some(c) => arg(c),
+                };
+                let v = row.get(*vector).and_then(cell_vector).ok_or_else(|| {
+                    format!(
+                        "no tiene un vector en {} (como [0.1, 0.2, 0.3])",
+                        col(*vector)
+                    )
+                })?;
+                match dims {
+                    Some(d) if *d != v.len() => {
+                        return Err(format!(
+                            "tiene un vector de {} dimensiones y el vector set {key}, de {d}",
+                            v.len()
+                        )
+                        .into())
+                    }
+                    Some(_) => {}
+                    None => *dims = Some(v.len()),
+                }
+                let mut args = vec![
+                    key.as_bytes().to_vec(),
+                    b"FP32".to_vec(),
+                    VType::F32.encode(&v),
+                    e,
+                    flag.as_bytes().to_vec(),
+                ];
+                let json = match attrs {
+                    Attrs::Column(i) => match row.get(*i) {
+                        None | Some(Cell::Null) => None,
+                        Some(c) => Some(match cell_json(c) {
+                            J::String(t) => t,
+                            j => j.to_string(),
+                        }),
+                    },
+                    Attrs::Others(cols) => {
+                        let m: serde_json::Map<String, J> = cols
+                            .iter()
+                            .filter_map(|&i| {
+                                let c = row.get(i).filter(|c| !matches!(c, Cell::Null))?;
+                                Some((col(i).to_string(), cell_json(c)))
+                            })
+                            .collect();
+                        (!m.is_empty()).then(|| J::Object(m).to_string())
+                    }
+                };
+                if let Some(j) = json {
+                    args.push(b"SETATTR".to_vec());
+                    args.push(j.into_bytes());
+                }
+                Ok(("VADD", args))
+            }
+            Writer::Index { index, id } => {
+                let id_col = columns.get(*id).map_or("", String::as_str);
+                let key = match row.get(*id) {
+                    None | Some(Cell::Null) => {
+                        return Err(format!(
+                            "no tiene valor en {id_col}, que forma la key del documento"
+                        )
+                        .into())
+                    }
+                    Some(c) => crate::ddl::document_key(index, &String::from_utf8_lossy(&arg(c))),
+                };
+                // The id column is the key; it's also a field when the
+                // index has one of its name, or it isn't called `id`.
+                let keep_id = id_col != "id" || index.fields.iter().any(|f| f.is(id_col));
+                let cells: Vec<(usize, &String, &Cell)> = columns
+                    .iter()
+                    .zip(row)
+                    .enumerate()
+                    .filter(|(i, (_, c))| !matches!(c, Cell::Null) && (*i != *id || keep_id))
+                    .map(|(i, (n, c))| (i, n, c))
+                    .collect();
+                if index.on_json {
+                    let values: Vec<(&str, J, Option<&FtField>)> = cells
+                        .iter()
+                        .map(|(_, n, c)| {
+                            (
+                                n.as_str(),
+                                cell_json(c),
+                                index.fields.iter().find(|f| f.is(n)),
+                            )
+                        })
+                        .collect();
+                    let doc = crate::ddl::json_document(
+                        values.iter().map(|(n, v, f)| (*n, v, *f)),
+                        &Default::default(),
+                    )
+                    .map_err(|e| e.to_string())?;
+                    return Ok((
+                        "JSON.SET",
+                        vec![
+                            key.into_bytes(),
+                            b"$".to_vec(),
+                            doc.to_string().into_bytes(),
+                        ],
+                    ));
+                }
+                let mut args = vec![key.into_bytes()];
+                for (_, n, c) in &cells {
+                    let field = index.fields.iter().find(|f| f.is(n));
+                    args.push(
+                        field
+                            .map_or(n.as_str(), |f| f.identifier.as_str())
+                            .as_bytes()
+                            .to_vec(),
+                    );
+                    match field.and_then(|f| f.vector.as_ref()) {
+                        Some(vf) => {
+                            args.push(packed_dims(c, vf.ty, Some(vf.dims), n)?.ok_or_else(
+                                || format!("no tiene un vector en {n} (como [0.1, 0.2, 0.3])"),
+                            )?)
+                        }
+                        None => args.push(arg(c)),
+                    }
+                }
+                if args.len() == 1 {
+                    return Err(Bad::Row(
+                        "no tiene ningún campo con valor: Redis no guarda hashes vacíos".into(),
+                    ));
+                }
+                Ok(("HSET", args))
+            }
+        }
+    }
 }
 
 /// One load window: `MULTI` and its rows' `HSET`s.
@@ -725,7 +1316,7 @@ impl Rows<'_> {
 /// that crosses it included). Empty at the end of the rows.
 async fn fill(
     rows: &mut Rows<'_>,
-    target: &str,
+    writer: &mut Writer,
     columns: &[String],
     max_rows: u64,
     max_bytes: u64,
@@ -740,18 +1331,11 @@ async fn fill(
     while w.rows < max_rows && w.bytes < max_bytes {
         let Some(row) = rows.next().await else { break };
         let n = rows.read;
-        let args = hset_args(target, columns, &row)
-            .map_err(|e| Error::Query(format!("La fila {n} {e}.")))?;
+        let (name, args) = writer.command(columns, &row).map_err(|e| match e {
+            Error::Unsupported(m) => Error::Unsupported(format!("La fila {n} {m}.")),
+            other => Error::Query(format!("La fila {n} {other}.")),
+        })?;
         drop(row);
-        if let Some(v) = shadowed(&args) {
-            let key = &args[0];
-            return Err(Error::Unsupported(format!(
-                "La fila {n} guarda «{}», que es el final de su key {}: al leerla se tomaría como fila de {} y no de {target}. Poné primero otra columna, que forme keys sin esa ambigüedad.",
-                String::from_utf8_lossy(v),
-                String::from_utf8_lossy(key),
-                String::from_utf8_lossy(&key[..key.len() - v.len() - 1])
-            )));
-        }
         let size: u64 = args.iter().map(|a| a.len() as u64).sum();
         if size > ROW_MAX {
             return Err(Error::Query(format!(
@@ -760,7 +1344,7 @@ async fn fill(
                 ROW_MAX >> 20
             )));
         }
-        let c = w.pipe.cmd("HSET");
+        let c = w.pipe.cmd(name);
         for a in &args {
             c.arg(a.as_slice());
         }
@@ -856,9 +1440,118 @@ async fn load_connection(s: &RedisSession) -> Result<MultiplexedConnection> {
     Ok(conn)
 }
 
+/// Each target column's vector type: that of the vector field of a search
+/// index over the target's hashes, else the source column's when it is a
+/// vector (`vector(3)`, `vector<float, 3>`, `VECTOR(3, FLOAT64)`…).
+pub(crate) fn pack_types(
+    columns: &[String],
+    source: &[TransferColumn],
+    covered: &[(String, FtVector)],
+) -> Vec<Pack> {
+    columns
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            covered
+                .iter()
+                .find(|(f, _)| f == c)
+                .map(|(_, v)| (v.ty, Some(v.dims)))
+                .or_else(|| {
+                    source
+                        .get(i)
+                        .and_then(|t| vectors::parse_spelling(&t.type_name))
+                        .map(|(_, t)| (t, None))
+                })
+        })
+        .collect()
+}
+
+/// The writer of a load into `spec.table`: a search index's documents
+/// (an `index` object), a vector set's elements (a key that is one, or a
+/// new key loaded with a vector set's columns, `element` and `vector`, on
+/// a server that has them), or else a table's rows as hashes.
+async fn writer(
+    s: &mut RedisSession,
+    spec: &LoadSpec,
+    columns: &[TransferColumn],
+) -> Result<Writer> {
+    let target = spec.table.name.clone();
+    let cols = &spec.columns;
+    let find = |n: &str| cols.iter().position(|c| c == n);
+    if spec.table.kind == dbine_driver::kinds::INDEX {
+        let index = s.ft_index(&target).await.ok_or_else(|| {
+            Error::Query(format!(
+                "No existe el índice de búsqueda {target}: crealo antes de cargarle documentos."
+            ))
+        })?;
+        return Ok(Writer::Index {
+            index,
+            id: find("id").unwrap_or(0),
+        });
+    }
+    let t = s.key_type(&target).await?;
+    let set_shape = find("element").is_some()
+        && find("vector").is_some()
+        && cols
+            .iter()
+            .all(|c| matches!(c.as_str(), "element" | "vector" | "attributes"));
+    if t == "vectorset" || (t == "none" && set_shape && s.server == vectors::Server::Redis) {
+        let (dims, flag) = if t == "vectorset" {
+            let (dims, quant) = s.vset_shape(target.as_bytes()).await;
+            (
+                dims,
+                quant
+                    .as_deref()
+                    .and_then(vectors::quant_flag)
+                    .unwrap_or("Q8"),
+            )
+        } else {
+            (None, "NOQUANT")
+        };
+        // The element: `element`, or the first column; the vector:
+        // `vector`, or the first column the source says is one.
+        let element = find("element").unwrap_or(0);
+        let vector = find("vector")
+            .or_else(|| {
+                columns
+                    .iter()
+                    .position(|c| vectors::parse_spelling(&c.type_name).is_some())
+                    .filter(|&i| i != element && i < cols.len())
+            })
+            .or_else(|| (0..cols.len()).find(|&i| i != element && cols[i].to_ascii_lowercase().contains("vector")))
+            .ok_or_else(|| {
+                Error::Query(format!(
+                    "Para cargar el vector set {target} hace falta una columna vector (o una de tipo vectorial)."
+                ))
+            })?;
+        let attrs = match find("attributes") {
+            Some(i) => Attrs::Column(i),
+            None => Attrs::Others(
+                (0..cols.len())
+                    .filter(|&i| i != element && i != vector)
+                    .collect(),
+            ),
+        };
+        return Ok(Writer::VectorSet {
+            key: target,
+            element,
+            vector,
+            attrs,
+            flag: flag.to_string(),
+            dims,
+        });
+    }
+    let covered = s.hash_vectors(format!("{target}:").as_bytes()).await;
+    Ok(Writer::Hashes {
+        pack: pack_types(cols, columns, &covered),
+        target,
+    })
+}
+
 pub async fn load(
     s: &mut RedisSession,
     spec: &LoadSpec,
+    columns: &[TransferColumn],
     source: &mut dyn BatchSource,
     progress: Progress<'_>,
 ) -> Result<u64> {
@@ -870,7 +1563,7 @@ pub async fn load(
     if spec.columns.is_empty() {
         return Err(Error::Query("No hay columnas para armar las keys.".into()));
     }
-    let target = spec.table.name.as_str();
+    let mut writer = writer(s, spec, columns).await?;
     let (max_rows, max_bytes) = (
         spec.commit_rows.clamp(1, WINDOW_ROWS),
         spec.commit_bytes.clamp(1, WINDOW_BYTES),
@@ -892,7 +1585,7 @@ pub async fn load(
         // end before anything else happens, so nothing sent is left
         // unaccounted when the load returns.
         let (window, settled) = tokio::join!(
-            fill(&mut rows, target, &spec.columns, max_rows, max_bytes),
+            fill(&mut rows, &mut writer, &spec.columns, max_rows, max_bytes),
             flight.settle()
         );
         settled?;
@@ -1027,7 +1720,14 @@ mod tests {
             .iter()
             .map(|r| r.iter().map(Cell::to_json).collect())
             .collect();
-        let script = crate::ddl::insert_script(&target, &cols, &json).unwrap();
+        let script = crate::ddl::insert_script(
+            &target,
+            &cols,
+            &json,
+            &Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
         let expected = crate::command::parse_script(&script).unwrap();
         let got: Vec<_> = rows
             .iter()
@@ -1261,6 +1961,13 @@ mod tests {
         }
     }
 
+    fn hashes(target: &str) -> Writer {
+        Writer::Hashes {
+            target: target.into(),
+            pack: Vec::new(),
+        }
+    }
+
     #[tokio::test]
     async fn windows_are_cut_by_bytes() {
         let cols = vec!["id".to_string(), "blob".into()];
@@ -1272,9 +1979,15 @@ mod tests {
         };
         let mut total = 0;
         loop {
-            let w = fill(&mut rows, "t", &cols, WINDOW_ROWS, WINDOW_BYTES)
-                .await
-                .unwrap();
+            let w = fill(
+                &mut rows,
+                &mut hashes("t"),
+                &cols,
+                WINDOW_ROWS,
+                WINDOW_BYTES,
+            )
+            .await
+            .unwrap();
             if w.rows == 0 {
                 break;
             }
@@ -1291,7 +2004,7 @@ mod tests {
             read: 0,
         };
         assert_eq!(
-            fill(&mut rows, "t", &cols, 5, WINDOW_BYTES)
+            fill(&mut rows, &mut hashes("t"), &cols, 5, WINDOW_BYTES)
                 .await
                 .unwrap()
                 .rows,
@@ -1321,6 +2034,299 @@ mod tests {
         assert!(
             task.is_finished(),
             "the EXEC task still runs after the drop gave up on it"
+        );
+    }
+
+    /// Loads into a vector set: `VADD … FP32 <blob> <element> <flag>`,
+    /// with its attributes; the first vector sets a new set's dimension.
+    #[test]
+    fn vector_set_loads() {
+        let cols: Vec<String> = ["id", "embedding", "lang", "n"].map(String::from).to_vec();
+        let mut w = Writer::VectorSet {
+            key: "vs".into(),
+            element: 0,
+            vector: 1,
+            attrs: Attrs::Others(vec![2, 3]),
+            flag: "NOQUANT".into(),
+            dims: None,
+        };
+        let (name, args) = w
+            .command(
+                &cols,
+                &[
+                    Cell::Int(7),
+                    Cell::Text("[0.5, 1, -2]".into()),
+                    Cell::Text("es".into()),
+                    Cell::Int(3),
+                ],
+            )
+            .unwrap();
+        assert_eq!(name, "VADD");
+        assert_eq!(args[0], b"vs");
+        assert_eq!(args[1], b"FP32");
+        assert_eq!(args[2], VType::F32.encode(&[0.5, 1.0, -2.0]));
+        assert_eq!(args[3], b"7");
+        assert_eq!(args[4], b"NOQUANT");
+        assert_eq!(args[5], b"SETATTR");
+        assert_eq!(args[6], br#"{"lang":"es","n":3}"#);
+        // Another dimension after the first: refused.
+        let e = w
+            .command(
+                &cols,
+                &[
+                    Cell::Int(8),
+                    Cell::Text("[1,2]".into()),
+                    Cell::Null,
+                    Cell::Null,
+                ],
+            )
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("2 dimensiones") && e.contains("de 3"), "{e}");
+        // No attributes, no SETATTR; no vector, refused.
+        let (_, args) = w
+            .command(
+                &cols,
+                &[
+                    Cell::Int(9),
+                    Cell::Json("[1,2,3]".into()),
+                    Cell::Null,
+                    Cell::Null,
+                ],
+            )
+            .unwrap();
+        assert_eq!(args.len(), 5);
+        assert!(w
+            .command(&cols, &[Cell::Int(9), Cell::Null, Cell::Null, Cell::Null])
+            .is_err());
+        // An `attributes` column (a vector set read) goes as it is.
+        let cols: Vec<String> = ["element", "vector", "attributes"]
+            .map(String::from)
+            .to_vec();
+        let mut w = Writer::VectorSet {
+            key: "vs".into(),
+            element: 0,
+            vector: 1,
+            attrs: Attrs::Column(2),
+            flag: "Q8".into(),
+            dims: Some(2),
+        };
+        let (_, args) = w
+            .command(
+                &cols,
+                &[
+                    Cell::Text("a".into()),
+                    Cell::Text("[1,2]".into()),
+                    Cell::Json(r#"{"x":1}"#.into()),
+                ],
+            )
+            .unwrap();
+        assert_eq!(args[4], b"Q8");
+        assert_eq!(args[6], br#"{"x":1}"#);
+    }
+
+    fn docs_index(json: bool) -> FtIndex {
+        let v = FtVector {
+            algorithm: "HNSW".into(),
+            ty: VType::F16,
+            dims: 2,
+            metric: "COSINE".into(),
+            params: Vec::new(),
+        };
+        FtIndex {
+            name: "docs".into(),
+            on_json: json,
+            prefixes: vec!["doc:".into()],
+            filter: None,
+            options: Vec::new(),
+            fields: vec![
+                FtField {
+                    identifier: if json { "$.emb".into() } else { "emb".into() },
+                    attribute: "emb".into(),
+                    kind: "VECTOR".into(),
+                    vector: Some(v),
+                    args: Vec::new(),
+                },
+                FtField {
+                    identifier: if json { "$.n".into() } else { "n".into() },
+                    attribute: "n".into(),
+                    kind: "NUMERIC".into(),
+                    vector: None,
+                    args: Vec::new(),
+                },
+            ],
+        }
+    }
+
+    /// Loads into a search index: each row a document under its prefix,
+    /// the `id` column its key.
+    #[test]
+    fn index_document_loads() {
+        let cols: Vec<String> = ["id", "emb", "n", "title"].map(String::from).to_vec();
+        let row = [
+            Cell::Int(1),
+            Cell::Text("[0.5, 1]".into()),
+            Cell::Text("4".into()),
+            Cell::Text("hola".into()),
+        ];
+        let mut w = Writer::Index {
+            index: docs_index(false),
+            id: 0,
+        };
+        let (name, args) = w.command(&cols, &row).unwrap();
+        assert_eq!(name, "HSET");
+        assert_eq!(args[0], b"doc:1");
+        assert_eq!(args[1], b"emb");
+        assert_eq!(args[2], VType::F16.encode(&[0.5, 1.0]));
+        assert_eq!(
+            &args[3..],
+            [
+                b"n".to_vec(),
+                b"4".to_vec(),
+                b"title".to_vec(),
+                b"hola".to_vec()
+            ]
+        );
+        let bad = [
+            Cell::Int(2),
+            Cell::Text("[1,2,3]".into()),
+            Cell::Null,
+            Cell::Null,
+        ];
+        assert!(w
+            .command(&cols, &bad)
+            .unwrap_err()
+            .to_string()
+            .contains("3 dimensiones"));
+        // JSON: the whole document; NUMERIC text as a number.
+        let mut w = Writer::Index {
+            index: docs_index(true),
+            id: 0,
+        };
+        let (name, args) = w.command(&cols, &row).unwrap();
+        assert_eq!(name, "JSON.SET");
+        assert_eq!(args[0], b"doc:1");
+        assert_eq!(args[1], b"$");
+        assert_eq!(
+            String::from_utf8(args[2].clone()).unwrap(),
+            r#"{"emb":[0.5,1],"n":4.0,"title":"hola"}"#
+        );
+    }
+
+    /// What reading an index's documents makes of their values.
+    #[test]
+    fn index_document_reads() {
+        let ix = docs_index(false);
+        let blob = VType::F16.encode(&[0.5, 1.0]);
+        assert_eq!(
+            field_cell(&ix.fields[0], Value::BulkString(blob)),
+            Cell::Text("[0.5,1]".into())
+        );
+        assert_eq!(
+            field_cell(&ix.fields[1], Value::BulkString(b"4".to_vec())),
+            Cell::Int(4)
+        );
+        assert_eq!(
+            field_cell(&ix.fields[1], Value::BulkString(b"4.5".to_vec())),
+            Cell::Float(4.5)
+        );
+        let one = Value::BulkString(b"[[0.5,1]]".to_vec());
+        let got = json_get_values(&one, &["$.emb"]).unwrap();
+        assert_eq!(
+            json_cell(&ix.fields[0], got[0].clone().unwrap()),
+            Cell::Text("[0.5,1]".into())
+        );
+        let two = Value::BulkString(br#"{"$.emb":[[0.5,1]],"$.n":[3]}"#.to_vec());
+        let got = json_get_values(&two, &["$.emb", "$.n"]).unwrap();
+        assert_eq!(
+            json_cell(&ix.fields[1], got[1].clone().unwrap()),
+            Cell::Int(3)
+        );
+        let missing = Value::BulkString(br#"{"$.emb":[],"$.n":[3]}"#.to_vec());
+        assert_eq!(
+            json_get_values(&missing, &["$.emb", "$.n"]).unwrap()[0],
+            None
+        );
+    }
+
+    /// A vector cell goes as the blob of the index's type, or of the
+    /// source's vector type; other cells as before.
+    #[test]
+    fn vectors_load_as_blobs() {
+        let cols: Vec<String> = ["id", "emb", "v64", "note"].map(String::from).to_vec();
+        let source = |t: &str| TransferColumn {
+            name: "x".into(),
+            type_name: t.into(),
+            nullable: true,
+        };
+        let covered = vec![(
+            "emb".to_string(),
+            FtVector {
+                algorithm: "HNSW".into(),
+                ty: VType::Bf16,
+                dims: 2,
+                metric: "COSINE".into(),
+                params: Vec::new(),
+            },
+        )];
+        let pack = pack_types(
+            &cols,
+            &[
+                source("int4"),
+                source("vector(2)"),
+                source("VECTOR(2, FLOAT64)"),
+                source("text"),
+            ],
+            &covered,
+        );
+        assert_eq!(
+            pack,
+            [
+                None,
+                Some((VType::Bf16, Some(2))),
+                Some((VType::F64, None)),
+                None
+            ]
+        );
+        let args = hset_args_packed(
+            "docs",
+            &cols,
+            &[
+                Cell::Int(1),
+                Cell::Text("[1, 0.5]".into()),
+                Cell::Json("[0.1,2]".into()),
+                Cell::Text("[1,2]".into()),
+            ],
+            &pack,
+        )
+        .unwrap();
+        assert_eq!(args[0], b"docs:1");
+        assert_eq!(args[4], VType::Bf16.encode(&[1.0, 0.5]));
+        assert_eq!(args[6], VType::F64.encode(&[0.1, 2.0]));
+        // Not a vector column: the text as it is.
+        assert_eq!(args[8], b"[1,2]");
+        // A vector column whose cell isn't one: as it is.
+        let args =
+            hset_args_packed("d", &cols, &[Cell::Int(2), Cell::Text("x".into())], &pack).unwrap();
+        assert_eq!(args[4], b"x");
+        // One of another length than the index's dimension: refused.
+        let e = hset_args_packed(
+            "d",
+            &cols,
+            &[Cell::Int(3), Cell::Text("[1,2,3]".into())],
+            &pack,
+        )
+        .unwrap_err();
+        assert!(e.contains("3 dimensiones") && e.contains("de 2"), "{e}");
+        // Read back: the blob of a covered field is its text.
+        let blob = VType::Bf16.encode(&[1.0, 0.5]);
+        assert_eq!(
+            vector_cell(&covered, "emb", Value::BulkString(blob)),
+            Cell::Text("[1,0.5]".into())
+        );
+        assert_eq!(
+            vector_cell(&covered, "other", Value::BulkString(b"x".to_vec())),
+            Cell::Text("x".into())
         );
     }
 }

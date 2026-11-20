@@ -45,6 +45,7 @@ pub mod sort;
 pub mod sql;
 pub mod stats;
 pub mod transfer;
+pub mod vector;
 pub mod write;
 
 pub use aggregate::{
@@ -89,12 +90,13 @@ pub use permissions::{Access, Permissions};
 pub use profiler::{ProfiledStatement, ProfilerMode, ProfilerOptions, ProfilerStarted};
 pub use schema::{
     Capabilities, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, ForeignKeyDef,
-    IndexDef, KeyDef, TableSchema,
+    IndexDef, KeyDef, TableSchema, VectorIndexSpec, VectorParamSpec,
 };
 pub use security::{
     Grant, Principal, PrincipalKind, Privilege, SchemaOwnerKinds, SchemaSpec, SecurityAction,
     SecuritySpec,
 };
+pub use vector::{VectorElement, VectorIndex, VectorMeta};
 
 pub use sql::{ScriptDefaults, ScriptDialect, ScriptMode, ScriptStatement, StatementKind};
 
@@ -269,6 +271,21 @@ pub trait Driver: Send + Sync {
         false
     }
 
+    /// Whether [`Driver::sync_script`] applies changes to objects of `kind`
+    /// (a [`TableSchema::kind`]): "Comparar esquemas" asks it for the kinds
+    /// of the objects it changes. By default, [`Driver::supports_schema_sync`]
+    /// for every kind. A driver whose kinds differ answers per kind: Redis
+    /// applies its search indexes' changes (`index`) but has no schema for
+    /// its keys (`key`), so its `supports_schema_sync` stays off (the
+    /// explorer's "Modificar…" and the designer, which work on the
+    /// designer's kind, keep asking that one). Through a plugin host only
+    /// the kinds of [`DriverInfo::object_kinds`] carry their own answer
+    /// (see [`schema_sync_kinds`]).
+    fn supports_schema_sync_for(&self, kind: &str) -> bool {
+        let _ = kind;
+        self.supports_schema_sync()
+    }
+
     /// The statements that apply schema changes (create, drop and alter
     /// tables), in an order that respects dependencies. SQL engines build it
     /// with [`alter::sync_script`] and their [`alter::AlterStyle`].
@@ -290,6 +307,9 @@ pub trait Driver: Send + Sync {
     /// Rows as a script in the driver's language that inserts them (SQL
     /// INSERTs, `insertMany`, `_bulk`, Redis commands…): copy, import and
     /// the database script use it. `target` is the table / collection.
+    /// A vector value comes as a JSON array of numbers
+    /// ([`vector::rows_for_scripts`]); the driver writes it as its engine's
+    /// vector literal.
     fn insert_script(
         &self,
         target: &ObjectRef,
@@ -441,7 +461,9 @@ pub trait Driver: Send + Sync {
     /// Rows edited in the results grid as code in the driver's language
     /// that applies the changes (`UPDATE … WHERE <key>` in SQL, `updateOne`
     /// in MongoDB, `HSET` in Redis…). DBine only shows / inserts it: the
-    /// user runs it. `target` is the table / collection.
+    /// user runs it. `target` is the table / collection. A vector value in
+    /// `set` comes as a JSON array of numbers, as in [`Driver::insert_script`];
+    /// vector columns are never part of `key`.
     fn update_script(&self, target: &ObjectRef, changes: &[RowChange]) -> Result<String> {
         if self.info().language != Language::Sql {
             return Err(Error::Unsupported(
@@ -652,6 +674,44 @@ pub trait Driver: Send + Sync {
         ))
     }
 
+    /// [`Driver::insert_script`] knowing the target columns' types, in the
+    /// order of the rows' cells (`type_name` and `vector` as a result or a
+    /// describe gives them). Drivers whose vector literal depends on the
+    /// column's type (its element, the form it's stored in) override it;
+    /// the default ignores the types.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        self.insert_script(target, &names, rows)
+    }
+
+    /// [`Driver::update_script`] knowing the target's column types (by
+    /// name, in any order; a column not listed is untyped).
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        let _ = types;
+        self.update_script(target, changes)
+    }
+
+    /// [`Driver::delete_script`] knowing the target's column types.
+    fn delete_script_typed(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        let _ = types;
+        self.delete_script(target, keys)
+    }
+
     /// Statements around a table's data in a generated script, for engines
     /// that need them to load explicit key values: SQL Server's
     /// `SET IDENTITY_INSERT … ON/OFF`, PostgreSQL's sequence resync after
@@ -829,6 +889,25 @@ pub trait Driver: Send + Sync {
             "este motor no tiene backups propios".into(),
         ))
     }
+}
+
+/// [`Driver::supports_schema_sync_for`] as the app and the plugin manifest
+/// carry it: `None` when every kind of [`DriverInfo::object_kinds`] answers
+/// as [`Driver::supports_schema_sync`] (the usual case: that flag says it
+/// all), else the kinds that do take schema changes (none, maybe).
+pub fn schema_sync_kinds(d: &dyn Driver) -> Option<Vec<String>> {
+    let all = d.supports_schema_sync();
+    let kinds = &d.info().object_kinds;
+    kinds
+        .iter()
+        .any(|k| d.supports_schema_sync_for(k.id) != all)
+        .then(|| {
+            kinds
+                .iter()
+                .filter(|k| d.supports_schema_sync_for(k.id))
+                .map(|k| k.id.to_string())
+                .collect()
+        })
 }
 
 #[async_trait]
@@ -1868,5 +1947,58 @@ mod tests {
         // The read-only wrapper passes the driver's list through.
         let mut ro = read_only::ReadOnlySession::new(Box::new(BareSession));
         assert_eq!(ready(ro.list_schemas()).unwrap(), None);
+    }
+
+    /// Schema sync per kind: by default every kind answers as
+    /// `supports_schema_sync` and nothing more is carried; a driver whose
+    /// kinds differ (Redis: search indexes, not keys) carries the kinds
+    /// that take changes.
+    #[test]
+    fn schema_sync_is_asked_per_kind() {
+        let mut d = bare();
+        d.0.object_kinds = vec![ObjectKindInfo::tables(), ObjectKindInfo::views()];
+        assert!(!d.supports_schema_sync_for(kinds::TABLE));
+        assert_eq!(schema_sync_kinds(&d), None);
+
+        struct Syncs(DriverInfo, &'static [&'static str], bool);
+        #[async_trait]
+        impl Driver for Syncs {
+            fn info(&self) -> &DriverInfo {
+                &self.0
+            }
+            async fn connect(
+                &self,
+                _: &ConnectionConfig,
+                _: Option<&str>,
+            ) -> Result<Box<dyn Session>> {
+                Err(Error::Unsupported("test".into()))
+            }
+            fn supports_schema_sync(&self) -> bool {
+                self.2
+            }
+            fn supports_schema_sync_for(&self, kind: &str) -> bool {
+                self.1.contains(&kind)
+            }
+        }
+        let kinds_of = |only: &'static [&'static str], all: bool| {
+            let mut info = bare().0;
+            info.object_kinds = vec![
+                ObjectKindInfo::new(kinds::KEY, "Claves", true, true, true),
+                ObjectKindInfo::new(kinds::INDEX, "Índices", true, true, true),
+            ];
+            schema_sync_kinds(&Syncs(info, only, all))
+        };
+        // Only search indexes, not keys.
+        assert_eq!(
+            kinds_of(&[kinds::INDEX], false),
+            Some(vec!["index".to_string()])
+        );
+        // Every kind but one, with the flag on.
+        assert_eq!(kinds_of(&[kinds::KEY], true), Some(vec!["key".to_string()]));
+        // None at all, with the flag on: an empty list, not "every kind".
+        assert_eq!(kinds_of(&[], true), Some(vec![]));
+        // Every kind as the flag says: nothing to carry.
+        assert_eq!(kinds_of(&[kinds::KEY, kinds::INDEX], true), None);
+        assert_eq!(kinds_of(&[], false), None);
     }
 }

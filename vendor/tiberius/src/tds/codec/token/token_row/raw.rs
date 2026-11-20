@@ -99,6 +99,8 @@ fn framing(ty: &TypeInfo) -> crate::Result<Framing> {
         TypeInfo::VarLenSizedPrecision { .. } => Framing::ByteLen,
         TypeInfo::Xml { .. } => Framing::Plp,
         TypeInfo::Udt(info) => return Err(unsupported(&info.type_name)),
+        // PATCH(dbine): a vector value is USHORTLEN bytes.
+        TypeInfo::Vector(_) => Framing::UShortLen,
         TypeInfo::VarLenSized(ctx) => match ctx.r#type() {
             VarLenType::BigVarChar
             | VarLenType::BigVarBin

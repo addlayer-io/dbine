@@ -37,8 +37,12 @@
 //!     statements). Each statement is a load of its own and commits
 //!     alone. Stream Load (StarRocks, Doris) would be faster but needs HTTP
 //!     to the FE/BE ports, and this crate has no HTTP client.
-//!   - Manticore: no bulk load (no `LOAD DATA`, no NULL); the migration
-//!     writes its `insert_script`.
+//!   - Manticore: no bulk load of its own (no `LOAD DATA`, no NULL): one
+//!     `INSERT` per row without its NULLs, its `float_vector` columns (from
+//!     `DESCRIBE`) written as `(…)`, as its edits are.
+//!
+//!   The text paths look the target's vector columns up first: their cells
+//!   (the JSON-array text) go as the engine's vector literal.
 //!
 //!   The load session (MySQL family) runs with autocommit off, commits each
 //!   window, in UTC (`DateTimeTz` values are converted to UTC) and without
@@ -104,6 +108,12 @@ pub(crate) enum Kind {
     Bit,
     Bytes,
     Text,
+    /// A vector column: its elements, stored bytes (`binary`) or the
+    /// engine's text; the cell is the canonical JSON-array text.
+    Vector {
+        element: dbine_driver::VectorElement,
+        binary: bool,
+    },
 }
 
 pub(crate) fn kind(col: &Column, utc: bool) -> Kind {
@@ -243,6 +253,14 @@ fn f32_value(f: f64) -> f64 {
 /// A value the server sent as bytes (every value in the text protocol).
 fn bytes_cell(kind: Kind, b: Vec<u8>) -> Cell {
     let text = |b: Vec<u8>| String::from_utf8(b).map_err(|e| e.into_bytes());
+    if let Kind::Vector { element, binary } = kind {
+        let meta = dbine_driver::VectorMeta::dense(None, element);
+        return match crate::vectors::cell(&meta, &b, binary) {
+            Some(t) => Cell::Text(t),
+            None if binary => Cell::Bytes(b),
+            None => bytes_cell(Kind::Text, b),
+        };
+    }
     match kind {
         Kind::Bytes => Cell::Bytes(b),
         Kind::Bit => {
@@ -288,6 +306,7 @@ struct Reader {
     utc: bool,
     /// Catalog types (name, type, nullable) for the columns' descriptions.
     catalog: Vec<(String, String, bool)>,
+    variant: Variant,
     /// Manticore's cursor column, when read only to page.
     cursor: Option<Cursor>,
     last_id: Option<i64>,
@@ -314,7 +333,20 @@ impl Reader {
                     .iter()
                     .find(|(n, _, _)| n.eq_ignore_ascii_case(&name))
                     .map(|(_, t, _)| t.as_str());
-                refine(kind(c, self.utc), catalog)
+                let binary = c.character_set() == BINARY_CHARSET;
+                if c.column_type() == ColumnType::MYSQL_TYPE_VECTOR {
+                    return Kind::Vector {
+                        element: dbine_driver::VectorElement::F32,
+                        binary,
+                    };
+                }
+                match catalog.and_then(|t| crate::vectors::meta(self.variant, t)) {
+                    Some(m) => Kind::Vector {
+                        element: m.element,
+                        binary,
+                    },
+                    None => refine(kind(c, self.utc), catalog),
+                }
             })
             .collect();
         let hidden = self.cursor.filter(|c| c.hidden).map(|c| c.index);
@@ -409,6 +441,7 @@ pub(crate) async fn read_batches(
         began: false,
         utc: zone.is_some(),
         catalog,
+        variant: v,
         cursor: None,
         last_id: None,
     };
@@ -533,6 +566,19 @@ pub(crate) enum Mode {
     Bit,
     /// Escaped text, a double brought into the `f32` range (`FLOAT`).
     Float,
+    /// A vector's JSON-array text, through the engine's conversion
+    /// (`STRING_TO_VECTOR(@v)` on MySQL, `VEC_FromText(@v)` on MariaDB).
+    Vector(&'static str),
+}
+
+/// The function a vector column's text goes through, on the engines whose
+/// `VECTOR` doesn't take text as it is (the rest cast `'[…]'` themselves).
+fn vector_function(v: Variant) -> Option<&'static str> {
+    match v.base() {
+        Variant::MySql => Some("STRING_TO_VECTOR"),
+        Variant::MariaDb => Some("VEC_FromText"),
+        _ => None,
+    }
 }
 
 pub(crate) fn mode_of(data_type: &str) -> Mode {
@@ -842,25 +888,166 @@ enum Path {
     LocalInfile,
     /// Multi-row text `INSERT`s.
     TextInserts,
+    /// Manticore: `INSERT`s without NULLs (it has none), its vectors as
+    /// `(…)` (it has no bulk load of its own).
+    Manticore,
 }
 
-fn path(v: Variant) -> Option<Path> {
+fn path(v: Variant) -> Path {
     match v.base() {
-        Variant::MySql
-        | Variant::MariaDb
-        | Variant::TiDb
-        | Variant::OceanBase
-        | Variant::SingleStore => Some(Path::LocalInfile),
         Variant::StarRocks | Variant::Doris | Variant::Databend | Variant::GreptimeDb => {
-            Some(Path::TextInserts)
+            Path::TextInserts
         }
-        _ => None,
+        Variant::Manticore => Path::Manticore,
+        // MySQL, MariaDB, TiDB, OceanBase, SingleStore (the managed ones
+        // are MySQL).
+        _ => Path::LocalInfile,
     }
 }
 
-/// The variant has a bulk load here (Manticore doesn't).
-pub(crate) fn supported(v: Variant) -> bool {
-    path(v).is_some()
+/// Which load columns are vector columns of the target table, from its
+/// catalog (Manticore: DESCRIBE). Unknown columns aren't.
+async fn target_vectors(conn: &mut Conn, v: Variant, spec: &LoadSpec) -> Vec<bool> {
+    let types: Vec<(String, String)> = if v.base() == Variant::Manticore {
+        let sql = format!(
+            "DESCRIBE {}",
+            quote_ident(Quote::Backtick, &spec.table.name)
+        );
+        let rows: Vec<Row> = conn.query(sql).await.unwrap_or_default();
+        rows.iter()
+            .filter_map(|r| {
+                Some((
+                    r.as_ref(0).and_then(value_text)?,
+                    r.as_ref(1).and_then(value_text)?,
+                ))
+            })
+            .collect()
+    } else {
+        let schema = spec
+            .table
+            .schema()
+            .map_or_else(|| "DATABASE()".to_string(), lit);
+        let sql = format!(
+            "SELECT * FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = {schema} AND TABLE_NAME = {}",
+            lit(&spec.table.name)
+        );
+        let rows: Vec<Row> = conn.query(sql).await.unwrap_or_default();
+        rows.iter()
+            .filter_map(|r| {
+                Some((
+                    crate::session::named(r, &["COLUMN_NAME"])?,
+                    crate::session::named(r, &["COLUMN_TYPE"])
+                        .or_else(|| crate::session::named(r, &["DATA_TYPE"]))?,
+                ))
+            })
+            .collect()
+    };
+    spec.columns
+        .iter()
+        .map(|c| {
+            types
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(c))
+                .is_some_and(|(_, t)| crate::vectors::meta(v, t).is_some())
+        })
+        .collect()
+}
+
+/// A text `INSERT`'s value: a vector column's cell as the engine's vector
+/// literal (`[1,2]` arrays on Doris, StarRocks and Databend), the rest as
+/// [`literal`].
+fn text_value(v: Variant, c: &Cell, vector: bool) -> Result<String> {
+    if vector {
+        let values = match c {
+            Cell::Text(t) | Cell::Json(t) => dbine_driver::vector::parse(t),
+            _ => None,
+        };
+        if let Some(values) = values {
+            return Ok(crate::vectors::literal(v, &values));
+        }
+    }
+    literal(c)
+}
+
+/// A Manticore row without its NULLs (Manticore has none): its column
+/// list and its values, vectors as `(…)`, the rest as its edits write them.
+fn manticore_row(columns: &[String], row: &[Cell], vectors: &[bool]) -> (String, String) {
+    let mut cols = Vec::new();
+    let mut vals = Vec::new();
+    for (i, (c, cell)) in columns.iter().zip(row).enumerate() {
+        if matches!(cell, Cell::Null) {
+            continue;
+        }
+        let value = match (vectors.get(i).copied().unwrap_or(false), cell) {
+            (true, Cell::Text(t) | Cell::Json(t)) => match dbine_driver::vector::parse(t) {
+                Some(values) => crate::vectors::literal(Variant::Manticore, &values),
+                None => crate::design::manticore_value(&cell.to_json()),
+            },
+            _ => crate::design::manticore_value(&cell.to_json()),
+        };
+        cols.push(quote_ident(Quote::Backtick, c));
+        vals.push(value);
+    }
+    (cols.join(", "), vals.join(", "))
+}
+
+/// Rows of a Manticore `INSERT`, at most.
+const MANTICORE_ROWS: usize = 1_000;
+
+/// Manticore's `INSERT`s for some rows: consecutive rows with the same
+/// non-NULL columns go in one statement.
+fn manticore_inserts(
+    table: &str,
+    columns: &[String],
+    rows: &[Vec<Cell>],
+    vectors: &[bool],
+) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut open: Option<(String, Vec<String>)> = None;
+    let flush = |open: &mut Option<(String, Vec<String>)>, out: &mut Vec<String>| {
+        if let Some((cols, vals)) = open.take() {
+            out.push(format!(
+                "INSERT INTO {table} ({cols}) VALUES ({})",
+                vals.join("), (")
+            ));
+        }
+    };
+    for row in rows {
+        let (cols, vals) = manticore_row(columns, row, vectors);
+        if cols.is_empty() {
+            continue;
+        }
+        match &mut open {
+            Some((c, v)) if *c == cols && v.len() < MANTICORE_ROWS => v.push(vals),
+            _ => {
+                flush(&mut open, &mut out);
+                open = Some((cols, vec![vals]));
+            }
+        }
+    }
+    flush(&mut open, &mut out);
+    out
+}
+
+/// Manticore: its rows as [`manticore_inserts`], one statement per request
+/// (it takes no more).
+async fn load_manticore(
+    conn: &mut Conn,
+    spec: &LoadSpec,
+    source: &mut dyn BatchSource,
+    progress: Progress<'_>,
+) -> Result<u64> {
+    let vectors = target_vectors(conn, Variant::Manticore, spec).await;
+    let table = quote_ident(Quote::Backtick, &spec.table.name);
+    let mut total = 0u64;
+    while let Some(batch) = source.next().await {
+        for sql in manticore_inserts(&table, &spec.columns, &batch.rows, &vectors) {
+            conn.query_drop(sql.as_str()).await.map_err(err)?;
+        }
+        total += batch.rows.len() as u64;
+        progress(total);
+    }
+    Ok(total)
 }
 
 /// The commit window's bounds.
@@ -893,17 +1080,17 @@ pub(crate) async fn bulk_load(
     progress: Progress<'_>,
 ) -> Result<u64> {
     let v = s.variant;
-    let Some(p) = path(v) else {
-        return Err(Error::Unsupported(
-            "Manticore Search no tiene carga masiva: se usan INSERT".into(),
-        ));
-    };
+    let p = path(v);
     let table = qualified_name(Quote::Backtick, spec.table.schema(), &spec.table.name);
     let window = Window::new(v, spec);
-    if p == Path::TextInserts {
-        return load_text(&mut s.conn, &table, spec, &window, source, progress).await;
+    match p {
+        Path::TextInserts => {
+            return load_text(&mut s.conn, v, &table, spec, &window, source, progress).await
+        }
+        Path::Manticore => return load_manticore(&mut s.conn, spec, source, progress).await,
+        Path::LocalInfile => {}
     }
-    let modes = target_modes(&mut s.conn, spec).await?;
+    let modes = target_modes(&mut s.conn, v, spec).await?;
     let saved = prepare_session(&mut s.conn, v, spec, &table).await?;
     let r = if v.base() == Variant::TiDb {
         // TiDB's LOAD DATA commits by itself (autocommit off or not, and the
@@ -937,7 +1124,7 @@ pub(crate) async fn bulk_load(
 }
 
 /// Each load column's mode, from the target's catalog.
-async fn target_modes(conn: &mut Conn, spec: &LoadSpec) -> Result<Vec<Mode>> {
+async fn target_modes(conn: &mut Conn, v: Variant, spec: &LoadSpec) -> Result<Vec<Mode>> {
     let schema = spec
         .table
         .schema()
@@ -955,10 +1142,15 @@ async fn target_modes(conn: &mut Conn, spec: &LoadSpec) -> Result<Vec<Mode>> {
                 .and_then(value_text)
                 .unwrap_or_default()
                 .to_ascii_lowercase();
+            let data_type = r.as_ref(1).and_then(value_text)?;
             let mode = if extra.contains("auto_increment") {
                 Mode::Auto
+            } else if let Some(f) =
+                vector_function(v).filter(|_| crate::vectors::meta(v, &data_type).is_some())
+            {
+                Mode::Vector(f)
             } else {
-                mode_of(&r.as_ref(1).and_then(value_text)?)
+                mode_of(&data_type)
             };
             Some((r.as_ref(0).and_then(value_text)?, mode))
         })
@@ -1073,7 +1265,8 @@ async fn check_warnings(conn: &mut Conn, loaded: &[String]) -> Result<()> {
                 .unwrap_or_else(|| level.clone());
             let computed = warned_column(&message)
                 .is_some_and(|c| !loaded.iter().any(|l| l.eq_ignore_ascii_case(&c)));
-            (!level.eq_ignore_ascii_case("note") && !computed).then_some(message)
+            (!level.eq_ignore_ascii_case("note") && !computed && !plan_cache_note(&message))
+                .then_some(message)
         })
         .take(5)
         .collect();
@@ -1099,10 +1292,19 @@ fn warned_column(message: &str) -> Option<String> {
     )
 }
 
+/// TiDB's word that a prepared statement isn't cached (`skip prepared
+/// plan-cache: too many values in the insert statement`, a Warning since
+/// 8.x): about its plan cache, not the rows.
+fn plan_cache_note(message: &str) -> bool {
+    let m = message.trim_start().to_ascii_lowercase();
+    m.starts_with("skip prepared plan-cache") || m.starts_with("skip plan-cache")
+}
+
 /// `LOAD DATA` answered that local files are off (MySQL's 3948,
-/// MariaDB's 1148) or doesn't know the statement (1064, 1235).
+/// MariaDB's 1148 and, since 10.5, 4166) or doesn't know the statement
+/// (1064, 1235).
 fn local_infile_refused(e: &mysql_async::Error) -> bool {
-    matches!(e, mysql_async::Error::Server(s) if matches!(s.code, 3948 | 1148 | 1064 | 1235))
+    matches!(e, mysql_async::Error::Server(s) if matches!(s.code, 3948 | 1148 | 4166 | 1064 | 1235))
 }
 
 /// The item type of [`InfileData`] (`bytes::Bytes`), named without a
@@ -1253,7 +1455,9 @@ async fn load_local(
     // With a SET clause, MariaDB ignores NO_AUTO_VALUE_ON_ZERO for an
     // AUTO_INCREMENT column read directly (a 0 becomes the next value); set
     // from a variable, it keeps the 0.
-    let any_set = modes.iter().any(|m| matches!(m, Mode::Hex | Mode::Bit));
+    let any_set = modes
+        .iter()
+        .any(|m| matches!(m, Mode::Hex | Mode::Bit | Mode::Vector(_)));
     for (i, (c, m)) in spec.columns.iter().zip(modes).enumerate() {
         let q = quote_ident(Quote::Backtick, c);
         match m {
@@ -1269,6 +1473,10 @@ async fn load_local(
             Mode::Bit => {
                 targets.push(format!("@c{i}"));
                 sets.push(format!("{q} = CAST(@c{i} AS UNSIGNED)"));
+            }
+            Mode::Vector(f) => {
+                targets.push(format!("@c{i}"));
+                sets.push(format!("{q} = {f}(@c{i})"));
             }
         }
     }
@@ -1397,7 +1605,17 @@ async fn load_prepared(
             .collect::<Vec<_>>()
             .join(", ")
     );
-    let one = format!("({})", vec!["?"; ncols].join(", "));
+    // A vector column's text goes through the engine's conversion.
+    let one = format!(
+        "({})",
+        (0..ncols)
+            .map(|i| match modes.get(i) {
+                Some(Mode::Vector(f)) => format!("{f}(?)"),
+                _ => "?".to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     let statement = |n: usize| {
         let mut s = String::with_capacity(head.len() + n * (one.len() + 2));
         s.push_str(&head);
@@ -1479,15 +1697,17 @@ async fn load_prepared(
 }
 
 /// StarRocks, Doris, Databend, GreptimeDB: text `INSERT`s, each one a
-/// load that commits on its own.
+/// load that commits on its own; vector columns take the engine's literal.
 async fn load_text(
     conn: &mut Conn,
+    v: Variant,
     table: &str,
     spec: &LoadSpec,
     window: &Window,
     source: &mut dyn BatchSource,
     progress: Progress<'_>,
 ) -> Result<u64> {
+    let vectors = target_vectors(conn, v, spec).await;
     let head = format!(
         "INSERT INTO {table} ({}) VALUES ",
         spec.columns
@@ -1506,7 +1726,7 @@ async fn load_text(
                 if i > 0 {
                     sql.push_str(", ");
                 }
-                sql.push_str(&literal(c)?);
+                sql.push_str(&text_value(v, c, vectors.get(i).copied().unwrap_or(false))?);
             }
             sql.push(')');
             in_stmt += 1;
@@ -1530,6 +1750,95 @@ async fn load_text(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_loads_write_vectors_as_the_engines_literal() {
+        let cell = Cell::Text("[1, 2.5, -3]".into());
+        assert_eq!(
+            text_value(Variant::Doris, &cell, true).unwrap(),
+            "[1,2.5,-3]"
+        );
+        assert_eq!(
+            text_value(Variant::StarRocks, &cell, true).unwrap(),
+            "[1,2.5,-3]"
+        );
+        assert_eq!(
+            text_value(Variant::Databend, &cell, true).unwrap(),
+            "[1,2.5,-3]"
+        );
+        assert_eq!(
+            text_value(Variant::GreptimeDb, &cell, true).unwrap(),
+            "'[1,2.5,-3]'"
+        );
+        // Not a vector column, or not a vector: as before.
+        assert_eq!(
+            text_value(Variant::Doris, &cell, false).unwrap(),
+            "'[1, 2.5, -3]'"
+        );
+        assert_eq!(
+            text_value(Variant::Doris, &Cell::Text("x".into()), true).unwrap(),
+            "'x'"
+        );
+        assert_eq!(
+            text_value(Variant::Doris, &Cell::Null, true).unwrap(),
+            "NULL"
+        );
+    }
+
+    #[test]
+    fn manticore_loads_write_vectors_and_skip_nulls() {
+        let cols = ["id".to_string(), "v".to_string(), "title".to_string()];
+        let vectors = [false, true, false];
+        let rows = vec![
+            vec![
+                Cell::Int(7),
+                Cell::Text("[0.5,-1,2]".into()),
+                Cell::Text("it's".into()),
+            ],
+            vec![
+                Cell::Int(8),
+                Cell::Text("[1,2,3]".into()),
+                Cell::Text("b".into()),
+            ],
+            // A NULL is left out (Manticore has none); a text column with
+            // a vector's text stays text.
+            vec![Cell::Int(9), Cell::Null, Cell::Text("[1,2]".into())],
+            vec![Cell::Null, Cell::Null, Cell::Null],
+        ];
+        assert_eq!(
+            manticore_inserts("`t`", &cols, &rows, &vectors),
+            [
+                "INSERT INTO `t` (`id`, `v`, `title`) VALUES (7, (0.5,-1,2), 'it\\'s'), (8, (1,2,3), 'b')",
+                "INSERT INTO `t` (`id`, `title`) VALUES (9, '[1,2]')",
+            ]
+        );
+        assert_eq!(path(Variant::Manticore), Path::Manticore);
+    }
+
+    #[test]
+    fn tidb_plan_cache_warnings_are_not_rejected_rows() {
+        assert!(plan_cache_note(
+            "skip prepared plan-cache: too many values in the insert statement"
+        ));
+        assert!(plan_cache_note("skip plan-cache: query has 'now' function"));
+        assert!(!plan_cache_note("Data truncated for column 'a' at row 1"));
+    }
+
+    #[test]
+    fn a_server_without_local_files_is_loaded_with_inserts() {
+        let refused = |code| {
+            local_infile_refused(&mysql_async::Error::Server(mysql_async::ServerError {
+                code,
+                message: String::new(),
+                state: "HY000".into(),
+            }))
+        };
+        // MariaDB 10.5+ answers 4166 (ER_LOAD_INFILE_CAPABILITY_DISABLED).
+        for code in [3948, 1148, 4166, 1064, 1235] {
+            assert!(refused(code), "{code}");
+        }
+        assert!(!refused(1062));
+    }
 
     #[test]
     fn the_column_a_warning_names() {

@@ -38,6 +38,31 @@ fn key_cols(t: &TableSchema) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// DSQL has no extensions, so no pgvector: a vector column or a vector
+/// index (a table that came from PostgreSQL within the family) is refused
+/// with the reason rather than scripted as something DSQL rejects.
+pub(crate) fn no_vectors(t: &TableSchema) -> Result<()> {
+    let is_vector = |ty: &str| {
+        let ty = ty.trim().to_ascii_lowercase();
+        let name = ty.split('(').next().unwrap_or("").trim();
+        let name = name.rsplit('.').next().unwrap_or(name).trim_matches('"');
+        matches!(name, "vector" | "halfvec" | "sparsevec" | "float_vector")
+    };
+    if let Some(c) = t.columns.iter().find(|c| is_vector(&c.data_type)) {
+        return Err(dbine_driver::Error::Unsupported(format!(
+            "Aurora DSQL no tiene vectores (no carga extensiones como pgvector): la columna «{}» es {}. Cambiá su tipo antes de crearla.",
+            c.name, c.data_type
+        )));
+    }
+    if let Some(ix) = t.indexes.iter().find(|ix| ix.vector.is_some()) {
+        return Err(dbine_driver::Error::Unsupported(format!(
+            "Aurora DSQL no tiene índices vectoriales: el índice «{}» no se puede crear.",
+            ix.name
+        )));
+    }
+    Ok(())
+}
+
 fn no_fks(t: &mut TableSchema, warnings: &mut Vec<String>) {
     if !t.foreign_keys.is_empty() {
         warnings.push(format!(
@@ -53,6 +78,9 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
     let mut after = Vec::new();
     let mut planned = Vec::with_capacity(changes.len());
     for ch in changes {
+        if let TableChange::Create { table: t } | TableChange::Alter { new: t, .. } = ch {
+            no_vectors(t)?;
+        }
         planned.push(match ch {
             TableChange::Create { table } => {
                 let mut table = table.clone();
@@ -155,6 +183,46 @@ pub fn sync_script(changes: &[TableChange]) -> Result<SyncScript> {
 mod tests {
     use super::*;
     use dbine_driver::{ForeignKeyDef, IndexDef, KeyDef};
+
+    /// A pgvector table (a conversion within the family keeps its types)
+    /// is refused with the reason, in the DDL and in the sync.
+    #[test]
+    fn vectors_are_refused() {
+        let mut t = TableSchema {
+            schema: Some("public".into()),
+            name: "items".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "integer".into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "v".into(),
+                    data_type: "vector(3)".into(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let e = sync_script(&[TableChange::Create { table: t.clone() }]).unwrap_err();
+        assert!(e.to_string().contains("«v» es vector(3)"), "{e}");
+        t.columns[1].data_type = "real[]".into();
+        t.indexes.push(IndexDef {
+            name: "ix_v".into(),
+            columns: vec!["v".into()],
+            vector: Some(dbine_driver::VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                params: Default::default(),
+            }),
+            ..Default::default()
+        });
+        let e = no_vectors(&t).unwrap_err();
+        assert!(e.to_string().contains("índices vectoriales"), "{e}");
+        t.indexes.clear();
+        assert!(sync_script(&[TableChange::Create { table: t }]).is_ok());
+    }
 
     fn col(name: &str, ty: &str, nullable: bool) -> ColumnDef {
         ColumnDef {

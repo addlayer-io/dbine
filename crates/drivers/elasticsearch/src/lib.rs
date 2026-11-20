@@ -30,6 +30,7 @@ pub mod steps;
 mod sync;
 pub mod tls;
 mod transfer;
+pub mod vectors;
 
 use base64::Engine;
 use console::{Command, Request};
@@ -40,6 +41,7 @@ use dbine_driver::{
     Session, TableSchema, TlsLevel, TlsSupport,
 };
 use json::J;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -56,13 +58,37 @@ pub fn drivers() -> Vec<Arc<dyn Driver>> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Flavor {
+pub(crate) enum Flavor {
     Elastic,
     OpenSearch,
     /// Open Distro for Elasticsearch: Elasticsearch OSS 7.10 plus AWS's
     /// plugins under `/_opendistro/…` (SQL, ISM, k-NN, security). No
     /// data streams, no `flat_object`; the rest is OpenSearch 1.x.
     OpenDistro,
+}
+
+impl Flavor {
+    /// OpenSearch-style mappings and settings (knn_vector, index.knn).
+    pub(crate) fn opensearch(self) -> bool {
+        self != Flavor::Elastic
+    }
+
+    /// The engine's name, for messages.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Flavor::Elastic => "Elasticsearch",
+            Flavor::OpenSearch => "OpenSearch",
+            Flavor::OpenDistro => "Open Distro",
+        }
+    }
+
+    /// The vector field type of its mappings.
+    pub(crate) fn vector_type(self) -> &'static str {
+        match self {
+            Flavor::Elastic => "dense_vector",
+            _ => "knn_vector",
+        }
+    }
 }
 
 struct Es {
@@ -401,16 +427,15 @@ impl Driver for Es {
             // (see `scheduler`).
             jobs: true,
             scheduler: true,
+            // dense_vector / knn_vector fields and their ANN indexes (see
+            // `vectors`).
+            vectors: true,
             ..Capabilities::default()
         }
     }
 
     fn designer(&self) -> Option<DesignerSpec> {
-        let mut d = ddl::designer(self.opensearch);
-        if self.flavor == Flavor::OpenDistro {
-            d.data_types.retain(|t| *t != "flat_object");
-        }
-        Some(d)
+        Some(ddl::designer(self.flavor))
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
@@ -425,7 +450,7 @@ impl Driver for Es {
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
-        ddl::index_ddl(table, parts, self.opensearch)
+        ddl::index_ddl(table, parts, self.flavor)
     }
 
     fn security(&self) -> Option<dbine_driver::SecuritySpec> {
@@ -453,7 +478,7 @@ impl Driver for Es {
         &self,
         changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
-        sync::sync_script(changes, self.opensearch)
+        sync::sync_script(changes, self.flavor)
     }
 
     /// Indices by copy (`_clone`) and aliases (see [`rename`]).
@@ -483,6 +508,27 @@ impl Driver for Es {
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
         ddl::update_script(target, changes)
+    }
+
+    /// Bit vectors packed and byte vectors as integers by the columns'
+    /// types (the session also packs bit vectors by the mapping when it
+    /// runs an untyped script, but a script copied out needs them packed).
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[dbine_driver::ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        ddl::bulk_script_typed(target, columns, rows)
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[dbine_driver::ResultColumn],
+    ) -> Result<String> {
+        ddl::update_script_typed(target, changes, types)
     }
 
     fn delete_script(
@@ -581,6 +627,7 @@ impl Driver for Es {
             opaque_id: new_opaque_id(),
             profiler: None,
             interrupted: Arc::default(),
+            vector_fields: Default::default(),
         }))
     }
 }
@@ -604,16 +651,125 @@ struct EsSession {
     /// ordinary HTTP error, so `execute` turns it into a cancel and runs
     /// nothing more, even on a run that continues on errors.
     interrupted: Arc<AtomicBool>,
+    /// The vector fields (dotted paths) of each index whose mapping was
+    /// read to mark the vector columns of search hits or to pack the bit
+    /// vectors of a write; cleared by any request that may change a mapping.
+    vector_fields: std::sync::Mutex<HashMap<String, Vec<(String, vectors::VecType)>>>,
+}
+
+/// Indices whose mappings one search asks for, at most.
+const MAX_HIT_INDICES: usize = 50;
+
+/// The concrete indices the hits (or `_mget` docs) of a response come from.
+fn hit_indices(resp: &J) -> Vec<String> {
+    fn push<'a>(r: &'a J, hits: &mut Vec<&'a J>) {
+        hits.extend(r.at(&["hits", "hits"]).and_then(J::as_arr).unwrap_or(&[]));
+        hits.extend(r.get("docs").and_then(J::as_arr).unwrap_or(&[]));
+    }
+    let mut hits: Vec<&J> = Vec::new();
+    push(resp, &mut hits);
+    for r in resp.get("responses").and_then(J::as_arr).unwrap_or(&[]) {
+        push(r, &mut hits);
+    }
+    let mut out: Vec<String> = Vec::new();
+    for h in hits {
+        if let Some(i) = h.get("_index").and_then(J::as_str) {
+            if !out.iter().any(|x| x == i) && out.len() < MAX_HIT_INDICES {
+                out.push(i.to_string());
+            }
+        }
+    }
+    out
+}
+
+/// The fields of each index in `asked` from a `_mapping` reply (keyed by
+/// concrete index): a name asked alone that isn't a key (an alias, a data
+/// stream) gets the fields of every index the reply has. The reply's own
+/// indices are listed too.
+fn mapping_fields_of(m: &J, asked: &[String]) -> Vec<(String, Vec<(String, vectors::VecType)>)> {
+    let mut out: Vec<(String, Vec<(String, vectors::VecType)>)> = Vec::new();
+    for (name, idx) in m.as_obj().into_iter().flatten() {
+        out.push((
+            name.clone(),
+            vectors::mapping_vectors(idx.get("mappings").unwrap_or(&J::Null)),
+        ));
+    }
+    for a in asked {
+        if out.iter().any(|(n, _)| n == a) {
+            continue;
+        }
+        let mut fields: Vec<(String, vectors::VecType)> = Vec::new();
+        if asked.len() == 1 {
+            for (_, f) in &out {
+                for (n, t) in f {
+                    if !fields.iter().any(|(x, _)| x == n) {
+                        fields.push((n.clone(), t.clone()));
+                    }
+                }
+            }
+        }
+        out.push((a.clone(), fields));
+    }
+    out
+}
+
+/// Whether a search filters `_source` itself (`"_source": false`, a list,
+/// includes / excludes, `_source*` URL parameters): vectors missing from
+/// its hits are then its own choice.
+fn source_filtered(body: Option<&J>, path: &str) -> bool {
+    let in_url = path
+        .split_once('?')
+        .is_some_and(|(_, q)| q.split('&').any(|kv| kv.starts_with("_source")));
+    in_url
+        || !matches!(
+            body.and_then(|b| b.get("_source")),
+            None | Some(J::Bool(true))
+        )
+}
+
+/// A single document read by id: `GET /<index>/_doc/<id>` (its `_index`,
+/// `_id` and source fields) or `GET /<index>/_source/<id>` (its source),
+/// with the index whose mapping types it.
+fn single_doc(req: &Request, resp: &J) -> Option<(String, json::Obj)> {
+    if req.method != "GET" {
+        return None;
+    }
+    let segs = req.segments();
+    match segs.as_slice() {
+        [_, "_doc", _] if resp.get("found").and_then(J::as_bool) == Some(true) => {
+            let index = resp.get("_index")?.as_str()?.to_string();
+            let mut doc = flatten::hit_doc(resp);
+            doc.retain(|(k, v)| k != "_score" || !matches!(v, J::Null));
+            Some((index, doc))
+        }
+        [index, "_source", _] if !index.starts_with('_') => {
+            Some((index.to_string(), resp.as_obj()?.clone()))
+        }
+        _ => None,
+    }
 }
 
 fn rcol(name: &str, ty: &str) -> ResultColumn {
     ResultColumn {
         name: name.to_string(),
         type_name: ty.to_string(),
+        vector: None,
     }
 }
 
 impl EsSession {
+    /// The server's flavor (an Elasticsearch connection may reach an
+    /// OpenSearch server).
+    fn flavor(&self) -> Flavor {
+        if self.opendistro {
+            Flavor::OpenDistro
+        } else if self.opensearch {
+            Flavor::OpenSearch
+        } else {
+            Flavor::Elastic
+        }
+    }
+
     fn request(&self, method: &str, path: &str) -> reqwest::RequestBuilder {
         let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
         self.client
@@ -639,6 +795,264 @@ impl EsSession {
         self.show_system || !name.starts_with('.')
     }
 
+    /// Elasticsearch 9.2+ leaves vectors out of `_source` of new indices
+    /// (`index.mapping.exclude_source_vectors`) unless a search asks for
+    /// them with `"_source": {"exclude_vectors": false}`, an option older
+    /// servers refuse.
+    fn excludes_vectors(&self) -> bool {
+        self.flavor() == Flavor::Elastic
+            && self.version.chars().any(|c| c.is_ascii_digit())
+            && dbine_driver::functions::version_at_least(&self.version, "9.2")
+    }
+
+    /// Elasticsearch 7, whose `dense_vector` has no `index` parameter.
+    fn before_8(&self) -> bool {
+        self.flavor() == Flavor::Elastic
+            && self.version.chars().any(|c| c.is_ascii_digit())
+            && !dbine_driver::functions::version_at_least(&self.version, "8.0")
+    }
+
+    /// The server is OpenSearch, at `min` or later and before `below`.
+    fn opensearch_in(&self, min: &str, below: Option<&str>) -> bool {
+        use dbine_driver::functions::version_at_least as at_least;
+        self.flavor() == Flavor::OpenSearch
+            && self.version.chars().any(|c| c.is_ascii_digit())
+            && at_least(&self.version, min)
+            && below.is_none_or(|b| !at_least(&self.version, b))
+    }
+
+    /// OpenSearch's default k-NN engine by version, for the vector fields
+    /// a request maps (an index's creation, `_mapping`, a template). On
+    /// 2.18 the default, Faiss, has no cosine (it has from 2.19): a cosine
+    /// HNSW field that names no engine gets Lucene, and the user is told.
+    /// From 3.0 no new index takes NMSLIB, the only engine with L1 and L∞:
+    /// creating one that names it is refused with what to choose instead.
+    /// `Some`: the body to send.
+    fn knn_engines(&self, req: &Request, out: &mut QueryOutcome) -> Result<Option<String>> {
+        let Some(body) = req.body.as_deref() else {
+            return Ok(None);
+        };
+        if self.flavor() != Flavor::OpenSearch || !matches!(req.method.as_str(), "PUT" | "POST") {
+            return Ok(None);
+        }
+        let segs = req.segments();
+        let creates = segs.len() == 1 && !segs[0].starts_with('_');
+        let maps = creates
+            || (segs.len() == 2 && matches!(segs[1], "_mapping" | "_mappings"))
+            || matches!(
+                segs.first(),
+                Some(&("_index_template" | "_template" | "_component_template"))
+            );
+        if creates && self.opensearch_in("3.0", None) {
+            let fields = vectors::nmslib_fields(body);
+            if !fields.is_empty() {
+                return Err(Error::Query(format!(
+                    "OpenSearch 3 no crea índices con el motor NMSLIB, el único con las distancias L1 y L∞. Campos que lo usan: {}. Elegí otro motor (Faiss o Lucene), con L2, coseno o producto interno.",
+                    fields.join(", ")
+                )));
+            }
+        }
+        if maps && self.opensearch_in("2.18", Some("2.19")) {
+            if let Some((body, fields)) = vectors::cosine_on_lucene(body) {
+                out.info(format!(
+                    "En OpenSearch 2.18, Faiss (el motor por defecto) no tiene la distancia coseno, así que el índice vectorial por coseno usa Lucene. Campos: {}.",
+                    fields.join(", ")
+                ));
+                return Ok(Some(body));
+            }
+        }
+        Ok(None)
+    }
+
+    /// The vector fields of each of `indices`, from their mappings (read
+    /// once, until a request may change them). One `_mapping` request for
+    /// all of them, and one per index when it fails, so an index that
+    /// can't be read (no privilege) marks nothing only for itself. A name
+    /// asked alone that isn't an index (an alias, a data stream) gets the
+    /// fields of the indices it reaches.
+    async fn index_vectors(&self, indices: &[String]) -> Vec<Vec<(String, vectors::VecType)>> {
+        let missing: Vec<String> = {
+            let cache = self.vector_fields.lock().unwrap_or_else(|e| e.into_inner());
+            indices
+                .iter()
+                .filter(|i| !cache.contains_key(*i))
+                .cloned()
+                .collect()
+        };
+        if !missing.is_empty() {
+            let mut found: Vec<(String, Vec<(String, vectors::VecType)>)> = Vec::new();
+            let path = missing
+                .iter()
+                .map(|i| ddl::path_segment(i))
+                .collect::<Vec<_>>()
+                .join(",");
+            match self
+                .get_json(&format!("/{path}/_mapping?ignore_unavailable=true"))
+                .await
+            {
+                Ok(m) => found.extend(mapping_fields_of(&m, &missing)),
+                Err(_) if missing.len() > 1 => {
+                    for i in &missing {
+                        let asked = std::slice::from_ref(i);
+                        match self
+                            .get_json(&format!("/{}/_mapping", ddl::path_segment(i)))
+                            .await
+                        {
+                            Ok(m) => found.extend(mapping_fields_of(&m, asked)),
+                            Err(_) => found.push((i.clone(), Vec::new())),
+                        }
+                    }
+                }
+                // Unreadable: nothing to mark, and not asked again until
+                // the cache is cleared.
+                Err(_) => found.push((missing[0].clone(), Vec::new())),
+            }
+            let mut cache = self.vector_fields.lock().unwrap_or_else(|e| e.into_inner());
+            for (name, fields) in found {
+                cache.insert(name, fields);
+            }
+        }
+        let cache = self.vector_fields.lock().unwrap_or_else(|e| e.into_inner());
+        indices
+            .iter()
+            .map(|i| cache.get(i).cloned().unwrap_or_default())
+            .collect()
+    }
+
+    /// The top-level vector fields of `indices` (the columns of their
+    /// documents), merged: indices that disagree on a field's dimension
+    /// give a vector of no fixed length.
+    async fn doc_vectors(&self, indices: &[String]) -> Vec<(String, vectors::VecType)> {
+        let mut out: Vec<(String, vectors::VecType)> = Vec::new();
+        for fields in self.index_vectors(indices).await {
+            for (n, t) in fields.into_iter().filter(|(n, _)| !n.contains('.')) {
+                match out.iter_mut().find(|(o, _)| *o == n) {
+                    None => out.push((n, t)),
+                    Some((_, o)) if o.dims != t.dims => {
+                        o.dims = None;
+                        o.type_name = o.spelling();
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+        out
+    }
+
+    /// The top-level vector fields of the indices `resp`'s hits come from.
+    async fn hit_vectors(&self, resp: &J) -> Vec<(String, vectors::VecType)> {
+        let indices = hit_indices(resp);
+        if indices.is_empty() {
+            return Vec::new();
+        }
+        self.doc_vectors(&indices).await
+    }
+
+    /// Documents (search hits, `_mget` docs, one read by id, or a bare
+    /// `_source`) without the vector fields their mapping has, on a server
+    /// that leaves them out of `_source`: say how to ask for them, unless
+    /// the request filters `_source` itself (`filtered`). `search`: in a
+    /// search's body, else as a URL parameter.
+    fn vectors_left_out(
+        &self,
+        docs: &[&J],
+        vectors: &[(String, vectors::VecType)],
+        filtered: bool,
+        search: bool,
+        out: &mut QueryOutcome,
+    ) {
+        if docs.is_empty() || vectors.is_empty() || filtered || !self.excludes_vectors() {
+            return;
+        }
+        let has = |d: &J, n: &str| {
+            d.get(n).is_some()
+                || d.get("_source").and_then(|s| s.get(n)).is_some()
+                || d.get("fields").and_then(|s| s.get(n)).is_some()
+        };
+        if docs.iter().any(|d| vectors.iter().any(|(n, _)| has(d, n))) {
+            return;
+        }
+        let names = vectors
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.info(if search {
+            format!(
+                "Elasticsearch deja los vectores ({names}) fuera de _source: para verlos, agregá \"_source\": {{\"exclude_vectors\": false}} a la búsqueda."
+            )
+        } else {
+            format!(
+                "Elasticsearch deja los vectores ({names}) fuera de _source: para verlos, agregá ?_source_exclude_vectors=false a la petición."
+            )
+        });
+    }
+
+    /// The hits of a search response.
+    fn hits(resp: &J) -> Vec<&J> {
+        resp.at(&["hits", "hits"])
+            .and_then(J::as_arr)
+            .unwrap_or(&[])
+            .iter()
+            .collect()
+    }
+
+    /// A write's body with what the server needs that DBine writes another
+    /// way: bit (binary) vectors given one 0 / 1 per dimension, as results
+    /// and scripts show them, packed into their bytes from the target's
+    /// mapping; and, on Elasticsearch 7, the `"index": false` of vectors
+    /// without a vector index (it has no such parameter). `None`: as it is.
+    async fn adapted_body(&self, req: &Request) -> Option<String> {
+        let body = req.body.as_deref()?;
+        if !matches!(req.method.as_str(), "PUT" | "POST") {
+            return None;
+        }
+        let segs = req.segments();
+        let index = segs.first().copied().filter(|s| !s.starts_with('_'));
+        let op = segs.iter().copied().find(|s| s.starts_with('_'));
+        if self.before_8() && body.contains("dense_vector") {
+            return vectors::strip_unindexed(body);
+        }
+        // Only a body with arrays can hold a vector.
+        if !body.contains('[') {
+            return None;
+        }
+        let has_bits =
+            |f: &[(String, vectors::VecType)]| f.iter().any(|(_, t)| t.elem == vectors::Elem::Bit);
+        match op? {
+            "_bulk" => {
+                let indices = vectors::bulk_indices(body, index);
+                if indices.is_empty() {
+                    return None;
+                }
+                let fields: HashMap<String, Vec<(String, vectors::VecType)>> = indices
+                    .iter()
+                    .cloned()
+                    .zip(self.index_vectors(&indices).await)
+                    .filter(|(_, f)| has_bits(f))
+                    .collect();
+                if fields.is_empty() {
+                    return None;
+                }
+                vectors::pack_bulk(body, index, &|i| fields.get(i).cloned())
+            }
+            op @ ("_doc" | "_create" | "_update" | "_update_by_query") => {
+                let fields = self.index_vectors(&[index?.to_string()]).await.pop()?;
+                if !has_bits(&fields) {
+                    return None;
+                }
+                let mut doc = J::parse(body).ok()?;
+                let changed = if matches!(op, "_doc" | "_create") {
+                    vectors::pack_bits(&mut doc, &fields)
+                } else {
+                    vectors::pack_partial(&mut doc, &fields)
+                };
+                changed.then(|| doc.compact())
+            }
+            _ => None,
+        }
+    }
+
     async fn run_request(
         &self,
         req: &Request,
@@ -652,6 +1066,13 @@ impl EsSession {
                 req.path_only()
             )));
         }
+        if !read_only_allows(req) {
+            // It may change a mapping.
+            self.vector_fields
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear();
+        }
         let segs = req.segments();
         let mut path = req.path.clone();
         let is_cat = segs.first() == Some(&"_cat");
@@ -660,7 +1081,20 @@ impl EsSession {
             path.push_str("format=json");
         }
         let mut rb = self.request(&req.method, &path);
-        if let Some(body) = &req.body {
+        let adapted = match self.knn_engines(req, out)? {
+            Some(body) => Some(body),
+            None => self.adapted_body(req).await,
+        };
+        if self.before_8() && matches!(req.method.as_str(), "PUT" | "POST") {
+            let fields = vectors::indexed_vectors(req.body.as_deref().unwrap_or(""));
+            if !fields.is_empty() {
+                out.warning(format!(
+                    "Elasticsearch 7 no tiene índices vectoriales (ANN): el de {} no tiene efecto; se busca con script_score.",
+                    fields.join(", ")
+                ));
+            }
+        }
+        if let Some(body) = adapted.as_ref().or(req.body.as_ref()) {
             let ndjson = req.is_ndjson() || segs.iter().any(|s| matches!(*s, "_bulk" | "_msearch"));
             rb = if ndjson {
                 let mut b = body.clone();
@@ -692,7 +1126,19 @@ impl EsSession {
                 return Err(Error::Query(msg));
             }
         }
+        let vectors = self.hit_vectors(&resp).await;
         if let Some(responses) = resp.get("responses").and_then(J::as_arr) {
+            // `_msearch`: a header line, then each search's body.
+            let bodies: Vec<Option<J>> = req
+                .body
+                .as_deref()
+                .unwrap_or("")
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .skip(1)
+                .step_by(2)
+                .map(|l| J::parse(l).ok())
+                .collect();
             for (i, r) in responses.iter().enumerate() {
                 match r.get("error") {
                     Some(_) => out.warning(format!(
@@ -700,16 +1146,39 @@ impl EsSession {
                         i + 1,
                         es_error_message(400, &r.compact())
                     )),
-                    None => flatten::push_search(out, r, max_rows),
+                    None => {
+                        flatten::push_search_typed(out, r, max_rows, &vectors);
+                        let body = bodies.get(i).and_then(Option::as_ref);
+                        let filtered = source_filtered(body, &req.path);
+                        self.vectors_left_out(&Self::hits(r), &vectors, filtered, true, out);
+                    }
                 }
             }
         } else if resp.at(&["hits", "hits"]).is_some() {
-            flatten::push_search(out, &resp, max_rows);
+            flatten::push_search_typed(out, &resp, max_rows, &vectors);
+            let body = req.body.as_deref().and_then(|b| J::parse(b).ok());
+            let filtered = source_filtered(body.as_ref(), &req.path);
+            self.vectors_left_out(&Self::hits(&resp), &vectors, filtered, true, out);
+        } else if let Some((index, doc)) = single_doc(req, &resp) {
+            let vectors = self.doc_vectors(&[index]).await;
+            flatten::push_docs_typed(out, [doc], max_rows, &vectors);
+            let filtered = source_filtered(None, &req.path);
+            self.vectors_left_out(&[&resp], &vectors, filtered, false, out);
         } else if let (Some(docs), true) = (
             resp.get("docs").and_then(J::as_arr),
             segs.contains(&"_mget"),
         ) {
-            flatten::push_docs(out, docs.iter().map(flatten::hit_doc), max_rows);
+            flatten::push_docs_typed(out, docs.iter().map(flatten::hit_doc), max_rows, &vectors);
+            let found: Vec<&J> = docs.iter().filter(|d| d.get("_source").is_some()).collect();
+            let body = req.body.as_deref().and_then(|b| J::parse(b).ok());
+            // `_mget` takes `_source` per document too.
+            let per_doc = body
+                .as_ref()
+                .and_then(|b| b.get("docs"))
+                .and_then(J::as_arr)
+                .is_some_and(|d| d.iter().any(|x| x.get("_source").is_some()));
+            let filtered = per_doc || source_filtered(body.as_ref(), &req.path);
+            self.vectors_left_out(&found, &vectors, filtered, false, out);
         } else if resp.get("columns").is_some() || resp.get("schema").is_some() {
             self.push_sql(&resp, max_rows, out).await?;
         } else {
@@ -1111,15 +1580,22 @@ impl Session for EsSession {
             .into_iter()
             .flatten()
             .filter(|(name, _)| self.visible(name))
-            .map(|(name, idx)| ddl::index_schema(name, idx, self.opensearch))
+            .map(|(name, idx)| ddl::index_schema(name, idx, self.flavor()))
             .collect();
         out.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
     }
 
+    /// A `match_all` search; on Elasticsearch 9.2+ it asks for the vectors
+    /// too (see [`EsSession::excludes_vectors`]).
     fn browse_query(&self, o: &ObjectRef, limit: u32) -> String {
+        let source = if self.excludes_vectors() {
+            "\n  \"_source\": { \"exclude_vectors\": false },"
+        } else {
+            ""
+        };
         format!(
-            "GET /{}/_search\n{{\n  \"size\": {limit},\n  \"query\": {{ \"match_all\": {{}} }}\n}}",
+            "GET /{}/_search\n{{\n  \"size\": {limit},{source}\n  \"query\": {{ \"match_all\": {{}} }}\n}}",
             o.name
         )
     }
@@ -1221,7 +1697,8 @@ impl Session for EsSession {
                 )
                 .await?;
             if let Some(resp) = resp {
-                flatten::push_search(out, &resp, max_rows);
+                let vectors = self.hit_vectors(&resp).await;
+                flatten::push_search_typed(out, &resp, max_rows, &vectors);
             }
             out.plans.push(p);
         }
@@ -1568,6 +2045,73 @@ async fn cancel_tasks(client: &reqwest::Client, base: &str, opaque_id: &str) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn single_documents_by_id() {
+        let get = |path: &str| req("GET", path);
+        let resp = J::parse(
+            r#"{"_index":"docs-1","_id":"7","_version":1,"found":true,"_source":{"t":"x","v":[1,2]}}"#,
+        )
+        .unwrap();
+        let (index, doc) = single_doc(&get("/docs/_doc/7"), &resp).unwrap();
+        assert_eq!(index, "docs-1");
+        assert_eq!(
+            doc.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(),
+            ["_index", "_id", "t", "v"]
+        );
+        let missing = J::parse(r#"{"_index":"docs","_id":"8","found":false}"#).unwrap();
+        assert!(single_doc(&get("/docs/_doc/8"), &missing).is_none());
+        let src = J::parse(r#"{"t":"x","v":[1,2]}"#).unwrap();
+        let (index, doc) = single_doc(&get("/docs/_source/7"), &src).unwrap();
+        assert_eq!((index.as_str(), doc.len()), ("docs", 2));
+        assert!(single_doc(&get("/docs/_search"), &src).is_none());
+    }
+
+    #[test]
+    fn a_search_that_filters_its_source_gets_no_vector_hint() {
+        let b = |s: &str| J::parse(s).unwrap();
+        assert!(!source_filtered(None, "/x/_search"));
+        assert!(!source_filtered(Some(&b(r#"{"query":{}}"#)), "/x/_search"));
+        assert!(!source_filtered(
+            Some(&b(r#"{"_source":true}"#)),
+            "/x/_search"
+        ));
+        for f in [
+            r#"{"_source":false}"#,
+            r#"{"_source":["title"]}"#,
+            r#"{"_source":"title"}"#,
+            r#"{"_source":{"includes":["title"]}}"#,
+        ] {
+            assert!(source_filtered(Some(&b(f)), "/x/_search"), "{f}");
+        }
+        assert!(source_filtered(None, "/x/_search?_source_includes=title"));
+        assert!(source_filtered(None, "/x/_search?q=a&_source=false"));
+    }
+
+    #[test]
+    fn mappings_mark_each_index_and_aliases() {
+        let m = J::parse(
+            r#"{"a":{"mappings":{"properties":{"v":{"type":"dense_vector","dims":3}}}},"b":{"mappings":{"properties":{"w":{"type":"knn_vector","dimension":2}}}}}"#,
+        )
+        .unwrap();
+        let got = mapping_fields_of(&m, &["a".into(), "b".into()]);
+        let names = |n: &str| -> Vec<String> {
+            got.iter()
+                .find(|(i, _)| i == n)
+                .map(|(_, f)| f.iter().map(|(x, _)| x.clone()).collect())
+                .unwrap()
+        };
+        assert_eq!(
+            (names("a"), names("b")),
+            (vec!["v".to_string()], vec!["w".to_string()])
+        );
+        // An alias asked alone: the fields of every index it reaches.
+        let got = mapping_fields_of(&m, &["alias".into()]);
+        assert_eq!(got.iter().find(|(i, _)| i == "alias").unwrap().1.len(), 2);
+        // Asked with others, a name the reply lacks gets nothing.
+        let got = mapping_fields_of(&m, &["a".into(), "gone".into()]);
+        assert!(got.iter().find(|(i, _)| i == "gone").unwrap().1.is_empty());
+    }
+
     /// Every flavor cuts a console script into its requests, where
     /// `execute` numbers them.
     #[test]
@@ -1590,6 +2134,97 @@ mod tests {
                 assert_eq!(at, numbered);
             }
         }
+    }
+
+    fn session(version: &str, opensearch: bool) -> EsSession {
+        EsSession {
+            tls_pin: None,
+            client: reqwest::Client::new(),
+            base: "http://localhost:9200".into(),
+            read_only: false,
+            show_system: false,
+            opensearch,
+            opendistro: false,
+            version: version.into(),
+            opaque_id: "t".into(),
+            profiler: None,
+            interrupted: Arc::default(),
+            vector_fields: Default::default(),
+        }
+    }
+
+    /// Documents without the vectors their mapping has, on 9.2+: how to
+    /// ask for them, in the body of a search or as a URL parameter.
+    #[test]
+    fn documents_without_their_vectors_say_how_to_ask() {
+        let v = vec![(
+            "emb".to_string(),
+            vectors::VecType::new("dense_vector", Some(3), vectors::Elem::Float),
+        )];
+        let doc = J::parse(r#"{"_index":"i","_id":"1","_source":{"t":"x"}}"#).unwrap();
+        let with = J::parse(r#"{"_index":"i","_id":"1","_source":{"emb":[1,2,3]}}"#).unwrap();
+        let bare = J::parse(r#"{"t":"x"}"#).unwrap();
+        let hint = |s: &EsSession, docs: &[&J], filtered: bool, search: bool| {
+            let mut out = QueryOutcome::default();
+            s.vectors_left_out(docs, &v, filtered, search, &mut out);
+            out.messages
+        };
+        let es92 = session("Elasticsearch 9.2.0", false);
+        assert!(hint(&es92, &[&doc], false, true)[0].contains("\"exclude_vectors\": false"));
+        assert!(hint(&es92, &[&bare], false, false)[0].contains("?_source_exclude_vectors=false"));
+        // Shown, filtered by the request, no documents, an older server: no hint.
+        assert!(hint(&es92, &[&doc, &with], false, true).is_empty());
+        assert!(hint(&es92, &[&doc], true, false).is_empty());
+        assert!(hint(&es92, &[], false, true).is_empty());
+        assert!(hint(&session("Elasticsearch 9.1.0", false), &[&doc], false, true).is_empty());
+        assert!(hint(&session("OpenSearch 3.0.0", true), &[&doc], false, true).is_empty());
+    }
+
+    /// Elasticsearch 9.2+ leaves vectors out of `_source`: the browse asks
+    /// for them, and only there (older servers refuse the option).
+    #[test]
+    fn the_browse_asks_for_vectors_where_they_are_left_out() {
+        let o = ObjectRef {
+            kind: kinds::INDEX.into(),
+            schema: None,
+            name: "docs".into(),
+        };
+        let asks = |v: &str, os: bool| {
+            session(v, os)
+                .browse_query(&o, 10)
+                .contains("exclude_vectors")
+        };
+        assert!(asks("Elasticsearch 9.2.0", false));
+        assert!(asks("Elasticsearch 10.0.1", false));
+        assert!(!asks("Elasticsearch 9.1.5", false));
+        assert!(!asks("Elasticsearch 8.15.3", false));
+        assert!(!asks("OpenSearch 3.2.0", true));
+        assert!(!asks("Elasticsearch", false));
+        let q = session("Elasticsearch 9.2.0", false).browse_query(&o, 10);
+        let (head, body) = q.split_once('\n').unwrap();
+        assert_eq!(head, "GET /docs/_search");
+        let body: serde_json::Value = serde_json::from_str(body).unwrap();
+        assert_eq!(
+            body["_source"],
+            serde_json::json!({"exclude_vectors": false})
+        );
+        // The grid's filters and sorts keep it.
+        let sorted = ddl::sorted_browse(
+            &q,
+            &[dbine_driver::SortKey {
+                column: "n".into(),
+                descending: false,
+            }],
+            false,
+        )
+        .unwrap();
+        assert!(sorted.contains("exclude_vectors"));
+    }
+
+    #[test]
+    fn hits_name_their_indices() {
+        let r = J::parse(r#"{"responses":[{"hits":{"hits":[{"_index":"a"},{"_index":"b"},{"_index":"a"}]}}],"docs":[{"_index":"c"}]}"#).unwrap();
+        assert_eq!(hit_indices(&r), ["c", "a", "b"]);
     }
 
     #[test]
@@ -1622,6 +2257,105 @@ mod tests {
             path: path.into(),
             body: None,
         }
+    }
+
+    /// OpenSearch's default k-NN engine by version: Lucene for cosine on
+    /// 2.18 alone (Faiss has it from 2.19), and NMSLIB refused for a new
+    /// index from 3.0.
+    #[test]
+    fn opensearch_vector_engines_by_version() {
+        let cosine = r#"{"settings":{"index":{"knn":true}},"mappings":{"properties":{"v":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"cosinesimil"}}}}}"#;
+        let l1 = r#"{"settings":{"index":{"knn":true}},"mappings":{"properties":{"v":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"l1","engine":"nmslib"}}}}}"#;
+        let with = |method: &str, path: &str, body: &str| Request {
+            method: method.into(),
+            path: path.into(),
+            body: Some(body.into()),
+        };
+        let run = |version: &str, opensearch: bool, r: &Request| {
+            let mut out = QueryOutcome::default();
+            let s = session(version, opensearch);
+            let res = s.knn_engines(r, &mut out);
+            (res, out.messages)
+        };
+        let lucene = |body: &str| {
+            J::parse(body)
+                .unwrap()
+                .at(&["mappings", "properties", "v", "method", "engine"])
+                .map(J::text)
+        };
+        // 2.18: the index's creation, a template and a mapping get Lucene.
+        for path in ["/items", "/_index_template/t", "/items/_mapping"] {
+            let body = if path.ends_with("_mapping") {
+                r#"{"properties":{"v":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"cosinesimil"}}}}"#
+            } else {
+                cosine
+            };
+            let (res, msgs) = run("OpenSearch 2.18.0", true, &with("PUT", path, body));
+            let out = res.unwrap().unwrap_or_else(|| panic!("{path}"));
+            let engine = J::parse(&out)
+                .unwrap()
+                .at(&if path.ends_with("_mapping") {
+                    vec!["properties", "v", "method", "engine"]
+                } else {
+                    vec!["mappings", "properties", "v", "method", "engine"]
+                })
+                .map(J::text);
+            assert_eq!(engine.as_deref(), Some("lucene"), "{path}");
+            assert!(
+                msgs.iter()
+                    .any(|m| m.contains("Lucene") && m.ends_with("Campos: v.")),
+                "{msgs:?}"
+            );
+        }
+        let (res, _) = run("OpenSearch 2.18.0", true, &with("PUT", "/items", cosine));
+        assert_eq!(lucene(&res.unwrap().unwrap()).as_deref(), Some("lucene"));
+        // Other versions, Elasticsearch, documents and reads: as written.
+        for (v, os) in [
+            ("OpenSearch 2.17.1", true),
+            ("OpenSearch 2.19.0", true),
+            ("OpenSearch 3.1.0", true),
+            ("Elasticsearch 8.15.3", false),
+            ("OpenSearch", true),
+        ] {
+            let (res, msgs) = run(v, os, &with("PUT", "/items", cosine));
+            assert_eq!(res.unwrap(), None, "{v}");
+            assert!(msgs.is_empty(), "{v}");
+        }
+        for r in [
+            with("POST", "/items/_doc", cosine),
+            with("GET", "/items", cosine),
+            with("POST", "/items/_search", cosine),
+        ] {
+            assert_eq!(run("OpenSearch 2.18.0", true, &r).0.unwrap(), None);
+        }
+        // 3.x: a new index naming NMSLIB is refused, saying what to choose.
+        let err = run("OpenSearch 3.1.0", true, &with("PUT", "/items", l1))
+            .0
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("NMSLIB") && err.contains("Faiss o Lucene"),
+            "{err}"
+        );
+        // Not before 3.0, and not on a mapping (an index made before 3.0
+        // still takes it).
+        assert_eq!(
+            run("OpenSearch 2.19.0", true, &with("PUT", "/items", l1))
+                .0
+                .unwrap(),
+            None
+        );
+        let mapping = r#"{"properties":{"v":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"l1","engine":"nmslib"}}}}"#;
+        assert_eq!(
+            run(
+                "OpenSearch 3.1.0",
+                true,
+                &with("PUT", "/items/_mapping", mapping)
+            )
+            .0
+            .unwrap(),
+            None
+        );
     }
 
     #[test]

@@ -296,6 +296,7 @@ impl Driver for PowerBiDriver {
             database_properties: true,
             jobs: true,
             scheduler: true,
+            vectors: false,
         }
     }
 

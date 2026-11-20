@@ -202,6 +202,7 @@ impl Dialect for Hive {
         let iceberg = f == Flavor::Athena;
         let s = || Rendered::exact("STRING");
         match t {
+            L::Vector { .. } => super::vector_fallback(self, t),
             L::Bool => Rendered::exact("BOOLEAN"),
             L::Int { bytes, unsigned } => {
                 let r = match L::signed_bytes_for(*bytes, *unsigned) {
@@ -342,6 +343,9 @@ impl Dialect for Hive {
             comments: true,
             max_identifier: if delta { 255 } else { 128 },
             case: IdentCase::Lower,
+            // No vector indexes: `convert` leaves them out, said.
+            vector_indexes: false,
+            vectors: false,
         }
     }
 

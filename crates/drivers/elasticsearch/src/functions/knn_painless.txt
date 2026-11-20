@@ -1,0 +1,11 @@
+# The k-NN plugin's Painless functions (OpenSearch, Open Distro), for
+# `script_score` over knn_vector fields (the script's `source`, a string in
+# the console's JSON). `since=` is OpenSearch's release: Open Distro 1.13
+# has the first three only (see `functions.rs`); hamming takes binary
+# vectors.
+s l2Squared(query_vector, doc['field']) -> float
+s l1Norm(query_vector, doc['field']) -> float
+s cosineSimilarity(query_vector, doc['field']) -> float
+s lInfNorm(query_vector, doc['field']) -> float since=2.17
+s innerProduct(query_vector, doc['field']) -> float since=2.17
+s hamming(query_vector, doc['field']) -> float since=2.16

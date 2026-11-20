@@ -327,6 +327,8 @@ impl Driver for GraphDriver {
             // The same APOC jobs, created, changed and cancelled from the
             // designer (see `scheduler`).
             scheduler: scheduler::supported(self.flavor),
+            // Float lists as vectors and vector indexes (Neptune has neither).
+            vectors: self.flavor != Flavor::Neptune,
         }
     }
 
@@ -372,12 +374,32 @@ impl Driver for GraphDriver {
         ddl::insert_script(self.flavor, target, columns, rows)
     }
 
+    /// A vector into a Neo4j 2025 `VECTOR<…>(n)` column is written as a
+    /// `vector(…)`, so the property stays a VECTOR.
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<Value>],
+    ) -> Result<String> {
+        ddl::insert_script_typed(self.flavor, target, columns, rows)
+    }
+
     fn update_script(
         &self,
         target: &ObjectRef,
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
         ddl::update_script(self.flavor, target, changes)
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        ddl::update_script_typed(self.flavor, target, changes, types)
     }
 
     fn delete_script(&self, target: &ObjectRef, keys: &[Vec<(String, Value)>]) -> Result<String> {
@@ -417,6 +439,13 @@ impl Driver for GraphDriver {
         cfg: &ConnectionConfig,
         database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
+        Ok(Box::new(self.open(cfg, database).await?))
+    }
+}
+
+impl GraphDriver {
+    /// [`Driver::connect`]'s session, as itself.
+    async fn open(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<GraphSession> {
         let db = database
             .filter(|d| !d.is_empty())
             .unwrap_or(cfg.database.trim())
@@ -460,7 +489,7 @@ impl Driver for GraphDriver {
             let q = format!("USE DATABASE {}", cypher::ident(&s.db));
             s.query(&q).await?;
         }
-        Ok(Box::new(s))
+        Ok(s)
     }
 }
 
@@ -517,6 +546,12 @@ struct Ran {
 
 impl GraphSession {
     fn run_extra(&self, db: Option<&str>) -> Bolt {
+        self.run_extra_as(db, self.read_only)
+    }
+
+    /// The `extra` of a RUN or BEGIN; `read`: in READ access mode (Neo4j
+    /// refuses a write there).
+    fn run_extra_as(&self, db: Option<&str>, read: bool) -> Bolt {
         let mut extra = vec![(
             "tx_metadata".to_string(),
             map([("dbine", Bolt::from(self.tag.as_str()))]),
@@ -529,7 +564,7 @@ impl GraphSession {
         if send_db {
             extra.push(("db".into(), Bolt::from(db)));
         }
-        if self.read_only && self.flavor == Flavor::Neo4j {
+        if read && self.flavor == Flavor::Neo4j {
             extra.push(("mode".into(), Bolt::from("r")));
         }
         Bolt::Map(extra)
@@ -543,12 +578,26 @@ impl GraphSession {
         params: Bolt,
         on_row: &mut (dyn FnMut(&[String], Vec<Value>) + Send),
     ) -> Result<Ran> {
+        self.run_with_as(q, db, params, self.read_only, on_row)
+            .await
+    }
+
+    /// [`Self::run_with`]; `read`: in READ access mode, also on a writable
+    /// connection.
+    async fn run_with_as(
+        &mut self,
+        q: &str,
+        db: Option<&str>,
+        params: Bolt,
+        read: bool,
+        on_row: &mut (dyn FnMut(&[String], Vec<Value>) + Send),
+    ) -> Result<Ran> {
         // Inside an explicit transaction RUN takes no extra: the database,
         // access mode and metadata went with BEGIN.
         let extra = if self.tx {
             Bolt::Map(Vec::new())
         } else {
-            self.run_extra(db)
+            self.run_extra_as(db, read)
         };
         self.reconnect_if_dirty().await?;
         match &mut self.transport {
@@ -651,19 +700,41 @@ impl GraphSession {
         max_rows: usize,
         out: &mut QueryOutcome,
     ) -> Result<Ran> {
+        self.run_into_as(stmt, max_rows, out, self.read_only).await
+    }
+
+    /// [`Self::run_into`]; `read`: in READ access mode, also on a writable
+    /// connection.
+    async fn run_into_as(
+        &mut self,
+        stmt: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+        read: bool,
+    ) -> Result<Ran> {
         let mut begun = false;
+        let mut shapes: Vec<VectorShape> = Vec::new();
         let params = Bolt::Map(self.params.clone());
         let ran = {
             let out_ref = &mut *out;
-            self.run_with(stmt, None, params, &mut |fields, row| {
+            self.run_with_as(stmt, None, params, read, &mut |fields, row| {
                 if !begun {
                     out_ref.begin_result(columns(fields));
+                    shapes = vec![VectorShape::Unseen; fields.len()];
                     begun = true;
+                }
+                for (s, v) in shapes.iter_mut().zip(&row) {
+                    s.see(v);
                 }
                 out_ref.push_row(row.iter().map(value::cell).collect(), max_rows);
             })
             .await?
         };
+        if begun {
+            if let Some(r) = out.results.last_mut() {
+                mark_vectors(r, &shapes, self.flavor == Flavor::Memgraph);
+            }
+        }
         let meta = ran.meta.as_ref();
         let (summary, changed) = meta.map(stats).unwrap_or_default();
         if !begun {
@@ -1091,12 +1162,140 @@ fn scan_query(rel: bool) -> &'static str {
     }
 }
 
+/// Whether a result column holds vectors: every value that isn't null is
+/// a list of floats, all of the same length (an embedding property, or
+/// what a query built from one; Cypher results carry no types), or every
+/// one is a Neo4j 2025 VECTOR of one dimension and coordinate type.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum VectorShape {
+    Unseen,
+    Dims(usize),
+    /// VECTOR values (Bolt 6): their dimension and coordinate type.
+    Native(usize, &'static str),
+    No,
+}
+
+/// Cypher's coordinate types, as `value::NativeVector` names them.
+const COORDINATES: &[&str] = &[
+    "FLOAT32",
+    "FLOAT64",
+    "INTEGER8",
+    "INTEGER16",
+    "INTEGER32",
+    "INTEGER64",
+];
+
+impl VectorShape {
+    fn see(&mut self, v: &Value) {
+        if let Some((coordinate, numbers)) = value::native_vector_json(v) {
+            let coordinate = COORDINATES.iter().find(|c| **c == coordinate);
+            *self = match (*self, coordinate) {
+                (VectorShape::Unseen, Some(c)) if numbers.iter().all(Value::is_number) => {
+                    VectorShape::Native(numbers.len(), c)
+                }
+                (VectorShape::Native(n, c), Some(c2))
+                    if n == numbers.len() && c == *c2 && numbers.iter().all(Value::is_number) =>
+                {
+                    VectorShape::Native(n, c)
+                }
+                _ => VectorShape::No,
+            };
+            return;
+        }
+        if matches!(self, VectorShape::Native(..)) && !v.is_null() {
+            *self = VectorShape::No;
+            return;
+        }
+        let len = match v {
+            Value::Null => return,
+            Value::Array(a)
+                if !a.is_empty()
+                    && a.iter()
+                        .all(|x| x.as_number().is_some_and(serde_json::Number::is_f64)) =>
+            {
+                a.len()
+            }
+            _ => 0,
+        };
+        *self = match *self {
+            _ if len == 0 => VectorShape::No,
+            VectorShape::Unseen => VectorShape::Dims(len),
+            VectorShape::Dims(n) if n == len => VectorShape::Dims(n),
+            _ => VectorShape::No,
+        };
+    }
+}
+
+/// Vector columns marked (`LIST<FLOAT>` of their length), their cells as
+/// the vector text (`[0.5,2]`; on Memgraph, whose vector indexes keep
+/// 32-bit floats, at that precision when the numbers are such floats).
+fn mark_vectors(r: &mut dbine_driver::StatementResult, shapes: &[VectorShape], f32_storage: bool) {
+    for (i, s) in shapes.iter().enumerate() {
+        if let VectorShape::Native(n, coordinate) = *s {
+            mark_native(r, i, n, coordinate);
+            continue;
+        }
+        let VectorShape::Dims(n) = *s else { continue };
+        let Some(c) = r.columns.get_mut(i) else {
+            continue;
+        };
+        let mut all_f32 = true;
+        for row in r.rows.iter_mut() {
+            if let Some(cell) = row.get_mut(i) {
+                if let Some(v) = cell.as_str().and_then(dbine_driver::vector::parse) {
+                    all_f32 &= v.iter().all(|&x| f64::from(x as f32) == x);
+                    *cell = Value::String(transfer::float_text(&v, f32_storage));
+                }
+            }
+        }
+        c.type_name = "LIST<FLOAT>".into();
+        c.vector = Some(dbine_driver::VectorMeta::dense(
+            u32::try_from(n).ok(),
+            if f32_storage && all_f32 {
+                dbine_driver::VectorElement::F32
+            } else {
+                dbine_driver::VectorElement::F64
+            },
+        ));
+    }
+}
+
+/// A column of Neo4j 2025 VECTOR values: typed `VECTOR<FLOAT32>(3)`, its
+/// cells the vector text (FLOAT32 at its own precision).
+fn mark_native(r: &mut dbine_driver::StatementResult, i: usize, n: usize, coordinate: &str) {
+    for row in r.rows.iter_mut() {
+        let Some(cell) = row.get_mut(i) else { continue };
+        let numbers = cell
+            .as_str()
+            .and_then(|t| serde_json::from_str::<Value>(t).ok())
+            .and_then(|j| {
+                value::native_vector_json(&j)
+                    .map(|(_, v)| v.iter().filter_map(Value::as_f64).collect::<Vec<f64>>())
+            });
+        if let Some(v) = numbers {
+            *cell = Value::String(if coordinate == "FLOAT32" {
+                dbine_driver::vector::text(v.iter().map(|&x| x as f32))
+            } else {
+                dbine_driver::vector::text(v)
+            });
+        }
+    }
+    if let Some(c) = r.columns.get_mut(i) {
+        c.type_name = format!("VECTOR<{coordinate}>({n})");
+        c.vector = Some(dbine_driver::VectorMeta::dense(
+            u32::try_from(n).ok(),
+            value::coordinate_element(coordinate),
+        ));
+    }
+}
+
 fn columns(fields: &[String]) -> Vec<ResultColumn> {
     fields
         .iter()
         .map(|f| ResultColumn {
             name: f.clone(),
             type_name: String::new(),
+            vector: None,
         })
         .collect()
 }
@@ -1470,7 +1669,16 @@ impl CatalogEntry {
             kind: Some(self.spec_kind.clone()),
             filter: None,
             options: self.options.clone(),
-            ..Default::default()
+            vector: (self.spec_kind == "VECTOR").then(|| {
+                // Neo4j's settings are `vector.*`; Memgraph's aren't.
+                let f = if self.options.keys().any(|k| k.starts_with("vector.")) {
+                    Flavor::Neo4j
+                } else {
+                    Flavor::Memgraph
+                };
+                ddl::vector_of(f, &self.options)
+            }),
+            include: Vec::new(),
         })
     }
 }
@@ -1493,7 +1701,7 @@ pub fn infer_columns(samples: &[Value]) -> Vec<ColumnInfo> {
     names
         .into_iter()
         .map(|name| {
-            let mut types: Vec<(&'static str, usize)> = Vec::new();
+            let mut types: Vec<(String, usize)> = Vec::new();
             let mut present = 0;
             for v in samples
                 .iter()
@@ -1501,7 +1709,8 @@ pub fn infer_columns(samples: &[Value]) -> Vec<ColumnInfo> {
                 .filter(|v| !v.is_null())
             {
                 present += 1;
-                let t = value::type_name(v);
+                // A Neo4j 2025 VECTOR is `VECTOR<FLOAT32>(3)`, not a map.
+                let t = value::type_text(v);
                 match types.iter_mut().find(|(n, _)| *n == t) {
                     Some(e) => e.1 += 1,
                     None => types.push((t, 1)),
@@ -1512,7 +1721,11 @@ pub fn infer_columns(samples: &[Value]) -> Vec<ColumnInfo> {
                 data_type: if types.is_empty() {
                     "NULL".into()
                 } else {
-                    types.iter().map(|t| t.0).collect::<Vec<_>>().join("|")
+                    types
+                        .iter()
+                        .map(|t| t.0.as_str())
+                        .collect::<Vec<_>>()
+                        .join("|")
                 },
                 nullable: present < samples.len(),
                 primary_key: false,
@@ -1971,6 +2184,53 @@ impl Session for GraphSession {
         Ok(())
     }
 
+    /// Neo4j: one statement in an auto-commit transaction in READ access
+    /// mode (Bolt's `mode: "r"`), which the server enforces: a write fails
+    /// there ("Writing in read access mode not allowed"), on a writable
+    /// connection too. The read-only check runs first as well (it refuses
+    /// what acts outside the transaction: `LOAD CSV`, procedures that aren't
+    /// reads). Memgraph and Neptune have no read access mode: `Unsupported`.
+    async fn run_read_only(
+        &mut self,
+        statement: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
+        if self.flavor != Flavor::Neo4j {
+            return Err(Error::Unsupported(
+                "este motor no asegura lecturas de solo lectura en el servidor".into(),
+            ));
+        }
+        let units = cypher::script(statement);
+        // One Cypher statement (not a `:use`, `:param`… command).
+        let [unit] = units.as_slice() else {
+            return Err(Error::Query(
+                "Una lectura admite una sola sentencia.".into(),
+            ));
+        };
+        if unit.command {
+            return Err(Error::Query(
+                "Una lectura admite una sola sentencia.".into(),
+            ));
+        }
+        // Inside the user's transaction RUN would join it (its access mode
+        // went with BEGIN).
+        if self.tx {
+            return Err(Error::State(
+                "Hay una transacción abierta en esta sesión: confirmala (COMMIT) o deshacela (ROLLBACK) antes de una lectura protegida.".into(),
+            ));
+        }
+        if let Some(w) = cypher::write_reason(&unit.text) {
+            return Err(Error::Query(format!(
+                "Conexión de solo lectura: se bloqueó una sentencia con `{w}`. Solo se permiten lecturas (MATCH, RETURN, SHOW…)."
+            )));
+        }
+        self.run_into_as(&unit.text, max_rows, out, true)
+            .await
+            .map(|_| ())
+            .map_err(|e| structured(e, &unit.text))
+    }
+
     async fn transaction_state(&mut self) -> Result<Option<TxState>> {
         if self.flavor == Flavor::Neptune {
             return Ok(None);
@@ -2120,11 +2380,11 @@ impl Session for GraphSession {
     async fn bulk_load(
         &mut self,
         spec: &dbine_driver::LoadSpec,
-        _columns: &[dbine_driver::TransferColumn],
+        columns: &[dbine_driver::TransferColumn],
         source: &mut dyn dbine_driver::BatchSource,
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
-        self.transfer_load(spec, source, progress).await
+        self.transfer_load(spec, columns, source, progress).await
     }
 
     fn interrupter(&self) -> Option<Arc<dyn Fn() + Send + Sync>> {
@@ -2458,6 +2718,121 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn float_list_columns_are_vectors() {
+        let mut shapes = vec![VectorShape::Unseen; 4];
+        let rows = [
+            vec![json!([0.5, 2.0]), json!([1, 2]), json!([0.5]), json!(null)],
+            vec![json!(null), json!([3, 4]), json!([0.5, 1.5]), json!("x")],
+            vec![json!([1.0, -0.25]), json!(null), json!(null), json!(null)],
+        ];
+        for r in &rows {
+            for (s, v) in shapes.iter_mut().zip(r) {
+                s.see(v);
+            }
+        }
+        // Floats of one length: a vector; integers, other lengths: not.
+        assert_eq!(
+            shapes,
+            [
+                VectorShape::Dims(2),
+                VectorShape::No,
+                VectorShape::No,
+                VectorShape::No
+            ]
+        );
+        let mut r = dbine_driver::StatementResult {
+            columns: columns(&["e".into(), "i".into(), "m".into(), "s".into()]),
+            rows: rows
+                .iter()
+                .map(|r| r.iter().map(value::cell).collect())
+                .collect(),
+            ..Default::default()
+        };
+        mark_vectors(&mut r, &shapes, false);
+        assert_eq!(
+            r.columns[0].vector,
+            Some(dbine_driver::VectorMeta::dense(
+                Some(2),
+                dbine_driver::VectorElement::F64
+            ))
+        );
+        assert_eq!(r.columns[0].type_name, "LIST<FLOAT>");
+        assert_eq!(r.columns[1].vector, None);
+        assert_eq!(r.rows[0][0], json!("[0.5,2]"));
+        assert_eq!(r.rows[2][0], json!("[1,-0.25]"));
+        assert_eq!(r.rows[0][1], json!("[1,2]"));
+        let caps: Vec<bool> = drivers().iter().map(|d| d.capabilities().vectors).collect();
+        // Neo4j, Memgraph, Neptune.
+        assert_eq!(caps, [true, true, false]);
+    }
+
+    /// Neo4j 2025 VECTOR values (Bolt 6), as `value::to_json` gives them: a
+    /// column of one dimension and coordinate type is a vector, typed as
+    /// Neo4j spells it; a mix with lists or other dimensions isn't.
+    #[test]
+    fn native_vector_columns_are_vectors() {
+        let v = |n: Vec<serde_json::Value>, c: &str| json!({"~vector": n, "~coordinateType": c});
+        let rows = [
+            vec![
+                v(vec![json!(0.1), json!(2.0), json!(-3.5)], "FLOAT32"),
+                v(vec![json!(1), json!(-2)], "INTEGER8"),
+                v(vec![json!(1.0)], "FLOAT64"),
+            ],
+            vec![
+                json!(null),
+                v(vec![json!(3), json!(4)], "INTEGER8"),
+                json!([0.5]),
+            ],
+            vec![
+                v(vec![json!(1.5), json!(0.25), json!(1e-7)], "FLOAT32"),
+                v(vec![json!(5), json!(6)], "INTEGER8"),
+                json!(null),
+            ],
+        ];
+        let mut shapes = vec![VectorShape::Unseen; 3];
+        for r in &rows {
+            for (s, x) in shapes.iter_mut().zip(r) {
+                s.see(x);
+            }
+        }
+        assert_eq!(
+            shapes,
+            [
+                VectorShape::Native(3, "FLOAT32"),
+                VectorShape::Native(2, "INTEGER8"),
+                VectorShape::No
+            ]
+        );
+        let mut r = dbine_driver::StatementResult {
+            columns: columns(&["e".into(), "i".into(), "m".into()]),
+            rows: rows
+                .iter()
+                .map(|r| r.iter().map(value::cell).collect())
+                .collect(),
+            ..Default::default()
+        };
+        mark_vectors(&mut r, &shapes, false);
+        assert_eq!(r.columns[0].type_name, "VECTOR<FLOAT32>(3)");
+        assert_eq!(
+            r.columns[0].vector,
+            Some(dbine_driver::VectorMeta::dense(
+                Some(3),
+                dbine_driver::VectorElement::F32
+            ))
+        );
+        assert_eq!(r.rows[0][0], json!("[0.1,2,-3.5]"));
+        assert_eq!(r.rows[1][0], json!(null));
+        assert_eq!(r.rows[2][0], json!("[1.5,0.25,0.0000001]"));
+        assert_eq!(r.columns[1].type_name, "VECTOR<INTEGER8>(2)");
+        assert_eq!(
+            r.columns[1].vector.as_ref().unwrap().element,
+            dbine_driver::VectorElement::I8
+        );
+        assert_eq!(r.rows[1][1], json!("[3,4]"));
+        assert_eq!(r.columns[2].vector, None);
+    }
+
     /// Every flavor cuts the editor's script as `execute` numbers it.
     #[test]
     fn split_script_is_cypher_shells() {
@@ -2504,6 +2879,10 @@ mod tests {
         assert_eq!(c[0].data_type, "INTEGER|FLOAT");
         assert!(!c[0].nullable && c[1].nullable && c[2].nullable);
         assert_eq!(c[2].data_type, "NULL");
+        // Neo4j 2025 VECTOR values (as read) are their VECTOR type.
+        let v = |n: serde_json::Value| json!({ "e": {"~vector": n, "~coordinateType": "FLOAT32"} });
+        let c = infer_columns(&[v(json!([1.5, 2, 3])), v(json!([0.5, 0, 1]))]);
+        assert_eq!(c[0].data_type, "VECTOR<FLOAT32>(3)");
     }
 
     #[test]
@@ -2626,5 +3005,77 @@ mod tests {
             e.definition,
             "CREATE CONSTRAINT ON (n:P) ASSERT n.a, n.b IS UNIQUE;"
         );
+    }
+}
+
+/// Neo4j's READ access mode, against a live server: what makes
+/// [`Session::run_read_only`] a read the server enforces.
+///
+/// ```sh
+/// DBINE_TEST_NEO4J_URL=neo4j:dbine-test-pass@localhost:17687 \
+/// DBINE_TEST_NEO4J_2025_URL=neo4j:dbine-test-pass@127.0.0.1:37687 \
+///   cargo test -p dbine-driver-neo4j --lib read_mode_live -- --ignored
+/// ```
+#[cfg(test)]
+mod read_mode_live {
+    use super::*;
+
+    fn cfg(url: &str) -> ConnectionConfig {
+        let (auth, hp) = url.rsplit_once('@').unwrap_or(("", url));
+        let (host, port) = hp.rsplit_once(':').unwrap();
+        let (user, pass) = auth.split_once(':').unwrap_or((auth, ""));
+        ConnectionConfig {
+            driver: "neo4j".into(),
+            host: host.into(),
+            port: port.parse().unwrap(),
+            username: Some(user.into()),
+            password: Some(pass.into()),
+            ..Default::default()
+        }
+    }
+
+    /// A write sent in READ access mode, past DBine's own check (the check
+    /// would refuse `CREATE` first), fails on the server and writes
+    /// nothing, on a writable connection; the same session then writes
+    /// again outside that mode. Each server whose URL is set.
+    #[tokio::test]
+    #[ignore = "needs Neo4j: see the module's comment"]
+    async fn server_refuses_writes_in_read_mode() {
+        let mut ran = 0;
+        for var in ["DBINE_TEST_NEO4J_URL", "DBINE_TEST_NEO4J_2025_URL"] {
+            let Ok(url) = std::env::var(var) else {
+                continue;
+            };
+            ran += 1;
+            let d = GraphDriver {
+                flavor: Flavor::Neo4j,
+                info: info(Flavor::Neo4j),
+            };
+            let mut s = d.open(&cfg(&url), None).await.unwrap();
+            assert!(!s.read_only);
+            let count = "MATCH (n:DbineReadModeProbe) RETURN count(n) AS n";
+            let mut out = QueryOutcome::default();
+            let e = s
+                .run_into_as("CREATE (:DbineReadModeProbe)", 10, &mut out, true)
+                .await
+                .err()
+                .unwrap_or_else(|| panic!("{var}: a write ran in READ access mode"));
+            let m = e.to_string();
+            assert!(m.to_ascii_lowercase().contains("read"), "{var}: {m}");
+            assert_eq!(s.strings(count).await.unwrap(), ["0"], "{var}");
+            // Outside READ mode the session writes (and cleans up).
+            let mut out = QueryOutcome::default();
+            s.run_into_as("CREATE (:DbineReadModeProbe)", 10, &mut out, false)
+                .await
+                .unwrap();
+            assert_eq!(s.strings(count).await.unwrap(), ["1"], "{var}");
+            s.query("MATCH (n:DbineReadModeProbe) DELETE n")
+                .await
+                .unwrap();
+            eprintln!("{var}: the server refused the write in READ mode ({m})");
+        }
+        if ran == 0 {
+            eprintln!("DBINE_TEST_NEO4J_URL / DBINE_TEST_NEO4J_2025_URL not set; skipping");
+        }
     }
 }

@@ -3,9 +3,10 @@
 
 use dbine_driver::ddl::{self, AutoIncrement, SqlFlavor};
 use dbine_driver::sql::{quote_ident, Quote};
+use dbine_driver::vector::{metric, param};
 use dbine_driver::{
     kinds, CheckDef, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind,
-    ForeignKeyDef, IndexDef, KeyDef, TableSchema,
+    ForeignKeyDef, IndexDef, KeyDef, TableSchema, VectorIndex, VectorIndexSpec, VectorParamSpec,
 };
 use rusqlite::types::ValueRef;
 use rusqlite::Connection;
@@ -47,6 +48,153 @@ pub fn designer() -> DesignerSpec {
             "DECIMAL(18,2)",
         ])
     }
+}
+
+/// libSQL's designer: SQLite's, with libSQL's vector types and its vector
+/// index (DiskANN, `libsql_vector_idx`). Its parameters carry DBine's
+/// standard names where one fits: `m` is `max_neighbors`, `quantization`
+/// is `compress_neighbors` and `ef_construction` is `insert_l`
+/// ([`vector_index_sql`]).
+pub fn libsql_designer() -> DesignerSpec {
+    let mut d = designer();
+    d.data_types.extend([
+        "F32_BLOB(1536)",
+        "F64_BLOB(1536)",
+        "F16_BLOB(1536)",
+        "FB16_BLOB(1536)",
+        "F8_BLOB(1536)",
+        "F1BIT_BLOB(1536)",
+    ]);
+    let p = |key, default| VectorParamSpec {
+        key,
+        algorithms: Vec::new(),
+        default,
+    };
+    d.vector_indexes = Some(VectorIndexSpec {
+        // DiskANN is the only one.
+        algorithms: Vec::new(),
+        metrics: vec![metric::COSINE, metric::L2],
+        params: vec![
+            // 3·√dimensions by default.
+            p(param::M, ""),
+            // The column's own format by default.
+            p(param::QUANTIZATION, ""),
+            p(param::EF_CONSTRUCTION, "70"),
+            p("search_l", "200"),
+            p("alpha", "1.2"),
+        ],
+        filter_columns: false,
+    });
+    d
+}
+
+/// libSQL's vector index function: `CREATE INDEX i ON t
+/// (libsql_vector_idx(v, 'metric=cosine', 'max_neighbors=20'))`.
+pub const VECTOR_INDEX_FN: &str = "libsql_vector_idx";
+
+/// libSQL's setting names and the standard ones DBine uses for them.
+const VECTOR_SETTINGS: [(&str, &str); 3] = [
+    ("max_neighbors", param::M),
+    ("compress_neighbors", param::QUANTIZATION),
+    ("insert_l", param::EF_CONSTRUCTION),
+];
+
+/// A name as written in SQL, unquoted (`"a b"`, `[a]`, `` `a` ``).
+fn unquote_name(s: &str) -> String {
+    let s = s.trim();
+    let inner = |open: char, close: char| {
+        s.strip_prefix(open)
+            .and_then(|r| r.strip_suffix(close))
+            .map(|r| r.replace(&format!("{close}{close}"), &close.to_string()))
+    };
+    inner('"', '"')
+        .or_else(|| inner('`', '`'))
+        .or_else(|| {
+            s.strip_prefix('[')
+                .and_then(|r| r.strip_suffix(']'))
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| s.to_string())
+}
+
+/// The column and settings of an index key `libsql_vector_idx(col,
+/// 'metric=cosine', …)` (in parentheses or not); `None` for any other key.
+pub fn parse_vector_key(key: &str) -> Option<(String, VectorIndex)> {
+    let mut e = key.trim();
+    while e.starts_with('(') && e.ends_with(')') && paren_items(e, 0).1 == e.len() {
+        e = e[1..e.len() - 1].trim();
+    }
+    let head = e.get(..VECTOR_INDEX_FN.len())?;
+    if !head.eq_ignore_ascii_case(VECTOR_INDEX_FN) {
+        return None;
+    }
+    let open = VECTOR_INDEX_FN.len() + e[VECTOR_INDEX_FN.len()..].find('(')?;
+    if !e[VECTOR_INDEX_FN.len()..open].trim().is_empty() {
+        return None;
+    }
+    let (items, end) = paren_items(e, open);
+    if end != e.len() || items.is_empty() {
+        return None;
+    }
+    let column = unquote_name(&items[0]);
+    let mut v = VectorIndex::default();
+    for it in &items[1..] {
+        let lit = it
+            .trim()
+            .strip_prefix('\'')?
+            .strip_suffix('\'')?
+            .replace("''", "'");
+        let (k, val) = lit.split_once('=')?;
+        let (k, val) = (k.trim().to_ascii_lowercase(), val.trim().to_string());
+        match k.as_str() {
+            "type" => v.algorithm = Some(val.to_ascii_lowercase()),
+            "metric" => v.metric = Some(val.to_ascii_lowercase()),
+            _ => {
+                let std = VECTOR_SETTINGS
+                    .iter()
+                    .find(|(native, _)| *native == k)
+                    .map_or(k.as_str(), |(_, s)| s);
+                v.params.insert(std.to_string(), val);
+            }
+        }
+    }
+    Some((column, v))
+}
+
+/// Index option: a libSQL vector index's whole key, as [`vector_index_sql`]
+/// writes it. [`IndexDef::vector`] is what the DDL reads; this copy is for
+/// the schema compare, which compares an index's columns, kind and options
+/// but not its vector settings: without it two indexes that differ only in
+/// their metric or settings would compare equal.
+pub const VECTOR_OPTION: &str = "vector";
+
+/// A vector index's dimension as another family's index may carry it
+/// (ClickHouse's): not a libSQL setting (the column's type has it).
+const DIMENSIONS: &str = "dimensions";
+
+/// `libsql_vector_idx("col", 'type=…', 'metric=…', '<setting>=…')`: a
+/// vector index's key, with its settings in libSQL's names.
+pub fn vector_index_sql(column: &str, v: &VectorIndex) -> String {
+    let lit = |s: String| format!("'{}'", s.replace('\'', "''"));
+    let mut args = vec![index_column(column)];
+    if let Some(a) = v.algorithm.as_deref().filter(|a| !a.is_empty()) {
+        args.push(lit(format!("type={a}")));
+    }
+    if let Some(m) = v.metric.as_deref().filter(|m| !m.is_empty()) {
+        args.push(lit(format!("metric={m}")));
+    }
+    for (k, val) in v
+        .params
+        .iter()
+        .filter(|(k, x)| !x.trim().is_empty() && k.as_str() != DIMENSIONS)
+    {
+        let native = VECTOR_SETTINGS
+            .iter()
+            .find(|(_, std)| std == k)
+            .map_or(k.as_str(), |(n, _)| n);
+        args.push(lit(format!("{native}={}", val.trim())));
+    }
+    format!("{VECTOR_INDEX_FN}({})", args.join(", "))
 }
 
 pub fn create_templates() -> Vec<CreateTemplate> {
@@ -113,7 +261,115 @@ fn index_column(c: &str) -> String {
     }
 }
 
+/// Is `ix` a libSQL vector index as a server holds it: read from its
+/// catalog (the read keeps the key it found in [`VECTOR_OPTION`]) and with
+/// the same settings since. One the designer makes, or whose settings it
+/// changes, isn't.
+pub fn held_vector_index(ix: &IndexDef) -> bool {
+    ix.vector.is_some()
+        && ix
+            .options
+            .get(VECTOR_OPTION)
+            .and_then(|k| parse_vector_key(k))
+            .is_some_and(|(_, v)| dbine_driver::vector::same_index(&Some(v), &ix.vector))
+}
+
+/// The column of an L2 vector index on 1-bit vectors, which libSQL
+/// accepts and then can't rank: it measures 1-bit vectors by cosine only.
+fn l2_on_bits<'a>(t: &'a TableSchema, ix: &IndexDef) -> Option<&'a ColumnDef> {
+    use crate::vector::{column_type, Kind};
+    let v = ix.vector.as_ref()?;
+    let key = ix.columns.first()?;
+    let c = t.columns.iter().find(|c| &c.name == key)?;
+    (v.metric.as_deref() == Some(metric::L2)
+        && matches!(column_type(&c.data_type), Some((Kind::Bit, Some(_)))))
+    .then_some(c)
+}
+
+/// The warning a libSQL DDL writes above an L2 index on 1-bit vectors a
+/// server already holds ([`held_vector_index`]), which it keeps as it is.
+pub fn l2_on_bits_warning(index: &str, c: &ColumnDef) -> String {
+    format!(
+        "El índice vectorial «{index}» mide con distancia L2 los vectores de 1 bit de «{}» ({}): libSQL lo acepta, pero esos vectores solo los mide con coseno, así que sus búsquedas salen mal ordenadas. Conviene crearlo de nuevo con métrica coseno.",
+        c.name, c.data_type
+    )
+}
+
+/// Every libSQL vector index of `t` on a column libSQL can index the way
+/// it says; `Err` says which one can't and why, instead of libSQL's
+/// English error or, for an L2 index on a 1-bit column (which libSQL
+/// accepts, and then can't rank: it has no L2 distance for 1-bit
+/// vectors), wrong search results.
+///
+/// `held` names the indexes a server already holds as they are
+/// ([`held_vector_index`]): an L2 one on 1-bit vectors among them is
+/// written as libSQL took it, with [`l2_on_bits_warning`] above, since
+/// refusing it would leave a clone, a script export or a migration of the
+/// table failing. The other refusals can't match one: libSQL makes none
+/// of those.
+pub fn check_vector_columns(
+    t: &TableSchema,
+    held: impl Fn(&IndexDef) -> bool,
+) -> Result<(), String> {
+    use crate::vector::column_type;
+    for ix in &t.indexes {
+        let (Some(v), Some(key)) = (&ix.vector, ix.columns.first()) else {
+            continue;
+        };
+        let Some(c) = t.columns.iter().find(|c| &c.name == key) else {
+            continue;
+        };
+        let l2 = v.metric.as_deref() == Some(metric::L2);
+        let why = match column_type(&c.data_type) {
+            Some((_, None)) | None => Some(format!(
+                "libSQL solo indexa columnas vectoriales con dimensión (F32_BLOB(n), F64_BLOB(n)…), y «{}» es {}",
+                c.name, c.data_type
+            )),
+            Some(_) if l2_on_bits(t, ix).is_some() && !held(ix) => Some(format!(
+                "libSQL mide los vectores de 1 bit («{}» es {}) solo con distancia coseno",
+                c.name, c.data_type
+            )),
+            _ if l2
+                && v
+                    .params
+                    .get(param::QUANTIZATION)
+                    .is_some_and(|q| q.trim().eq_ignore_ascii_case("float1bit")) =>
+            {
+                Some("la compresión de 1 bit (compress_neighbors=float1bit) solo va con distancia coseno".to_string())
+            }
+            _ => None,
+        };
+        if let Some(why) = why {
+            return Err(format!("El índice vectorial «{}»: {why}.", ix.name));
+        }
+    }
+    Ok(())
+}
+
+/// Why SQLite leaves a libSQL vector index out (a file libSQL wrote, or a
+/// table converted from another engine's vectors): its key calls
+/// `libsql_vector_idx`, which only libSQL has.
+pub fn no_vector_index(name: &str) -> String {
+    format!(
+        "El índice vectorial «{name}» no se crea: SQLite no tiene libsql_vector_idx (es de libSQL); hay que crearlo desde una conexión libSQL."
+    )
+}
+
+/// A `-- ` comment line in a DDL: a name with a line break (SQLite allows
+/// one) can't end it early and leave the rest of the line as SQL.
+fn sql_comment(text: &str) -> String {
+    format!("-- {}", text.replace(['\r', '\n'], " "))
+}
+
+/// libSQL's DDL: its vector indexes included.
 pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
+    table_ddl_for(t, parts, true)
+}
+
+/// The DDL; `vector_indexes` false (SQLite) writes a comment saying why
+/// where each libSQL vector index would go, instead of a `CREATE INDEX`
+/// that fails ("no such function: libsql_vector_idx").
+pub fn table_ddl_for(t: &TableSchema, parts: DdlParts, vector_indexes: bool) -> String {
     let mut out = Vec::new();
     if parts.drop || parts.create {
         let mut s = ddl::table_ddl(
@@ -139,6 +395,33 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
     if parts.indexes {
         let table = quote_ident(Quote::Double, &t.name);
         for ix in &t.indexes {
+            if let (Some(v), Some(col)) = (&ix.vector, ix.columns.first()) {
+                if !vector_indexes {
+                    out.push(sql_comment(&no_vector_index(&ix.name)));
+                    continue;
+                }
+                // One libSQL holds (the designer's is refused before):
+                // as it is, with why it ranks wrong.
+                if let Some(c) = l2_on_bits(t, ix) {
+                    out.push(sql_comment(&l2_on_bits_warning(&ix.name, c)));
+                }
+                let mut s = format!(
+                    "CREATE INDEX {}{} ON {table} ({})",
+                    if parts.if_exists {
+                        "IF NOT EXISTS "
+                    } else {
+                        ""
+                    },
+                    quote_ident(Quote::Double, &ix.name),
+                    vector_index_sql(col, v)
+                );
+                if let Some(w) = ix.filter.as_deref().filter(|w| !w.is_empty()) {
+                    s.push_str(&format!(" WHERE {w}"));
+                }
+                s.push(';');
+                out.push(s);
+                continue;
+            }
             let desc = option_list(ix, DESC);
             let cols: Vec<String> = ix
                 .columns
@@ -201,11 +484,23 @@ fn same_checks(a: &[CheckDef], b: &[CheckDef]) -> bool {
     key(a) == key(b)
 }
 
-/// Columns are added in place; any other change rebuilds the table (new
-/// table, copy, drop, rename). SQLite can't add or drop a CHECK with ALTER
-/// TABLE, so a table whose CHECKs change is rebuilt too.
+/// libSQL's sync script: its vector indexes included.
 pub fn sync_script(
     changes: &[dbine_driver::TableChange],
+) -> dbine_driver::Result<dbine_driver::SyncScript> {
+    sync_script_for(changes, true)
+}
+
+/// Columns are added in place; any other change rebuilds the table (new
+/// table, copy, drop, rename). SQLite can't add or drop a CHECK with ALTER
+/// TABLE, so a table whose CHECKs change is rebuilt too. `vector_indexes`
+/// false (SQLite): a libSQL vector index the script would create is left
+/// out, with a warning saying why ([`no_vector_index`]); one a rebuild drops
+/// with its table is gone. libSQL: an L2 index on 1-bit vectors it holds is
+/// made again as it is, with [`l2_on_bits_warning`] among the warnings.
+pub fn sync_script_for(
+    changes: &[dbine_driver::TableChange],
+    vector_indexes: bool,
 ) -> dbine_driver::Result<dbine_driver::SyncScript> {
     use dbine_driver::alter::{self, AlterStyle, ColumnAlter, TableChange};
     let changes: Vec<TableChange> = changes
@@ -229,11 +524,30 @@ pub fn sync_script(
         })
         .collect();
     let cd = |t: &TableSchema, c: &ColumnDef| ddl::column_def(&FLAVOR, t, c);
-    let dd = |t: &TableSchema, p: DdlParts| Ok(table_ddl(t, p));
+    let dd = |t: &TableSchema, p: DdlParts| Ok(table_ddl_for(t, p, vector_indexes));
     let mut script = alter::sync_script(
         &AlterStyle::from_flavor(&FLAVOR, ColumnAlter::Recreate, &cd, &dd),
         &changes,
     )?;
+    // The comments table_ddl wrote about vector indexes (SQLite's
+    // instead of one, libSQL's above an L2 one on 1-bit vectors):
+    // warnings, not statements.
+    let mut warnings = Vec::new();
+    for st in &mut script.statements {
+        let (notes, rest): (Vec<&str>, Vec<&str>) = st
+            .lines()
+            .partition(|l| l.starts_with("-- El índice vectorial «"));
+        if !notes.is_empty() {
+            warnings.extend(
+                notes
+                    .iter()
+                    .map(|n| n.trim_start_matches("-- ").to_string()),
+            );
+            *st = rest.join("\n");
+        }
+    }
+    script.statements.retain(|st| !st.trim().is_empty());
+    script.warnings.extend(warnings);
     // Dropping a table (alone or in a rebuild) with foreign keys on deletes
     // its rows first, which fails while another table's rows point to them;
     // and renaming the rebuilt table checks every view and trigger, which
@@ -253,13 +567,46 @@ pub fn sync_script(
 
 // --- Catalog --------------------------------------------------------------
 
+/// The condition behind [`NOT_VECTOR_SHADOW`], as a literal for `concat!`.
+macro_rules! not_vector_shadow {
+    () => {
+        "m.name <> 'libsql_vector_meta_shadow'
+  AND NOT EXISTS (SELECT 1 FROM sqlite_master x
+                   WHERE x.type = 'index' AND x.sql LIKE '%libsql_vector_idx%' AND m.name = x.name || '_shadow')
+  AND NOT EXISTS (SELECT 1 FROM sqlite_master w
+                   WHERE w.type = 'table' AND w.sql LIKE 'CREATE VIRTUAL TABLE%USING vec0%' AND substr(m.name, 1, length(w.name) + 1) = w.name || '_'
+                     AND (substr(m.name, length(w.name) + 2) IN ('info', 'chunks', 'rowids', 'auxiliary')
+                       OR (substr(m.name, length(w.name) + 2) GLOB '*[0-9][0-9]'
+                           AND rtrim(substr(m.name, length(w.name) + 2), '0123456789') IN ('vector_chunks', 'metadatachunks', 'metadatatext', 'vectors', 'diskann_nodes', 'diskann_buffer', 'ivf_cells', 'ivf_centroids', 'ivf_rowid_map', 'ivf_vectors', 'rescore_chunks', 'rescore_vectors'))))"
+    };
+}
+
 /// Ordinary tables: not SQLite's own, not virtual tables nor their shadow
-/// tables (FTS3/4/5 and R*Tree name them `<table>_<suffix>`).
-const USER_TABLES: &str = "m.type = 'table' AND m.name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
+/// tables (FTS3/4/5 and R*Tree name them `<table>_<suffix>`), nor the
+/// vector ones ([`NOT_VECTOR_SHADOW`]).
+const USER_TABLES: &str = concat!(
+    "m.type = 'table' AND m.name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
   AND COALESCE(m.sql, '') NOT LIKE 'CREATE VIRTUAL %'
   AND NOT EXISTS (SELECT 1 FROM sqlite_master v
                    WHERE v.type = 'table' AND v.sql LIKE 'CREATE VIRTUAL %' AND substr(m.name, 1, length(v.name) + 1) = v.name || '_'
-                     AND substr(m.name, length(v.name) + 2) IN ('data', 'idx', 'content', 'docsize', 'config', 'segments', 'segdir', 'stat', 'node', 'rowid', 'parent'))";
+                     AND substr(m.name, length(v.name) + 2) IN ('data', 'idx', 'content', 'docsize', 'config', 'segments', 'segdir', 'stat', 'node', 'rowid', 'parent'))
+  AND ",
+    not_vector_shadow!()
+);
+
+/// The tables of vector features, which belong to them, as a condition on
+/// `sqlite_master` rows named `m` (the explorer, the schema, compare and
+/// clone leave them out, like FTS's shadow tables):
+///
+/// - libSQL's vector indexes: their metadata (`libsql_vector_meta_shadow`)
+///   and each index's graph (`<index>_shadow`);
+/// - a sqlite-vec `vec0` virtual table `v` (a file another program wrote;
+///   DBine loads no extensions, so it can't read `v` itself): `v_info`,
+///   `v_chunks`, `v_rowids`, `v_auxiliary` and the numbered ones
+///   (`v_vector_chunks00`, `v_metadatachunks00`, `v_metadatatext00`,
+///   `v_vectors00`, `v_diskann_nodes00`, `v_ivf_cells00`…), the names
+///   sqlite-vec gives them.
+pub const NOT_VECTOR_SHADOW: &str = not_vector_shadow!();
 
 /// `NO ACTION` is the default.
 fn action(a: String) -> Option<String> {
@@ -761,6 +1108,17 @@ pub fn read_schema_with<E>(
     for t in &mut out {
         for ix in &mut t.indexes {
             ix.kind = None;
+            // libSQL's vector index: its column and settings, not an expression.
+            if let [key] = ix.columns.as_slice() {
+                if let Some((col, v)) = parse_vector_key(key) {
+                    ix.options
+                        .retain(|k, _| !k.starts_with(COLLATE) && k != DESC);
+                    ix.options
+                        .insert(VECTOR_OPTION.into(), vector_index_sql(&col, &v));
+                    ix.columns = vec![col];
+                    ix.vector = Some(v);
+                }
+            }
         }
     }
     Ok(out)
@@ -787,6 +1145,241 @@ mod tests {
         CREATE UNIQUE INDEX ux_email ON clientes (lower(email));
         CREATE INDEX ix_estado ON pedidos (estado, total) WHERE estado IS NOT NULL;
     "#;
+
+    #[test]
+    fn libsql_vector_indexes() {
+        let (col, v) = parse_vector_key(
+            "(libsql_vector_idx(\"emb x\", 'metric=cosine', 'max_neighbors=20', 'compress_neighbors=float8', 'alpha=1.5', 'TYPE=DiskANN'))",
+        )
+        .unwrap();
+        assert_eq!(col, "emb x");
+        assert_eq!(v.algorithm.as_deref(), Some("diskann"));
+        assert_eq!(v.metric.as_deref(), Some("cosine"));
+        assert_eq!(
+            v.params
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>(),
+            ["alpha=1.5", "m=20", "quantization=float8"]
+        );
+        let (col, v) = parse_vector_key("libsql_vector_idx([e])").unwrap();
+        assert_eq!((col.as_str(), v), ("e", VectorIndex::default()));
+        for no in [
+            "(lower(x))",
+            "(libsql_vector_idx(e) + 1)",
+            "e",
+            "(libsql_vector_idxx(e))",
+        ] {
+            assert!(parse_vector_key(no).is_none(), "{no}");
+        }
+        let t = TableSchema {
+            name: "docs".into(),
+            columns: vec![ColumnDef {
+                name: "emb x".into(),
+                data_type: "F32_BLOB(3)".into(),
+                nullable: true,
+                ..Default::default()
+            }],
+            indexes: vec![IndexDef {
+                name: "docs_emb".into(),
+                columns: vec!["emb x".into()],
+                unique: true,
+                filter: Some("rowid > 0".into()),
+                vector: Some(VectorIndex {
+                    algorithm: None,
+                    metric: Some("l2".into()),
+                    params: [("m", "8"), ("ef_construction", "40"), ("search_l", "")]
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect(),
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let ddl = table_ddl(
+            &t,
+            DdlParts {
+                indexes: true,
+                if_exists: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            ddl,
+            "CREATE INDEX IF NOT EXISTS \"docs_emb\" ON \"docs\" (libsql_vector_idx(\"emb x\", 'metric=l2', 'insert_l=40', 'max_neighbors=8')) WHERE rowid > 0;"
+        );
+        // SQLite can't create it: a comment says why, and a sync script
+        // leaves it out with a warning (no statement fails on
+        // "no such function: libsql_vector_idx").
+        assert_eq!(
+            table_ddl_for(
+                &t,
+                DdlParts {
+                    indexes: true,
+                    ..Default::default()
+                },
+                false
+            ),
+            format!("-- {}", no_vector_index("docs_emb"))
+        );
+        let lite = sync_script_for(
+            &[dbine_driver::TableChange::Create { table: t.clone() }],
+            false,
+        )
+        .unwrap();
+        assert!(
+            lite.statements
+                .iter()
+                .all(|x| !x.contains("libsql_vector_idx") && !x.contains("-- ")),
+            "{:?}",
+            lite.statements
+        );
+        assert!(lite.statements[0].starts_with("CREATE TABLE"));
+        assert_eq!(lite.warnings, [no_vector_index("docs_emb")]);
+        // What the DDL writes reads back the same.
+        let key = ddl.split(" ON \"docs\" ").nth(1).unwrap();
+        let key = key.split(" WHERE").next().unwrap();
+        let (_, back) = parse_vector_key(key).unwrap();
+        let mut want = t.indexes[0].vector.clone().unwrap();
+        want.params.remove("search_l");
+        assert_eq!(back, want);
+        // A sync that changes only the metric makes the index again.
+        let mut changed = t.clone();
+        changed.indexes[0].vector.as_mut().unwrap().metric = Some("cosine".into());
+        let s = sync_script(&[dbine_driver::TableChange::Alter {
+            old: t.clone(),
+            new: changed.clone(),
+        }])
+        .unwrap();
+        let all = s.statements.join("\n");
+        assert!(
+            all.contains("DROP INDEX \"docs_emb\"") && all.contains("'metric=cosine'"),
+            "{all}"
+        );
+        let same = sync_script(&[dbine_driver::TableChange::Alter {
+            old: changed.clone(),
+            new: changed,
+        }])
+        .unwrap();
+        assert!(same.statements.is_empty(), "{:?}", same.statements);
+        // libSQL's own refusals, said in Spanish before it runs: an index on
+        // a column without a dimension or not a vector, L2 on 1-bit
+        // vectors (which libSQL takes and can't rank) or with 1-bit
+        // compression.
+        let with = |ty: &str, metric: &str, q: Option<&str>| {
+            let mut x = t.clone();
+            x.columns[0].data_type = ty.into();
+            let v = x.indexes[0].vector.as_mut().unwrap();
+            v.metric = Some(metric.into());
+            if let Some(q) = q {
+                v.params.insert("quantization".into(), q.into());
+            }
+            check_vector_columns(&x, |_| false)
+        };
+        for (ty, metric, q) in [
+            ("F32_BLOB(3)", "l2", None),
+            ("F1BIT_BLOB(8)", "cosine", None),
+            ("FLOAT64(3)", "l2", Some("float8")),
+            ("F64_BLOB(3)", "cosine", Some("float1bit")),
+        ] {
+            with(ty, metric, q).unwrap();
+        }
+        for (ty, metric, q, why) in [
+            ("F32_BLOB", "l2", None, "con dimensión"),
+            ("TEXT", "cosine", None, "con dimensión"),
+            ("F1BIT_BLOB(8)", "l2", None, "1 bit"),
+            (
+                "F32_BLOB(3)",
+                "l2",
+                Some("float1bit"),
+                "compresión de 1 bit",
+            ),
+        ] {
+            let e = with(ty, metric, q).unwrap_err();
+            assert!(
+                e.starts_with("El índice vectorial «docs_emb»") && e.contains(why),
+                "{e}"
+            );
+        }
+        // An L2 index on 1-bit vectors a server holds (as the read gives
+        // it: its key in VECTOR_OPTION) is written as it is, with a
+        // warning above it; once its settings change, it's a new one.
+        let mut bits = t.clone();
+        bits.columns[0].data_type = "F1BIT_BLOB(8)".into();
+        let ix = &mut bits.indexes[0];
+        let (col, v) =
+            parse_vector_key("libsql_vector_idx(\"emb x\", 'metric=l2', 'max_neighbors=8')")
+                .unwrap();
+        ix.options
+            .insert(VECTOR_OPTION.into(), vector_index_sql(&col, &v));
+        ix.vector = Some(v);
+        assert!(held_vector_index(&bits.indexes[0]));
+        check_vector_columns(&bits, held_vector_index).unwrap();
+        let ddl = table_ddl(
+            &bits,
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        );
+        let warning = l2_on_bits_warning("docs_emb", &bits.columns[0]);
+        assert_eq!(
+            ddl,
+            format!(
+                "-- {warning}\nCREATE INDEX \"docs_emb\" ON \"docs\" (libsql_vector_idx(\"emb x\", 'metric=l2', 'max_neighbors=8')) WHERE rowid > 0;"
+            )
+        );
+        assert!(!warning.contains(';'), "one statement with its index");
+        // A sync that makes it again (a compare copying the table) keeps
+        // the warning as one, not as a statement.
+        let s = sync_script(&[dbine_driver::TableChange::Create {
+            table: bits.clone(),
+        }])
+        .unwrap();
+        assert_eq!(s.warnings, [warning]);
+        assert!(s.statements.iter().all(|x| !x.contains("-- ")));
+        assert!(s.statements.iter().any(|x| x.contains("'metric=l2'")));
+        let mut changed = bits.clone();
+        changed.indexes[0]
+            .vector
+            .as_mut()
+            .unwrap()
+            .params
+            .insert("m".into(), "16".into());
+        assert!(!held_vector_index(&changed.indexes[0]));
+        assert!(check_vector_columns(&changed, held_vector_index).is_err());
+        // Held or not, the other refusals stand.
+        let mut no_dims = bits.clone();
+        no_dims.columns[0].data_type = "F1BIT_BLOB".into();
+        assert!(check_vector_columns(&no_dims, |_| true).is_err());
+        // A name with a line break doesn't end the comment early.
+        let mut odd = bits.clone();
+        odd.indexes[0].name = "a\nDROP TABLE x".into();
+        let ddl = table_ddl(
+            &odd,
+            DdlParts {
+                indexes: true,
+                ..Default::default()
+            },
+        );
+        let mut lines = ddl.lines();
+        assert!(lines
+            .next()
+            .unwrap()
+            .starts_with("-- El índice vectorial «a DROP TABLE x»"));
+        assert!(
+            lines.next().unwrap().starts_with("CREATE INDEX \"a"),
+            "{ddl}"
+        );
+        // SQLite's designer has no vectors; libSQL's has its types and index.
+        assert!(designer().vector_indexes.is_none());
+        let d = libsql_designer();
+        assert!(d.data_types.contains(&"F32_BLOB(1536)"));
+        let vi = d.vector_indexes.unwrap();
+        assert_eq!(vi.metrics, ["cosine", "l2"]);
+        assert!(vi.algorithms.is_empty() && !vi.filter_columns);
+    }
 
     #[test]
     fn schema_is_read_and_rebuilt() {

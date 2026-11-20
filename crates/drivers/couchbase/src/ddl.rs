@@ -91,7 +91,10 @@ pub fn designer() -> DesignerSpec {
     DesignerSpec {
         kind: kinds::COLLECTION,
         label: "Nueva colección",
-        data_types: Vec::new(),
+        // The fields aren't stored; a vector index takes its dimension
+        // (and the form of its vectors: base64 text of float32s) from its
+        // field's type.
+        data_types: vec!["vector(1536)", "vector(1536, base64)"],
         schemas: true,
         primary_key: false,
         auto_increment: false,
@@ -109,6 +112,7 @@ pub fn designer() -> DesignerSpec {
                 .help("Permite consultar cualquier campo sin índices secundarios (más lento en colecciones grandes)."),
         ],
         columns_required: false,
+        vector_indexes: Some(crate::vector::designer_spec()),
     }
 }
 
@@ -161,7 +165,24 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
     }
     if parts.indexes {
         for ix in &t.indexes {
-            out.push(index_ddl(&name, ix, parts.if_exists)?);
+            let mut ix = crate::vector::with_dims(t, ix);
+            // A vector index trains on the documents: on a collection made
+            // in the same script (still empty) it's deferred, and built
+            // with BUILD INDEX once the documents are in.
+            if parts.create && crate::vector::is_vector(&ix) && !crate::vector::is_search(&ix) {
+                ix.options
+                    .entry("defer_build".into())
+                    .or_insert_with(|| "true".into());
+                out.push(format!(
+                    "-- {}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {name}({}).",
+                    ix.name,
+                    q(&ix.name)
+                ));
+            }
+            if let Some(note) = crate::vector::metric_note(&ix) {
+                out.push(format!("-- {note}"));
+            }
+            out.push(index_ddl(&name, &ix, parts.if_exists)?);
         }
     }
     Ok(out.join("\n"))
@@ -207,7 +228,7 @@ pub fn index_from_row(r: &Value) -> IndexDef {
             }
         }
     }
-    IndexDef {
+    let mut ix = IndexDef {
         name: s("name").unwrap_or_default(),
         columns: r
             .get("index_key")
@@ -221,11 +242,30 @@ pub fn index_from_row(r: &Value) -> IndexDef {
         filter: s("condition"),
         options,
         ..Default::default()
+    };
+    // A vector index (hyperscale or composite): its vector key, settings
+    // and kind (see `vector`).
+    crate::vector::from_row(r, &mut ix);
+    ix
+}
+
+/// `DROP INDEX` of an index (`DROP SEARCH INDEX` for a Search one).
+pub fn drop_index(keyspace: &str, ix: &IndexDef) -> String {
+    if crate::vector::is_search(ix) {
+        crate::vector::fts_drop(keyspace, &ix.name)
+    } else {
+        format!("DROP INDEX {} ON {keyspace};", q(&ix.name))
     }
 }
 
 /// `CREATE [PRIMARY] INDEX … ON <keyspace>` for an index.
 pub fn index_ddl(keyspace: &str, ix: &IndexDef, if_not_exists: bool) -> Result<String> {
+    if crate::vector::is_search(ix) {
+        return crate::vector::fts_ddl(keyspace, ix, if_not_exists);
+    }
+    if crate::vector::is_vector(ix) {
+        return crate::vector::ddl(keyspace, ix, if_not_exists, field_path);
+    }
     let ine = if if_not_exists { " IF NOT EXISTS" } else { "" };
     let primary = ix
         .kind
@@ -761,6 +801,59 @@ mod tests {
             }
         )
         .is_err());
+    }
+
+    #[test]
+    fn hamming_over_bits_is_written_l2_squared_and_said() {
+        // A bit vector from another engine (0 and 1 here) with its hamming
+        // index, as the schema conversion lets it through.
+        let mut t = TableSchema {
+            kind: kinds::COLLECTION.into(),
+            schema: Some("b.s".into()),
+            name: "c".into(),
+            columns: vec![dbine_driver::ColumnDef {
+                name: "bits".into(),
+                data_type: "vector(8)".into(),
+                ..Default::default()
+            }],
+            indexes: vec![IndexDef {
+                name: "bix".into(),
+                columns: vec!["bits".into()],
+                vector: Some(dbine_driver::VectorIndex {
+                    metric: Some("hamming".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let parts = DdlParts {
+            indexes: true,
+            ..Default::default()
+        };
+        let s = table_ddl(&t, parts).unwrap();
+        assert!(
+            s.starts_with("-- bix: la distancia hamming queda L2_SQUARED"),
+            "{s}"
+        );
+        assert!(s.contains("\"similarity\": \"L2_SQUARED\""), "{s}");
+        // The same index read back (L2_SQUARED) isn't a difference to sync.
+        let mut back = t.indexes[0].clone();
+        back.vector.as_mut().unwrap().metric = Some("l2_squared".into());
+        let back = crate::vector::with_dims(&t, &back);
+        let mine = crate::vector::with_dims(&t, &t.indexes[0]);
+        assert_eq!(
+            index_ddl("k", &mine, false).unwrap(),
+            index_ddl("k", &back, false).unwrap()
+        );
+        // A Search one: l2_norm.
+        t.indexes[0].kind = Some(crate::vector::SEARCH.into());
+        let s = table_ddl(&t, parts).unwrap();
+        assert!(
+            s.starts_with("-- bix: la distancia hamming queda l2_norm"),
+            "{s}"
+        );
+        assert!(s.contains("\"similarity\":\"l2_norm\""), "{s}");
     }
 
     #[test]

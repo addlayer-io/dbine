@@ -27,11 +27,12 @@ mod mask;
 
 use crate::commands::migration::{create_schema, default_schema, default_schema_rename};
 use crate::commands::schema::driver_of;
+use crate::commands::{typed_scripts, vectors};
 use crate::error::{CommandError, CommandResult};
 use crate::state::{AppState, SessionEntry};
 use dbine_driver::{
     ColumnDef, ColumnFilter, DdlParts, Driver, FilterOp, KeyDef, ObjectRef, QueryOutcome,
-    RowChange, Session, TableSchema,
+    ResultColumn, RowChange, Session, TableSchema,
 };
 use graph::{Edge, Role, Scope};
 use mask::{MaskRule, Masker, Shape};
@@ -268,6 +269,34 @@ async fn exec(
     Ok(out)
 }
 
+/// What a read that came back short says, for the subset's notes: the
+/// driver marked the result truncated (its rows aren't all the object
+/// has), with the driver's warnings as the reason. `None` when the rows
+/// are all there are.
+fn partial_read(
+    name: &str,
+    r: &dbine_driver::StatementResult,
+    warnings: &[String],
+) -> Option<String> {
+    if !r.truncated {
+        return None;
+    }
+    let read = r.rows.len();
+    let of = if r.total_rows > read as u64 {
+        format!(" de {}", r.total_rows)
+    } else {
+        String::new()
+    };
+    Some(if warnings.is_empty() {
+        format!("«{name}»: el subconjunto es parcial, se leyeron {read}{of} filas y el origen tiene más.")
+    } else {
+        format!(
+            "«{name}»: el subconjunto es parcial, se leyeron {read}{of} filas: {}",
+            warnings.join(" ")
+        )
+    })
+}
+
 /// A table's structure from its columns, for engines whose
 /// `database_schema` doesn't report it (no foreign keys anyway).
 fn schema_from_columns(obj: &ObjectRef, cols: Vec<dbine_driver::ColumnInfo>) -> TableSchema {
@@ -297,6 +326,46 @@ fn schema_from_columns(obj: &ObjectRef, cols: Vec<dbine_driver::ColumnInfo>) -> 
             .collect(),
         ..Default::default()
     }
+}
+
+/// `obj` as [`Session::database_schema`] lists it (an object of its kind),
+/// when it does; `None` also when the engine's structure can't be read.
+async fn listed_object(src: &mut Box<dyn Session>, obj: &ObjectRef) -> Option<TableSchema> {
+    let all: Vec<TableSchema> = src
+        .database_schema()
+        .await
+        .ok()?
+        .into_iter()
+        .filter(|t| t.kind == obj.kind)
+        .collect();
+    let i = graph::find(&all, &obj.schema, &obj.name)?;
+    all.into_iter().nth(i)
+}
+
+/// `listed` (the object as `database_schema` has it) with the describe's
+/// columns, in the describe's order: each one the listed column of its
+/// name when there is one (with its options), else the describe's (a
+/// search index's document key, `id`, which isn't one of its fields but
+/// is what its rows are copied by); the listed ones the describe lacks go
+/// last. The describe's primary key where the listed object has none.
+fn with_described(mut listed: TableSchema, described: TableSchema) -> TableSchema {
+    let mut rest = std::mem::take(&mut listed.columns);
+    let mut columns = Vec::with_capacity(described.columns.len() + rest.len());
+    for d in described.columns {
+        match rest
+            .iter()
+            .position(|c| c.name.eq_ignore_ascii_case(&d.name))
+        {
+            Some(i) => columns.push(rest.remove(i)),
+            None => columns.push(d),
+        }
+    }
+    columns.extend(rest);
+    listed.columns = columns;
+    if listed.primary_key.is_none() {
+        listed.primary_key = described.primary_key;
+    }
+    listed
 }
 
 fn pk_of(t: &TableSchema) -> Vec<String> {
@@ -379,7 +448,8 @@ async fn prepare(
 
     // The source's tables with their keys.
     let mut tables: Vec<TableSchema> = Vec::new();
-    if src_driver.capabilities().foreign_keys {
+    let read_tables = src_driver.capabilities().foreign_keys;
+    if read_tables {
         match src.database_schema().await {
             Ok(t) => tables = t,
             Err(e) => notes.push(format!("No se pudo leer la estructura de la base ({e}): se copia solo «{}», sin seguir claves foráneas.", args.table.name)),
@@ -395,7 +465,20 @@ async fn prepare(
                     args.table.name
                 )));
             }
-            tables.push(schema_from_columns(&args.table, cols));
+            let described = schema_from_columns(&args.table, cols);
+            // Without foreign keys the tables weren't read: the starting
+            // object as the engine lists it keeps what its columns don't
+            // say (a Redis search index's keys, `on` and `prefix`, and its
+            // vector index), so the target gets the same definition.
+            let listed = if read_tables {
+                None
+            } else {
+                listed_object(src, &args.table).await
+            };
+            tables.push(match listed {
+                Some(t) => with_described(t, described),
+                None => described,
+            });
             tables.len() - 1
         }
     };
@@ -415,7 +498,8 @@ async fn prepare(
     let opts = dbine_schema::Options {
         rename_schemas: default_schema_rename(src_info.dialect, tgt_info.dialect),
         ..Default::default()
-    };
+    }
+    .for_target(&**tgt_driver);
     let conv = dbine_schema::convert(&in_order, src_info.id, tgt_info.id, &opts);
     let existing = tgt.list_objects().await.unwrap_or_default();
     let dflt = default_schema(tgt_info.dialect);
@@ -701,12 +785,14 @@ impl Collector<'_> {
         obj_of(&self.tables[t])
     }
 
+    /// The rows of `obj` that pass `filters`, at most `limit`, and why they
+    /// may not be all of them when the driver says so ([`partial_read`]).
     async fn query(
         &mut self,
         obj: &ObjectRef,
         filters: &[ColumnFilter],
         limit: u32,
-    ) -> CommandResult<(Vec<String>, Vec<Vec<Value>>)> {
+    ) -> CommandResult<(Vec<String>, Vec<Vec<Value>>, Option<String>)> {
         let browse = self.s.browse_query(obj, limit);
         let sql = if filters.is_empty() {
             browse
@@ -719,12 +805,31 @@ impl Collector<'_> {
                 CommandError::Sql(m) => CommandError::Sql(format!("«{}»: {m}", obj.name)),
                 other => other,
             })?;
+        let warnings: Vec<String> = out
+            .log
+            .iter()
+            .filter(|m| m.level == dbine_driver::MessageLevel::Warning)
+            .map(|m| m.text.clone())
+            .collect();
         Ok(
             match out.results.into_iter().find(|r| !r.columns.is_empty()) {
-                Some(r) => (r.columns.into_iter().map(|c| c.name).collect(), r.rows),
-                None => (Vec::new(), Vec::new()),
+                Some(r) => {
+                    let partial = partial_read(&obj.name, &r, &warnings);
+                    (
+                        r.columns.into_iter().map(|c| c.name).collect(),
+                        r.rows,
+                        partial,
+                    )
+                }
+                None => (Vec::new(), Vec::new(), None),
             },
         )
+    }
+
+    fn note(&mut self, n: String) {
+        if !self.notes.contains(&n) {
+            self.notes.push(n);
+        }
     }
 
     /// Rows of `t` whose `cols` take one of `tuples` (those not asked for
@@ -776,7 +881,10 @@ impl Collector<'_> {
                 values: chunk.to_vec(),
                 sql: None,
             };
-            let (rcols, mut rows) = self.query(&obj, &[f], FETCH_LIMIT).await?;
+            let (rcols, mut rows, partial) = self.query(&obj, &[f], FETCH_LIMIT).await?;
+            if let Some(n) = partial {
+                self.note(n);
+            }
             if cols.len() > 1 {
                 let at: Option<Vec<usize>> = cols
                     .iter()
@@ -862,12 +970,16 @@ impl Collector<'_> {
             Limit::Rows { count } => count.clamp(1, SCAN_LIMIT as u64) as u32,
             _ => SCAN_LIMIT,
         };
-        let (cols, mut rows) = self.query(obj, &filters, limit).await?;
+        let (cols, mut rows, partial) = self.query(obj, &filters, limit).await?;
         if rows.len() as u32 >= SCAN_LIMIT && !matches!(filter.limit, Limit::Rows { .. }) {
             self.notes.push(format!(
                 "«{}» tiene más de {SCAN_LIMIT} filas: se tomaron las primeras {SCAN_LIMIT}.",
                 obj.name
             ));
+        } else if let Some(n) = partial.filter(|_| (rows.len() as u32) < limit) {
+            // Fewer rows than asked for, and the driver says there are
+            // more (valkey-search's KNN maximum): the subset is partial.
+            self.note(n);
         }
         if let Limit::Percent { percent } = filter.limit {
             let n = rows.len();
@@ -1058,6 +1170,8 @@ struct Deferred {
     t: usize,
     /// (key, set, whole row) in target column names, masked.
     changes: Vec<RowChange>,
+    /// The target's columns with their types, for the update script.
+    types: Vec<ResultColumn>,
 }
 
 impl Writer<'_> {
@@ -1085,6 +1199,11 @@ impl Writer<'_> {
             rule: Option<&'r MaskRule>,
             shape: Shape,
             nullable: bool,
+            /// A vector column: its values go to the script as arrays.
+            vector: bool,
+            /// Its type on the target: the script writes its values as the
+            /// column takes them.
+            typed: ResultColumn,
         }
         let mut cols: Vec<Col> = Vec::new();
         for (at, name) in d.columns.iter().enumerate() {
@@ -1105,12 +1224,25 @@ impl Writer<'_> {
             if rule.is_some() {
                 report.masked.push(name.clone());
             }
+            // The target's type on the target's engine, else the source's:
+            // masks keep its vectors vectors.
+            let meta = match tgt_col.map(|c| c.data_type.as_str()) {
+                Some(t) if !t.is_empty() => vectors::of_type(p.tgt_driver.info().id, t),
+                _ => src_col.and_then(|c| vectors::of_type(p.src_driver.info().id, &c.data_type)),
+            };
+            let typed = ResultColumn {
+                name: target.to_string(),
+                type_name: tgt_col.map(|c| c.data_type.clone()).unwrap_or_default(),
+                vector: meta.clone(),
+            };
             cols.push(Col {
                 at,
                 name: target.to_string(),
                 rule,
-                shape: Shape::of(ty),
+                shape: Shape::of_column(ty, meta.as_ref()),
                 nullable: tgt_col.is_none_or(|c| c.nullable),
+                vector: meta.is_some_and(|m| !m.sparse),
+                typed,
             });
         }
         if cols.is_empty() {
@@ -1119,13 +1251,19 @@ impl Writer<'_> {
             ));
         }
         let names: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
+        let types: Vec<ResultColumn> = cols.iter().map(|c| c.typed.clone()).collect();
         let row_of = |r: &[Value]| -> Vec<Value> {
             cols.iter()
                 .map(|c| {
                     let v = r.get(c.at).cloned().unwrap_or(Value::Null);
-                    match c.rule {
+                    let v = match c.rule {
                         Some(rule) => masker.apply(rule, &v, c.shape),
                         None => v,
+                    };
+                    if c.vector {
+                        vectors::script_value(v)
+                    } else {
+                        v
                     }
                 })
                 .collect()
@@ -1190,6 +1328,7 @@ impl Writer<'_> {
         let mut deferred = Deferred {
             t,
             changes: Vec::new(),
+            types: types.clone(),
         };
         let mut last = Instant::now();
         (self.emit)("insert", &table.name, 0, total);
@@ -1219,7 +1358,8 @@ impl Writer<'_> {
                 }
                 batch.push(row);
             }
-            let script = p.tgt_driver.insert_script(&tg.obj, &names, &batch)?;
+            let script =
+                typed_scripts::insert_columns(p.tgt_driver.as_ref(), &tg.obj, &types, &batch)?;
             self.run(&script).await.map_err(|e| match e {
                 CommandError::Sql(m) => CommandError::Sql(format!(
                     "filas {}–{}: {m}",
@@ -1344,7 +1484,7 @@ async fn write(
         let tg = &p.targets[&d.t];
         emit("cycles", &p.tables[d.t].name, 0, d.changes.len() as u64);
         for chunk in d.changes.chunks(200) {
-            let res = match p.tgt_driver.update_script(&tg.obj, chunk) {
+            let res = match typed_scripts::update(p.tgt_driver.as_ref(), &tg.obj, chunk, &d.types) {
                 Ok(sql) => w.run(&sql).await,
                 Err(e) => Err(e.into()),
             };

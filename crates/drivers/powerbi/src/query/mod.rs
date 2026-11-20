@@ -343,6 +343,7 @@ impl Sink for ToOutcome<'_> {
             .map(|(n, t)| ResultColumn {
                 name: self.name(&n),
                 type_name: t,
+                vector: None,
             })
             .collect();
         self.out.begin_result(cols);
@@ -887,6 +888,7 @@ async fn run_user(
                             .map(|c| ResultColumn {
                                 name: c.name.clone(),
                                 type_name: c.data_type.name().to_string(),
+                                vector: None,
                             })
                             .collect();
                         for r in &mut out.results[first_result..] {

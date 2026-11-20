@@ -725,7 +725,11 @@ impl DremioSession {
         let types: Vec<String> = cols.iter().map(|c| c.1.clone()).collect();
         out.begin_result(
             cols.into_iter()
-                .map(|(name, type_name)| ResultColumn { name, type_name })
+                .map(|(name, type_name)| ResultColumn {
+                    name,
+                    type_name,
+                    vector: None,
+                })
                 .collect(),
         );
         let fetched = rows.len();

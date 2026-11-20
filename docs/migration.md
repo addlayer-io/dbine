@@ -194,6 +194,12 @@ load does not fail because of a parent row that is not there yet.
   `SELECT *`), a table with columns that the conversion leaves out is not
   copied correctly: the read brings all the columns.
 
+## Vectors
+
+Vector columns and their indexes migrate with the rest of the table; what
+happens to their types and indexes in each target is in
+[vectors.md](vectors.md#schema-conversion-between-engines).
+
 ## Commands
 
 Each command receives a single `args`.

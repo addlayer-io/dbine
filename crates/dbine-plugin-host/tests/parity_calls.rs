@@ -112,6 +112,16 @@ fn driver_calls(local: &dyn Driver, remote: &dyn Driver) {
         local.create_database_fields(),
         remote.create_database_fields(),
     );
+    // Schema sync per kind of its objects (Redis: search indexes, not keys).
+    let sync_for = |d: &dyn Driver| -> Vec<(&str, bool)> {
+        local
+            .info()
+            .object_kinds
+            .iter()
+            .map(|k| (k.id, d.supports_schema_sync_for(k.id)))
+            .collect()
+    };
+    same(&what("schema_sync_for"), sync_for(local), sync_for(remote));
     same(
         &what("script_dialect"),
         local.script_dialect(),

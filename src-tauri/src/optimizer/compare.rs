@@ -261,10 +261,12 @@ mod tests {
                 ResultColumn {
                     name: "a".into(),
                     type_name: String::new(),
+                    vector: None,
                 },
                 ResultColumn {
                     name: "b".into(),
                     type_name: String::new(),
+                    vector: None,
                 },
             ],
         )

@@ -2,7 +2,9 @@
 //! same protocol (Valkey, Dragonfly). A session is one multiplexed
 //! connection to one logical database (`db0`…`db15`); keys are the
 //! explorer's objects. Scripts are one command per line (see [`command`]),
-//! and each reply becomes a table (see [`shape`]).
+//! and each reply becomes a table (see [`shape`]). Search indexes (`FT.*`)
+//! are objects too, and vectors (in hashes under a search index, and Redis
+//! 8's vector sets) show as their text (see [`vectors`]).
 
 mod backup;
 mod command;
@@ -15,11 +17,13 @@ mod processes;
 mod profiler;
 mod properties;
 mod rename;
+mod search;
 mod security;
 mod shape;
 mod stats;
 mod steps;
 mod transfer;
+mod vectors;
 
 use dbine_driver::keys::{glob_escape, has_wildcards};
 use dbine_driver::{
@@ -47,20 +51,33 @@ const SCAN_COUNT: usize = 1000;
 /// over millions of keys comes back with what it found so far and a cursor.
 const SCAN_BUDGET: u64 = 50_000;
 /// Types the key search filters by, as the explorer names them.
-const KEY_TYPES: &[&str] = &["string", "hash", "list", "set", "zset", "stream", "json"];
+const KEY_TYPES: &[&str] = &[
+    "string",
+    "hash",
+    "list",
+    "set",
+    "zset",
+    "stream",
+    "json",
+    "vectorset",
+];
+
+/// How long the session trusts the search indexes it read (other clients
+/// create and drop them too); its own `FT.CREATE`s read them again at once.
+const FT_TTL: Duration = Duration::from_secs(30);
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
-    vec![
-        Arc::new(RedisDriver {
-            info: info("redis", "Redis"),
-        }),
-        Arc::new(RedisDriver {
-            info: info("valkey", "Valkey"),
-        }),
-        Arc::new(RedisDriver {
-            info: info("dragonfly", "Dragonfly"),
-        }),
-    ]
+    ["redis", "valkey", "dragonfly"]
+        .into_iter()
+        .zip(["Redis", "Valkey", "Dragonfly"])
+        .map(|(id, name)| {
+            Arc::new(RedisDriver {
+                info: info(id, name),
+                server: vectors::Server::of(id),
+                known: vectors::Shared::default(),
+            }) as Arc<dyn Driver>
+        })
+        .collect()
 }
 
 fn info(id: &'static str, name: &'static str) -> DriverInfo {
@@ -88,12 +105,27 @@ fn info(id: &'static str, name: &'static str) -> DriverInfo {
         ],
         databases_label: "Bases de datos",
         has_schemas: false,
-        object_kinds: vec![ObjectKindInfo::new(kinds::KEY, "Claves", true, true, true)],
+        // Keys first: the explorer searches them. Search indexes (FT.*),
+        // with their fields as columns and their FT.CREATE as source.
+        object_kinds: vec![
+            ObjectKindInfo::new(kinds::KEY, "Claves", true, true, true),
+            ObjectKindInfo::new(kinds::INDEX, "Índices de búsqueda", true, true, true),
+        ],
     }
 }
 
 pub struct RedisDriver {
     info: DriverInfo,
+    server: vectors::Server,
+    /// What the sessions read of the server's vectors, for the scripts
+    /// (which run without one).
+    known: vectors::Shared,
+}
+
+impl RedisDriver {
+    fn known(&self) -> std::sync::MutexGuard<'_, vectors::Known> {
+        self.known.lock().unwrap_or_else(|e| e.into_inner())
+    }
 }
 
 /// `--tls` (a `rediss://` URL), as a checkbox.
@@ -229,6 +261,8 @@ impl Driver for RedisDriver {
             processes: true,
             cancel_query: self.info.id != "dragonfly",
             database_properties: true,
+            // Vector fields of search indexes (all three), vector sets (Redis 8).
+            vectors: true,
             ..Default::default()
         }
     }
@@ -269,12 +303,70 @@ impl Driver for RedisDriver {
         })
     }
 
-    /// No schema to sync: keys are data, not tables.
+    /// "Comparar esquemas" applies the search indexes' changes (see
+    /// [`Driver::sync_script`]); keys are data, with no schema to sync.
+    fn supports_schema_sync_for(&self, kind: &str) -> bool {
+        kind == kinds::INDEX
+    }
+
+    /// Keys are data, not tables: the only schema is the search indexes
+    /// (see [`Session::database_schema`]), made again when they change
+    /// (`FT.DROPINDEX` keeps the documents, `FT.CREATE` indexes them).
+    /// `supports_schema_sync` stays off: the app offers "Modificar…" on
+    /// the designer's kind (keys) with it, and keys can't be altered;
+    /// [`Driver::supports_schema_sync_for`] says it per kind.
     fn sync_script(
         &self,
-        _changes: &[dbine_driver::TableChange],
+        changes: &[dbine_driver::TableChange],
     ) -> Result<dbine_driver::SyncScript> {
-        Err(Error::Unsupported("Redis no tiene esquema: las keys son datos (no tablas con columnas), así que no hay cambios de esquema que aplicar; para llevar keys de una base a otra usá la copia de datos o la exportación".into()))
+        use dbine_driver::TableChange as C;
+        let only = |t: &TableSchema| t.kind == kinds::INDEX;
+        if !changes.iter().all(|c| match c {
+            C::Create { table } | C::Drop { table } => only(table),
+            C::Alter { old, new } => only(old) && only(new),
+        }) {
+            return Err(Error::Unsupported("Redis no tiene esquema: las keys son datos (no tablas con columnas), así que no hay cambios de esquema que aplicar; para llevar keys de una base a otra usá la copia de datos o la exportación".into()));
+        }
+        let ddl = |t: &TableSchema, drop: bool, create: bool| {
+            ddl::table_ddl(
+                t,
+                DdlParts {
+                    drop,
+                    create,
+                    ..Default::default()
+                },
+                self.server,
+            )
+        };
+        let mut statements = Vec::new();
+        let mut warnings = Vec::new();
+        for c in changes {
+            let s = match c {
+                C::Create { table } => ddl(table, false, true)?,
+                C::Drop { table } => {
+                    warnings.push(format!(
+                        "Se borra el índice de búsqueda {}; sus documentos quedan.",
+                        table.name
+                    ));
+                    ddl(table, true, false)?
+                }
+                C::Alter { old, new } => {
+                    if ddl(old, false, true)? == ddl(new, false, true)? {
+                        continue;
+                    }
+                    warnings.push(format!(
+                        "El índice de búsqueda {} se crea de nuevo: Redis no cambia sus campos; vuelve a indexar sus documentos.",
+                        new.name
+                    ));
+                    ddl(old, true, false)? + &ddl(new, false, true)?
+                }
+            };
+            statements.extend(s.lines().map(str::to_string));
+        }
+        Ok(dbine_driver::SyncScript {
+            statements,
+            warnings,
+        })
     }
 
     /// Keys, with `RENAMENX` (see [`rename`]).
@@ -291,11 +383,11 @@ impl Driver for RedisDriver {
     }
 
     fn create_templates(&self) -> Vec<CreateTemplate> {
-        ddl::templates()
+        ddl::templates(self.server)
     }
 
     fn table_ddl(&self, table: &TableSchema, parts: DdlParts) -> Result<String> {
-        ddl::table_ddl(table, parts)
+        ddl::table_ddl(table, parts, self.server)
     }
 
     fn insert_script(
@@ -304,7 +396,21 @@ impl Driver for RedisDriver {
         columns: &[String],
         rows: &[Vec<serde_json::Value>],
     ) -> Result<String> {
-        ddl::insert_script(target, columns, rows)
+        ddl::insert_script(target, columns, rows, &self.known(), &Default::default())
+    }
+
+    /// A vector's blob type comes from the column's type when Redis spells
+    /// it (`VECTOR(3, FLOAT16)`), not from what DBine read of the open
+    /// servers (see [`ddl::insert_script`]).
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[dbine_driver::ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        let types = vectors::Types::of(columns);
+        ddl::insert_script(target, &names, rows, &self.known(), &types)
     }
 
     fn update_script(
@@ -312,7 +418,16 @@ impl Driver for RedisDriver {
         target: &ObjectRef,
         changes: &[dbine_driver::RowChange],
     ) -> Result<String> {
-        ddl::update_script(target, changes)
+        ddl::update_script(target, changes, &self.known(), &Default::default())
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[dbine_driver::ResultColumn],
+    ) -> Result<String> {
+        ddl::update_script(target, changes, &self.known(), &vectors::Types::of(types))
     }
 
     fn delete_script(
@@ -350,6 +465,8 @@ impl Driver for RedisDriver {
             cfg.host.trim().to_string()
         };
         let port = cfg.port_or(6379);
+        // What the scripts know of this server's vectors is kept under it.
+        let server_id = format!("{host}:{port}");
         // redis' rustls needs a process-wide crypto provider when more
         // than one is compiled in; a second install is a no-op error.
         let _ = rustls::crypto::ring::default_provider().install_default();
@@ -427,6 +544,14 @@ impl Driver for RedisDriver {
             multi: false,
             queued: 0,
             queued_db: None,
+            server: self.server,
+            known: {
+                self.known().attach(&server_id);
+                self.known.clone()
+            },
+            server_id,
+            ft: None,
+            vrange: None,
         }))
     }
 }
@@ -503,6 +628,26 @@ pub struct RedisSession {
     /// The last `SELECT` queued in the open `MULTI` (its place in the
     /// queue and the database): it only switches at `EXEC`.
     queued_db: Option<(usize, i64)>,
+    server: vectors::Server,
+    /// The driver's [`vectors::Known`], filled as indexes and vector sets
+    /// are read.
+    known: vectors::Shared,
+    /// The server, as [`vectors::Known`] keeps it (`host:port`).
+    server_id: String,
+    /// The database's search indexes as last read (see [`FT_TTL`]).
+    ft: Option<(std::time::Instant, Vec<vectors::FtIndex>)>,
+    /// The server has `VRANGE` (Redis 8.4+), for browsing a vector set in
+    /// order; `None`: not asked yet.
+    vrange: Option<bool>,
+}
+
+impl Drop for RedisSession {
+    fn drop(&mut self) {
+        self.known
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .detach(&self.server_id);
+    }
 }
 
 impl RedisSession {
@@ -547,7 +692,23 @@ impl RedisSession {
             )));
         }
         let args: Vec<&[u8]> = cmd.iter().map(Vec::as_slice).collect();
-        let reply = self.send_raw(&args).await.map_err(command_err);
+        let reply = self
+            .send_raw(&args)
+            .await
+            .map_err(command_err)
+            .map_err(|e| {
+                // A refused index that asked for a vector type or algorithm
+                // not every version has: say which, and since when.
+                match (name.as_str(), e) {
+                    ("FT.CREATE" | "FT.ALTER", Error::Statement(mut se)) => {
+                        if let Some(h) = vectors::create_hint(cmd, self.server) {
+                            se.message = format!("{} ({h})", se.message.trim_end());
+                        }
+                        Error::Statement(se)
+                    }
+                    (_, e) => e,
+                }
+            });
         // A refused command inside MULTI makes EXEC fail (EXECABORT): the
         // transaction is over either way.
         let was_multi = self.multi;
@@ -608,14 +769,25 @@ impl RedisSession {
                 }
             }
         }
-        let table = shape::shape(cmd, reply);
+        self.ft_after(&name, cmd).await;
+        let table = match self.vector_table(&name, cmd, &reply, max_rows).await {
+            Some(t) => t,
+            None => shape::shape(cmd, reply),
+        };
         out.begin_result(
             table
                 .columns
                 .iter()
-                .map(|c| ResultColumn {
-                    name: c.clone(),
-                    type_name: String::new(),
+                .enumerate()
+                .map(|(i, c)| {
+                    let col = ResultColumn::new(
+                        c.clone(),
+                        table.types.get(i).cloned().unwrap_or_default(),
+                    );
+                    match table.vectors.get(i).cloned().flatten() {
+                        Some(m) => col.with_vector(m),
+                        None => col,
+                    }
                 })
                 .collect(),
         );
@@ -624,6 +796,12 @@ impl RedisSession {
         }
         for row in table.rows {
             out.push_row(row, max_rows);
+        }
+        if let Some(why) = table.partial {
+            if let Some(r) = out.results.last_mut() {
+                r.truncated = true;
+            }
+            out.warning(why);
         }
         Ok(())
     }
@@ -776,6 +954,16 @@ impl Session for RedisSession {
                 parent: None,
             });
         }
+        // The search indexes, read now.
+        self.ft = None;
+        for ix in self.ft_indexes().await {
+            out.push(DbObject {
+                kind: kinds::INDEX.into(),
+                schema: None,
+                name: ix.name,
+                parent: None,
+            });
+        }
         Ok(out)
     }
 
@@ -878,6 +1066,13 @@ impl Session for RedisSession {
                 ttl_ms,
             });
         }
+        // A vector set is browsed in order with VRANGE where the server has it.
+        if keys
+            .iter()
+            .any(|k| k.key_type.as_deref() == Some("vectorset"))
+        {
+            self.has_vrange().await;
+        }
         let total = if first {
             self.int(&[b"DBSIZE"]).await.map(|n| n.max(0) as u64)
         } else {
@@ -892,8 +1087,37 @@ impl Session for RedisSession {
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
+        // A search index: the document's key, then its fields.
+        if obj.kind == kinds::INDEX {
+            let Some(ix) = self.ft_index(&obj.name).await else {
+                return Ok(Vec::new());
+            };
+            return Ok(vectors::index_columns(&ix)
+                .into_iter()
+                .enumerate()
+                .map(|(i, (name, data_type))| ColumnInfo {
+                    nullable: i > 0,
+                    ..col(&name, &data_type, i == 0)
+                })
+                .collect());
+        }
         let t = self.key_type(&obj.name).await?;
         Ok(match t.as_str() {
+            "vectorset" => {
+                self.has_vrange().await;
+                let (dims, _) = self.vset_shape(obj.name.as_bytes()).await;
+                let vector = dims
+                    .map(|d| vectors::spell(d as u32, vectors::VType::F32))
+                    .unwrap_or_else(|| "VECTOR".into());
+                vec![
+                    col("element", "string", true),
+                    col("vector", &vector, false),
+                    ColumnInfo {
+                        nullable: true,
+                        ..col("attributes", "json", false)
+                    },
+                ]
+            }
             "string" => vec![col("value", "string", false)],
             "hash" => vec![col("field", "string", true), col("value", "string", false)],
             "list" => vec![col("value", "string", false)],
@@ -918,6 +1142,20 @@ impl Session for RedisSession {
     }
 
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {
+        // A search index: the FT.CREATE that makes it.
+        if obj.kind == kinds::INDEX {
+            return Ok(self.ft_index(&obj.name).await.map(|ix| {
+                let mut s = ix.create_command();
+                let unknown = ix.unreported_vectors();
+                if !unknown.is_empty() {
+                    s.push_str(&format!(
+                        "\n# FT.INFO de este servidor no informa la configuración de {}: completá su algoritmo, TYPE, DIM y DISTANCE_METRIC antes de ejecutarlo.",
+                        unknown.join(", ")
+                    ));
+                }
+                s
+            }));
+        }
         let key = obj.name.as_bytes();
         let t = self.key_type(&obj.name).await?;
         if t == "none" {
@@ -942,6 +1180,7 @@ impl Session for RedisSession {
             "set" => Some(b"SCARD"),
             "zset" => Some(b"ZCARD"),
             "stream" => Some(b"XLEN"),
+            "vectorset" => Some(b"VCARD"),
             _ => None,
         };
         if let Some(c) = len_cmd {
@@ -950,13 +1189,36 @@ impl Session for RedisSession {
                 lines.push(format!("LENGTH    {n} {unit}"));
             }
         }
+        if t == "vectorset" {
+            let (dims, quant) = self.vset_shape(key).await;
+            if let Some(d) = dims {
+                lines.push(format!("VDIM      {d}"));
+            }
+            if let Some(q) = quant {
+                lines.push(format!("QUANT     {q}"));
+            }
+        }
         Ok(Some(lines.join("\n")))
     }
 
     fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
         let k = command::quote_arg(&obj.name);
         let last = limit.max(1) - 1;
+        if obj.kind == kinds::INDEX {
+            // The index as this session read it, or as its describe did.
+            let ix = self
+                .ft
+                .as_ref()
+                .and_then(|(_, l)| l.iter().find(|i| i.name == obj.name).cloned())
+                .or_else(|| {
+                    let k = self.known.lock().unwrap_or_else(|e| e.into_inner());
+                    k.index_at(&self.server_id, self.db, &obj.name).cloned()
+                });
+            return vectors::browse(&obj.name, ix.as_ref(), self.server, limit);
+        }
         match self.types.get(&obj.name).map(String::as_str) {
+            Some("vectorset") if self.vrange == Some(true) => format!("VRANGE {k} - + {limit}"),
+            Some("vectorset") => format!("VRANDMEMBER {k} {limit}"),
             Some("string") => format!("GET {k}"),
             Some("hash") => format!("HGETALL {k}"),
             Some("list") => format!("LRANGE {k} 0 {last}"),
@@ -969,10 +1231,16 @@ impl Session for RedisSession {
         }
     }
 
-    /// Keys aren't tables: there's no schema to draw or script, so the ER
-    /// diagram and the script generator don't apply to Redis.
+    /// Keys aren't tables: the schema to draw, script and compare is the
+    /// search indexes (see [`ddl::index_schema`]), read now.
     async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
-        Ok(Vec::new())
+        self.ft = None;
+        Ok(self
+            .ft_indexes()
+            .await
+            .iter()
+            .map(ddl::index_schema)
+            .collect())
     }
 
     async fn row_estimates(&mut self) -> Result<Vec<dbine_driver::stats::RowEstimate>> {
@@ -1062,11 +1330,11 @@ impl Session for RedisSession {
     async fn bulk_load(
         &mut self,
         spec: &dbine_driver::transfer::LoadSpec,
-        _columns: &[dbine_driver::transfer::TransferColumn],
+        columns: &[dbine_driver::transfer::TransferColumn],
         source: &mut dyn dbine_driver::transfer::BatchSource,
         progress: dbine_driver::transfer::Progress<'_>,
     ) -> Result<u64> {
-        transfer::load(self, spec, source, progress).await
+        transfer::load(self, spec, columns, source, progress).await
     }
 
     /// One command per line, as redis-cli reads a script. A line that
@@ -1267,5 +1535,52 @@ mod tests {
     fn three_drivers_with_stable_ids() {
         let ids: Vec<_> = drivers().iter().map(|d| d.info().id).collect();
         assert_eq!(ids, ["redis", "valkey", "dragonfly"]);
+    }
+
+    /// The typed scripts go through the driver: a vector column Redis
+    /// spells `VECTOR(2, FLOAT64)` is written as that blob, on every
+    /// server of the family.
+    #[test]
+    fn typed_scripts_through_the_driver() {
+        use dbine_driver::ResultColumn as C;
+        for d in drivers() {
+            let target = ObjectRef {
+                kind: kinds::KEY.into(),
+                schema: None,
+                name: "doc".into(),
+            };
+            let cols = [C::new("id", "key"), C::new("emb", "VECTOR(2, FLOAT64)")];
+            let rows = [vec![serde_json::json!(1), serde_json::json!([1, 2])]];
+            let blob = vectors::quote_bytes(&vectors::VType::F64.encode(&[1.0, 2.0]));
+            let s = d.insert_script_typed(&target, &cols, &rows).unwrap();
+            assert!(s.contains(&blob), "{s}");
+            // Untyped, nothing read: FLOAT32.
+            let names = ["id".to_string(), "emb".into()];
+            let s = d.insert_script(&target, &names, &rows).unwrap();
+            assert!(!s.contains(&blob), "{s}");
+            let hash = ObjectRef {
+                name: "doc:1".into(),
+                ..target
+            };
+            let ch = dbine_driver::RowChange {
+                key: vec![("field".into(), serde_json::json!("emb"))],
+                set: vec![("value".into(), serde_json::json!("[1,2]"))],
+                ..Default::default()
+            };
+            let types = [
+                C::new("field", "string"),
+                C::new("value", "VECTOR(2, FLOAT64)"),
+            ];
+            let s = d
+                .update_script_typed(&hash, std::slice::from_ref(&ch), &types)
+                .unwrap();
+            assert!(s.contains(&blob), "{s}");
+            // Deletes have no vector literal: the same either way.
+            let keys = [vec![("field".to_string(), serde_json::json!("emb"))]];
+            assert_eq!(
+                d.delete_script_typed(&hash, &keys, &types).unwrap(),
+                d.delete_script(&hash, &keys).unwrap()
+            );
+        }
     }
 }

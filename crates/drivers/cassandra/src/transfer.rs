@@ -495,6 +495,12 @@ pub(crate) fn to_cell(v: Option<CqlValue>) -> std::result::Result<Cell, String> 
         // CQL's empty value (not NULL): an empty text, which
         // [`cell_to_cql`] writes back as the empty value.
         CqlValue::Empty => Cell::Text(String::new()),
+        // A vector of numbers travels as the canonical vector text, what
+        // every target's vector column takes.
+        CqlValue::Vector(items) => match crate::value::vector_text(&items) {
+            Some(t) => Cell::Text(t),
+            None => Cell::Json(whole_json(&CqlValue::Vector(items))?.to_string()),
+        },
         other => Cell::Json(whole_json(&other)?.to_string()),
     })
 }
@@ -848,12 +854,17 @@ fn json_to_cql(j: &J, t: &ColumnType) -> Conv<Option<CqlValue>> {
             }
             CqlValue::Map(pairs)
         }
-        (_, ColumnType::Vector { typ, .. }) => CqlValue::Vector(
-            array(j)?
-                .iter()
-                .map(|x| item(x, typ))
-                .collect::<Conv<_>>()?,
-        ),
+        (_, ColumnType::Vector { typ, dimensions }) => {
+            let a = array(j)?;
+            if a.len() != usize::from(*dimensions) {
+                return Err(format!(
+                    "el vector tiene {} dimensiones y la columna, {dimensions}",
+                    a.len()
+                )
+                .into());
+            }
+            CqlValue::Vector(a.iter().map(|x| item(x, typ)).collect::<Conv<_>>()?)
+        }
         (_, ColumnType::Tuple(types)) => {
             let a = array(j)?;
             if a.len() > types.len() {
@@ -2109,5 +2120,37 @@ mod tests {
         );
         assert!(cell_to_cql(&Cell::Int(2), &nat(NativeType::Boolean)).is_err());
         assert_eq!(round(Cell::Int(1), NativeType::Boolean), Cell::Bool(true));
+    }
+
+    /// A vector travels as its canonical text, both ways, and a vector of
+    /// another length is refused before the server sees it.
+    #[test]
+    fn vectors_travel_as_their_text() {
+        let v3 = ColumnType::Vector {
+            typ: Box::new(nat(NativeType::Float)),
+            dimensions: 3,
+        };
+        // What pgvector's read gives, spaces and all.
+        let back = cell_to_cql(&Cell::Text("[1, 2.5, -3e-2]".into()), &v3).unwrap();
+        assert_eq!(
+            back,
+            Some(CqlValue::Vector(vec![
+                CqlValue::Float(1.0),
+                CqlValue::Float(2.5),
+                CqlValue::Float(-0.03)
+            ]))
+        );
+        assert_eq!(to_cell(back).unwrap(), Cell::Text("[1,2.5,-0.03]".into()));
+        assert_eq!(
+            to_cell(cell_to_cql(&Cell::Json("[0.1,0.2,0.3]".into()), &v3).unwrap()).unwrap(),
+            Cell::Text("[0.1,0.2,0.3]".into())
+        );
+        let e = cell_to_cql(&Cell::Text("[1,2]".into()), &v3).unwrap_err();
+        assert!(e.to_string().contains("2 dimensiones"), "{e}");
+        // Vectors of something else than numbers stay JSON.
+        assert_eq!(
+            to_cell(Some(CqlValue::Vector(vec![CqlValue::Text("a".into())]))).unwrap(),
+            Cell::Json(r#"["a"]"#.into())
+        );
     }
 }

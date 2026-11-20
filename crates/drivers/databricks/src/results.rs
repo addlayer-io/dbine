@@ -195,11 +195,16 @@ impl DatabricksSession {
             ));
         };
         let first = first_chunk(&mut resp);
+        // No column is marked as a vector: Databricks SQL has no vector
+        // type or index (Mosaic AI Vector Search is a separate service),
+        // only functions over ARRAY<FLOAT>. A float array stays an array
+        // (the grid still shows one whose cells are vectors as a vector).
         let shown: Vec<ResultColumn> = columns
             .iter()
             .map(|(n, t)| ResultColumn {
                 name: n.clone(),
                 type_name: t.clone(),
+                vector: None,
             })
             .collect();
         let before = out.results.len();

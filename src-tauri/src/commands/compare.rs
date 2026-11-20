@@ -227,10 +227,13 @@ pub async fn schema_compare_convert(args: ConvertArgs) -> CommandResult<Converte
             warnings: Vec::new(),
         });
     }
-    let opts = dbine_schema::Options {
+    let mut opts = dbine_schema::Options {
         target_schema: args.target_schema,
         ..Default::default()
     };
+    if let Some(d) = dbine_drivers::find(&args.to_driver) {
+        opts = opts.for_target(&**d);
+    }
     let c = dbine_schema::convert(&args.tables, &args.from_driver, &args.to_driver, &opts)
         .map_err(|e| CommandError::BadRequest(format!("{e:?}")))?;
     let warnings = c
@@ -565,9 +568,19 @@ fn plan(
     tables: &[TableChange],
     objects: &[ObjectChange],
 ) -> CommandResult<SyncScript> {
+    // Each change's kind (Redis applies its search indexes', not its
+    // keys').
+    let kinds_sync = tables.iter().all(|c| match c {
+        TableChange::Create { table } | TableChange::Drop { table } => {
+            driver.supports_schema_sync_for(&table.kind)
+        }
+        TableChange::Alter { old, new } => {
+            driver.supports_schema_sync_for(&old.kind) && driver.supports_schema_sync_for(&new.kind)
+        }
+    });
     let tables_part = if tables.is_empty() {
         SyncScript::default()
-    } else if driver.supports_schema_sync() {
+    } else if kinds_sync {
         driver.sync_script(tables)?
     } else {
         return Err(CommandError::BadRequest(format!(
@@ -1477,5 +1490,258 @@ mod tests {
             .collect();
         let refs: Vec<(&str, &str)> = many.iter().map(|(n, d)| (n.as_str(), d.as_str())).collect();
         assert_eq!(dependency_order(&refs, false)[0], 2999);
+    }
+
+    /// A search index of Redis, Valkey or Dragonfly, as the driver
+    /// describes it (`Session::database_schema`).
+    fn search_index(name: &str, algorithm: &str, metric: &str) -> TableSchema {
+        serde_json::from_value(serde_json::json!({
+            "kind": "index",
+            "name": name,
+            "columns": [
+                {"name": "title", "data_type": "TEXT", "nullable": true},
+                {"name": "emb", "data_type": "VECTOR(3, FLOAT32)", "nullable": true}
+            ],
+            "indexes": [{
+                "name": "emb", "columns": ["emb"], "kind": algorithm,
+                "vector": {"algorithm": algorithm, "metric": metric}
+            }],
+            "options": {"on": "HASH", "prefix": "doc:"}
+        }))
+        .unwrap()
+    }
+
+    /// Schema sync is asked per kind of the objects it changes: Redis,
+    /// Valkey and Dragonfly apply their search indexes' changes (made
+    /// again), though not their keys' (data, with no schema), and their
+    /// `supports_schema_sync` stays off; the other engines answer as
+    /// before.
+    #[test]
+    fn schema_sync_is_planned_per_kind() {
+        for id in ["redis", "valkey", "dragonfly"] {
+            let d = dbine_drivers::find(id).unwrap().as_ref();
+            assert!(!d.supports_schema_sync(), "{id}");
+            assert!(d.supports_schema_sync_for(kinds::INDEX), "{id}");
+            assert!(!d.supports_schema_sync_for(kinds::KEY), "{id}");
+            let (old, new) = (
+                search_index("docs", "flat", "l2"),
+                search_index("docs", "hnsw", "cosine"),
+            );
+            let s = plan(
+                d,
+                &[TableChange::Alter {
+                    old: old.clone(),
+                    new: new.clone(),
+                }],
+                &[],
+            )
+            .unwrap();
+            assert_eq!(s.statements.len(), 2, "{id}: {s:?}");
+            assert_eq!(s.statements[0], "FT.DROPINDEX docs");
+            assert!(
+                s.statements[1].starts_with("FT.CREATE docs ON HASH PREFIX 1 doc: SCHEMA")
+                    && s.statements[1].contains("emb VECTOR HNSW")
+                    && s.statements[1].contains("DISTANCE_METRIC COSINE"),
+                "{id}: {s:?}"
+            );
+            assert!(plan(d, &[TableChange::Create { table: new.clone() }], &[]).is_ok());
+            // A key among the changes: the engine takes none of them.
+            let mut key = new.clone();
+            key.kind = kinds::KEY.into();
+            for changes in [
+                vec![TableChange::Create { table: key.clone() }],
+                vec![
+                    TableChange::Drop { table: old.clone() },
+                    TableChange::Create { table: key.clone() },
+                ],
+                vec![TableChange::Alter {
+                    old: key.clone(),
+                    new: new.clone(),
+                }],
+            ] {
+                let e = plan(d, &changes, &[]).unwrap_err().to_string();
+                assert!(e.contains("no aplica cambios de esquema"), "{id}: {e}");
+            }
+            // Nothing of its tables: only the code objects (none here).
+            assert!(plan(d, &[], &[]).unwrap().statements.is_empty());
+        }
+        // Engines whose kinds all answer alike, as before.
+        let pg = dbine_drivers::find("postgres").unwrap().as_ref();
+        assert!(pg.supports_schema_sync_for(kinds::TABLE));
+        assert_eq!(dbine_driver::schema_sync_kinds(pg), None);
+        let etcd = dbine_drivers::find("etcd").unwrap().as_ref();
+        assert!(!etcd.supports_schema_sync_for(kinds::KEY));
+        let e = plan(
+            etcd,
+            &[TableChange::Create {
+                table: search_index("x", "hnsw", "cosine"),
+            }],
+            &[],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("no aplica cambios de esquema"), "{e}");
+    }
+
+    /// Schema compare between two databases of Redis-family servers whose
+    /// search index differs in its vector settings: it finds the index
+    /// changed, plans the sync (the index made again, with the other
+    /// side's settings) and applies it statement by statement, as
+    /// `schema_sync_run` does; then both sides compare equal and the
+    /// document stays. Valkey's database 0 → its database 1 (valkey-search
+    /// has indexes in any database), and the same index into Redis 8.
+    /// Everything it creates goes at the end, passed or not.
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "needs dbine-test-valkey-bundle and dbine-test-redis8"]
+    async fn redis_family_index_sync_live() {
+        use crate::commands::vector_live_tests::{exec, first, open, text};
+        use dbine_schema::compare::{compare, Status};
+        use futures_util::FutureExt;
+        let at = |driver: &str, env: &str, default: &str, db: &str| {
+            let url = std::env::var(env).unwrap_or_else(|_| default.into());
+            let rest = url.trim_start_matches("redis://").trim_end_matches('/');
+            let (host, port) = rest.rsplit_once(':').unwrap_or((rest, "6379"));
+            dbine_driver::ConnectionConfig {
+                driver: driver.into(),
+                host: host.into(),
+                port: port.parse().unwrap(),
+                database: db.into(),
+                ..Default::default()
+            }
+        };
+        let valkey = |db: &str| {
+            at(
+                "valkey",
+                "DBINE_TEST_VALKEY_SEARCH_URL",
+                "127.0.0.1:27204",
+                db,
+            )
+        };
+        let redis8 = at("redis", "DBINE_TEST_REDIS8_URL", "127.0.0.1:27203", "db0");
+        let sides = [valkey("db0"), valkey("db1"), redis8.clone()];
+        let pid = std::process::id();
+        let name = format!("dbine_sync_ix_{pid}");
+        let prefix = format!("dbine:sync:{pid}:");
+        let doc = format!("{prefix}1");
+        let cleanup = || {
+            let (sides, name, doc) = (sides.clone(), name.clone(), doc.clone());
+            async move {
+                for cfg in &sides {
+                    let mut s = open(cfg).await?;
+                    // Not there (dropped, or never made): fine.
+                    let _ = exec(s.as_mut(), &format!("FT.DROPINDEX {name}")).await;
+                    exec(s.as_mut(), &format!("DEL {doc}")).await?;
+                }
+                Ok::<(), String>(())
+            }
+        };
+        cleanup().await.expect("clean up before");
+        let body = std::panic::AssertUnwindSafe(async {
+            let create = |algorithm: &str, metric: &str| {
+                format!("FT.CREATE {name} ON HASH PREFIX 1 {prefix} SCHEMA title TEXT emb VECTOR {algorithm} 6 TYPE FLOAT32 DIM 3 DISTANCE_METRIC {metric}")
+            };
+            let index_of = |cfg: dbine_driver::ConnectionConfig| {
+                let name = name.clone();
+                async move {
+                    let mut s = open(&cfg).await.unwrap();
+                    s.database_schema()
+                        .await
+                        .unwrap()
+                        .into_iter()
+                        .find(|t| t.name == name)
+                        .expect("the index")
+                }
+            };
+            let model = |driver: &str, t: &TableSchema| DbModel {
+                driver: driver.into(),
+                tables: vec![t.clone()],
+                objects: vec![],
+            };
+            let run = |cfg: dbine_driver::ConnectionConfig, statements: Vec<String>| async move {
+                let mut s = open(&cfg).await.unwrap();
+                for st in &statements {
+                    exec(s.as_mut(), st).await.unwrap();
+                }
+            };
+            for (cfg, algorithm, metric) in [
+                (&sides[0], "HNSW", "COSINE"),
+                (&sides[1], "FLAT", "L2"),
+                (&sides[2], "FLAT", "L2"),
+            ] {
+                let mut s = open(cfg).await.unwrap();
+                exec(s.as_mut(), &create(algorithm, metric)).await.unwrap();
+            }
+            let mut s = open(&sides[1]).await.unwrap();
+            exec(
+                s.as_mut(),
+                &format!("HSET {doc} title uno emb \"\\x00\\x00\\x80\\x3f\\x00\\x00\\x00\\x00\\x00\\x00\\x00\\x00\""),
+            )
+            .await
+            .unwrap();
+            std::mem::drop(s);
+
+            // Valkey's database 0 → its database 1.
+            let left = index_of(sides[0].clone()).await;
+            let right = index_of(sides[1].clone()).await;
+            let o = CompareOptions::default();
+            let r = compare(&model("valkey", &left), &model("valkey", &right), &o);
+            assert_eq!(r.tables[0].status, Status::Changed, "{r:?}");
+            let valkey_d = dbine_drivers::find("valkey").unwrap().as_ref();
+            let changes = [TableChange::Alter {
+                old: right.clone(),
+                new: left.clone(),
+            }];
+            let script = plan(valkey_d, &changes, &[]).unwrap();
+            assert_eq!(script.statements[0], format!("FT.DROPINDEX {name}"));
+            assert!(
+                script.statements[1].contains("HNSW") && script.statements[1].contains("COSINE"),
+                "{script:?}"
+            );
+            run(sides[1].clone(), script.statements).await;
+            let right = index_of(sides[1].clone()).await;
+            let r = compare(&model("valkey", &left), &model("valkey", &right), &o);
+            assert_eq!(r.tables[0].status, Status::Equal, "{r:?}\n{right:#?}");
+            // The document stays, indexed again.
+            let mut s = open(&sides[1]).await.unwrap();
+            let out = first(exec(s.as_mut(), &format!("EXISTS {doc}")).await.unwrap());
+            assert_eq!(text(&out.rows[0][0]), "1");
+            std::mem::drop(s);
+
+            // The same index into Redis 8, which has it with other settings.
+            let redis_d = dbine_drivers::find("redis").unwrap().as_ref();
+            let before = index_of(redis8.clone()).await;
+            let r = compare(&model("valkey", &left), &model("redis", &before), &o);
+            assert_eq!(r.tables[0].status, Status::Changed, "{r:?}");
+            let script = plan(
+                redis_d,
+                &[TableChange::Alter {
+                    old: before,
+                    new: left.clone(),
+                }],
+                &[],
+            )
+            .unwrap();
+            run(redis8.clone(), script.statements).await;
+            let after = index_of(redis8.clone()).await;
+            let v = after.indexes[0].vector.as_ref().unwrap();
+            assert_eq!(
+                (v.algorithm.as_deref(), v.metric.as_deref()),
+                (Some("hnsw"), Some("cosine")),
+                "{after:#?}"
+            );
+            assert_eq!(after.options.get("prefix"), Some(&prefix));
+            // Each server reports its own defaults (valkey-search its
+            // capacity, Redis 8 its HNSW settings): read without them, the
+            // two compare equal after the sync.
+            let r = compare(&model("valkey", &left), &model("redis", &after), &o);
+            assert_eq!(r.tables[0].status, Status::Equal, "{r:?}\n{after:#?}");
+        })
+        .catch_unwind()
+        .await;
+        let cleaned = cleanup().await;
+        if let Err(e) = body {
+            std::panic::resume_unwind(e);
+        }
+        cleaned.expect("clean up at the end");
     }
 }

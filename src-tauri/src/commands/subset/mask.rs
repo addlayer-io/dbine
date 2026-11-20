@@ -9,9 +9,16 @@
 //! masks are HMAC-SHA256 under it: without the key, a mask can't be checked
 //! against a guessed original.
 //! NULLs stay NULL whatever the rule.
+//!
+//! A vector column stays a vector ([`VectorShape`]): a hash or a made-up
+//! value is a random vector of the original's dimensions (seeded by the
+//! HMAC, so the same original masks the same way), noise moves each number
+//! of it, and a fixed value goes as written.
 
 use crate::commands::datagen::{self, Rng};
+use crate::commands::vectors::{self, Sparse, SparseText};
 use chrono::{Duration as Days, NaiveDate};
+use dbine_driver::{vector, VectorElement};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -102,6 +109,23 @@ pub struct Shape {
     pub len: Option<usize>,
     /// A number column: the output stays a number.
     pub numeric: bool,
+    /// A vector column: the output stays a vector.
+    pub vector: Option<VectorShape>,
+}
+
+/// A vector column's values, as masks keep them vectors.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum VectorShape {
+    /// JSON arrays of numbers of `element` (`dims` when the type says).
+    Dense {
+        dims: Option<u32>,
+        element: VectorElement,
+    },
+    /// The engine's sparse text (`None`: one DBine doesn't read).
+    Sparse {
+        element: VectorElement,
+        text: Option<SparseText>,
+    },
 }
 
 impl Shape {
@@ -109,11 +133,40 @@ impl Shape {
         Shape {
             len: datagen::length(data_type),
             numeric: is_numeric(data_type),
+            vector: None,
+        }
+    }
+
+    /// The shape of a column of type `data_type` that holds the vectors
+    /// `vector` says (its engine's classification; `None`: not a vector
+    /// column).
+    pub fn of_column(data_type: &str, vector: Option<&dbine_driver::VectorMeta>) -> Shape {
+        match vector {
+            None => Shape::of(data_type),
+            Some(m) => Shape {
+                len: None,
+                numeric: false,
+                vector: Some(if m.sparse {
+                    VectorShape::Sparse {
+                        element: m.element,
+                        text: SparseText::of_type(data_type),
+                    }
+                } else {
+                    VectorShape::Dense {
+                        dims: m.dims,
+                        element: m.element,
+                    }
+                }),
+            },
         }
     }
 }
 
+/// A number column's type; never a vector's (`VECTOR(3, FLOAT32)`).
 pub fn is_numeric(data_type: &str) -> bool {
+    if vectors::looks_like_vector_type(data_type) {
+        return false;
+    }
     let t = data_type.to_ascii_lowercase();
     [
         "int", "dec", "num", "money", "float", "real", "double", "serial",
@@ -197,6 +250,9 @@ impl Masker {
         if v.is_null() {
             return Value::Null;
         }
+        if let Some(vs) = shape.vector {
+            return self.apply_vector(rule, v, vs);
+        }
         match rule {
             MaskRule::Keep => v.clone(),
             MaskRule::Null => Value::Null,
@@ -236,6 +292,98 @@ impl Masker {
             }
         }
     }
+}
+
+impl Masker {
+    /// A rule on a vector column: the output stays a vector of the
+    /// original's dimensions. A fixed value goes as written (the script
+    /// sends it as a vector when it reads as one), a date shift keeps it.
+    fn apply_vector(&self, rule: &MaskRule, v: &Value, shape: VectorShape) -> Value {
+        match (rule, shape) {
+            (MaskRule::Keep | MaskRule::ShiftDate { .. }, _) => v.clone(),
+            (MaskRule::Null, _) => Value::Null,
+            (MaskRule::Fixed { value }, _) => Value::String(value.clone()),
+            (MaskRule::Hash | MaskRule::Fake { .. }, VectorShape::Dense { dims, element }) => {
+                let n = vector::parse_value(v)
+                    .map(|x| x.len())
+                    .or(dims.map(|d| d as usize))
+                    .unwrap_or(8)
+                    .max(1);
+                datagen::random_vector(&mut self.rng(rule, v), n, element)
+            }
+            (MaskRule::Noise { percent }, VectorShape::Dense { element, .. }) => {
+                match vector::parse_value(v) {
+                    Some(x) => vector_noise(&mut self.rng(rule, v), &x, percent.abs(), element),
+                    // Not a vector: nothing to move, nothing kept.
+                    None => Value::Null,
+                }
+            }
+            (_, VectorShape::Sparse { element, text }) => {
+                let Some(text) = text else {
+                    // A sparse text DBine doesn't read: nothing of it kept.
+                    return Value::Null;
+                };
+                let Some(original) = v.as_str().and_then(|s| Sparse::parse(s, text)) else {
+                    return Value::Null;
+                };
+                let mut rng = self.rng(rule, v);
+                let masked = match rule {
+                    MaskRule::Noise { percent } => {
+                        let factor =
+                            |rng: &mut Rng| 1.0 + (rng.float() * 2.0 - 1.0) * percent.abs() / 100.0;
+                        Sparse {
+                            dims: original.dims,
+                            entries: original
+                                .entries
+                                .iter()
+                                .map(|(i, x)| (*i, element_value(x * factor(&mut rng), element)))
+                                .collect(),
+                        }
+                    }
+                    _ if original.dims >= 3 => {
+                        datagen::random_sparse(&mut rng, original.dims as usize, element)
+                    }
+                    _ => return Value::Null,
+                };
+                Value::String(masked.text(text))
+            }
+        }
+    }
+}
+
+/// `x` as an element of `element` keeps it: a float32, a byte in range.
+fn element_value(x: f64, element: VectorElement) -> f64 {
+    match element {
+        VectorElement::F64 | VectorElement::Other => x,
+        VectorElement::I8 => x.round().clamp(-128.0, 127.0),
+        VectorElement::U8 => x.round().clamp(0.0, 255.0),
+        VectorElement::I32 => x.round().clamp(i32::MIN as f64, i32::MAX as f64),
+        VectorElement::Bit => x.round().clamp(0.0, 1.0),
+        _ => format!("{}", x as f32).parse().unwrap_or(x),
+    }
+}
+
+/// Each number of a vector moved up to `percent` % either way, on its own;
+/// a binary vector's bits each flipped with that chance.
+fn vector_noise(rng: &mut Rng, x: &[f64], percent: f64, element: VectorElement) -> Value {
+    let out: Vec<f64> = x
+        .iter()
+        .map(|&n| {
+            if element == VectorElement::Bit {
+                let flip = rng.float() * 100.0 < percent.min(100.0);
+                return if flip {
+                    1.0 - n.round().clamp(0.0, 1.0)
+                } else {
+                    n
+                };
+            }
+            element_value(
+                n * (1.0 + (rng.float() * 2.0 - 1.0) * percent / 100.0),
+                element,
+            )
+        })
+        .collect();
+    Value::Array(out.into_iter().map(dbine_driver::model::json_f64).collect())
 }
 
 /// HMAC-SHA256 (RFC 2104) of the concatenation of `parts`, on the `sha2`
@@ -395,6 +543,11 @@ pub fn suggest(name: &str, data_type: &str) -> Option<MaskRule> {
     if t.contains("bool") || t == "bit" {
         return None;
     }
+    // An embedding isn't masked by its name: `name_embedding` is a
+    // vector, not a name.
+    if vectors::looks_like_vector_type(&t) {
+        return None;
+    }
     let numeric = is_numeric(&t);
     let date = is_dateish(&t) && !numeric;
     let text = is_texty(&t) && !date;
@@ -505,6 +658,7 @@ mod tests {
         Shape {
             len: Some(len),
             numeric: false,
+            vector: None,
         }
     }
 
@@ -576,7 +730,8 @@ mod tests {
                 &json!(12),
                 Shape {
                     len: None,
-                    numeric: true
+                    numeric: true,
+                    vector: None,
                 }
             ),
             m.apply(
@@ -584,7 +739,8 @@ mod tests {
                 &json!("12"),
                 Shape {
                     len: None,
-                    numeric: true
+                    numeric: true,
+                    vector: None,
                 }
             )
         );
@@ -612,6 +768,7 @@ mod tests {
             Shape {
                 len: None,
                 numeric: true,
+                vector: None,
             },
         );
         assert_eq!(n.as_i64().unwrap().to_string().len(), 8);
@@ -648,7 +805,8 @@ mod tests {
                 &json!(3),
                 Shape {
                     len: None,
-                    numeric: true
+                    numeric: true,
+                    vector: None,
                 }
             ),
             json!(7)
@@ -738,5 +896,129 @@ mod tests {
         for (name, ty, want) in cases {
             assert_eq!(&suggest(name, ty), want, "{name} {ty}");
         }
+    }
+
+    /// A vector column stays a vector of the original's dimensions: a hash
+    /// or a made-up value is a random unit vector (the same original masks
+    /// the same way), noise moves each number, NULL and a fixed value go
+    /// as given. Never text the engine rejects, never cut at the type's
+    /// `(n)`.
+    #[test]
+    fn vector_columns_stay_vectors() {
+        use dbine_driver::VectorMeta;
+        let m = Masker::with_seed(11);
+        let meta = VectorMeta::dense(Some(3), VectorElement::F32);
+        let shape = Shape::of_column("vector(3)", Some(&meta));
+        assert_eq!((shape.len, shape.numeric), (None, false));
+        let v = json!("[0.5,-0.25,1]");
+        for rule in [
+            MaskRule::Hash,
+            MaskRule::Fake {
+                kind: FakeKind::Name,
+            },
+            MaskRule::Fake {
+                kind: FakeKind::Document,
+            },
+        ] {
+            let out = m.apply(&rule, &v, shape);
+            let x = vector::parse_value(&out).expect("a vector");
+            assert_eq!(x.len(), 3, "{rule:?}");
+            let norm: f64 = x.iter().map(|n| n * n).sum::<f64>().sqrt();
+            assert!((norm - 1.0).abs() < 1e-5, "{rule:?} {norm}");
+            assert_eq!(out, m.apply(&rule, &v, shape), "{rule:?}: repeatable");
+            assert_ne!(out, m.apply(&rule, &json!("[0.5,-0.25,2]"), shape));
+        }
+        // Noise: each number on its own, within the percent.
+        let out = m.apply(&MaskRule::Noise { percent: 10.0 }, &v, shape);
+        let x = vector::parse_value(&out).unwrap();
+        for (a, b) in x.iter().zip([0.5, -0.25, 1.0]) {
+            assert!((a - b).abs() <= b.abs() * 0.1 + 1e-6, "{a} {b}");
+        }
+        assert_ne!(x, vec![0.5, -0.25, 1.0]);
+        // A JSON array as the driver read it.
+        let out = m.apply(&MaskRule::Hash, &json!([1.0, 2.0, 3.0, 4.0]), shape);
+        assert_eq!(vector::parse_value(&out).unwrap().len(), 4);
+        // As given: NULL, a fixed vector, the original (kept or a date shift).
+        assert_eq!(m.apply(&MaskRule::Null, &v, shape), Value::Null);
+        assert_eq!(
+            m.apply(
+                &MaskRule::Fixed {
+                    value: "[0,0,1]".into()
+                },
+                &v,
+                shape
+            ),
+            json!("[0,0,1]")
+        );
+        assert_eq!(m.apply(&MaskRule::ShiftDate { days: 3 }, &v, shape), v);
+        // Bytes stay bytes; bits stay bits.
+        let bytes = Shape::of_column(
+            "VECTOR(4, INT8)",
+            Some(&VectorMeta::dense(Some(4), VectorElement::I8)),
+        );
+        let out = m.apply(
+            &MaskRule::Noise { percent: 50.0 },
+            &json!("[100,-100,127,0]"),
+            bytes,
+        );
+        let x = vector::parse_value(&out).unwrap();
+        assert!(
+            x.iter()
+                .all(|n| n.fract() == 0.0 && (-128.0..=127.0).contains(n)),
+            "{x:?}"
+        );
+        let bits = Shape::of_column(
+            "bit(4)",
+            Some(&VectorMeta::dense(Some(4), VectorElement::Bit)),
+        );
+        let out = m.apply(
+            &MaskRule::Noise { percent: 100.0 },
+            &json!("[1,0,1,0]"),
+            bits,
+        );
+        assert_eq!(vector::parse_value(&out).unwrap(), vec![0.0, 1.0, 0.0, 1.0]);
+        // A vector type is never numeric, nor suggested a mask by name.
+        assert!(!is_numeric("VECTOR(768, FLOAT32)"));
+        assert_eq!(suggest("name_embedding", "vector(1536)"), None);
+        assert_eq!(suggest("dni", "VECTOR(3, FLOAT32)"), None);
+        // Without the engine's word, the type alone: text, never cut.
+        assert_eq!(Shape::of_column("vector(3)", None).vector, None);
+    }
+
+    /// A sparse vector column keeps its engine's text: a hash is a random
+    /// sparse vector of the same dimensions, noise moves its values.
+    #[test]
+    fn sparse_vector_columns_stay_sparse() {
+        use dbine_driver::VectorMeta;
+        let m = Masker::with_seed(3);
+        let meta = VectorMeta {
+            dims: Some(10),
+            element: VectorElement::F32,
+            sparse: true,
+        };
+        for (ty, v, text) in [
+            ("sparsevec(10)", "{2:0.5,7:-1}/10", SparseText::Pg),
+            (
+                "VECTOR(10, FLOAT32, SPARSE)",
+                "[10,[2,7],[0.5,-1]]",
+                SparseText::Oracle,
+            ),
+        ] {
+            let shape = Shape::of_column(ty, Some(&meta));
+            let out = m.apply(&MaskRule::Hash, &json!(v), shape);
+            let s = Sparse::parse(out.as_str().unwrap(), text).expect(ty);
+            assert_eq!(s.dims, 10);
+            assert_ne!(out, json!(v));
+            let out = m.apply(&MaskRule::Noise { percent: 10.0 }, &json!(v), shape);
+            let s = Sparse::parse(out.as_str().unwrap(), text).expect(ty);
+            assert_eq!(s.entries.iter().map(|e| e.0).collect::<Vec<_>>(), [2, 7]);
+            assert!((s.entries[0].1 - 0.5).abs() <= 0.05 + 1e-6);
+        }
+        // A sparse text DBine doesn't read: nothing of it kept.
+        let shape = Shape::of_column("sparse_vector", Some(&meta));
+        assert_eq!(
+            m.apply(&MaskRule::Hash, &json!({"a": 1}), shape),
+            Value::Null
+        );
     }
 }

@@ -38,13 +38,15 @@ const TABLES: &str = "SELECT t.table_name, c.comments
    LEFT JOIN all_tab_comments c ON c.owner = t.owner AND c.table_name = t.table_name AND c.table_type = 'TABLE'
   WHERE t.owner = :1
     AND t.table_name NOT LIKE 'BIN$%' AND t.dropped = 'NO' AND t.nested = 'NO' AND t.secondary = 'N'
+    AND NOT REGEXP_LIKE(t.table_name, '^VECTOR\\$.+\\$[0-9]+_[0-9]+_[0-9]+\\$')
     AND (t.iot_type IS NULL OR t.iot_type = 'IOT')
     AND NOT EXISTS (SELECT 1 FROM all_mviews m WHERE m.owner = t.owner AND m.mview_name = t.table_name)
     AND NOT EXISTS (SELECT 1 FROM all_mview_logs l WHERE l.log_owner = t.owner AND l.log_table = t.table_name)
   ORDER BY t.table_name";
 
 const COLUMNS: &str = "SELECT c.table_name, c.column_name, c.data_type, c.char_length, c.data_length,
-        c.data_precision, c.data_scale, c.nullable, c.identity_column, c.virtual_column, m.comments, c.char_used, c.data_default
+        c.data_precision, c.data_scale, c.nullable, c.identity_column, c.virtual_column, m.comments, c.char_used,
+        {vector_info}, c.data_default
    FROM all_tab_cols c
    LEFT JOIN all_col_comments m ON m.owner = c.owner AND m.table_name = c.table_name AND m.column_name = c.column_name
   WHERE c.owner = :1 AND c.hidden_column = 'NO'
@@ -62,15 +64,17 @@ const CONSTRAINTS: &str = "SELECT c.table_name, c.constraint_name, c.constraint_
   WHERE c.owner = :1 AND c.constraint_type IN ('P', 'U', 'R') AND c.table_name NOT LIKE 'BIN$%'
   ORDER BY c.table_name, c.constraint_name, cc.position";
 
-/// Plain and bitmap (also function-based) indexes, without the ones backing
-/// a primary key / unique constraint (those come as constraints).
+/// Plain and bitmap (also function-based), domain and vector indexes,
+/// without the ones backing a primary key / unique constraint (those come
+/// as constraints). A vector index's first column is the vector, the rest
+/// its INCLUDE columns.
 const INDEXES: &str = "SELECT i.table_name, i.index_name, i.uniqueness, i.index_type, ic.column_name, ic.descend,
         ic.column_position
    FROM all_indexes i
    JOIN all_ind_columns ic ON ic.index_owner = i.owner AND ic.index_name = i.index_name
-  WHERE i.table_owner = :1 AND i.generated = 'N'
+  WHERE i.table_owner = :1 AND i.generated = 'N' AND NOT REGEXP_LIKE(i.table_name, '^VECTOR\\$.+\\$[0-9]+_[0-9]+_[0-9]+\\$')
     AND i.index_type IN ('NORMAL', 'NORMAL/REV', 'BITMAP', 'FUNCTION-BASED NORMAL', 'FUNCTION-BASED BITMAP',
-                         'DOMAIN', 'FUNCTION-BASED DOMAIN')
+                         'DOMAIN', 'FUNCTION-BASED DOMAIN', 'VECTOR')
     AND NOT EXISTS (SELECT 1 FROM all_constraints k
                      WHERE k.owner = i.table_owner AND k.table_name = i.table_name
                        AND k.index_owner = i.owner AND k.index_name = i.index_name AND k.constraint_type IN ('P', 'U'))
@@ -81,7 +85,8 @@ const INDEX_EXPRESSIONS: &str = "SELECT index_name, column_position, column_expr
    FROM all_ind_expressions WHERE table_owner = :1";
 
 /// Every user table of `owner` with columns, keys, indexes and comments.
-pub fn load_schema(c: &Connection, owner: &str) -> Result<Vec<TableSchema>> {
+/// `vector_info`: the dictionary has `VECTOR_INFO` ([`crate::vector::info_column`]).
+pub fn load_schema(c: &Connection, owner: &str, vector_info: bool) -> Result<Vec<TableSchema>> {
     let mut tables: Vec<TableSchema> = Vec::new();
     for row in c.query(TABLES, &[&owner]).map_err(err)? {
         let row = row.map_err(err)?;
@@ -98,28 +103,33 @@ pub fn load_schema(c: &Connection, owner: &str) -> Result<Vec<TableSchema>> {
         .map(|(i, t)| (t.name.clone(), i))
         .collect();
 
-    for row in c.query(COLUMNS, &[&owner]).map_err(err)? {
+    let columns = COLUMNS.replace("{vector_info}", crate::vector::info_expr(vector_info));
+    for row in c.query(&columns, &[&owner]).map_err(err)? {
         let row = row.map_err(err)?;
         let table: String = row.get(0).map_err(err)?;
         let Some(&i) = at.get(&table) else { continue };
         let ty: String = row.get(2).map_err(err)?;
-        let mut data_type = crate::char_semantics(
-            format_type(
+        let mut data_type = if ty == "VECTOR" {
+            crate::vector::declared(row.get::<Option<String>>(12).map_err(err)?.as_deref())
+        } else {
+            crate::char_semantics(
+                format_type(
+                    &ty,
+                    row.get(3).map_err(err)?,
+                    row.get(4).map_err(err)?,
+                    row.get(5).map_err(err)?,
+                    row.get(6).map_err(err)?,
+                ),
                 &ty,
-                row.get(3).map_err(err)?,
-                row.get(4).map_err(err)?,
-                row.get(5).map_err(err)?,
-                row.get(6).map_err(err)?,
-            ),
-            &ty,
-            row.get::<Option<String>>(11).map_err(err)?.as_deref(),
-        );
+                row.get::<Option<String>>(11).map_err(err)?.as_deref(),
+            )
+        };
         let nullable: Option<String> = row.get(7).map_err(err)?;
         let identity = row.get::<Option<String>>(8).map_err(err)?.as_deref() == Some("YES");
         let is_virtual = row.get::<Option<String>>(9).map_err(err)?.as_deref() == Some("YES");
         // DATA_DEFAULT is a LONG: last in the select list.
         let mut default: Option<String> = row
-            .get::<Option<String>>(12)
+            .get::<Option<String>>(13)
             .map_err(err)?
             .map(|d| d.trim().to_string())
             .filter(|d| !d.is_empty());
@@ -231,7 +241,11 @@ pub fn load_schema(c: &Connection, owner: &str) -> Result<Vec<TableSchema>> {
                 name: name.clone(),
                 columns: vec![],
                 unique: row.get::<Option<String>>(2).map_err(err)?.as_deref() == Some("UNIQUE"),
-                kind: ty.ends_with("BITMAP").then(|| "BITMAP".into()),
+                kind: if ty == "VECTOR" {
+                    Some(crate::vector::KIND.into())
+                } else {
+                    ty.ends_with("BITMAP").then(|| "BITMAP".into())
+                },
                 filter: None,
                 ..Default::default()
             });
@@ -346,7 +360,35 @@ pub fn table_ddl(table: &TableSchema, parts: DdlParts) -> String {
     if parts.indexes {
         for ix in &t.indexes {
             let cols: Vec<String> = ix.columns.iter().map(|c| index_column(c)).collect();
-            let s = if ix.kind.as_deref() == Some(UNIQUE_CONSTRAINT) {
+            let s = if let Some(mut v) = vector_of(ix) {
+                // Without a distance, a BINARY column's index is HAMMING:
+                // Oracle's default, COSINE, is refused there.
+                let binary = ix.columns.first().is_some_and(|c| {
+                    t.columns
+                        .iter()
+                        .any(|x| &x.name == c && crate::vector::binary_dims(&x.data_type).is_some())
+                });
+                let unknown = v.metric.is_none();
+                if unknown && binary {
+                    v.metric = Some(dbine_driver::vector::metric::HAMMING.into());
+                }
+                match crate::vector::index_sql(&name, &quote(&ix.name), &cols, &v) {
+                    Ok(s) => {
+                        if unknown {
+                            out.push(crate::vector::unknown_settings_note(&ix.name, binary));
+                        }
+                        s
+                    }
+                    Err(why) => {
+                        out.push(format!(
+                            "-- Índice vectorial {} omitido: {}.",
+                            crate::vector::comment_text(&ix.name),
+                            crate::vector::comment_text(&why)
+                        ));
+                        continue;
+                    }
+                }
+            } else if ix.kind.as_deref() == Some(UNIQUE_CONSTRAINT) {
                 format!(
                     "ALTER TABLE {name} ADD CONSTRAINT {} UNIQUE ({})",
                     quote(&ix.name),
@@ -395,6 +437,18 @@ pub fn table_ddl(table: &TableSchema, parts: DdlParts) -> String {
     }
 
     out.join("\n")
+}
+
+/// A vector index's settings: from the designer or the dictionary
+/// (`IndexDef::vector`), or a `VECTOR` kind without them (the engine's
+/// defaults).
+fn vector_of(ix: &IndexDef) -> Option<dbine_driver::VectorIndex> {
+    ix.vector.clone().or_else(|| {
+        ix.kind
+            .as_deref()
+            .is_some_and(|k| k.eq_ignore_ascii_case(crate::vector::KIND))
+            .then(dbine_driver::VectorIndex::default)
+    })
 }
 
 /// Identity columns as Oracle keeps them: NOT NULL, no DEFAULT (the
@@ -514,6 +568,17 @@ pub fn sync_script(changes: &[dbine_driver::TableChange]) -> Result<dbine_driver
             TableChange::Alter { old, new } => {
                 let (mut old, new) = (normalize(old), normalize(new));
                 unnamed.extend(drop_unnamed(&mut old, &new));
+                // A vector index whose settings change is made again (the
+                // generic planner compares columns, kind and options).
+                for ix in old.indexes.iter_mut() {
+                    if new
+                        .indexes
+                        .iter()
+                        .any(|n| n.name.eq_ignore_ascii_case(&ix.name) && n.vector != ix.vector)
+                    {
+                        ix.options.insert("rebuild".into(), "1".into());
+                    }
+                }
                 TableChange::Alter { old, new }
             }
         })
@@ -617,8 +682,11 @@ pub fn designer() -> DesignerSpec {
         "RAW(16)",
         "FLOAT",
         "BINARY_DOUBLE",
+        "VECTOR(1536, FLOAT32)",
+        "VECTOR(*, *)",
     ]);
     d.comments = true;
+    d.vector_indexes = Some(crate::vector::spec());
     d.table_options = vec![Field::new("tablespace", "Tablespace", FieldKind::Text)
         .placeholder("USERS")
         .help("Opcional. Si queda vacío se usa el tablespace por defecto del esquema.")];
@@ -673,6 +741,71 @@ mod tests {
     use super::*;
     use crate::script;
     use serde_json::json;
+
+    #[test]
+    fn a_vector_index_without_settings_says_so() {
+        let mut t = TableSchema {
+            name: "DOCS".into(),
+            columns: vec![ColumnDef {
+                name: "V".into(),
+                data_type: "VECTOR(3, FLOAT32)".into(),
+                nullable: true,
+                ..Default::default()
+            }],
+            indexes: vec![IndexDef {
+                name: "IX_V".into(),
+                columns: vec!["V".into()],
+                kind: Some("VECTOR".into()),
+                vector: Some(dbine_driver::VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let parts = DdlParts {
+            indexes: true,
+            ..Default::default()
+        };
+        let s = table_ddl(&t, parts);
+        assert!(
+            s.starts_with("-- El índice vectorial IX_V no indica la distancia"),
+            "{s}"
+        );
+        assert!(s.ends_with(
+            "CREATE VECTOR INDEX \"IX_V\" ON \"DOCS\" (\"V\") ORGANIZATION INMEMORY NEIGHBOR GRAPH;"
+        ));
+        assert_eq!(script::split(&s).len(), 1, "{s}");
+        // Read with its settings: no note.
+        t.indexes[0].vector.as_mut().unwrap().metric = Some("ip".into());
+        let s = table_ddl(&t, parts);
+        assert!(!s.contains("--"), "{s}");
+        assert!(s.contains("DISTANCE DOT"), "{s}");
+        // On a BINARY column, without a distance: HAMMING (Oracle refuses
+        // its default, COSINE, there), said.
+        t.columns[0].data_type = "VECTOR(16, BINARY)".into();
+        t.indexes[0].vector.as_mut().unwrap().metric = None;
+        let s = table_ddl(&t, parts);
+        assert!(s.contains("solo admite HAMMING y JACCARD"), "{s}");
+        assert!(s.ends_with(
+            "CREATE VECTOR INDEX \"IX_V\" ON \"DOCS\" (\"V\") ORGANIZATION INMEMORY NEIGHBOR GRAPH DISTANCE HAMMING;"
+        ), "{s}");
+    }
+
+    #[test]
+    fn vector_index_internals_are_not_tables() {
+        let not = format!(
+            "NOT REGEXP_LIKE(t.table_name, {})",
+            crate::vector::INTERNAL_TABLES
+        );
+        assert!(TABLES.contains(&not), "{TABLES}");
+        let not = format!(
+            "NOT REGEXP_LIKE(i.table_name, {})",
+            crate::vector::INTERNAL_TABLES
+        );
+        assert!(INDEXES.contains(&not), "{INDEXES}");
+    }
 
     fn t() -> TableSchema {
         TableSchema {

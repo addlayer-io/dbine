@@ -79,6 +79,7 @@
     "unique": "Unikalny",
     "included": "Zawiera",
     "filter": "Filtr",
+    "vector": "Indeks wektorowy",
     "checks": "Ograniczenia CHECK",
     "condition": "Warunek",
     "name": "Nazwa",

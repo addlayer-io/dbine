@@ -12,6 +12,13 @@
 //! `pdouble`. The configset's uniqueKey is `id`, a `string` that the
 //! Schema API can't change, so the primary key only survives as `id`; a
 //! key with another name is reported (the copy has to fill `id`).
+//!
+//! Vectors: `knn_vector(n)` (FLOAT32) or `knn_vector(n, BYTE)`, as the
+//! driver spells a `DenseVectorField`. A vector index is the field's HNSW
+//! graph: other engines' algorithms become HNSW, and their inner product
+//! `maximum_inner_product` (Solr's `dot_product` needs unit-length
+//! vectors). Every other index is left out: each field is indexed by its
+//! own definition.
 
 use super::elasticsearch::EXACT_TEXT_MAX;
 use super::{Caps, Dialect, IdentCase, Rendered};
@@ -19,7 +26,14 @@ use crate::default::DefaultValue;
 use crate::issue::{IssueCode, Report, Severity};
 use crate::logical::LogicalType as L;
 use crate::parse::TypeSpec;
-use dbine_driver::{KeyDef, TableSchema};
+use dbine_driver::vector::param;
+use dbine_driver::{KeyDef, TableSchema, VectorElement, VectorIndex};
+
+/// The largest vector every Solr 9 takes (Lucene's default codec). Past
+/// it, `SchemaCodecFactory` takes more: by default from Solr 9.5
+/// (SOLR-17046), only when the collection's `solrconfig.xml` names it in
+/// 9.4 (SOLR-17045), never before.
+const MAX_DIMS: u32 = 1024;
 
 pub struct Solr;
 
@@ -86,6 +100,21 @@ impl Dialect for Solr {
     }
 
     fn parse_type(&self, t: &TypeSpec) -> L {
+        if t.name == "knn_vector" {
+            let byte = t
+                .args
+                .get(1)
+                .is_some_and(|e| e.trim().eq_ignore_ascii_case("byte"));
+            return L::Vector {
+                dims: t.arg_u32(0),
+                element: if byte {
+                    VectorElement::I8
+                } else {
+                    VectorElement::F32
+                },
+                sparse: false,
+            };
+        }
         match field_type(&t.name) {
             L::Other { .. } => L::Other {
                 native: t.raw.clone(),
@@ -98,6 +127,25 @@ impl Dialect for Solr {
         use IssueCode::*;
         use Severity::*;
         match t {
+            L::Vector { dims, element, sparse } => match (dims, sparse) {
+                (_, true) => super::vector_fallback(self, t),
+                (None, _) => super::vector_fallback(self, t).with(Warning, TypeApproximated, "Solr necesita la dimensión del vector."),
+                (Some(n), _) => {
+                    let r = match element {
+                    VectorElement::I8 => Rendered::exact(format!("knn_vector({n}, BYTE)")),
+                    VectorElement::F32 | VectorElement::Other => Rendered::exact(format!("knn_vector({n})")),
+                    VectorElement::F64 => Rendered::exact(format!("knn_vector({n})")).with(Loss, PrecisionLoss, "Solr guarda los vectores en float de 32 bits: los de 64 bits pierden precisión."),
+                    VectorElement::F16 | VectorElement::Bf16 => Rendered::exact(format!("knn_vector({n})")).with(Info, TypeChanged, "Vector de media precisión como float de 32 bits."),
+                    VectorElement::U8 | VectorElement::Bit => Rendered::exact(format!("knn_vector({n})")).with(Warning, TypeApproximated, "Vector de bytes sin signo o de bits como números float: Solr solo tiene bytes con signo."),
+                    VectorElement::I32 => Rendered::exact(format!("knn_vector({n})")).with(Loss, PrecisionLoss, "Vector de enteros de 32 bits como float de 32 bits: los valores pasados de 16777216 (2^24) se redondean."),
+                    };
+                    if *n > MAX_DIMS {
+                        r.with(Warning, TypeChanged, format!("Más de {MAX_DIMS} dimensiones. Solr las toma desde la 9.5 (en la 9.4, con SchemaCodecFactory en el solrconfig.xml de la colección)."))
+                    } else {
+                        r
+                    }
+                }
+            },
             L::Bool => Rendered::exact("boolean"),
             L::Int { bytes, unsigned } => match L::signed_bytes_for(*bytes, *unsigned) {
                 1..=4 => Rendered::exact("pint"),
@@ -171,7 +219,8 @@ impl Dialect for Solr {
             foreign_keys: false,
             on_delete: &[],
             on_update: &[],
-            indexes: false,
+            // The vector fields' HNSW graphs (see `finalize`).
+            indexes: true,
             partial_indexes: false,
             supports_include: false,
             auto_increment: false,
@@ -180,6 +229,8 @@ impl Dialect for Solr {
             comments: false,
             max_identifier: 255,
             case: IdentCase::Preserve,
+            vector_indexes: true,
+            vectors: true,
         }
     }
 
@@ -239,12 +290,103 @@ impl Dialect for Solr {
             name: None,
             columns: vec!["id".into()],
         });
+        // Only the vector fields' HNSW graphs, one per field.
+        let mut kept: Vec<dbine_driver::IndexDef> = Vec::new();
+        for ix in std::mem::take(&mut t.indexes) {
+            let col = ix.columns.first().cloned().unwrap_or_default();
+            let vector = t
+                .columns
+                .iter()
+                .any(|c| c.name == col && c.data_type.trim().starts_with("knn_vector"));
+            let why = if ix.vector.is_none() {
+                Some((
+                    Severity::Info,
+                    "no hace falta: Solr indexa cada campo por su definición".to_string(),
+                ))
+            } else if ix.columns.len() != 1 || !vector {
+                Some((Severity::Dropped, format!("Solr lo crea sobre un campo vectorial solo, y «{col}» no lo es en el destino")))
+            } else if kept.iter().any(|k| k.columns[0] == col) {
+                Some((
+                    Severity::Dropped,
+                    format!("«{col}» ya tiene su índice vectorial"),
+                ))
+            } else {
+                None
+            };
+            match why {
+                Some((sev, why)) => report.push(
+                    sev,
+                    IssueCode::IndexDropped,
+                    &source_name,
+                    Some(&ix.name),
+                    format!("El índice «{}» no se crea: {why}.", ix.name),
+                ),
+                None => kept.push(dbine_driver::IndexDef {
+                    unique: false,
+                    filter: None,
+                    ..ix
+                }),
+            }
+        }
+        t.indexes = kept;
+    }
+
+    /// Another engine's vector index as a field's HNSW graph, with `m` and
+    /// `ef_construction`; the inner product that takes any vector
+    /// (`maximum_inner_product`). With the column's type: a column that
+    /// isn't a `knn_vector` here (no dimension, sparse) has none, and the
+    /// Hamming distance of bit vectors, which Solr keeps as numbers, isn't
+    /// there (their L2 ranks the same and stays).
+    fn vector_index(
+        &self,
+        v: &VectorIndex,
+        ctx: &super::VectorIndexCtx<'_>,
+    ) -> Result<super::VectorIndexMapping, String> {
+        match ctx.column {
+            Some(L::Vector { sparse: true, .. }) => {
+                return Err("Solr no tiene vectores dispersos".into())
+            }
+            Some(L::Vector { dims: None, .. }) => {
+                return Err("Solr necesita la dimensión del vector".into())
+            }
+            Some(L::Vector { .. }) | None => {}
+            Some(_) => return Err("su columna no es un vector en Solr".into()),
+        }
+        let metric = match v.metric.as_deref().map(str::to_ascii_lowercase).as_deref() {
+            None => None,
+            Some("cosine") => Some("cosine"),
+            Some("l2") => Some("l2"),
+            Some("ip") => Some("maximum_inner_product"),
+            Some(m) => {
+                return Err(format!(
+                    "Solr no tiene la distancia «{m}» en sus índices vectoriales"
+                ))
+            }
+        };
+        let hnsw_like = v
+            .algorithm
+            .as_deref()
+            .is_none_or(|a| a.to_ascii_lowercase().contains("hnsw"));
+        let params = [param::M, param::EF_CONSTRUCTION]
+            .into_iter()
+            .filter(|_| hnsw_like)
+            .filter_map(|k| Some((k.to_string(), v.params.get(k)?.clone())))
+            .collect();
+        Ok(super::VectorIndexMapping::new(
+            None,
+            VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: metric.map(str::to_string),
+                params,
+            },
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dialect::VectorIndexPair as _;
     use crate::parse::parse;
 
     #[test]
@@ -388,5 +530,105 @@ mod tests {
             Some("a")
         );
         assert_eq!(Solr.render_default(&DefaultValue::NewUuid, &L::Uuid), None);
+    }
+
+    #[test]
+    fn vectors_parse_and_render() {
+        use dbine_driver::{VectorElement as E, VectorIndex};
+        let v = |dims, element| L::Vector {
+            dims,
+            element,
+            sparse: false,
+        };
+        let p = |s: &str| Solr.parse_type(&parse(s));
+        assert_eq!(p("knn_vector(3)"), v(Some(3), E::F32));
+        assert_eq!(p("knn_vector(4, BYTE)"), v(Some(4), E::I8));
+        for s in ["knn_vector(3)", "knn_vector(4, BYTE)"] {
+            let r = Solr.render_type(&p(s));
+            assert_eq!((r.native.as_str(), r.notes.len()), (s, 0));
+        }
+        // pgvector's vector(3), halfvec, bit, and what Solr can't hold.
+        assert_eq!(
+            Solr.render_type(&v(Some(3), E::F32)).native,
+            "knn_vector(3)"
+        );
+        assert_eq!(Solr.render_type(&v(Some(3), E::F16)).notes.len(), 1);
+        assert_eq!(
+            Solr.render_type(&v(Some(8), E::Bit)).native,
+            "knn_vector(8)"
+        );
+        assert_eq!(Solr.render_type(&v(None, E::F32)).native, "pfloat[]");
+        let long = Solr.render_type(&v(Some(1536), E::F32));
+        assert_eq!(
+            (long.native.as_str(), long.notes.len()),
+            ("knn_vector(1536)", 1)
+        );
+        let pg = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("ip".into()),
+            params: [
+                ("m".to_string(), "16".to_string()),
+                ("ef_construction".to_string(), "64".to_string()),
+            ]
+            .into(),
+        };
+        let (kind, out) = Solr.vector_index_pair(&pg, None).unwrap();
+        assert_eq!(kind, None);
+        assert_eq!(out.metric.as_deref(), Some("maximum_inner_product"));
+        assert_eq!(out.params, pg.params);
+        let ivf = VectorIndex {
+            algorithm: Some("ivfflat".into()),
+            metric: Some("l2".into()),
+            params: [("lists".to_string(), "9".to_string())].into(),
+        };
+        let out = Solr.vector_index_pair(&ivf, None).unwrap().1;
+        assert_eq!(
+            (out.algorithm.as_deref(), out.params.len()),
+            (Some("hnsw"), 0)
+        );
+        assert!(Solr
+            .vector_index_pair(
+                &VectorIndex {
+                    metric: Some("l1".into()),
+                    ..Default::default()
+                },
+                None
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn vector_indexes_follow_the_column() {
+        let ix = |metric: &str| VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some(metric.into()),
+            ..Default::default()
+        };
+        let vec = |dims: Option<u32>, element, sparse| L::Vector {
+            dims,
+            element,
+            sparse,
+        };
+        let metric = |v: VectorIndex, c: L| {
+            Solr.vector_index_pair(&v, Some(&c))
+                .map(|(_, v)| v.metric.unwrap_or_default())
+        };
+        // Bytes take every distance; bits, kept as numbers, their L2 (it
+        // ranks as Hamming does) but not Hamming.
+        assert_eq!(
+            metric(ix("cosine"), vec(Some(4), VectorElement::I8, false)).unwrap(),
+            "cosine"
+        );
+        let bits = vec(Some(16), VectorElement::Bit, false);
+        assert_eq!(metric(ix("l2"), bits.clone()).unwrap(), "l2");
+        assert!(metric(ix("hamming"), bits).is_err());
+        // Not a knn_vector here: no vector index, and why.
+        assert!(metric(ix("l2"), vec(None, VectorElement::F32, false))
+            .unwrap_err()
+            .contains("dimensión"));
+        assert!(metric(ix("ip"), vec(Some(9), VectorElement::F32, true))
+            .unwrap_err()
+            .contains("dispersos"));
+        assert!(metric(ix("l2"), L::Text { unicode: true }).is_err());
     }
 }

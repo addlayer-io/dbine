@@ -334,6 +334,7 @@ fn columns(names: &[String], cols: &[K]) -> Vec<ResultColumn> {
         .map(|(n, c)| ResultColumn {
             name: n.clone(),
             type_name: column_type(c),
+            vector: None,
         })
         .collect()
 }
@@ -380,10 +381,12 @@ pub fn emit(k: K, max_rows: usize, out: &mut QueryOutcome) {
                     ResultColumn {
                         name: "key".into(),
                         type_name: column_type(&kc),
+                        vector: None,
                     },
                     ResultColumn {
                         name: "value".into(),
                         type_name: column_type(&vc),
+                        vector: None,
                     },
                 ]);
                 rows(&[kc, vc], max_rows, out);
@@ -407,6 +410,7 @@ pub fn emit(k: K, max_rows: usize, out: &mut QueryOutcome) {
             out.begin_result(vec![ResultColumn {
                 name: "value".into(),
                 type_name: t,
+                vector: None,
             }]);
             rows(&[v], max_rows, out);
         }
@@ -445,6 +449,7 @@ fn one(v: Value, type_name: &str, max_rows: usize, out: &mut QueryOutcome) {
     out.begin_result(vec![ResultColumn {
         name: "result".into(),
         type_name: type_name.into(),
+        vector: None,
     }]);
     out.push_row(vec![v], max_rows);
 }

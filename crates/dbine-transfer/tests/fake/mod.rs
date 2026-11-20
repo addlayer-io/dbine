@@ -8,8 +8,8 @@ use dbine_driver::transfer::{BatchSinkRef, Progress};
 use dbine_driver::{
     async_trait, BatchSource, BucketSum, Buckets, Cell, ColumnInfo, ConnectionConfig, CopySpec,
     DbObject, DeltaDepth, DeltaResult, DeltaSpec, Driver, DriverInfo, Error, Family, Language,
-    LoadSpec, ObjectRef, QueryOutcome, ReadSpec, Result, RowBatch, Session, StatementResult,
-    TransferColumn,
+    LoadSpec, ObjectRef, QueryOutcome, ReadSpec, Result, ResultColumn, RowBatch, Session,
+    StatementResult, TransferColumn,
 };
 use dbine_transfer::{Endpoints, Event, TransferJob, TransferMode};
 use std::collections::{BTreeMap, HashMap};
@@ -74,6 +74,13 @@ pub struct Fake {
     pub delta_applies: Mutex<Vec<Vec<i64>>>,
     /// The filters the source was read with.
     pub filters: Mutex<Vec<Option<String>>>,
+    /// What the endpoints answer for a job's target types (`job_types`);
+    /// empty: the default.
+    pub job_types: Mutex<Vec<ResultColumn>>,
+    /// The columns of every typed insert script (`insert_script_typed`).
+    pub typed_inserts: Mutex<Vec<Vec<ResultColumn>>>,
+    /// The type the read announces for its `name` column.
+    pub name_type: &'static str,
 }
 
 impl Default for Fake {
@@ -105,6 +112,9 @@ impl Default for Fake {
             summaries: Mutex::default(),
             delta_applies: Mutex::default(),
             filters: Mutex::default(),
+            job_types: Mutex::default(),
+            typed_inserts: Mutex::default(),
+            name_type: "text",
         }
     }
 }
@@ -289,6 +299,21 @@ impl Driver for FakeDriver {
             target.name,
             serde_json::to_string(rows)?
         ))
+    }
+
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        self.fake
+            .typed_inserts
+            .lock()
+            .unwrap()
+            .push(columns.to_vec());
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        self.insert_script(target, &names, rows)
     }
 
     fn supports_bulk_load(&self) -> bool {
@@ -478,7 +503,7 @@ impl Session for FakeSession {
             },
             TransferColumn {
                 name: "name".into(),
-                type_name: "text".into(),
+                type_name: f.name_type.into(),
                 nullable: true,
             },
         ];
@@ -711,6 +736,14 @@ impl Endpoints for FakeEndpoints {
     fn native_copy_allowed(&self) -> bool {
         self.fake.native_allowed && self.source.supports_native_copy(self.target.info().id)
     }
+    fn job_types(&self, job: &TransferJob) -> Vec<ResultColumn> {
+        let types = self.fake.job_types.lock().unwrap().clone();
+        if types.is_empty() {
+            self.column_types(&job.expected_columns)
+        } else {
+            types
+        }
+    }
 }
 
 /// A job copying table `name` into the same name.
@@ -743,6 +776,7 @@ pub fn job(name: &str, estimate: Option<u64>) -> TransferJob {
         post: vec![],
         preexisting: false,
         expected_columns: vec![],
+        vector_columns: vec![],
         mode: TransferMode::Copy,
     }
 }
@@ -773,18 +807,48 @@ impl Events {
     }
 }
 
-/// A fresh state file.
-pub fn state_path(tag: &str) -> std::path::PathBuf {
+/// A test's state file (and its WAL files): removed when it's dropped, at
+/// the end of the test, passed or not.
+pub struct StateFile(std::path::PathBuf);
+
+impl StateFile {
+    fn remove(&self) {
+        for ext in ["", "-wal", "-shm", "-journal"] {
+            let _ = std::fs::remove_file(format!("{}{ext}", self.0.display()));
+        }
+    }
+}
+
+impl Drop for StateFile {
+    fn drop(&mut self) {
+        self.remove();
+    }
+}
+
+impl std::ops::Deref for StateFile {
+    type Target = std::path::Path;
+    fn deref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+impl AsRef<std::path::Path> for StateFile {
+    fn as_ref(&self) -> &std::path::Path {
+        &self.0
+    }
+}
+
+/// A fresh state file, removed when the returned guard is dropped (keep it
+/// bound until the test ends: `let (st, _state) = store(…)`).
+pub fn state_path(tag: &str) -> StateFile {
     static N: AtomicUsize = AtomicUsize::new(0);
-    let p = std::env::temp_dir().join(format!(
+    let f = StateFile(std::env::temp_dir().join(format!(
         "dbine-transfer-{tag}-{}-{}.sqlite",
         std::process::id(),
         N.fetch_add(1, Ordering::SeqCst)
-    ));
-    for ext in ["", "-wal", "-shm"] {
-        let _ = std::fs::remove_file(format!("{}{ext}", p.display()));
-    }
-    p
+    )));
+    f.remove();
+    f
 }
 
 /// Wait (up to 10 s) until `cond` holds.

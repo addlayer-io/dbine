@@ -28,6 +28,9 @@ import { useTabsStore, type CompareTab } from '../stores/tabs';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
 import { trackFeature } from '../composables/telemetry';
 import { vKeyActivate } from '../composables/keyActivate';
+import { vectorIndexLine } from '../composables/vectorLabels';
+import { sameVectorIndex } from '../composables/vector';
+import { syncsKinds } from '../composables/schemaSync';
 
 // "Comparar esquemas": two databases side by side, WinMerge style. Each
 // difference can be carried to the other side (→ / ←); that only edits an
@@ -1008,10 +1011,17 @@ function has(model: DbModel | null | undefined, s: SideId, m: Pick<Mark, 'type' 
 const origHas = (s: SideId, m: Pick<Mark, 'type' | 'ck' | 'okind' | 'section' | 'probe'>) => has(sides[s].orig, s, m) && has(sides[s].work, s, m);
 /** Left / right / both, each with why it can't be picked; the lit one undoes the drop. */
 function dropOptions(m: Mark | null, what: Pick<Mark, 'type' | 'ck' | 'okind' | 'section' | 'probe'>, extra: (s: SideId) => string | null = () => null, labels = 'drop'): DropOption[] {
+  // The kind of the table the element is (or is in) on that side; a code
+  // object goes by the driver's flag.
+  const kinds = (s: SideId) => {
+    if (what.type === 'object') return [];
+    const found = findTable(sides[s].orig, s, what.ck) ?? findTable(sides[s].work, s, what.ck);
+    return found ? [found.kind] : [];
+  };
   const why = (s: SideId) => {
-    if (struck(m, s)) return syncBlocked(s);
+    if (struck(m, s)) return syncBlocked(s, kinds(s));
     if (!origHas(s, what)) return t('compare:drop.missing');
-    return syncBlocked(s) ?? extra(s);
+    return syncBlocked(s, kinds(s)) ?? extra(s);
   };
   return DROP_TOS.map((to) => {
     const on = m?.drop === to;
@@ -1241,8 +1251,20 @@ function ixParts(ix: IndexDef) {
     { f: 'columns', t: `(${ix.columns.join(', ')})` },
     { f: 'include', t: ix.include?.length ? `INCLUDE (${ix.include.join(', ')})` : '' },
     { f: 'filter', t: ix.filter ? `WHERE ${ix.filter}` : '' },
+    // A vector index: its algorithm, distance and build parameters.
+    { f: 'vector', t: ix.vector ? t('vectors:index.summary', { text: vectorIndexLine(ix.vector) || '—' }) : '' },
     { f: 'options', t: Object.entries(ix.options ?? {}).map(([k, v]) => `${k} = ${v}`).join(', ') },
   ].filter((p) => p.t);
+}
+/** A part that differs between the sides: the fields the compare lists,
+ *  and an index's vector side (algorithm, distance, parameters) whenever
+ *  the two differ, also where the engine doesn't mirror it into options. */
+function partDiffers(section: Section, d: ItemDiff, f: string): boolean {
+  if (d.fields.includes(f)) return true;
+  if (section !== 'indexes' || f !== 'vector') return false;
+  const l = itemOf('left', section, d) as IndexDef | null;
+  const r = itemOf('right', section, d) as IndexDef | null;
+  return !!l && !!r && !sameVectorIndex(l.vector, r.vector);
 }
 function checkParts(c: CheckDef) {
   return [{ f: 'expression', t: `CHECK ${c.expression}` }];
@@ -1359,10 +1381,14 @@ const sideName = (s: SideId) => {
 const tabLabel = (s: SideId) => `${s === 'left' ? t('compare:left') : t('compare:right')} · ${sideName(s)}`;
 const where = (s: SideId) => `«${sides[s].database || connName(sides[s].connectionId)}» (${connName(sides[s].connectionId)})`;
 const readOnly = (s: SideId) => !!conns.byId(sides[s].connectionId)?.config.read_only;
-function syncBlocked(s: SideId): string | null {
+/** The kinds of the tables (collections, search indexes…) side `s`'s pending changes touch. */
+const pendingKinds = (s: SideId) => pending.value[s].tables.flatMap((c) => (c.op === 'alter' ? [c.old.kind, c.new.kind] : [c.table.kind]));
+/** Why side `s` can't take changes to objects of `kinds` (by default, its
+ *  pending ones'); with none, as the driver's flag says. */
+function syncBlocked(s: SideId, kinds: string[] = pendingKinds(s)): string | null {
   if (readOnly(s)) return t('compare:sync.readOnly');
   const d = driverOf(sides[s].connectionId);
-  if (d && !d.supports_schema_sync) return t('compare:sync.unsupported', { engine: d.name });
+  if (d && !syncsKinds(d, kinds)) return t('compare:sync.unsupported', { engine: d.name });
   return null;
 }
 /** Why "Sincronizar" can't run: a side with changes that can't take them. */
@@ -2061,7 +2087,7 @@ async function askAssistant(kind: 'review' | 'summary', tab: SyncTab | null) {
                   <div class="cv-cell" :class="{ none: d.left === null }">
                     <template v-if="itemOf('left', sec.id, d)">
                       <b>{{ titleOf(sec.id, itemOf('left', sec.id, d)!) }}</b>
-                      <span v-for="p in partsOf(sec.id, itemOf('left', sec.id, d)!)" :key="p.f" :class="{ hl: d.fields.includes(p.f) }">{{ p.t }}</span>
+                      <span v-for="p in partsOf(sec.id, itemOf('left', sec.id, d)!)" :key="p.f" :class="{ hl: partDiffers(sec.id, d, p.f) }">{{ p.t }}</span>
                       <span
                         v-if="sec.id === 'indexes' && ixBadge('left', d.name)" class="cv-ixbadge" :class="badgeClass(ixBadge('left', d.name)!)"
                         :title="ixBadgeTip('left', d.name)"
@@ -2083,7 +2109,7 @@ async function askAssistant(kind: 'review' | 'summary', tab: SyncTab | null) {
                   <div class="cv-cell" :class="{ none: d.right === null }">
                     <template v-if="itemOf('right', sec.id, d)">
                       <b>{{ titleOf(sec.id, itemOf('right', sec.id, d)!) }}</b>
-                      <span v-for="p in partsOf(sec.id, itemOf('right', sec.id, d)!)" :key="p.f" :class="{ hl: d.fields.includes(p.f) }">{{ p.t }}</span>
+                      <span v-for="p in partsOf(sec.id, itemOf('right', sec.id, d)!)" :key="p.f" :class="{ hl: partDiffers(sec.id, d, p.f) }">{{ p.t }}</span>
                       <span
                         v-if="sec.id === 'indexes' && ixBadge('right', d.name)" class="cv-ixbadge" :class="badgeClass(ixBadge('right', d.name)!)"
                         :title="ixBadgeTip('right', d.name)"

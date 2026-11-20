@@ -6,7 +6,7 @@
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
 use dbine_driver::{
     kinds, ColumnDef, CreateTemplate, DdlParts, DesignerSpec, Field, FieldKind, ForeignKeyDef,
-    IndexDef, KeyDef, RowChange, TableSchema,
+    IndexDef, KeyDef, ResultColumn, RowChange, TableSchema,
 };
 use dbine_driver::{Error, Result};
 use serde_json::Value as Json;
@@ -183,33 +183,123 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> String {
 }
 
 pub fn value(v: &Json) -> String {
+    value_as(v, "FLOAT")
+}
+
+/// [`value`] casting a vector to `VECTOR(<element>, n)` ([`vector_element`]).
+pub fn value_as(v: &Json, element: &str) -> String {
     match v {
         Json::Null => "NULL".into(),
         Json::Bool(b) => if *b { "TRUE" } else { "FALSE" }.into(),
         Json::Number(n) => n.to_string(),
         Json::String(s) => lit(s),
+        // A vector (`vector::rows_for_scripts`).
+        Json::Array(_) => match dbine_driver::vector::parse_value(v) {
+            Some(nums) => vector_literal(&nums, element),
+            None => lit(&v.to_string()),
+        },
         other => lit(&other.to_string()),
     }
 }
 
+/// The element a column's vectors are cast to: `INT` when its type
+/// (`VECTOR(INT, 3)`, from a describe or a result) or its vector meta
+/// says so, `FLOAT` otherwise (also for a column the caller didn't type).
+pub fn vector_element(c: Option<&ResultColumn>) -> &'static str {
+    let Some(c) = c else { return "FLOAT" };
+    let t: String = c
+        .type_name
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>()
+        .to_ascii_uppercase();
+    if t.starts_with("VECTOR(INT") {
+        return "INT";
+    }
+    if t.starts_with("VECTOR(FLOAT") {
+        return "FLOAT";
+    }
+    use dbine_driver::VectorElement as E;
+    match c.vector.as_ref().map(|v| v.element) {
+        // Results mark Snowflake's INT vectors `I32` (older builds `Other`);
+        // 8-bit integers are integers too.
+        Some(E::I32 | E::Other | E::I8 | E::U8) => "INT",
+        _ => "FLOAT",
+    }
+}
+
+/// A vector as Snowflake builds one: an array constant cast to
+/// `VECTOR(<element>, n)` (`FLOAT` or `INT`), `n` its length (a VECTOR
+/// takes no other value). The typed scripts take the element from the
+/// column; without types it's `FLOAT`.
+pub fn vector_literal(v: &[f64], element: &str) -> String {
+    let items: Vec<String> = v
+        .iter()
+        .map(|x| {
+            let s = x.to_string();
+            // Past 38 digits a whole number isn't a NUMBER literal.
+            if s.len() > 15 && !s.contains('.') {
+                format!("{s}.0")
+            } else {
+                s
+            }
+        })
+        .collect();
+    format!("[{}]::VECTOR({element}, {})", items.join(", "), v.len())
+}
+
+fn has_vector(row: &[Json]) -> bool {
+    row.iter()
+        .any(|v| v.is_array() && dbine_driver::vector::parse_value(v).is_some())
+}
+
+/// `INSERT … VALUES`, 100 rows per statement. Rows with a vector go as
+/// `INSERT … SELECT … UNION ALL SELECT …`: VALUES only takes constants, and
+/// a vector is a cast expression.
 pub fn insert_script(
     schema: Option<&str>,
     table: &str,
     columns: &[String],
     rows: &[Vec<Json>],
 ) -> String {
-    let head = format!(
-        "INSERT INTO {} ({}) VALUES",
+    let columns: Vec<ResultColumn> = columns.iter().map(|c| ResultColumn::new(c, "")).collect();
+    insert_script_typed(schema, table, &columns, rows)
+}
+
+/// [`insert_script`] casting each vector to its column's element.
+pub fn insert_script_typed(
+    schema: Option<&str>,
+    table: &str,
+    columns: &[ResultColumn],
+    rows: &[Vec<Json>],
+) -> String {
+    let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+    let into = format!(
+        "INSERT INTO {} ({})",
         table_name(schema, table),
-        cols(columns)
+        cols(&names)
     );
+    let elements: Vec<&str> = columns.iter().map(|c| vector_element(Some(c))).collect();
+    let values = |r: &Vec<Json>| {
+        r.iter()
+            .enumerate()
+            .map(|(i, v)| value_as(v, elements.get(i).copied().unwrap_or("FLOAT")))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
     rows.chunks(100)
         .map(|chunk| {
-            let tuples: Vec<String> = chunk
-                .iter()
-                .map(|r| format!("({})", r.iter().map(value).collect::<Vec<_>>().join(", ")))
-                .collect();
-            format!("{head}\n  {};", tuples.join(",\n  "))
+            if chunk.iter().any(|r| has_vector(r)) {
+                let selects: Vec<String> = chunk
+                    .iter()
+                    .map(|r| format!("SELECT {}", values(r)))
+                    .collect();
+                format!("{into}\n  {};", selects.join("\n  UNION ALL "))
+            } else {
+                let tuples: Vec<String> =
+                    chunk.iter().map(|r| format!("({})", values(r))).collect();
+                format!("{into} VALUES\n  {};", tuples.join(",\n  "))
+            }
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -249,7 +339,52 @@ pub fn filtered_browse(browse: &str, filters: &[dbine_driver::ColumnFilter]) -> 
 }
 
 pub fn update_script(schema: Option<&str>, table: &str, changes: &[RowChange]) -> String {
-    dbine_driver::ddl::update_script_with(Quote::Double, schema, table, changes, &value)
+    update_script_typed(schema, table, changes, &[])
+}
+
+/// [`update_script`] casting each vector to its column's element (`types`
+/// by name; an untyped column gets `FLOAT`).
+pub fn update_script_typed(
+    schema: Option<&str>,
+    table: &str,
+    changes: &[RowChange],
+    types: &[ResultColumn],
+) -> String {
+    let name = table_name(schema, table);
+    let lit =
+        |col: &str, v: &Json| value_as(v, vector_element(types.iter().find(|c| c.name == col)));
+    changes
+        .iter()
+        .filter(|c| !c.set.is_empty())
+        .map(|c| {
+            let set: Vec<String> = c
+                .set
+                .iter()
+                .map(|(k, v)| format!("{} = {}", q(k), lit(k, v)))
+                .collect();
+            let wh: Vec<String> = c
+                .key
+                .iter()
+                .map(|(k, v)| {
+                    if v.is_null() {
+                        format!("{} IS NULL", q(k))
+                    } else {
+                        format!("{} = {}", q(k), lit(k, v))
+                    }
+                })
+                .collect();
+            if wh.is_empty() {
+                format!("UPDATE {name} SET {};", set.join(", "))
+            } else {
+                format!(
+                    "UPDATE {name} SET {} WHERE {};",
+                    set.join(", "),
+                    wh.join(" AND ")
+                )
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// `DELETE … WHERE <key>` per row key, with the same literals as [`update_script`].
@@ -279,6 +414,7 @@ pub fn designer() -> DesignerSpec {
         "GEOGRAPHY",
         "GEOMETRY",
         "VECTOR(FLOAT, 256)",
+        "VECTOR(INT, 256)",
     ]);
     d.schemas = true;
     d.comments = true;
@@ -654,6 +790,77 @@ mod tests {
             ("fk_name", "FK_CLIENTE"),
         ])];
         assemble(&tables, &columns, &pks, &uniques, &fks)
+    }
+
+    #[test]
+    fn vectors_are_cast_array_constants() {
+        assert_eq!(
+            value(&serde_json::json!([1.5, 2, -0.25])),
+            "[1.5, 2, -0.25]::VECTOR(FLOAT, 3)"
+        );
+        assert_eq!(value(&serde_json::json!(["a"])), "'[\"a\"]'");
+        // VALUES takes no casts: the rows go as SELECTs.
+        let s = insert_script(
+            Some("PUBLIC"),
+            "V",
+            &["ID".into(), "VEC".into()],
+            &[
+                vec![serde_json::json!(1), serde_json::json!([1, 2])],
+                vec![serde_json::json!(2), serde_json::Value::Null],
+            ],
+        );
+        assert_eq!(s, "INSERT INTO \"PUBLIC\".\"V\" (\"ID\", \"VEC\")\n  SELECT 1, [1, 2]::VECTOR(FLOAT, 2)\n  UNION ALL SELECT 2, NULL;");
+        let plain = insert_script(None, "V", &["ID".into()], &[vec![serde_json::json!(1)]]);
+        assert_eq!(plain, "INSERT INTO \"V\" (\"ID\") VALUES\n  (1);");
+        let up = update_script(
+            None,
+            "V",
+            &[RowChange {
+                key: vec![("ID".into(), serde_json::json!(1))],
+                set: vec![("VEC".into(), serde_json::json!([0.5, 1]))],
+                row: Vec::new(),
+            }],
+        );
+        assert!(
+            up.contains("SET \"VEC\" = [0.5, 1]::VECTOR(FLOAT, 2)"),
+            "{up}"
+        );
+    }
+
+    #[test]
+    fn typed_scripts_cast_to_the_column_s_element() {
+        use dbine_driver::{VectorElement, VectorMeta};
+        let cols = [
+            ResultColumn::new("ID", "NUMBER(38,0)"),
+            // A describe's type, a result's type and a result's meta alone.
+            ResultColumn::new("I", "VECTOR(INT, 2)"),
+            ResultColumn::new("F", "vector(float, 2)"),
+            ResultColumn::new("R", "VECTOR")
+                .with_vector(VectorMeta::dense(None, VectorElement::I32)),
+            ResultColumn::new("X", ""),
+        ];
+        let v = json!([1, -2]);
+        let s = insert_script_typed(
+            None,
+            "V",
+            &cols,
+            &[vec![json!(1), v.clone(), v.clone(), v.clone(), v.clone()]],
+        );
+        assert_eq!(s, "INSERT INTO \"V\" (\"ID\", \"I\", \"F\", \"R\", \"X\")\n  SELECT 1, [1, -2]::VECTOR(INT, 2), [1, -2]::VECTOR(FLOAT, 2), [1, -2]::VECTOR(INT, 2), [1, -2]::VECTOR(FLOAT, 2);");
+        let change = RowChange {
+            key: vec![("ID".into(), json!(1))],
+            set: vec![("I".into(), v.clone()), ("F".into(), v.clone())],
+            row: Vec::new(),
+        };
+        assert_eq!(
+            update_script_typed(None, "V", std::slice::from_ref(&change), &cols),
+            "UPDATE \"V\" SET \"I\" = [1, -2]::VECTOR(INT, 2), \"F\" = [1, -2]::VECTOR(FLOAT, 2) WHERE \"ID\" = 1;"
+        );
+        // Untyped: FLOAT, and the text the shared writer gave.
+        assert_eq!(
+            update_script(None, "V", std::slice::from_ref(&change)),
+            dbine_driver::ddl::update_script_with(Quote::Double, None, "V", &[change], &value)
+        );
     }
 
     #[test]

@@ -47,11 +47,12 @@ mod session;
 mod stats;
 mod structure;
 mod transfer;
+mod vectors;
 
 use dbine_driver::{
     async_trait, Capabilities, ConnectionConfig, CreateTemplate, DdlParts, DesignerSpec, Driver,
     DriverInfo, Error, Family, Field, FieldKind, Language, ObjectKindInfo, ObjectRef, Result,
-    Session, TableSchema, TlsLevel, TlsSupport,
+    ResultColumn, Session, TableSchema, TlsLevel, TlsSupport,
 };
 use rustls_connect::MakeRustlsConnect;
 use session::PgSession;
@@ -802,6 +803,10 @@ impl Driver for PgDriver {
                 "Denodo no crea tablas por SQL: las vistas base se definen en Denodo".into(),
             ));
         }
+        if let Some(why) = vectors::table_refusal(self.variant, table, parts.create, parts.indexes)
+        {
+            return Err(Error::Unsupported(why));
+        }
         Ok(design::table_ddl(self.variant, table, parts))
     }
 
@@ -844,6 +849,49 @@ impl Driver for PgDriver {
             &target.name,
             keys,
         ))
+    }
+
+    /// A value whose literal depends on its column's type: a dense vector
+    /// into `sparsevec` (`{i:v}/n`), zeros and ones into `bit(n)`, a vector
+    /// sent as text into CrateDB's `FLOAT_VECTOR` (an array literal), a
+    /// JSON array into a PostgreSQL array (`'{…}'`)
+    /// ([`vectors::typed_value`]).
+    fn insert_script_typed(
+        &self,
+        target: &ObjectRef,
+        columns: &[ResultColumn],
+        rows: &[Vec<serde_json::Value>],
+    ) -> Result<String> {
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        let rows = vectors::typed_rows(self.variant, columns, rows);
+        self.insert_script(target, &names, &rows)
+    }
+
+    fn update_script_typed(
+        &self,
+        target: &ObjectRef,
+        changes: &[dbine_driver::RowChange],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        let mut changes = changes.to_vec();
+        for c in &mut changes {
+            vectors::typed_pairs(self.variant, types, &mut c.set);
+            vectors::typed_pairs(self.variant, types, &mut c.key);
+        }
+        self.update_script(target, &changes)
+    }
+
+    fn delete_script_typed(
+        &self,
+        target: &ObjectRef,
+        keys: &[Vec<(String, serde_json::Value)>],
+        types: &[ResultColumn],
+    ) -> Result<String> {
+        let mut keys = keys.to_vec();
+        for k in &mut keys {
+            vectors::typed_pairs(self.variant, types, k);
+        }
+        self.delete_script(target, &keys)
     }
 
     async fn connect(
@@ -1335,6 +1383,88 @@ pub(crate) fn db_text(db: &tokio_postgres::error::DbError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn driver(id: &str) -> Arc<dyn Driver> {
+        drivers().into_iter().find(|d| d.info().id == id).unwrap()
+    }
+
+    /// The typed scripts write each value as its column's type takes it;
+    /// without types (or with types that change nothing) they are the
+    /// untyped scripts.
+    #[test]
+    fn typed_scripts_follow_the_target_types() {
+        use serde_json::json;
+        let t = ObjectRef {
+            kind: "table".into(),
+            schema: Some("public".into()),
+            name: "t".into(),
+        };
+        let cols = vec![
+            ResultColumn::new("id", "int4"),
+            ResultColumn::new("v", "vector(3)"),
+            ResultColumn::new("s", "sparsevec(3)"),
+            ResultColumn::new("b", "bit(3)"),
+            ResultColumn::new("a", "_float4"),
+        ];
+        let row = vec![
+            json!(1),
+            json!([1, 2.5, 3]),
+            json!([0, 2.5, 0]),
+            json!([1, 0, 1]),
+            json!([1, 2]),
+        ];
+        let pg = driver("postgres");
+        let sql = pg
+            .insert_script_typed(&t, &cols, std::slice::from_ref(&row))
+            .unwrap();
+        assert_eq!(
+            sql,
+            "INSERT INTO \"public\".\"t\" (\"id\", \"v\", \"s\", \"b\", \"a\") VALUES\n  (1, '[1,2.5,3]', E'{2:2.5}/3', E'101', E'{1,2}');"
+        );
+        let names: Vec<String> = cols.iter().map(|c| c.name.clone()).collect();
+        let untyped = pg
+            .insert_script(&t, &names, std::slice::from_ref(&row))
+            .unwrap();
+        assert!(
+            untyped.contains("'[0,2.5,0]', '[1,0,1]', '[1,2]'"),
+            "{untyped}"
+        );
+        let change = dbine_driver::RowChange {
+            key: vec![("id".into(), json!(1))],
+            set: vec![
+                ("s".into(), json!([0, 0, 4])),
+                ("b".into(), json!("[0,1,1]")),
+            ],
+            row: Vec::new(),
+        };
+        assert_eq!(
+            pg.update_script_typed(&t, &[change], &cols).unwrap(),
+            "UPDATE \"public\".\"t\" SET \"s\" = E'{3:4}/3', \"b\" = E'011' WHERE \"id\" = 1;"
+        );
+        assert_eq!(
+            pg.delete_script_typed(&t, &[vec![("id".into(), json!(1))]], &cols)
+                .unwrap(),
+            pg.delete_script(&t, &[vec![("id".into(), json!(1))]])
+                .unwrap()
+        );
+        // CrateDB: a vector sent as text into FLOAT_VECTOR is an array.
+        let cr = driver("cratedb");
+        let cols = vec![
+            ResultColumn::new("id", "integer"),
+            ResultColumn::new("v", "FLOAT_VECTOR(2)"),
+        ];
+        let sql = cr
+            .insert_script_typed(&t, &cols, &[vec![json!(1), json!("[1.0,2.5]")]])
+            .unwrap();
+        assert!(sql.ends_with("(1, [1.0,2.5]);"), "{sql}");
+        let change = dbine_driver::RowChange {
+            key: vec![("id".into(), json!(1))],
+            set: vec![("v".into(), json!("[3,4]"))],
+            row: Vec::new(),
+        };
+        let sql = cr.update_script_typed(&t, &[change], &cols).unwrap();
+        assert!(sql.contains("\"v\" = [3,4] WHERE"), "{sql}");
+    }
 
     /// Nothing listens on the port: a classified, refused connect.
     #[tokio::test]

@@ -1,0 +1,78 @@
+{
+  "cell": {
+    "dims_one": "{{count}} dimensão",
+    "dims_many": "{{count}} dimensões",
+    "dims_other": "{{count}} dimensões",
+    "sparse": "esparso"
+  },
+  "viewer": {
+    "element": "Tipo",
+    "dims": "Dimensões",
+    "declared": "(a coluna declara {{dims}})",
+    "norm": "Norma (L2)",
+    "min": "Mínimo",
+    "max": "Máximo",
+    "empty": "Vetor vazio",
+    "sparse": "Vetor esparso: exibido como o motor o escreve.",
+    "copyJson": "Copiar como JSON"
+  },
+  "edit": {
+    "format": "“{{column}}” é uma coluna vetorial: o valor é escrito como um array JSON de números, por exemplo [0.12, -0.03, 0.88]. Para deixá-la como NULL, use “$t(results:grid.setNull)”.",
+    "dims": "“{{column}}” tem vetores de {{expected}} dimensões e o valor tem {{got}}.",
+    "range": "“{{column}}” aceita inteiros de {{min}} a {{max}}: o número {{position}} do vetor é {{value}}.",
+    "overflow": "“{{column}}” armazena números {{element}}, de até ±{{max}}: o número {{position}} do vetor é {{value}}.",
+    "empty": "“{{column}}” não aceita um vetor vazio: escreva seus números, por exemplo [0.12, -0.03, 0.88].",
+    "skippedColumns": "As colunas vetoriais ({{columns}}) ficam fora do WHERE."
+  },
+  "filter": {
+    "onlyNull": "“{{column}}” é uma coluna vetorial: filtre por NULL ou NOT NULL, ou com uma condição SQL pelo menu do filtro."
+  },
+  "sort": {
+    "local": "colunas vetoriais não são ordenadas no servidor"
+  },
+  "compare": {
+    "from": "a partir do nº {{position}}",
+    "firstDiff": "{{side}}: diferem a partir do número {{position}} de {{dims}}. Clique duas vezes para ver o vetor inteiro."
+  },
+  "metric": {
+    "cosine": "Cosseno",
+    "l2": "Euclidiana (L2)",
+    "ip": "Produto interno",
+    "l1": "Manhattan (L1)",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "metricShort": {
+    "cosine": "Cosseno",
+    "l2": "L2",
+    "ip": "IP",
+    "l1": "L1",
+    "hamming": "Hamming",
+    "jaccard": "Jaccard"
+  },
+  "param": {
+    "m": "Conexões por nó (m)",
+    "ef_construction": "Candidatos na construção (ef_construction)",
+    "lists": "Listas (lists)",
+    "quantization": "Quantização"
+  },
+  "designer": {
+    "toggle": "Vetorial",
+    "toggleHint": "Um índice de busca por similaridade sobre uma coluna vetorial",
+    "algorithm": "Algoritmo",
+    "metric": "Distância",
+    "vectorColumn": "Coluna vetorial",
+    "vectorColumnPlaceholder": "Escolha a coluna vetorial",
+    "filterColumns": "Colunas de filtro",
+    "filterColumnsPlaceholder": "Nenhuma",
+    "paramPlaceholder": "Padrão do motor",
+    "vectorType": "vetorial",
+    "notVectorColumn": "O índice “{{label}}” é vetorial e “{{column}}” não é uma coluna vetorial.",
+    "noFilterColumns": "O índice “{{label}}” é vetorial: neste motor ele leva apenas a coluna vetorial.",
+    "rebuilt": "O índice vetorial “{{label}}” muda: ele é excluído e criado novamente, e a reconstrução pode demorar em tabelas grandes."
+  },
+  "index": {
+    "summary": "Vetorial: {{text}}",
+    "column": "Índice vetorial"
+  }
+}
