@@ -835,3 +835,89 @@ fn vectors_into_engines_of_the_family_without_them() {
         }
     }
 }
+
+/// pgvector's binary vectors are `bit(n)` columns: one searched by a
+/// Hamming or Jaccard index moves as a binary vector of n dimensions.
+#[test]
+fn pgvector_bit_vectors_move_as_binary_vectors() {
+    use dbine_driver::VectorIndex;
+    let driver = |id: &str| &**dbine_drivers::find(id).unwrap();
+    let opts = |id: &str| Options::default().for_target(driver(id));
+    let docs = |metric: Option<&str>| {
+        let mut t = table(
+            "docs",
+            vec![not_null(col("id", "integer")), col("bits", "bit(16)")],
+            &["id"],
+        );
+        if let Some(m) = metric {
+            t.indexes.push(IndexDef {
+                name: "docs_bits".into(),
+                columns: vec!["bits".into()],
+                kind: Some("hnsw".into()),
+                vector: Some(VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some(m.into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            });
+        }
+        vec![t]
+    };
+    let metric = |r: &dbine_schema::Conversion| {
+        r.tables[0]
+            .indexes
+            .iter()
+            .find_map(|i| i.vector.as_ref())
+            .and_then(|v| v.metric.clone())
+    };
+    // Into MongoDB: a bit vector, searched by euclidean (said).
+    let r = convert(
+        &docs(Some("hamming")),
+        "postgres",
+        "mongodb",
+        &opts("mongodb"),
+    )
+    .unwrap();
+    assert_eq!(ty(&r.tables[0], "bits"), "vector(16, bit)");
+    assert_eq!(metric(&r).as_deref(), Some("l2"), "{:?}", r.issues);
+    assert!(r
+        .issues
+        .iter()
+        .any(|i| i.code == IssueCode::IndexChanged && i.message.contains("hamming")));
+    // Into Oracle: a BINARY vector, with both distances.
+    for m in ["hamming", "jaccard"] {
+        let r = convert(&docs(Some(m)), "postgres", "oracle", &opts("oracle")).unwrap();
+        assert_eq!(ty(&r.tables[0], "BITS"), "VECTOR(16, BINARY)", "{m}");
+        assert_eq!(metric(&r).as_deref(), Some(m), "{m}: {:?}", r.issues);
+    }
+    // Into libSQL: a 1-bit vector; its index measures only by cosine or
+    // L2, so a Hamming one is left out, with that reason.
+    let r = convert(
+        &docs(Some("hamming")),
+        "postgres",
+        "libsql",
+        &opts("libsql"),
+    )
+    .unwrap();
+    assert_eq!(ty(&r.tables[0], "bits"), "F1BIT_BLOB(16)");
+    let dropped = r
+        .issues
+        .iter()
+        .find(|i| i.code == IssueCode::IndexDropped)
+        .expect("the index is left out");
+    assert!(dropped.message.contains("hamming"), "{dropped:?}");
+    assert!(!dropped.message.contains("no es un vector"), "{dropped:?}");
+    // A bit string no vector index searches stays a bit string.
+    let r = convert(&docs(None), "postgres", "oracle", &opts("oracle")).unwrap();
+    assert!(!ty(&r.tables[0], "BITS").starts_with("VECTOR"));
+    // Within the family it stays bit(16).
+    let r = convert(
+        &docs(Some("hamming")),
+        "postgres",
+        "postgres",
+        &opts("postgres"),
+    )
+    .unwrap();
+    assert_eq!(ty(&r.tables[0], "bits"), "bit(16)");
+}

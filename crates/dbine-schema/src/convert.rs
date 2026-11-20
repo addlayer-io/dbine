@@ -214,7 +214,7 @@ pub fn convert(
                 t.columns.iter().find(|x| &x.name == c).map(|x| {
                     let l = logical_of(src, &parse::parse(&x.data_type));
                     match searched.get(x.name.as_str()) {
-                        Some(dims) if !same_family => searched_as_vector(l, *dims),
+                        Some(s) if !same_family => searched_as_vector(l, *s),
                         _ => l,
                     }
                 })
@@ -329,15 +329,15 @@ fn column(
     caps: &Caps,
     names: &Names,
     same_family: bool,
-    searched: Option<Option<u32>>,
+    searched: Option<Searched>,
     report: &mut Report,
 ) -> (ColumnDef, ColumnMapping) {
     let spec = parse::parse(&c.data_type);
     let mut logical = logical_of(src, &spec);
     // A list of numbers a vector index searches is a vector (ClickHouse,
     // BigQuery, Doris keep embeddings as arrays): it moves as one.
-    if let (Some(dims), false) = (searched, same_family) {
-        logical = searched_as_vector(logical, dims);
+    if let (Some(s), false) = (searched, same_family) {
+        logical = searched_as_vector(logical, s);
     }
     let col_name = c.name.as_str();
 
@@ -885,9 +885,17 @@ fn index(
     })
 }
 
-/// The columns a vector index searches (its first column), with the
-/// dimension the index states when it states one.
-fn vector_searched(t: &TableSchema) -> std::collections::HashMap<&str, Option<u32>> {
+/// How a vector index searches a column ([`vector_searched`]).
+#[derive(Debug, Clone, Copy)]
+struct Searched {
+    /// The dimension the index states, when it states one.
+    dims: Option<u32>,
+    /// By a distance between bits (Hamming, Jaccard).
+    bits: bool,
+}
+
+/// The columns a vector index searches (its first column), and how.
+fn vector_searched(t: &TableSchema) -> std::collections::HashMap<&str, Searched> {
     t.indexes
         .iter()
         .filter_map(|ix| {
@@ -909,17 +917,35 @@ fn vector_searched(t: &TableSchema) -> std::collections::HashMap<&str, Option<u3
                     .find(|(p, _)| p.eq_ignore_ascii_case(k))
                     .and_then(|(_, x)| x.trim().parse::<u32>().ok())
             });
-            Some((c.as_str(), dims))
+            let bits = v.metric.as_deref().is_some_and(|m| {
+                let m = m.trim();
+                m.eq_ignore_ascii_case(dbine_driver::vector::metric::HAMMING)
+                    || m.eq_ignore_ascii_case(dbine_driver::vector::metric::JACCARD)
+            });
+            Some((c.as_str(), Searched { dims, bits }))
         })
         .collect()
 }
 
 /// A list of numbers searched by a vector index whose dimension the index
-/// states, as a vector of them; any other type as it is (a list without a
-/// dimension can't be a vector column on most engines).
-fn searched_as_vector(l: LogicalType, dims: Option<u32>) -> LogicalType {
+/// states, as a vector of them; a bit string (pgvector's `bit(n)`) searched
+/// by a distance between bits, as a binary vector of its length; any other
+/// type as it is (a list without a dimension can't be a vector column on
+/// most engines).
+fn searched_as_vector(l: LogicalType, searched: Searched) -> LogicalType {
     use dbine_driver::VectorElement as E;
+    let dims = searched.dims;
     let element = match &l {
+        LogicalType::Bit { len } if searched.bits => {
+            return match len.or(dims) {
+                Some(n) => LogicalType::Vector {
+                    dims: Some(n),
+                    element: E::Bit,
+                    sparse: false,
+                },
+                None => l,
+            }
+        }
         LogicalType::Array { .. } if dims.is_none() => return l,
         LogicalType::Array { of } => match **of {
             LogicalType::Float { bytes: 8 } => E::F64,
