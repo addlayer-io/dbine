@@ -15838,7 +15838,7 @@
   "Números del 1 al 31 separados por comas; los negativos cuentan desde el final del mes.": "用逗号分隔的 1 到 31 的数字；负数从月末开始计算。",
   "Observador de archivos": "文件监视器",
   "Observadores de archivos": "文件监视器",
-  "OceanBase lee las horas de los eventos en la zona horaria global del tenant y no mueve un evento a otra base.": "OceanBase 按租户的全局时区读取事件的时间，且不会将事件移到其他数据库。",
+  "OceanBase lee las horas de los eventos en la zona horaria global del tenant, guarda cada evento con su propio modo SQL y no mueve un evento a otra base.": "OceanBase 按租户的全局时区读取事件的时间，为每个事件保存其自身的 SQL 模式，且不会将事件移到其他数据库。",
   "OceanBase no mueve un evento a otra base: crealo en la nueva y borrá este.": "OceanBase 不会将事件移到其他数据库：请在新数据库中创建，并删除此事件。",
   "Octubre": "十月",
   "Opcional: el id con el que ksqlDB la lista (QUERY_ID). Sin él, ksqlDB le pone uno.": "可选：ksqlDB 用来列出它的 id（QUERY_ID）。不填时由 ksqlDB 分配。",

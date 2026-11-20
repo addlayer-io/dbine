@@ -16211,7 +16211,7 @@
   "Números del 1 al 31 separados por comas; los negativos cuentan desde el final del mes.": "Numbers from 1 to 31 separated by commas; negative ones count from the end of the month.",
   "Observador de archivos": "File watcher",
   "Observadores de archivos": "File watchers",
-  "OceanBase lee las horas de los eventos en la zona horaria global del tenant y no mueve un evento a otra base.": "OceanBase reads event times in the tenant's global time zone and doesn't move an event to another database.",
+  "OceanBase lee las horas de los eventos en la zona horaria global del tenant, guarda cada evento con su propio modo SQL y no mueve un evento a otra base.": "OceanBase reads event times in the tenant's global time zone, saves each event with its own SQL mode and doesn't move an event to another database.",
   "OceanBase no mueve un evento a otra base: crealo en la nueva y borrá este.": "OceanBase doesn't move an event to another database: create it in the new one and delete this one.",
   "Octubre": "October",
   "Opcional: el id con el que ksqlDB la lista (QUERY_ID). Sin él, ksqlDB le pone uno.": "Optional: the id under which ksqlDB lists it (QUERY_ID). Without it, ksqlDB assigns one.",

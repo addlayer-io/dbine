@@ -49,7 +49,7 @@ use serde_json::json;
 
 const NO_EVENT_PRIVILEGE: &str = "Este usuario no tiene el privilegio EVENT en ninguna base: puede ver los eventos, pero no crearlos, cambiarlos ni borrarlos.";
 const FOREIGN_DEFINER: &str = "El definidor de este evento es otro usuario y este no tiene SET_USER_ID (ni SUPER): para guardarlo, elegí tu usuario como definidor (el evento pasará a correr con tus privilegios).";
-const OB_NOTE: &str = "OceanBase lee las horas de los eventos en la zona horaria global del tenant y no mueve un evento a otra base.";
+const OB_NOTE: &str = "OceanBase lee las horas de los eventos en la zona horaria global del tenant, guarda cada evento con su propio modo SQL y no mueve un evento a otra base.";
 const CHANGED: &str = "El evento cambió en el servidor desde que se abrió el formulario: volvé a abrirlo antes de guardar.";
 const NO_LOG: &str = "Este servidor no deja leer el registro del programador de eventos: está en performance_schema.error_log desde MySQL 8.0.22, con el privilegio SELECT sobre esa tabla.";
 const ONE_STATEMENT: &str = "La instrucción del evento tiene que ser una sola: con un «;» fuera de un bloque BEGIN … END, el servidor guardaría en el evento solo lo anterior y ejecutaría el resto al guardar. Para varias, encerralas en BEGIN … END (y una columna llamada begin o end, entre comillas invertidas).";
@@ -76,6 +76,10 @@ pub(super) const UNITS: [&str; 15] = [
     "DAY_SECOND",
     "YEAR_MONTH",
 ];
+
+/// The units OceanBase's `EVERY` takes (4.4: no WEEK, QUARTER nor the
+/// composite ones; 90 MINUTE says what '1:30' HOUR_MINUTE does).
+pub(super) const OB_UNITS: [&str; 6] = ["SECOND", "MINUTE", "HOUR", "DAY", "MONTH", "YEAR"];
 
 // ---------------------------------------------------------------------------
 // What the server and the login allow
@@ -461,8 +465,25 @@ fn normal_time(t: Option<&str>) -> Option<String> {
     t.and_then(super::parse_datetime)
 }
 
-/// The event as the server has it, as a spec (`ob_zone`: OceanBase's).
-pub(super) fn spec_of(e: &Event, ob_zone: Option<&str>) -> Spec {
+/// OceanBase keeps a `BEGIN … END` body without its `BEGIN` and `END`
+/// (`a;b;`): a body of more than one statement goes back in a block, one
+/// statement a line, so the form holds what can be saved again.
+pub(super) fn ob_body(stored: &str) -> String {
+    let body = body_text(stored);
+    if super::one_statement(&body, true) {
+        return body;
+    }
+    let d = crate::script_dialect(Variant::OceanBase);
+    let lines: Vec<String> = dbine_driver::sql::split_script(stored, &d)
+        .into_iter()
+        .map(|u| format!("  {};", u.text.trim()))
+        .collect();
+    format!("BEGIN\n{}\nEND", lines.join("\n"))
+}
+
+/// The event as the server has it, as a spec (`ob`: OceanBase, `ob_zone`:
+/// its tenant's zone).
+pub(super) fn spec_of(e: &Event, ob: bool, ob_zone: Option<&str>) -> Spec {
     let status = if e.enabled() {
         Status::Enabled
     } else if e.replica_side() {
@@ -495,7 +516,11 @@ pub(super) fn spec_of(e: &Event, ob_zone: Option<&str>) -> Spec {
         preserve: e.preserve,
         time_zone: ob_zone.map_or_else(|| e.tz.clone(), str::to_string),
         sql_mode: e.sql_mode.clone().unwrap_or_default(),
-        body: body_text(e.body.as_deref().unwrap_or("")),
+        body: if ob {
+            ob_body(e.body.as_deref().unwrap_or(""))
+        } else {
+            body_text(e.body.as_deref().unwrap_or(""))
+        },
     }
 }
 
@@ -896,12 +921,13 @@ pub(super) fn spec_from(
                 .into()
         }));
     }
-    let status = match v.choice(
-        "status",
-        "Estado",
-        &["enable", "disable", "replica"],
-        "enable",
-    )? {
+    // OceanBase has no DISABLE ON SLAVE / ON REPLICA.
+    let statuses: &[&'static str] = if c.ob {
+        &["enable", "disable"]
+    } else {
+        &["enable", "disable", "replica"]
+    };
+    let status = match v.choice("status", "Estado", statuses, "enable")? {
         "disable" => Status::Disabled,
         "replica" => Status::ReplicaSide,
         _ => Status::Enabled,
@@ -912,7 +938,8 @@ pub(super) fn spec_from(
                 .ok_or_else(|| bad("Un evento de una sola vez necesita «Fecha y hora».".into()))?,
         ),
         _ => {
-            let unit = v.choice("unit", "Unidad", &UNITS, "DAY")?;
+            let units: &[&'static str] = if c.ob { &OB_UNITS } else { &UNITS };
+            let unit = v.choice("unit", "Unidad", units, "DAY")?;
             let value = v.text("every").trim_matches('\'').trim().to_string();
             if !valid_interval(&value, unit) {
                 return Err(bad(format!(
@@ -950,9 +977,12 @@ pub(super) fn spec_from(
             z
         }
     };
+    // OceanBase saves each event with its own SQL mode, whatever the
+    // session's: the form's isn't sent there.
+    let kept = || cur.map_or_else(|| c.session_mode.clone(), |c| c.sql_mode.clone());
     let sql_mode = match v.get_raw_mode() {
-        Some(m) => m,
-        None => cur.map_or_else(|| c.session_mode.clone(), |c| c.sql_mode.clone()),
+        Some(m) if !c.ob => m,
+        _ => kept(),
     };
     if !valid_mode(&sql_mode) {
         return Err(bad(format!(
@@ -1034,16 +1064,19 @@ async fn definers(s: &mut MySqlSession, c: &Ctx, also: Option<&str>) -> Vec<(Str
     out
 }
 
-fn status_select() -> FormKind {
-    FormKind::select(&[
+/// The statuses the form offers: OceanBase has no replica-side one.
+fn status_select(ob: bool) -> FormKind {
+    let all = FormKind::select(&[
         ("enable", "Habilitado"),
         ("disable", "Deshabilitado"),
         ("replica", "Deshabilitado en las réplicas"),
-    ])
+    ]);
+    only(all, |k| !ob || k != "replica")
 }
 
-fn unit_select() -> FormKind {
-    FormKind::select(&[
+/// The units the form offers: OceanBase's only on OceanBase.
+fn unit_select(ob: bool) -> FormKind {
+    let all = FormKind::select(&[
         ("SECOND", "Segundos"),
         ("MINUTE", "Minutos"),
         ("HOUR", "Horas"),
@@ -1059,7 +1092,20 @@ fn unit_select() -> FormKind {
         ("DAY_MINUTE", "Días, horas y minutos (DAY_MINUTE)"),
         ("DAY_SECOND", "Días, horas, minutos y segundos (DAY_SECOND)"),
         ("YEAR_MONTH", "Años y meses (YEAR_MONTH)"),
-    ])
+    ]);
+    only(all, |u| !ob || OB_UNITS.contains(&u))
+}
+
+/// A select with only the options whose value `keep` takes. The options
+/// are written in the `FormKind::select` call, where the text extractor
+/// finds their labels.
+fn only(kind: FormKind, keep: impl Fn(&str) -> bool) -> FormKind {
+    match kind {
+        FormKind::Select { options } => FormKind::Select {
+            options: options.into_iter().filter(|(v, _)| keep(v)).collect(),
+        },
+        other => other,
+    }
 }
 
 pub(super) fn sections(ob: bool, existing: bool) -> Vec<FormSection> {
@@ -1079,7 +1125,7 @@ pub(super) fn sections(ob: bool, existing: bool) -> Vec<FormSection> {
         )
         .required()
         .help("La cuenta con cuyos privilegios corre el evento."),
-        FormField::new("status", "Estado", status_select()).default(json!("enable")),
+        FormField::new("status", "Estado", status_select(ob)).default(json!("enable")),
         FormField::new("comment", "Comentario", FormKind::Text),
     ]);
     if existing {
@@ -1100,13 +1146,20 @@ pub(super) fn sections(ob: bool, existing: bool) -> Vec<FormSection> {
         FormField::new("at", "Fecha y hora", FormKind::DateTime)
             .required()
             .when("type", &["once"]),
-        FormField::new("every", "Cada", FormKind::Text)
-            .required()
-            .placeholder("1")
-            .help("Un número; en las unidades compuestas, sus partes: 1:30 en HOUR_MINUTE, 2 12 en DAY_HOUR, 1-6 en YEAR_MONTH.")
+        {
+            let every = FormField::new("every", "Cada", FormKind::Text)
+                .required()
+                .placeholder("1");
+            // OceanBase has no composite units.
+            if ob {
+                every
+            } else {
+                every.help("Un número; en las unidades compuestas, sus partes: 1:30 en HOUR_MINUTE, 2 12 en DAY_HOUR, 1-6 en YEAR_MONTH.")
+            }
             .when("type", &["every"])
-            .default(json!("1")),
-        FormField::new("unit", "Unidad", unit_select())
+            .default(json!("1"))
+        },
+        FormField::new("unit", "Unidad", unit_select(ob))
             .when("type", &["every"])
             .default(json!("DAY")),
         FormField::new("starts", "Desde", FormKind::DateTime)
@@ -1134,7 +1187,8 @@ pub(super) fn sections(ob: bool, existing: bool) -> Vec<FormSection> {
             .required()
             .help("Lo que ejecuta el evento: una instrucción, o un bloque BEGIN … END con varias."),
         FormField::new("sql_mode", "Modo SQL", FormKind::Text)
-            .help("El modo SQL con el que corre la instrucción: el evento lo guarda al crearse o al cambiar la instrucción."),
+            .help("El modo SQL con el que corre la instrucción: el evento lo guarda al crearse o al cambiar la instrucción.")
+            .read_only(ob),
     ]);
     if existing {
         body = body.fields(vec![
@@ -1230,7 +1284,7 @@ pub(super) async fn form(s: &mut MySqlSession, kind: &str, id: Option<&str>) -> 
     let dbs = databases(s).await;
     match &current {
         Some(e) => {
-            let spec = spec_of(e, c.ob_zone.as_deref());
+            let spec = spec_of(e, c.ob, c.ob_zone.as_deref());
             f.values = values_of(&spec, Some(e));
             f.choices
                 .insert("definer".into(), definers(s, &c, Some(&spec.definer)).await);
@@ -1309,7 +1363,7 @@ pub(super) async fn plan(
         Some(id) => {
             let e = read(s, id).await?;
             stale(values, &e)?;
-            let cur = spec_of(&e, c.ob_zone.as_deref());
+            let cur = spec_of(&e, c.ob, c.ob_zone.as_deref());
             if c.protected(&cur.definer) {
                 return Err(bad(SYSTEM_DEFINER.into()));
             }

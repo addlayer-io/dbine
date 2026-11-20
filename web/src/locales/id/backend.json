@@ -16284,7 +16284,7 @@
   "Números del 1 al 31 separados por comas; los negativos cuentan desde el final del mes.": "Angka 1 sampai 31 dipisahkan koma; angka negatif dihitung dari akhir bulan.",
   "Observador de archivos": "Pengamat file",
   "Observadores de archivos": "Pengamat file",
-  "OceanBase lee las horas de los eventos en la zona horaria global del tenant y no mueve un evento a otra base.": "OceanBase membaca waktu event dalam zona waktu global tenant dan tidak memindahkan event ke basis data lain.",
+  "OceanBase lee las horas de los eventos en la zona horaria global del tenant, guarda cada evento con su propio modo SQL y no mueve un evento a otra base.": "OceanBase membaca waktu event dalam zona waktu global tenant, menyimpan setiap event dengan mode SQL-nya sendiri, dan tidak memindahkan event ke basis data lain.",
   "OceanBase no mueve un evento a otra base: crealo en la nueva y borrá este.": "OceanBase tidak memindahkan event ke basis data lain: buat di basis data baru dan hapus yang ini.",
   "Octubre": "Oktober",
   "Opcional: el id con el que ksqlDB la lista (QUERY_ID). Sin él, ksqlDB le pone uno.": "Opsional: id yang dipakai ksqlDB untuk mencantumkannya (QUERY_ID). Tanpanya, ksqlDB memberinya satu.",

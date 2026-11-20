@@ -381,7 +381,7 @@ Particularities:
 | MySQL 9.0+ | `VECTOR(n)` (float32) | None in MySQL Community (HeatWave only): a script or conversion writes a `--` note and the table is still created | Live (9.7.4) |
 | MariaDB 11.7+ | `VECTOR(n)` (float32) | `CREATE VECTOR INDEX … M=… DISTANCE=euclidean\|cosine` (MHNSW). Needs a NOT NULL column. A sync rebuilds the index when its distance or `M` changes | Live (11.8.9) |
 | TiDB 8.4+ | `VECTOR(n)`, `VECTOR` | HNSW on cosine or L2 distance; it lives in TiFlash, so the table needs a TiFlash replica (the script says so; without one the server answers error 8200) | Live (8.5.3) for the type; the index unit |
-| OceanBase 4.3.3+ | `VECTOR(n)` | `hnsw`, `hnsw_sq`, `hnsw_bq`, `ivf_flat`, `ivf_sq8`, `ivf_pq`; L2, inner product, cosine | Unit |
+| OceanBase 4.3.3+ | `VECTOR(n)` | `hnsw`, `hnsw_sq`, `hnsw_bq`, `ivf_flat`, `ivf_sq8`, `ivf_pq`; L2, inner product, cosine | Live (4.4.2) |
 | SingleStore 8.5+ | `VECTOR(n[, F32\|F16\|I8…])` | AUTO, FLAT, HNSW_FLAT, HNSW_PQ, IVF_FLAT, IVF_PQ, IVF_PQFS; dot product and Euclidean (no cosine) | Unit |
 | Apache Doris 4.0+ / VeloDB | `ARRAY<FLOAT> NOT NULL` | ANN index `hnsw` or `ivf`; `l2_distance`, `inner_product`; the dimension is required | Unit |
 | StarRocks 3.4+ | `ARRAY<FLOAT> NOT NULL` | `hnsw` or `ivfpq`; `l2_distance`, `cosine_similarity`; needs `enable_experimental_vector` on the FE (the script says so) | Unit |
@@ -965,7 +965,7 @@ offers no vector type or index.
 - **A vector set** (Redis 8) keeps normalized vectors.
 - **Not tested against a server:** see the "Tested" column above and
   [`engine-support.md`](engine-support.md#vectors). SAP HANA Cloud, Db2 12.1.2,
-  Snowflake, SingleStore, Databend, OceanBase, Doris, StarRocks, AlloyDB,
+  Snowflake, SingleStore, Databend, Doris, StarRocks, AlloyDB,
   DocumentDB, Astra DB, Keyspaces, Azure SQL and Cosmos DB for MongoDB vCore
   are covered by unit tests only. So are Elasticsearch 8.0 to 8.11, OpenSearch
   1.x and 2.0 to 2.16, OpenSearch IVF, Faiss PQ, `mode` and

@@ -31797,7 +31797,7 @@
  "OceanBase cuenta accesos por índice sin separar búsquedas de recorridos (por muestreo salvo con _iut_stat_collection_type = ALL) y los vuelca a DBA_INDEX_USAGE cada tanto: «seeks» son esos accesos y «updates», las filas escritas en la tabla desde las últimas estadísticas. La clave primaria no lleva contadores.": [
   "crates/drivers/mysql/src/index_usage.rs"
  ],
- "OceanBase lee las horas de los eventos en la zona horaria global del tenant y no mueve un evento a otra base.": [
+ "OceanBase lee las horas de los eventos en la zona horaria global del tenant, guarda cada evento con su propio modo SQL y no mueve un evento a otra base.": [
   "crates/drivers/mysql/src/scheduler/events.rs"
  ],
  "OceanBase no está contando el uso de índices (_iut_enable = False). Se listan los índices sin estadísticas de uso.": [
@@ -52654,7 +52654,13 @@
   "crates/drivers/sqlserver/src/variant.rs"
  ],
  "este motor todavía no lista sus objetos por páginas": [
-  "crates/dbine-driver/src/lib.rs"
+  "crates/dbine-driver/src/lib.rs",
+  "crates/drivers/bigquery/src/paging.rs",
+  "crates/drivers/firebird/src/lib.rs",
+  "crates/drivers/hana/src/lib.rs",
+  "crates/drivers/mysql/src/session.rs",
+  "crates/drivers/oracle/src/lib.rs",
+  "crates/drivers/sqlserver/src/objects_page.rs"
  ],
  "este motor todavía no lista sus procesos en DBine": [
   "crates/drivers/odbc/src/processes.rs"

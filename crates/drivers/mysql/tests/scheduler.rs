@@ -328,6 +328,18 @@ async fn events(driver: &str, env: &str) {
                 assert!(!info.logs);
             }
 
+            // OceanBase's EVERY has no composite units: 90 MINUTE there.
+            let (every, unit) = if ob { ("90", "MINUTE") } else { ("1:30", "HOUR_MINUTE") };
+            if ob {
+                let form = s.scheduler_form("job", None).await.expect("form");
+                let mut v = values_of(&form);
+                set(&mut v, "schema", json!(DB));
+                set(&mut v, "name", json!(EV));
+                set(&mut v, "every", json!("1:30"));
+                set(&mut v, "unit", json!("HOUR_MINUTE"));
+                let e = s.scheduler_save("job", None, &v).await.unwrap_err();
+                assert!(e.to_string().contains("Unidad"), "{e:?}");
+            }
             // A new event: every 1:30 HOUR_MINUTE from 2030 to 2031, kept,
             // disabled, with a comment holding a quote and a backslash.
             let form = s.scheduler_form("job", None).await.expect("form");
@@ -339,8 +351,8 @@ async fn events(driver: &str, env: &str) {
             set(&mut v, "schema", json!(DB));
             set(&mut v, "name", json!(EV));
             set(&mut v, "type", json!("every"));
-            set(&mut v, "every", json!("1:30"));
-            set(&mut v, "unit", json!("HOUR_MINUTE"));
+            set(&mut v, "every", json!(every));
+            set(&mut v, "unit", json!(unit));
             set(&mut v, "starts", json!("2030-01-01T00:00:00"));
             set(&mut v, "ends", json!("2031-01-01T00:00:00"));
             set(&mut v, "completion", json!("preserve"));
@@ -376,18 +388,19 @@ async fn events(driver: &str, env: &str) {
                 .is_err());
             let r = one_row(&mut s, &event_row_sql(DB, EV)).await;
             assert_eq!(r[0], "DISABLED");
-            assert_eq!(r[1].trim_matches('\''), "1:30");
-            assert_eq!(r[2], "HOUR_MINUTE");
+            assert_eq!(r[1].trim_matches('\''), every);
+            assert_eq!(r[2], unit);
             assert_eq!(r[3], "2030-01-01 00:00:00");
             assert_eq!(r[4], "2031-01-01 00:00:00");
             assert_eq!(r[5], "PRESERVE");
             assert_eq!(r[6], "it's a \\ test");
-            assert_eq!(r[9], "INSERT INTO t VALUES (1)");
+            // OceanBase keeps the statement's `;` in EVENT_DEFINITION.
+            assert_eq!(r[9].trim_end_matches(';'), "INSERT INTO t VALUES (1)");
             assert_eq!(r[10], user);
 
             // Opened again, it reads back; saved unchanged, nothing to do.
             let form = s.scheduler_form("job", Some(&id)).await.expect("form");
-            assert_eq!(val(&form, "every"), json!("1:30"));
+            assert_eq!(val(&form, "every"), json!(every));
             assert_eq!(val(&form, "starts"), json!("2030-01-01T00:00:00"));
             assert_eq!(val(&form, "status"), json!("disable"));
             assert_eq!(val(&form, "comment"), json!("it's a \\ test"));
@@ -426,7 +439,7 @@ async fn events(driver: &str, env: &str) {
             }
             let r = one_row(&mut s, &event_row_sql(DB, EV)).await;
             assert_eq!(r[11], "RECURRING", "{r:?}");
-            assert_eq!((r[1].trim_matches('\''), r[2].as_str()), ("1:30", "HOUR_MINUTE"));
+            assert_eq!((r[1].trim_matches('\''), r[2].as_str()), (every, unit));
             assert_eq!(r[3], "2030-01-01 00:00:00");
             assert_eq!(r[4], "2031-01-01 00:00:00");
             assert_eq!(r[6], "changed");
@@ -440,7 +453,8 @@ async fn events(driver: &str, env: &str) {
                 set(&mut v, "time_zone", json!("+03:00"));
             }
             let sc = script(&mut s, "job", Some(&id), &v).await;
-            assert!(sc.contains("ON SCHEDULE EVERY '1:30' HOUR_MINUTE STARTS '2030-01-01 00:00:00'"), "{sc}");
+            let every_sql = if ob { "EVERY 90 MINUTE" } else { "EVERY '1:30' HOUR_MINUTE" };
+            assert!(sc.contains(&format!("ON SCHEDULE {every_sql} STARTS '2030-01-01 00:00:00'")), "{sc}");
             assert!(!sc.contains("ENDS"), "{sc}");
             save(&mut s, "job", Some(&id), &v).await;
             let r = one_row(&mut s, &event_row_sql(DB, EV)).await;
@@ -457,8 +471,17 @@ async fn events(driver: &str, env: &str) {
             let body = "BEGIN\n  INSERT INTO t VALUES (2);\n  INSERT INTO t VALUES (3);\nEND";
             set(&mut v, "body", json!(body));
             set(&mut v, "sql_mode", json!("ANSI_QUOTES,STRICT_ALL_TABLES"));
-            set(&mut v, "status", json!("replica"));
             set(&mut v, "completion", json!("drop"));
+            if ob {
+                // OceanBase has no replica-side status: refused before the
+                // server, then the event disabled.
+                set(&mut v, "status", json!("replica"));
+                let m = query_err(&mut s, "job", Some(&id), &v).await;
+                assert!(m.contains("«Estado»"), "{m}");
+                set(&mut v, "status", json!("disable"));
+            } else {
+                set(&mut v, "status", json!("replica"));
+            }
             let sc = script(&mut s, "job", Some(&id), &v).await;
             assert!(sc.contains("DELIMITER") && sc.contains("ON COMPLETION NOT PRESERVE"), "{sc}");
             // REPLICA from MySQL 8.2.0; SLAVE before it and elsewhere.
@@ -468,13 +491,30 @@ async fn events(driver: &str, env: &str) {
                 .map(|p| p.parse().unwrap_or(0))
                 .collect();
             let replica = driver == "mysql" && (nums[0], nums[1]) >= (8, 2);
-            assert!(sc.contains(if replica { "DISABLE ON REPLICA" } else { "DISABLE ON SLAVE" }), "{sc}");
+            if !ob {
+                assert!(sc.contains(if replica { "DISABLE ON REPLICA" } else { "DISABLE ON SLAVE" }), "{sc}");
+            }
             save(&mut s, "job", Some(&id), &v).await;
             let r = one_row(&mut s, &event_row_sql(DB, EV)).await;
-            assert!(r[0].ends_with("SIDE_DISABLED"), "{r:?}");
+            if ob {
+                assert_eq!(r[0], "DISABLED", "{r:?}");
+            } else {
+                assert!(r[0].ends_with("SIDE_DISABLED"), "{r:?}");
+            }
             assert_eq!(r[5], "NOT PRESERVE");
-            assert!(r[8].contains("ANSI_QUOTES") && r[8].contains("STRICT_ALL_TABLES"), "{r:?}");
-            assert_eq!(r[9], body);
+            if ob {
+                // OceanBase keeps its own SQL mode, and the block without
+                // BEGIN and END; the form shows the block again.
+                assert!(!r[8].contains("ANSI_QUOTES"), "{r:?}");
+                assert_eq!(r[9], "INSERT INTO t VALUES (2);INSERT INTO t VALUES (3);");
+                let form = s.scheduler_form("job", Some(&id)).await.expect("form");
+                assert_eq!(val(&form, "body"), json!(body));
+                let sc = script(&mut s, "job", Some(&id), &values_of(&form)).await;
+                assert!(sc.contains("no hay cambios"), "{sc}");
+            } else {
+                assert!(r[8].contains("ANSI_QUOTES") && r[8].contains("STRICT_ALL_TABLES"), "{r:?}");
+                assert_eq!(r[9], body);
+            }
 
             // Moved to another database and renamed (OceanBase doesn't move
             // events): the id follows.
@@ -528,6 +568,13 @@ async fn events(driver: &str, env: &str) {
             ] {
                 let mut v = values_of(&form);
                 set(&mut v, k, bad);
+                if ob && k == "sql_mode" {
+                    // OceanBase keeps its own SQL mode: the form's is never
+                    // sent.
+                    let sc = script(&mut s, "job", Some(&id), &v).await;
+                    assert!(sc.contains("no hay cambios") && !sc.contains("DROP"), "{sc}");
+                    continue;
+                }
                 let m = query_err(&mut s, "job", Some(&id), &v).await;
                 assert!(m.contains(says), "{k}: {m}");
             }

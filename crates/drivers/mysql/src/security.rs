@@ -150,24 +150,30 @@ fn accounts_query(v: Variant) -> &'static str {
            FROM mysql.user u LEFT JOIN mysql.global_priv g ON g.User = u.User AND g.Host = u.Host
           ORDER BY u.is_role, u.User, u.Host"
     } else {
-        // A role is an account CREATE ROLE left locked, expired and without password.
+        // A role is an account CREATE ROLE left locked and without password,
+        // expired (MySQL) or without an authentication plugin (OceanBase,
+        // whose roles' password_expired is empty).
         "SELECT User, Host, account_locked,
-                IF(account_locked = 'Y' AND password_expired = 'Y' AND IFNULL(authentication_string, '') = '', 'Y', 'N'),
+                IF(account_locked = 'Y' AND IFNULL(authentication_string, '') = ''
+                   AND (password_expired = 'Y' OR IFNULL(plugin, '') = ''), 'Y', 'N'),
                 plugin, Super_priv, password_expired
            FROM mysql.user ORDER BY 4, User, Host"
     }
 }
 
 /// An account from `SELECT * FROM mysql.user` in `accounts_query`'s
-/// order, by column name; a role is what CREATE ROLE leaves (locked,
-/// expired, no password) unless the engine says (`is_role`).
+/// order, by column name; a role is what CREATE ROLE leaves unless the
+/// engine says (`is_role`): see [`left_by_create_role`].
 fn loose_account(r: &mysql_async::Row) -> Vec<Option<String>> {
     let col = |n: &str| crate::session::named(r, &[n]);
     let locked = col("account_locked");
     let role = col("is_role").unwrap_or_else(|| {
-        let r = yes(locked.clone())
-            && yes(col("password_expired"))
-            && col("authentication_string").unwrap_or_default().is_empty();
+        let r = left_by_create_role(
+            locked.as_deref(),
+            col("password_expired").as_deref(),
+            col("authentication_string").as_deref(),
+            col("plugin").as_deref(),
+        );
         (if r { "Y" } else { "N" }).into()
     });
     vec![
@@ -179,6 +185,23 @@ fn loose_account(r: &mysql_async::Row) -> Vec<Option<String>> {
         col("Super_priv"),
         col("password_expired"),
     ]
+}
+
+/// Whether a `mysql.user` row is what CREATE ROLE leaves: locked and
+/// without password, and expired (MySQL) or without an authentication
+/// plugin (OceanBase, whose roles' `password_expired` is empty, while a
+/// locked user there still has its plugin). The same test as
+/// `accounts_query`'s.
+fn left_by_create_role(
+    locked: Option<&str>,
+    expired: Option<&str>,
+    auth: Option<&str>,
+    plugin: Option<&str>,
+) -> bool {
+    let y = |v: Option<&str>| yes(v.map(Into::into));
+    y(locked)
+        && auth.unwrap_or_default().is_empty()
+        && (y(expired) || plugin.unwrap_or_default().trim().is_empty())
 }
 
 /// Role memberships: member user, member host, role user, role host.
@@ -624,6 +647,38 @@ mod tests {
             schema: schema.map(Into::into),
             name: name.into(),
         })
+    }
+
+    /// OceanBase 4.4's CREATE ROLE leaves `password_expired` empty and no
+    /// plugin; a locked user there keeps its plugin. MySQL's role is
+    /// expired and has a plugin.
+    #[test]
+    fn roles_are_what_create_role_leaves() {
+        let role = |l, e, a, p| left_by_create_role(l, e, a, p);
+        // MySQL 8: CREATE ROLE.
+        assert!(role(
+            Some("Y"),
+            Some("Y"),
+            Some(""),
+            Some("caching_sha2_password")
+        ));
+        // OceanBase 4.4: CREATE ROLE.
+        assert!(role(Some("Y"), Some(""), Some(""), Some("")));
+        // OceanBase: CREATE USER without password, then ACCOUNT LOCK.
+        assert!(!role(
+            Some("Y"),
+            Some(""),
+            Some(""),
+            Some("mysql_native_password")
+        ));
+        // A locked user with a password; an open account.
+        assert!(!role(
+            Some("Y"),
+            Some("Y"),
+            Some("*0D3C…"),
+            Some("mysql_native_password")
+        ));
+        assert!(!role(Some("N"), Some("Y"), Some(""), Some("")));
     }
 
     #[test]

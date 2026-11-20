@@ -16326,7 +16326,7 @@
   "Números del 1 al 31 separados por comas; los negativos cuentan desde el final del mes.": "1～31 の数字をカンマ区切りで指定します。負の数は月末から数えます。",
   "Observador de archivos": "ファイルウォッチャー",
   "Observadores de archivos": "ファイルウォッチャー",
-  "OceanBase lee las horas de los eventos en la zona horaria global del tenant y no mueve un evento a otra base.": "OceanBase はイベントの時刻をテナントのグローバルタイムゾーンで読み取り、イベントを別のデータベースへ移動しません。",
+  "OceanBase lee las horas de los eventos en la zona horaria global del tenant, guarda cada evento con su propio modo SQL y no mueve un evento a otra base.": "OceanBase はイベントの時刻をテナントのグローバルタイムゾーンで読み取り、各イベントを個別の SQL モードで保存し、イベントを別のデータベースへ移動しません。",
   "OceanBase no mueve un evento a otra base: crealo en la nueva y borrá este.": "OceanBase はイベントを別のデータベースへ移動しません。新しいデータベースで作成し、これを削除してください。",
   "Octubre": "10月",
   "Opcional: el id con el que ksqlDB la lista (QUERY_ID). Sin él, ksqlDB le pone uno.": "任意: ksqlDB が一覧に表示する ID（QUERY_ID）。省略すると ksqlDB が割り当てます。",

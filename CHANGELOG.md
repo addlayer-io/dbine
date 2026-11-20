@@ -37,6 +37,9 @@
 - **MongoDB 7 without search indexes:** a server without mongot, which refuses the search index listing, is treated as having no search indexes, and a listing that fails says why.
 - **Cassandra and ScyllaDB JSON columns:** a JSON value from another engine, such as an object or array from PostgreSQL's jsonb, is written as its JSON text in a text column.
 - **DuckDB HNSW indexes:** the distance of an index DuckDB 1.5 lists without its settings is read from the extension, so a cosine index no longer reads as euclidean, and schema compare tells HNSW indexes apart by their settings.
+- **OceanBase events in the scheduler designer:** saving an event with a composite interval such as `'1:30' HOUR_MINUTE`, or with `WEEK` or `QUARTER`, failed with a syntax error, because OceanBase's `EVERY` takes only SECOND, MINUTE, HOUR, DAY, MONTH and YEAR. The form now offers only those on OceanBase (90 MINUTE does what 1:30 HOUR_MINUTE did). The "disabled on the replicas" status doesn't exist in OceanBase and is no longer offered there.
+- **OceanBase events with a `BEGIN … END` body:** an event couldn't be saved again after reopening it, because OceanBase stores the block without `BEGIN` and `END` and the form showed loose statements it refused. The form shows it as a block again. OceanBase keeps each event's own SQL mode whatever the session's, so the SQL mode field is read-only there and the form's note says so; before, a mode typed in the form was silently not kept.
+- **OceanBase roles in Users and permissions:** a role created with `CREATE ROLE` was listed as a locked user. OceanBase leaves a role's password-expired flag empty, unlike MySQL; roles are now listed as roles.
 
 ## [1.6.3] - 2026-11-18
 

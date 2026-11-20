@@ -16291,7 +16291,7 @@
   "Números del 1 al 31 separados por comas; los negativos cuentan desde el final del mes.": "Numeri da 1 a 31 separati da virgole; i negativi contano dalla fine del mese.",
   "Observador de archivos": "Osservatore di file",
   "Observadores de archivos": "Osservatori di file",
-  "OceanBase lee las horas de los eventos en la zona horaria global del tenant y no mueve un evento a otra base.": "OceanBase legge gli orari degli eventi nel fuso orario globale del tenant e non sposta un evento in un altro database.",
+  "OceanBase lee las horas de los eventos en la zona horaria global del tenant, guarda cada evento con su propio modo SQL y no mueve un evento a otra base.": "OceanBase legge gli orari degli eventi nel fuso orario globale del tenant, salva ogni evento con la propria modalità SQL e non sposta un evento in un altro database.",
   "OceanBase no mueve un evento a otra base: crealo en la nueva y borrá este.": "OceanBase non sposta un evento in un altro database: crealo nel nuovo ed elimina questo.",
   "Octubre": "Ottobre",
   "Opcional: el id con el que ksqlDB la lista (QUERY_ID). Sin él, ksqlDB le pone uno.": "Facoltativo: l'id con cui ksqlDB lo elenca (QUERY_ID). Senza, ksqlDB ne assegna uno.",
