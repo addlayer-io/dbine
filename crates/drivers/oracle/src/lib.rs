@@ -6,6 +6,17 @@
 //! level below the connection is the schema (Oracle users that own
 //! objects), so `connect(database)` sets `CURRENT_SCHEMA`.
 
+/// The users Oracle maintains (SYS, SYSTEM, XDB…) as a SQL list, for
+/// servers before 12c, which have no `ALL_USERS.ORACLE_MAINTAINED`.
+macro_rules! oracle_schemas_11g {
+    () => {
+        "'SYS','SYSTEM','OUTLN','DBSNMP','APPQOSSYS','XDB','CTXSYS','MDSYS','ORDSYS',
+        'ORDDATA','OLAPSYS','WMSYS','EXFSYS','LBACSYS','DVSYS','GSMADMIN_INTERNAL','AUDSYS','OJVMSYS',
+        'SI_INFORMTN_SCHEMA','ORDPLUGINS','APEX_PUBLIC_USER','FLOWS_FILES','ANONYMOUS','DIP','ORACLE_OCM',
+        'XS$NULL','MDDATA','SPATIAL_CSW_ADMIN_USR','SPATIAL_WFS_ADMIN_USR','SYSBACKUP','SYSDG','SYSKM'"
+    };
+}
+
 mod backup;
 mod blocking;
 mod create_db;
@@ -21,6 +32,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod references;
 mod rename;
 mod scheduler;
 mod script;
@@ -1073,13 +1085,14 @@ const LIST_SCHEMAS: &str = "SELECT u.username FROM all_users u
   ORDER BY u.username";
 
 /// Before 12c there's no ORACLE_MAINTAINED column.
-const LIST_SCHEMAS_11G: &str = "SELECT u.username FROM all_users u
+const LIST_SCHEMAS_11G: &str = concat!(
+    "SELECT u.username FROM all_users u
   WHERE EXISTS (SELECT 1 FROM all_objects o WHERE o.owner = u.username)
-    AND u.username NOT IN ('SYS','SYSTEM','OUTLN','DBSNMP','APPQOSSYS','XDB','CTXSYS','MDSYS','ORDSYS',
-        'ORDDATA','OLAPSYS','WMSYS','EXFSYS','LBACSYS','DVSYS','GSMADMIN_INTERNAL','AUDSYS','OJVMSYS',
-        'SI_INFORMTN_SCHEMA','ORDPLUGINS','APEX_PUBLIC_USER','FLOWS_FILES','ANONYMOUS','DIP','ORACLE_OCM',
-        'XS$NULL','MDDATA','SPATIAL_CSW_ADMIN_USR','SPATIAL_WFS_ADMIN_USR','SYSBACKUP','SYSDG','SYSKM')
-  ORDER BY u.username";
+    AND u.username NOT IN (",
+    oracle_schemas_11g!(),
+    ")
+  ORDER BY u.username"
+);
 
 const LIST_OBJECTS: &str = "SELECT o.object_type, o.object_name, t.table_name
    FROM all_objects o
@@ -1939,6 +1952,16 @@ impl Session for OracleSession {
         let name = table.name.clone();
         self.run(move |c| index_usage::report(c, &owner, &name).map(Some))
             .await
+    }
+
+    /// ALL_DEPENDENCIES, the foreign keys, ALL_SYNONYMS, the database
+    /// links and the external tables' files (see `references`).
+    async fn references(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        self.references_impl(target, scan).await
     }
 
     /// ALL_TABLES.NUM_ROWS, the optimizer statistics (see `stats`).
