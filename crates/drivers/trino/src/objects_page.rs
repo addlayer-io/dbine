@@ -223,7 +223,7 @@ impl TrinoSession {
             }
             // As `list_objects`: a server that can't list the materialized
             // views (Presto) has none.
-            Err(Error::Query(e)) if mvs && self.mv_catalog.is_none() => {
+            Err(e) if e.is_query() && mvs && self.mv_catalog.is_none() => {
                 tracing::debug!("{:?}: no materialized views to join: {e}", self.flavor);
                 self.mv_catalog = Some(false);
                 let sql = page_sql(&cat, false, q, after.as_ref()).unwrap_or_default();
