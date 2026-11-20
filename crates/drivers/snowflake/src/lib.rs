@@ -23,6 +23,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod references;
 mod rename;
 mod scheduler;
 mod script;
@@ -1676,6 +1677,16 @@ impl Session for SnowflakeSession {
         let snap = monitor::snapshot(&*self, &mut cache).await;
         self.mon = cache;
         Ok(snap)
+    }
+
+    /// What the object uses: `OBJECT_DEPENDENCIES` and its definition (see
+    /// [`references`]).
+    async fn references(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        self.references_of(target, scan).await
     }
 
     async fn index_usage(
