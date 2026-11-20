@@ -79,6 +79,8 @@ pub struct Fake {
     pub job_types: Mutex<Vec<ResultColumn>>,
     /// The columns of every typed insert script (`insert_script_typed`).
     pub typed_inserts: Mutex<Vec<Vec<ResultColumn>>>,
+    /// The type the read announces for its `name` column.
+    pub name_type: &'static str,
 }
 
 impl Default for Fake {
@@ -112,6 +114,7 @@ impl Default for Fake {
             filters: Mutex::default(),
             job_types: Mutex::default(),
             typed_inserts: Mutex::default(),
+            name_type: "text",
         }
     }
 }
@@ -500,7 +503,7 @@ impl Session for FakeSession {
             },
             TransferColumn {
                 name: "name".into(),
-                type_name: "text".into(),
+                type_name: f.name_type.into(),
                 nullable: true,
             },
         ];

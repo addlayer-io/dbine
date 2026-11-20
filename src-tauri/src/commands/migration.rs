@@ -1673,6 +1673,26 @@ fn vector_columns(driver: &str, cols: &[TransferColumn]) -> Vec<String> {
         .collect()
 }
 
+/// [`vector_columns`] of a converted table: as the target describes it (`described`) and as
+/// the conversion made it (`made`). An engine that describes a collection by its documents
+/// (MongoDB) says nothing of a new, empty one, and its vectors still have to arrive as vectors
+/// (a pgvector `bit(n)` as its bits, not as the bit string `1011…`).
+fn converted_vector_columns(
+    driver: &str,
+    described: &[TransferColumn],
+    made: &TableSchema,
+) -> Vec<String> {
+    let mut out = vector_columns(driver, described);
+    for c in &made.columns {
+        let vector =
+            crate::commands::vectors::of_type(driver, &c.data_type).is_some_and(|m| !m.sparse);
+        if vector && !out.iter().any(|n| n.eq_ignore_ascii_case(&c.name)) {
+            out.push(c.name.clone());
+        }
+    }
+    out
+}
+
 /// A statement's first line, short (for the list of those that failed).
 fn short_sql(sql: &str) -> String {
     let line = sql.trim().lines().next().unwrap_or("");
@@ -1929,7 +1949,7 @@ async fn structure(
                 after,
                 post,
                 preexisting: existed,
-                vector_columns: vector_columns(p.target.info().id, &expected),
+                vector_columns: converted_vector_columns(p.target.info().id, &expected, target_t),
                 expected_columns: expected,
                 mode: TransferMode::Copy,
             });
@@ -2872,6 +2892,42 @@ mod tests {
     use dbine_core::{SavedConnection, StateStore};
     use dbine_driver::ConnectionConfig;
 
+    /// A converted table's vector columns come from the target's describe and from the types
+    /// the conversion gave them: MongoDB describes an empty collection by no field at all.
+    #[test]
+    fn a_converted_tables_vector_columns_come_from_its_types_too() {
+        let made = |ty: &str| TableSchema {
+            name: "docs".into(),
+            columns: vec![
+                ColumnDef {
+                    name: "id".into(),
+                    data_type: "int".into(),
+                    ..Default::default()
+                },
+                ColumnDef {
+                    name: "emb".into(),
+                    data_type: ty.into(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            converted_vector_columns("mongodb", &[], &made("vector(16, bit)")),
+            ["emb"]
+        );
+        let described = [TransferColumn {
+            name: "EMB".into(),
+            type_name: "F1BIT_BLOB(16)".into(),
+            nullable: true,
+        }];
+        assert_eq!(
+            converted_vector_columns("libsql", &described, &made("F1BIT_BLOB(16)")),
+            ["EMB"]
+        );
+        assert!(converted_vector_columns("postgres", &[], &made("bit(16)")).is_empty());
+    }
+
     /// A migration's insert-script path is typed by the target: each
     /// column's type as the target describes it (the job's expected
     /// columns), with the vector that type holds on the target's engine.
@@ -3783,3 +3839,7 @@ mod tests {
         assert_eq!(before_label("SELECT 1"), "SELECT 1");
     }
 }
+
+#[cfg(test)]
+#[path = "migration_vector_live_tests.rs"]
+mod vector_live_tests;
