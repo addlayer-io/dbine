@@ -253,13 +253,39 @@ impl Dialect for Sqlite {
     /// the converter gives the column the dimension its source index
     /// states (a ClickHouse array), so a vector that still has none, or a
     /// sparse one (kept as text), can't be indexed. A 1-bit vector is
-    /// measured by cosine only (libSQL has no L2 distance for them).
+    /// measured by cosine only (libSQL has no L2 distance for them), and
+    /// on 1-bit vectors libSQL's cosine distance is the Hamming distance
+    /// (the count of bits that differ: checked on sqld 0.24), so a Hamming
+    /// index becomes a cosine one, said in the notes.
     fn vector_index(
         &self,
         v: &dbine_driver::VectorIndex,
         ctx: &super::VectorIndexCtx<'_>,
     ) -> Result<super::VectorIndexMapping, String> {
+        use dbine_driver::vector::metric;
         let column = ctx.column;
+        let bits = matches!(
+            column,
+            Some(L::Vector {
+                element: dbine_driver::VectorElement::Bit,
+                sparse: false,
+                dims: Some(_),
+            })
+        );
+        if bits
+            && v.metric
+                .as_deref()
+                .is_some_and(|m| m.eq_ignore_ascii_case(metric::HAMMING))
+        {
+            let cosine = dbine_driver::VectorIndex {
+                metric: Some(metric::COSINE.into()),
+                ..v.clone()
+            };
+            let (kind, index) = libsql_vector_index(&cosine)?;
+            return Ok(super::VectorIndexMapping::new(kind, index).note(
+                "la distancia hamming queda coseno en libSQL, que no tiene hamming: sobre vectores de 1 bit su distancia coseno cuenta los bits distintos, que es la distancia de Hamming",
+            ));
+        }
         match column {
             Some(L::Vector { sparse: true, .. }) => {
                 return Err("libSQL no indexa vectores dispersos, que quedan como texto".into())
@@ -697,6 +723,33 @@ mod tests {
         assert!(Sqlite
             .vector_index_pair(&cosine, Some(&vec(Some(4), E::Bit, false)))
             .is_ok());
+        // On 1-bit vectors libSQL's cosine distance is Hamming's: a Hamming
+        // index becomes a cosine one, said; Jaccard has no equal.
+        let hamming = VectorIndex {
+            metric: Some("hamming".into()),
+            params: [("m".to_string(), "16".to_string())].into(),
+            ..Default::default()
+        };
+        let ctx = super::super::VectorIndexCtx {
+            column: Some(&vec(Some(16), E::Bit, false)),
+            target_driver: Some("libsql"),
+        };
+        let m = Sqlite.vector_index(&hamming, &ctx).unwrap();
+        assert_eq!(m.index.metric.as_deref(), Some("cosine"));
+        assert_eq!(m.index.params["m"], "16");
+        assert_eq!(m.notes.len(), 1);
+        assert!(m.notes[0].contains("Hamming"), "{:?}", m.notes);
+        let jaccard = VectorIndex {
+            metric: Some("jaccard".into()),
+            ..Default::default()
+        };
+        assert!(Sqlite.vector_index(&jaccard, &ctx).is_err());
+        // Over other vectors, Hamming is no distance libSQL has.
+        let floats = super::super::VectorIndexCtx {
+            column: Some(&vec(Some(16), E::F32, false)),
+            target_driver: Some("libsql"),
+        };
+        assert!(Sqlite.vector_index(&hamming, &floats).is_err());
     }
 
     #[test]
