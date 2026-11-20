@@ -219,27 +219,62 @@ pub(crate) fn literal(v: Variant, value: &serde_json::Value) -> Option<String> {
     })
 }
 
-/// A dense vector as pgvector's `sparsevec` text (`{1:1.5,3:2}/5`, positions
-/// from 1); `text` already sparse, or not a vector, comes back as it is.
+/// A dense vector, or Oracle's sparse text (`[5,[0,3],[1.5,-2]]`: the
+/// dimensions, then the positions from 0 and their values), as pgvector's
+/// `sparsevec` text (`{1:1.5,4:-2}/5`, positions from 1); `text` already in
+/// pgvector's notation, or not a vector, comes back as it is.
 pub(crate) fn sparse_text(text: &str) -> std::borrow::Cow<'_, str> {
-    match dbine_driver::vector::parse(text) {
-        Some(values) => {
-            let nz: Vec<String> = values
-                .iter()
-                .enumerate()
-                .filter(|(_, x)| **x != 0.0)
-                .map(|(i, x)| {
-                    format!(
-                        "{}:{}",
-                        i + 1,
-                        dbine_driver::vector::text([*x]).trim_matches(['[', ']'])
-                    )
-                })
-                .collect();
-            std::borrow::Cow::Owned(format!("{{{}}}/{}", nz.join(","), values.len()))
-        }
+    let pairs = |dims: usize, nz: &mut dyn Iterator<Item = (usize, f64)>| {
+        let nz: Vec<String> = nz
+            .filter(|(_, x)| *x != 0.0)
+            .map(|(i, x)| {
+                format!(
+                    "{}:{}",
+                    i + 1,
+                    dbine_driver::vector::text([x]).trim_matches(['[', ']'])
+                )
+            })
+            .collect();
+        std::borrow::Cow::Owned(format!("{{{}}}/{dims}", nz.join(",")))
+    };
+    if let Some(values) = dbine_driver::vector::parse(text) {
+        return pairs(values.len(), &mut values.iter().copied().enumerate());
+    }
+    match oracle_sparse(text) {
+        Some((dims, nz)) => pairs(dims, &mut nz.into_iter()),
         None => std::borrow::Cow::Borrowed(text),
     }
+}
+
+/// Oracle's text of a SPARSE vector (`[5,[0,3],[1.5,-2]]`) as its
+/// dimensions and its `(position from 0, value)` pairs; `None` when it
+/// isn't one (positions past the dimensions, lists of different lengths,
+/// a value that isn't a finite number).
+fn oracle_sparse(text: &str) -> Option<(usize, Vec<(usize, f64)>)> {
+    use serde_json::Value as V;
+    let text = text.trim();
+    if !text.starts_with('[') {
+        return None;
+    }
+    let V::Array(parts) = serde_json::from_str::<V>(text).ok()? else {
+        return None;
+    };
+    let [dims, V::Array(positions), V::Array(values)] = parts.as_slice() else {
+        return None;
+    };
+    let dims = usize::try_from(dims.as_u64()?).ok()?;
+    if positions.len() != values.len() {
+        return None;
+    }
+    positions
+        .iter()
+        .zip(values)
+        .map(|(i, x)| {
+            let i = usize::try_from(i.as_u64()?).ok().filter(|i| *i < dims)?;
+            Some((i, x.as_f64().filter(|x| x.is_finite())?))
+        })
+        .collect::<Option<Vec<_>>>()
+        .map(|nz| (dims, nz))
 }
 
 /// A binary vector (a JSON array of zeros and ones) as a `bit(n)` string
@@ -351,11 +386,12 @@ fn json_array(s: &str) -> Option<Vec<serde_json::Value>> {
 }
 
 /// `value` as `col` takes it on this variant, when that differs from its
-/// own literal: a dense vector into a `sparsevec` column as `{i:v}/n`, a
-/// vector of zeros and ones into a `bit(n)` column as `1011`, a vector (or
-/// any JSON array) sent as text into a CrateDB `FLOAT_VECTOR` or array as
-/// the array, a JSON array into a PostgreSQL array as `{…}`, and a JSON
-/// array into CrateDB text as its text. `None`: as it is.
+/// own literal: a dense vector (or Oracle's sparse text) into a `sparsevec`
+/// column as `{i:v}/n`, a vector of zeros and ones into a `bit(n)` column
+/// as `1011`, a vector (or any JSON array) sent as text into a CrateDB
+/// `FLOAT_VECTOR` or array as the array, a JSON array into a PostgreSQL
+/// array as `{…}`, and a JSON array into CrateDB text as its text. `None`:
+/// as it is.
 pub(crate) fn typed_value(
     v: Variant,
     col: &ResultColumn,
@@ -370,8 +406,10 @@ pub(crate) fn typed_value(
     match slot(v, col) {
         Slot::Sparse => {
             let t = text(value)?;
-            dbine_driver::vector::parse(&t)?;
-            Some(V::String(sparse_text(&t).into_owned()))
+            match sparse_text(&t) {
+                std::borrow::Cow::Owned(sparse) => Some(V::String(sparse)),
+                std::borrow::Cow::Borrowed(_) => None,
+            }
         }
         Slot::Bits => {
             let t = text(value)?;
@@ -1680,6 +1718,22 @@ mod tests {
         assert_eq!(sparse_text("[0,1.5,0,2,0]"), "{2:1.5,4:2}/5");
         assert_eq!(sparse_text("[0,0]"), "{}/2");
         assert_eq!(sparse_text("{1:1}/3"), "{1:1}/3");
+        // Oracle's sparse text: positions from 0, pgvector's from 1.
+        assert_eq!(sparse_text("[5,[0,3],[1.5,-2]]"), "{1:1.5,4:-2}/5");
+        assert_eq!(sparse_text(" [5, [], []] "), "{}/5");
+        assert_eq!(sparse_text("[3,[2],[1e-7]]"), "{3:0.0000001}/3");
+        assert_eq!(sparse_text("[3,[1],[0]]"), "{}/3");
+        // Not Oracle's: as it is.
+        for bad in [
+            "[5,[5],[1]]",
+            "[5,[0,1],[1]]",
+            "[5,[-1],[1]]",
+            "[5,[0],[\"a\"]]",
+            "[5,[0]]",
+            "[[0],[1],5]",
+        ] {
+            assert_eq!(sparse_text(bad), bad);
+        }
         assert_eq!(bit_text("[1,0,1,1]"), "1011");
         assert_eq!(bit_text("1011"), "1011");
         assert_eq!(bit_text("[1,2]"), "[1,2]");
@@ -2313,6 +2367,15 @@ mod tests {
             Some(json!("{2:1.5,4:2}/5"))
         );
         assert_eq!(some(pg, &s, json!("{2:1.5}/5")), None);
+        // Oracle's sparse text (and that JSON as an array).
+        assert_eq!(
+            some(pg, &s, json!("[5,[1,3],[1.5,2]]")),
+            Some(json!("{2:1.5,4:2}/5"))
+        );
+        assert_eq!(
+            some(pg, &s, json!([5, [1, 3], [1.5, 2]])),
+            Some(json!("{2:1.5,4:2}/5"))
+        );
         assert_eq!(
             some(pg, &typed("s", "sparsevec"), json!([1, 0])),
             Some(json!("{1:1}/2"))

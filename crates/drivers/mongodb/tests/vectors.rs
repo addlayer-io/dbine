@@ -992,7 +992,10 @@ async fn ferretdb_vectors() {
     let d = dbine_driver_mongodb::drivers().remove(1);
     assert!(d.capabilities().vectors);
     let mut s = d.connect(&c, None).await.expect("connect");
-    let (t1, t2) = ("vec_docs", "vec_from_pg");
+    // Names of their own: an insert script follows the BinData form recent
+    // results of a same-named collection showed (`vector::binary_fields`,
+    // by name only), and Atlas' test's `vec_docs` has BinData vectors.
+    let (t1, t2) = ("vec_fdb_docs", "vec_fdb_from_pg");
     cleanup(&mut s, &[t1, t2]).await;
 
     // 1. The designer's collection and its vector index (cosmosSearch).

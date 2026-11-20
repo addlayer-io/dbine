@@ -456,6 +456,23 @@ async fn native_vectors(d: &dyn Driver, s: &mut Box<dyn Session>) {
     .await;
     assert_eq!(out.results[0].rows[0][0], json!(3));
     assert_eq!(out.results[0].rows[0][1], json!(0.0));
+    // The same reads as MCP and the assistant run them (`run_read_only`,
+    // READ access mode the server enforces): Cypher 25's functions and the
+    // index search aren't writes. And their estimated plans.
+    let functions = format!("CYPHER 25 MATCH (n:{LABEL} {{id: 2}}) RETURN vector_dimension_count(n.emb) AS d, vector_norm(n.emb, EUCLIDEAN) AS l, vector_distance(n.emb, vector([1, 0, 0], 3, FLOAT32), EUCLIDEAN) AS e");
+    let search = "CYPHER 25 CALL db.index.vector.queryNodes('dbine_vec_doc', 1, vector([4, 5, 6], 3, FLOAT32)) YIELD node, score RETURN node.id AS id".to_string();
+    for (q, want) in [(&functions, json!(3)), (&search, json!(1))] {
+        let mut out = QueryOutcome::default();
+        s.run_read_only(q, 10, &mut out)
+            .await
+            .unwrap_or_else(|e| panic!("{q}: {e}"));
+        assert_eq!(out.results[0].rows[0][0], want, "{q}");
+        let mut out = QueryOutcome::default();
+        s.explain(q, false, 10, &mut out)
+            .await
+            .unwrap_or_else(|e| panic!("EXPLAIN {q}: {e}"));
+        assert!(!out.plans.is_empty(), "EXPLAIN {q}: {:?}", out.messages);
+    }
 
     // 6. A transfer read: the VECTOR column as its text, typed.
     let sink = Arc::new(Mutex::new(Collect::default()));
@@ -761,6 +778,32 @@ async fn scenario(id: &str, d: &dyn Driver, s: &mut Box<dyn Session>) {
         )
         .await;
         assert_eq!(out.results[0].rows[0][0], json!(1));
+    }
+    // The same search as MCP and the assistant read it (`run_read_only`):
+    // on Neo4j in READ access mode, which the server enforces, so a write
+    // is refused and so are two statements; Memgraph has no such mode.
+    let mut out = QueryOutcome::default();
+    let ro = s.run_read_only(&q, 10, &mut out).await;
+    if neo {
+        ro.unwrap_or_else(|e| panic!("{q}: {e}"));
+        assert_eq!(out.results[0].rows[0][0], json!(1), "{q}");
+        let mut out = QueryOutcome::default();
+        let e = s
+            .run_read_only(&format!("CREATE (:{LABEL} {{id: 99}})"), 1, &mut out)
+            .await
+            .unwrap_err();
+        assert!(e.to_string().contains("CREATE"), "{e}");
+        let mut out = QueryOutcome::default();
+        let two = s
+            .run_read_only("RETURN 1; RETURN 2", 1, &mut out)
+            .await
+            .unwrap_err();
+        assert!(two.to_string().contains("una sola sentencia"), "{two}");
+    } else {
+        assert!(
+            matches!(ro, Err(dbine_driver::Error::Unsupported(_))),
+            "{ro:?}"
+        );
     }
 
     // 7. An edit from the grid: the vector cell as a JSON array.

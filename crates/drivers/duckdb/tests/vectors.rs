@@ -321,6 +321,18 @@ async fn vectors_end_to_end() {
                     again.contains("USING HNSW (\"emb\") WITH (metric = 'cosine', M = 16)"),
                     "{again}"
                 );
+                // An HNSW index whose statement doesn't say its distance
+                // (as DuckDB 1.5 lists every one) has vss's, from
+                // `pragma_hnsw_index_info()`: its default, `l2sq` (l2).
+                run(&mut s, "CREATE INDEX t_bare ON t USING HNSW (emb)").await;
+                let read = s.database_schema().await.unwrap();
+                let read = read.iter().find(|t| t.name == "t").unwrap();
+                let bare = read.indexes.iter().find(|i| i.name == "t_bare").unwrap();
+                let v = bare.vector.as_ref().unwrap();
+                assert_eq!(v.metric.as_deref(), Some("l2"), "{bare:?}");
+                let first = read.indexes.iter().find(|i| i.name == ix.name).unwrap();
+                assert_eq!(first.vector, schema("t").indexes[0].vector);
+                run(&mut s, "DROP INDEX t_bare").await;
 
                 // 6. Similarity, through the index (DuckDB plans it as an
                 // HNSW scan) and by distance.

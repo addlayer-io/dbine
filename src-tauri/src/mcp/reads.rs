@@ -14,6 +14,7 @@
 use std::future::Future;
 
 mod allowlist;
+mod cypher;
 pub(crate) use allowlist::{
     approval_free, dax_approval_free, extension_calls, extension_check_sql, vector_extension,
 };

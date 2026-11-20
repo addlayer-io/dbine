@@ -1729,6 +1729,11 @@ mod tests {
                 "{after:#?}"
             );
             assert_eq!(after.options.get("prefix"), Some(&prefix));
+            // Each server reports its own defaults (valkey-search its
+            // capacity, Redis 8 its HNSW settings): read without them, the
+            // two compare equal after the sync.
+            let r = compare(&model("valkey", &left), &model("redis", &after), &o);
+            assert_eq!(r.tables[0].status, Status::Equal, "{r:?}\n{after:#?}");
         })
         .catch_unwind()
         .await;

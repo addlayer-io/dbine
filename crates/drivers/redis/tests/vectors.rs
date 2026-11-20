@@ -646,6 +646,27 @@ async fn designer_types(id: &str, d: &Arc<dyn Driver>, s: &mut Box<dyn Session>)
             if let Err(e) = try_run(s, &ddl).await {
                 panic!("{id}: the designer offers {ty} with {alg}, refused: {e}\n{ddl}");
             }
+            // Read back, it has none of those settings (each one the
+            // server's default), and what is read makes it again: an
+            // uncompressed SVS-VAMANA reports `NO_COMPRESSION`, which
+            // `FT.CREATE` doesn't take.
+            let schema = s.database_schema().await.unwrap();
+            let read = schema.iter().find(|t| t.name == "dbvec_types").unwrap();
+            let v = read.indexes[0].vector.as_ref().unwrap();
+            assert!(v.params.is_empty(), "{id} {ty} {alg}: {v:?}");
+            let again = d
+                .table_ddl(
+                    read,
+                    DdlParts {
+                        create: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+            run(s, "FT.DROPINDEX dbvec_types").await;
+            if let Err(e) = try_run(s, &again).await {
+                panic!("{id}: {ty} with {alg} read back, refused: {e}\n{again}");
+            }
             run(s, "FT.DROPINDEX dbvec_types").await;
         }
     }

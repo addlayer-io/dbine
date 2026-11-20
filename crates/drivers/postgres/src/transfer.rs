@@ -1277,9 +1277,9 @@ pub(crate) async fn bulk_load(
     let cols = column_list(&spec.columns);
     let probe = probe(s, &table, Some(&spec.columns)).await?;
     let kinds: Vec<Option<Kind>> = probe.iter().map(|(_, t)| Kind::of(t.oid())).collect();
-    // A dense vector (a JSON array) going into a `sparsevec` column is
-    // written in its notation (`{1:1.5,3:2}/5`); a binary one (zeros and
-    // ones) into a `bit(n)` column, as its bit string.
+    // A vector going into a `sparsevec` or `bit(n)` column is written as
+    // that type reads it ([`shaped`]). Neither type has a binary `Kind`, so
+    // such a load always goes as text.
     let shapes: Vec<Option<&str>> = probe
         .iter()
         .map(|(_, t)| match t.name() {
@@ -1341,15 +1341,7 @@ pub(crate) async fn bulk_load(
                 let row: Vec<Cell> = row
                     .iter()
                     .zip(&shapes)
-                    .map(|(c, shape)| match (c, shape) {
-                        (Cell::Text(t) | Cell::Json(t), Some("sparsevec")) => {
-                            Cell::Text(crate::vectors::sparse_text(t).into_owned())
-                        }
-                        (Cell::Text(t) | Cell::Json(t), Some(_)) => {
-                            Cell::Text(crate::vectors::bit_text(t).into_owned())
-                        }
-                        (c, _) => c.clone(),
-                    })
+                    .map(|(c, shape)| shaped(c, *shape))
                     .collect();
                 encode_text_row(&row, &kinds, &mut buf);
             } else {
@@ -1374,6 +1366,24 @@ pub(crate) async fn bulk_load(
         progress(total);
     }
     Ok(total)
+}
+
+/// A cell going into a column of `shape` (`"sparsevec"`, `"bit"`; `None`
+/// for any other type): a dense vector (a JSON array, the contract's form)
+/// or Oracle's sparse text (`[5,[0,3],[1.5,-2]]`) into a `sparsevec` as
+/// its notation (`{1:1.5,4:-2}/5`); a binary vector (one 0 or 1 per
+/// dimension, the contract's form) into a `bit(n)` as its bit string
+/// (`1011`). Anything else goes as it is.
+fn shaped(c: &Cell, shape: Option<&str>) -> Cell {
+    match (c, shape) {
+        (Cell::Text(t) | Cell::Json(t), Some("sparsevec")) => {
+            Cell::Text(crate::vectors::sparse_text(t).into_owned())
+        }
+        (Cell::Text(t) | Cell::Json(t), Some(_)) => {
+            Cell::Text(crate::vectors::bit_text(t).into_owned())
+        }
+        (c, _) => c.clone(),
+    }
 }
 
 async fn finish(sink: &mut Sink, buf: &mut Vec<u8>, binary: bool) -> Result<u64> {
@@ -1577,6 +1587,33 @@ mod tests {
 
     fn same(kind: Kind, cell: Cell) {
         assert_eq!(round(kind, cell.clone()), cell, "{kind:?}");
+    }
+
+    /// Other engines' vectors into `sparsevec` and `bit(n)`: a dense
+    /// array, Oracle's sparse text (positions from 0) and the contract's
+    /// binary vector (one 0 / 1 per dimension, as libSQL's F1BIT and
+    /// Oracle's BINARY read) as pgvector's own text.
+    #[test]
+    fn vectors_load_as_sparsevec_and_bit_take_them() {
+        let text = |s: &str| Cell::Text(s.into());
+        let json = |s: &str| Cell::Json(s.into());
+        let sp = Some("sparsevec");
+        assert_eq!(shaped(&json("[0,1.5,0,-2,0]"), sp), text("{2:1.5,4:-2}/5"));
+        assert_eq!(
+            shaped(&text("[5,[0,3],[1.5,-2]]"), sp),
+            text("{1:1.5,4:-2}/5")
+        );
+        assert_eq!(shaped(&text("[5,[],[]]"), sp), text("{}/5"));
+        assert_eq!(shaped(&text("{1:1.5}/5"), sp), text("{1:1.5}/5"));
+        assert_eq!(shaped(&Cell::Null, sp), Cell::Null);
+        let bit = Some("bit");
+        assert_eq!(
+            shaped(&text("[1,1,0,0,1,0,0,1,0,0,0,0,1,1,1,1]"), bit),
+            text("1100100100001111")
+        );
+        assert_eq!(shaped(&json("[0,1]"), bit), text("01"));
+        assert_eq!(shaped(&text("1011"), bit), text("1011"));
+        assert_eq!(shaped(&text("[1,0]"), None), text("[1,0]"));
     }
 
     #[test]

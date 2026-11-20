@@ -677,3 +677,108 @@ async fn index_usage_overview_of_a_database() {
         "{text}"
     );
 }
+
+/// Neo4j through `run_query` and `explain`, against a live Neo4j 2025.10+
+/// (`DBINE_TEST_NEO4J_2025_URL`, `user:pass@host:port`; the neo4j crate's
+/// tests/vectors.rs says how to run a temporary one): a `CYPHER 25` read
+/// that calls Neo4j's own functions, Cypher 25's vector functions among
+/// them, runs at once in the READ access mode the server enforces (logged
+/// `run_query:enforced`), asking nobody; a write is refused there and
+/// writes nothing. Its nodes go at the end, passed or not.
+#[tokio::test]
+#[ignore = "needs Neo4j 2025: DBINE_TEST_NEO4J_2025_URL"]
+async fn mcp_neo4j_cypher25_vector_reads_are_enforced_live() {
+    use futures_util::FutureExt;
+    let Ok(url) = std::env::var("DBINE_TEST_NEO4J_2025_URL") else {
+        eprintln!("DBINE_TEST_NEO4J_2025_URL not set; skipping");
+        return;
+    };
+    let (auth, hp) = url.rsplit_once('@').unwrap();
+    let (user, pass) = auth.split_once(':').unwrap();
+    let (host, port) = hp.rsplit_once(':').unwrap();
+    let cfg = ConnectionConfig {
+        driver: "neo4j".into(),
+        host: host.into(),
+        port: port.parse().unwrap(),
+        username: Some(user.into()),
+        ..Default::default()
+    };
+    let s = server().await;
+    let mut neo = conn(Some("read"), &[], false);
+    neo.id = "neo4j-conn".into();
+    neo.name = "grafo".into();
+    neo.config = cfg.clone();
+    s.rt.inner.state.store.save_connection(&neo).unwrap();
+    s.rt.inner.state.typed_secrets.insert(
+        neo.id.clone(),
+        [("password".to_string(), pass.to_string())].into(),
+    );
+    let direct = ConnectionConfig {
+        password: Some(pass.into()),
+        ..cfg.clone()
+    };
+    let exec = |q: &'static str| {
+        let c = direct.clone();
+        async move {
+            let mut s = dbine_drivers::open_session(&c, None).await.unwrap();
+            let mut out = dbine_driver::QueryOutcome::default();
+            s.execute(q, 10, &mut out).await.unwrap();
+            out
+        }
+    };
+    let cleanup = "MATCH (n) WHERE n:DbineMcpVec OR n:DbineMcpProbe DETACH DELETE n";
+    exec(cleanup).await;
+    let body = std::panic::AssertUnwindSafe(async {
+        exec("CYPHER 25 CREATE (:DbineMcpVec {id: 1, e: vector([1, 0, 0], 3, FLOAT32)}), (:DbineMcpVec {id: 2, e: vector([0, 1, 0], 3, FLOAT32)})").await;
+        let (_, token) = s.rt.inner.create_client("Claude Code").unwrap();
+        s.rpc(&token, "initialize", json!({ "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "t", "version": "1" } })).await;
+        let call = |tool: &'static str, q: &'static str| {
+            let token = token.clone();
+            let s = &s;
+            async move {
+                // Asking the user would wait for an answer: it mustn't.
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    s.call(&token, tool, json!({ "connection": "grafo", "database": "", "query": q })),
+                )
+                .await
+                .unwrap_or_else(|_| panic!("{tool} waited (an approval?): {q}"))
+            }
+        };
+        let q = "CYPHER 25 MATCH (n:DbineMcpVec) RETURN n.id AS id, vector_distance(n.e, vector([1, 0, 0], 3, FLOAT32), EUCLIDEAN) AS d, vector_dimension_count(n.e) AS dims, vector_norm(n.e, EUCLIDEAN) AS norm, vector.similarity.cosine(n.e, [1.0, 0.0, 0.0]) AS sim ORDER BY d LIMIT 1";
+        let (r, err) = call("run_query", q).await;
+        assert!(!err, "{r}");
+        assert!(!r.contains("Aprobado"), "{r}");
+        eprintln!("neo4j run_query: {r}");
+        let log = s.rt.inner.activity.list(Some("Claude Code"), None, 100).unwrap();
+        assert!(
+            log.iter().any(|e| e.tool == "run_query:enforced" && e.ok),
+            "{log:?}"
+        );
+        assert!(s.rt.inner.approvals.pending().is_empty());
+        // The vector index search, the same way.
+        exec("CREATE VECTOR INDEX dbine_mcp_vec IF NOT EXISTS FOR (n:DbineMcpVec) ON n.e OPTIONS {indexConfig: {`vector.dimensions`: 3, `vector.similarity_function`: 'cosine'}}").await;
+        exec("CALL db.awaitIndexes(60)").await;
+        let (r, err) = call(
+            "run_query",
+            "CYPHER 25 CALL db.index.vector.queryNodes('dbine_mcp_vec', 1, vector([0, 1, 0], 3, FLOAT32)) YIELD node, score RETURN node.id AS id, score",
+        )
+        .await;
+        assert!(!err, "{r}");
+        // Its estimated plan, too.
+        let (r, err) = call("explain", q).await;
+        assert!(!err, "{r}");
+        // A write is refused on the enforced path and writes nothing.
+        let (r, err) = call("run_query", "CREATE (:DbineMcpProbe)").await;
+        assert!(err, "{r}");
+        let out = exec("MATCH (n:DbineMcpProbe) RETURN count(n) AS n").await;
+        assert_eq!(out.results[0].rows[0][0], json!(0));
+    })
+    .catch_unwind()
+    .await;
+    exec(cleanup).await;
+    exec("DROP INDEX dbine_mcp_vec IF EXISTS").await;
+    if let Err(e) = body {
+        std::panic::resume_unwind(e);
+    }
+}

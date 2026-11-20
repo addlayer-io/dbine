@@ -79,7 +79,14 @@ built-in, side-effect-free functions:
   schema-qualified names (except PostgreSQL built-ins under `pg_catalog`),
   quoted names, functions that sleep, lock, touch sequences, settings or
   files, and every function that runs SQL text. Statements in a language
-  other than SQL always ask. The check sees calls, not what an object runs
+  other than SQL always ask, except Neo4j's Cypher: there the list is
+  Neo4j's own functions (Cypher 25's `vector_distance`, `vector_norm`,
+  `vector_dimension_count` and `vector()` among them, and
+  `vector.similarity.*`) and its vector and full-text index searches
+  (`db.index.vector.queryNodes`…); a plugin's function or procedure (APOC,
+  GDS), any other procedure, `LOAD CSV` or a name in backticks asks. A
+  Cypher write isn't asked about: the enforced read refuses it. The check
+  sees calls, not what an object runs
   inside: a view, a user-defined cast or operator, or a user's function
   that shadows a built-in's name can still call code, which the read-only
   transaction contains but can't undo if it acts outside it.

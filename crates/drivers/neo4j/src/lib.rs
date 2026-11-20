@@ -439,6 +439,13 @@ impl Driver for GraphDriver {
         cfg: &ConnectionConfig,
         database: Option<&str>,
     ) -> Result<Box<dyn Session>> {
+        Ok(Box::new(self.open(cfg, database).await?))
+    }
+}
+
+impl GraphDriver {
+    /// [`Driver::connect`]'s session, as itself.
+    async fn open(&self, cfg: &ConnectionConfig, database: Option<&str>) -> Result<GraphSession> {
         let db = database
             .filter(|d| !d.is_empty())
             .unwrap_or(cfg.database.trim())
@@ -482,7 +489,7 @@ impl Driver for GraphDriver {
             let q = format!("USE DATABASE {}", cypher::ident(&s.db));
             s.query(&q).await?;
         }
-        Ok(Box::new(s))
+        Ok(s)
     }
 }
 
@@ -539,6 +546,12 @@ struct Ran {
 
 impl GraphSession {
     fn run_extra(&self, db: Option<&str>) -> Bolt {
+        self.run_extra_as(db, self.read_only)
+    }
+
+    /// The `extra` of a RUN or BEGIN; `read`: in READ access mode (Neo4j
+    /// refuses a write there).
+    fn run_extra_as(&self, db: Option<&str>, read: bool) -> Bolt {
         let mut extra = vec![(
             "tx_metadata".to_string(),
             map([("dbine", Bolt::from(self.tag.as_str()))]),
@@ -551,7 +564,7 @@ impl GraphSession {
         if send_db {
             extra.push(("db".into(), Bolt::from(db)));
         }
-        if self.read_only && self.flavor == Flavor::Neo4j {
+        if read && self.flavor == Flavor::Neo4j {
             extra.push(("mode".into(), Bolt::from("r")));
         }
         Bolt::Map(extra)
@@ -565,12 +578,26 @@ impl GraphSession {
         params: Bolt,
         on_row: &mut (dyn FnMut(&[String], Vec<Value>) + Send),
     ) -> Result<Ran> {
+        self.run_with_as(q, db, params, self.read_only, on_row)
+            .await
+    }
+
+    /// [`Self::run_with`]; `read`: in READ access mode, also on a writable
+    /// connection.
+    async fn run_with_as(
+        &mut self,
+        q: &str,
+        db: Option<&str>,
+        params: Bolt,
+        read: bool,
+        on_row: &mut (dyn FnMut(&[String], Vec<Value>) + Send),
+    ) -> Result<Ran> {
         // Inside an explicit transaction RUN takes no extra: the database,
         // access mode and metadata went with BEGIN.
         let extra = if self.tx {
             Bolt::Map(Vec::new())
         } else {
-            self.run_extra(db)
+            self.run_extra_as(db, read)
         };
         self.reconnect_if_dirty().await?;
         match &mut self.transport {
@@ -673,12 +700,24 @@ impl GraphSession {
         max_rows: usize,
         out: &mut QueryOutcome,
     ) -> Result<Ran> {
+        self.run_into_as(stmt, max_rows, out, self.read_only).await
+    }
+
+    /// [`Self::run_into`]; `read`: in READ access mode, also on a writable
+    /// connection.
+    async fn run_into_as(
+        &mut self,
+        stmt: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+        read: bool,
+    ) -> Result<Ran> {
         let mut begun = false;
         let mut shapes: Vec<VectorShape> = Vec::new();
         let params = Bolt::Map(self.params.clone());
         let ran = {
             let out_ref = &mut *out;
-            self.run_with(stmt, None, params, &mut |fields, row| {
+            self.run_with_as(stmt, None, params, read, &mut |fields, row| {
                 if !begun {
                     out_ref.begin_result(columns(fields));
                     shapes = vec![VectorShape::Unseen; fields.len()];
@@ -2145,6 +2184,53 @@ impl Session for GraphSession {
         Ok(())
     }
 
+    /// Neo4j: one statement in an auto-commit transaction in READ access
+    /// mode (Bolt's `mode: "r"`), which the server enforces: a write fails
+    /// there ("Writing in read access mode not allowed"), on a writable
+    /// connection too. The read-only check runs first as well (it refuses
+    /// what acts outside the transaction: `LOAD CSV`, procedures that aren't
+    /// reads). Memgraph and Neptune have no read access mode: `Unsupported`.
+    async fn run_read_only(
+        &mut self,
+        statement: &str,
+        max_rows: usize,
+        out: &mut QueryOutcome,
+    ) -> Result<()> {
+        if self.flavor != Flavor::Neo4j {
+            return Err(Error::Unsupported(
+                "este motor no asegura lecturas de solo lectura en el servidor".into(),
+            ));
+        }
+        let units = cypher::script(statement);
+        // One Cypher statement (not a `:use`, `:param`… command).
+        let [unit] = units.as_slice() else {
+            return Err(Error::Query(
+                "Una lectura admite una sola sentencia.".into(),
+            ));
+        };
+        if unit.command {
+            return Err(Error::Query(
+                "Una lectura admite una sola sentencia.".into(),
+            ));
+        }
+        // Inside the user's transaction RUN would join it (its access mode
+        // went with BEGIN).
+        if self.tx {
+            return Err(Error::State(
+                "Hay una transacción abierta en esta sesión: confirmala (COMMIT) o deshacela (ROLLBACK) antes de una lectura protegida.".into(),
+            ));
+        }
+        if let Some(w) = cypher::write_reason(&unit.text) {
+            return Err(Error::Query(format!(
+                "Conexión de solo lectura: se bloqueó una sentencia con `{w}`. Solo se permiten lecturas (MATCH, RETURN, SHOW…)."
+            )));
+        }
+        self.run_into_as(&unit.text, max_rows, out, true)
+            .await
+            .map(|_| ())
+            .map_err(|e| structured(e, &unit.text))
+    }
+
     async fn transaction_state(&mut self) -> Result<Option<TxState>> {
         if self.flavor == Flavor::Neptune {
             return Ok(None);
@@ -2919,5 +3005,77 @@ mod tests {
             e.definition,
             "CREATE CONSTRAINT ON (n:P) ASSERT n.a, n.b IS UNIQUE;"
         );
+    }
+}
+
+/// Neo4j's READ access mode, against a live server: what makes
+/// [`Session::run_read_only`] a read the server enforces.
+///
+/// ```sh
+/// DBINE_TEST_NEO4J_URL=neo4j:dbine-test-pass@localhost:17687 \
+/// DBINE_TEST_NEO4J_2025_URL=neo4j:dbine-test-pass@127.0.0.1:37687 \
+///   cargo test -p dbine-driver-neo4j --lib read_mode_live -- --ignored
+/// ```
+#[cfg(test)]
+mod read_mode_live {
+    use super::*;
+
+    fn cfg(url: &str) -> ConnectionConfig {
+        let (auth, hp) = url.rsplit_once('@').unwrap_or(("", url));
+        let (host, port) = hp.rsplit_once(':').unwrap();
+        let (user, pass) = auth.split_once(':').unwrap_or((auth, ""));
+        ConnectionConfig {
+            driver: "neo4j".into(),
+            host: host.into(),
+            port: port.parse().unwrap(),
+            username: Some(user.into()),
+            password: Some(pass.into()),
+            ..Default::default()
+        }
+    }
+
+    /// A write sent in READ access mode, past DBine's own check (the check
+    /// would refuse `CREATE` first), fails on the server and writes
+    /// nothing, on a writable connection; the same session then writes
+    /// again outside that mode. Each server whose URL is set.
+    #[tokio::test]
+    #[ignore = "needs Neo4j: see the module's comment"]
+    async fn server_refuses_writes_in_read_mode() {
+        let mut ran = 0;
+        for var in ["DBINE_TEST_NEO4J_URL", "DBINE_TEST_NEO4J_2025_URL"] {
+            let Ok(url) = std::env::var(var) else {
+                continue;
+            };
+            ran += 1;
+            let d = GraphDriver {
+                flavor: Flavor::Neo4j,
+                info: info(Flavor::Neo4j),
+            };
+            let mut s = d.open(&cfg(&url), None).await.unwrap();
+            assert!(!s.read_only);
+            let count = "MATCH (n:DbineReadModeProbe) RETURN count(n) AS n";
+            let mut out = QueryOutcome::default();
+            let e = s
+                .run_into_as("CREATE (:DbineReadModeProbe)", 10, &mut out, true)
+                .await
+                .err()
+                .unwrap_or_else(|| panic!("{var}: a write ran in READ access mode"));
+            let m = e.to_string();
+            assert!(m.to_ascii_lowercase().contains("read"), "{var}: {m}");
+            assert_eq!(s.strings(count).await.unwrap(), ["0"], "{var}");
+            // Outside READ mode the session writes (and cleans up).
+            let mut out = QueryOutcome::default();
+            s.run_into_as("CREATE (:DbineReadModeProbe)", 10, &mut out, false)
+                .await
+                .unwrap();
+            assert_eq!(s.strings(count).await.unwrap(), ["1"], "{var}");
+            s.query("MATCH (n:DbineReadModeProbe) DELETE n")
+                .await
+                .unwrap();
+            eprintln!("{var}: the server refused the write in READ mode ({m})");
+        }
+        if ran == 0 {
+            eprintln!("DBINE_TEST_NEO4J_URL / DBINE_TEST_NEO4J_2025_URL not set; skipping");
+        }
     }
 }
