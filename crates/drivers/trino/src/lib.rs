@@ -8,6 +8,7 @@ mod ddl;
 mod functions;
 mod literal;
 mod monitor;
+mod objects_page;
 mod permissions;
 mod plan;
 mod processes;
@@ -354,6 +355,7 @@ impl Driver for TrinoDriver {
             profiler: None,
             manual: false,
             last_error: None,
+            mv_catalog: None,
         };
         // Checks the address, the credentials and the catalog.
         let check = async {
@@ -428,6 +430,9 @@ pub struct TrinoSession {
     manual: bool,
     /// Details of the last failed statement (`run` returns its text only).
     last_error: Option<QueryError>,
+    /// Whether `system.metadata.materialized_views` can be read (`None`:
+    /// not tried yet), for the explorer's pages ([`objects_page`]).
+    mv_catalog: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
@@ -979,6 +984,15 @@ impl Session for TrinoSession {
                 }
             })
             .collect())
+    }
+
+    /// One narrow `information_schema.tables` query per page (see
+    /// [`objects_page`]).
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(query).await
     }
 
     /// The catalog's `information_schema.schemata`; information_schema is
