@@ -43,6 +43,15 @@ fn render_vector(t: &L) -> Rendered {
         E::F32 => "FLOAT32",
         E::F64 => "FLOAT64",
         E::I8 => "INT8",
+        // Oracle has no 32-bit integers; FLOAT64 holds them exactly.
+        E::I32 => {
+            notes.push((
+                Info,
+                TypeChanged,
+                format!("{}: como FLOAT64 (sin pérdida).", t.describe()),
+            ));
+            "FLOAT64"
+        }
         E::Bit => "BINARY",
         E::F16 | E::Bf16 => {
             notes.push((

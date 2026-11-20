@@ -511,6 +511,11 @@ fn render_vector(
                 TypeChanged,
                 "Vector de enteros de 8 bits como vector de float32: los valores se conservan.",
             ),
+            E::I32 => Rendered::exact(with_dims("vector")).with(
+                Loss,
+                PrecisionLoss,
+                "Vector de enteros de 32 bits como vector de float32: los valores pasados de 16777216 (2^24) se redondean.",
+            ),
             E::Other => Rendered::exact(with_dims("vector")).with(
                 Warning,
                 TypeApproximated,

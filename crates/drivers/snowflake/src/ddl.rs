@@ -221,9 +221,9 @@ pub fn vector_element(c: Option<&ResultColumn>) -> &'static str {
     }
     use dbine_driver::VectorElement as E;
     match c.vector.as_ref().map(|v| v.element) {
-        // Results mark Snowflake's INT vectors `Other` (no 32-bit integer
-        // element); 8-bit integers are integers too.
-        Some(E::Other | E::I8 | E::U8) => "INT",
+        // Results mark Snowflake's INT vectors `I32` (older builds `Other`);
+        // 8-bit integers are integers too.
+        Some(E::I32 | E::Other | E::I8 | E::U8) => "INT",
         _ => "FLOAT",
     }
 }
@@ -836,7 +836,7 @@ mod tests {
             ResultColumn::new("I", "VECTOR(INT, 2)"),
             ResultColumn::new("F", "vector(float, 2)"),
             ResultColumn::new("R", "VECTOR")
-                .with_vector(VectorMeta::dense(None, VectorElement::Other)),
+                .with_vector(VectorMeta::dense(None, VectorElement::I32)),
             ResultColumn::new("X", ""),
         ];
         let v = json!([1, -2]);

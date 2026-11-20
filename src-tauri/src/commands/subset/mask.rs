@@ -357,6 +357,7 @@ fn element_value(x: f64, element: VectorElement) -> f64 {
         VectorElement::F64 | VectorElement::Other => x,
         VectorElement::I8 => x.round().clamp(-128.0, 127.0),
         VectorElement::U8 => x.round().clamp(0.0, 255.0),
+        VectorElement::I32 => x.round().clamp(i32::MIN as f64, i32::MAX as f64),
         VectorElement::Bit => x.round().clamp(0.0, 1.0),
         _ => format!("{}", x as f32).parse().unwrap_or(x),
     }

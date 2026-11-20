@@ -27,7 +27,7 @@ test('type names of every family say dims, element and sparse', () => {
     ['VECTOR(100, FLOAT32, SPARSE)', { dims: 100, element: 'f32', sparse: true }],
     ['vector(3, float16)', { dims: 3, element: 'f16' }], // SQL Server 2025
     ['VECTOR(FLOAT, 256)', { dims: 256, element: 'f32' }], // Snowflake
-    ['VECTOR(INT, 4)', { dims: 4, element: 'other' }],
+    ['VECTOR(INT, 4)', { dims: 4, element: 'i32' }],
     ['vector<float, 3>', { dims: 3, element: 'f32' }], // Cassandra
     ['VECTOR<FLOAT32>(1024)', { dims: 1024, element: 'f32' }], // Neo4j / TiDB
     ['F32_BLOB(3)', { dims: 3, element: 'f32' }], // libSQL
@@ -217,6 +217,10 @@ test('checkVector refuses text, wrong dims and numbers the element cannot hold',
   assert.deepEqual(checkVector('[1.5]', { element: 'u8' }), { problem: { kind: 'range', element: 'u8', position: 0, value: 1.5 } });
   assert.deepEqual(checkVector('[0,1,2]', { element: 'bit' }), { problem: { kind: 'range', element: 'bit', position: 2, value: 2 } });
   assert.deepEqual(checkVector('[-128,127]', { element: 'i8' }).text, '[-128,127]');
+  // Snowflake's VECTOR(INT, n): 32-bit integers.
+  assert.deepEqual(checkVector('[-2147483648,2147483647]', { element: 'i32' }).values, [-2147483648, 2147483647]);
+  assert.deepEqual(checkVector('[1,2147483648]', { element: 'i32' }), { problem: { kind: 'range', element: 'i32', position: 1, value: 2147483648 } });
+  assert.equal(checkVector('[0.5]', { element: 'i32' }).problem.kind, 'range');
 });
 
 test('checkVector refuses floats the element would overflow, and an empty vector', () => {

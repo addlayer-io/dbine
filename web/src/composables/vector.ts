@@ -21,7 +21,7 @@ export const isStandardParam = (p: string) => (STANDARD_PARAMS as readonly strin
 
 /** The element type as engines and docs write it. */
 export const ELEMENT_NAMES: Record<VectorElement, string> = {
-  f32: 'float32', f64: 'float64', f16: 'float16', bf16: 'bfloat16', i8: 'int8', u8: 'uint8', bit: 'bit', other: '',
+  f32: 'float32', f64: 'float64', f16: 'float16', bf16: 'bfloat16', i8: 'int8', u8: 'uint8', i32: 'int32', bit: 'bit', other: '',
 };
 
 const ELEMENT_TOKENS: [RegExp, VectorElement][] = [
@@ -34,7 +34,9 @@ const ELEMENT_TOKENS: [RegExp, VectorElement][] = [
   [/^(uint8|u8)$/i, 'u8'],
   // Couchbase's `int1` is a bit.
   [/^(binary|bit|f1bit|int1|float1bit)$/i, 'bit'],
-  [/^(int|integer|smallint|bigint|i16|i32|i64|int16|int32|int64|integer16|integer32|integer64)$/i, 'other'],
+  // Snowflake's `VECTOR(INT, n)`: 32-bit integers.
+  [/^(int|i32|int32|integer32)$/i, 'i32'],
+  [/^(integer|smallint|bigint|i16|i64|int16|int64|integer16|integer64)$/i, 'other'],
 ];
 /** Element types that aren't numbers: Cassandra's `vector<text, 2>` is a
  *  fixed-length list, not an embedding. */
@@ -121,7 +123,7 @@ export function vectorOfType(typeName: string | null | undefined): VectorMeta | 
   }
   // Cassandra's `vector<int, 2>` is a fixed-length list too: its vectors
   // (the ones it indexes) hold floats, doubles or tinyints.
-  if (/^<[^<>]*,[^<>]*>$/.test(rest) && meta.element === 'other') return null;
+  if (/^<[^<>]*,[^<>]*>$/.test(rest) && (meta.element === 'other' || meta.element === 'i32')) return null;
   return meta;
 }
 
@@ -356,10 +358,15 @@ export type VectorProblem =
   | { kind: 'format' }
   | { kind: 'empty' }
   | { kind: 'dims'; expected: number; got: number }
-  | { kind: 'range'; element: 'i8' | 'u8' | 'bit'; position: number; value: number }
+  | { kind: 'range'; element: 'i8' | 'u8' | 'i32' | 'bit'; position: number; value: number }
   | { kind: 'overflow'; element: 'f16' | 'bf16' | 'f32'; max: number; position: number; value: number };
 
-const RANGES: Partial<Record<VectorElement, [number, number]>> = { i8: [-128, 127], u8: [0, 255], bit: [0, 1] };
+export const RANGES: Partial<Record<VectorElement, [number, number]>> = {
+  i8: [-128, 127],
+  u8: [0, 255],
+  i32: [-2147483648, 2147483647],
+  bit: [0, 1],
+};
 /** Floats narrower than a double: the largest finite one, and what rounds
  *  to a finite one (beyond it, the engine stores infinity or refuses it). */
 const FLOAT_LIMITS: Partial<Record<VectorElement, { max: number; fits: (x: number) => boolean }>> = {
@@ -372,7 +379,7 @@ const FLOAT_LIMITS: Partial<Record<VectorElement, { max: number; fits: (x: numbe
  * What the user typed in a dense vector cell (text) or set in a field (an
  * array, from the JSON tree): a JSON array of finite numbers, not empty,
  * with the column's dimensions (when it declares them) and numbers its
- * element type holds (integers in range for int8 / uint8 / bit, no
+ * element type holds (integers in range for int8 / uint8 / int32 / bit, no
  * overflow for float16 / bfloat16 / float32). The text comes back in the
  * canonical form (`[0.1,-2,3.5]`).
  */
@@ -384,7 +391,7 @@ export function checkVector(text: unknown, meta: VectorMeta | null): { values: n
   const range = meta ? RANGES[meta.element] : undefined;
   if (range) {
     const i = values.findIndex((x) => !Number.isInteger(x) || x < range[0] || x > range[1]);
-    if (i >= 0) return { problem: { kind: 'range', element: meta!.element as 'i8' | 'u8' | 'bit', position: i, value: values[i] } };
+    if (i >= 0) return { problem: { kind: 'range', element: meta!.element as 'i8' | 'u8' | 'i32' | 'bit', position: i, value: values[i] } };
   }
   const limit = meta ? FLOAT_LIMITS[meta.element] : undefined;
   if (limit) {

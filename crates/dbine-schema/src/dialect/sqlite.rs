@@ -114,7 +114,8 @@ impl Dialect for Sqlite {
             L::Vector { dims, element, .. } => {
                 use dbine_driver::VectorElement as E;
                 let name = match element {
-                    E::F64 => "F64_BLOB",
+                    // F64 holds 32-bit integers exactly.
+                    E::F64 | E::I32 => "F64_BLOB",
                     E::F16 => "F16_BLOB",
                     E::Bf16 => "FB16_BLOB",
                     E::Bit => "F1BIT_BLOB",

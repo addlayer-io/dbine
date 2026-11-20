@@ -137,6 +137,7 @@ impl Dialect for Solr {
                     VectorElement::F64 => Rendered::exact(format!("knn_vector({n})")).with(Loss, PrecisionLoss, "Solr guarda los vectores en float de 32 bits: los de 64 bits pierden precisión."),
                     VectorElement::F16 | VectorElement::Bf16 => Rendered::exact(format!("knn_vector({n})")).with(Info, TypeChanged, "Vector de media precisión como float de 32 bits."),
                     VectorElement::U8 | VectorElement::Bit => Rendered::exact(format!("knn_vector({n})")).with(Warning, TypeApproximated, "Vector de bytes sin signo o de bits como números float: Solr solo tiene bytes con signo."),
+                    VectorElement::I32 => Rendered::exact(format!("knn_vector({n})")).with(Loss, PrecisionLoss, "Vector de enteros de 32 bits como float de 32 bits: los valores pasados de 16777216 (2^24) se redondean."),
                     };
                     if *n > MAX_DIMS {
                         r.with(Warning, TypeChanged, format!("Más de {MAX_DIMS} dimensiones. Solr las toma desde la 9.5 (en la 9.4, con SchemaCodecFactory en el solrconfig.xml de la colección)."))

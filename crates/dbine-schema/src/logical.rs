@@ -191,6 +191,7 @@ impl LogicalType {
                     E::Bf16 => " (bfloat16)",
                     E::I8 => " (int8)",
                     E::U8 => " (uint8)",
+                    E::I32 => " (int32)",
                     E::Bit => " (bit)",
                     E::Other => "",
                 };

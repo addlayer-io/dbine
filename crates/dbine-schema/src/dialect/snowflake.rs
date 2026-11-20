@@ -118,12 +118,12 @@ impl Dialect for Snowflake {
                 key: Box::new(nested(self, &t.args[0])),
                 value: Box::new(nested(self, &t.args[1])),
             },
-            // VECTOR(FLOAT, n) / VECTOR(INT, n): 32-bit elements (an INT
-            // has no element type of its own).
+            // VECTOR(FLOAT, n) / VECTOR(INT, n): 32-bit elements.
             "vector" if t.args.len() == 2 => L::Vector {
                 dims: p(1),
                 element: match t.args[0].trim().to_ascii_lowercase().as_str() {
                     "float" | "float4" | "float32" | "real" => dbine_driver::VectorElement::F32,
+                    "int" | "integer" | "int32" => dbine_driver::VectorElement::I32,
                     _ => dbine_driver::VectorElement::Other,
                 },
                 sparse: false,
@@ -163,20 +163,18 @@ impl Dialect for Snowflake {
                 use dbine_driver::VectorElement as E;
                 match element {
                     // Whole numbers that fit a 32-bit INT.
-                    E::I8 | E::U8 | E::Bit => Rendered::exact(format!("VECTOR(INT, {n})")),
+                    E::I32 | E::I8 | E::U8 | E::Bit => Rendered::exact(format!("VECTOR(INT, {n})")),
                     E::F64 => Rendered::exact(format!("VECTOR(FLOAT, {n})")).with(
                         Loss,
                         PrecisionLoss,
                         "VECTOR de Snowflake guarda floats de 32 bits: los de 64 se redondean.",
                     ),
-                    // Snowflake's VECTOR(INT, n) reads back as Other (there's
-                    // no 32-bit integer element), as does an element type
-                    // this build doesn't know: FLOAT, said.
+                    // An element type this build doesn't know: FLOAT, said.
                     E::Other => Rendered::exact(format!("VECTOR(FLOAT, {n})")).with(
                         Warning,
                         TypeApproximated,
                         format!(
-                            "{}: el tipo de sus números no se conoce (o es INT de otro motor): quedan como FLOAT de 32 bits.",
+                            "{}: el tipo de sus números no se conoce: quedan como FLOAT de 32 bits.",
                             t.describe()
                         ),
                     ),
@@ -506,7 +504,7 @@ mod tests {
             lt("VECTOR(INT,3)"),
             L::Vector {
                 dims: Some(3),
-                element: dbine_driver::VectorElement::Other,
+                element: dbine_driver::VectorElement::I32,
                 sparse: false
             }
         );
@@ -543,16 +541,20 @@ mod tests {
             );
             assert_ne!(got.native, "VECTOR");
         }
-        // Round trip of both element types; INT (no element type of its
-        // own) comes back as FLOAT, said.
+        // Round trip of both element types (INT is 32-bit integers).
         assert_eq!(r(lt("VECTOR(FLOAT, 256)")).native, "VECTOR(FLOAT, 256)");
         let int = r(lt("VECTOR(INT, 3)"));
-        assert_eq!(int.native, "VECTOR(FLOAT, 3)");
+        assert_eq!(int.native, "VECTOR(INT, 3)");
+        assert!(int.notes.is_empty(), "{int:?}");
+        // An element this build doesn't know: FLOAT, said.
+        let other = r(v(Some(3), E::Other, false));
+        assert_eq!(other.native, "VECTOR(FLOAT, 3)");
         assert!(
-            int.notes
+            other
+                .notes
                 .iter()
                 .any(|n| n.code == IssueCode::TypeApproximated && n.severity == Severity::Warning),
-            "{int:?}"
+            "{other:?}"
         );
     }
 

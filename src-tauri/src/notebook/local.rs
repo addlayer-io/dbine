@@ -566,7 +566,11 @@ where
     I: Iterator<Item = &'a Value>,
 {
     let meta = col.vector.as_ref().filter(|m| !m.sparse)?;
-    let double = meta.element == dbine_driver::VectorElement::F64;
+    // 32-bit integers fit doubles exactly, not floats.
+    let double = matches!(
+        meta.element,
+        dbine_driver::VectorElement::F64 | dbine_driver::VectorElement::I32
+    );
     let mut lens = HashSet::new();
     for v in values.filter(|v| !v.is_null()) {
         lens.insert(dbine_driver::vector::parse_value(v)?.len() as u32);

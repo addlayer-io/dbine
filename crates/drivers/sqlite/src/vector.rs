@@ -76,10 +76,10 @@ impl Kind {
     }
 
     /// The format for a vector of `e`s: the one that holds them exactly
-    /// (bytes fit in `F32`).
+    /// (bytes fit in `F32`, 32-bit integers in `F64`).
     pub fn for_element(e: VectorElement) -> Kind {
         match e {
-            VectorElement::F64 => Kind::F64,
+            VectorElement::F64 | VectorElement::I32 => Kind::F64,
             VectorElement::F16 => Kind::F16,
             VectorElement::Bf16 => Kind::Bf16,
             VectorElement::Bit => Kind::Bit,

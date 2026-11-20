@@ -308,9 +308,10 @@ impl Dialect for ClickHouse {
             ),
             L::Vector { dims, element, .. } => {
                 use dbine_driver::VectorElement as E;
-                // Narrower numbers fit a Float32 exactly (no Float16 here).
+                // Narrower numbers fit a Float32 exactly (no Float16 here),
+                // 32-bit integers a Float64.
                 let of = match element {
-                    E::F64 => "Float64",
+                    E::F64 | E::I32 => "Float64",
                     E::Bf16 => "BFloat16",
                     _ => "Float32",
                 };

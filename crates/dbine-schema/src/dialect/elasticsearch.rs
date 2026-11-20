@@ -204,6 +204,7 @@ impl Search {
             )),
             VectorElement::Bit => float().with(Warning, TypeApproximated, format!("Vector de bits como números (0 y 1): {engine} guarda bits solo de a 8 dimensiones, y Open Distro, nunca.")),
             VectorElement::I8 | VectorElement::U8 => float().with(Info, TypeChanged, "Vector de bytes como números float."),
+            VectorElement::I32 => float().with(Loss, PrecisionLoss, "Vector de enteros de 32 bits como float de 32 bits: los valores pasados de 16777216 (2^24) se redondean."),
         }
     }
 

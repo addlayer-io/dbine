@@ -127,10 +127,13 @@ pub(crate) enum Precision {
 }
 
 /// Whether `e`'s numbers are wider than a float32 holds: 64-bit floats,
-/// and the elements this build doesn't know (32-bit integers among them),
-/// which compare as float64 so none of their digits is lost.
+/// 32-bit integers and the elements this build doesn't know, which compare
+/// as float64 so none of their digits is lost.
 fn wide(e: VectorElement) -> bool {
-    matches!(e, VectorElement::F64 | VectorElement::Other)
+    matches!(
+        e,
+        VectorElement::F64 | VectorElement::I32 | VectorElement::Other
+    )
 }
 
 /// How a compared column pair's values compare when either side holds

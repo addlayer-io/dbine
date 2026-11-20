@@ -1076,6 +1076,8 @@ impl Types {
                     VectorElement::Bf16 => VType::Bf16,
                     VectorElement::I8 => VType::I8,
                     VectorElement::U8 => VType::U8,
+                    // 32-bit integers fit doubles exactly.
+                    VectorElement::I32 => VType::F64,
                     // Bits and unknown numbers as floats, what hashes
                     // usually hold.
                     _ => VType::F32,

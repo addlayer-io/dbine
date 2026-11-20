@@ -187,6 +187,11 @@ impl Db2 {
                 PrecisionLoss,
                 "Db2 guarda vectores de FLOAT32 o INT8: los float64 pierden precisión.",
             ),
+            E::I32 => Rendered::exact(format!("VECTOR({n}, FLOAT32)")).with(
+                Loss,
+                PrecisionLoss,
+                "Db2 guarda vectores de FLOAT32 o INT8: los enteros de 32 bits pasados de 16777216 (2^24) se redondean.",
+            ),
             _ => Rendered::exact(format!("VECTOR({n}, FLOAT32)")).with(
                 Info,
                 TypeChanged,

@@ -912,7 +912,8 @@ fn vector_float(c: Option<&ResultColumn>) -> &'static str {
         return "FLOAT32";
     }
     match c.vector.as_ref().map(|v| v.element) {
-        Some(VectorElement::F64) => "FLOAT64",
+        // 32-bit integers fit doubles exactly.
+        Some(VectorElement::F64 | VectorElement::I32) => "FLOAT64",
         _ => "FLOAT32",
     }
 }

@@ -769,6 +769,8 @@ pub(crate) fn random_vector(rng: &mut Rng, dims: usize, element: VectorElement) 
     let nums: Vec<f64> = match element {
         VectorElement::I8 => (0..dims).map(|_| rng.range(-128, 127) as f64).collect(),
         VectorElement::U8 => (0..dims).map(|_| rng.range(0, 255) as f64).collect(),
+        // 32-bit integers: small ones, as integer embeddings hold.
+        VectorElement::I32 => (0..dims).map(|_| rng.range(-1000, 1000) as f64).collect(),
         VectorElement::Bit => (0..dims).map(|_| rng.range(0, 1) as f64).collect(),
         _ => {
             let raw: Vec<f64> = (0..dims).map(|_| rng.float() * 2.0 - 1.0).collect();
@@ -1429,10 +1431,11 @@ mod tests {
         let mut g = chosen(&spec, &m, &mut rng).unwrap();
         let n = dbine_driver::vector::parse_value(&value(&mut g, &mut rng, 1, None)).unwrap();
         assert_eq!(n.len(), 16);
-        // Bytes and bits.
+        // Bytes, 32-bit integers and bits.
         for (element, lo, hi) in [
             (VectorElement::I8, -128.0, 127.0),
             (VectorElement::U8, 0.0, 255.0),
+            (VectorElement::I32, -1000.0, 1000.0),
             (VectorElement::Bit, 0.0, 1.0),
         ] {
             m.vector = Some(VectorMeta::dense(Some(64), element));

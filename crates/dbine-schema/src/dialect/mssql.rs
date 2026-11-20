@@ -61,6 +61,11 @@ fn render_vector(d: &dyn Dialect, t: &L) -> Rendered {
                 TypeChanged,
                 "Vector de bfloat16 como float32 (sin pérdida).",
             ),
+            E::I32 => Rendered::exact(format!("vector({n})")).with(
+                Loss,
+                PrecisionLoss,
+                "Vector de enteros de 32 bits como float32: los valores pasados de 16777216 (2^24) se redondean.",
+            ),
             _ => Rendered::exact(format!("vector({n})")).with(
                 Info,
                 TypeChanged,

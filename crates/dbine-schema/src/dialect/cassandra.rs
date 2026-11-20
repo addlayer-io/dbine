@@ -284,6 +284,11 @@ impl Cql {
                 TypeChanged,
                 "Vector de enteros de un byte como vector<float>: los índices vectoriales de CQL son de floats, y los valores caben exactos.",
             ),
+            VectorElement::I32 => float.with(
+                Loss,
+                PrecisionLoss,
+                "Vector de enteros de 32 bits como vector<float>: los índices vectoriales de CQL son de floats, y los valores pasados de 16777216 (2^24) se redondean.",
+            ),
             VectorElement::Bit => float.with(
                 Warning,
                 TypeApproximated,

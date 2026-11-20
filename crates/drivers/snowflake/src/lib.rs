@@ -1922,7 +1922,7 @@ fn result_column(c: &Json) -> ResultColumn {
         _ => ty.to_string(),
     };
     let el = match element {
-        Some("INT") => dbine_driver::VectorElement::Other,
+        Some("INT") => dbine_driver::VectorElement::I32,
         _ => dbine_driver::VectorElement::F32,
     };
     ResultColumn::new(name, type_name).with_vector(dbine_driver::VectorMeta::dense(dims, el))

@@ -328,6 +328,7 @@ pub(crate) fn vector_fallback(d: &dyn Dialect, t: &LogicalType) -> Rendered {
             E::F64 => LogicalType::Float { bytes: 8 },
             E::I8 => LogicalType::int(1),
             E::U8 | E::Bit => LogicalType::int(2),
+            E::I32 => LogicalType::int(4),
             _ => LogicalType::Float { bytes: 4 },
         };
         LogicalType::Array { of: Box::new(of) }

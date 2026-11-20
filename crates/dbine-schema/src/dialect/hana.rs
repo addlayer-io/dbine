@@ -63,6 +63,7 @@ fn render_vector(d: &dyn Dialect, t: &L) -> Rendered {
             PrecisionLoss,
             "REAL_VECTOR guarda float32: los float64 pierden precisión.",
         ),
+        E::I32 => r.with(Loss, PrecisionLoss, "Vector de enteros de 32 bits como float32: los valores pasados de 16777216 (2^24) se redondean."),
         _ => r.with(
             Info,
             TypeChanged,

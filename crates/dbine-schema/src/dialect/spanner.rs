@@ -140,9 +140,10 @@ impl Dialect for Spanner {
             L::Vector { sparse: true, .. } => super::vector_fallback(self, t),
             L::Vector { dims, element, .. } => {
                 use dbine_driver::VectorElement as E;
-                // FLOAT32 holds halves, bfloat16, bytes and bits exactly.
+                // FLOAT32 holds halves, bfloat16, bytes and bits exactly;
+                // FLOAT64 32-bit integers.
                 let (of, r) = match element {
-                    E::F64 => ("FLOAT64", None),
+                    E::F64 | E::I32 => ("FLOAT64", None),
                     E::Other => (
                         "FLOAT64",
                         Some("el tipo de sus números no se conoce: quedan como FLOAT64"),

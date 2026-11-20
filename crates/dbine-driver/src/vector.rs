@@ -36,6 +36,8 @@ pub enum VectorElement {
     Bf16,
     I8,
     U8,
+    /// 32-bit signed integer (Snowflake's `VECTOR(INT, n)`).
+    I32,
     /// One bit per dimension (binary vectors).
     Bit,
     /// An element type this build doesn't know.
@@ -594,6 +596,12 @@ mod tests {
         );
         let back: VectorMeta = serde_json::from_value(json!({"element": "f4"})).unwrap();
         assert_eq!(back.element, VectorElement::Other);
+        // 32-bit integers are `i32`; a reader without them takes `Other`.
+        let int = VectorMeta::dense(Some(3), VectorElement::I32);
+        assert_eq!(
+            serde_json::to_value(int).unwrap(),
+            json!({"dims": 3, "element": "i32"})
+        );
         assert_eq!(back.dims, None);
         let i: VectorIndex = serde_json::from_value(json!({})).unwrap();
         assert_eq!(i, VectorIndex::default());

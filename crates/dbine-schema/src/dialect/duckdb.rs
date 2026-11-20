@@ -186,8 +186,9 @@ impl Dialect for DuckDb {
             ),
             L::Vector { dims, element, .. } => {
                 use dbine_driver::VectorElement as E;
-                // Narrower numbers fit a FLOAT exactly; bits as 0 and 1.
-                let of = if *element == E::F64 {
+                // Narrower numbers fit a FLOAT exactly; bits as 0 and 1;
+                // 32-bit integers a DOUBLE.
+                let of = if matches!(element, E::F64 | E::I32) {
                     "DOUBLE"
                 } else {
                     "FLOAT"
