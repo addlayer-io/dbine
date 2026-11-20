@@ -173,6 +173,44 @@ pub async fn list_object_page(
     object_page(&state, args).await
 }
 
+/// One page out of `s`: the driver's own narrow query, or, when it has none
+/// (`Unsupported`), its whole list kept in `lists` under `key` for
+/// `OBJECT_LIST_TTL` (a `fresh` read takes only a list read after `asked`).
+async fn page_on(
+    s: &mut Box<dyn dbine_driver::Session>,
+    q: &ObjectQuery,
+    lists: &dashmap::DashMap<String, crate::state::KeptObjectList>,
+    key: String,
+    fresh: bool,
+    asked: std::time::Instant,
+) -> dbine_driver::Result<ObjectPage> {
+    match s.list_objects_page(q).await {
+        Err(dbine_driver::Error::Unsupported(_)) => {}
+        r => return r,
+    }
+    // Checked here, on the session: requests queued behind the one that
+    // read the list take it from there.
+    let kept = lists
+        .get(&key)
+        .filter(|e| {
+            if fresh {
+                e.0 >= asked
+            } else {
+                e.0.elapsed() < OBJECT_LIST_TTL
+            }
+        })
+        .map(|e| e.1.clone());
+    let all = match kept {
+        Some(all) => all,
+        None => {
+            let all = Arc::new(s.list_objects().await?);
+            lists.insert(key, (std::time::Instant::now(), all.clone()));
+            all
+        }
+    };
+    Ok(dbine_driver::objects::page_of(&all, q))
+}
+
 /// `list_object_page`'s work.
 pub async fn object_page(state: &AppState, args: ObjectPageArgs) -> CommandResult<ObjectPage> {
     let lane = if args.tree { Lane::Tree } else { Lane::Default };
@@ -189,35 +227,7 @@ pub async fn object_page(state: &AppState, args: ObjectPageArgs) -> CommandResul
             &args.connection_id,
             &args.database,
             META_LIMIT,
-            move |s| {
-                Box::pin(async move {
-                    match s.list_objects_page(&q).await {
-                        Err(dbine_driver::Error::Unsupported(_)) => {}
-                        r => return r,
-                    }
-                    // Checked here, on the session: requests queued behind
-                    // the one that read the list take it from there.
-                    let kept = lists
-                        .get(&key)
-                        .filter(|e| {
-                            if fresh {
-                                e.0 >= asked
-                            } else {
-                                e.0.elapsed() < OBJECT_LIST_TTL
-                            }
-                        })
-                        .map(|e| e.1.clone());
-                    let all = match kept {
-                        Some(all) => all,
-                        None => {
-                            let all = Arc::new(s.list_objects().await?);
-                            lists.insert(key, (std::time::Instant::now(), all.clone()));
-                            all
-                        }
-                    };
-                    Ok(dbine_driver::objects::page_of(&all, &q))
-                })
-            },
+            move |s| Box::pin(async move { page_on(s, &q, &lists, key, fresh, asked).await }),
         )
         .await?;
     let q = &args.query;
@@ -690,10 +700,10 @@ mod tests {
         assert!(why.is_some());
     }
 
-    /// A driver without its own pages (SQLite): a folder's pages come out of
-    /// one read of its whole list, kept for a while; "fresh" reads again.
+    /// A driver with its own pages (SQLite): each page is one narrow catalog
+    /// query, so nothing is kept and what was just made shows at once.
     #[tokio::test]
-    async fn a_folder_pages_through_a_kept_list() {
+    async fn a_folder_pages_through_the_drivers_own_pages() {
         use dbine_core::StateStore;
         let dir = std::env::temp_dir().join(format!(
             "dbine-pages-{}-{}",
@@ -754,17 +764,15 @@ mod tests {
         };
         let p = object_page(&state, ask(views, false)).await.unwrap();
         assert_eq!(names(&p), ["v1", "v2"]);
-        // A table made meanwhile: the kept list doesn't have it yet; a fresh
-        // read (Refresh, a structure change) does.
+        // A table made meanwhile: each page is read from the catalog, so it's
+        // there without a fresh read, and no whole list is kept.
         db.execute_batch("CREATE TABLE d (id INTEGER)").unwrap();
         let all = ObjectQuery {
             kind: Some("table".into()),
             ..Default::default()
         };
-        let kept = object_page(&state, ask(all.clone(), false)).await.unwrap();
-        assert_eq!(names(&kept), ["a", "b", "c"]);
-        let fresh = object_page(&state, ask(all, true)).await.unwrap();
-        assert_eq!(names(&fresh), ["a", "b", "c", "d"]);
+        let p = object_page(&state, ask(all, false)).await.unwrap();
+        assert_eq!(names(&p), ["a", "b", "c", "d"]);
         // A lookup by name, ignoring case.
         let found = object_page(
             &state,
@@ -779,11 +787,144 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(names(&found), ["v2"]);
+        assert!(state.object_lists.is_empty(), "the driver pages itself");
+        state.close_connection_sessions("pages");
+        drop(db);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A real SQLite session whose driver has no pages of its own
+    /// (`list_objects_page`'s default, `Unsupported`): what the kept list is
+    /// for (engines that can't page, older driver hosts, a server that
+    /// refuses the narrow query).
+    struct Unpaged(Box<dyn dbine_driver::Session>);
+
+    #[dbine_driver::async_trait]
+    impl dbine_driver::Session for Unpaged {
+        async fn server_version(&mut self) -> dbine_driver::Result<String> {
+            self.0.server_version().await
+        }
+        async fn list_databases(&mut self) -> dbine_driver::Result<Vec<String>> {
+            self.0.list_databases().await
+        }
+        async fn list_objects(&mut self) -> dbine_driver::Result<Vec<DbObject>> {
+            self.0.list_objects().await
+        }
+        async fn columns(&mut self, obj: &ObjectRef) -> dbine_driver::Result<Vec<ColumnInfo>> {
+            self.0.columns(obj).await
+        }
+        async fn definition(&mut self, obj: &ObjectRef) -> dbine_driver::Result<Option<String>> {
+            self.0.definition(obj).await
+        }
+        fn browse_query(&self, obj: &ObjectRef, limit: u32) -> String {
+            self.0.browse_query(obj, limit)
+        }
+        async fn execute(
+            &mut self,
+            text: &str,
+            max_rows: usize,
+            out: &mut dbine_driver::QueryOutcome,
+        ) -> dbine_driver::Result<()> {
+            self.0.execute(text, max_rows, out).await
+        }
+    }
+
+    /// A driver without its own pages: a folder's pages come out of one read
+    /// of its whole list, kept for a while; "fresh" reads again; a
+    /// disconnect drops it.
+    #[tokio::test]
+    async fn a_driver_without_pages_pages_through_a_kept_list() {
+        use dbine_core::StateStore;
+        let dir = std::env::temp_dir().join(format!(
+            "dbine-kept-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("t.sqlite");
+        let db = rusqlite::Connection::open(&file).unwrap();
+        db.execute_batch(
+            "CREATE TABLE a (id INTEGER); CREATE TABLE b (id INTEGER); CREATE TABLE c (id INTEGER);
+             CREATE VIEW v1 AS SELECT 1; CREATE VIEW v2 AS SELECT 2;",
+        )
+        .unwrap();
+        let driver = dbine_drivers::all()
+            .iter()
+            .find(|d| d.info().id == "sqlite")
+            .unwrap();
+        let cfg = dbine_driver::ConnectionConfig {
+            driver: "sqlite".into(),
+            host: file.to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let mut s: Box<dyn dbine_driver::Session> =
+            Box::new(Unpaged(driver.connect(&cfg, None).await.unwrap()));
+        let state = AppState::new(StateStore::open_in_memory().unwrap());
+        let key = meta_key("pages", "");
+        let names = |p: &ObjectPage| p.objects.iter().map(|o| o.name.clone()).collect::<Vec<_>>();
+        let tables = |after: Option<String>| ObjectQuery {
+            kind: Some("table".into()),
+            limit: 2,
+            after,
+            ..Default::default()
+        };
+        let now = std::time::Instant::now;
+        let lists = &state.object_lists;
+        let first = page_on(&mut s, &tables(None), lists, key.clone(), false, now())
+            .await
+            .unwrap();
+        assert_eq!(names(&first), ["a", "b"]);
+        let second = page_on(
+            &mut s,
+            &tables(first.next.clone()),
+            lists,
+            key.clone(),
+            false,
+            now(),
+        )
+        .await
+        .unwrap();
+        assert_eq!((names(&second), second.next), (vec!["c".to_string()], None));
+        // The views' folder: the other kind only.
+        let views = ObjectQuery {
+            kind: Some("view".into()),
+            ..Default::default()
+        };
+        let p = page_on(&mut s, &views, lists, key.clone(), false, now())
+            .await
+            .unwrap();
+        assert_eq!(names(&p), ["v1", "v2"]);
+        assert_eq!(lists.len(), 1, "one list for every page");
+        // A table made meanwhile: the kept list doesn't have it yet; a fresh
+        // read (Refresh, a structure change) does.
+        db.execute_batch("CREATE TABLE d (id INTEGER)").unwrap();
+        let all = ObjectQuery {
+            kind: Some("table".into()),
+            ..Default::default()
+        };
+        let kept = page_on(&mut s, &all, lists, key.clone(), false, now())
+            .await
+            .unwrap();
+        assert_eq!(names(&kept), ["a", "b", "c"]);
+        let fresh = page_on(&mut s, &all, lists, key.clone(), true, now())
+            .await
+            .unwrap();
+        assert_eq!(names(&fresh), ["a", "b", "c", "d"]);
+        // A lookup by name, ignoring case.
+        let lookup = ObjectQuery {
+            name: Some("V2".into()),
+            ..Default::default()
+        };
+        let found = page_on(&mut s, &lookup, lists, key, false, now())
+            .await
+            .unwrap();
+        assert_eq!(names(&found), ["v2"]);
         state.close_connection_sessions("pages");
         assert!(
             state.object_lists.is_empty(),
             "a disconnect drops the kept list"
         );
+        drop(s);
         drop(db);
         std::fs::remove_dir_all(&dir).ok();
     }
