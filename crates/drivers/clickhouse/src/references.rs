@@ -48,21 +48,53 @@ pub(crate) const TARGET_SQL: &str = "SELECT engine, engine_full, create_table_qu
   FROM system.tables WHERE database = {db:String} AND name = {t:String}";
 pub(crate) const TARGET_SQL_OLD: &str = "SELECT engine, engine_full, create_table_query
   FROM system.tables WHERE database = {db:String} AND name = {t:String}";
-/// The tables whose `dependencies_*` list the target: a materialized
-/// view's sources.
-pub(crate) const SOURCES_SQL: &str = "SELECT database, name, engine FROM system.tables
- WHERE arrayExists((d, t) -> d = {db:String} AND t = {t:String}, dependencies_database, dependencies_table)";
+/// The server's own databases: those of a MySQL, PostgreSQL… database
+/// engine are left out (listing their tables asks the remote server).
+/// Their names go to the queries that read every database's tables as
+/// parameters: Timeplus doesn't take a subquery there.
+pub(crate) const LOCAL_DATABASES_SQL: &str = "SELECT name FROM system.databases
+ WHERE engine NOT IN ('MySQL', 'MaterializedMySQL', 'PostgreSQL', 'MaterializedPostgreSQL', 'SQLite', 'DataLakeCatalog', 'Iceberg', 'Filesystem', 'S3', 'HDFS')";
+/// The databases whose name matches `{re}` (a Merge table's `REGEXP`).
+pub(crate) const MATCHING_DATABASES_SQL: &str =
+    "SELECT name FROM system.databases WHERE match(name, {re:String})";
+
+/// `database IN ({l0:String}, …)` for `n` databases, and their parameters.
+pub(crate) fn in_databases(dbs: &[String]) -> (String, Vec<(String, String)>) {
+    let marks: Vec<String> = (0..dbs.len()).map(|i| format!("{{l{i}:String}}")).collect();
+    let params = dbs
+        .iter()
+        .enumerate()
+        .map(|(i, d)| (format!("l{i}"), d.clone()))
+        .collect();
+    let clause = if dbs.is_empty() {
+        "0".to_string()
+    } else {
+        format!("database IN ({})", marks.join(", "))
+    };
+    (clause, params)
+}
+
+/// The tables whose `dependencies_*` list the target (`{db}`, `{t}`): a
+/// materialized view's sources, in these databases.
+pub(crate) fn sources_sql(databases: &str) -> String {
+    format!(
+        "SELECT database, name, engine FROM system.tables
+ WHERE {databases}
+   AND arrayExists((d, t) -> d = {{db:String}} AND t = {{t:String}}, dependencies_database, dependencies_table)"
+    )
+}
 /// Whether a cluster has this server.
 pub(crate) const LOCAL_CLUSTER_SQL: &str =
     "SELECT count() FROM system.clusters WHERE cluster = {c:String} AND is_local";
-/// The tables a Merge table reads: `{db}` exactly or by regexp, `{re}` the
-/// tables' regexp.
-pub(crate) const MERGE_SQL: &str = "SELECT database, name, engine FROM system.tables
- WHERE database = {db:String} AND match(name, {re:String}) AND NOT (database = {self_db:String} AND name = {self:String})
- ORDER BY database, name LIMIT 1000";
-pub(crate) const MERGE_REGEXP_SQL: &str = "SELECT database, name, engine FROM system.tables
- WHERE match(database, {db:String}) AND match(name, {re:String}) AND NOT (database = {self_db:String} AND name = {self:String})
- ORDER BY database, name LIMIT 1000";
+/// The tables a Merge table reads in these databases: `{re}` the tables'
+/// regexp, the Merge table itself left out.
+pub(crate) fn merge_sql(databases: &str) -> String {
+    format!(
+        "SELECT database, name, engine FROM system.tables
+ WHERE {databases} AND match(name, {{re:String}}) AND NOT (database = {{self_db:String}} AND name = {{self:String}})
+ ORDER BY database, name LIMIT 1000"
+    )
+}
 /// SQL functions among the names a body calls (they're global).
 pub(crate) const FUNCTIONS_SQL: &str =
     "SELECT name FROM system.functions WHERE origin = 'SQLUserDefined'";
@@ -211,7 +243,18 @@ impl ClickHouseSession {
         // A materialized view's sources; Timeplus also lists plain views'
         // (and a materialized view's `INTO` stream).
         if matches!(t.kind.as_str(), kinds::VIEW | kinds::MATERIALIZED_VIEW) {
-            if let Ok(rows) = self.rows(SOURCES_SQL, &[("db", &db), ("t", &t.name)]).await {
+            let local: Vec<String> = match self.rows(LOCAL_DATABASES_SQL, &[]).await {
+                Ok(rows) => rows.iter().filter_map(|r| r.first()).map(text).collect(),
+                Err(_) => vec![db.clone()],
+            };
+            let (clause, mut params) = in_databases(&local);
+            params.push(("db".into(), db.clone()));
+            params.push(("t".into(), t.name.clone()));
+            let params: Vec<(&str, &str)> = params
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            if let Ok(rows) = self.rows(&sources_sql(&clause), &params).await {
                 for r in &rows {
                     found.want(wanted(
                         &text(&r[0]),
@@ -279,14 +322,23 @@ impl ClickHouseSession {
             }
         }
         for (mdb, regexp, re, at) in std::mem::take(&mut found.merges) {
-            let sql = if regexp { MERGE_REGEXP_SQL } else { MERGE_SQL };
-            let params = [
-                ("db", mdb.as_str()),
-                ("re", re.as_str()),
-                ("self_db", db),
-                ("self", target.name.as_str()),
-            ];
-            if let Ok(rows) = self.rows(sql, &params).await {
+            let dbs: Vec<String> = if regexp {
+                self.rows(MATCHING_DATABASES_SQL, &[("re", &mdb)])
+                    .await
+                    .map(|rows| rows.iter().filter_map(|r| r.first()).map(text).collect())
+                    .unwrap_or_default()
+            } else {
+                vec![mdb]
+            };
+            let (clause, mut params) = in_databases(&dbs);
+            params.push(("re".into(), re.clone()));
+            params.push(("self_db".into(), db.to_string()));
+            params.push(("self".into(), target.name.clone()));
+            let params: Vec<(&str, &str)> = params
+                .iter()
+                .map(|(k, v)| (k.as_str(), v.as_str()))
+                .collect();
+            if let Ok(rows) = self.rows(&merge_sql(&clause), &params).await {
                 for r in &rows {
                     let mut w = wanted(
                         &text(&r[0]),
@@ -341,23 +393,44 @@ impl ClickHouseSession {
 /// One `system.tables` query for these (database, name) pairs, with its
 /// parameters.
 pub(crate) fn resolve_sql(wanted: &[Wanted]) -> (String, Vec<(String, String)>) {
-    let mut params = Vec::new();
-    let mut terms = Vec::new();
-    for (i, w) in wanted.iter().enumerate() {
-        terms.push(format!(
-            "(database = {{d{i}:String}} AND name = {{n{i}:String}})"
-        ));
-        params.push((format!("d{i}"), w.database.clone()));
-        params.push((format!("n{i}"), w.name.clone()));
-    }
-    let sql = format!(
-        "SELECT database, name, engine FROM system.tables WHERE {}",
-        if terms.is_empty() {
-            "0".to_string()
-        } else {
-            terms.join(" OR ")
+    // The databases and names apart (the server then lists only those
+    // databases); the pairs are matched afterwards.
+    let mut dbs: Vec<&str> = Vec::new();
+    let mut names: Vec<&str> = Vec::new();
+    for w in wanted {
+        if !dbs.contains(&w.database.as_str()) {
+            dbs.push(&w.database);
         }
-    );
+        if !names.contains(&w.name.as_str()) {
+            names.push(&w.name);
+        }
+    }
+    let list = |p: &str, n: usize| {
+        (0..n)
+            .map(|i| format!("{{{p}{i}:String}}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let sql = if wanted.is_empty() {
+        "SELECT database, name, engine FROM system.tables WHERE 0".to_string()
+    } else {
+        format!(
+            "SELECT database, name, engine FROM system.tables WHERE database IN ({}) AND name IN ({})",
+            list("d", dbs.len()),
+            list("n", names.len())
+        )
+    };
+    let params = dbs
+        .iter()
+        .enumerate()
+        .map(|(i, d)| (format!("d{i}"), d.to_string()))
+        .chain(
+            names
+                .iter()
+                .enumerate()
+                .map(|(i, n)| (format!("n{i}"), n.to_string())),
+        )
+        .collect();
     (sql, params)
 }
 
@@ -1401,25 +1474,40 @@ mod tests {
     fn the_sql_sent() {
         assert!(TARGET_SQL.contains("loading_dependencies_database, loading_dependencies_table"));
         assert!(!TARGET_SQL_OLD.contains("loading_dependencies"));
-        assert!(SOURCES_SQL.contains(
+        assert_eq!(
+            in_databases(&["shop".into(), "ref".into()]),
+            (
+                "database IN ({l0:String}, {l1:String})".to_string(),
+                vec![
+                    ("l0".to_string(), "shop".to_string()),
+                    ("l1".into(), "ref".into())
+                ]
+            )
+        );
+        assert_eq!(in_databases(&[]).0, "0");
+        assert!(merge_sql("database IN ({l0:String})")
+            .contains("WHERE database IN ({l0:String}) AND match(name, {re:String})"));
+        assert!(sources_sql("database IN ({l0:String})").contains(
             "arrayExists((d, t) -> d = {db:String} AND t = {t:String}, dependencies_database, dependencies_table)"
         ));
         let (sql, params) = resolve_sql(&[
             wanted("shop", "orders", Confidence::Probable, None),
             wanted("ref", "rates", Confidence::Confirmed, None),
+            wanted("shop", "src", Confidence::Probable, None),
         ]);
         assert_eq!(
             sql,
-            "SELECT database, name, engine FROM system.tables WHERE \
-             (database = {d0:String} AND name = {n0:String}) OR (database = {d1:String} AND name = {n1:String})"
+            "SELECT database, name, engine FROM system.tables WHERE database IN ({d0:String}, {d1:String}) \
+             AND name IN ({n0:String}, {n1:String}, {n2:String})"
         );
         assert_eq!(
             params,
             [
                 ("d0".to_string(), "shop".to_string()),
-                ("n0".into(), "orders".into()),
                 ("d1".into(), "ref".into()),
-                ("n1".into(), "rates".into())
+                ("n0".into(), "orders".into()),
+                ("n1".into(), "rates".into()),
+                ("n2".into(), "src".into())
             ]
         );
         // Nothing wanted: a query that returns nothing.
