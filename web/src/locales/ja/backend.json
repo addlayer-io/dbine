@@ -19053,5 +19053,6 @@
   "Área de trabajo": "ワークスペース",
   "Últimas actualizaciones": "最近の更新",
   "en la base {0}: {1}": "データベース {0} で：{1}",
-  "el resultado no tiene las mismas columnas que en la primera base": "結果の列が最初のデータベースと異なります"
+  "el resultado no tiene las mismas columnas que en la primera base": "結果の列が最初のデータベースと異なります",
+  "este motor todavía no lista sus objetos por páginas": "このエンジンはまだオブジェクトをページ単位で一覧表示しません"
 }

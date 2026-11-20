@@ -159,7 +159,7 @@ export async function dropObjects(connectionId: string, database: string, object
       const gone = new Set(r.dropped.map((o) => `${o.kind}\u0000${o.schema ?? ''}\u0000${o.name}`));
       tabs.closeWhere((t) => t.kind === 'object' && t.connectionId === connectionId && t.database === database
         && gone.has(`${t.object.kind}\u0000${t.object.schema ?? ''}\u0000${t.object.name}`));
-      await conns.loadObjects(connectionId, database, true).catch((e) => task.log(errorMessage(e), 'warn'));
+      await conns.refreshDatabase(connectionId, database).catch((e) => task.log(errorMessage(e), 'warn'));
       return r;
     },
     summary: (r) => (r.errors.length

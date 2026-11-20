@@ -28,6 +28,7 @@ pub mod jobs;
 pub mod keys;
 pub mod model;
 pub mod monitor;
+pub mod objects;
 pub mod params;
 pub mod permissions;
 pub mod plan;
@@ -73,6 +74,7 @@ pub use model::{
     ProgressSinkRef, QueryOutcome, ResultColumn, RowChange, RowSink, RowSinkRef, SchemaInfo,
     ScriptError, StatementEnd, StatementResult, TxState,
 };
+pub use objects::{ObjectPage, ObjectQuery};
 pub use rename::{Fold, ReferenceStyle, RenameRequest, RenameSpec, RenameTarget, ReplaceStyle};
 pub use scheduler::{
     FormField, FormKind, FormList, FormSection, FormValues, ObjectForm, SchedulerAction,
@@ -926,6 +928,22 @@ pub trait Session: Send {
     /// to deriving them from [`Session::list_objects`].
     async fn list_schemas(&mut self) -> Result<Option<Vec<SchemaInfo>>> {
         Ok(None)
+    }
+
+    /// One page of the database's objects (see [`objects`]): a schema's
+    /// objects of one kind for a folder of the explorer, a name search, a
+    /// lookup by name; in the tree's order (schema, then name, ignoring
+    /// case), at most [`ObjectQuery::page_size`] of them, with a cursor when
+    /// more remain. A driver implements it with a narrow catalog query (a
+    /// `WHERE` on schema, kind and name, and a `LIMIT`), so a database with a
+    /// million views opens its one table at once. The default answers
+    /// `Unsupported`: the app then pages [`Session::list_objects`] itself
+    /// ([`objects::page_of`]), reading the whole list once for a while.
+    async fn list_objects_page(&mut self, query: &ObjectQuery) -> Result<ObjectPage> {
+        let _ = query;
+        Err(Error::Unsupported(
+            "este motor todavía no lista sus objetos por páginas".into(),
+        ))
     }
 
     /// Columns (fields) of an object, in ordinal order. Schemaless engines

@@ -18566,6 +18566,7 @@
   "{0}: pg_proc listed no functions": "{0}: pg_proc listed no functions",
   "en la base {0}: {1}": "데이터베이스 {0}에서: {1}",
   "el resultado no tiene las mismas columnas que en la primera base": "결과의 열이 첫 번째 데이터베이스와 같지 않습니다",
+  "este motor todavía no lista sus objetos por páginas": "이 엔진은 아직 개체를 페이지 단위로 나열하지 않습니다",
   "\n# FT.INFO de este servidor no informa la configuración de {0}: completá su algoritmo, TYPE, DIM y DISTANCE_METRIC antes de ejecutarlo.": "\n# 이 서버의 FT.INFO는 {0}의 구성을 알려 주지 않습니다. 실행하기 전에 알고리즘, TYPE, DIM, DISTANCE_METRIC을 입력하세요.",
   " (un índice sobre la columna convertida a halfvec llega a 4000)": " (halfvec으로 변환한 열의 인덱스는 4000까지 가능합니다)",
   " — Oracle {0} no tiene el tipo VECTOR ni índices vectoriales: llegaron en Oracle Database 23ai.": " — Oracle {0}에는 VECTOR 타입과 벡터 인덱스가 없습니다. Oracle Database 23ai부터 제공됩니다.",

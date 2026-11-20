@@ -18566,6 +18566,7 @@
   "Últimas actualizaciones": "Dernières actualisations",
   "en la base {0}: {1}": "dans la base {0} : {1}",
   "el resultado no tiene las mismas columnas que en la primera base": "le résultat n'a pas les mêmes colonnes que dans la première base",
+  "este motor todavía no lista sus objetos por páginas": "ce moteur ne liste pas encore ses objets par pages",
   "\n# FT.INFO de este servidor no informa la configuración de {0}: completá su algoritmo, TYPE, DIM y DISTANCE_METRIC antes de ejecutarlo.": "\n# FT.INFO de ce serveur n'indique pas la configuration de {0} : complétez son algorithme, TYPE, DIM et DISTANCE_METRIC avant de l'exécuter.",
   " (un índice sobre la columna convertida a halfvec llega a 4000)": " (un index sur la colonne convertie en halfvec va jusqu'à 4000)",
   " — Oracle {0} no tiene el tipo VECTOR ni índices vectoriales: llegaron en Oracle Database 23ai.": " — Oracle {0} n'a ni le type VECTOR ni d'index vectoriels : ils sont arrivés avec Oracle Database 23ai.",

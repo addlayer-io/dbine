@@ -31,7 +31,7 @@ watch(d, async (v) => {
   tables.value = [];
   if (!v) return;
   if (!(await ensureConnectedOrTell(v.connectionId))) { ui.closeDbDialog(); return; }
-  await conns.loadObjects(v.connectionId, v.database);
+  await conns.loadAllObjects(v.connectionId, v.database);
   if (v.kind === 'import') {
     try {
       const s = await invoke<TableSchema[]>('database_schema', { args: { connection_id: v.connectionId, database: v.database } });
@@ -54,7 +54,7 @@ function openScript(text: string, connectionId: string | null = null) {
   else newQuery(d.value.connectionId, d.value.database, text, t('dialogs:database.scriptName', { db }));
 }
 function imported() {
-  if (d.value) conns.loadObjects(d.value.connectionId, d.value.database, true);
+  if (d.value) void conns.refreshDatabase(d.value.connectionId, d.value.database);
 }
 </script>
 

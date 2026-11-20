@@ -2,6 +2,7 @@
 // sample data in a plain browser, to look at them without Tauri or a
 // database. Open http://localhost:<vite port>/dev-preview.html?view=plan|chart|results|export|keys|tabs|split|dependencies|fonts
 // |connection[&engine=<driver id>][&testfail=1]|monitor|profiler[&mode=sampled]|compare|multidb[&running=1][&results=1]
+// |datacompare (Comparar datos in query mode, 40 paired columns after "Leer columnas": the column table scrolls, "Comparar" stays in view)
 // |docs (documents with nested fields: the JSON tree view)|docs-edit (the tree alone, editable)
 // |query[&sample=editor|q] (⌘-click, unknown names, parameters, snippets, a table's columns on hover: preview/editor-samples.ts)
 // |query&sample=named[&exec=1][&again=1][&rename=1][&show=<name>] (named results and the run lens: preview/named-samples.ts)
@@ -52,6 +53,7 @@ import JsonTreeView from '../components/JsonTreeView.vue';
 import ResultsPane from '../components/ResultsPane.vue';
 import ResultGrid from '../components/ResultGrid.vue';
 import CompareView from '../views/CompareView.vue';
+import DataCompareView from '../views/DataCompareView.vue';
 import SupportReminder from '../components/SupportReminder.vue';
 import FeedbackDialog from '../components/FeedbackDialog.vue';
 import { compareMock } from './compare-samples';
@@ -503,6 +505,11 @@ const app = createApp({
       }) :
       view === 'dependencies' ? h(DependenciesView, { tab: { id: 'dep', kind: 'dependencies', connectionId: 'c1', database: 'ventas', object: { kind: 'table', schema: 'dbo', name: 'Clientes' }, column: 'Pepe', preview: false } }) :
       view === 'compare' ? h(CompareView, { tab: { id: 'cmp', kind: 'compare', connectionId: 'c1', database: 'ventas', preview: false } }) :
+      view === 'datacompare' ? h(DataCompareView, { tab: {
+        id: 'dc', kind: 'dataCompare', connectionId: 'c1', database: 'ventas', object: null, preview: false,
+        picks: { left: { connectionId: 'c1', database: 'ventas', table: '' }, right: { connectionId: 'c1', database: 'ventas', table: '' }, mode: 'queries',
+          queries: { left: { connectionId: 'c1', database: 'ventas', query: "select * from sise.simba_di\nwhere fec_emi >= '20260101'" }, right: { connectionId: 'c1', database: 'ventas', query: "select * from sise.simba_di\nwhere fec_emi >= '20260101'" } } },
+      } }) :
       view === 'profiler' ? h(ProfilerView, { tab: { id: 'p', kind: 'profiler', connectionId: 'c1', database: 'ventas', preview: false } }) :
       view === 'zoho-wizard' ? zohoWizardPreview() :
       view === 'account-wizard' ? accountWizardPreview() :
@@ -568,7 +575,7 @@ if (view === 'settings') {
   useSyncStore().refresh();
   useUiStore().openSettings((params.get('section') as 'general' | 'sync') ?? 'sync');
 }
-if (view === 'connection' || view === 'monitor' || view === 'profiler' || view === 'compare' || view === 'dependencies' || view === 'query') {
+if (view === 'connection' || view === 'monitor' || view === 'profiler' || view === 'compare' || view === 'datacompare' || view === 'dependencies' || view === 'query') {
   const conns = useConnectionsStore();
   // Compare reads index usage and checks dependents before a drop (both faked in compare-samples).
   conns.drivers = view === 'compare' ? sampleDrivers.map((d) => ({ ...d, supports_index_usage: true, supports_dependencies: true }))
@@ -632,12 +639,22 @@ if (view === 'connection' || view === 'monitor' || view === 'profiler' || view =
         if (params.get('sample') === 'dax') return installDaxSample.invoke(cmd, a?.args);
         return null;
       }
+      // view=datacompare: 40 columns on each side, so the column table is taller than the view.
+      if (view === 'datacompare') {
+        if (cmd === 'plugin:event|listen') return 1;
+        if (cmd === 'plugin:event|unlisten') return null;
+        if (cmd === 'data_compare_query_columns') {
+          const columns = Array.from({ length: 40 }, (_, i) => ({ name: i < 4 ? ['COD_PAI', 'COD_MON', 'CAM_EMI', 'NUM_SEC'][i] : `COL_${String(i).padStart(2, '0')}`, type_name: 'varchar' }));
+          return { columns, sample: columns.map(() => 'x') };
+        }
+      }
       const cmp = compareMock(cmd, a);
       if (cmp !== undefined) return cmp;
       throw { kind: 'preview', message: `"${cmd}" no está disponible en la vista previa` };
     },
   };
   if (view === 'profiler') profilerAutostart.add('p');
+  if (view === 'datacompare') (window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
   // view=query&sample=editor: objects and columns for ⌘-click, unknown names, parameters and snippets.
   if (view === 'query' && params.get('sample') === 'editor') installEditorSample();
   // view=query&sample=q: a KDB+-like connection, for q's highlighting and completion.

@@ -987,7 +987,7 @@ async fn describe(
     if obj.kind == kinds::TABLE || obj.kind == kinds::COLLECTION {
         match inner
             .state
-            .meta_read(&conn.id, db, SCHEMA_LIMIT, |s| {
+            .meta_read_on(crate::state::Lane::Long, &conn.id, db, SCHEMA_LIMIT, |s| {
                 Box::pin(s.database_schema())
             })
             .await

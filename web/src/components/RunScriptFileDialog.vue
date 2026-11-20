@@ -200,7 +200,7 @@ async function run() {
     clearInterval(timer);
     // The file changed the database: the explorer shows it, once per run,
     // whether the dialog is open, closed or in the background.
-    conns.loadObjects(connectionId, database, true).catch(() => {});
+    conns.refreshDatabase(connectionId, database).catch(() => {});
   }
 }
 

@@ -18566,6 +18566,7 @@
   "Últimas actualizaciones": "Последние обновления",
   "en la base {0}: {1}": "в базе {0}: {1}",
   "el resultado no tiene las mismas columnas que en la primera base": "в результате нет тех же столбцов, что в первой базе",
+  "este motor todavía no lista sus objetos por páginas": "этот движок пока не выводит свои объекты постранично",
   "\n# FT.INFO de este servidor no informa la configuración de {0}: completá su algoritmo, TYPE, DIM y DISTANCE_METRIC antes de ejecutarlo.": "\n# FT.INFO этого сервера не сообщает конфигурацию {0}: укажите её алгоритм, TYPE, DIM и DISTANCE_METRIC перед выполнением.",
   " (un índice sobre la columna convertida a halfvec llega a 4000)": " (индекс по столбцу, приведённому к halfvec, допускает до 4000)",
   " — Oracle {0} no tiene el tipo VECTOR ni índices vectoriales: llegaron en Oracle Database 23ai.": " — в Oracle {0} нет типа VECTOR и векторных индексов: они появились в Oracle Database 23ai.",

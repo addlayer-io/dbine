@@ -315,14 +315,14 @@ async function runImport() {
     h.finish(r, t('tasks:dialogs.rows', { count: r.rows, n: r.rows.toLocaleString(locale()) }));
     // In the background the host is gone: the explorer reload is ours.
     if (mounted) emit('imported', target);
-    else conns.loadObjects(connectionId, database, true).catch(() => {});
+    else conns.refreshDatabase(connectionId, database).catch(() => {});
   } catch (e) {
     h.setReopen(undefined);
     const stopped = errorKind(e) === 'cancelled' || h.isCancelling;
     runError.value = stopped ? t('importData:run.cancelledMessage') : errorMessage(e);
     if (stopped) h.cancelled(); else h.fail(e);
     // A stopped or failed import into a new table may have created it.
-    if (!mounted && targetMode.value === 'new') conns.loadObjects(connectionId, database, true).catch(() => {});
+    if (!mounted && targetMode.value === 'new') conns.refreshDatabase(connectionId, database).catch(() => {});
   } finally {
     running.value = false;
     if (timer) clearInterval(timer);

@@ -19052,6 +19052,7 @@
   "{0}: pg_proc listed no functions": "{0}: pg_proc listed no functions",
   "en la base {0}: {1}": "у базі {0}: {1}",
   "el resultado no tiene las mismas columnas que en la primera base": "результат не має тих самих стовпців, що й у першій базі",
+  "este motor todavía no lista sus objetos por páginas": "цей рушій поки не виводить свої об'єкти посторінково",
   "Índice de búsqueda {0} borrado.": "Пошуковий індекс {0} видалено.",
   "Único; empieza con una letra; sin comas.": "Унікальний; починається з літери; без ком."
 }

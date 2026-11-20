@@ -472,6 +472,12 @@ async fn session_calls(a: &mut Box<dyn Session>, b: &mut Box<dyn Session>) {
         }};
     }
     both!("list_schemas", list_schemas());
+    let page = dbine_driver::ObjectQuery {
+        kind: Some("table".into()),
+        limit: 10,
+        ..Default::default()
+    };
+    both!("list_objects_page", list_objects_page(&page));
     both!("list_databases", list_databases());
     both!("definition", definition(&t));
     both!("transaction_state", transaction_state());

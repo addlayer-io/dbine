@@ -177,7 +177,7 @@ async function changeDatabase(db: string) {
   // Another database is another session: the open transaction would go.
   if (!(await settleTransaction('database'))) return;
   await doc.changeDatabase(db);
-  conns.loadObjects(props.tab.connectionId, db);
+  primeNames(props.tab.connectionId, db);
   txState.value = null;
 }
 
@@ -190,7 +190,7 @@ async function changeConnection(connectionId: string) {
   const db = conns.byId(connectionId)?.config.database ?? '';
   await doc.changeConnection(connectionId, db);
   txState.value = null;
-  if (conns.live[connectionId]?.status === 'connected') conns.loadObjects(connectionId, db);
+  if (conns.live[connectionId]?.status === 'connected') primeNames(connectionId, db);
 }
 
 /** A statement switched the database (`USE`): the tab follows it on the same
@@ -198,12 +198,16 @@ async function changeConnection(connectionId: string) {
 async function followDatabase(db: string | null | undefined) {
   if (!db || db === props.tab.database) return;
   await doc.followDatabase(db);
-  conns.loadObjects(props.tab.connectionId, db);
+  primeNames(props.tab.connectionId, db);
 }
 
 /** Statements that change the server's list of databases (keyspaces in
  *  CQL, schemas where those are the databases, as in Oracle's users). */
 const CHANGES_DATABASES = /\b(?:create|drop|alter|rename)\s+(?:database|schema|keyspace|user)\b/i;
+/** A statement that changes a database's structure (one starting with
+ *  CREATE, ALTER, DROP, RENAME or COMMENT ON, or T-SQL's sp_rename): the
+ *  explorer reads that database's objects again. */
+const CHANGES_STRUCTURE = /(?:^|[;\n])\s*(?:(?:create|alter|drop|rename)\b|comment\s+on\b|(?:exec(?:ute)?\s+)?sp_rename\b)/i;
 
 // -- completion schema ------------------------------------------------------------
 type DbObject = NonNullable<(typeof conns.objects)[string]>['items'][number];
@@ -220,7 +224,9 @@ function namesIn(database: string, objs: DbObject[]): Record<string, string[]> {
   }
   return out;
 }
-const schema = computed(() => namesIn(props.tab.database, conns.objects[dbKey(props.tab.connectionId, props.tab.database)]?.items ?? []));
+/** What completion knows of the tab's database: the tree's folders, the
+ *  names searched as they're typed (`searchPrefix`), lookups. */
+const schema = computed(() => namesIn(props.tab.database, conns.knownObjects(props.tab.connectionId, props.tab.database)));
 /** q completes the connection's functions and variables too (they have no
  *  columns, so they aren't in `schema`); DAX, the model's measures. */
 const otherNames = computed(() => {
@@ -246,18 +252,37 @@ const otherDatabases = computed(() => {
   const { connectionId } = props.tab;
   const out: Record<string, Record<string, string[]> | null> = {};
   for (const db of conns.live[connectionId]?.databases ?? []) {
-    const objs = conns.objects[dbKey(connectionId, db)]?.items;
-    out[db] = objs ? namesIn(db, objs) : null;
+    const objs = conns.knownObjects(connectionId, db);
+    out[db] = objs.length ? namesIn(db, objs) : null;
   }
   return out;
 });
 
-// Completion reads objects and columns from the store, which only the explorer
-// filled. The tab loads its database's objects itself once the connection is
-// open.
+/** Names for completion once the connection is open: the first page of
+ *  the database's names (more come by prefix as they're typed). q and DAX
+ *  complete every name of their (small) namespace or model, so those read
+ *  it whole. */
+function primeNames(connectionId: string, db: string) {
+  const d = conns.driverOf(connectionId);
+  if (d?.language === 'dax' || d?.dialect === 'q') void conns.loadAllObjects(connectionId, db).catch(() => {});
+  else void conns.searchObjects(connectionId, db, '');
+}
 watch(() => [conns.live[props.tab.connectionId]?.status, props.tab.database] as const, ([status, db]) => {
-  if (status === 'connected') conns.loadObjects(props.tab.connectionId, db);
+  if (status === 'connected') primeNames(props.tab.connectionId, db);
 }, { immediate: true });
+
+/** The editor's completion is on a name being typed: the names holding it,
+ *  searched on the server (a moment after typing stops). */
+let prefixTimer: ReturnType<typeof setTimeout> | null = null;
+function searchPrefix(prefix: string) {
+  if (prefixTimer) clearTimeout(prefixTimer);
+  prefixTimer = setTimeout(() => {
+    prefixTimer = null;
+    const { connectionId, database } = props.tab;
+    if (conns.isConnected(connectionId)) void conns.searchObjects(connectionId, database, prefix);
+  }, 150);
+}
+onBeforeUnmount(() => { if (prefixTimer) clearTimeout(prefixTimer); });
 
 /** The editor asked for names and has none: the connection isn't open (a tab
  *  restored at startup, nothing expanded or run yet). Open it, as a run
@@ -270,11 +295,15 @@ function loadNames() {
 
 // Columns are loaded per table, only for the tables the text names.
 let columnsTimer: ReturnType<typeof setTimeout> | null = null;
-watch([text, () => conns.objects[dbKey(props.tab.connectionId, props.tab.database)]?.items, otherDatabases], () => {
+watch([text, () => conns.knownObjects(props.tab.connectionId, props.tab.database).length, otherDatabases], () => {
   if (columnsTimer) clearTimeout(columnsTimer);
   columnsTimer = setTimeout(loadReferencedColumns, 400);
 });
 onBeforeUnmount(() => { if (columnsTimer) clearTimeout(columnsTimer); });
+/** The tables a statement reads or writes (`FROM x`, `JOIN s.x`, `UPDATE x`,
+ *  `INTO x`): looked up by name when completion doesn't know them yet. */
+const TABLE_AFTER = /\b(?:from|join|update|into|table)\s+((?:[\w$#]+|"[^"]+"|\[[^\]]+\]|`[^`]+`)(?:\s*\.\s*(?:[\w$#]+|"[^"]+"|\[[^\]]+\]|`[^`]+`))*)/gi;
+const lookedUp = new Set<string>();
 function loadReferencedColumns() {
   const { connectionId, database } = props.tab;
   const words = new Set(text.value.toLowerCase().match(/[\w$#]+/g) ?? []);
@@ -288,15 +317,31 @@ function loadReferencedColumns() {
       started++;
     }
   };
-  loadIn(database, conns.objects[dbKey(connectionId, database)]?.items ?? []);
-  // Other databases the text names with a dot (`other_db.orders`): their
-  // objects first, then the columns of the tables named.
+  const known = conns.knownObjects(connectionId, database);
+  loadIn(database, known);
+  // Tables the text names that completion doesn't know yet: looked up (a
+  // few at a time), their columns follow on the next pass.
+  if (conns.isConnected(connectionId) && !driver.value?.key_search) {
+    const names = new Set(known.map((o) => o.name.toLowerCase()));
+    let asked = 0;
+    for (const m of text.value.matchAll(TABLE_AFTER)) {
+      if (asked >= 10) break;
+      const path = m[1].split('.').map((p) => p.trim().replace(/^["[`]|["\]`]$/g, ''));
+      const name = path[path.length - 1];
+      const schema = path.length > 1 ? path[path.length - 2] : null;
+      const key = `${connectionId}\u0000${database}\u0000${schema ?? ''}\u0000${name}`.toLowerCase();
+      if (!name || names.has(name.toLowerCase()) || lookedUp.has(key)) continue;
+      lookedUp.add(key);
+      asked++;
+      void conns.findObject(connectionId, database, schema, name);
+    }
+  }
+  // Other databases the text names with a dot (`other_db.orders`): what's
+  // known of them (the editor asks for their names on `db.`).
   const lower = text.value.toLowerCase();
   for (const db of Object.keys(otherDatabases.value ?? {})) {
     if (db === database || !qualifiedRe(db).test(lower)) continue;
-    const objs = conns.objects[dbKey(connectionId, db)]?.items;
-    if (objs) loadIn(db, objs);
-    else void conns.loadObjects(connectionId, db);
+    loadIn(db, conns.knownObjects(connectionId, db));
   }
 }
 /** `db.` in lower-case text, bare or quoted (`"db".`, `[db].`, \`db\`.). */
@@ -310,9 +355,10 @@ function qualifiedRe(db: string) {
 function loadColumnsFor(path: string[], database = props.tab.database) {
   const { connectionId } = props.tab;
   const [schemaName, name] = path.length > 1 ? path : [null, path[0]];
-  const obj = (conns.objects[dbKey(connectionId, database)]?.items ?? [])
-    .find((o) => o.name === name && (schemaName === null || o.schema === schemaName));
-  if (obj && !conns.columns[objKey(connectionId, database, obj.schema, obj.name)]) conns.loadColumns(connectionId, database, obj);
+  // What's known, else a lookup by name on the server.
+  void conns.findObject(connectionId, database, schemaName, name).then((obj) => {
+    if (obj && !conns.columns[objKey(connectionId, database, obj.schema, obj.name)]) conns.loadColumns(connectionId, database, obj);
+  });
 }
 
 /** ⭐ Save the selection (or the whole query) as a Library script. */
@@ -354,15 +400,15 @@ function editorMenu(): MenuItem[] {
 }
 
 // -- names: ⌘/Ctrl+click, "Ir a la definición", "Mostrar en el explorador", unknown names ----
-/** The tab's database as the explorer knows it (its cache first): empty
- *  objects while not loaded, so nothing is resolved nor marked. */
+/** The tab's database as far as it's known (the tree's folders, searches,
+ *  the tables the text names, looked up): never the whole database, so a
+ *  name is marked unknown only once the server said it's missing. */
 const nameIndex = computed<NameIndex | null>(() => {
   const d = driver.value;
   if (!d || unbound.value) return null;
   const { connectionId, database } = props.tab;
   const k = dbKey(connectionId, database);
-  const loaded = conns.objects[k];
-  const objects = loaded && (loaded.status === 'ready' || loaded.status === 'stale') ? loaded.items : [];
+  const objects = conns.knownObjects(connectionId, database);
   return {
     language: d.language, dialect: d.dialect, database, objects, kinds: d.object_kinds,
     schemas: (conns.schemas[k] ?? []).map((s) => s.name),
@@ -403,7 +449,11 @@ const lintSource = computed(() => {
   // Rebuilt (and the text checked again) when objects or columns arrive.
   void schema.value;
   const idx = nameIndex.value;
-  return lintSourceFor(props.tab.connectionId, (p) => { problems.value = p; }, idx?.objects.length ? (doc) => unknownNames(idx, doc) : null);
+  const { connectionId, database } = props.tab;
+  // An unknown table only once a lookup on the server found nothing.
+  const unknown = (doc: string) => unknownNames(idx!, doc)
+    .filter((f) => f.rule !== 'unknown-table' || conns.missing(connectionId, database, String(f.params?.name ?? '')));
+  return lintSourceFor(connectionId, (p) => { problems.value = p; }, idx?.objects.length ? unknown : null);
 });
 watch(lintSource, (s) => { if (!s) problems.value = []; });
 /** The worst severity found, for the button's color. */
@@ -1060,6 +1110,12 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean,
       // A database created, dropped or renamed here: the explorer and the
       // pickers list it right away.
       if (CHANGES_DATABASES.test(script)) void conns.refreshDatabases(props.tab.connectionId).catch(() => {});
+      // A table, view, routine… created, changed or dropped here: the
+      // explorer shows it without "Actualizar" (where it ran, and where a
+      // `USE` in the script left the tab).
+      if (CHANGES_STRUCTURE.test(script)) {
+        for (const db of new Set([fields.database, props.tab.database])) conns.structureChanged(props.tab.connectionId, db, script);
+      }
       const firstLine = script.split('\n').find((l) => l.trim())?.trim().slice(0, 120) ?? '';
       if (o.error) output.add('error', `${firstLine}\n${tb(o.error)}`, { where, elapsedMs: o.elapsed_ms });
       else output.add('info', firstLine, { where, elapsedMs: o.elapsed_ms });
@@ -1743,7 +1799,8 @@ function runOverflow(i: number) {
           @save="save"
           @format="formatQuery"
           @need-columns="loadColumnsFor"
-          @need-database="(db: string) => conns.loadObjects(props.tab.connectionId, db)"
+          @need-database="(db: string) => conns.searchObjects(props.tab.connectionId, db, '')"
+          @need-prefix="searchPrefix"
           @need-names="loadNames"
           @need-functions="loadFunctions"
           run-actions

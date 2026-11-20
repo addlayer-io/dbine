@@ -19052,6 +19052,7 @@
   "Últimas actualizaciones": "Latest refreshes",
   "en la base {0}: {1}": "in database {0}: {1}",
   "el resultado no tiene las mismas columnas que en la primera base": "the result doesn't have the same columns as in the first database",
+  "este motor todavía no lista sus objetos por páginas": "this engine doesn't list its objects page by page yet",
   "Índice de búsqueda {0} borrado.": "Search index {0} deleted.",
   "Único; empieza con una letra; sin comas.": "Unique; starts with a letter; no commas."
 }

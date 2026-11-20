@@ -18566,6 +18566,7 @@
   "Últimas actualizaciones": "最近的刷新",
   "en la base {0}: {1}": "在数据库 {0} 中：{1}",
   "el resultado no tiene las mismas columnas que en la primera base": "结果的列与第一个数据库中的不同",
+  "este motor todavía no lista sus objetos por páginas": "此引擎尚不支持分页列出其对象",
   "\n# FT.INFO de este servidor no informa la configuración de {0}: completá su algoritmo, TYPE, DIM y DISTANCE_METRIC antes de ejecutarlo.": "\n# 此服务器的 FT.INFO 未报告 {0} 的配置：执行前请补全其算法、TYPE、DIM 和 DISTANCE_METRIC。",
   " (un índice sobre la columna convertida a halfvec llega a 4000)": "（基于转换为 halfvec 的列的索引可达 4000）",
   " — Oracle {0} no tiene el tipo VECTOR ni índices vectoriales: llegaron en Oracle Database 23ai.": " — Oracle {0} 没有 VECTOR 类型和向量索引：它们随 Oracle Database 23ai 推出。",

@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 /// An object in the explorer. `kind` is one of the driver's
 /// [`crate::ObjectKindInfo::id`]s (see [`crate::kinds`]).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DbObject {
     pub kind: String,
     /// `None` on engines without schemas.

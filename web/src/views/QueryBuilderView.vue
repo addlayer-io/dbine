@@ -16,7 +16,7 @@ import type { DbObject } from '../api/types';
 import { tb } from '../i18n/backend';
 import { newQuery } from '../composables/actions';
 import { usePanZoom } from '../composables/usePanZoom';
-import { dbKey, useConnectionsStore } from '../stores/connections';
+import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type QueryBuilderTab } from '../stores/tabs';
 import CodeEditor from '../components/CodeEditor.vue';
 import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
@@ -58,10 +58,26 @@ const schemaRead = ref(false);
 const connectError = ref<string | null>(null);
 
 const kinds = computed(() => new Set((driver.value?.object_kinds ?? []).filter((k) => k.has_columns && k.browsable).map((k) => k.id)));
-const objectsState = computed(() => conns.objects[dbKey(cid, db)]);
-const available = computed<DbObject[]>(() => (objectsState.value?.items ?? []).filter((o) => kinds.value.has(o.kind)));
-
+/** The list's tables: what the box searched on the server (a page of
+ *  them), never the whole database. */
+const available = ref<DbObject[]>([]);
+const listing = ref(false);
 const search = ref('');
+let searchSeq = 0;
+async function searchTables() {
+  const seq = ++searchSeq;
+  listing.value = true;
+  const found = await conns.searchObjects(cid, db, search.value.trim(), { kinds: [...kinds.value], limit: 500 }).catch(() => []);
+  if (seq !== searchSeq) return;
+  available.value = found;
+  listing.value = false;
+}
+let searchTimer: ReturnType<typeof setTimeout> | null = null;
+watch(search, () => {
+  if (searchTimer) clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => void searchTables(), 250);
+});
+onUnmounted(() => { if (searchTimer) clearTimeout(searchTimer); });
 const groups = computed(() => {
   const q = search.value.trim().toLowerCase();
   const out = new Map<string, DbObject[]>();
@@ -112,7 +128,7 @@ async function readSchema() {
 onMounted(() => { void init(); });
 async function init() {
   if (!(await ensureConnection())) return;
-  conns.loadObjects(cid, db);
+  void searchTables();
   for (const st of spec.tables) loadColumns(st);
   build();
   readSchema();
@@ -496,7 +512,7 @@ function onSplitDown(e: PointerEvent) {
       <aside class="qb-list">
         <el-input v-model="search" size="small" clearable :placeholder="$t('queryBuilder:searchTables')" class="qb-search" />
         <div class="qb-list-body">
-          <div v-if="objectsState?.status === 'loading' && !available.length" class="qb-list-empty">
+          <div v-if="listing && !available.length" class="qb-list-empty">
             <el-icon class="is-loading"><ei-loading /></el-icon>
           </div>
           <div v-else-if="!groups.length" class="qb-list-empty">{{ $t('queryBuilder:noTables') }}</div>

@@ -32,8 +32,8 @@ export function indexUsageEntry(connectionId: string, database: string, table: T
   return entries[indexUsageKey(connectionId, database, table)];
 }
 
-/** Read once per table (again with `force`); concurrent callers share the read. */
-export function loadIndexUsage(connectionId: string, database: string, table: ObjectRef, force = false): Promise<IndexUsageReport | null> {
+/** Read once per table (again with `force`); concurrent callers share the read. `tree`: asked by the explorer tree (its own session). */
+export function loadIndexUsage(connectionId: string, database: string, table: ObjectRef, force = false, tree = false): Promise<IndexUsageReport | null> {
   const k = indexUsageKey(connectionId, database, table);
   const had = entries[k];
   if (!force && had?.status === 'ready') return Promise.resolve(had.report);
@@ -44,7 +44,7 @@ export function loadIndexUsage(connectionId: string, database: string, table: Ob
     try {
       const conns = useConnectionsStore();
       if (!(await conns.ensureConnected(connectionId, { auto: !force }))) throw new Error(conns.live[connectionId]?.error ?? t('common:error'));
-      const report = await api.getIndexUsage(connectionId, database, { kind: table.kind, schema: table.schema ?? null, name: table.name });
+      const report = await api.getIndexUsage(connectionId, database, { kind: table.kind, schema: table.schema ?? null, name: table.name }, tree);
       entries[k] = { status: 'ready', report, error: null };
       // Its vector indexes' algorithm, distance and parameters (engines with vectors).
       if (report) loadIndexVectors(connectionId, database, table, report.indexes, force);

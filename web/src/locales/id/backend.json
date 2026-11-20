@@ -18566,6 +18566,7 @@
   "{0}: pg_proc listed no functions": "{0}: pg_proc listed no functions",
   "en la base {0}: {1}": "di basis data {0}: {1}",
   "el resultado no tiene las mismas columnas que en la primera base": "hasil tidak memiliki kolom yang sama dengan basis data pertama",
+  "este motor todavía no lista sus objetos por páginas": "mesin ini belum menampilkan objeknya per halaman",
   "\n# FT.INFO de este servidor no informa la configuración de {0}: completá su algoritmo, TYPE, DIM y DISTANCE_METRIC antes de ejecutarlo.": "\n# FT.INFO server ini tidak melaporkan konfigurasi {0}: lengkapi algoritma, TYPE, DIM, dan DISTANCE_METRIC sebelum menjalankannya.",
   " (un índice sobre la columna convertida a halfvec llega a 4000)": " (indeks pada kolom yang dikonversi ke halfvec mencapai 4000)",
   " — Oracle {0} no tiene el tipo VECTOR ni índices vectoriales: llegaron en Oracle Database 23ai.": " — Oracle {0} tidak memiliki tipe VECTOR maupun indeks vektor: keduanya baru hadir di Oracle Database 23ai.",

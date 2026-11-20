@@ -424,6 +424,8 @@ pub fn run() {
             commands::explorer::list_databases,
             commands::explorer::list_objects,
             commands::explorer::list_database_objects,
+            commands::explorer::list_schemas,
+            commands::explorer::list_object_page,
             commands::explorer::get_permissions,
             commands::explorer::get_index_usage,
             commands::explorer::get_dependents,

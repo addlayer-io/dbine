@@ -148,7 +148,7 @@ export function installKeysPreview() {
   conns.loadQueries('c1', 'db0');
   // &q=user:1*&type=hash starts on a search; &open=ns folders to open.
   const params = new URLSearchParams(location.search);
-  conns.loadObjects('c1', 'db0').then(() => {
+  conns.loadLevel('c1', 'db0').then(() => {
     const q = params.get('q');
     const t = params.get('type');
     if (q || t) conns.searchKeys('c1', 'db0', q ?? '', t ?? '');

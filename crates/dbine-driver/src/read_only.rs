@@ -623,6 +623,9 @@ impl Session for ReadOnlySession {
     async fn list_schemas(&mut self) -> Result<Option<Vec<crate::SchemaInfo>>> {
         self.inner.list_schemas().await
     }
+    async fn list_objects_page(&mut self, query: &crate::ObjectQuery) -> Result<crate::ObjectPage> {
+        self.inner.list_objects_page(query).await
+    }
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         self.inner.columns(obj).await
     }

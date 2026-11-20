@@ -130,7 +130,7 @@ export function installVectorWorkbench(params: URLSearchParams) {
   };
   // The database's objects (el-tree-v2 doesn't fire `node-expand` for the
   // nodes it restores open, and no connect happens here to reload them).
-  setTimeout(() => { void conns.loadObjects('c1', 'docs'); }, 300);
+  setTimeout(() => { void conns.loadAllObjects('c1', 'docs'); }, 300);
   // The table's data or its "Índices" tab, once the stores are up.
   const tab = params.get('tab');
   if (tab) {

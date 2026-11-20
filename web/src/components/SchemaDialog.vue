@@ -191,7 +191,7 @@ async function run() {
     } else {
       // Ended in the background: what the host's @done reloads (an owner or
       // grants can change the permissions too).
-      conns.loadObjects(connectionId, database, true).catch(() => {});
+      conns.refreshDatabase(connectionId, database).catch(() => {});
       conns.loadQueries(connectionId, database, true);
       conns.loadMigrations(connectionId, database, true);
       conns.loadPermissions(connectionId, database);

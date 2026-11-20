@@ -19052,6 +19052,7 @@
   "{0}: pg_proc listed no functions": "{0}: pg_proc listed no functions",
   "en la base {0}: {1}": "w bazie {0}: {1}",
   "el resultado no tiene las mismas columnas que en la primera base": "wynik nie ma tych samych kolumn co w pierwszej bazie",
+  "este motor todavía no lista sus objetos por páginas": "ten silnik nie wyświetla jeszcze swoich obiektów stronami",
   "Índice de búsqueda {0} borrado.": "Indeks wyszukiwania {0} usunięty.",
   "Único; empieza con una letra; sin comas.": "Unikalny; zaczyna się od litery; bez przecinków."
 }

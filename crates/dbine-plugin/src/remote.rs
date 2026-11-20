@@ -2594,6 +2594,24 @@ impl Session for RemoteSession {
             Ok(_) => Err(unexpected()),
         }
     }
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        // A host built before the call answers `Unsupported`, as a driver
+        // without it does: the app pages `list_objects` itself.
+        match self
+            .host
+            .call(Call::ListObjectsPage {
+                session: self.id,
+                query: query.clone(),
+            })
+            .await?
+        {
+            Reply::ObjectPage(p) => Ok(p),
+            _ => Err(unexpected()),
+        }
+    }
     fn as_any(&mut self) -> Option<&mut (dyn std::any::Any + Send)> {
         Some(self)
     }

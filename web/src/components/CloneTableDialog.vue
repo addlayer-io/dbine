@@ -171,7 +171,7 @@ async function start() {
     for (const n of r.notes) task.log(tb(n), 'warn');
     task.finish(r, t('tasks:dialogs.rows', { count: r.rows, n: fmt(r.rows) }));
     // The clone is done whatever the explorer reload does.
-    await conns.loadObjects(connectionId, database, true).catch(() => {});
+    await conns.refreshDatabase(connectionId, database).catch(() => {});
     // Shown: the tree jumps to the clone. In the background, the notice says it.
     if (s.viewers) {
       ui.revealInExplorer({ connectionId, database, object: r.table });
