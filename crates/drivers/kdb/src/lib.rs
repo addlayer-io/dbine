@@ -40,6 +40,7 @@ pub mod ipc;
 pub mod load;
 mod monitor;
 pub mod names;
+pub mod objects_page;
 mod process;
 mod props;
 mod read;
@@ -828,14 +829,7 @@ fn explorer_objects(k: K) -> Vec<DbObject> {
     let mut spaces: Vec<&str> = Vec::new();
     let mut rows: Vec<(usize, usize, DbObject)> = Vec::new();
     for ((ns, kind), name) in ns.iter().zip(&kind).zip(&name) {
-        let (rank, kind) = match kind.as_str() {
-            "table" => (0, kinds::TABLE),
-            "partitioned" => (1, PARTITIONED),
-            "splayed" => (2, SPLAYED),
-            "view" => (3, kinds::VIEW),
-            "function" => (4, kinds::FUNCTION),
-            _ => (5, VARIABLE),
-        };
+        let (rank, _) = objects_page::kind(kind);
         let space = match spaces.iter().position(|s| s == ns) {
             Some(i) => i,
             None => {
@@ -843,16 +837,7 @@ fn explorer_objects(k: K) -> Vec<DbObject> {
                 spaces.len() - 1
             }
         };
-        rows.push((
-            space,
-            rank,
-            DbObject {
-                kind: kind.into(),
-                schema: (ns != "." && !ns.is_empty()).then(|| ns.clone()),
-                name: name.clone(),
-                parent: None,
-            },
-        ));
+        rows.push((space, rank, objects_page::object(ns, kind, name.clone())));
     }
     // The root first, then the namespaces as listed.
     rows.sort_by_key(|(space, rank, _)| (usize::from(spaces[*space] != "."), *space, *rank));
@@ -909,6 +894,29 @@ impl Session for KdbSession {
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         self.cancel.flag.store(false, Ordering::SeqCst);
         Ok(explorer_objects(self.q(EXPLORER).await?))
+    }
+
+    /// One call of [`objects_page::PAGE`] per page: the server filters,
+    /// sorts and cuts. A server that refuses it (a message handler that
+    /// takes only text) leaves the paging to the app.
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        let Some(page) = objects_page::page_query(query) else {
+            return Ok(dbine_driver::ObjectPage::default());
+        };
+        self.cancel.flag.store(false, Ordering::SeqCst);
+        match self
+            .request(&ipc::apply(objects_page::PAGE, page.args.clone()))
+            .await
+        {
+            Ok(k) => Ok(page.page(k)),
+            Err(Error::Statement(_)) => Err(Error::Unsupported(
+                "este motor todavía no lista sus objetos por páginas".into(),
+            )),
+            Err(e) => Err(e),
+        }
     }
 
     /// Every namespace, so one just made (empty) shows.
