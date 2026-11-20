@@ -281,6 +281,21 @@ impl FluxSession {
         Ok(out)
     }
 
+    /// Every `_value` of a script's answer, in the order it came.
+    async fn values_in_order(&self, script: &str) -> Result<Vec<String>> {
+        let mut out: Vec<String> = Vec::new();
+        for t in self.flux(script).await? {
+            if let Some(i) = t.columns.iter().position(|c| c == "_value") {
+                out.extend(
+                    t.rows
+                        .iter()
+                        .filter_map(|r| r[i].as_str().map(str::to_string)),
+                );
+            }
+        }
+        Ok(out)
+    }
+
     fn bucket(&self) -> Result<&str> {
         self.bucket
             .as_deref()
@@ -609,6 +624,45 @@ impl Session for FluxSession {
                 parent: None,
             })
             .collect())
+    }
+
+    /// Two sources (see [`crate::pages`]): the ASCII names, filtered,
+    /// sorted and paged by Flux; the rest, read whole.
+    async fn list_objects_page(
+        &mut self,
+        q: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        use crate::object_pages::{self, WHOLE_MAX};
+        use crate::pages;
+        let Some(bucket) = self.bucket.clone() else {
+            return Ok(Default::default());
+        };
+        if !pages::wanted(q) {
+            return Ok(Default::default());
+        }
+        let size = q.page_size();
+        let off = object_pages::offsets(q, 2);
+        let plain = match pages::v2_plain(&bucket, q, off[0], size) {
+            Some(script) => self.values_in_order(&script).await?,
+            None => Vec::new(),
+        };
+        let rest = self.values_in_order(&pages::v2_rest(&bucket)).await?;
+        if rest.len() > WHOLE_MAX {
+            return Err(object_pages::unsupported());
+        }
+        let rest = rest
+            .into_iter()
+            .filter(|n| !pages::plain_v2(n))
+            .map(pages::measurement)
+            .collect();
+        Ok(object_pages::merge(
+            size,
+            &off,
+            vec![
+                plain.into_iter().map(pages::measurement).collect(),
+                object_pages::slice(rest, q, off[1], size),
+            ],
+        ))
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {

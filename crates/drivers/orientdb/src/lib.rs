@@ -31,6 +31,9 @@ mod functions;
 mod index_usage;
 mod jobs;
 mod monitor;
+#[path = "../../influxdb/src/object_pages.rs"]
+mod object_pages;
+mod objects_page;
 mod permissions;
 mod plan;
 mod processes;
@@ -925,17 +928,23 @@ fn is_system(name: &str) -> bool {
     SYSTEM_CLASSES.contains(&name) || is_spatial(name)
 }
 
+const SPATIAL_CLASSES: &[&str] = &[
+    "OPoint",
+    "OMultiPoint",
+    "OLineString",
+    "OMultiLineString",
+    "OPolygon",
+    "OMultiPolygon",
+    "ORectangle",
+];
+
 fn is_spatial(name: &str) -> bool {
-    [
-        "OPoint",
-        "OMultiPoint",
-        "OLineString",
-        "OMultiLineString",
-        "OPolygon",
-        "OMultiPolygon",
-        "ORectangle",
-    ]
-    .contains(&name)
+    SPATIAL_CLASSES.contains(&name)
+}
+
+/// Every class [`is_system`] leaves out.
+fn system_classes() -> impl Iterator<Item = &'static str> {
+    SYSTEM_CLASSES.iter().chain(SPATIAL_CLASSES).copied()
 }
 
 /// Vertex / edge / document classes (system ones left out). `V` and `E`
@@ -1218,6 +1227,55 @@ impl Session for OrientSession {
             );
         }
         Ok(out)
+    }
+
+    /// Only the kinds asked for, each narrowed by the server to the search
+    /// or lookup and sorted and paged here (see [`objects_page`]): the
+    /// classes (names and superclasses, which give the kinds), then the
+    /// indexes, functions and sequences.
+    async fn list_objects_page(
+        &mut self,
+        q: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        let sources = objects_page::SOURCES;
+        let size = q.page_size();
+        let off = object_pages::offsets(q, 1 + sources.len());
+        let mut parts: Vec<Vec<DbObject>> = vec![Vec::new(); 1 + sources.len()];
+        if !object_pages::schema_ok(q, None) {
+            return Ok(Default::default());
+        }
+        if objects_page::CLASS_KINDS
+            .iter()
+            .any(|k| object_pages::wants(q, k))
+        {
+            let rows = self.command(objects_page::CLASSES, -1).await?.records;
+            let classes = classify(&objects_page::class_values(&rows))
+                .into_iter()
+                .map(|(name, kind, _)| DbObject {
+                    kind: kind.into(),
+                    schema: None,
+                    name,
+                    parent: None,
+                })
+                .collect();
+            parts[0] = object_pages::slice(classes, q, off[0], size);
+        }
+        for (i, s) in sources.iter().enumerate() {
+            if !object_pages::wants(q, s.kind) {
+                continue;
+            }
+            let read = |r: Result<Rows>| match r {
+                Ok(r) => Ok(objects_page::objects(s.kind, &r.records)),
+                Err(_) if s.optional => Ok(Vec::new()),
+                Err(e) => Err(e),
+            };
+            let all = read(self.command(&objects_page::narrowed(s, q), -1).await)?;
+            if all.len() > object_pages::WHOLE_MAX {
+                return Err(object_pages::unsupported());
+            }
+            parts[1 + i] = object_pages::slice(all, q, off[1 + i], size);
+        }
+        Ok(object_pages::merge(size, &off, parts))
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
