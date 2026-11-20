@@ -129,6 +129,7 @@
     "columnsHint": "Durante il confronto si leggono le colonne dei due risultati e si abbinano per nome; poi si possono cambiare le coppie e la chiave.",
     "stale": "Una query è cambiata: durante il confronto se ne rileggono le colonne.",
     "keyOf": "« {{column}} » fa parte della chiave",
+    "allKeys": "Seleziona o deseleziona tutte le colonne come parte della chiave",
     "notCompared": "Non confrontata",
     "unpairedRight": "Colonne di destra senza coppia (non confrontate): {{list}}",
     "tolerance": "Numeri",

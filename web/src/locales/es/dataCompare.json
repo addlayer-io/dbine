@@ -129,6 +129,7 @@
     "columnsHint": "Al comparar se leen las columnas de los dos resultados y se emparejan por nombre; después se pueden cambiar las parejas y la clave.",
     "stale": "Una consulta cambió: al comparar se vuelven a leer sus columnas.",
     "keyOf": "«{{column}}» es parte de la clave",
+    "allKeys": "Marcar o desmarcar todas las columnas como parte de la clave",
     "notCompared": "No se compara",
     "unpairedRight": "Columnas de la derecha sin pareja (no se comparan): {{list}}",
     "tolerance": "Números",

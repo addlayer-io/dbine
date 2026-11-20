@@ -129,6 +129,7 @@
     "columnsHint": "Lors de la comparaison, les colonnes des deux résultats sont lues et appariées par nom ; ensuite, les paires et la clé peuvent être modifiées.",
     "stale": "Une requête a changé : ses colonnes sont relues lors de la comparaison.",
     "keyOf": "« {{column}} » fait partie de la clé",
+    "allKeys": "Cocher ou décocher toutes les colonnes comme faisant partie de la clé",
     "notCompared": "Non comparée",
     "unpairedRight": "Colonnes de droite sans paire (non comparées) : {{list}}",
     "tolerance": "Nombres",

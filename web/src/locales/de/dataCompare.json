@@ -123,6 +123,7 @@
     "columnsHint": "Beim Vergleichen werden die Spalten beider Ergebnisse gelesen und nach Namen zugeordnet; danach lassen sich die Paare und der Schlüssel ändern.",
     "stale": "Eine Abfrage hat sich geändert: Beim Vergleichen werden ihre Spalten erneut gelesen.",
     "keyOf": "«{{column}}» ist Teil des Schlüssels",
+    "allKeys": "Alle Spalten als Teil des Schlüssels markieren oder die Markierung aufheben",
     "notCompared": "Wird nicht verglichen",
     "unpairedRight": "Spalten rechts ohne Gegenstück (nicht verglichen): {{list}}",
     "tolerance": "Zahlen",

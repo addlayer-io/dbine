@@ -117,6 +117,7 @@
     "columnsHint": "比较时会读取两个结果的列，并按名称配对；之后可以更改配对和键。",
     "stale": "某个查询已更改：比较时会重新读取其列。",
     "keyOf": "“{{column}}”是键的一部分",
+    "allKeys": "勾选或取消勾选所有列作为键的一部分",
     "notCompared": "不比较",
     "unpairedRight": "右侧没有配对的列（不比较）：{{list}}",
     "tolerance": "数字",

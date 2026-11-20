@@ -62,6 +62,14 @@ function setRight(row: PairRow, name: string | undefined) {
   row.right = name ?? '';
   if (!row.right) row.key = false;
 }
+/** The header's box: every compared column in the key, or none (a column
+ *  without a pair on the right can't be part of it). */
+const keyable = computed(() => pairs.value.filter((r) => r.right));
+const allKeys = computed(() => keyable.value.length > 0 && keyable.value.every((r) => r.key));
+const someKeys = computed(() => !allKeys.value && keyable.value.some((r) => r.key));
+function setAllKeys(on: boolean) {
+  for (const r of keyable.value) r.key = on;
+}
 </script>
 
 <template>
@@ -101,7 +109,12 @@ function setRight(row: PairRow, name: string | undefined) {
     <table class="dq-pairs">
       <thead>
         <tr>
-          <th class="dq-key">{{ $t('dataCompare:keyLabel') }}</th>
+          <th class="dq-key">
+            <el-checkbox
+              :model-value="allKeys" :indeterminate="someKeys" :disabled="!keyable.length" size="small"
+              :title="$t('dataCompare:query.allKeys')" @update:model-value="(v: boolean | string | number) => setAllKeys(!!v)"
+            >{{ $t('dataCompare:keyLabel') }}</el-checkbox>
+          </th>
           <th>{{ $t('dataCompare:left') }}</th>
           <th>{{ $t('dataCompare:right') }}</th>
         </tr>
@@ -161,6 +174,8 @@ function setRight(row: PairRow, name: string | undefined) {
 .dq-pairs td { padding: 2px 10px 2px 0; border-bottom: 1px solid var(--nm-border-soft); }
 .dq-pairs tr.off .dq-name { color: var(--nm-text-dim); }
 .dq-key { width: 48px; text-align: center !important; }
+th.dq-key { width: auto; white-space: nowrap; }
+th.dq-key :deep(.el-checkbox__label) { font-weight: 500; color: var(--nm-text-dim); padding-left: 4px; }
 .dq-name { font-family: var(--nm-mono); white-space: nowrap; color: var(--nm-text-strong); }
 .dq-right { width: 240px; }
 .dq-opts { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; font-size: 12.5px; }

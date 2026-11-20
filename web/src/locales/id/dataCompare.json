@@ -117,6 +117,7 @@
     "columnsHint": "Saat membandingkan, kolom kedua hasil dibaca dan dipasangkan menurut nama; setelah itu pasangan dan kunci dapat diubah.",
     "stale": "Sebuah kueri berubah: saat membandingkan, kolomnya dibaca ulang.",
     "keyOf": "\"{{column}}\" adalah bagian dari kunci",
+    "allKeys": "Centang atau hapus centang semua kolom sebagai bagian dari kunci",
     "notCompared": "Tidak dibandingkan",
     "unpairedRight": "Kolom kanan tanpa pasangan (tidak dibandingkan): {{list}}",
     "tolerance": "Angka",
