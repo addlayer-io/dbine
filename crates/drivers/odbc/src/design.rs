@@ -289,6 +289,24 @@ pub fn capabilities(p: &Preset) -> Capabilities {
     }
 }
 
+/// A one-row query whose first column is NULL, without a table, that
+/// [`crate::odbc::Conn::probe_len32`] reads to learn the width of the
+/// driver's lengths; `None` (the probe is skipped: 64 bits) where there is
+/// no such query for the engine. The generic preset goes by the DBMS name.
+pub fn len_probe_sql(p: &Preset, dbms: &str) -> Option<&'static str> {
+    let e = match eng(p) {
+        Eng::Generic => crate::monitor::eng_from_dbms(dbms).unwrap_or(Eng::Generic),
+        e => e,
+    };
+    match e {
+        Eng::Db2 | Eng::Db2i | Eng::Db2zos => {
+            Some("SELECT CAST(NULL AS INTEGER) FROM SYSIBM.SYSDUMMY1")
+        }
+        Eng::SqlServer | Eng::Ase | Eng::Sqla => Some("SELECT CAST(NULL AS INT)"),
+        _ => None,
+    }
+}
+
 /// Foreign keys exist in the engine (enforced or informational) and the
 /// ODBC catalog reports them.
 pub fn reports_foreign_keys(p: &Preset) -> bool {
@@ -2183,6 +2201,27 @@ mod tests {
             .unwrap(),
             "SELECT FIRST 200 *\nFROM \"t\"\nWHERE \"activo\" = 't'"
         );
+    }
+
+    #[test]
+    fn the_length_probe_has_a_query_where_the_engine_has_one() {
+        let db2 = "SELECT CAST(NULL AS INTEGER) FROM SYSIBM.SYSDUMMY1";
+        for id in ["db2", "db2i", "db2zos"] {
+            assert_eq!(len_probe_sql(preset(id), ""), Some(db2), "{id}");
+        }
+        let generic = preset("odbc");
+        assert_eq!(
+            len_probe_sql(generic, "Microsoft SQL Server"),
+            Some("SELECT CAST(NULL AS INT)")
+        );
+        assert_eq!(len_probe_sql(generic, "DB2/LINUXX8664"), Some(db2));
+        assert_eq!(
+            len_probe_sql(preset("sybase"), ""),
+            Some("SELECT CAST(NULL AS INT)")
+        );
+        // Engines without a known one skip it.
+        assert_eq!(len_probe_sql(generic, "PostgreSQL"), None);
+        assert_eq!(len_probe_sql(preset("teradata"), ""), None);
     }
 
     #[test]

@@ -315,7 +315,7 @@ fn window(
 ) -> Result<(String, String)> {
     let past = |ms: Option<i64>| matches!((ms, now), (Some(t), Some(n)) if t <= n);
     let begin = if past(t.begin) {
-        if t.begin != kept_begin {
+        if !same_second(t.begin, kept_begin) {
             return Err(bad(BEGIN_PAST));
         }
         plan.warn(&past_begin(t.begin.unwrap_or_default()));
@@ -327,6 +327,14 @@ fn window(
         return Err(bad(END_PAST));
     }
     Ok((begin, ts_arg(t.end)))
+}
+
+/// Whether two times are the same to the second, the form's precision:
+/// Db2 keeps a task's times to the microsecond (one added without a begin
+/// begins when it was added), and a time the form gave back as it was is
+/// the same time.
+pub(super) fn same_second(a: Option<i64>, b: Option<i64>) -> bool {
+    a.map(|ms| ms.div_euclid(1000)) == b.map(|ms| ms.div_euclid(1000))
 }
 
 /// The warning of a save that sends a kept begin in the past as NULL (Db2
@@ -399,8 +407,8 @@ pub(super) fn alter_plan(id: u64, cur: &Task, t: &Task, now: Option<i64>) -> Res
         || t.schema != cur.schema
         || t.procedure != cur.procedure
         || !same(&t.input, &cur.input);
-    let changed = t.begin != cur.begin
-        || t.end != cur.end
+    let changed = !same_second(t.begin, cur.begin)
+        || !same_second(t.end, cur.end)
         || t.max != cur.max
         || !same(&t.schedule, &cur.schedule)
         || !same(&t.remarks, &cur.remarks);

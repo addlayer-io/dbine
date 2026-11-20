@@ -28,7 +28,10 @@
 //!   is lost on the way ([`declared`]: narrow text columns get non-ASCII
 //!   values declared wide, long values the long types; fractions longer
 //!   than the column's are cut to it, [`trim_fraction`]). A driver that refuses parameter arrays gets the
-//!   same prepared statement executed once per row. Where the driver has
+//!   same prepared statement executed once per row. So does a driver that
+//!   writes 32-bit lengths under a 64-bit driver manager (IBM's macOS
+//!   clidriver, [`crate::odbc::Conn::len32`]), which also fetches one row at
+//!   a time ([`fetch_rows`]): its length arrays' stride isn't ours. Where the driver has
 //!   transactions (`SQL_TXN_CAPABLE`), autocommit goes off and every
 //!   commit window of the spec (rows or bytes) is one transaction; a
 //!   failure rolls back only the open window. Without transactions every
@@ -49,7 +52,9 @@
 
 use crate::design::{eng, Eng};
 use crate::ffi::*;
-use crate::odbc::{diags, fmt_date, fmt_timestamp, query_error, wide, Conn, Stmt, StmtSlot};
+use crate::odbc::{
+    diags, fmt_date, fmt_timestamp, query_error, sql_len, sql_ulen, wide, Conn, Stmt, StmtSlot,
+};
 use crate::presets::Preset;
 use crate::OdbcSession;
 use dbine_driver::sql::{qualified_name, quote_ident, Quote};
@@ -185,7 +190,23 @@ pub struct Col {
     pub auto: bool,
 }
 
-fn describe(api: &Api, st: &Stmt) -> Result<Vec<Col>> {
+/// The result's columns; Db2's vector columns (which the CLI describes as
+/// text) with their vector type from the catalog ([`crate::vector`]).
+fn describe(c: &Conn, st: &Stmt) -> Result<Vec<Col>> {
+    let mut cols = describe_raw(c.api, st)?;
+    let shapes: Vec<(i16, u64)> = cols.iter().map(|c| (c.sql_type, c.size as u64)).collect();
+    for (col, ty) in cols
+        .iter_mut()
+        .zip(crate::vector::result_types(c, st, &shapes))
+    {
+        if let Some(ty) = ty {
+            col.type_name = ty;
+        }
+    }
+    Ok(cols)
+}
+
+fn describe_raw(api: &Api, st: &Stmt) -> Result<Vec<Col>> {
     let h = st.raw();
     let n = st.num_cols()?;
     let mut out = Vec::with_capacity(n as usize);
@@ -225,7 +246,7 @@ fn describe(api: &Api, st: &Stmt) -> Result<Vec<Col>> {
                 )
             };
             if ok(rc) {
-                v
+                sql_len(v, st.len32())
             } else {
                 0
             }
@@ -251,6 +272,7 @@ fn describe(api: &Api, st: &Stmt) -> Result<Vec<Col>> {
             String::new()
         };
         let n = (name_len.max(0) as usize).min(name.len() - 1);
+        let size = sql_ulen(size, st.len32());
         out.push(Col {
             name: String::from_utf16_lossy(&name[..n]),
             sql_type,
@@ -421,6 +443,16 @@ pub fn plan(c: &Col, sizes: bool) -> Fetch {
     }
 }
 
+/// Rows per block fetch: [`rows_per_fetch`], or one when the driver writes
+/// 32-bit lengths (its indicator array's stride isn't ours).
+pub fn fetch_rows(plan: &[Fetch], len32: bool) -> usize {
+    if len32 {
+        1
+    } else {
+        rows_per_fetch(plan)
+    }
+}
+
 /// Rows per block fetch: as many as fit in [`FETCH_BYTES`] of column and
 /// indicator buffers, between 1 and [`CHUNK_ROWS`].
 pub fn rows_per_fetch(plan: &[Fetch]) -> usize {
@@ -487,7 +519,7 @@ fn get_fixed<T: Default>(api: &Api, st: &Stmt, col: u16, c_type: i16) -> Result<
     if !ok(rc) {
         return Err(st.err());
     }
-    Ok((ind != SQL_NULL_DATA).then_some(v))
+    Ok((sql_len(ind, st.len32()) != SQL_NULL_DATA).then_some(v))
 }
 
 /// A whole long cell (text as UTF-16 units, or bytes), in chunks.
@@ -525,6 +557,7 @@ fn get_long<T: Copy + Default>(
         if !ok(rc) {
             return Err(st.err());
         }
+        let ind = sql_len(ind, st.len32());
         if ind == SQL_NULL_DATA {
             return Ok(None);
         }
@@ -566,14 +599,17 @@ struct Bound {
     f: Fetch,
     buf: Vec<u64>,
     ind: Vec<SqlLen>,
+    /// [`Conn::len32`].
+    len32: bool,
 }
 
 impl Bound {
-    fn new(f: Fetch, rows: usize) -> Bound {
+    fn new(f: Fetch, rows: usize, len32: bool) -> Bound {
         Bound {
             f,
             buf: vec![0u64; (f.elem() * rows).div_ceil(8)],
             ind: vec![0; rows],
+            len32,
         }
     }
 
@@ -592,7 +628,7 @@ impl Bound {
     }
 
     fn cell(&self, r: usize, name: &str) -> Result<Cell> {
-        let ind = self.ind[r];
+        let ind = sql_len(self.ind[r], self.len32);
         if ind == SQL_NULL_DATA {
             return Ok(Cell::Null);
         }
@@ -661,7 +697,7 @@ pub fn read(
     let api = c.api;
     let st = c.stmt(slot)?;
     st.exec(sql)?;
-    let cols = describe(api, &st)?;
+    let cols = describe(c, &st)?;
     if let Some(n) = wanted {
         if n != cols.len() {
             return Err(Error::Query(format!(
@@ -688,7 +724,7 @@ pub fn read(
         }
     } else {
         // Blocks of rows into column-wise buffers.
-        let mut rows = rows_per_fetch(&plan);
+        let mut rows = fetch_rows(&plan, st.len32());
         if rows > 1
             && set_attr(
                 api,
@@ -709,7 +745,10 @@ pub fn read(
             rows = 1;
         }
         let mut fetched: SqlULen = 0;
-        let mut bound: Vec<Bound> = plan.iter().map(|f| Bound::new(*f, rows)).collect();
+        let mut bound: Vec<Bound> = plan
+            .iter()
+            .map(|f| Bound::new(*f, rows, st.len32()))
+            .collect();
         let _unbind = Unbind(api, &st);
         if !ok(set_attr(
             api,
@@ -738,7 +777,7 @@ pub fn read(
             }
         }
         while st.fetch()? {
-            let n = (fetched as usize).min(rows);
+            let n = (sql_ulen(fetched, st.len32()) as usize).min(rows);
             let mut s = sink.lock().map_err(|_| lock_err())?;
             for r in 0..n {
                 let row = bound
@@ -1329,6 +1368,18 @@ enum Arrays {
     No,
 }
 
+impl Arrays {
+    /// How a load starts: one execution per row when the driver writes
+    /// 32-bit lengths (it would read our length array with its stride).
+    fn first(len32: bool) -> Arrays {
+        if len32 {
+            Arrays::No
+        } else {
+            Arrays::Unknown
+        }
+    }
+}
+
 /// Execute the prepared `INSERT` once for `rows` (a parameter array), or
 /// once per row when the driver has no arrays. `applied` grows by the rows
 /// the driver executed, also when a later one fails (without transactions
@@ -1556,7 +1607,7 @@ fn load(
     let described = {
         let st = c.stmt(slot)?;
         st.exec(&format!("SELECT {cols} FROM {} WHERE 1=0", job.table))?;
-        describe(api, &st)?
+        describe(c, &st)?
     };
     if described.len() != job.columns.len() {
         return Err(Error::Query(format!(
@@ -1602,7 +1653,7 @@ fn load(
         return Err(st.err());
     }
 
-    let mut arrays = Arrays::Unknown;
+    let mut arrays = Arrays::first(c.len32);
     // `total`: rows executed; with transactions, committed ones are
     // reported at each commit, without them after each execution (which
     // committed by itself), also the part of a failed one that went in.
@@ -1962,7 +2013,7 @@ mod tests {
 
     #[test]
     fn bound_timestamps_keep_their_fraction() {
-        let mut b = Bound::new(Fetch::Timestamp, 2);
+        let mut b = Bound::new(Fetch::Timestamp, 2, false);
         let t = SqlTimestamp {
             year: 2024,
             month: 2,
@@ -1993,9 +2044,45 @@ mod tests {
                 as_: As::Text,
             },
             1,
+            false,
         );
         b.ind = vec![10];
         assert!(b.cell(0, "x").is_err());
+    }
+
+    /// A driver that writes 32-bit lengths (IBM's macOS clidriver): its
+    /// NULL is the low half's -1, its length the low half.
+    #[test]
+    fn bound_cells_of_a_32_bit_length_driver() {
+        let mut b = Bound::new(
+            Fetch::Text {
+                units: 8,
+                as_: As::Text,
+            },
+            1,
+            true,
+        );
+        b.ind = vec![0x0000_0000_FFFF_FFFF];
+        assert_eq!(b.cell(0, "x").unwrap(), Cell::Null);
+        let ab: Vec<u8> = "ab".encode_utf16().flat_map(u16::to_ne_bytes).collect();
+        // SAFETY: four bytes fit in the buffer.
+        unsafe {
+            std::ptr::copy_nonoverlapping(ab.as_ptr(), b.buf.as_mut_ptr() as *mut u8, ab.len())
+        };
+        // Its 4 written over the -1 of a NULL before: the high half stays.
+        b.ind = vec![0xFFFF_FFFF_0000_0004_u64 as SqlLen];
+        assert_eq!(b.cell(0, "x").unwrap(), Cell::Text("ab".into()));
+    }
+
+    /// One row per fetch and one execution per loaded row with a driver
+    /// that writes 32-bit lengths: its arrays' stride isn't ours.
+    #[test]
+    fn a_32_bit_length_driver_gets_no_arrays() {
+        let plan = [Fetch::Int, Fetch::Float, Fetch::Timestamp];
+        assert_eq!(fetch_rows(&plan, false), CHUNK_ROWS);
+        assert_eq!(fetch_rows(&plan, true), 1);
+        assert_eq!(Arrays::first(false), Arrays::Unknown);
+        assert_eq!(Arrays::first(true), Arrays::No);
     }
 
     #[test]

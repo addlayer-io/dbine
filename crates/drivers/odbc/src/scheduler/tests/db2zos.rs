@@ -28,7 +28,8 @@ const COLS: &[&str] = &[
 ];
 
 /// BACKUP calls a procedure on a cron schedule as OPS; LOADJCL submits a
-/// JCL when BACKUP ends with 0.
+/// JCL when BACKUP ends with 0. BACKUP's begin has passed, kept to the
+/// microsecond (the form shows it to the second).
 fn server() -> Fake {
     Fake::default()
         .rows(
@@ -46,7 +47,7 @@ fn server() -> Fake {
                 vec![
                     Some("BACKUP"),
                     Some("copia"),
-                    Some("2026-01-01-00.00.00.000000"),
+                    Some("2026-01-01-00.00.00.481639"),
                     None,
                     None,
                     None,

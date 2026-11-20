@@ -418,7 +418,7 @@ Particularities:
 | SQL Server 2025, Azure SQL | `vector(n)` (float32) and `vector(n, float16)` (preview) | DiskANN with cosine, Euclidean or dot distance (`CREATE VECTOR INDEX … WITH (METRIC = '…', TYPE = 'DiskANN')`) | Live on SQL Server (2019 for the TDS handshake; the vector features on 2025); Azure SQL unit |
 | Oracle 23ai / 26ai | `VECTOR(n\|*, FLOAT32\|FLOAT64\|INT8\|BINARY\|*, DENSE\|SPARSE)` | HNSW (in memory) and IVF; cosine, Euclidean, dot, Manhattan, Hamming, Jaccard | Live (23.26.3) |
 | SAP HANA Cloud | `REAL_VECTOR(n)`, `HALF_VECTOR(n)` | HNSW; cosine or Euclidean; `M`, `efConstruction`, `efSearch` | Unit |
-| IBM Db2 LUW 12.1.2+ | `VECTOR(n, FLOAT32\|INT8)` | none (Db2 12.1.2 has no vector indexes) | Unit |
+| IBM Db2 LUW 12.1.2+ | `VECTOR(n, FLOAT32\|INT8)` | none (Db2 12.1.2 has no vector indexes) | Live (12.1.5) |
 
 - **SQL Server:** DBine asks for the server's vector TDS type, so float32
   vector columns are marked with their dimension in every result and each cell
@@ -467,10 +467,17 @@ Particularities:
   `TO_REAL_VECTOR('[…]')`, or `TO_HALF_VECTOR('[…]')` for a `HALF_VECTOR`
   column when the column types are known. Outside HANA Cloud the designer's
   error says vector indexes are HANA Cloud's.
-- **Db2 LUW:** edits write `VECTOR('[…]', n, FLOAT32|INT8)` with the column's
-  coordinate type when it is known. An edit from a caller that doesn't know the
-  types writes `FLOAT32`, which Db2 refuses for an `INT8` column. Db2 for i and
-  z/OS take vectors as a list of numbers with a warning.
+- **Db2 LUW:** Db2's CLI describes a `VECTOR` column as text (`VARCHAR`, or
+  `CLOB` past 32,672 characters), so on Db2 12.1.2 and later DBine looks the
+  vector columns up in `SYSCAT.COLUMNS`: results of a table's columns, the
+  table's description, the schema and transfers mark them with their dimension
+  and coordinate type. A vector built in the query itself stays text. Edits
+  write `VECTOR('[…]', n, FLOAT32|INT8)` with the column's coordinate type when
+  it is known. An edit from a caller that doesn't know the types writes
+  `FLOAT32`, which Db2 refuses for an `INT8` column. Db2 can't compare vectors
+  (`SQL0401N`), so a row of a table without a primary key can't be found by its
+  vector to edit it. Db2 for i and z/OS take vectors as a list of numbers with
+  a warning.
 
 ### Elasticsearch, OpenSearch, Open Distro and Solr
 
@@ -967,7 +974,7 @@ offers no vector type or index.
   vector type. SQL Server's vector TDS feature carries float32 only.
 - **A vector set** (Redis 8) keeps normalized vectors.
 - **Not tested against a server:** see the "Tested" column above and
-  [`engine-support.md`](engine-support.md#vectors). SAP HANA Cloud, Db2 12.1.2,
+  [`engine-support.md`](engine-support.md#vectors). SAP HANA Cloud,
   Snowflake, SingleStore, Databend, Doris, StarRocks, AlloyDB,
   DocumentDB, Astra DB, Keyspaces, Azure SQL and Cosmos DB for MongoDB vCore
   are covered by unit tests only. So are Elasticsearch 8.0 to 8.11, OpenSearch

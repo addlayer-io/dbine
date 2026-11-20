@@ -417,9 +417,20 @@ on the right, and arrows that get thicker the more rows pass through.
 
 ### ODBC presets
 
-Only the generic preset was tested against a server: SQL Server through
-Microsoft ODBC Driver 18. The others were written from each vendor's
+The generic preset was tested against SQL Server through Microsoft ODBC
+Driver 18, and the Db2 LUW preset against Db2 12.1.5 Community through IBM's
+CLI driver for macOS (arm64). The others were written from each vendor's
 documentation and need their ODBC driver installed.
+
+IBM's CLI driver for macOS (`clidriver`, whose only library is
+`libdb2.dylib`) writes 32-bit lengths, while the driver manager DBine loads
+(unixODBC's `libodbc`) uses 64-bit ones. DBine detects such a driver when it connects (it reads
+a NULL into a length whose upper half it filled first) and then reads lengths
+from their lower half and reads and loads one row at a time. Results come back
+correctly, but transfers and loads through it are slower. Without the check,
+NULLs read as runs of NUL characters and multi-row loads lost data without an
+error. The check runs on the Db2 presets and the SQL Server, Sybase ASE and SQL
+Anywhere ones. Another vendor's driver with 32-bit lengths would go undetected.
 
 | Preset | Estimated | Real | Verified |
 |---|---|---|---|
@@ -5288,9 +5299,9 @@ Vectors (embeddings) are described in [`vectors.md`](vectors.md). The driver mar
 
 **Engines that have vectors:** PostgreSQL with pgvector and its family (TimescaleDB, AlloyDB, Cloud SQL, Amazon Aurora PostgreSQL, Supabase, Neon, EDB Postgres Advanced Server, Fujitsu Enterprise Postgres, YugabyteDB, openGauss, Greenplum, Apache Cloudberry, Greengage, KingbaseES), CockroachDB, CrateDB, RisingWave; MySQL 9, MariaDB, TiDB, OceanBase, SingleStore, Apache Doris / VeloDB, StarRocks, GreptimeDB, Manticore Search, Databend; SQL Server 2025 and Azure SQL, Oracle 23ai / 26ai, SAP HANA Cloud, IBM Db2 LUW 12.1.2+; Elasticsearch, OpenSearch, Open Distro, Solr; Redis, Valkey, Dragonfly; Cassandra, ScyllaDB, DataStax Astra DB; MongoDB, Amazon DocumentDB, FerretDB, Azure Cosmos DB (NoSQL and MongoDB vCore), Couchbase; libSQL / Turso, SQLite (files libSQL wrote), DuckDB, ClickHouse, Timeplus; BigQuery, Cloud Spanner, Snowflake, Neo4j, Memgraph, Arrow Flight SQL (what the engine behind it sends).
 
-**Tested against real servers** (`dbine-test-*` containers or a local server): PostgreSQL 17 with pgvector, YugabyteDB, openGauss, CrateDB, RisingWave, MySQL 9.7, MariaDB 11.8, TiDB 8.5 (the type), GreptimeDB 1.2, Manticore 29.9, OceanBase 4.4, SQL Server (2019 for the TDS handshake, 2025 for vectors), Oracle 23.26, Elasticsearch 7.17 / 8.15 / 9.2 / 9.5, OpenSearch 2.17 / 2.18 / 2.19 / 3.10, Open Distro 1.13, Solr 9.10 (standalone and SolrCloud), Redis 8.10, Valkey 9.1, Dragonfly 2.0, Cassandra 5.0, ScyllaDB 2026.3 (index creation and options), MongoDB (Atlas Local), FerretDB 2, Cosmos DB (emulator, `diskANN`), Couchbase 8.0, libSQL (`sqld` 0.24), SQLite, DuckDB with `vss`, ClickHouse 25.3 and 26.9, BigQuery and Spanner (emulators; BigQuery's vector indexes are not in the emulator), Neo4j 5.26 and 2025.10.1 Enterprise, Memgraph, Flight SQL over DuckDB. CockroachDB passed live in an earlier round, and a migration into it that creates a vector index on `VECTOR(3072)` in this one; its latest changes (refusals, static functions, streamed results) are unit tests.
+**Tested against real servers** (`dbine-test-*` containers or a local server): PostgreSQL 17 with pgvector, YugabyteDB, openGauss, CrateDB, RisingWave, MySQL 9.7, MariaDB 11.8, TiDB 8.5 (the type), GreptimeDB 1.2, Manticore 29.9, OceanBase 4.4, IBM Db2 12.1.5, SQL Server (2019 for the TDS handshake, 2025 for vectors), Oracle 23.26, Elasticsearch 7.17 / 8.15 / 9.2 / 9.5, OpenSearch 2.17 / 2.18 / 2.19 / 3.10, Open Distro 1.13, Solr 9.10 (standalone and SolrCloud), Redis 8.10, Valkey 9.1, Dragonfly 2.0, Cassandra 5.0, ScyllaDB 2026.3 (index creation and options), MongoDB (Atlas Local), FerretDB 2, Cosmos DB (emulator, `diskANN`), Couchbase 8.0, libSQL (`sqld` 0.24), SQLite, DuckDB with `vss`, ClickHouse 25.3 and 26.9, BigQuery and Spanner (emulators; BigQuery's vector indexes are not in the emulator), Neo4j 5.26 and 2025.10.1 Enterprise, Memgraph, Flight SQL over DuckDB. CockroachDB passed live in an earlier round, and a migration into it that creates a vector index on `VECTOR(3072)` in this one; its latest changes (refusals, static functions, streamed results) are unit tests.
 
-**Unit tests only, following the vendor's documentation:** AlloyDB (ScaNN and IVF), Azure `pg_diskann`, Cloud SQL, Aurora, Supabase, Neon, EDB, Fujitsu, KingbaseES, Greenplum, Cloudberry and Greengage (the available images don't ship pgvector), Yellowbrick, SingleStore, Apache Doris, StarRocks, Databend, TiDB's vector index (it needs TiFlash), Azure SQL, SAP HANA Cloud, IBM Db2 12.1.2, Snowflake, DataStax Astra DB, Amazon DocumentDB, Cosmos DB for MongoDB vCore (its `cosmosSearch` code ran live on FerretDB), Amazon Keyspaces' conversion, Turso cloud, ClickHouse before 25.3, Elasticsearch 7.x before 7.17 and 8.0–8.11, OpenSearch 1.x and 2.0–2.16 (and its IVF, Faiss PQ, `mode` and `compression_level`), Solr 9.4 above 1024 dimensions, Oracle HNSW over binary vectors (the test instance has no vector memory pool; IVF ran instead), Redis Stack 7 and Redis 8.0–8.3, ScyllaDB ANN queries (they need ScyllaDB's separate Vector Store service) and Cassandra's SAI graph settings (they need a server option the test container doesn't set).
+**Unit tests only, following the vendor's documentation:** AlloyDB (ScaNN and IVF), Azure `pg_diskann`, Cloud SQL, Aurora, Supabase, Neon, EDB, Fujitsu, KingbaseES, Greenplum, Cloudberry and Greengage (the available images don't ship pgvector), Yellowbrick, SingleStore, Apache Doris, StarRocks, Databend, TiDB's vector index (it needs TiFlash), Azure SQL, SAP HANA Cloud, Snowflake, DataStax Astra DB, Amazon DocumentDB, Cosmos DB for MongoDB vCore (its `cosmosSearch` code ran live on FerretDB), Amazon Keyspaces' conversion, Turso cloud, ClickHouse before 25.3, Elasticsearch 7.x before 7.17 and 8.0–8.11, OpenSearch 1.x and 2.0–2.16 (and its IVF, Faiss PQ, `mode` and `compression_level`), Solr 9.4 above 1024 dimensions, Oracle HNSW over binary vectors (the test instance has no vector memory pool; IVF ran instead), Redis Stack 7 and Redis 8.0–8.3, ScyllaDB ANN queries (they need ScyllaDB's separate Vector Store service) and Cassandra's SAI graph settings (they need a server option the test container doesn't set).
 
 ### Engines without vectors
 
@@ -5306,6 +5317,8 @@ Vectors (embeddings) are described in [`vectors.md`](vectors.md). The driver mar
 | Fabric Warehouse, Babelfish (TDS) | Vector type and vector index | No vector type. A vector converted into them becomes JSON text or an array of numbers (reported as approximated) and its index is left out. |
 | Firebird, Db2 for i, Db2 for z/OS, Informix, Teradata, Vertica, Netezza, Exasol, SAP ASE, SQL Anywhere, Spark and Hive over ODBC, Access, Altibase, CUBRID, generic ODBC | Vector type and vector index | None of them has a native vector column type. Schema conversion takes a vector as a list of numbers (JSON text) with a warning and leaves vector indexes out with the reason. Db2 for i and z/OS also take vectors as a list of numbers. |
 | IBM Db2 LUW 12.1.2+ | Vector index | Db2 12.1.2 has no vector indexes. |
+| IBM Db2 LUW 12.1.2+ | Comparing vectors; editing a row of a table without a primary key by its vector | Db2 can't compare vectors (`SQL0401N`). |
+| IBM Db2 LUW 12.1.2+ | Marking a vector built in the query | Db2's CLI describes vectors as text; only a table's columns are found in `SYSCAT.COLUMNS`. |
 | Snowflake | Vector index | Snowflake has no vector indexes: the similarity functions scan the table. A vector index from another engine is left out with the reason. |
 | Timeplus Proton | Vector index and `bfloat16` | Proton has distance functions (`cosine_distance`, `l2_distance`…) but no vector index. |
 | Amazon Keyspaces | Vector type and vector index | Keyspaces has no vector type. A vector becomes `list<…>` and the index is left out. |
@@ -5351,7 +5364,7 @@ Vectors (embeddings) are described in [`vectors.md`](vectors.md). The driver mar
 | SQL Server 2025 | Inserting, updating or deleting in a table with a vector index; creating one without `PREVIEW_FEATURES` | A SQL Server 2025 rule; the script says both before the index. |
 | SQL Server | Disabling or rebuilding a vector index | Msg 42250: the engine can't. |
 | Oracle | HNSW without the vector memory pool | HNSW needs `VECTOR_MEMORY_SIZE` above 0. |
-| SAP HANA Cloud, IBM Db2 LUW, Snowflake, Azure SQL | Live test | No instance, container or account on the test machine (Db2 also lacks IBM's ODBC / CLI driver). **Explicit pending item.** |
+| SAP HANA Cloud, Snowflake, Azure SQL | Live test | No instance or account on the test machine. **Explicit pending item.** |
 | Elasticsearch | Quantization, `bbq_*`, `rescore_vector`, `bfloat16` checked against the server's version | Written as given, without a check of the version. **Explicit pending item.** |
 | Elasticsearch 9.2+ | Vectors in `_source`; `bfloat16` vectors under a cosine index read back exactly | The server leaves vectors out unless asked; DBine's browse and transfers ask, and the console explains how for a typed request. A `bfloat16` vector under a cosine index is stored normalized and comes back with bfloat16's error. |
 | Elasticsearch, OpenSearch | Changing or dropping the vector index of an existing field | It needs a reindex; sync only warns. |

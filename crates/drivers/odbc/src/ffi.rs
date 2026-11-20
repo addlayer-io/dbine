@@ -65,6 +65,9 @@ pub const SQL_QUICK: u16 = 0;
 
 // SQLColAttribute
 pub const SQL_DESC_TYPE_NAME: u16 = 14;
+pub const SQL_DESC_SCHEMA_NAME: u16 = 16;
+pub const SQL_DESC_BASE_COLUMN_NAME: u16 = 22;
+pub const SQL_DESC_BASE_TABLE_NAME: u16 = 23;
 
 // SQLBindParameter
 pub const SQL_PARAM_INPUT: i16 = 1;
@@ -104,6 +107,8 @@ pub const SQL_BIT: i16 = -7;
 pub const SQL_WCHAR: i16 = -8;
 pub const SQL_WVARCHAR: i16 = -9;
 pub const SQL_WLONGVARCHAR: i16 = -10;
+/// IBM Db2 CLI's CLOB.
+pub const SQL_CLOB: i16 = -99;
 
 #[repr(C)]
 #[derive(Default, Clone, Copy)]
