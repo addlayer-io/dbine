@@ -1,0 +1,127 @@
+{
+  "name": "Indicadores",
+  "compatibilityLevel": 1601,
+  "model": {
+    "culture": "es-AR",
+    "defaultPowerBIDataSourceVersion": "powerBI_V3",
+    "tables": [
+      {
+        "name": "pbi medidas",
+        "columns": [
+          { "name": "indicador_id", "dataType": "int64", "sourceColumn": "indicador_id" },
+          { "name": "area", "dataType": "string", "sourceColumn": "area" },
+          { "name": "valor", "dataType": "double", "sourceColumn": "valor" },
+          {
+            "type": "calculated",
+            "name": "Indicador",
+            "dataType": "string",
+            "expression": "RELATED ( 'Indicadores'[nombre] )"
+          }
+        ],
+        "partitions": [
+          {
+            "name": "pbi medidas",
+            "mode": "import",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "    Source = Sql.Database(Servidor, \"dw\"),",
+                "    indicadores_directorio_medidas = Source{[Schema=\"indicadores_directorio\",Item=\"medidas\"]}[Data],",
+                "    #\"Tipo cambiado\" = Table.TransformColumnTypes(indicadores_directorio_medidas,{{\"valor\", type number}})",
+                "in",
+                "    #\"Tipo cambiado\""
+              ]
+            }
+          }
+        ],
+        "measures": [
+          { "name": "Total valor", "expression": "SUM ( 'pbi medidas'[valor] )" },
+          {
+            "name": "Valor promedio",
+            "expression": ["", "DIVIDE (", "    [Total valor],", "    COUNTROWS ( 'pbi medidas' )", ")"]
+          }
+        ]
+      },
+      {
+        "name": "pbi medidas lake",
+        "columns": [{ "name": "valor", "dataType": "double", "sourceColumn": "valor" }],
+        "partitions": [
+          {
+            "name": "pbi medidas lake",
+            "mode": "directQuery",
+            "source": {
+              "type": "m",
+              "expression": [
+                "let",
+                "    Source = Databricks.Catalogs(\"adb-1234567890123456.7.azuredatabricks.net\", \"/sql/1.0/warehouses/abc123\", [Catalog=null, Database=null, EnableAutomaticProxyDiscovery=null]),",
+                "    hive_metastore_Database = Source{[Name=\"hive_metastore\",Kind=\"Database\"]}[Data],",
+                "    indicadores_directorio_Schema = hive_metastore_Database{[Name=\"indicadores_directorio\",Kind=\"Schema\"]}[Data],",
+                "    medidas_Table = indicadores_directorio_Schema{[Name=\"medidas\",Kind=\"Table\"]}[Data]",
+                "in",
+                "    medidas_Table"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "name": "Indicadores",
+        "columns": [
+          { "name": "id", "dataType": "int64", "sourceColumn": "id" },
+          { "name": "nombre", "dataType": "string", "sourceColumn": "nombre" }
+        ],
+        "partitions": [
+          {
+            "name": "Indicadores",
+            "source": {
+              "type": "m",
+              "expression": "let\n    Source = DW,\n    dbo_indicadores = Source{[Schema=\"dbo\",Item=\"indicadores\"]}[Data]\nin\n    dbo_indicadores"
+            }
+          }
+        ]
+      },
+      {
+        "name": "Metas",
+        "columns": [{ "name": "meta", "dataType": "double", "sourceColumn": "meta" }],
+        "partitions": [
+          {
+            "name": "Metas",
+            "source": {
+              "type": "m",
+              "expression": "let\n    Source = Value.NativeQuery(Sql.Database(\"sql.contoso.com\", \"dw\"), \"select m.* from indicadores_directorio.metas m#(lf)join indicadores_directorio.medidas d on d.id = m.medida_id\", null, [EnableFolding=true])\nin\n    Source"
+            }
+          }
+        ]
+      }
+    ],
+    "relationships": [
+      {
+        "name": "7d1c6a52-1f0e-4f3a-9b11-0c2a7e5f4d21",
+        "fromTable": "pbi medidas",
+        "fromColumn": "indicador_id",
+        "toTable": "Indicadores",
+        "toColumn": "id"
+      }
+    ],
+    "roles": [
+      {
+        "name": "Directorio",
+        "modelPermission": "read",
+        "tablePermissions": [{ "name": "pbi medidas", "filterExpression": "[area] = \"Norte\"" }]
+      }
+    ],
+    "expressions": [
+      {
+        "name": "Servidor",
+        "kind": "m",
+        "expression": "\"sql.contoso.com\" meta [IsParameterQuery=true, Type=\"Text\", IsParameterQueryRequired=true]"
+      },
+      {
+        "name": "DW",
+        "kind": "m",
+        "expression": ["let", "    Source = Sql.Database(Servidor, \"dw\")", "in", "    Source"]
+      }
+    ]
+  }
+}

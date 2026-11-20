@@ -41,6 +41,7 @@ pub mod monitor;
 pub mod objects;
 pub mod properties;
 pub mod query;
+pub mod references;
 pub mod refresh;
 pub mod search;
 pub mod security;
@@ -604,6 +605,17 @@ impl Session for PowerBiSession {
         scan: &dbine_driver::DependencyScan,
     ) -> Result<dbine_driver::DependencyReport> {
         dependencies::dependents(&mut self.cx, target, scan).await
+    }
+
+    async fn references(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        match references::references(&mut self.cx, target).await? {
+            Some(r) => Ok(r),
+            None => dbine_driver::dependencies::references_scan(self, target, scan).await,
+        }
     }
 
     async fn health_checks(
