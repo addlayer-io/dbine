@@ -106,6 +106,9 @@ copy doesn't run.
 The confirmation summarizes how many rows of how many tables are copied, how
 many tables are created and how many columns are masked.
 
+Vector columns are copied and masked as vectors, and a subset a driver had to
+cut short says it is partial: see [vectors.md](vectors.md#copy-a-subset).
+
 ## Limits
 
 - **With N % of the rows**, **the first 1,000,000 rows** of the start table

@@ -5244,3 +5244,96 @@ The consoles' JSON lines (the query DSL) call no functions. Their SQL lines (tho
 | Fabric through a plain SQL Server connection | Exact function list | Edition 11 is shared by Synapse serverless and Fabric, and the two can't be told apart through that connection: it gets Synapse's list, so some functions are missing rather than wrong. |
 | Power BI | Live test | No tenant or emulator: the `INFO.FUNCTIONS` read and the permissions it needs were checked against fixtures only. **Explicit pending item.** |
 | ODBC engines | `UCASE`, `LCASE`, `IFNULL`, `DAYOFWEEK`, `CURDATE`… (ODBC escape-only names) | A bare call fails where the engine lacks the name, and inserting them as `{fn …}` escapes needs an escape flag in the contract. **Explicit pending item.** |
+
+## Vectors
+
+Vectors (embeddings) are described in [`vectors.md`](vectors.md). The driver marks `Capabilities::vectors`; the contract is `ResultColumn::vector`, `IndexDef::vector`, `IndexUsage::vector`, `DesignerSpec::vector_indexes` and the `*_script_typed` methods.
+
+**Engines that have vectors:** PostgreSQL with pgvector and its family (TimescaleDB, AlloyDB, Cloud SQL, Amazon Aurora PostgreSQL, Supabase, Neon, EDB Postgres Advanced Server, Fujitsu Enterprise Postgres, YugabyteDB, openGauss, Greenplum, Apache Cloudberry, Greengage, KingbaseES), CockroachDB, CrateDB, RisingWave; MySQL 9, MariaDB, TiDB, OceanBase, SingleStore, Apache Doris / VeloDB, StarRocks, GreptimeDB, Manticore Search, Databend; SQL Server 2025 and Azure SQL, Oracle 23ai / 26ai, SAP HANA Cloud, IBM Db2 LUW 12.1.2+; Elasticsearch, OpenSearch, Open Distro, Solr; Redis, Valkey, Dragonfly; Cassandra, ScyllaDB, DataStax Astra DB; MongoDB, Amazon DocumentDB, FerretDB, Azure Cosmos DB (NoSQL and MongoDB vCore), Couchbase; libSQL / Turso, SQLite (files libSQL wrote), DuckDB, ClickHouse, Timeplus; BigQuery, Cloud Spanner, Snowflake, Neo4j, Memgraph, Arrow Flight SQL (what the engine behind it sends).
+
+**Tested against real servers** (`dbine-test-*` containers or a local server): PostgreSQL 17 with pgvector, YugabyteDB, openGauss, CrateDB, RisingWave, MySQL 9.7, MariaDB 11.8, TiDB 8.5 (the type), GreptimeDB 1.2, Manticore 29.9, SQL Server (2019 for the TDS handshake, 2025 for vectors), Oracle 23.26, Elasticsearch 7.17 / 8.15 / 9.2, OpenSearch 2.17, Open Distro 1.13, Solr 9.10 (standalone and SolrCloud), Redis 8.10, Valkey 9.1, Dragonfly 2.0, Cassandra 5.0, ScyllaDB 2026.3 (index creation and options), MongoDB (Atlas Local), FerretDB 2, Cosmos DB (emulator, `diskANN`), Couchbase 8.0, libSQL (`sqld` 0.24), SQLite, DuckDB with `vss`, ClickHouse 25.3 and 26.9, BigQuery and Spanner (emulators; BigQuery's vector indexes are not in the emulator), Neo4j 5.26 and 2025.10.1 Enterprise, Memgraph, Flight SQL over DuckDB. CockroachDB passed live in an earlier round; its latest changes (refusals, static functions, streamed results) are unit tests.
+
+**Unit tests only, following the vendor's documentation:** AlloyDB (ScaNN and IVF), Azure `pg_diskann`, Cloud SQL, Aurora, Supabase, Neon, EDB, Fujitsu, KingbaseES, Greenplum, Cloudberry and Greengage (the available images don't ship pgvector), Yellowbrick, OceanBase, SingleStore, Apache Doris, StarRocks, Databend, TiDB's vector index (it needs TiFlash), Azure SQL, SAP HANA Cloud, IBM Db2 12.1.2, Snowflake, DataStax Astra DB, Amazon DocumentDB, Cosmos DB for MongoDB vCore (its `cosmosSearch` code ran live on FerretDB), Amazon Keyspaces' conversion, Turso cloud, ClickHouse before 25.3, Elasticsearch 7.x before 7.17 and 8.0–8.11, OpenSearch 2.18, 2.19 and 3.x, Redis Stack 7 and Redis 8.0–8.3, ScyllaDB ANN queries (they need ScyllaDB's separate Vector Store service) and Cassandra's SAI graph settings (they need a server option the test container doesn't set).
+
+### Engines without vectors
+
+| Engine | What is missing | Reason |
+|---|---|---|
+| Amazon Redshift, Materialize, H2, Denodo, Yellowbrick | Vector type and vector index | The engine has no vector type. A table with vector columns converted from pgvector arrives as an array of numbers, reported as approximated, and its vector indexes are left out with the reason. |
+| Amazon Aurora DSQL | Vector type and vector index | Aurora DSQL has no vector type and loads no extensions. |
+| Amazon Aurora MySQL | Vector type and vector index | Its MySQL 8 has no vector type. |
+| Cloud SQL for MySQL | Vector type and vector index | **Explicit pending item.** Its embeddings (`VECTOR(n) USING VARBINARY`, `string_to_vector`, `CREATE VECTOR INDEX … USING SCANN`) are cloud-only with no emulator to test against, and the catalog reports the column as `varbinary`, which can't be told from other binary data. |
+| MySQL HeatWave | Vector store and `DISTANCE()` | Features of HeatWave only, so there is nothing to talk to on a MySQL server. **Explicit pending item** for HeatWave itself. |
+| MySQL 9 Community | Vector index | MySQL Community has no vector index (HeatWave only). A script or conversion writes a `--` note and the table is created. |
+| SQL Server 2022 and earlier, `sqlserver_legacy` | Vector type and vector index | The `vector` type is new in SQL Server 2025 and Azure SQL. The designer offers it on every version and an older server refuses it at `CREATE`, saying which release has it. |
+| Fabric Warehouse, Babelfish (TDS) | Vector type and vector index | No vector type. A vector converted into them becomes JSON text or an array of numbers (reported as approximated) and its index is left out. |
+| Firebird, Db2 for i, Db2 for z/OS, Informix, Teradata, Vertica, Netezza, Exasol, SAP ASE, SQL Anywhere, Spark and Hive over ODBC, Access, Altibase, CUBRID, generic ODBC | Vector type and vector index | None of them has a native vector column type. Schema conversion takes a vector as a list of numbers (JSON text) with a warning and leaves vector indexes out with the reason. Db2 for i and z/OS also take vectors as a list of numbers. |
+| IBM Db2 LUW 12.1.2+ | Vector index | Db2 12.1.2 has no vector indexes. |
+| Snowflake | Vector index | Snowflake has no vector indexes: the similarity functions scan the table. A vector index from another engine is left out with the reason. |
+| Timeplus Proton | Vector index and `bfloat16` | Proton has distance functions (`cosine_distance`, `l2_distance`…) but no vector index. |
+| Amazon Keyspaces | Vector type and vector index | Keyspaces has no vector type. A vector becomes `list<…>` and the index is left out. |
+| Valkey, Dragonfly | Vector sets | Only Redis 8 has vector sets. Valkey and Dragonfly vectors live in hash fields and JSON documents, indexed by `FT.CREATE`. |
+| CouchDB | Vector type and vector index | Mango and Nouveau are full-text; there is no vector search. |
+| DynamoDB | Vector type and vector index | DynamoDB has no vector search of its own: it goes through OpenSearch zero-ETL or S3 Vectors, which are separate services. |
+| etcd | Vector type and vector index | A key-value store, with no vector type or index. |
+| Databricks, Azure Databricks | Vector type and vector index | Databricks' vector search indexes belong to a separate service (Mosaic AI Vector Search), not to SQL DDL. Its `vector_search()` function runs as an ordinary query (the assistant always asks approval for it) and its arrays show as arrays. |
+| Trino, Starburst, Amazon Athena | Vector type and vector index | They have no vector type or index (documented behavior). Their array similarity functions run as ordinary queries. |
+| Presto | Vector type and vector index | No vector type or index is documented. Its function list includes `create_vector_index(array(double))`, which DBine doesn't drive: it runs, if typed, as an ordinary function call. |
+| Apache Spark, Hive, Cloudera, Impala, Kyuubi (and Spark / Hive over ODBC) | Vector type and vector index | They have no native vector column type (documented behavior); arrays stay arrays. |
+| Dremio | Vector type, index and similarity functions | Dremio has no vector type, vector index or similarity functions (documented behavior). |
+| Apache Drill | Vector type and vector index | Drill has no vector type. Its `cosine_distance` is a string-similarity function, not a vector one. |
+| InfluxDB 1, 2 | Vector type and vector index | They have no vector type. |
+| InfluxDB 3 | Vector type and vector index | No vector type; its DataFusion engine has `array_distance` on lists, which runs as an ordinary query. |
+| IoTDB / TimechoDB | Vector type and vector index | IoTDB's `VECTOR` is an aligned time series, not embeddings; DBine treats it as an ordinary type. |
+| TDengine | Vector type and vector index | TDengine has no vector type. |
+| ksqlDB | Vector type and vector index | ksqlDB has no vector type. |
+| Apache Phoenix / Avatica | Vector type and vector index | Phoenix has no vector type. |
+| kdb+ | Vector type and vector index | q "vectors" are lists, not embeddings. KDB.AI is a separate product. |
+| OrientDB | Vector index | OrientDB 3.2 has no vector index (documented behavior). |
+| Power BI | Vector type and vector index | Power BI models are DAX models with no vectors. |
+| Amazon Neptune | Vector index; a vector's dimension | Neptune has no user-defined indexes, so no vector index can give a vector its dimension: a vector converted into Neptune loses it and arrives as a float list, and the index is left out.
+| SQLite (the engine) | Creating and using vector indexes; sqlite-vec | `libsql_vector_idx` belongs to libSQL. sqlite-vec is a loadable extension and DBine never loads SQLite extensions: `vec0` tables show as virtual tables that can't be read. |
+
+### Pending items and limits
+
+| Engine | What is missing | Reason |
+|---|---|---|
+| PostgreSQL family | `bit(n)` as a vector column | Plain bit strings exist without pgvector, so DBine can't tell a binary vector from one. It reads and writes as a bit string; only the index is a vector index, and a `bit(n)` searched by a hamming or Jaccard index moves to other engines as a binary vector. |
+| PostgreSQL family, connections on the simple query protocol | Marking vector columns | The simple protocol carries no column types. Cells are still whole JSON arrays. |
+| RisingWave | Marking computed or renamed vector columns and results streamed to an export | RisingWave can't describe a result with a vector column; DBine marks them from the tables the query reads. |
+| CockroachDB, RisingWave | Vector indexes on bit strings and sparse vectors | The engines index only their `VECTOR` type. |
+| CockroachDB | `sparsevec`, L1, Hamming and Jaccard distances | C-SPANN lacks them; they are refused with the reason. |
+| CrateDB | Loading vectors a source of another family sends as text; `sparsevec`; vectors without a dimension | CrateDB doesn't cast text to a vector and has no sparse type. **Explicit pending item** for the text loads. |
+| YugabyteDB | Indexing `halfvec` and `sparsevec`; IVFFlat | `ybhnsw` indexes `vector` columns only and YugabyteDB has no IVFFlat. |
+| Doris, StarRocks | Vector index on AGGREGATE KEY tables | The engine builds vector indexes only on DUPLICATE KEY tables (and PRIMARY KEY in StarRocks). |
+| TiDB | Vector index without a TiFlash replica | TiDB's vector index lives in TiFlash; the server answers error 8200 without one. |
+| OceanBase, Doris, StarRocks, Databend, SingleStore | Live test | **Explicit pending item.** OceanBase, Doris and StarRocks need several GB of disk and their live tests are written but not run; Databend has no image on the test machine; SingleStore has no image (it needs a license key). |
+| MariaDB | Marking the columns of a `UNION` | A `UNION`'s columns carry no table on the wire; they are marked only when they are `VEC_FromText` aliases. |
+| Manticore | Marking an array for a string or JSON attribute typed only by a result | The wire calls every text column `string`; only the describe's types tell. |
+| SQL Server | Marking `float16` vectors in ad-hoc queries | The TDS vector feature carries float32 only; browsing a table marks them. |
+| SQL Server 2025 | Inserting, updating or deleting in a table with a vector index; creating one without `PREVIEW_FEATURES` | A SQL Server 2025 rule; the script says both before the index. |
+| SQL Server | Disabling or rebuilding a vector index | Msg 42250: the engine can't. |
+| Oracle | Moving a `SPARSE` vector to pgvector `sparsevec`; HNSW without the vector memory pool | **Explicit pending item** for the first: pgvector's loader doesn't read Oracle's sparse text yet. HNSW needs `VECTOR_MEMORY_SIZE` above 0. |
+| SAP HANA Cloud | Ad-hoc queries with a vector column on a server that sends the vector type itself | DBine's HANA client doesn't read that type; the message says to use `TO_NVARCHAR(column)`. Browsing a table works. **Explicit pending item.** |
+| SAP HANA Cloud, IBM Db2 LUW, Snowflake, Azure SQL | Live test | No instance, container or account on the test machine (Db2 also lacks IBM's ODBC / CLI driver). **Explicit pending item.** |
+| Elasticsearch | Quantization, `bbq_*`, `rescore_vector`, `bfloat16` checked against the server's version | Written as given, without a check of the version. **Explicit pending item.** |
+| Elasticsearch 9.2+ | Vectors in `_source` | The server leaves them out unless asked; DBine's browse and transfers ask, and the console explains how for a typed request. |
+| Elasticsearch, OpenSearch | Changing or dropping the vector index of an existing field | It needs a reindex; sync only warns. |
+| OpenSearch | Designing IVF | IVF needs a trained model; a `model_id` index is read and written as it is. |
+| Open Distro | Per-field distance and HNSW parameters; byte or binary vectors | The k-NN plugin keeps them in the index's settings, fixed at creation, and has float vectors only. |
+| Solr | Vectors past 1024 dimensions before 9.5 | 9.5 and later take more; 9.4 needs `SchemaCodecFactory` in `solrconfig.xml`; 9.0–9.3 can't. |
+| Redis, Valkey, Dragonfly | Search indexes outside database 0; RediSearch before 2.8 settings | Redis 8 and Dragonfly create them in database 0 only; RediSearch before 2.8 doesn't report a vector field's settings. |
+| Redis | Changing a vector set's quantization from the grid | The quantization isn't part of the column type; Redis refuses a mismatch with an error. |
+| ScyllaDB | Vector indexes in keyspaces without tablets | ScyllaDB creates them only on tablets and a keyspace can't switch afterwards. |
+| Cassandra | SAI graph settings | They need `cassandra.sai.vector.allow_custom_parameters`; DBine keeps but doesn't offer them. |
+| MongoDB | Indexes without mongot; hiding a vector search index | MongoDB 7 and servers without mongot have no search indexes; vector search indexes can't be hidden. |
+| DocumentDB, FerretDB | BinData vectors; filter fields and compression (DocumentDB); `vector-diskann` (FerretDB 2.7) | Their vector indexes search arrays only, so int8 and bit vectors converted into them become arrays of numbers; DocumentDB's index takes one field, no filter fields and no compression; FerretDB 2.7 doesn't have DiskANN. |
+| Cosmos DB for NoSQL | Changing the vector policy of a container; the distance read back from the emulator | The policy is fixed at creation; the emulator doesn't report it. |
+| Couchbase | Big-endian base64 vectors; creating Search vector indexes in the designer | Shown as the index's expression; Search indexes are made by sync, clone and compare through the Search service's REST API. |
+| DuckDB | Indexing `DOUBLE[n]`; downloading `vss` | The `vss` extension indexes `FLOAT[n]` only; DBine never downloads it while opening a file. |
+| ClickHouse | Marking `Array(Float64)` in arbitrary results; `dotProduct` before 26.4 | A result has no index context; `dotProduct` came in 26.4, and on 26.4–26.9 its index search ranks wrong without rescoring (a ClickHouse bug fixed in 26.10). |
+| libSQL | Hamming index; L2 on 1-bit vectors | libSQL indexes with cosine or L2 only, and measures 1-bit vectors by cosine. |
+| BigQuery | Vector index live test; NULL arrays | The emulator has no vector indexes; BigQuery arrays can't hold or be NULL. |
+| Spanner | Marking the dimension of result columns | Results carry no `vector_length`. |
+| Neo4j | Vectors from other engines as the native `VECTOR` type; marking a vector inside a browsed node | They load as `LIST<FLOAT>`, which indexes take; table browsing shows whole nodes. |
+| Redis, Valkey, Dragonfly | Applying schema sync of search indexes from downloaded drivers | **Explicit pending item**: downloaded Redis drivers get it once republished. |

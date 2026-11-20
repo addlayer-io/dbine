@@ -114,6 +114,13 @@ rejected. The other engines use their own read-only mode. That also applies to
 connections with the **Write** level: to change anything, the assistant has to
 use `execute`.
 
+## Similarity searches
+
+A similarity search over vectors runs without approval where the server
+enforces the read and every function it calls is a side-effect-free built-in;
+the tools also describe each vector index (algorithm, distance, parameters).
+Details: [vectors.md](vectors.md#ai-assistant-and-mcp).
+
 ## Approvals
 
 Every time an assistant asks for `execute`, or for `run_query` / `explain`

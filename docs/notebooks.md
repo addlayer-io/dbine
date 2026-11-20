@@ -942,6 +942,12 @@ result, only a preview:**
 - The first time a notebook with results is saved, DBine says: *"This file
   includes a preview of the data you queried."*
 
+## Vectors
+
+A vector column of a result is a DuckDB `FLOAT[n]` array in DataFrame SQL, and
+a write cell can write it into a vector column. Details:
+[vectors.md](vectors.md#notebooks-dataframe-sql).
+
 ## AI
 
 It follows the assistant's rules ([ai-assistant.md](ai-assistant.md)): the

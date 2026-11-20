@@ -63,6 +63,9 @@ in the explorer: **Compare schemas…**.
      applied stays pending.
    - You can't sync onto a read-only connection.
 
+Vector indexes are compared by algorithm, distance and parameters: see
+[vectors.md](vectors.md#schema-compare-and-sync).
+
 ## What the script generates
 
 The order avoids dependency errors:

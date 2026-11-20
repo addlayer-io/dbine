@@ -111,6 +111,11 @@ for instance), read-only: see [Comparing two queries](#comparing-two-queries).
 - If a key repeats on one side, the first row read is compared once and the
   result says so.
 
+## Vectors
+
+Vector columns compare by value and show their first numbers and dimensions.
+Details: [vectors.md](vectors.md#data-compare).
+
 ## The equal rows
 
 The equal rows are always counted. To see them too, check **Include equal

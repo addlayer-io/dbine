@@ -313,6 +313,12 @@ The chat shows "Asking again…" and replaces the refusal with the new answer.
 Below each question it shows what context traveled; for example,
 "SQLite · 2 tables · editor" (with a local model, "· 48 objects").
 
+## Vectors
+
+The assistant sees each vector index's algorithm, distance and parameters and
+can write the similarity query that fits. Details:
+[vectors.md](vectors.md#ai-assistant-and-mcp).
+
 ## Preferences
 
 They travel with sync:

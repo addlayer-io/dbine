@@ -84,6 +84,9 @@ uses the same options as the dialog (format, schemas and parts). It writes to
 a **Folder** with the **File name** you choose (it accepts
 [variables](scheduled-tasks.md#variables)) and produces `file` and `tables`.
 
+A table's vector indexes show their algorithm, distance and settings (see
+[vectors.md](vectors.md#database-docs)).
+
 ## Engine particularities
 
 The document is built from what the engine reports through the contract, so

@@ -159,6 +159,10 @@ why:
 - **Functions in defaults:** `NOW()`, `GETDATE()` or `NEWID()` are translated
   to the target's equivalent function, or a warning is given when it doesn't
   have one.
+- **Vectors:** a vector column keeps its dimension and element where the
+  target has a vector type, and a vector index is mapped to the target's
+  algorithm and distance, or left out with the reason. How each case goes is
+  in [vectors.md](vectors.md#schema-conversion-between-engines).
 
 ## Tests
 

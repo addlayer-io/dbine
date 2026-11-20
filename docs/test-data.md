@@ -84,6 +84,9 @@ engine are:
 - the insert script (`insert_script`) and the columns' types;
 - reading foreign keys, which exists only on engines with foreign keys.
 
+Vector columns get random vectors of their dimensions (see
+[vectors.md](vectors.md#test-data)).
+
 ## Contract
 
 It adds no methods to the drivers: it uses `Session::columns`,
