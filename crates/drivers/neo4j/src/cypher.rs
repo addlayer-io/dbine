@@ -3,11 +3,11 @@
 
 use serde_json::Value;
 
-/// A character that ends a `//` comment. Neo4j ends one at CR as well as
-/// LF; the Unicode line breaks count too, so nothing after a line break is
-/// taken for a comment (a write or a call hidden there stays in view).
+/// A character that ends a `//` comment, exactly as Neo4j's grammar has it
+/// (`'//' ~[\r\n]*`): LF or CR. Reading a comment as longer or shorter than
+/// the server does could hide a write from `write_reason`.
 fn line_break(c: char) -> bool {
-    matches!(c, '\n' | '\r' | '\u{85}' | '\u{2028}' | '\u{2029}')
+    matches!(c, '\n' | '\r')
 }
 
 /// Walks the tokens of a statement, skipping comments and whitespace:
@@ -720,12 +720,13 @@ mod tests {
         assert!(!implicit_only("MATCH (n) RETURN n"));
     }
 
-    /// Neo4j ends a `//` comment at CR as well as LF: a write after `//…\r`
+    /// Comments end where Neo4j ends them (CR or LF): a write after `//…\r`
     /// is a write, and the statement after a CR-ended comment is found.
+    /// After a Unicode line break the server is still in the comment.
     #[test]
-    fn a_comment_ends_at_any_line_break() {
+    fn a_comment_ends_where_neo4j_ends_it() {
         assert!(write_reason("MATCH (n) //\rDELETE n").is_some());
-        assert!(write_reason("MATCH (n) //\u{2028}SET n.a = 1").is_some());
+        assert_eq!(write_reason("MATCH (n) //\u{2028}SET n.a = 1"), None);
         assert_eq!(write_reason("MATCH (n) // DELETE n\r\nRETURN n"), None);
         let units = script("// note\rCREATE (n)");
         assert_eq!(units.len(), 1);
