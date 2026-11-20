@@ -16,6 +16,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod references;
 mod rename;
 mod schema;
 mod script;
@@ -1213,6 +1214,15 @@ impl Session for FirebirdSession {
         Ok(Some(index_usage::report(
             tables.iter().find(|t| t.name == table.name),
         )))
+    }
+
+    /// From `RDB$DEPENDENCIES` and the foreign keys (see `references`).
+    async fn references(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        references::references(self, target, scan).await
     }
 
     async fn read_batches(
