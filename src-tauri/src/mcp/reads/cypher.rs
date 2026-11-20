@@ -375,6 +375,12 @@ pub(crate) fn approval_free(driver: &str, query: &str) -> Result<(), String> {
     if let Some(c) = ambiguous_break(query) {
         return Err(format!("U+{:04X}", c as u32));
     }
+    // Neo4j's older parser (4.4 to 5.26) turns `\uXXXX` into its character
+    // before lexing, in comments, strings and code alike, so `//\u000a` or
+    // `'\u0027` ends a comment or a string there and not here: refused.
+    if query.contains("\\u") || query.contains("\\U") {
+        return Err("\\u".into());
+    }
     let toks = tokens(query)?;
     let word = |i: usize| match toks.get(i) {
         Some(Tok::Word(w)) => Some(w.to_ascii_lowercase()),
@@ -542,6 +548,16 @@ mod tests {
             approval_free("neo4j", "RETURN 1 //\u{2028}x"),
             Err("U+2028".to_string())
         );
+        // `\uXXXX` written as six characters: Neo4j's older parser reads it
+        // as the character itself before lexing.
+        for q in [
+            r"WITH 1 AS x //\u000aLOAD CSV FROM 'http://x/' AS l RETURN l",
+            r#"WITH '\u0027 AS x LOAD CSV FROM "http://x/" AS l RETURN l //'"#,
+            r"MATCH (n) /* \u002a\u002f CALL apoc.x() YIELD v */ RETURN n",
+            r"RETURN '\U0027' AS x",
+        ] {
+            assert_eq!(approval_free("neo4j", q), Err("\\u".to_string()), "{q}");
+        }
         // CRLF line ends still read as plain comments.
         assert_eq!(
             approval_free("neo4j", "MATCH (n) // first\r\nRETURN n LIMIT 1"),
