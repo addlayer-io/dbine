@@ -7,6 +7,7 @@ pub mod backup;
 pub mod functions;
 pub mod index_usage;
 pub mod monitor;
+pub mod objects_page;
 mod permissions;
 pub mod plan;
 pub mod properties;
@@ -383,6 +384,13 @@ impl SqliteSession {
     }
 }
 
+/// A row of [`objects_page::COLUMNS`].
+fn objects_page_row(
+    r: &rusqlite::Row,
+) -> rusqlite::Result<(String, String, Option<String>, String)> {
+    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+}
+
 /// Why the process list and cancelling don't apply, in Spanish (for the
 /// error and the docs).
 const NO_PROCESSES: &str = "SQLite es una base embebida en un archivo: no hay un servidor con sesiones de otros clientes que listar ni consultas ajenas que cancelar";
@@ -398,32 +406,51 @@ impl Session for SqliteSession {
         Ok(vec!["main".into()])
     }
 
+    /// Ordered by name, then type (a table and a trigger may share a name):
+    /// the order [`objects_page`] pages.
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         self.with(|c| {
             let mut stmt = c
                 .prepare(&format!(
-                    "SELECT m.type, m.name, m.tbl_name, COALESCE(m.sql, '') FROM sqlite_master m
-                     WHERE m.type IN ('table', 'view', 'trigger') AND m.name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
-                       AND {}
-                     ORDER BY m.name",
-                    schema::NOT_VECTOR_SHADOW
+                    "SELECT {} FROM sqlite_master m
+                     WHERE m.type IN ('table', 'view', 'trigger') AND {}
+                     ORDER BY m.name, m.type",
+                    objects_page::COLUMNS,
+                    objects_page::not_internal("")
                 ))
                 .map_err(err)?;
-            let rows = stmt
-                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?)))
-                .map_err(err)?;
+            let rows = stmt.query_map([], objects_page_row).map_err(err)?;
             let mut out = Vec::new();
             for row in rows {
                 let (ty, name, tbl, sql) = row.map_err(err)?;
-                let (kind, parent) = match ty.as_str() {
-                    "table" if schema::is_virtual(&sql) => (schema::VIRTUAL_TABLE, None),
-                    "table" => (kinds::TABLE, None),
-                    "view" => (kinds::VIEW, None),
-                    _ => (kinds::TRIGGER, Some(tbl)),
-                };
-                out.push(DbObject { kind: kind.into(), schema: None, name, parent });
+                out.push(objects_page::object(&ty, name, tbl, &sql));
             }
             Ok(out)
+        })
+        .await
+    }
+
+    /// One query on `sqlite_master` per page ([`objects_page`]), names
+    /// folded as the app folds them ([`objects_page::FOLD`]).
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        let Some(page) = objects_page::page_query(query, objects_page::FOLD, "") else {
+            return Ok(dbine_driver::ObjectPage::default());
+        };
+        self.with(move |c| {
+            objects_page::register_fold(c).map_err(err)?;
+            let mut stmt = c.prepare(&page.sql).map_err(err)?;
+            let rows = stmt
+                .query_map(
+                    rusqlite::params_from_iter(page.params.iter()),
+                    objects_page_row,
+                )
+                .map_err(err)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(err)?;
+            Ok(page.page(rows))
         })
         .await
     }

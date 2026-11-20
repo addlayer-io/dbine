@@ -517,6 +517,23 @@ impl Client {
         }
     }
 
+    /// One statement with its `?`s bound to `args`, as text.
+    pub async fn execute_args(&mut self, sql: &str, args: &[String]) -> Result<StmtResult> {
+        let mut stmt = stmt(sql);
+        stmt["args"] = args
+            .iter()
+            .map(|a| json!({ "type": "text", "value": a }))
+            .collect();
+        let mut r = self
+            .pipeline(vec![json!({ "type": "execute", "stmt": stmt })])
+            .await?;
+        match r.pop() {
+            Some(Ok(resp)) => Ok(stmt_result(resp.get("result").unwrap_or(&Value::Null))),
+            Some(Err(m)) => Err(Error::Query(m)),
+            None => Err(Error::Query("el servidor no respondió la sentencia".into())),
+        }
+    }
+
     /// Statements that don't depend on each other, in one round trip; each
     /// one's rows or error.
     pub async fn execute_each(

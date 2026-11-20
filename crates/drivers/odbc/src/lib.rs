@@ -18,6 +18,7 @@ mod health;
 mod index_usage;
 mod jobs;
 mod monitor;
+mod objects_page;
 mod odbc;
 mod permissions;
 mod plan;
@@ -1264,6 +1265,15 @@ impl Session for OdbcSession {
         }
         out.sort_by(|a, b| (&a.schema, &a.name).cmp(&(&b.schema, &b.name)));
         Ok(out)
+    }
+
+    /// A schema's tables and views through SQLTables; the rest is the
+    /// app's paging of `list_objects` (see [`objects_page`]).
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(query).await
     }
 
     /// Presets with "Nuevo esquema…" (see `schemas::list_sql`): their

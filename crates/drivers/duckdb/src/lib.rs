@@ -12,6 +12,7 @@ mod functions;
 mod index_usage;
 mod loader;
 mod monitor;
+mod objects_page;
 mod permissions;
 mod plan;
 mod properties;
@@ -651,12 +652,13 @@ impl DuckDbSession {
     /// Rows of a catalog query with one string parameter per `?`.
     async fn strings(
         &self,
-        sql: &'static str,
+        sql: impl Into<String>,
         params: Vec<String>,
         ncols: usize,
     ) -> Result<Vec<Vec<Option<String>>>> {
+        let sql = sql.into();
         self.with(move |c| {
-            let mut stmt = c.prepare(sql).map_err(Error::query)?;
+            let mut stmt = c.prepare(&sql).map_err(Error::query)?;
             let rows = stmt
                 .query_map(duckdb::params_from_iter(params.iter()), |r| {
                     (0..ncols)
@@ -785,37 +787,27 @@ impl Session for DuckDbSession {
         .await
     }
 
+    /// Tables, views, macros, sequences and types of the open database, by
+    /// schema, name and kind ([`objects_page::list_sql`]).
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         let rows = self
-            .strings(
-                "SELECT 'table', schema_name, table_name FROM duckdb_tables() WHERE database_name = ?1 AND NOT internal
-                 UNION ALL
-                 SELECT 'view', schema_name, view_name FROM duckdb_views() WHERE database_name = ?1 AND NOT internal
-                 UNION ALL
-                 SELECT DISTINCT 'function', schema_name, function_name FROM duckdb_functions()
-                   WHERE database_name = ?1 AND NOT internal AND function_type IN ('macro', 'table_macro')
-                 UNION ALL
-                 SELECT 'sequence', schema_name, sequence_name FROM duckdb_sequences() WHERE database_name = ?1
-                 UNION ALL
-                 SELECT 'type', schema_name, type_name FROM duckdb_types() WHERE database_name = ?1 AND NOT internal
-                 ORDER BY 2, 3",
-                vec![self.catalog.clone()],
-                3,
-            )
+            .strings(objects_page::list_sql(), vec![self.catalog.clone()], 3)
             .await?;
-        Ok(rows
-            .into_iter()
-            .map(|r| {
-                let mut r = r.into_iter();
-                let kind = r.next().flatten().unwrap_or_default();
-                DbObject {
-                    kind,
-                    schema: r.next().flatten(),
-                    name: r.next().flatten().unwrap_or_default(),
-                    parent: None,
-                }
-            })
-            .collect())
+        Ok(rows.into_iter().map(objects_page::object).collect())
+    }
+
+    /// One query on the catalog functions per page ([`objects_page`]).
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        let Some(page) = objects_page::page_query(&self.catalog, query) else {
+            return Ok(dbine_driver::ObjectPage::default());
+        };
+        let rows = self
+            .strings(page.sql.clone(), page.params.clone(), 3)
+            .await?;
+        Ok(page.page(rows))
     }
 
     /// Every schema of the open database, so an empty one (just made with

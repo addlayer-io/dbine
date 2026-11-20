@@ -9,4 +9,5 @@ dbine-driver = { path = "../../dbine-driver" }
 tokio.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
-rusqlite.workspace = true
+# `functions`: the explorer's case folding (objects_page::FOLD).
+rusqlite = { workspace = true, features = ["functions"] }

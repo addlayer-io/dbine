@@ -16,14 +16,14 @@ use dbine_driver::sql::{
 use dbine_driver::{
     async_trait, kinds, Capabilities, ColumnInfo, ConnectionConfig, CreateTemplate, DbObject,
     DdlParts, DesignerSpec, Driver, DriverInfo, Error, Family, Field, FieldKind, Language,
-    MonitorSnapshot, ObjectKindInfo, ObjectRef, QueryOutcome, Result, ResultColumn, ScriptError,
-    Session, TableSchema, TxState,
+    MonitorSnapshot, ObjectKindInfo, ObjectPage, ObjectQuery, ObjectRef, QueryOutcome, Result,
+    ResultColumn, ScriptError, Session, TableSchema, TxState,
 };
 use dbine_driver_sqlite::properties::{self, Flavor};
 use dbine_driver_sqlite::schema::Rows;
 use dbine_driver_sqlite::{
-    functions as sqlite_functions, index_usage, monitor as sqlite_monitor, plan, schema, stats,
-    vector,
+    functions as sqlite_functions, index_usage, monitor as sqlite_monitor, objects_page, plan,
+    schema, stats, vector,
 };
 use hrana::{Client, StmtResult};
 use serde_json::Value;
@@ -516,16 +516,36 @@ impl LibsqlSession {
 }
 
 /// Tables, views and triggers, without SQLite's, Litestream's and libSQL's
-/// own (the vector indexes' shadow tables included).
+/// own (the vector indexes' shadow tables included), by name, then type (a
+/// table and a trigger may share a name): the order `list_objects_page`
+/// pages.
 fn list_objects_sql() -> String {
     format!(
-        "SELECT m.type, m.name, m.tbl_name, COALESCE(m.sql, '') FROM sqlite_master m
- WHERE m.type IN ('table', 'view', 'trigger') AND m.name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
-   AND m.name NOT LIKE '\\_litestream\\_%' ESCAPE '\\' AND m.name NOT LIKE 'libsql\\_%' ESCAPE '\\'
-   AND {}
- ORDER BY m.name",
-        schema::NOT_VECTOR_SHADOW
+        "SELECT {} FROM sqlite_master m
+ WHERE m.type IN ('table', 'view', 'trigger') AND {}
+ ORDER BY m.name, m.type",
+        objects_page::COLUMNS,
+        objects_page::not_internal(NOT_LIBSQL)
     )
+}
+
+/// Litestream's and libSQL's own tables, on top of SQLite's.
+const NOT_LIBSQL: &str =
+    "m.name NOT LIKE '\\_litestream\\_%' ESCAPE '\\' AND m.name NOT LIKE 'libsql\\_%' ESCAPE '\\'";
+
+/// The rows of a query of [`objects_page::COLUMNS`].
+fn object_rows(r: &StmtResult) -> Vec<(String, String, Option<String>, String)> {
+    r.rows
+        .iter()
+        .filter_map(|row| {
+            Some((
+                text(row.first()?)?,
+                text(row.get(1)?)?,
+                row.get(2).and_then(text),
+                row.get(3).and_then(text).unwrap_or_default(),
+            ))
+        })
+        .collect()
 }
 
 /// Why the process list and cancelling don't apply, in Spanish (for the
@@ -591,25 +611,21 @@ impl Session for LibsqlSession {
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         let r = self.client.execute(&list_objects_sql()).await?;
-        Ok(r.rows
-            .iter()
-            .filter_map(|row| {
-                let (ty, name, tbl) = (text(row.first()?)?, text(row.get(1)?)?, text(row.get(2)?));
-                let sql = row.get(3).and_then(text).unwrap_or_default();
-                let (kind, parent) = match ty.as_str() {
-                    "table" if schema::is_virtual(&sql) => (schema::VIRTUAL_TABLE, None),
-                    "table" => (kinds::TABLE, None),
-                    "view" => (kinds::VIEW, None),
-                    _ => (kinds::TRIGGER, tbl),
-                };
-                Some(DbObject {
-                    kind: kind.into(),
-                    schema: None,
-                    name,
-                    parent,
-                })
-            })
+        Ok(object_rows(&r)
+            .into_iter()
+            .map(|(ty, name, tbl, sql)| objects_page::object(&ty, name, tbl, &sql))
             .collect())
+    }
+
+    /// SQLite's page query ([`objects_page`]) over Hrana, names and
+    /// patterns as arguments. Names fold with the server's `lower()`, which
+    /// folds only ASCII: a function can't be registered on a server.
+    async fn list_objects_page(&mut self, query: &ObjectQuery) -> Result<ObjectPage> {
+        let Some(page) = objects_page::page_query(query, "lower", NOT_LIBSQL) else {
+            return Ok(ObjectPage::default());
+        };
+        let r = self.client.execute_args(&page.sql, &page.params).await?;
+        Ok(page.page(object_rows(&r)))
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
