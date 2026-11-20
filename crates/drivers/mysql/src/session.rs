@@ -8,8 +8,8 @@ use crate::{err, stmt_err, Variant};
 use dbine_driver::sql::{leading_keyword, quote_ident, select_top, Limit, Quote};
 use dbine_driver::{
     async_trait, kinds, BoundStatement, ColumnDef, ColumnInfo, DbObject, Error, ForeignKeyDef,
-    IndexDef, KeyDef, Message, MessageLevel, MonitorSnapshot, ObjectRef, ParamValue, Plan,
-    QueryOutcome, Result, Session, StatementKind, TableSchema, TxState,
+    IndexDef, KeyDef, Message, MessageLevel, MonitorSnapshot, ObjectPage, ObjectQuery, ObjectRef,
+    ParamValue, Plan, QueryOutcome, Result, Session, StatementKind, TableSchema, TxState,
 };
 use mysql_async::consts::StatusFlags;
 use mysql_async::prelude::Queryable;
@@ -2290,6 +2290,33 @@ impl Session for MySqlSession {
         }
         out.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
+    }
+
+    async fn list_objects_page(&mut self, query: &ObjectQuery) -> Result<ObjectPage> {
+        let unsupported =
+            || Error::Unsupported("este motor todavía no lista sus objetos por páginas".into());
+        let Some(catalog) = crate::objects_page::catalog(self.variant) else {
+            return Err(unsupported());
+        };
+        let Some(db) = self.current_database().await else {
+            return Ok(ObjectPage::default());
+        };
+        let Some(page) = crate::objects_page::page_query(&catalog, &db, query) else {
+            return Ok(ObjectPage::default());
+        };
+        match self
+            .conn
+            .exec::<Row, _, _>(page.sql.as_str(), page.params.clone())
+            .await
+        {
+            Ok(rows) => Ok(page.page(&rows)),
+            // A catalog this server lacks or hides: the app pages
+            // `list_objects`, which reads what it has.
+            Err(e) => {
+                tracing::debug!("{:?}: objects by page: {e}", self.variant);
+                Err(unsupported())
+            }
+        }
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {

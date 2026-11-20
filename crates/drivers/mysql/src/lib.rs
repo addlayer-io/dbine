@@ -19,6 +19,7 @@ mod health;
 mod index_usage;
 mod jobs;
 mod monitor;
+mod objects_page;
 mod permissions;
 mod plan;
 mod processes;

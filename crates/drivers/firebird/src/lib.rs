@@ -10,6 +10,7 @@ mod functions;
 mod health;
 mod index_usage;
 mod monitor;
+mod objects_page;
 mod permissions;
 mod plan;
 mod processes;
@@ -920,6 +921,28 @@ impl Session for FirebirdSession {
                 })
             })
             .collect())
+    }
+
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        let Some(page) = objects_page::page_query(query) else {
+            return Ok(Default::default());
+        };
+        let sql = page.sql.clone();
+        let params = page.params.iter().cloned().map(SqlType::Text).collect();
+        match self.run(move |c| c.rows(&sql, params)).await {
+            Ok(rows) => Ok(page.page(&rows)),
+            // A catalog this server can't read so: the app pages
+            // `list_objects`.
+            Err(e) => {
+                tracing::debug!("firebird: objects by page: {e}");
+                Err(Error::Unsupported(
+                    "este motor todavía no lista sus objetos por páginas".into(),
+                ))
+            }
+        }
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
