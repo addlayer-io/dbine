@@ -129,9 +129,13 @@ async fn run(
         );
     };
     let mut s = entry.session.lock().await;
-    let objects = s.list_objects().await?;
+    // The whole list only when something needs it: names, or the per-object
+    // scan. A code-only search (the explorer's filter) answered by the
+    // driver's catalog never reads it.
+    let mut objects: Option<Vec<dbine_driver::DbObject>> = None;
 
     if args.names && !q.text.is_empty() {
+        let objects = objects.insert(s.list_objects().await?);
         let hits: Vec<SearchHit> = objects
             .iter()
             .filter(|o| (names_any_kind || wanted(&o.kind)) && line_matches(&o.name, q))
@@ -197,6 +201,10 @@ async fn run(
     }
 
     // Each object's source.
+    let objects = match objects {
+        Some(o) => o,
+        None => s.list_objects().await?,
+    };
     let candidates: Vec<_> = objects
         .iter()
         .filter(|o| with_source.contains(&o.kind) && wanted(&o.kind))

@@ -572,6 +572,7 @@ impl Driver for MongoDriver {
             // Atlas Vector Search / mongot, DocumentDB and FerretDB vector
             // indexes, BinData vectors (see `vector`).
             vectors: true,
+            billed_metadata: false,
         }
     }
 

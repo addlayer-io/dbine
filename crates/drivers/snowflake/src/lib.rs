@@ -414,6 +414,7 @@ impl Driver for SnowflakeDriver {
             scheduler: true,
             // VECTOR(FLOAT | INT, n); Snowflake has no vector indexes.
             vectors: true,
+            billed_metadata: false,
         }
     }
 

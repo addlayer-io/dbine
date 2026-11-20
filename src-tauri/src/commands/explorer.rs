@@ -269,6 +269,26 @@ pub async fn get_cached(
     let Some(cache) = state.cache.get() else {
         return Ok(None);
     };
+    // A name search (the explorer's filter): what every folder and whole
+    // list kept for the database holds, at once and without a connection.
+    if let Some(q) = args
+        .query
+        .as_ref()
+        .filter(|q| args.kind == CACHE_PAGE && q.pattern.is_some())
+    {
+        let payloads = cache
+            .payloads(
+                &args.connection_id,
+                &args.database,
+                &[CACHE_PAGE, cache_kinds::OBJECTS],
+            )
+            .unwrap_or_else(|e| {
+                tracing::warn!("explorer cache read failed: {e}");
+                Vec::new()
+            });
+        let found = cached_matches(&payloads, q.pattern.as_deref().unwrap_or(""), q.limit);
+        return Ok(Some(serde_json::to_value(found).unwrap_or_default()));
+    }
     let item = match &args.query {
         Some(q) => page_item(q),
         None => args.item.clone(),
@@ -281,6 +301,32 @@ pub async fn get_cached(
         });
     // An entry from another version that no longer parses is just a miss.
     Ok(raw.and_then(|r| serde_json::from_str(&r).ok()))
+}
+
+/// The objects in cached lists (`payloads`, newest first) whose name holds
+/// `pattern` (ignoring case), each once, at most `limit` (0: no cap); an
+/// entry that no longer parses is skipped.
+fn cached_matches(payloads: &[String], pattern: &str, limit: u32) -> Vec<DbObject> {
+    let p = pattern.to_lowercase();
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for raw in payloads {
+        let Ok(objs) = serde_json::from_str::<Vec<DbObject>>(raw) else {
+            continue;
+        };
+        for o in objs {
+            if !o.name.to_lowercase().contains(&p) {
+                continue;
+            }
+            if seen.insert((o.kind.clone(), o.schema.clone(), o.name.clone())) {
+                out.push(o);
+                if limit > 0 && out.len() >= limit as usize {
+                    return out;
+                }
+            }
+        }
+    }
+    out
 }
 
 /// The cache's name for an object's columns.
@@ -589,6 +635,38 @@ fn find_table<'a>(
 mod tests {
     use super::*;
     use dbine_driver::TableSchema;
+
+    #[test]
+    fn the_filter_finds_names_in_every_cached_folder_once() {
+        let o = |kind: &str, schema: &str, name: &str| DbObject {
+            kind: kind.into(),
+            schema: Some(schema.into()),
+            name: name.into(),
+            parent: None,
+        };
+        let tables =
+            serde_json::to_string(&[o("table", "dbo", "Clientes"), o("table", "dbo", "Pedidos")])
+                .unwrap();
+        let views = serde_json::to_string(&[o("view", "dbo", "v_clientes_activos")]).unwrap();
+        // An older whole list repeats a table; an entry from another version doesn't parse.
+        let whole = serde_json::to_string(&[
+            o("table", "dbo", "Clientes"),
+            o("table", "ventas", "clientes"),
+        ])
+        .unwrap();
+        let payloads = [tables, views, whole, "{not a list".to_string()];
+        let found = cached_matches(&payloads, "CLIENTES", 0);
+        let names: Vec<_> = found
+            .iter()
+            .map(|x| format!("{}.{}", x.schema.as_deref().unwrap(), x.name))
+            .collect();
+        assert_eq!(
+            names,
+            ["dbo.Clientes", "dbo.v_clientes_activos", "ventas.clientes"]
+        );
+        assert_eq!(cached_matches(&payloads, "clientes", 2).len(), 2);
+        assert!(cached_matches(&payloads, "nada", 0).is_empty());
+    }
 
     fn t(schema: Option<&str>, name: &str) -> TableSchema {
         TableSchema {

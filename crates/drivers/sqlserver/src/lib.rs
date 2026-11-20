@@ -334,6 +334,7 @@ impl Driver for SqlServerDriver {
             // `vector(n)` (SQL Server 2025, Azure SQL): results, describes,
             // scripts, transfers and DiskANN vector indexes.
             vectors: vectors(self.variant),
+            billed_metadata: false,
         }
     }
 

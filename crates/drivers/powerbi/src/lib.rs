@@ -297,6 +297,7 @@ impl Driver for PowerBiDriver {
             jobs: true,
             scheduler: true,
             vectors: false,
+            billed_metadata: false,
         }
     }
 

@@ -534,6 +534,7 @@ impl Driver for HanaDriver {
             // REAL_VECTOR and HALF_VECTOR (HANA Cloud): describes, DDL,
             // literals, transfers and HNSW vector indexes (see `vector`).
             vectors: true,
+            billed_metadata: false,
         }
     }
 

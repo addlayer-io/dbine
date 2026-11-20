@@ -76,6 +76,35 @@ impl ExplorerCache {
             .map_err(db_err)
     }
 
+    /// Every entry of these kinds stored for a database (JSON), newest
+    /// first: the explorer's filter searches them by name.
+    pub fn payloads(
+        &self,
+        connection_id: &str,
+        database: &str,
+        kinds: &[&str],
+    ) -> Result<Vec<String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut out = Vec::new();
+        let mut stmt = conn
+            .prepare(
+                "SELECT payload FROM explorer WHERE connection_id = ?1 AND database = ?2 AND kind = ?3
+                 ORDER BY updated_at DESC",
+            )
+            .map_err(db_err)?;
+        for kind in kinds {
+            let rows = stmt
+                .query_map(params![connection_id, database, kind], |r| {
+                    r.get::<_, String>(0)
+                })
+                .map_err(db_err)?;
+            for row in rows {
+                out.push(row.map_err(db_err)?);
+            }
+        }
+        Ok(out)
+    }
+
     /// Store the server's answer, replacing the previous one.
     pub fn put(
         &self,
@@ -164,5 +193,19 @@ mod tests {
             c.get("c2", "", kinds::DATABASES, "").unwrap().as_deref(),
             Some(r#"["x"]"#)
         );
+    }
+
+    #[test]
+    fn lists_a_databases_entries_of_some_kinds() {
+        let c = ExplorerCache::open_in_memory().unwrap();
+        c.put("c1", "a", "page", "tables", "[1]").unwrap();
+        c.put("c1", "a", "page", "views", "[2]").unwrap();
+        c.put("c1", "a", kinds::OBJECTS, "", "[3]").unwrap();
+        c.put("c1", "a", kinds::COLUMNS, "t", "[4]").unwrap();
+        c.put("c1", "b", "page", "tables", "[5]").unwrap();
+        let mut got = c.payloads("c1", "a", &["page", kinds::OBJECTS]).unwrap();
+        got.sort();
+        assert_eq!(got, ["[1]", "[2]", "[3]"]);
+        assert!(c.payloads("c2", "a", &["page"]).unwrap().is_empty());
     }
 }
