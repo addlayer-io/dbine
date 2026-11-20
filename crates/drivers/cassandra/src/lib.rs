@@ -13,6 +13,7 @@ mod ddl;
 mod functions;
 mod index_usage;
 mod monitor;
+mod objects_page;
 mod permissions;
 mod plan;
 mod processes;
@@ -1431,6 +1432,15 @@ impl DbSession for CassandraSession {
     /// Materialized views' comments (tables' come with the schema).
     async fn object_comments(&mut self) -> Result<Vec<dbine_driver::stats::ObjectComment>> {
         self.stats_comments().await
+    }
+
+    /// One keyspace's `system_schema` rows of the kinds asked for (see
+    /// `objects_page`).
+    async fn list_objects_page(
+        &mut self,
+        q: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(q).await
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {

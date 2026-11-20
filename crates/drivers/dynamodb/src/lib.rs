@@ -9,6 +9,7 @@ mod ddl;
 mod functions;
 mod index_usage;
 mod monitor;
+mod objects_page;
 mod permissions;
 mod plan;
 mod stats;
@@ -749,34 +750,20 @@ impl Session for DynamoSession {
             .await;
         let mut out = Vec::new();
         for (table, desc) in described {
-            out.push(DbObject {
-                kind: kinds::TABLE.into(),
-                schema: None,
-                name: table.clone(),
-                parent: None,
-            });
+            out.push(objects_page::table(&table));
             let Some(d) = desc else { continue };
             self.keys.insert(table.clone(), key_order(d.key_schema()));
-            let names = d
-                .global_secondary_indexes()
-                .iter()
-                .filter_map(|i| i.index_name())
-                .chain(
-                    d.local_secondary_indexes()
-                        .iter()
-                        .filter_map(|i| i.index_name()),
-                );
-            for name in names {
-                // The table rides in `schema` so ObjectRef can find it back.
-                out.push(DbObject {
-                    kind: kinds::INDEX.into(),
-                    schema: Some(table.clone()),
-                    name: name.to_string(),
-                    parent: Some(table.clone()),
-                });
-            }
+            out.extend(objects_page::indexes(&table, &d));
         }
         Ok(out)
+    }
+
+    /// Only the `DescribeTable`s a page needs (see `objects_page`).
+    async fn list_objects_page(
+        &mut self,
+        q: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(q).await
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {

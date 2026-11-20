@@ -50,6 +50,7 @@ mod functions;
 mod index_usage;
 mod jobs;
 mod monitor;
+mod objects_page;
 mod permissions;
 mod plan;
 mod processes;
@@ -950,42 +951,19 @@ impl Session for CouchSession {
                 None,
             )
             .await?;
-        let mut out = vec![DbObject {
-            kind: kinds::COLLECTION.into(),
-            schema: None,
-            name: ALL_DOCS.into(),
-            parent: None,
-        }];
-        let mut views = Vec::new();
-        for row in r
-            .get("rows")
-            .and_then(Value::as_array)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-        {
-            let Some(doc) = row.get("doc") else { continue };
-            let ddoc = doc
-                .get("_id")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .trim_start_matches("_design/");
-            for v in doc
-                .get("views")
-                .and_then(Value::as_object)
-                .map(|m| m.keys().collect::<Vec<_>>())
-                .unwrap_or_default()
-            {
-                views.push(DbObject {
-                    kind: kinds::VIEW.into(),
-                    schema: None,
-                    name: format!("{ddoc}/{v}"),
-                    parent: Some(ddoc.to_string()),
-                });
-            }
-        }
+        let mut views = objects_page::views(&r);
         views.sort_by(|a, b| a.name.cmp(&b.name));
+        let mut out = vec![objects_page::all_docs()];
         out.extend(views);
         Ok(out)
+    }
+
+    /// Only the design documents the query needs (see `objects_page`).
+    async fn list_objects_page(
+        &mut self,
+        q: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(q).await
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {

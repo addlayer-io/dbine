@@ -71,6 +71,7 @@ mod ddl;
 mod functions;
 mod index_usage;
 mod monitor;
+mod objects_page;
 mod permissions;
 mod plan;
 mod processes;
@@ -1357,28 +1358,17 @@ impl Session for MongoSession {
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         let cmd = doc! { "listCollections": 1, "nameOnly": true, "authorizedCollections": true };
         let docs = self.first_batch(cmd, usize::MAX).await?;
-        let mut v: Vec<DbObject> = docs
-            .iter()
-            .filter_map(|d| {
-                let name = d.get_str("name").ok()?;
-                if name.starts_with("system.") {
-                    return None;
-                }
-                let kind = if d.get_str("type") == Ok("view") {
-                    kinds::VIEW
-                } else {
-                    kinds::COLLECTION
-                };
-                Some(DbObject {
-                    kind: kind.into(),
-                    schema: None,
-                    name: name.into(),
-                    parent: None,
-                })
-            })
-            .collect();
+        let mut v: Vec<DbObject> = docs.iter().filter_map(objects_page::object).collect();
         v.sort_by_key(|a| a.name.to_lowercase());
         Ok(v)
+    }
+
+    /// One filtered `listCollections` (see `objects_page`).
+    async fn list_objects_page(
+        &mut self,
+        q: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(q).await
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
