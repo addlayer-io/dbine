@@ -22,7 +22,8 @@ const COLS: &[&str] = &[
 ];
 
 /// The server at 2026-11-12 09:00 local, task 12 "nightly" whose begin
-/// has passed.
+/// has passed. Db2 keeps it to the microsecond (a task added without a
+/// begin begins when it was added); the form shows it to the second.
 fn server() -> Fake {
     Fake::default()
         .rows(
@@ -41,7 +42,7 @@ fn server() -> Fake {
                 Some("12"),
                 Some("ANA"),
                 Some("U"),
-                Some("2026-01-01-00.00.00.000000"),
+                Some("2026-01-01-00.00.00.481639"),
                 Some("2027-01-01-00.00.00.000000"),
                 Some("100"),
                 Some("0 3 * * *"),

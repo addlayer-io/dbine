@@ -30,6 +30,38 @@ fn ok(rc: SqlReturn) -> bool {
     rc == SQL_SUCCESS || rc == SQL_SUCCESS_WITH_INFO
 }
 
+/// A length or indicator the driver wrote into an `SQLLEN`. A driver built
+/// with a 32-bit `SQLLEN` under a 64-bit driver manager (IBM's macOS
+/// clidriver, `libdb2.dylib`, under unixODBC) writes only the low half:
+/// it's sign-extended from there, so NULL (-1) and SQL_NO_TOTAL (-4) read
+/// as such ([`Conn::len32`]).
+pub fn sql_len(raw: SqlLen, len32: bool) -> SqlLen {
+    if len32 {
+        raw as i32 as SqlLen
+    } else {
+        raw
+    }
+}
+
+/// [`sql_len`] for an `SQLULEN` (a column size, the rows fetched).
+pub fn sql_ulen(raw: SqlULen, len32: bool) -> SqlULen {
+    if len32 {
+        raw as u32 as SqlULen
+    } else {
+        raw
+    }
+}
+
+/// What [`Conn::probe_len32`] puts in the indicator: a driver that writes
+/// 64 bits overwrites the high half, one that writes 32 leaves it.
+const LEN_SENTINEL: SqlLen = 0x1111_1111_1111_1111;
+
+/// Whether an indicator that held [`LEN_SENTINEL`] and got a NULL's -1
+/// was written as 32 bits.
+fn wrote_32_bits(ind: SqlLen) -> bool {
+    (ind as u64) >> 32 == (LEN_SENTINEL as u64) >> 32 && ind as i32 == SQL_NULL_DATA as i32
+}
+
 #[derive(Debug, Clone)]
 pub struct Diag {
     pub state: String,
@@ -245,6 +277,14 @@ impl Drop for Env {
 pub struct Conn {
     pub api: &'static Api,
     pub dbc: H,
+    /// Db2 LUW 12.1.2 or later: its CLI describes a VECTOR column as text,
+    /// so the vector columns are looked up in the catalog
+    /// ([`crate::vector::result_types`]).
+    pub vector_catalog: bool,
+    /// The driver writes 32-bit lengths into `SQLLEN`s ([`sql_len`],
+    /// [`Self::probe_len32`]): lengths are read from their low half, and
+    /// row and parameter arrays have one row (their stride would be wrong).
+    pub len32: bool,
     connected: bool,
     // Dropped after the connection handle (see Drop).
     _env: Env,
@@ -270,6 +310,8 @@ impl Conn {
             let mut conn = Conn {
                 api,
                 dbc: H(h),
+                vector_catalog: false,
+                len32: false,
                 connected: false,
                 _env: env,
             };
@@ -408,7 +450,41 @@ impl Conn {
             api: self.api,
             h: H(h),
             slot: shared,
+            len32: self.len32,
         })
+    }
+
+    /// Whether the driver writes 32-bit lengths into `SQLLEN`s: `sql`, a
+    /// one-row query whose first column is NULL, is read with SQLGetData
+    /// into an indicator whose high half is set ([`LEN_SENTINEL`]); a
+    /// driver that leaves that half writes 32 bits. `false` (64 bits) when
+    /// the probe fails.
+    pub fn probe_len32(&self, sql: &str) -> bool {
+        let slot = StmtSlot::default();
+        let Ok(st) = self.stmt(&slot) else {
+            return false;
+        };
+        if st.exec(sql).is_err() || !matches!(st.fetch(), Ok(true)) {
+            return false;
+        }
+        let mut buf = [0u16; 32];
+        let mut ind = LEN_SENTINEL;
+        // SAFETY: buffer length in bytes.
+        let rc = unsafe {
+            (self.api.SQLGetData)(
+                st.h.0,
+                1,
+                SQL_C_WCHAR,
+                buf.as_mut_ptr() as *mut c_void,
+                (buf.len() * 2) as SqlLen,
+                &mut ind,
+            )
+        };
+        let len32 = ok(rc) && wrote_32_bits(ind);
+        if len32 {
+            tracing::debug!("odbc: the driver writes 32-bit lengths: no row or parameter arrays");
+        }
+        len32
     }
 }
 
@@ -474,6 +550,8 @@ impl WArg {
 pub struct ColDesc {
     pub name: String,
     pub sql_type: i16,
+    /// The column size SQLDescribeCol reports (characters for text).
+    pub size: u64,
     pub type_name: String,
 }
 
@@ -553,6 +631,8 @@ pub struct Stmt<'a> {
     api: &'static Api,
     h: H,
     slot: &'a StmtSlot,
+    /// [`Conn::len32`].
+    len32: bool,
 }
 
 /// A parameter marker of [`Stmt::exec_call`], as text.
@@ -585,6 +665,11 @@ impl Stmt<'_> {
     /// A cancel was asked for on this statement's session.
     pub fn slot_cancelled(&self) -> bool {
         self.slot.is_cancelled()
+    }
+
+    /// [`Conn::len32`].
+    pub fn len32(&self) -> bool {
+        self.len32
     }
 
     pub fn err(&self) -> Error {
@@ -721,11 +806,12 @@ impl Stmt<'_> {
             .zip(bufs.iter().zip(&lens))
             .filter(|(p, _)| !matches!(p, CallParam::In(_)))
             .map(|(_, (b, len))| {
-                if *len == SQL_NULL_DATA {
+                let len = sql_len(*len, self.len32);
+                if len == SQL_NULL_DATA {
                     return None;
                 }
-                let n = if *len >= 0 {
-                    (*len as usize / 2).min(CAP - 1)
+                let n = if len >= 0 {
+                    (len as usize / 2).min(CAP - 1)
                 } else {
                     b.iter().position(|c| *c == 0).unwrap_or(CAP - 1)
                 };
@@ -771,33 +857,35 @@ impl Stmt<'_> {
                 return Err(self.err());
             }
             let n = (name_len.max(0) as usize).min(name.len() - 1);
-            let mut tbuf = vec![0u16; 256];
-            let mut tlen = 0i16;
-            let mut num: SqlLen = 0;
-            // SAFETY: buffer length in bytes.
-            let rc = unsafe {
-                (self.api.SQLColAttributeW)(
-                    self.h.0,
-                    col,
-                    SQL_DESC_TYPE_NAME,
-                    tbuf.as_mut_ptr() as *mut c_void,
-                    (tbuf.len() * 2) as i16,
-                    &mut tlen,
-                    &mut num,
-                )
-            };
-            let type_name = if ok(rc) {
-                from_wide(&tbuf[..((tlen.max(0) as usize) / 2).min(tbuf.len() - 1)])
-            } else {
-                String::new()
-            };
             out.push(ColDesc {
                 name: from_wide(&name[..n]),
                 sql_type: data_type,
-                type_name,
+                size: sql_ulen(size, self.len32) as u64,
+                type_name: self.col_text(col, SQL_DESC_TYPE_NAME).unwrap_or_default(),
             });
         }
         Ok(out)
+    }
+
+    /// A text attribute of a result column (SQLColAttribute): its type
+    /// name, base table, base column… `None` when the driver fails it.
+    pub fn col_text(&self, col: u16, field: u16) -> Option<String> {
+        let mut buf = vec![0u16; 256];
+        let mut len = 0i16;
+        let mut num: SqlLen = 0;
+        // SAFETY: buffer length in bytes.
+        let rc = unsafe {
+            (self.api.SQLColAttributeW)(
+                self.h.0,
+                col,
+                field,
+                buf.as_mut_ptr() as *mut c_void,
+                (buf.len() * 2) as i16,
+                &mut len,
+                &mut num,
+            )
+        };
+        ok(rc).then(|| from_wide(&buf[..((len.max(0) as usize) / 2).min(buf.len() - 1)]))
     }
 
     /// Next row; false at the end.
@@ -829,6 +917,7 @@ impl Stmt<'_> {
         let mut n: SqlLen = -1;
         // SAFETY: valid out-pointer.
         let rc = unsafe { (self.api.SQLRowCount)(self.h.0, &mut n) };
+        let n = sql_len(n, self.len32);
         (ok(rc) && n >= 0).then_some(n as u64)
     }
 
@@ -850,7 +939,7 @@ impl Stmt<'_> {
         if !ok(rc) {
             return Err(self.err());
         }
-        Ok((ind != SQL_NULL_DATA).then_some(v))
+        Ok((sql_len(ind, self.len32) != SQL_NULL_DATA).then_some(v))
     }
 
     /// A cell as text, read in chunks; None when NULL.
@@ -877,6 +966,7 @@ impl Stmt<'_> {
             if !ok(rc) {
                 return Err(self.err());
             }
+            let ind = sql_len(ind, self.len32);
             if ind == SQL_NULL_DATA {
                 return Ok(None);
             }
@@ -911,6 +1001,7 @@ impl Stmt<'_> {
         if !ok(rc) {
             return Err(self.err());
         }
+        let ind = sql_len(ind, self.len32);
         if ind == SQL_NULL_DATA {
             return Ok(None);
         }
@@ -1200,5 +1291,36 @@ mod tests {
             "Invalid object name 'x'."
         );
         assert_eq!(clean_message("plain"), "plain");
+    }
+
+    /// What IBM's macOS clidriver left in 64-bit `SQLLEN`s (zero-filled,
+    /// or holding a -1 or the probe's sentinel before), and a 64-bit
+    /// driver's.
+    #[test]
+    fn lengths_written_as_32_bits_are_sign_extended() {
+        assert_eq!(sql_len(0x0000_0000_FFFF_FFFF, true), SQL_NULL_DATA);
+        assert_eq!(sql_len(0x0000_0000_FFFF_FFFC, true), SQL_NO_TOTAL);
+        assert_eq!(sql_len(0x0000_0000_0000_0010, true), 16);
+        assert_eq!(sql_len(0xFFFF_FFFF_0000_0001_u64 as SqlLen, true), 1);
+        assert_eq!(sql_len(0x1111_1111_FFFF_FFFF, true), SQL_NULL_DATA);
+        // 64-bit drivers' values stay as they are.
+        assert_eq!(sql_len(-1, false), -1);
+        assert_eq!(sql_len(0x1_0000_0000, false), 0x1_0000_0000);
+        assert_eq!(sql_ulen(0xFFFF_FFFF_0000_0031, true), 49);
+        assert_eq!(
+            sql_ulen(0xFFFF_FFFF_0000_0031, false),
+            0xFFFF_FFFF_0000_0031
+        );
+    }
+
+    #[test]
+    fn the_probe_tells_a_32_bit_write_from_a_64_bit_one() {
+        // libdb2.dylib: only the low half got the -1.
+        assert!(wrote_32_bits(0x1111_1111_FFFF_FFFF));
+        // A 64-bit driver: all of it.
+        assert!(!wrote_32_bits(SQL_NULL_DATA));
+        // Not a NULL, or not written at all: not taken as 32 bits.
+        assert!(!wrote_32_bits(0x1111_1111_0000_0004));
+        assert!(!wrote_32_bits(LEN_SENTINEL));
     }
 }

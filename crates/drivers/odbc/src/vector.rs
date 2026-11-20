@@ -6,7 +6,12 @@
 //!   canonical form ([`dbine_driver::vector`]).
 //! - **Types:** a column whose type name starts with `VECTOR` (`VECTOR`,
 //!   `VECTOR(FLOAT32)` as `DESCRIBE TABLE` spells it, `VECTOR(3, INT8)`)
-//!   is a vector; the catalog's length is its dimension.
+//!   is a vector; the catalog's length is its dimension. IBM's CLI (12.1.4)
+//!   never says VECTOR, though: results, SQLColumns and the transfer's
+//!   describe get VARCHAR (CLOB when the text passes 32,672 characters),
+//!   so on Db2 12.1.2+ the vector columns come from `SYSCAT.COLUMNS`
+//!   ([`result_types`], [`table_types`], [`CATALOG_SQL`]): by each result
+//!   column's base table and column, which the CLI does report.
 //! - **Literals and loads:** Db2 builds a vector from a string with
 //!   `VECTOR(string, dimension, coordinate type)` (no implicit cast is
 //!   documented): edits write `VECTOR('[…]', n, FLOAT32)` with the array's
@@ -18,7 +23,14 @@
 //! scripts that know the columns' types ([`typed_literal`]) and transfers
 //! (which read the target's types) write either.
 
+use crate::ffi::{
+    SQL_CLOB, SQL_DESC_BASE_COLUMN_NAME, SQL_DESC_BASE_TABLE_NAME, SQL_DESC_SCHEMA_NAME,
+    SQL_LONGVARCHAR, SQL_VARCHAR, SQL_WLONGVARCHAR, SQL_WVARCHAR,
+};
+use crate::odbc::{Conn, Stmt, StmtSlot};
 use dbine_driver::vector::{self, VectorElement, VectorMeta};
+use dbine_driver::TableSchema;
+use std::collections::HashMap;
 
 /// Whether a type name is a vector's.
 pub fn is_vector(type_name: &str) -> bool {
@@ -142,9 +154,155 @@ pub fn param(type_name: &str, size: Option<u64>) -> Option<String> {
     Some(format!("VECTOR(?, {}, {coord})", dims?))
 }
 
+// --------------------------------------------------------- the catalog
+
+/// Every vector column of the database: schema, table, column, dimension
+/// and coordinate type (Db2 12.1.2+'s `SYSCAT.COLUMNS`).
+pub const CATALOG_SQL: &str = "SELECT TRIM(TABSCHEMA), TABNAME, COLNAME, LENGTH, COORDINATETYPE \
+     FROM SYSCAT.COLUMNS WHERE TYPENAME = 'VECTOR'";
+
+/// One table's vector columns: column, dimension and coordinate type.
+const TABLE_SQL: &str = "SELECT COLNAME, LENGTH, COORDINATETYPE FROM SYSCAT.COLUMNS \
+     WHERE TYPENAME = 'VECTOR' AND TABSCHEMA = ? AND TABNAME = ?";
+
+/// Whether a Db2 LUW server of this `SQL_DBMS_VER` (`12.01.0500`) has
+/// vectors: 12.1.2 (`12.01.0200`) and later.
+pub fn server_has_vectors(dbms_ver: &str) -> bool {
+    let mut parts = dbms_ver.trim().split('.').map(|p| p.trim().parse::<u32>());
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(Ok(major)), Some(Ok(minor)), Some(Ok(level))) => {
+            (major, minor, level) >= (12, 1, 200)
+        }
+        _ => false,
+    }
+}
+
+/// The declared type of a catalog row's vector, `VECTOR(n, FLOAT32 | INT8)`
+/// (`length` is its dimension).
+pub fn catalog_type(length: &str, coordinate: &str) -> Option<String> {
+    let n = length.trim().parse::<u64>().ok().filter(|&n| n > 0)?;
+    declared(&format!("VECTOR({})", coordinate.trim()), Some(n))
+}
+
+/// Whether a result column the CLI describes as text could be a vector:
+/// the CLI sizes a vector's text at 16 characters a FLOAT32 coordinate and
+/// 5 an INT8 one, plus one (`VECTOR(3, FLOAT32)` comes as VARCHAR(49),
+/// `VECTOR(4, INT8)` as VARCHAR(21), `VECTOR(3072, FLOAT32)` as a CLOB of
+/// 49,153). Only those are looked up in the catalog.
+pub fn may_be_vector(sql_type: i16, size: u64) -> bool {
+    matches!(
+        sql_type,
+        SQL_VARCHAR | SQL_WVARCHAR | SQL_LONGVARCHAR | SQL_WLONGVARCHAR | SQL_CLOB
+    ) && size > 1
+        && ((size - 1).is_multiple_of(16) || (size - 1).is_multiple_of(5))
+}
+
+/// The vector columns of a table, by name, with their declared types;
+/// empty when the catalog can't be read. Runs on a statement of its own,
+/// so a result being read stays open (and cancellable through its slot).
+pub fn table_types(c: &Conn, schema: &str, table: &str) -> HashMap<String, String> {
+    let side = StmtSlot::default();
+    let rows = c.stmt(&side).and_then(|st| {
+        st.exec_params(TABLE_SQL, &[schema, table])?;
+        st.text_rows()
+    });
+    match rows {
+        Ok(rows) => rows
+            .into_iter()
+            .filter_map(|r| {
+                let get = |i: usize| r.get(i).cloned().flatten();
+                Some((
+                    get(0)?,
+                    catalog_type(&get(1)?, &get(2).unwrap_or_default())?,
+                ))
+            })
+            .collect(),
+        Err(e) => {
+            tracing::debug!("odbc: Db2 vector columns of {schema}.{table} not read: {e}");
+            HashMap::new()
+        }
+    }
+}
+
+/// The declared vector type of each of `st`'s result columns (`cols`: each
+/// one's SQL type and size, in order), from the catalog by its base table
+/// and column; `None` for the others, and for all of them unless the
+/// connection looks vectors up ([`Conn::vector_catalog`]). A vector built
+/// in the query (no base column) stays text.
+pub fn result_types(c: &Conn, st: &Stmt, cols: &[(i16, u64)]) -> Vec<Option<String>> {
+    let mut out = vec![None; cols.len()];
+    if !c.vector_catalog {
+        return out;
+    }
+    let mut tables: HashMap<(String, String), HashMap<String, String>> = HashMap::new();
+    for (i, &(sql_type, size)) in cols.iter().enumerate() {
+        if !may_be_vector(sql_type, size) {
+            continue;
+        }
+        let n = i as u16 + 1;
+        let attr = |field| st.col_text(n, field).filter(|t| !t.trim().is_empty());
+        let (Some(schema), Some(table), Some(column)) = (
+            attr(SQL_DESC_SCHEMA_NAME),
+            attr(SQL_DESC_BASE_TABLE_NAME),
+            attr(SQL_DESC_BASE_COLUMN_NAME),
+        ) else {
+            continue;
+        };
+        let schema = schema.trim().to_string();
+        let types = tables
+            .entry((schema.clone(), table.clone()))
+            .or_insert_with(|| table_types(c, &schema, &table));
+        out[i] = types.get(&column).cloned();
+    }
+    out
+}
+
+/// [`CATALOG_SQL`]'s rows, empty unless the connection looks vectors up
+/// or when the catalog can't be read.
+pub fn catalog_rows(c: &Conn) -> Vec<Vec<Option<String>>> {
+    if !c.vector_catalog {
+        return Vec::new();
+    }
+    let side = StmtSlot::default();
+    c.stmt(&side)
+        .and_then(|st| {
+            st.exec(CATALOG_SQL)?;
+            st.text_rows()
+        })
+        .unwrap_or_else(|e| {
+            tracing::debug!("odbc: Db2 vector columns not read: {e}");
+            Vec::new()
+        })
+}
+
+/// Puts [`CATALOG_SQL`]'s types on the columns of a schema read through
+/// SQLColumns (where they are VARCHAR or CLOB).
+pub fn attach(tables: &mut [TableSchema], rows: &[Vec<Option<String>>]) {
+    for r in rows {
+        let get = |i: usize| r.get(i).cloned().flatten();
+        let (Some(schema), Some(table), Some(column), Some(length)) =
+            (get(0), get(1), get(2), get(3))
+        else {
+            continue;
+        };
+        let Some(ty) = catalog_type(&length, &get(4).unwrap_or_default()) else {
+            continue;
+        };
+        let columns = tables
+            .iter_mut()
+            .filter(|t| t.name == table && t.schema.as_deref().is_none_or(|s| s == schema))
+            .flat_map(|t| t.columns.iter_mut())
+            .filter(|c| c.name == column);
+        for c in columns {
+            c.data_type = ty.clone();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dbine_driver::ColumnDef;
     use serde_json::json;
 
     #[test]
@@ -223,5 +381,100 @@ mod tests {
         );
         assert_eq!(typed_literal("VECTOR(3, INT8)", None, &json!("x")), None);
         assert_eq!(typed_literal("VECTOR(3, INT8)", None, &json!([])), None);
+    }
+
+    #[test]
+    fn db2_servers_with_vectors() {
+        assert!(server_has_vectors("12.01.0200"));
+        assert!(server_has_vectors("12.01.0500"));
+        assert!(server_has_vectors("13.01.0000"));
+        assert!(!server_has_vectors("12.01.0100"));
+        assert!(!server_has_vectors("11.05.0900"));
+        assert!(!server_has_vectors(""));
+    }
+
+    #[test]
+    fn catalog_rows_declare_the_type() {
+        assert_eq!(
+            catalog_type("3", "FLOAT32").as_deref(),
+            Some("VECTOR(3, FLOAT32)")
+        );
+        assert_eq!(
+            catalog_type(" 4 ", "INT8 ").as_deref(),
+            Some("VECTOR(4, INT8)")
+        );
+        assert_eq!(
+            catalog_type("1536", "").as_deref(),
+            Some("VECTOR(1536, FLOAT32)")
+        );
+        assert_eq!(catalog_type("0", "INT8"), None);
+        assert_eq!(catalog_type("x", "INT8"), None);
+    }
+
+    /// The sizes IBM's CLI 12.1.4 gave Db2 12.1.5's vectors (VARCHAR, and
+    /// CLOB past 32,672 characters): VECTOR(1 | 3 | 1536 | 2042 | 3072,
+    /// FLOAT32) and VECTOR(1 | 4 | 300 | 6535 | 8000, INT8).
+    #[test]
+    fn the_clis_text_sizes_of_vectors_are_looked_up() {
+        for (sql_type, size) in [
+            (SQL_VARCHAR, 17),
+            (SQL_VARCHAR, 49),
+            (SQL_VARCHAR, 24577),
+            (SQL_CLOB, 32673),
+            (SQL_CLOB, 49153),
+            (SQL_VARCHAR, 6),
+            (SQL_WVARCHAR, 21),
+            (SQL_VARCHAR, 1501),
+            (SQL_CLOB, 32676),
+            (SQL_CLOB, 40001),
+        ] {
+            assert!(may_be_vector(sql_type, size), "{sql_type} {size}");
+        }
+        // Common text sizes and other types aren't.
+        for size in [10, 50, 100, 255, 1000, 4000, 32672] {
+            assert!(!may_be_vector(SQL_VARCHAR, size), "{size}");
+        }
+        assert!(!may_be_vector(crate::ffi::SQL_INTEGER, 21));
+        assert!(!may_be_vector(SQL_VARCHAR, 1));
+    }
+
+    #[test]
+    fn the_catalog_types_a_schema_read_through_sqlcolumns() {
+        let col = |name: &str, ty: &str| ColumnDef {
+            name: name.into(),
+            data_type: ty.into(),
+            ..Default::default()
+        };
+        let table = |schema: &str, name: &str| TableSchema {
+            schema: Some(schema.into()),
+            name: name.into(),
+            columns: vec![
+                col("ID", "INTEGER"),
+                col("F", "VARCHAR(49)"),
+                col("I", "VARCHAR(21)"),
+            ],
+            ..Default::default()
+        };
+        let mut tables = vec![table("APP", "T"), table("OTHER", "T")];
+        let row = |v: [&str; 5]| v.iter().map(|s| Some(s.to_string())).collect::<Vec<_>>();
+        attach(
+            &mut tables,
+            &[
+                row(["APP", "T", "F", "3", "FLOAT32"]),
+                row(["APP", "T", "I", "4", "INT8"]),
+                row(["APP", "GONE", "F", "3", "FLOAT32"]),
+            ],
+        );
+        let types = |t: &TableSchema| {
+            t.columns
+                .iter()
+                .map(|c| c.data_type.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            types(&tables[0]),
+            ["INTEGER", "VECTOR(3, FLOAT32)", "VECTOR(4, INT8)"]
+        );
+        assert_eq!(types(&tables[1]), ["INTEGER", "VARCHAR(49)", "VARCHAR(21)"]);
     }
 }

@@ -544,7 +544,7 @@ impl Driver for OdbcDriver {
 
         let task = tokio::task::spawn_blocking(move || -> Result<_> {
             let api = ffi::api(library.as_deref()).map_err(Error::Connect)?;
-            let conn = Conn::open(
+            let mut conn = Conn::open(
                 api,
                 &ConnectOptions {
                     conn_str: &conn_str,
@@ -555,6 +555,10 @@ impl Driver for OdbcDriver {
             )?;
             let dbms = conn.info_string(ffi::SQL_DBMS_NAME);
             let version = conn.info_string(ffi::SQL_DBMS_VER);
+            conn.vector_catalog =
+                design::eng(preset) == design::Eng::Db2 && vector::server_has_vectors(&version);
+            // A driver with 32-bit lengths under a 64-bit driver manager.
+            conn.len32 = design::len_probe_sql(preset, &dbms).is_some_and(|q| conn.probe_len32(q));
             let quote = conn.info_string(ffi::SQL_IDENTIFIER_QUOTE_CHAR);
             let current = conn.info_string(ffi::SQL_DATABASE_NAME);
             let escape = conn.info_string(ffi::SQL_SEARCH_PATTERN_ESCAPE);
@@ -1062,20 +1066,24 @@ fn run_one(
         if n > 0 {
             let cols = st.describe(n)?;
             let kinds: Vec<_> = cols.iter().map(|c| kind_of(c.sql_type)).collect();
-            // Db2's vectors come as their text: in the canonical form.
-            let vectors: Vec<bool> = cols
-                .iter()
-                .map(|c| vector::is_vector(&c.type_name))
-                .collect();
-            out.begin_result(
-                cols.into_iter()
-                    .map(|c| ResultColumn {
-                        vector: vector::meta(&c.type_name),
+            // Db2's vectors, which the CLI describes as text (the catalog
+            // says which are), come as their text: in the canonical form.
+            let shapes: Vec<(i16, u64)> = cols.iter().map(|c| (c.sql_type, c.size)).collect();
+            let typed = vector::result_types(c, &st, &shapes);
+            let cols: Vec<ResultColumn> = cols
+                .into_iter()
+                .zip(typed)
+                .map(|(c, t)| {
+                    let type_name = t.unwrap_or(c.type_name);
+                    ResultColumn {
+                        vector: vector::meta(&type_name),
                         name: c.name,
-                        type_name: c.type_name,
-                    })
-                    .collect(),
-            );
+                        type_name,
+                    }
+                })
+                .collect();
+            let vectors: Vec<bool> = cols.iter().map(|c| c.vector.is_some()).collect();
+            out.begin_result(cols);
             let mut seen = 0usize;
             while st.fetch()? {
                 if seen < max_rows {
@@ -1315,7 +1323,7 @@ impl Session for OdbcSession {
         let schema = obj.schema().map(str::to_string);
         let name = obj.name.clone();
         let esc = self.escape.clone();
-        let (cols, pks) = self
+        let (cols, pks, vectors) = self
             .run(move |c, slot| {
                 let cols = {
                     let st = c.stmt(slot)?;
@@ -1338,7 +1346,12 @@ impl Session for OdbcSession {
                             && (schema.is_none() || col(r, 1).is_none() || col(r, 1) == schema)
                     })
                     .collect();
-                Ok((cols, pks))
+                // Db2's vectors, which SQLColumns reports as VARCHAR.
+                let vectors = match cols.first().and_then(|r| col(r, 1)) {
+                    Some(owner) if c.vector_catalog => vector::table_types(c, owner.trim(), &name),
+                    _ => Default::default(),
+                };
+                Ok((cols, pks, vectors))
             })
             .await?;
         let pk_names: Vec<String> = pks.iter().filter_map(|r| col(r, 3)).collect();
@@ -1352,8 +1365,9 @@ impl Session for OdbcSession {
                     .unwrap_or(0);
                 let name = col(r, 3).unwrap_or_default();
                 let lower = type_name.to_ascii_lowercase();
+                let declared = format_type(&type_name, sql_type, num(r, 6), num(r, 8));
                 let info = ColumnInfo {
-                    data_type: format_type(&type_name, sql_type, num(r, 6), num(r, 8)),
+                    data_type: vectors.get(&name).cloned().unwrap_or(declared),
                     nullable: col(r, 10).as_deref().map(str::trim) != Some("0"),
                     primary_key: pk_names.contains(&name),
                     auto_increment: lower.contains("identity")
@@ -1619,6 +1633,9 @@ impl Session for OdbcSession {
             .run(move |c, slot| catalog_schema(c, slot, preset, &esc))
             .await?;
         let mut tables = build_schema(preset, raw);
+        // Db2's vectors, which SQLColumns reports as VARCHAR or CLOB.
+        let vectors = self.run(|c, _| Ok(vector::catalog_rows(c))).await?;
+        vector::attach(&mut tables, &vectors);
         // CHECKs and INCLUDE columns from the engine's own catalog.
         let e = design::eng(preset);
         for sql in structure::checks_sql(e) {

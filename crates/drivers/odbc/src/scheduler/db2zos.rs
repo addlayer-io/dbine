@@ -679,7 +679,7 @@ fn window(
 ) -> Result<(String, String)> {
     let past = |ms: Option<i64>| matches!((ms, now), (Some(t), Some(n)) if t <= n);
     let begin = if past(t.begin) {
-        if t.begin != kept_begin {
+        if !super::db2::same_second(t.begin, kept_begin) {
             return Err(bad(BEGIN_PAST));
         }
         plan.warn(&super::db2::past_begin(t.begin.unwrap_or_default()));
@@ -787,8 +787,8 @@ pub(super) fn alter_plan(
         || !same(&t.jcl_library, &cur.jcl_library)
         || !same(&t.jcl_member, &cur.jcl_member)
         || (t.action == "jcl" && !same(&t.job_wait, &cur.job_wait));
-    let changed = t.begin != cur.begin
-        || t.end != cur.end
+    let changed = !super::db2::same_second(t.begin, cur.begin)
+        || !super::db2::same_second(t.end, cur.end)
         || t.max != cur.max
         || t.trigger != cur.trigger
         || t.interval != cur.interval
