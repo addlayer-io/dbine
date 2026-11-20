@@ -10,10 +10,11 @@ import { asker, providerLabel } from '../composables/aiTask';
 import { markdownParts } from '../composables/markdown';
 import { useUiStore } from '../stores/ui';
 import { dataCompareApi, type AiFilter, type DataCompareProgress, type DataCompareResult, type DataRow, type DataRows, type DataScript, type DataSide, type Dir, type QuerySide, type RowKind } from '../api/dataCompare';
-import type { Cell, DbObject, ObjectRef, QueryProgress, ResultColumn, SortKey } from '../api/types';
+import type { Cell, ColumnInfo, DbObject, ObjectRef, QueryProgress, ResultColumn, SortKey } from '../api/types';
 import DataCompareQueries from '../components/DataCompareQueries.vue';
 import ExportDialog, { type CompareExport } from '../components/ExportDialog.vue';
-import { DEFAULT_FORM, WHOLE_ROWS, comparedPairs, mergePairs, pairRows, queryOptions, sideSignature, wholeQuery, withKey, type PairRow, type ToleranceForm } from '../composables/queryCompare';
+import { DEFAULT_FORM, WHOLE_ROWS, columnTable, comparedPairs, keySignature, mergePairs, queryOptions, sideSignature, wholeQuery, withKey, type KeySource, type PairRow, type ToleranceForm } from '../composables/queryCompare';
+import { groups, singleTable } from '../composables/queryKey';
 import { columnKind, menuFor, type ColumnFilter, type FilterOp } from '../composables/gridFilter';
 import { nextSort } from '../composables/gridSort';
 import { newQuery } from '../composables/actions';
@@ -87,14 +88,76 @@ async function readColumns(run: string): Promise<void> {
   const [l, r] = await Promise.all([read(qLeft.value, 'left'), read(qRight.value, 'right')]);
   qColumns.left = l.columns;
   qColumns.right = r.columns;
-  pairs.value = mergePairs(pairs.value, pairRows(l.columns, r.columns, l.sample, r.sample), r.columns);
-  // Just turned from a table compare: its key, once (the user's after that).
+  const firstRead = !pairs.value.length;
+  const grouped = [qLeft.value, qRight.value].some((q) => {
+    const d = conns.driverOf(q.connectionId);
+    return groups(q.query, d?.language, d?.dialect ?? '');
+  });
+  const fresh = columnTable(l.columns, r.columns, l.sample, r.sample, grouped);
+  let rows = mergePairs(pairs.value, fresh.rows, r.columns);
+  let source: KeySource | null = firstRead ? fresh.source : null;
   if (tableKey.value.length) {
-    pairs.value = withKey(pairs.value, tableKey.value);
+    // Just turned from a table compare: its key, once (the user's after that).
+    const keyed = withKey(rows, tableKey.value);
+    if (keyed !== rows) source = { kind: 'tableCompare' };
+    rows = keyed;
     tableKey.value = [];
+  } else if (firstRead && fresh.source.kind !== 'model') {
+    // The key of the one table a side's query reads beats any guess.
+    const found = (await catalogKey(qLeft.value, 'left', rows)) ?? (await catalogKey(qRight.value, 'right', rows));
+    if (found) ({ rows, source } = found);
   }
+  pairs.value = rows;
+  if (source) keySource.value = { ...source, key: keySignature(rows) };
   [readFor.left, readFor.right] = asked;
 }
+/** Why the key is what it is, and the key it was then (a key the user
+ *  changed since has no reason to show). */
+const keySource = ref<(KeySource & { key: string }) | null>(null);
+watch(pairs, (p) => { if (!p.length) keySource.value = null; });
+/** The primary key, else a unique index, of the one table a side's query
+ *  reads (`SELECT … FROM t …`), as the column table's key; null when there's
+ *  none, the catalog can't say, or a key column isn't among the pairs. */
+async function catalogKey(q: QueryComparePick, side: 'left' | 'right', rows: PairRow[]): Promise<{ rows: PairRow[]; source: KeySource } | null> {
+  const d = conns.driverOf(q.connectionId);
+  const parts = d ? singleTable(q.query, d.language, d.dialect) : null;
+  if (!d || !parts) return null;
+  const object: ObjectRef = { kind: 'table', schema: parts.length > 1 ? parts[parts.length - 2] : null, name: parts[parts.length - 1] };
+  const database = parts.length === 3 ? parts[0] : q.database;
+  const table = parts.join('.');
+  const asKey = (columns: string[], source: KeySource) => {
+    const lower = columns.map((c) => c.toLowerCase());
+    // A right-hand key names right columns: the key marks their left pairs.
+    const names = side === 'left' ? columns : rows.filter((r) => r.right && lower.includes(r.right.toLowerCase())).map((r) => r.left);
+    if (names.length !== columns.length) return null;
+    const keyed = withKey(rows, names);
+    return keyed === rows ? null : { rows: keyed, source };
+  };
+  const columns = await api.getColumns(q.connectionId, database, object).catch((): ColumnInfo[] => []);
+  const pk = columns.filter((c) => c.primary_key).map((c) => c.name);
+  if (pk.length) return asKey(pk, { kind: 'primaryKey', table });
+  if (!d.supports_index_usage) return null;
+  const report = await api.getIndexUsage(q.connectionId, database, object).catch(() => null);
+  const unique = report?.indexes.find((i) => i.unique && !i.filter && i.key_columns.length);
+  return unique ? asKey(unique.key_columns.map((c) => c.replace(/ DESC$/i, '')), { kind: 'unique', table, index: unique.name }) : null;
+}
+/** The line under the column table: where the key came from, or that there's none. */
+const keyNote = computed<{ text: string; warn: boolean } | null>(() => {
+  if (!pairs.value.length) return null;
+  const now = keySignature(pairs.value);
+  if (!now) return { text: t('dataCompare:query.keyFrom.none'), warn: true };
+  const s = keySource.value;
+  if (!s || s.key !== now) return null;
+  switch (s.kind) {
+    case 'primaryKey': return { text: t('dataCompare:query.keyFrom.primaryKey', { table: s.table }), warn: false };
+    case 'unique': return { text: t('dataCompare:query.keyFrom.unique', { index: s.index, table: s.table }), warn: false };
+    case 'id': return { text: t('dataCompare:query.keyFrom.id', { column: s.column }), warn: false };
+    case 'grouped': return { text: t('dataCompare:query.keyFrom.grouped'), warn: false };
+    case 'model': return { text: t('dataCompare:query.keyFrom.model'), warn: false };
+    case 'tableCompare': return { text: t('dataCompare:query.keyFrom.tableCompare'), warn: false };
+    default: return null;
+  }
+});
 /** "Leer columnas": the column table, without comparing (shown like a compare's
  *  first phase, with Cancelar). */
 async function onlyColumns(run: string): Promise<null> {
@@ -1192,7 +1255,7 @@ async function suggestKey() {
       </el-radio-group>
       <DataCompareQueries
         v-if="readOnly" v-model:left="qLeft" v-model:right="qRight" v-model:pairs="pairs" v-model:form="form"
-        :columns="qColumns" :stale="columnsStale" :busy="running" @read="compare(true)"
+        :columns="qColumns" :stale="columnsStale" :busy="running" :key-note="keyNote" @read="compare(true)"
       />
       <div v-for="(p, i) in (readOnly ? [] : [left, right])" :key="i" class="dc-side">
         <span class="dc-side-label">{{ i === 0 ? $t('dataCompare:left') : $t('dataCompare:right') }}</span>

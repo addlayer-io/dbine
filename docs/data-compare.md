@@ -265,9 +265,20 @@ language: SQL, DAX, a MongoDB `find`, a Redis command…
   table and can be changed; a pair can be switched off (**No se compara**).
   Right-hand columns with no pair are listed and not compared. When a query
   changes, the user's pairs and key are kept where the columns still exist.
-- The **key** is suggested: on a DAX side, its `Table[Column]` columns; else a
-  column that looks like an id; else the columns that describe rather than
-  measure. At least one key column is needed. If the key repeats, the result
+- The **key** is preselected from the first of these that applies, and a
+  line under the column table says which one it was:
+  1. **Switch to queries:** the key of the table compare.
+  2. **A DAX side:** its `Table[Column]` columns; the measures are compared.
+  3. **A query that reads one table** (`SELECT … FROM t [WHERE …]
+     [ORDER BY …]`, no join, union, subquery or grouping): that table's
+     primary key, else a unique index where the engine reports them.
+  4. **A column that looks like an id** (`id`, `code`, `…_id`, `…Key`…).
+  5. **A query that groups** (`GROUP BY`): the columns that describe rather
+     than measure, or all but the last when none looks like a measure.
+
+  Otherwise nothing is marked and the line asks for the key: a table's rows
+  give no reliable hint, and guessing almost every column would only find
+  missing rows, never changed ones. At least one key column is needed. If the key repeats, the result
   says so and hints that the key may be missing a column.
 - A result with two columns of the same name (case-insensitive, such as
   `SELECT *` over a join) is refused, both when reading its columns and when

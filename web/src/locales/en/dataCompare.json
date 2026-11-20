@@ -129,6 +129,15 @@
     "stale": "A query changed: its columns are read again when comparing.",
     "keyOf": "“{{column}}” is part of the key",
     "allKeys": "Check or uncheck all columns as part of the key",
+    "keyFrom": {
+      "none": "No key: mark the columns that identify each row.",
+      "primaryKey": "Key: the primary key of {{table}}.",
+      "unique": "Key: the unique index {{index}} of {{table}}.",
+      "id": "Key: “{{column}}”, which by its name identifies each row.",
+      "grouped": "Key: the columns the query groups by; totals are compared.",
+      "model": "Key: the columns the model groups by; measures are compared.",
+      "tableCompare": "Key: the one from the table comparison."
+    },
     "notCompared": "Not compared",
     "unpairedRight": "Columns on the right without a pair (not compared): {{list}}",
     "tolerance": "Numbers",

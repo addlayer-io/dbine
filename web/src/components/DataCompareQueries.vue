@@ -22,6 +22,8 @@ const props = defineProps<{
   /** A side changed since: its columns are read again before comparing. */
   stale: boolean;
   busy: boolean;
+  /** Where the key came from, or that there's none (under the table). */
+  keyNote?: { text: string; warn: boolean } | null;
 }>();
 const emit = defineEmits<{ read: [] }>();
 const conns = useConnectionsStore();
@@ -135,6 +137,7 @@ function setAllKeys(on: boolean) {
       </tbody>
     </table>
     </div>
+    <div v-if="pairs.length && keyNote" class="dq-hint dq-keynote" :class="{ warn: keyNote.warn }" role="status">{{ keyNote.text }}</div>
     <div v-if="pairs.length && unpaired.length" class="dq-hint dq-unpaired">{{ $t('dataCompare:query.unpairedRight', { list: unpaired.join(', ') }) }}</div>
 
     <div class="dq-opts">
@@ -168,6 +171,7 @@ function setAllKeys(on: boolean) {
 .dq-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dq-stale { font-size: 12px; color: var(--nm-warning); }
 .dq-hint { font-size: 12px; color: var(--nm-text-dim); }
+.dq-keynote.warn { color: var(--nm-warning); }
 .dq-pairs-wrap { max-height: 40vh; overflow: auto; max-width: 760px; align-self: flex-start; }
 .dq-pairs { border-collapse: collapse; font-size: 12px; }
 .dq-pairs th { position: sticky; top: 0; z-index: 3; background: var(--ide-editor); text-align: left; font-weight: 500; color: var(--nm-text-dim); padding: 2px 10px 2px 0; border-bottom: 1px solid var(--nm-border); }

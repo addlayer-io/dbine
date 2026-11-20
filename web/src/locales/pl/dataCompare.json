@@ -136,6 +136,15 @@
     "stale": "Zapytanie się zmieniło: przy porównaniu jego kolumny zostaną odczytane ponownie.",
     "keyOf": "„{{column}}” jest częścią klucza",
     "allKeys": "Zaznacz lub odznacz wszystkie kolumny jako część klucza",
+    "keyFrom": {
+      "none": "Brak klucza: zaznacz kolumny identyfikujące każdy wiersz.",
+      "primaryKey": "Klucz: klucz główny tabeli {{table}}.",
+      "unique": "Klucz: unikalny indeks {{index}} tabeli {{table}}.",
+      "id": "Klucz: „{{column}}”, który po nazwie identyfikuje każdy wiersz.",
+      "grouped": "Klucz: kolumny, według których zapytanie grupuje; porównywane są sumy.",
+      "model": "Klucz: kolumny, według których grupuje model; porównywane są miary.",
+      "tableCompare": "Klucz: ten z porównania tabel."
+    },
     "notCompared": "Nie jest porównywana",
     "unpairedRight": "Kolumny z prawej bez pary (nie są porównywane): {{list}}",
     "tolerance": "Liczby",

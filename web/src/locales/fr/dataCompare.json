@@ -130,6 +130,15 @@
     "stale": "Une requête a changé : ses colonnes sont relues lors de la comparaison.",
     "keyOf": "« {{column}} » fait partie de la clé",
     "allKeys": "Cocher ou décocher toutes les colonnes comme faisant partie de la clé",
+    "keyFrom": {
+      "none": "Sans clé : cochez les colonnes qui identifient chaque ligne.",
+      "primaryKey": "Clé : la clé primaire de {{table}}.",
+      "unique": "Clé : l’index unique {{index}} de {{table}}.",
+      "id": "Clé : « {{column}} », qui identifie chaque ligne par son nom.",
+      "grouped": "Clé : les colonnes sur lesquelles la requête regroupe ; les totaux sont comparés.",
+      "model": "Clé : les colonnes sur lesquelles le modèle regroupe ; les mesures sont comparées.",
+      "tableCompare": "Clé : celle de la comparaison de tables."
+    },
     "notCompared": "Non comparée",
     "unpairedRight": "Colonnes de droite sans paire (non comparées) : {{list}}",
     "tolerance": "Nombres",

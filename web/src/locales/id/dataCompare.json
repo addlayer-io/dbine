@@ -118,6 +118,15 @@
     "stale": "Sebuah kueri berubah: saat membandingkan, kolomnya dibaca ulang.",
     "keyOf": "\"{{column}}\" adalah bagian dari kunci",
     "allKeys": "Centang atau hapus centang semua kolom sebagai bagian dari kunci",
+    "keyFrom": {
+      "none": "Tanpa kunci: tandai kolom yang mengidentifikasi setiap baris.",
+      "primaryKey": "Kunci: kunci primer {{table}}.",
+      "unique": "Kunci: indeks unik {{index}} dari {{table}}.",
+      "id": "Kunci: \"{{column}}\", yang dari namanya mengidentifikasi setiap baris.",
+      "grouped": "Kunci: kolom yang dipakai kueri untuk mengelompokkan; yang dibandingkan adalah totalnya.",
+      "model": "Kunci: kolom yang dipakai model untuk mengelompokkan; yang dibandingkan adalah ukurannya.",
+      "tableCompare": "Kunci: kunci dari perbandingan tabel."
+    },
     "notCompared": "Tidak dibandingkan",
     "unpairedRight": "Kolom kanan tanpa pasangan (tidak dibandingkan): {{list}}",
     "tolerance": "Angka",
