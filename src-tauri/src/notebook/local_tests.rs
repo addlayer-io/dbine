@@ -115,6 +115,35 @@ fn ty(type_name: &str, values: &[Value]) -> DuckType {
     infer(type_name, values.iter())
 }
 
+/// SQL Server's results name their wire types (tiberius' `ColumnType`):
+/// a nullable `int` column is `Intn`, a `decimal` one `Decimaln`. They were
+/// loaded as text, so a DataFrame SQL `SUM` over them failed or compared
+/// strings.
+#[test]
+fn sql_server_wire_types_map_to_duckdb_types() {
+    assert_eq!(ty("Intn", &[json!(1), json!(null)]), DuckType::BigInt);
+    assert_eq!(ty("Int1", &[json!(255)]), DuckType::BigInt);
+    assert_eq!(
+        ty("Decimaln", &[json!("12.50"), json!("1.5")]),
+        DuckType::Decimal(4, 2)
+    );
+    assert_eq!(ty("Numericn", &[json!("3")]), DuckType::BigInt);
+    assert_eq!(ty("Floatn", &[json!(1.5)]), DuckType::Double);
+    assert_eq!(ty("Bitn", &[json!(true)]), DuckType::Boolean);
+    assert_eq!(ty("Money4", &[json!("1.2345")]), DuckType::Decimal(10, 4));
+    assert_eq!(ty("Daten", &[json!("2026-10-18")]), DuckType::Date);
+    assert_eq!(
+        ty("Datetimen", &[json!("2026-10-18 14:32:05.123")]),
+        DuckType::Timestamp
+    );
+    assert_eq!(
+        ty("DatetimeOffsetn", &[json!("2026-10-18 14:32:05+00:00")]),
+        DuckType::TimestampTz
+    );
+    // Text stays text.
+    assert_eq!(ty("NVarchar", &[json!("x")]), DuckType::Varchar);
+}
+
 #[test]
 fn result_types_map_to_duckdb_types() {
     assert_eq!(ty("int4", &[json!(1), json!(null)]), DuckType::BigInt);

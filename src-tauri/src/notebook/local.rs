@@ -290,18 +290,24 @@ fn hint(type_name: &str) -> Option<DuckType> {
         .map(|a| a.split(',').filter_map(|x| x.trim().parse().ok()).collect())
         .unwrap_or_default();
     Some(match b.as_str() {
-        "bool" | "boolean" | "bit" => DuckType::Boolean,
-        "tinyint" | "smallint" | "mediumint" | "int" | "integer" | "int2" | "int4" | "int8"
-        | "smallserial" | "serial" | "bigserial" | "long" | "short" | "int16" | "int32"
-        | "uint8" | "uint16" | "uint32" | "utinyint" | "usmallint" | "uinteger" => DuckType::BigInt,
+        // SQL Server's results name their wire types (`Intn`, `Decimaln`,
+        // `Datetimen`…: the `n` ones are the nullable forms).
+        "bool" | "boolean" | "bit" | "bitn" => DuckType::Boolean,
+        "tinyint" | "smallint" | "mediumint" | "int" | "integer" | "int1" | "int2" | "int4"
+        | "int8" | "intn" | "smallserial" | "serial" | "bigserial" | "long" | "short" | "int16"
+        | "int32" | "uint8" | "uint16" | "uint32" | "utinyint" | "usmallint" | "uinteger" => {
+            DuckType::BigInt
+        }
         "bigint" | "int64" if !unsigned => DuckType::BigInt,
         "bigint" | "uint64" | "int128" | "uint128" | "int256" | "uint256" | "hugeint"
         | "ubigint" | "uhugeint" => DuckType::HugeInt,
         "real" | "float" | "float4" | "float8" | "double" | "double precision" | "float32"
-        | "float64" | "binary_float" | "binary_double" => DuckType::Double,
-        "money" => DuckType::Decimal(19, 4),
-        "smallmoney" => DuckType::Decimal(10, 4),
-        "decimal" | "numeric" | "number" | "dec" | "decimal32" | "decimal64" | "decimal128" => {
+        | "float64" | "binary_float" | "binary_double" | "floatn" => DuckType::Double,
+        // `Moneyn` holds either size.
+        "money" | "moneyn" => DuckType::Decimal(19, 4),
+        "smallmoney" | "money4" => DuckType::Decimal(10, 4),
+        "decimal" | "numeric" | "number" | "dec" | "decimal32" | "decimal64" | "decimal128"
+        | "decimaln" | "numericn" => {
             match args.as_slice() {
                 [p] if (1..=38).contains(p) => DuckType::Decimal(*p as u8, 0),
                 [p, s] if (1..=38).contains(p) && s <= p => DuckType::Decimal(*p as u8, *s as u8),
@@ -309,18 +315,21 @@ fn hint(type_name: &str) -> Option<DuckType> {
                 _ => DuckType::Decimal(0, 0),
             }
         }
-        "date" | "date32" => DuckType::Date,
-        "time" | "time without time zone" => DuckType::Time,
+        "date" | "date32" | "daten" => DuckType::Date,
+        "time" | "time without time zone" | "timen" => DuckType::Time,
         "timestamp"
         | "datetime"
         | "datetime2"
         | "smalldatetime"
+        | "datetimen"
+        | "datetime4"
         | "timestamp without time zone"
         | "datetime64" => DuckType::Timestamp,
         "timestamptz"
         | "timestamp with time zone"
         | "timestamp with local time zone"
-        | "datetimeoffset" => DuckType::TimestampTz,
+        | "datetimeoffset"
+        | "datetimeoffsetn" => DuckType::TimestampTz,
         "uuid" | "uniqueidentifier" | "guid" => DuckType::Uuid,
         "json" | "jsonb" | "document" | "object" | "array" | "map" | "struct" | "variant"
         | "list" => DuckType::Json,
