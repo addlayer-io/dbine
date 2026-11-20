@@ -1266,6 +1266,7 @@ mod tests {
                     job: Arc::new(Mutex::new(None)),
                     storage: Default::default(),
                     profiler: None,
+                    no_catalog_pages: false,
                 };
                 let list = s.jobs().await.unwrap();
                 eprintln!("{:?}", list.notes);

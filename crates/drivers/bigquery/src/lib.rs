@@ -14,6 +14,7 @@ mod index_usage;
 mod indexes;
 mod jobs;
 mod monitor;
+mod paging;
 mod permissions;
 mod plan;
 mod processes;
@@ -223,6 +224,9 @@ pub struct BigQuerySession {
     storage: monitor::StorageCache,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
+    /// The dataset's INFORMATION_SCHEMA couldn't be read for the
+    /// explorer's pages: the app pages `list_objects` (see [`paging`]).
+    no_catalog_pages: bool,
 }
 
 #[async_trait]
@@ -445,6 +449,7 @@ impl Driver for BigQueryDriver {
             job: Arc::new(Mutex::new(None)),
             storage: Default::default(),
             profiler: None,
+            no_catalog_pages: false,
         }))
     }
 }
@@ -1028,6 +1033,14 @@ impl Session for BigQuerySession {
         }
         out.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(out)
+    }
+
+    /// One narrow `INFORMATION_SCHEMA` query per page (see [`paging`]).
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(query).await
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {

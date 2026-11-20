@@ -22,6 +22,7 @@ mod health;
 mod index_usage;
 mod jobs;
 mod monitor;
+mod paging;
 mod permissions;
 mod plan;
 mod processes;
@@ -387,6 +388,9 @@ pub struct DatabricksSession {
     running: Arc<Mutex<Option<String>>>,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
+    /// A catalog's functions from Unity Catalog (every schema's list) and
+    /// when they were read: searches across schemas reuse them a while.
+    uc_functions: Option<catalog_api::Functions>,
 }
 
 /// A finished statement's columns: name and type.
@@ -708,6 +712,7 @@ impl Driver for DatabricksDriver {
             schema: cfg.option("schema").map(|s| s.trim().to_string()),
             running: Arc::new(Mutex::new(None)),
             profiler: None,
+            uc_functions: None,
         };
         // The browser sign-in first: it may take minutes, which don't
         // count against the warehouse's wake-up time below.
@@ -1006,6 +1011,15 @@ impl Session for DatabricksSession {
             return Ok(Vec::new());
         };
         self.objects(&cat).await
+    }
+
+    /// One schema's narrow list per page, from Unity Catalog or the
+    /// catalog's `information_schema` (see [`catalog_api`] and [`paging`]).
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(query).await
     }
 
     /// The catalog's schemas the login can see (see [`catalog_api`]);
