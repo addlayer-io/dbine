@@ -33,7 +33,7 @@
     {
       "source": "osv",
       "date": "2026-11-20",
-      "revision": "1a24de449b61",
+      "revision": "25a6eb801244",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -41,7 +41,7 @@
     {
       "source": "trivy",
       "date": "2026-11-20",
-      "revision": "1a24de449b61",
+      "revision": "25a6eb801244",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -57,7 +57,7 @@
     {
       "source": "scorecard",
       "date": "2026-11-20",
-      "revision": "88cb20a2674d",
+      "revision": "1a24de449b61",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.6
@@ -4501,17 +4501,6 @@
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection",
       "found": "2026-10-21",
-      "status": "open"
-    },
-    {
-      "id": "SC-CI-Tests",
-      "source": "scorecard",
-      "severity": "LOW",
-      "kind": "Repository practice",
-      "title": "CI-Tests: 9/10 — 11 out of 12 merged PRs checked by a CI test -- score normalized to 9",
-      "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
-      "found": "2026-11-15",
       "status": "open"
     },
     {
