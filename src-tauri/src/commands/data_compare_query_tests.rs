@@ -434,6 +434,54 @@ fn values_compare_by_type() {
     assert_ne!(strict.key(&Value::Null), strict.key(&json!("")));
 }
 
+/// A DBA's query compare of a 60-column result ran the scratch DuckDB out
+/// of memory ("failed to pin block"): every compared column took three
+/// columns of its own into the joins. Without a tolerance or NULL as BLANK
+/// two values are the same exactly when their texts are, so none are kept
+/// and the row hashes, over those texts, decide (equal forms, equal hashes).
+#[test]
+fn exact_rules_keep_no_columns_of_their_own() {
+    let rules = |o: QueryOptions| QueryRules::new(o).unwrap();
+    let exact = rules(QueryOptions {
+        ignore_case: true,
+        trim: true,
+        ..Default::default()
+    });
+    assert!(rules(QueryOptions::default()).columns().is_empty());
+    assert!(exact.columns().is_empty());
+    for o in [
+        QueryOptions {
+            absolute: 0.01,
+            ..Default::default()
+        },
+        QueryOptions {
+            relative: 0.001,
+            ..Default::default()
+        },
+        QueryOptions {
+            null_as_blank: true,
+            ..Default::default()
+        },
+    ] {
+        assert_eq!(rules(o).columns().len(), 3, "{o:?}");
+    }
+    // Same forms exactly when the rules say same: case and spaces as asked,
+    // NULL only with NULL, an empty text not NULL.
+    for (a, b) in [
+        (json!(" ABC "), json!("abc")),
+        (json!(null), json!(null)),
+        (json!(""), json!(null)),
+        (json!(1), json!("1.00")),
+        (json!("x"), json!("y")),
+    ] {
+        assert_eq!(
+            exact.form(&a) == exact.form(&b),
+            exact.same(&a, &b),
+            "{a} {b}"
+        );
+    }
+}
+
 #[test]
 fn numbers_compare_within_the_tolerance() {
     let abs = QueryRules::new(QueryOptions {

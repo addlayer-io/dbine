@@ -79,6 +79,26 @@ const FILE: &str = "compare.duckdb";
 pub(crate) const MEMORY_LIMIT: &str = "512MB";
 const ALIAS: &str = "cmp";
 
+/// The scratch DuckDB's memory and threads (`None`: DuckDB's default, one
+/// per core). Without [`Layout`] columns, a table compare's or an exact
+/// query compare's, its joins carry a few hashes a row and [`MEMORY_LIMIT`]
+/// fits millions of rows on every core. With them (a query compare with a
+/// tolerance or NULL as BLANK keeps three columns per compared column) the
+/// joins carry wide rows, and DuckDB needs memory per thread for them: 60
+/// such columns over 3,000,000 rows a side ran out of 512 MB from 4 threads
+/// on (the DBA's "failed to pin block"), 200 needed 1 GB on one thread. So
+/// one thread, and memory that grows with the columns, up to 2 GB; past
+/// that DuckDB works on its temp files.
+fn resources(layout: Option<&Layout>) -> (String, Option<usize>) {
+    match layout {
+        None => (MEMORY_LIMIT.to_string(), None),
+        Some(l) => (
+            format!("{}MB", (512 + 5 * l.values.len()).min(2048)),
+            Some(1),
+        ),
+    }
+}
+
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
@@ -248,6 +268,12 @@ pub(crate) trait Rules: Send + Sync {
     /// the same canonical form must be (equal hashes decide first).
     fn same(&self, l: &Value, r: &Value) -> bool {
         canon(l) == canon(r)
+    }
+    /// A compared value as the row hashes take it: two values whose forms
+    /// are equal must be the same. When sameness is exactly equal forms the
+    /// hashes decide alone and the scratch table keeps no [`Rules::columns`].
+    fn form(&self, v: &Value) -> String {
+        canon(v)
     }
     /// The scratch table's columns kept per compared non-key column
     /// (suffix, DuckDB type); none: the hashes decide.
@@ -625,12 +651,13 @@ fn key_hash(k: &str) -> (i64, i64) {
     (half(0..8), half(8..16))
 }
 
-/// 128 bits of SHA-256 over the canonical non-key values: two rows of the
-/// same key are equal exactly when their hashes are.
-fn hash_of(p: &[Value], nk: usize) -> (i64, i64) {
+/// 128 bits of SHA-256 over the non-key values' forms ([`Rules::form`]):
+/// two rows of the same key whose hashes are equal are the same, and with
+/// no [`Rules::columns`] only then.
+fn hash_of(p: &[Value], nk: usize, rules: &dyn Rules) -> (i64, i64) {
     let mut h = Sha256::new();
     for v in &p[nk..] {
-        let c = canon(v);
+        let c = rules.form(v);
         h.update((c.len() as u64).to_le_bytes());
         h.update(c.as_bytes());
     }
@@ -644,7 +671,7 @@ fn hash_of(p: &[Value], nk: usize) -> (i64, i64) {
 /// A projected row as the scratch table's cells: [`COLUMNS`], then what
 /// `rules` keep of each compared non-key column ([`Layout`]).
 fn cells(side: usize, n: u64, p: &[Value], nk: usize, rules: &dyn Rules) -> Vec<Cell> {
-    let (h1, h2) = hash_of(p, nk);
+    let (h1, h2) = hash_of(p, nk, rules);
     let k = key_with(rules, p, nk);
     let (k1, k2) = key_hash(&k);
     let mut c = vec![
@@ -1679,12 +1706,14 @@ fn too_big(why: &str) -> CommandError {
 
 impl Scratch {
     /// Open it in a new folder of `root`, on `driver` (the app's DuckDB when
-    /// `None`), DuckDB taking at most `memory_limit` of memory.
+    /// `None`), DuckDB taking at most `memory_limit` of memory and, when
+    /// given, that many threads ([`resources`]).
     async fn open(
         root: Option<&Path>,
         ctl: &Ctl,
         driver: Option<&Arc<dyn Driver>>,
         memory_limit: &str,
+        threads: Option<usize>,
     ) -> CommandResult<Scratch> {
         let root = root.ok_or_else(|| too_big("no hay una carpeta de datos de DBine"))?;
         let dir = root.join(uuid::Uuid::new_v4().simple().to_string());
@@ -1711,6 +1740,13 @@ impl Scratch {
             .map_err(|e| e.to_string())?;
             let set = async {
                 local_duckdb::configure_with(s.as_mut(), &dir, &key, memory_limit).await?;
+                if let Some(n) = threads {
+                    local_duckdb::exec(s.as_mut(), &format!("SET threads = {n}"))
+                        .await
+                        .map_err(|e| {
+                            local_duckdb::SetupError::Other(local_duckdb::redact(e, &key))
+                        })?;
+                }
                 local_duckdb::attach(s.as_mut(), &dir, FILE, ALIAS, &key).await?;
                 local_duckdb::lock(s.as_mut(), ALIAS, &key).await
             }
@@ -2549,7 +2585,8 @@ async fn spill(
     }
     // Reads that end in memory while it opens (DuckDB downloading on first
     // use…) don't wait for it: it's dropped, folder and all.
-    let open = Scratch::open(root.as_deref(), ctl, duckdb.as_ref(), MEMORY_LIMIT);
+    let (memory, threads) = resources(job.layout().as_ref());
+    let open = Scratch::open(root.as_deref(), ctl, duckdb.as_ref(), &memory, threads);
     let in_memory = job.wait_for(|| flag(&job.reads_done) && !flag(&job.spill_wanted));
     let opened = tokio::select! {
         r = open => r,
