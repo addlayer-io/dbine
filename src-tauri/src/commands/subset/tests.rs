@@ -1302,3 +1302,114 @@ async fn valkey_index_subset_keeps_its_definition() {
     )
     .await;
 }
+
+/// A subset of a valkey-search index with no NUMERIC field and more than
+/// valkey-search's 10,000-document KNN maximum: the driver reads it with
+/// a KNN query, so at most 10,000 documents come back, and both the plan
+/// and the run's report say the subset is partial. Its documents and
+/// index go at the end, on both databases, passed or not.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs dbine-test-valkey-bundle"]
+async fn valkey_index_subset_past_the_knn_maximum_says_it_is_partial() {
+    use crate::commands::vector_live_tests::{exec, open};
+    use futures_util::FutureExt;
+    const DOCS: usize = 10_050;
+    let cfg = redis_cfg("valkey", "DBINE_TEST_VALKEY_SEARCH_URL", "127.0.0.1:27204");
+    let tag = std::process::id();
+    let name = format!("dbine_subset_knn_{tag}");
+    let prefix = format!("dbine:subset_knn:{tag}:");
+    let keys: Vec<String> = (1..=DOCS).map(|i| format!("{prefix}{i}")).collect();
+    let cleanup = || {
+        let (cfg, name, keys) = (cfg.clone(), name.clone(), keys.clone());
+        async move {
+            for db in ["db0", "db1"] {
+                let mut c = cfg.clone();
+                c.database = db.into();
+                let mut s = open(&c).await?;
+                // Not there (already dropped, or never created): fine.
+                let _ = exec(s.as_mut(), &format!("FT.DROPINDEX {name}")).await;
+                for chunk in keys.chunks(1_000) {
+                    exec(s.as_mut(), &format!("DEL {}", chunk.join(" "))).await?;
+                }
+            }
+            Ok::<(), String>(())
+        }
+    };
+    cleanup().await.expect("clean up before");
+
+    let d = dir("valkey-knn");
+    let body = std::panic::AssertUnwindSafe(async {
+        let state = AppState::new(StateStore::open(&d.join("state.sqlite")).unwrap());
+        save(&state, "src", cfg.clone(), vec![]);
+        save(&state, "tgt", cfg.clone(), vec![]);
+        let mut c0 = cfg.clone();
+        c0.database = "db0".into();
+        let mut s = open(&c0).await.unwrap();
+        // No NUMERIC field: the driver browses it with a KNN query.
+        exec(
+            s.as_mut(),
+            &format!("FT.CREATE {name} ON HASH PREFIX 1 {prefix} SCHEMA title TAG emb VECTOR HNSW 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2"),
+        )
+        .await
+        .unwrap();
+        let lines: Vec<String> = (1..=DOCS)
+            .map(|i| {
+                let v = [i as f32, (i % 7) as f32];
+                format!("HSET {prefix}{i} title t{} emb {}", i % 3, redis_blob(&v))
+            })
+            .collect();
+        for chunk in lines.chunks(500) {
+            exec(s.as_mut(), &chunk.join("\n")).await.unwrap();
+        }
+        // The index has seen them all.
+        let start = std::time::Instant::now();
+        loop {
+            let info = crate::commands::vector_live_tests::first(
+                exec(s.as_mut(), &format!("FT.INFO {name}")).await.unwrap(),
+            );
+            let text = format!("{:?}", info.rows);
+            if text.contains(&format!("{DOCS}")) || start.elapsed().as_secs() > 60 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        drop(s);
+
+        let mut a = args(&name, StartFilter::default(), None);
+        a.table.kind = "index".into();
+        a.database = "db0".into();
+        a.target_database = "db1".into();
+        let partial = |notes: &[String]| {
+            notes
+                .iter()
+                .any(|n| n.contains("parcial") && n.contains("10000"))
+        };
+        let p = plan(&state, &a, events().0).await.unwrap();
+        println!("plan notes: {:?}", p.notes);
+        assert!(partial(&p.notes), "the plan doesn't say it: {p:#?}");
+        assert_eq!(p.tables[0].rows, 10_000, "{:#?}", p.tables[0]);
+
+        let ra = RunArgs {
+            subset: a.clone(),
+            masks: vec![],
+            confirm: String::new(),
+            seed: Some(1),
+        };
+        let r = run(&state, &ra, events().0).await.unwrap();
+        println!("run notes: {:?}", r.notes);
+        assert!(partial(&r.notes), "the report doesn't say it: {r:#?}");
+        assert!(
+            r.tables.iter().all(|t| t.status == "done" && t.written == 10_000),
+            "{:?}",
+            r.tables
+        );
+    })
+    .catch_unwind()
+    .await;
+    let cleaned = cleanup().await;
+    drop(d);
+    if let Err(e) = body {
+        std::panic::resume_unwind(e);
+    }
+    cleaned.expect("clean up at the end");
+}
