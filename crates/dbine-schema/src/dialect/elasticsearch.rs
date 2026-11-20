@@ -211,7 +211,8 @@ impl Search {
                 "{base}({n}, {})",
                 if self.flavor == Flavor::Elastic { "bit" } else { "binary" }
             )),
-            VectorElement::Bit => float().with(Warning, TypeApproximated, format!("Vector de bits como números (0 y 1): {engine} guarda bits solo de a 8 dimensiones, y Open Distro, nunca.")),
+            VectorElement::Bit if self.flavor == Flavor::OpenDistro => float().with(Warning, TypeApproximated, "Vector de bits como números (0 y 1): Open Distro no tiene vectores de bits."),
+            VectorElement::Bit => float().with(Warning, TypeApproximated, format!("Vector de bits como números (0 y 1): {engine} guarda bits solo de a 8 dimensiones.")),
             VectorElement::I8 | VectorElement::U8 => float().with(Info, TypeChanged, "Vector de bytes como números float."),
         }
     }
@@ -236,6 +237,47 @@ impl Search {
                 self.max_dims()
             )),
             _ => Err(format!("su columna no es un vector en {engine}")),
+        }
+    }
+
+    /// Takes OpenSearch's own index settings (`index.replication.*`,
+    /// `index.remote_store.*`) out of the index's other settings, as the
+    /// driver reads them (`settings_extra`), each one reported.
+    fn drop_opensearch_settings(&self, t: &mut TableSchema, table: &str, report: &mut Report) {
+        const KEY: &str = "settings_extra";
+        let Some(serde_json::Value::Object(mut extra)) = t
+            .options
+            .get(KEY)
+            .and_then(|s| serde_json::from_str(s).ok())
+        else {
+            return;
+        };
+        let own = |k: &str| {
+            let rel = k.strip_prefix("index.").unwrap_or(k);
+            rel.starts_with("replication.") || rel.starts_with("remote_store.")
+        };
+        let gone: Vec<String> = extra.keys().filter(|k| own(k)).cloned().collect();
+        if gone.is_empty() {
+            return;
+        }
+        for k in &gone {
+            extra.remove(k);
+            report.push(
+                Severity::Info,
+                IssueCode::OptionDropped,
+                table,
+                None,
+                format!(
+                    "{} no tiene el ajuste «{k}» de OpenSearch: se quita.",
+                    self.engine()
+                ),
+            );
+        }
+        if extra.is_empty() {
+            t.options.remove(KEY);
+        } else {
+            t.options
+                .insert(KEY.into(), serde_json::Value::Object(extra).to_string());
         }
     }
 
@@ -393,6 +435,12 @@ impl Dialect for Search {
             } else if (ty == "date" || ty == "date_nanos") && !c.options.contains_key("format") {
                 c.options.insert("format".into(), DATE_FORMAT.into());
             }
+        }
+        // OpenSearch writes its replication type into every index's
+        // settings (and remote-backed storage there too): Elasticsearch
+        // and Open Distro refuse an index with settings they don't know.
+        if self.flavor != Flavor::OpenSearch {
+            self.drop_opensearch_settings(t, &source_name, report);
         }
         // A vector from another of these flavors (one dialect, so its type
         // came as it was): this flavor's vector type, and its index in
@@ -1539,6 +1587,52 @@ mod tests {
             "{:?}",
             c.issues
         );
+    }
+
+    #[test]
+    fn opensearch_settings_stay_on_opensearch() {
+        let mut t = table("knn_vector(3)", None);
+        t.options.insert(
+            "settings_extra".into(),
+            r#"{"index.max_result_window":"50000","index.replication.type":"DOCUMENT","index.remote_store.enabled":"false"}"#.into(),
+        );
+        for dst in ["opendistro", "elasticsearch"] {
+            let c = crate::convert(&[t.clone()], "opensearch", dst, &Default::default()).unwrap();
+            assert_eq!(
+                c.tables[0]
+                    .options
+                    .get("settings_extra")
+                    .map(String::as_str),
+                Some(r#"{"index.max_result_window":"50000"}"#),
+                "{dst}"
+            );
+            assert_eq!(
+                c.issues
+                    .iter()
+                    .filter(
+                        |i| i.code == IssueCode::OptionDropped && i.message.contains("OpenSearch")
+                    )
+                    .count(),
+                2,
+                "{dst}: {:?}",
+                c.issues
+            );
+        }
+        let c = crate::convert(
+            &[t.clone()],
+            "opensearch",
+            "opensearch",
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(c.tables[0].options, t.options);
+        // Nothing else left: the option goes.
+        t.options.insert(
+            "settings_extra".into(),
+            r#"{"index.replication.type":"DOCUMENT"}"#.into(),
+        );
+        let c = crate::convert(&[t], "opensearch", "opendistro", &Default::default()).unwrap();
+        assert!(!c.tables[0].options.contains_key("settings_extra"));
     }
 
     #[test]
