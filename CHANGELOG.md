@@ -2,7 +2,20 @@
 
 ## [Unreleased]
 
+### New
+
+- **Vectors (embeddings):** DBine reads, edits, indexes, compares, moves and searches vectors on the engines that store them, such as PostgreSQL with pgvector, MySQL, Oracle, SQL Server, Snowflake, Elasticsearch, OpenSearch, Redis and its relatives, MongoDB, Cassandra, DuckDB, libSQL and Neo4j. A vector cell shows its first numbers and a badge with its dimensions, and the cell viewer gives its element type, norm, minimum and maximum. Edits are checked against the column's dimensions and element range before they reach the server. Each engine keeps its own types, index algorithms and distances.
+- **Vector indexes in the designer and the explorer:** the table designer creates and edits vector indexes (HNSW, IVFFlat, DiskANN and the others each engine offers) with their distance and settings, and the explorer lists them in the Indexes tab. Redis, Valkey and Dragonfly list their search indexes in a folder of their own in a key database, with their fields and templates in the menu, and can drop them.
+- **Vectors in compare, transfers and conversion:** schema compare and sync, data compare, transfers, clones, migrations, subsets, test data, masking and schema conversion carry vectors and their indexes between engines. When the target can't hold something exactly, the conversion report says what changed or was left out, and why: for example a Hamming index on binary vectors kept as cosine in libSQL, or a flat index too wide for Cosmos DB becoming a quantized one.
+- **Vectors in notebooks, export, database docs and the assistant:** DataFrame SQL, exports, the database documentation and the AI assistant and MCP tools know about vector columns and indexes. The editor completes the vector functions and operators of each engine.
+
 ### Improvements
+
+- **Schema conversion uses what the target really has:** migrations, schema compare, scripts for another engine, subsets and notebook tables now convert with the foreign keys, indexes, comments and vector indexes the target engine can hold. What it can't hold is left out and the report says so, instead of the script failing on it.
+- **Neo4j reads from MCP clients and the AI assistant are enforced by the server:** they run in Neo4j's read access mode, so a read that calls Neo4j's own vector functions or searches a vector index runs at once, and a write is refused by the server itself.
+- **Snowflake integer vectors:** `VECTOR(INT, n)` is read, edited, compared and converted as a vector of whole numbers, which keeps them exact on the way to other engines.
+- **Redis, Valkey and Dragonfly search indexes compare equal:** an index is read without the settings each server reports at their defaults, so the same index no longer shows as different on each after a sync.
+- **DuckDB opens files with HNSW indexes without downloading anything:** the vss extension is loaded only if it is already installed, and DBine downloads it only when a write needs it.
 
 - **Databricks explorer without waiting for the SQL warehouse:** connecting to Databricks and opening catalogs used to wait for a stopped SQL warehouse to start, which can take minutes, and a big catalog's tables were read through `information_schema`. The explorer now gets catalogs, schemas, tables, views and functions from Unity Catalog, which needs no warehouse and answers in a few calls. Connecting still checks your sign-in and your access to the warehouse, and starts it if it's stopped, but no longer waits for it: a query waits for it as before. The legacy `hive_metastore` and foreign catalogs are still read with SQL.
 
@@ -10,6 +23,14 @@
 
 - **Databricks tables over 25 MiB in Compare data without the reason:** comparing, copying or exporting a Databricks table could stop with "Databricks truncó el resultado… no se copia una tabla incompleta", even in a comparison. Behind it, Databricks had refused to deliver the table through external links, the way without a size limit, and the error left out what Databricks said. The error now gives Databricks' reason and talks about the read, not a copy. A refusal that comes after the query was sent is also detected.
 - **Connection forms partly in Spanish:** some texts that drivers show stayed in Spanish whatever the interface language. Among them were Power BI's sign-in application and query API options, SQL Server's and Azure SQL's Microsoft Entra ID sign-in modes, the ODBC driver field and its help, Neo4j's encryption help, the examples in several fields, and some items of the explorer's create menu. They now appear in every language DBine offers.
+- **Couchbase 8.0 grants and functions:** the grants list shows the query roles by the names GRANT uses (`query_select`, `query_insert`, `query_update`, `query_delete`) instead of the short names Couchbase Server 8.0 reports. A script that creates a function, scope or collection waits until the server lists it, so the explorer shows it right after and a collection made in a new scope no longer fails with "Scope not found". After a failed statement the script stops waiting.
+- **Valkey search indexes past 10,000 vectors:** browsing or copying an index with no numeric field no longer fails when more than 10,000 documents are asked, valkey-search's limit. A subset that this limit leaves incomplete says so in the plan and in the report.
+- **Redis uncompressed SVS-VAMANA indexes:** the script for an uncompressed index no longer writes a compression setting that Redis refuses.
+- **libSQL 1-bit vectors:** they are read as 0 and 1, the form bit vectors have everywhere else in DBine, instead of 1 and -1, which another engine's bit column took as all ones. A clone, script export, migration or compare of a table with a hand-made L2 index on 1-bit vectors no longer fails; a warning says that such an index ranks wrong.
+- **openGauss tables failing to read or copy:** reading or copying a table could fail with a message that the COPY ended without its end mark. openGauss ends its binary COPY without it, and DBine now accepts that.
+- **MongoDB 7 without search indexes:** a server without mongot, which refuses the search index listing, is treated as having no search indexes, and a listing that fails says why.
+- **Cassandra and ScyllaDB JSON columns:** a JSON value from another engine, such as an object or array from PostgreSQL's jsonb, is written as its JSON text in a text column.
+- **DuckDB HNSW indexes:** the distance of an index DuckDB 1.5 lists without its settings is read from the extension, so a cosine index no longer reads as euclidean, and schema compare tells HNSW indexes apart by their settings.
 
 ## [1.6.3] - 2026-11-18
 
