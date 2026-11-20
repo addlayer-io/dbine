@@ -77,6 +77,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod references;
 mod rename;
 mod security;
 mod shell;
@@ -1667,6 +1668,15 @@ impl Session for MongoSession {
         table: &ObjectRef,
     ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         self.index_usage_report(table).await
+    }
+
+    /// A view's `viewOn` and pipeline (see [`references`]).
+    async fn references(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        self.references_report(target, scan).await
     }
 
     /// Operators and shell methods for the version `buildInfo` reports (see
