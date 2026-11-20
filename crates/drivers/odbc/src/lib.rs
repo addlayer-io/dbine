@@ -25,6 +25,7 @@ mod plan;
 mod presets;
 mod processes;
 mod properties;
+mod references;
 mod rename;
 mod scheduler;
 mod schemas;
@@ -1710,6 +1711,19 @@ impl Session for OdbcSession {
                 Ok(Some(report))
             }
         }
+    }
+
+    /// Db2 LUW from its dependency catalog (see `references`); the other
+    /// presets, the contract's default.
+    async fn references(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        if design::eng(self.preset) == design::Eng::Db2 {
+            return references::db2(self, target, scan).await;
+        }
+        dbine_driver::dependencies::references_scan(self, target, scan).await
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {
