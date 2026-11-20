@@ -306,7 +306,7 @@ pub(crate) fn fulltext_sql(table: &str, ix: &IndexDef) -> String {
 
 /// Synonyms and table types of the schema, and public synonyms of its
 /// objects (listed under the PUBLIC schema).
-const OBJECTS: &str = "
+pub(crate) const OBJECTS: &str = "
 SELECT 'synonym', CAST(NULL AS NVARCHAR(256)), SYNONYM_NAME FROM SYS.SYNONYMS WHERE SCHEMA_NAME = ?
 UNION ALL SELECT 'synonym', 'PUBLIC', SYNONYM_NAME FROM SYS.SYNONYMS WHERE SCHEMA_NAME = 'PUBLIC' AND OBJECT_SCHEMA = ?
 UNION ALL SELECT 'type', NULL, TABLE_NAME FROM SYS.TABLES

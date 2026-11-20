@@ -15,6 +15,7 @@ mod health;
 mod index_usage;
 mod jobs;
 mod monitor;
+mod objects_page;
 mod permissions;
 mod plan;
 mod processes;
@@ -1178,6 +1179,42 @@ impl Session for OracleSession {
                 Err(e) => tracing::debug!("oracle: public synonyms not listed: {e}"),
             }
             Ok(out)
+        })
+        .await
+    }
+
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        let Some(page) = objects_page::page_query(&self.schema, query) else {
+            return Ok(Default::default());
+        };
+        self.run(move |c| {
+            let params: Vec<&dyn oracledb::ToDbValue> = page
+                .params
+                .iter()
+                .map(|p| p as &dyn oracledb::ToDbValue)
+                .collect();
+            let read = || -> std::result::Result<_, oracledb::Error> {
+                let mut rows = Vec::new();
+                for row in c.query(&page.sql, &params)? {
+                    let row = row?;
+                    rows.push([row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?]);
+                }
+                Ok(rows)
+            };
+            match read() {
+                Ok(rows) => Ok(page.page(rows)),
+                // A dictionary this server or user can't read so: the app
+                // pages `list_objects`.
+                Err(e) => {
+                    tracing::debug!("oracle: objects by page: {e}");
+                    Err(Error::Unsupported(
+                        "este motor todavía no lista sus objetos por páginas".into(),
+                    ))
+                }
+            }
         })
         .await
     }

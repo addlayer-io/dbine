@@ -12,6 +12,7 @@ mod health;
 mod index_usage;
 mod jobs;
 mod monitor;
+mod objects_page;
 mod permissions;
 mod plan;
 mod processes;
@@ -1068,6 +1069,27 @@ impl Session for HanaSession {
             .collect();
         out.extend(structure::list_objects(self).await);
         Ok(out)
+    }
+
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        let Some(page) = objects_page::page_query(&self.schema, query) else {
+            return Ok(Default::default());
+        };
+        let params: Vec<&str> = page.params.iter().map(String::as_str).collect();
+        match self.rows(&page.sql, &params).await {
+            Ok(rows) => Ok(page.page(&rows)),
+            // A catalog view this user can't read: the app pages
+            // `list_objects`, which reads what it can.
+            Err(e) => {
+                tracing::debug!("hana: objects by page: {e}");
+                Err(Error::Unsupported(
+                    "este motor todavía no lista sus objetos por páginas".into(),
+                ))
+            }
+        }
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
