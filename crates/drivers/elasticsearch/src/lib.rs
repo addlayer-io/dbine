@@ -812,6 +812,58 @@ impl EsSession {
             && !dbine_driver::functions::version_at_least(&self.version, "8.0")
     }
 
+    /// The server is OpenSearch, at `min` or later and before `below`.
+    fn opensearch_in(&self, min: &str, below: Option<&str>) -> bool {
+        use dbine_driver::functions::version_at_least as at_least;
+        self.flavor() == Flavor::OpenSearch
+            && self.version.chars().any(|c| c.is_ascii_digit())
+            && at_least(&self.version, min)
+            && below.is_none_or(|b| !at_least(&self.version, b))
+    }
+
+    /// OpenSearch's default k-NN engine by version, for the vector fields
+    /// a request maps (an index's creation, `_mapping`, a template). On
+    /// 2.18 the default, Faiss, has no cosine (it has from 2.19): a cosine
+    /// HNSW field that names no engine gets Lucene, and the user is told.
+    /// From 3.0 no new index takes NMSLIB, the only engine with L1 and L∞:
+    /// creating one that names it is refused with what to choose instead.
+    /// `Some`: the body to send.
+    fn knn_engines(&self, req: &Request, out: &mut QueryOutcome) -> Result<Option<String>> {
+        let Some(body) = req.body.as_deref() else {
+            return Ok(None);
+        };
+        if self.flavor() != Flavor::OpenSearch || !matches!(req.method.as_str(), "PUT" | "POST") {
+            return Ok(None);
+        }
+        let segs = req.segments();
+        let creates = segs.len() == 1 && !segs[0].starts_with('_');
+        let maps = creates
+            || (segs.len() == 2 && matches!(segs[1], "_mapping" | "_mappings"))
+            || matches!(
+                segs.first(),
+                Some(&("_index_template" | "_template" | "_component_template"))
+            );
+        if creates && self.opensearch_in("3.0", None) {
+            let fields = vectors::nmslib_fields(body);
+            if !fields.is_empty() {
+                return Err(Error::Query(format!(
+                    "OpenSearch 3 no crea índices con el motor NMSLIB, el único con las distancias L1 y L∞, y lo usa {}: elegí otro motor (Faiss o Lucene), con L2, coseno o producto interno.",
+                    fields.join(", ")
+                )));
+            }
+        }
+        if maps && self.opensearch_in("2.18", Some("2.19")) {
+            if let Some((body, fields)) = vectors::cosine_on_lucene(body) {
+                out.info(format!(
+                    "En OpenSearch 2.18, Faiss (el motor por defecto) no tiene la distancia coseno: el índice vectorial de {} se crea con Lucene.",
+                    fields.join(", ")
+                ));
+                return Ok(Some(body));
+            }
+        }
+        Ok(None)
+    }
+
     /// The vector fields of each of `indices`, from their mappings (read
     /// once, until a request may change them). One `_mapping` request for
     /// all of them, and one per index when it fails, so an index that
@@ -1029,7 +1081,10 @@ impl EsSession {
             path.push_str("format=json");
         }
         let mut rb = self.request(&req.method, &path);
-        let adapted = self.adapted_body(req).await;
+        let adapted = match self.knn_engines(req, out)? {
+            Some(body) => Some(body),
+            None => self.adapted_body(req).await,
+        };
         if self.before_8() && matches!(req.method.as_str(), "PUT" | "POST") {
             let fields = vectors::indexed_vectors(req.body.as_deref().unwrap_or(""));
             if !fields.is_empty() {
@@ -2202,6 +2257,104 @@ mod tests {
             path: path.into(),
             body: None,
         }
+    }
+
+    /// OpenSearch's default k-NN engine by version: Lucene for cosine on
+    /// 2.18 alone (Faiss has it from 2.19), and NMSLIB refused for a new
+    /// index from 3.0.
+    #[test]
+    fn opensearch_vector_engines_by_version() {
+        let cosine = r#"{"settings":{"index":{"knn":true}},"mappings":{"properties":{"v":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"cosinesimil"}}}}}"#;
+        let l1 = r#"{"settings":{"index":{"knn":true}},"mappings":{"properties":{"v":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"l1","engine":"nmslib"}}}}}"#;
+        let with = |method: &str, path: &str, body: &str| Request {
+            method: method.into(),
+            path: path.into(),
+            body: Some(body.into()),
+        };
+        let run = |version: &str, opensearch: bool, r: &Request| {
+            let mut out = QueryOutcome::default();
+            let s = session(version, opensearch);
+            let res = s.knn_engines(r, &mut out);
+            (res, out.messages)
+        };
+        let lucene = |body: &str| {
+            J::parse(body)
+                .unwrap()
+                .at(&["mappings", "properties", "v", "method", "engine"])
+                .map(J::text)
+        };
+        // 2.18: the index's creation, a template and a mapping get Lucene.
+        for path in ["/items", "/_index_template/t", "/items/_mapping"] {
+            let body = if path.ends_with("_mapping") {
+                r#"{"properties":{"v":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"cosinesimil"}}}}"#
+            } else {
+                cosine
+            };
+            let (res, msgs) = run("OpenSearch 2.18.0", true, &with("PUT", path, body));
+            let out = res.unwrap().unwrap_or_else(|| panic!("{path}"));
+            let engine = J::parse(&out)
+                .unwrap()
+                .at(&if path.ends_with("_mapping") {
+                    vec!["properties", "v", "method", "engine"]
+                } else {
+                    vec!["mappings", "properties", "v", "method", "engine"]
+                })
+                .map(J::text);
+            assert_eq!(engine.as_deref(), Some("lucene"), "{path}");
+            assert!(
+                msgs.iter().any(|m| m.contains("Lucene") && m.contains('v')),
+                "{msgs:?}"
+            );
+        }
+        let (res, _) = run("OpenSearch 2.18.0", true, &with("PUT", "/items", cosine));
+        assert_eq!(lucene(&res.unwrap().unwrap()).as_deref(), Some("lucene"));
+        // Other versions, Elasticsearch, documents and reads: as written.
+        for (v, os) in [
+            ("OpenSearch 2.17.1", true),
+            ("OpenSearch 2.19.0", true),
+            ("OpenSearch 3.1.0", true),
+            ("Elasticsearch 8.15.3", false),
+            ("OpenSearch", true),
+        ] {
+            let (res, msgs) = run(v, os, &with("PUT", "/items", cosine));
+            assert_eq!(res.unwrap(), None, "{v}");
+            assert!(msgs.is_empty(), "{v}");
+        }
+        for r in [
+            with("POST", "/items/_doc", cosine),
+            with("GET", "/items", cosine),
+            with("POST", "/items/_search", cosine),
+        ] {
+            assert_eq!(run("OpenSearch 2.18.0", true, &r).0.unwrap(), None);
+        }
+        // 3.x: a new index naming NMSLIB is refused, saying what to choose.
+        let err = run("OpenSearch 3.1.0", true, &with("PUT", "/items", l1))
+            .0
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("NMSLIB") && err.contains("Faiss o Lucene"),
+            "{err}"
+        );
+        // Not before 3.0, and not on a mapping (an index made before 3.0
+        // still takes it).
+        assert_eq!(
+            run("OpenSearch 2.19.0", true, &with("PUT", "/items", l1))
+                .0
+                .unwrap(),
+            None
+        );
+        let mapping = r#"{"properties":{"v":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"l1","engine":"nmslib"}}}}"#;
+        assert_eq!(
+            run(
+                "OpenSearch 3.1.0",
+                true,
+                &with("PUT", "/items/_mapping", mapping)
+            )
+            .0
+            .unwrap(),
+            None
+        );
     }
 
     #[test]

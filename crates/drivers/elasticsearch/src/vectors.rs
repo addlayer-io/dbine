@@ -811,9 +811,9 @@ pub(crate) fn write_index(flavor: Flavor, m: &mut Obj, ix: &IndexDef, t: &VecTyp
 /// Hamming (the only engine and distance for them), bytes to Lucene
 /// (unless `mode` / `compression_level` pick the engine), and L1 / L∞ to
 /// NMSLIB, the only one with them. Other floats keep the server's default
-/// (on 2.18 alone, Faiss without `cosinesimil`: there cosine needs the
-/// engine chosen). `space` is the native distance; bits get `hamming` when
-/// it's empty.
+/// (on 2.18 alone, Faiss without `cosinesimil`: there the session gives
+/// cosine Lucene when it runs the mapping, see [`cosine_on_lucene`]).
+/// `space` is the native distance; bits get `hamming` when it's empty.
 fn os_engine(
     ix: &IndexDef,
     t: &VecType,
@@ -1288,6 +1288,87 @@ pub fn indexed_vectors(body: &str) -> Vec<String> {
     let mut out = Vec::new();
     if let Ok(j) = J::parse(body) {
         walk(&j, &mut out);
+    }
+    out
+}
+
+// -- OpenSearch's default engine by version ----------------------------------------------------
+
+/// Calls `f` with each `knn_vector` field a mapping body defines (its name
+/// and mapping), anywhere in the body.
+fn knn_fields(j: &mut J, f: &mut dyn FnMut(&str, &mut J)) {
+    match j {
+        J::Obj(o) => {
+            for (k, v) in o.iter_mut() {
+                if v.get("type").and_then(J::as_str) == Some("knn_vector") {
+                    f(k, v);
+                }
+                knn_fields(v, f);
+            }
+        }
+        J::Arr(a) => a.iter_mut().for_each(|v| knn_fields(v, f)),
+        _ => {}
+    }
+}
+
+/// A mapping body for OpenSearch 2.18, whose default engine, Faiss, has
+/// no cosine distance until 2.19: each float `knn_vector` field searched
+/// by `cosinesimil` with an HNSW method that names no engine (nor a
+/// `mode`, `compression_level` or `model_id`, which decide it) gets
+/// Lucene, which has had it since 2.2. `None`: no field needs it; else
+/// the new body and the fields changed.
+pub fn cosine_on_lucene(body: &str) -> Option<(String, Vec<String>)> {
+    let mut j = J::parse(body).ok()?;
+    let mut changed = Vec::new();
+    knn_fields(&mut j, &mut |name, f| {
+        let set = |k: &str| f.get(k).is_some_and(|v| !v.text().trim().is_empty());
+        let float = f
+            .get("data_type")
+            .is_none_or(|d| d.text().eq_ignore_ascii_case("float"));
+        if !float
+            || ["mode", "compression_level", "model_id"]
+                .iter()
+                .any(|k| set(k))
+        {
+            return;
+        }
+        let top_space = f.get("space_type").map(J::text);
+        let Some(method) = f.get("method") else {
+            return;
+        };
+        let space = method.get("space_type").map(J::text).or(top_space);
+        let hnsw = method
+            .get("name")
+            .is_none_or(|n| n.text().eq_ignore_ascii_case("hnsw"));
+        let engine = method
+            .get("engine")
+            .is_some_and(|e| !e.text().trim().is_empty());
+        if !hnsw || engine || !space.is_some_and(|s| s.trim().eq_ignore_ascii_case("cosinesimil")) {
+            return;
+        }
+        if let J::Obj(o) = f {
+            if let Some((_, J::Obj(m))) = o.iter_mut().find(|(k, _)| k == "method") {
+                put(m, "engine", J::Str("lucene".into()));
+                changed.push(name.to_string());
+            }
+        }
+    });
+    (!changed.is_empty()).then(|| (j.pretty(), changed))
+}
+
+/// The `knn_vector` fields of a mapping body whose method names the NMSLIB
+/// engine, which OpenSearch 3.0 and later refuse for a new index.
+pub fn nmslib_fields(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(mut j) = J::parse(body) {
+        knn_fields(&mut j, &mut |name, f| {
+            let nmslib = f
+                .at(&["method", "engine"])
+                .is_some_and(|e| e.text().trim().eq_ignore_ascii_case("nmslib"));
+            if nmslib && !out.iter().any(|n| n == name) {
+                out.push(name.to_string());
+            }
+        });
     }
     out
 }
@@ -1982,6 +2063,65 @@ mod tests {
                 r#"{"mappings":{"properties":{"v":{"type":"dense_vector","index":true},"w":{"type":"dense_vector","index":false},"o":{"properties":{"x":{"type":"dense_vector","dims":2,"index":true}}}}}}"#
             ),
             ["v", "x"]
+        );
+    }
+
+    #[test]
+    fn cosine_without_an_engine_gets_lucene_where_asked() {
+        let body = r#"{"settings":{"index":{"knn":true}},"mappings":{"properties":{
+            "a":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"cosinesimil","parameters":{"m":16}}},
+            "b":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"l2"}},
+            "c":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"cosinesimil","engine":"faiss"}},
+            "d":{"type":"knn_vector","dimension":3,"mode":"on_disk","method":{"name":"hnsw","space_type":"cosinesimil"}},
+            "e":{"type":"knn_vector","dimension":8,"data_type":"byte","method":{"name":"hnsw","space_type":"cosinesimil"}},
+            "f":{"type":"knn_vector","dimension":3,"space_type":"cosinesimil","method":{"name":"hnsw"}},
+            "g":{"type":"knn_vector","dimension":3,"method":{"name":"ivf","space_type":"cosinesimil"}},
+            "h":{"type":"knn_vector","dimension":3},
+            "o":{"properties":{"i":{"type":"knn_vector","dimension":3,"method":{"space_type":"cosinesimil"}}}},
+            "t":{"type":"text"}}}}"#;
+        let (out, fields) = cosine_on_lucene(body).unwrap();
+        assert_eq!(fields, ["a", "f", "i"]);
+        let j = J::parse(&out).unwrap();
+        let engine = |path: &[&str]| {
+            let mut p = vec!["mappings", "properties"];
+            p.extend(path);
+            p.extend(["method", "engine"]);
+            j.at(&p).map(J::text)
+        };
+        assert_eq!(engine(&["a"]).as_deref(), Some("lucene"));
+        assert_eq!(engine(&["f"]).as_deref(), Some("lucene"));
+        assert_eq!(engine(&["o", "properties", "i"]).as_deref(), Some("lucene"));
+        assert_eq!(engine(&["c"]).as_deref(), Some("faiss"));
+        for f in ["b", "d", "e", "g", "h"] {
+            assert_eq!(engine(&[f]), None, "{f}");
+        }
+        // The rest of the body is as it was.
+        assert_eq!(
+            j.at(&["mappings", "properties", "a", "method", "parameters", "m"])
+                .map(J::text)
+                .as_deref(),
+            Some("16")
+        );
+        assert_eq!(
+            j.at(&["settings", "index", "knn"]).map(J::text).as_deref(),
+            Some("true")
+        );
+        assert!(
+            cosine_on_lucene(r#"{"properties":{"b":{"type":"knn_vector","dimension":3}}}"#)
+                .is_none()
+        );
+        assert!(cosine_on_lucene("not json").is_none());
+    }
+
+    #[test]
+    fn nmslib_fields_are_found_anywhere_in_a_mapping() {
+        let body = r#"{"mappings":{"properties":{
+            "a":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"l1","engine":"nmslib"}},
+            "b":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"l2","engine":"faiss"}},
+            "o":{"properties":{"c":{"type":"knn_vector","dimension":3,"method":{"engine":"NMSLIB"}}}}}}}"#;
+        assert_eq!(nmslib_fields(body), ["a", "c"]);
+        assert!(
+            nmslib_fields(r#"{"mappings":{"properties":{"b":{"type":"knn_vector"}}}}"#).is_empty()
         );
     }
 

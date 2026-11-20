@@ -743,9 +743,11 @@ async fn opendistro_vectors() {
 
 /// OpenSearch float vector indexes that name no engine, by distance, as
 /// each version's default engine takes them: L2 everywhere; cosine
-/// everywhere but 2.18 (Faiss, the default from 2.18, has it from 2.19);
-/// L1, which DBine gives NMSLIB (the only engine with it), until 3.0, which
-/// refuses NMSLIB for new indexes. Each one also reads back as made.
+/// everywhere, on 2.18 through Lucene, which the session picks there
+/// (Faiss, the default from 2.18, has cosine from 2.19), up to 1536
+/// dimensions; L1, which DBine gives NMSLIB (the only engine with it),
+/// until 3.0, where DBine refuses it before the server does, saying what to
+/// choose. Each one also reads back as made and syncs to nothing.
 #[tokio::test]
 #[ignore]
 async fn opensearch_default_engines() {
@@ -766,15 +768,20 @@ async fn opensearch_default_engines() {
         url: url.clone(),
     };
     let at_least = |v: &str| dbine_driver::functions::version_at_least(&version, v);
-    for (metric, takes) in [
-        ("l2", true),
-        ("cosine", !at_least("2.18") || at_least("2.19")),
-        ("l1", !at_least("3.0")),
+    let on_2_18 = at_least("2.18") && !at_least("2.19");
+    for (metric, dims, takes) in [
+        ("l2", 3, true),
+        ("cosine", 3, true),
+        ("cosine", 1536, true),
+        ("l1", 3, !at_least("3.0")),
     ] {
         let table = TableSchema {
             kind: "index".into(),
             name: BYTES.into(),
-            columns: vec![col("title", "keyword"), col("emb", "knn_vector(3)")],
+            columns: vec![
+                col("title", "keyword"),
+                col("emb", &format!("knn_vector({dims})")),
+            ],
             indexes: vec![IndexDef {
                 name: "emb_idx".into(),
                 columns: vec!["emb".into()],
@@ -797,18 +804,35 @@ async fn opensearch_default_engines() {
         let ddl = d.table_ddl(&table, parts).unwrap();
         let mut out = QueryOutcome::default();
         let made = s.execute(&ddl, 10, &mut out).await;
-        println!("{metric}: {made:?}");
+        println!("{metric}({dims}): {made:?} {:?}", out.messages);
         assert_eq!(
             made.is_ok(),
             takes,
-            "{metric} on {version}: {made:?}\n{ddl}"
+            "{metric}({dims}) on {version}: {made:?}\n{ddl}"
+        );
+        if let Err(e) = &made {
+            // DBine says why, and what to choose, before the server refuses.
+            let e = e.to_string();
+            assert!(e.contains("NMSLIB") && e.contains("Faiss o Lucene"), "{e}");
+        }
+        let lucene = on_2_18 && metric == "cosine";
+        assert_eq!(
+            out.messages.iter().any(|m| m.contains("Lucene")),
+            lucene,
+            "{metric} on {version}: {:?}",
+            out.messages
         );
         if takes {
             let schema = s.database_schema().await.unwrap();
             let got = schema.iter().find(|t| t.name == BYTES).unwrap();
             let read = got.indexes[0].vector.clone().unwrap();
-            println!("{metric}: read back {read:?}");
+            println!("{metric}({dims}): read back {read:?}");
             assert_eq!(read.metric.as_deref(), Some(metric));
+            assert_eq!(
+                read.params.get("engine").map(String::as_str) == Some("lucene"),
+                lucene,
+                "{metric} on {version}: {read:?}"
+            );
             let mut model = got.clone();
             model.indexes = table.indexes.clone();
             let same = d
