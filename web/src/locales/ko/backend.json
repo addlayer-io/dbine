@@ -16284,7 +16284,7 @@
   "Números del 1 al 31 separados por comas; los negativos cuentan desde el final del mes.": "1~31의 숫자를 쉼표로 구분하여 입력합니다. 음수는 월말부터 셉니다.",
   "Observador de archivos": "파일 감시기",
   "Observadores de archivos": "파일 감시기",
-  "OceanBase lee las horas de los eventos en la zona horaria global del tenant y no mueve un evento a otra base.": "OceanBase는 이벤트 시각을 tenant의 전역 시간대로 읽으며 이벤트를 다른 데이터베이스로 옮기지 않습니다.",
+  "OceanBase lee las horas de los eventos en la zona horaria global del tenant, guarda cada evento con su propio modo SQL y no mueve un evento a otra base.": "OceanBase는 이벤트 시각을 tenant의 전역 시간대로 읽고, 각 이벤트를 자체 SQL 모드로 저장하며, 이벤트를 다른 데이터베이스로 옮기지 않습니다.",
   "OceanBase no mueve un evento a otra base: crealo en la nueva y borrá este.": "OceanBase는 이벤트를 다른 데이터베이스로 옮기지 않습니다. 새 데이터베이스에 만들고 이 이벤트를 삭제하세요.",
   "Octubre": "10월",
   "Opcional: el id con el que ksqlDB la lista (QUERY_ID). Sin él, ksqlDB le pone uno.": "선택 사항: ksqlDB가 목록에 표시할 ID(QUERY_ID)입니다. 지정하지 않으면 ksqlDB가 자동으로 부여합니다.",

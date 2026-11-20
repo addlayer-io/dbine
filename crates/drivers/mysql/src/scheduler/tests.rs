@@ -780,7 +780,7 @@ mod ev {
             altered: Some("2026-11-12 10:00:00".into()),
             ..Event::default()
         };
-        let s = spec_of(&e, None);
+        let s = spec_of(&e, false, None);
         assert_eq!(s.status, Status::ReplicaSide);
         assert_eq!(s.body, "INSERT INTO t VALUES (1)");
         assert_eq!(
@@ -793,7 +793,30 @@ mod ev {
             }
         );
         assert_eq!(s.time_zone, "+03:00");
-        assert_eq!(spec_of(&e, Some("+08:00")).time_zone, "+08:00");
+        assert_eq!(spec_of(&e, true, Some("+08:00")).time_zone, "+08:00");
+        // OceanBase 4.4 keeps a BEGIN … END body as `a;b;`: it goes back in
+        // a block the form can save again; one statement stays as it is.
+        let ob = |body: &str| ob_body(body);
+        assert_eq!(
+            ob("INSERT INTO t VALUES (2);INSERT INTO t VALUES (3);"),
+            "BEGIN\n  INSERT INTO t VALUES (2);\n  INSERT INTO t VALUES (3);\nEND"
+        );
+        assert_eq!(ob("INSERT INTO t VALUES (1);"), "INSERT INTO t VALUES (1)");
+        assert_eq!(ob("SELECT ';' FROM t"), "SELECT ';' FROM t");
+        assert_eq!(
+            ob("DECLARE n INT;SET n = 1;INSERT INTO t VALUES (n);"),
+            "BEGIN\n  DECLARE n INT;\n  SET n = 1;\n  INSERT INTO t VALUES (n);\nEND"
+        );
+        let rebuilt = ob("UPDATE t SET a = 'x;y';DELETE FROM u;");
+        assert_eq!(
+            rebuilt,
+            "BEGIN\n  UPDATE t SET a = 'x;y';\n  DELETE FROM u;\nEND"
+        );
+        assert!(crate::scheduler::one_statement(&rebuilt, true));
+        let mut e2 = e.clone();
+        e2.body = Some("INSERT INTO t VALUES (2);INSERT INTO t VALUES (3);".into());
+        assert!(spec_of(&e2, true, None).body.starts_with("BEGIN\n"));
+        assert!(!spec_of(&e2, false, None).body.starts_with("BEGIN"));
         let v = values_of(&s, Some(&e));
         assert_eq!(v["every"], json!("1:30"));
         assert_eq!(v["starts"], json!("2030-01-01T00:00:00"));
@@ -880,8 +903,47 @@ mod ev {
         v["schema"] = json!("db2");
         assert!(err(spec_from(&fv(v), &ob, &dbs(), &definers(), Some(&cur)))
             .contains("OceanBase no mueve"));
-        let s = spec_from(&fv(values()), &ob, &dbs(), &definers(), None).unwrap();
+        let mut v = values();
+        v["every"] = json!("90");
+        v["unit"] = json!("MINUTE");
+        let s = spec_from(&fv(v), &ob, &dbs(), &definers(), None).unwrap();
         assert_eq!(s.time_zone, "+08:00");
+        // OceanBase's EVERY takes no composite unit, WEEK nor QUARTER (its
+        // parser refuses them): the form neither offers nor accepts them.
+        for unit in ["HOUR_MINUTE", "WEEK", "QUARTER", "YEAR_MONTH"] {
+            let mut v = values();
+            v["type"] = json!("every");
+            v["every"] = json!("1");
+            v["unit"] = json!(unit);
+            assert!(
+                err(spec_from(&fv(v.clone()), &ob, &dbs(), &definers(), None)).contains("«Unidad»"),
+                "{unit}"
+            );
+            assert!(
+                spec_from(&fv(v), &c, &dbs(), &definers(), None).is_ok(),
+                "{unit}"
+            );
+        }
+        let mut v = values();
+        v["type"] = json!("every");
+        v["every"] = json!("90");
+        v["unit"] = json!("MINUTE");
+        assert!(spec_from(&fv(v), &ob, &dbs(), &definers(), None).is_ok());
+        let units = |ob: bool| {
+            sections(ob, false)
+                .iter()
+                .flat_map(|s| s.fields.iter())
+                .find(|f| f.key == "unit")
+                .map(|f| match &f.kind {
+                    dbine_driver::FormKind::Select { options } => {
+                        options.iter().map(|o| o.0.clone()).collect::<Vec<_>>()
+                    }
+                    other => panic!("{other:?}"),
+                })
+                .unwrap()
+        };
+        assert_eq!(units(true), OB_UNITS.map(String::from).to_vec());
+        assert_eq!(units(false), UNITS.map(String::from).to_vec());
         // One statement, or one BEGIN … END: a `;` outside it would end
         // the CREATE and run the rest when saving.
         for body in [

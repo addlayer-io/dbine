@@ -16507,7 +16507,7 @@
   "Números del 1 al 31 separados por comas; los negativos cuentan desde el final del mes.": "Числа від 1 до 31 через кому; від’ємні відліковуються від кінця місяця.",
   "Observador de archivos": "Спостерігач файлів",
   "Observadores de archivos": "Спостерігачі файлів",
-  "OceanBase lee las horas de los eventos en la zona horaria global del tenant y no mueve un evento a otra base.": "OceanBase читає час подій у глобальному часовому поясі tenant і не переносить подію в іншу базу.",
+  "OceanBase lee las horas de los eventos en la zona horaria global del tenant, guarda cada evento con su propio modo SQL y no mueve un evento a otra base.": "OceanBase читає час подій у глобальному часовому поясі tenant, зберігає кожну подію з її власним режимом SQL і не переносить подію в іншу базу.",
   "OceanBase no mueve un evento a otra base: crealo en la nueva y borrá este.": "OceanBase не переносить подію в іншу базу: створіть її в новій і видаліть цю.",
   "Octubre": "Жовтень",
   "Opcional: el id con el que ksqlDB la lista (QUERY_ID). Sin él, ksqlDB le pone uno.": "Необов’язково: id, з яким ksqlDB показує його в списку (QUERY_ID). Без нього ksqlDB призначає свій.",

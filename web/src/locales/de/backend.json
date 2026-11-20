@@ -16049,7 +16049,7 @@
   "Números del 1 al 31 separados por comas; los negativos cuentan desde el final del mes.": "Zahlen von 1 bis 31, durch Kommas getrennt; negative Werte zählen vom Monatsende.",
   "Observador de archivos": "Dateiwächter",
   "Observadores de archivos": "Dateiwächter",
-  "OceanBase lee las horas de los eventos en la zona horaria global del tenant y no mueve un evento a otra base.": "OceanBase liest die Zeiten der Ereignisse in der globalen Zeitzone des Tenants und verschiebt kein Ereignis in eine andere Datenbank.",
+  "OceanBase lee las horas de los eventos en la zona horaria global del tenant, guarda cada evento con su propio modo SQL y no mueve un evento a otra base.": "OceanBase liest die Zeiten der Ereignisse in der globalen Zeitzone des Tenants, speichert jedes Ereignis mit seinem eigenen SQL-Modus und verschiebt kein Ereignis in eine andere Datenbank.",
   "OceanBase no mueve un evento a otra base: crealo en la nueva y borrá este.": "OceanBase verschiebt kein Ereignis in eine andere Datenbank: Legen Sie es in der neuen an und löschen Sie dieses.",
   "Octubre": "Oktober",
   "Opcional: el id con el que ksqlDB la lista (QUERY_ID). Sin él, ksqlDB le pone uno.": "Optional: die ID, unter der ksqlDB sie auflistet (QUERY_ID). Ohne sie vergibt ksqlDB eine.",
