@@ -12,7 +12,15 @@
     "onlyTag": "仅标签",
     "anyTag": "（任意）",
     "showAll": "显示全部",
-    "tagTitle": "仅显示带有“{{tag}}”标签的连接"
+    "tagTitle": "仅显示带有“{{tag}}”标签的连接",
+    "inCode": "同时在代码中搜索：视图、存储过程、度量值和 Power BI 表…",
+    "searching": "正在服务器上搜索…",
+    "searchingCode": "正在代码中搜索…",
+    "enterBilled": "按 Enter 在 {{engines}} 中搜索：每次搜索都是一次计费查询。",
+    "codeMin": "请至少输入 {{n}} 个字母以在代码中搜索。",
+    "codeUnreadable_other": "无法读取 {{n}} 个对象的代码（权限不足）。",
+    "codeLine": "在代码中，第 {{line}} 行：{{text}}",
+    "codeTag": "代码"
   },
   "empty": {
     "noConnections": "还没有连接。",

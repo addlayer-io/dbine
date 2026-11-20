@@ -12,7 +12,17 @@
     "onlyTag": "Uniquement l'étiquette",
     "anyTag": "(n'importe laquelle)",
     "showAll": "Tout afficher",
-    "tagTitle": "Afficher uniquement les connexions avec l'étiquette «{{tag}}»"
+    "tagTitle": "Afficher uniquement les connexions avec l'étiquette «{{tag}}»",
+    "inCode": "Rechercher aussi dans le code : vues, procédures, mesures et tables Power BI…",
+    "searching": "Recherche sur le serveur…",
+    "searchingCode": "Recherche dans le code…",
+    "enterBilled": "Entrée pour rechercher dans {{engines}} : chaque recherche est une requête facturée.",
+    "codeMin": "Saisissez au moins {{n}} lettres pour rechercher dans le code.",
+    "codeUnreadable_one": "Impossible de lire le code de {{n}} objet (permissions).",
+    "codeUnreadable_many": "Impossible de lire le code de {{n}} d'objets (permissions).",
+    "codeUnreadable_other": "Impossible de lire le code de {{n}} objets (permissions).",
+    "codeLine": "Dans le code, ligne {{line}} : {{text}}",
+    "codeTag": "code"
   },
   "empty": {
     "noConnections": "Aucune connexion pour l'instant.",

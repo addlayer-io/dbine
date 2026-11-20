@@ -12,7 +12,15 @@
     "onlyTag": "このタグのみ",
     "anyTag": "(すべて)",
     "showAll": "すべて表示",
-    "tagTitle": "タグ「{{tag}}」の接続のみ表示"
+    "tagTitle": "タグ「{{tag}}」の接続のみ表示",
+    "inCode": "コード内も検索：ビュー、プロシージャ、メジャー、Power BI のテーブル…",
+    "searching": "サーバーを検索しています…",
+    "searchingCode": "コード内を検索しています…",
+    "enterBilled": "Enter キーで {{engines}} を検索します。検索ごとに課金されるクエリが実行されます。",
+    "codeMin": "コード内を検索するには {{n}} 文字以上入力してください。",
+    "codeUnreadable_other": "{{n}} 個のオブジェクトのコードを読み取れませんでした（権限）。",
+    "codeLine": "コード内、{{line}} 行目：{{text}}",
+    "codeTag": "コード"
   },
   "empty": {
     "noConnections": "接続はまだありません。",

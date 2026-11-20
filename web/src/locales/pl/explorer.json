@@ -12,7 +12,18 @@
     "onlyTag": "Tylko tag",
     "anyTag": "(dowolny)",
     "showAll": "Pokaż wszystkie",
-    "tagTitle": "Pokaż tylko połączenia z tagiem „{{tag}}”"
+    "tagTitle": "Pokaż tylko połączenia z tagiem „{{tag}}”",
+    "inCode": "Szukaj także w kodzie: widoki, procedury, miary i tabele Power BI…",
+    "searching": "Wyszukiwanie na serwerze…",
+    "searchingCode": "Wyszukiwanie w kodzie…",
+    "enterBilled": "Enter, aby szukać w {{engines}}: każde wyszukiwanie to płatne zapytanie.",
+    "codeMin": "Wpisz co najmniej {{n}} liter, aby szukać w kodzie.",
+    "codeUnreadable_one": "Nie można odczytać kodu {{n}} obiektu (uprawnienia).",
+    "codeUnreadable_few": "Nie można odczytać kodu {{n}} obiektów (uprawnienia).",
+    "codeUnreadable_many": "Nie można odczytać kodu {{n}} obiektów (uprawnienia).",
+    "codeUnreadable_other": "Nie można odczytać kodu {{n}} obiektu (uprawnienia).",
+    "codeLine": "W kodzie, wiersz {{line}}: {{text}}",
+    "codeTag": "kod"
   },
   "empty": {
     "noConnections": "Nie ma jeszcze połączeń.",

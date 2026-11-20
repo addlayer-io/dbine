@@ -17,7 +17,11 @@ Right-click a **database** › **Search in database…**. It opens in its own ta
   names**. A column appears with its table and its type.
 - **Code:** the text of the definitions of objects that have code. Tables
   aren't part of the code search (their definition is a DDL the engine
-  generates, not code someone wrote); their names are.
+  generates, not code someone wrote); their names are. Power BI's tables are:
+  their definition is their partitions' Power Query (M) and their calculated
+  columns' DAX, so a search finds, for example, the tables that read
+  `indicadores_directorio.medidas`. A driver marks such a kind as written code
+  (`ObjectKindInfo::written`).
 - **Match case** and **Whole word** (the text can't be inside a longer
   identifier: `id` doesn't match `user_id`).
 - **All types**, or a filter by object type (and **Columns**).

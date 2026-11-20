@@ -12,7 +12,16 @@
     "onlyTag": "Only the tag",
     "anyTag": "(any)",
     "showAll": "Show all",
-    "tagTitle": "Show only the connections tagged «{{tag}}»"
+    "tagTitle": "Show only the connections tagged «{{tag}}»",
+    "inCode": "Also search in code: views, procedures, measures and Power BI tables…",
+    "searching": "Searching the server…",
+    "searchingCode": "Searching in code…",
+    "enterBilled": "Press Enter to search in {{engines}}: each search is a billed query.",
+    "codeMin": "Type at least {{n}} letters to search in code.",
+    "codeUnreadable_one": "Couldn't read the code of {{n}} object (permissions).",
+    "codeUnreadable_other": "Couldn't read the code of {{n}} objects (permissions).",
+    "codeLine": "In the code, line {{line}}: {{text}}",
+    "codeTag": "code"
   },
   "empty": {
     "noConnections": "No connections yet.",

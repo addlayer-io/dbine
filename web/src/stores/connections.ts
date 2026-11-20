@@ -138,7 +138,7 @@ const SEARCH_TTL_MS = 30_000;
 /** Searches answered, by database, schema and pattern. */
 const searches = new Map<string, { pattern: string; schema: string | null; items: DbObject[]; complete: boolean; at: number }>();
 /** Searches in flight (the same one asked twice waits for the first). */
-const searching = new Map<string, Promise<DbObject[]>>();
+const searching = new Map<string, Promise<DbObject[] | null>>();
 /** Lookups the server answered with nothing, and when. */
 const lookupMisses = new Map<string, number>();
 /** At most this many found objects are kept per database (the oldest go). */
@@ -691,6 +691,23 @@ export const useConnectionsStore = defineStore('connections', {
       connectionId: string, database: string, pattern: string,
       opts: { schema?: string | null; kinds?: string[]; limit?: number; tree?: boolean } = {},
     ): Promise<DbObject[]> {
+      return (await this.searchObjectsOrNull(connectionId, database, pattern, opts)) ?? [];
+    },
+
+    /** The explorer cache's objects whose name contains `pattern`, in every
+     *  folder and list it kept for the database: at once, also without a
+     *  connection (the filter shows them before the server answers). */
+    async searchCached(connectionId: string, database: string, pattern: string, limit = SEARCH_PAGE): Promise<DbObject[]> {
+      if (this.driverOf(connectionId)?.key_search || !pattern) return [];
+      return (await api.getCachedPage(connectionId, database, { pattern, limit }).catch(() => null)) ?? [];
+    },
+
+    /** `searchObjects`, with null when the server couldn't answer (not
+     *  connected, an error) instead of an empty list. */
+    async searchObjectsOrNull(
+      connectionId: string, database: string, pattern: string,
+      opts: { schema?: string | null; kinds?: string[]; limit?: number; tree?: boolean } = {},
+    ): Promise<DbObject[] | null> {
       if (this.driverOf(connectionId)?.key_search) return [];
       const k = dbKey(connectionId, database);
       const p = pattern.toLowerCase();
@@ -702,19 +719,23 @@ export const useConnectionsStore = defineStore('connections', {
       }
       const sk = `${k}\u0000${schema ?? ''}\u0000${p}`;
       const running = searching.get(sk);
-      if (running) return pick(await running);
-      const run = (async (): Promise<DbObject[]> => {
-        if (!(await this.ensureConnected(connectionId, { auto: true }))) return [];
+      if (running) {
+        const got = await running;
+        return got && pick(got);
+      }
+      const run = (async (): Promise<DbObject[] | null> => {
+        if (!(await this.ensureConnected(connectionId, { auto: true }))) return null;
         const page = await api.listObjectPage(connectionId, database, { pattern: pattern || null, schema, limit: opts.limit ?? SEARCH_PAGE }, { tree: opts.tree })
           .catch(() => null);
-        if (!page) return [];
+        if (!page) return null;
         searches.set(sk, { pattern: p, schema, items: page.objects, complete: !page.next, at: Date.now() });
         this.remember(k, page.objects);
         return page.objects;
       })();
       searching.set(sk, run);
       try {
-        return pick(await run);
+        const got = await run;
+        return got && pick(got);
       } finally {
         searching.delete(sk);
       }

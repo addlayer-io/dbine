@@ -9,7 +9,7 @@ import SchemaIcon from './SchemaIcon.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
-import { locale } from '../i18n';
+import { listOf, locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { errorMessage } from '../api/client';
 import type { ConnectionFolder, DbObject, DriverInfo, KeyEntry, KeySearch, Permissions, ProjectInfo, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
@@ -56,6 +56,8 @@ import EnterpriseAccessDialog from './EnterpriseAccessDialog.vue';
 import { ENTERPRISE_ENABLED, useEnterpriseStore } from '../stores/enterprise';
 import { CONNECTION_OPTION, PROFILE_OPTION, type EnterpriseConnection, type EnterpriseProfile } from '../api/enterprise';
 import { closeOpenedFile, pickAndOpen, saveOpenedFile } from '../composables/openFiles';
+import { codeObjects, foundFor, objectId, type CodeHit } from '../composables/explorerFilter';
+import { invoke } from '@tauri-apps/api/core';
 
 // The explorer: user folders (clients, environments… nested at will) →
 // connections → databases → Queries + the kinds of objects the driver
@@ -125,6 +127,9 @@ interface TNode {
   schema?: string;
   /** Flat mode: an object's non-default schema, shown dim before its name. */
   qualifier?: string;
+  /** The filter with "En el código" found the text in its definition: the
+   *  first matching line (the row's tooltip). */
+  codeLine?: string;
   /** DBine Enterprise: the company connection and profile behind the node. */
   ent?: { connection: EnterpriseConnection; profile?: EnterpriseProfile };
 }
@@ -241,8 +246,6 @@ function databaseChildren(c: SavedConnection, d: DriverInfo, db: string, parentI
   const lv = conns.levels[k];
   if (!lv || lv.status === 'loading') return [...out, status(parentId, 'loading', t('common:loading'))];
   if (lv.status === 'error') return [...out, status(parentId, 'error', lv.error ?? t('common:error'))];
-  const hitsNode = serverHitsNode(c, db);
-  if (hitsNode) out.push(hitsNode);
   const { schemas, rank } = schemasOf(c, d, [], lv.items);
   const pageBase = (schema: string | null): FolderSpec => ({ schema, kind: null });
   if (schemas && groupBySchema.value) {
@@ -254,8 +257,7 @@ function databaseChildren(c: SavedConnection, d: DriverInfo, db: string, parentI
         children: kindFolders(c, d, db, pageBase(s), 'none', rank),
       });
     }
-    const loose = conns.objectFolders[folderKey(c.id, db, LOOSE)];
-    if (loose?.items.length) out.push(...looseFolders(c, d, db, loose, rank));
+    out.push(...looseFolders(c, d, db, conns.objectFolders[folderKey(c.id, db, LOOSE)], rank));
     return out;
   }
   // Flat (no schema list, or grouping off): each kind across schemas, the
@@ -267,19 +269,21 @@ function databaseChildren(c: SavedConnection, d: DriverInfo, db: string, parentI
 /** Objects without a schema on an engine with schemas: what their folder's
  *  first page brought, by kind, at the database level. */
 const LOOSE: FolderSpec = { schema: null, noSchema: true, kind: null };
-function looseFolders(c: SavedConnection, d: DriverInfo, db: string, loose: FolderLoad, rank: SchemaRank): TNode[] {
+function looseFolders(c: SavedConnection, d: DriverInfo, db: string, loose: FolderLoad | undefined, rank: SchemaRank): TNode[] {
   const out: TNode[] = [];
-  const kinds = [...new Set(loose.items.map((o) => o.kind))];
+  // With the filter on, also what it found without a schema.
+  const all = [...(loose?.items ?? []), ...filterFound(c.id, db, LOOSE, loose?.items ?? [])];
+  const kinds = [...new Set(all.map((o) => o.kind))];
   for (const kind of kinds) {
     const info = d.object_kinds.find((x) => x.id === kind);
-    const items = loose.items.filter((o) => o.kind === kind);
+    const items = all.filter((o) => o.kind === kind);
     const id = `f:${c.id}:${db}:__loose:${kind}`;
     out.push({
       id, label: info ? tb(info.label) : t('explorer:tree.others'), type: 'folder', connectionId: c.id, database: db, kindId: info ? kind : undefined, count: items.length,
       children: items.map((o) => objectNode(c, db, o, info?.has_columns ?? false, 'hint', rank)),
     });
   }
-  if (loose.next) out.push({ id: `fm:${c.id}:${db}:__loose`, label: t('explorer:tree.loadMore'), type: 'objmore', connectionId: c.id, database: db, spec: LOOSE });
+  if (loose?.next) out.push({ id: `fm:${c.id}:${db}:__loose`, label: t('explorer:tree.loadMore'), type: 'objmore', connectionId: c.id, database: db, spec: LOOSE });
   return out;
 }
 
@@ -291,7 +295,7 @@ function looseFolders(c: SavedConnection, d: DriverInfo, db: string, loose: Fold
 function kindFolders(c: SavedConnection, d: DriverInfo, db: string, base: FolderSpec, show: SchemaShow, rank: SchemaRank): TNode[] {
   const out = d.object_kinds.map((kind) => folderNode(c, db, { ...base, kind: kind.id }, tb(kind.label), kind.id, kind.has_columns, show, rank));
   const other: FolderSpec = { ...base, kind: null, other: d.object_kinds.map((k) => k.id) };
-  if (conns.objectFolders[folderKey(c.id, db, other)]?.items.length) {
+  if (conns.objectFolders[folderKey(c.id, db, other)]?.items.length || filterFound(c.id, db, other, []).length) {
     out.push(folderNode(c, db, other, t('explorer:tree.others'), undefined, false, show, rank));
   }
   return out;
@@ -309,11 +313,14 @@ function folderNode(
     id, label, type: 'folder', connectionId: c.id, database: db, kindId, schema: spec.schema ?? undefined, spec,
     count: st?.items.length || undefined, hint: st?.next ? '+' : undefined,
   };
-  if (!st || st.status === 'loading') node.children = [status(id, 'loading', t('common:loading'))];
-  else if (st.status === 'error') node.children = [status(id, 'error', st.error ?? t('common:error'))];
-  else if (!st.items.length) node.children = [status(id, 'empty', t('explorer:tree.noSchemaObjects'))];
+  // With the filter on, what it found for this folder beyond what's loaded
+  // (or before it's opened): the filter then shows the folder with them.
+  const found = filterFound(c.id, db, spec, st?.items ?? []).map((o) => objectNode(c, db, o, hasColumns, show, rank));
+  if (!st || st.status === 'loading') node.children = [...found, status(id, 'loading', t('common:loading'))];
+  else if (st.status === 'error') node.children = [...found, status(id, 'error', st.error ?? t('common:error'))];
+  else if (!st.items.length) node.children = found.length ? found : [status(id, 'empty', t('explorer:tree.noSchemaObjects'))];
   else {
-    node.children = st.items.map((o) => objectNode(c, db, o, hasColumns, show, rank));
+    node.children = [...st.items.map((o) => objectNode(c, db, o, hasColumns, show, rank)), ...found];
     if (st.next) node.children.push({ id: `fm:${id}`, label: t('explorer:tree.loadMore'), type: 'objmore', connectionId: c.id, database: db, spec, status: st.more ? 'loading' : undefined });
   }
   return node;
@@ -479,6 +486,7 @@ function objectNode(c: SavedConnection, db: string, o: DbObject, hasColumns: boo
     hint: o.parent ?? (show === 'hint' ? own : undefined),
     qualifier: show === 'qualify' ? own : undefined,
     icon: KIND_ICONS[o.kind] ?? 'document',
+    codeLine: codeLineOf(c.id, db, o),
   };
   if (hasColumns) {
     const cols = conns.columns[objKey(c.id, db, o.schema, o.name)];
@@ -1372,6 +1380,10 @@ function filterNode(q: string, n: TNode) {
     const want = text.slice(4).trim();
     return n.type === 'connection' && tags.some((t) => (want ? t === want : true));
   }
+  // Rows that aren't objects ("Cargando…", "Cargar más") never match.
+  if (n.type === 'status' || n.type === 'objmore') return false;
+  // "En el código" found the text in its definition.
+  if (n.codeLine) return true;
   const label = n.qualifier ? `${n.qualifier}.${n.label}` : n.label;
   return label.toLowerCase().includes(text) || tags.some((t) => t.includes(text));
 }
@@ -1379,23 +1391,71 @@ const tagsOf = (connectionId?: string) => (connectionId ? conns.byId(connectionI
 /** Clicking a tag shows only its connections; clicking it again, all. */
 function filterByTag(tag: string) {
   filter.value = activeTag.value?.toLowerCase() === tag.toLowerCase() ? '' : `tag:${tag}`;
-  applyFilter();
+  onFilterInput();
 }
-/** The filter's "Enter": the tree only holds what its folders loaded, so
- *  the open databases (or each connected one's default, when none is open)
- *  are searched on the server; the hits show at the top of each database. */
-const serverHits = reactive<Record<string, { pattern: string; items: DbObject[]; loading: boolean }>>({});
-async function searchServer() {
-  const q = filter.value.trim();
-  if (!q || activeTag.value !== null) return;
+
+// -- the filter beyond the loaded folders ----------------------------------------------------
+// The tree reads folder by folder, so typing also looks for the text, after
+// a pause, in the databases in sight: open ones (or each connected one's
+// default, when none is open). First in the explorer cache (at once, also
+// while connecting), then on the server by name (a narrow query); with "En
+// el código", also in the objects' definitions ("Buscar en la base"'s code
+// search). What it finds shows in its kind folder, as if loaded, and the
+// filter opens the way to it. Engines whose metadata reads are billed
+// (BigQuery) ask the server on Enter only.
+
+/** What the filter found in a database for `pattern`. */
+interface FilterFinds {
+  pattern: string;
+  /** By name: the cache's, then the server's. */
+  names: DbObject[];
+  /** The server answered for the names. */
+  server: boolean;
+  /** "En el código": the objects whose definition holds it, and each one's first line. */
+  code: DbObject[];
+  lines: Map<string, { line: number; text: string }>;
+  /** Objects whose code couldn't be read (no permission). */
+  unreadable: number;
+  searching: boolean;
+  codeSearching: boolean;
+}
+const finds = reactive<Record<string, FilterFinds>>({});
+/** The filter's text once typing pauses: what `finds` answer. */
+const needle = ref('');
+/** "En el código": the filter also looks in definitions. */
+const inCode = ref(readJson<boolean>('dbine.explorerFilterCode', false));
+watch(inCode, (v) => {
+  writeJson('dbine.explorerFilterCode', v);
+  scheduleFinds(false);
+});
+/** Fewest letters the code search waits for (each one reads definitions). */
+const CODE_MIN = 3;
+
+/** What the filter found for folder `spec` of a database, not among `have`. */
+function filterFound(cid: string, db: string, spec: FolderSpec, have: DbObject[]): DbObject[] {
+  const f = finds[dbKey(cid, db)];
+  if (!needle.value || !f || f.pattern !== needle.value) return [];
+  return foundFor(f.code.length ? [...f.names, ...f.code] : f.names, spec, have);
+}
+/** The code search's first matching line in `o`, as the row's tooltip. */
+function codeLineOf(cid: string, db: string, o: DbObject): string | undefined {
+  const f = finds[dbKey(cid, db)];
+  if (!needle.value || !f || f.pattern !== needle.value || !f.lines.size) return undefined;
+  const hit = f.lines.get(objectId(o));
+  return hit ? t('explorer:filter.codeLine', { line: hit.line, text: hit.text }) : undefined;
+}
+
+/** The databases the filter looks in: the open ones (also not connected
+ *  yet: the cache answers), or each connected connection's default one. */
+function filterScope(): [string, string][] {
   const dbs = new Map<string, [string, string]>();
   for (const key of expanded.value) {
     const n = findNode(key);
-    if (!n?.connectionId || !conns.isConnected(n.connectionId) || conns.driverOf(n.connectionId)?.key_search) continue;
+    if (!n?.connectionId || conns.driverOf(n.connectionId)?.key_search) continue;
     if (n.type === 'database') dbs.set(dbKey(n.connectionId, n.database ?? ''), [n.connectionId, n.database ?? '']);
     else if (n.type === 'connection' && !conns.driverOf(n.connectionId)?.databases_label) {
-      const only = conns.live[n.connectionId]?.databases[0] ?? '';
-      dbs.set(dbKey(n.connectionId, only), [n.connectionId, only]);
+      const only = conns.live[n.connectionId]?.databases[0];
+      if (only !== undefined) dbs.set(dbKey(n.connectionId, only), [n.connectionId, only]);
     }
   }
   if (!dbs.size) {
@@ -1406,31 +1466,145 @@ async function searchServer() {
       dbs.set(dbKey(c.id, db), [c.id, db]);
     }
   }
-  await Promise.all([...dbs].map(async ([k, [cid, db]]) => {
-    serverHits[k] = { pattern: q, items: serverHits[k]?.pattern === q ? serverHits[k].items : [], loading: true };
-    const items = await conns.searchObjects(cid, db, q, { tree: true, limit: 200 });
-    if (serverHits[k]?.pattern === q) serverHits[k] = { pattern: q, items, loading: false };
-  }));
-  // Shown through the filter: the paths to the hits open.
-  await nextTick();
+  return [...dbs.values()];
+}
+/** A database's finds for `q`: the current ones, or new ones. */
+function findsFor(cid: string, db: string, q: string): FilterFinds {
+  const k = dbKey(cid, db);
+  const cur = finds[k];
+  if (cur?.pattern === q) return cur;
+  finds[k] = { pattern: q, names: [], server: false, code: [], lines: new Map(), unreadable: 0, searching: false, codeSearching: false };
+  return finds[k];
+}
+const isBilled = (cid: string) => !!conns.driverOf(cid)?.capabilities.billed_metadata;
+
+let nameTimer: ReturnType<typeof setTimeout> | undefined;
+let codeTimer: ReturnType<typeof setTimeout> | undefined;
+/** Typing (or clearing): the loaded tree at once, the rest after a pause. */
+function onFilterInput() {
   applyFilter();
+  scheduleFinds(false);
 }
-/** A database's server-search hits for the filter's text, as a folder at
- *  its top (leaves: a hit opens like any object; its folder has the rest). */
-function serverHitsNode(c: SavedConnection, db: string): TNode | null {
-  const hits = serverHits[dbKey(c.id, db)];
+/** `now` (Enter): without the pause, and the billed engines too. */
+function scheduleFinds(now: boolean) {
+  clearTimeout(nameTimer);
+  clearTimeout(codeTimer);
   const q = filter.value.trim();
-  if (!hits || !q || hits.pattern !== q) return null;
-  const id = `sr:${c.id}:${db}`;
-  return {
-    id, label: t('explorer:menu.searchOnServer', { pattern: q }), type: 'folder', connectionId: c.id, database: db, count: hits.items.length || undefined,
-    children: hits.loading
-      ? [status(id, 'loading', t('explorer:tree.searching'))]
-      : hits.items.length
-        ? hits.items.map((o) => ({ ...objectNode(c, db, o, false, 'qualify'), id: `sr:${c.id}:${db}:${o.kind}:${o.schema ?? ''}:${o.name}`, children: undefined }))
-        : [status(id, 'empty', t('explorer:tree.noSchemaObjects'))],
-  };
+  if (!q || activeTag.value !== null) {
+    needle.value = '';
+    stopCode();
+    for (const k of Object.keys(finds)) delete finds[k];
+    return;
+  }
+  nameTimer = setTimeout(() => {
+    needle.value = q;
+    void searchNames(q, now);
+  }, now ? 0 : 300);
+  if (inCode.value && q.length >= CODE_MIN) {
+    codeTimer = setTimeout(() => void searchCode(q, now), now ? 0 : 700);
+  } else {
+    stopCode();
+    for (const f of Object.values(finds)) {
+      f.code = [];
+      f.lines = new Map();
+      f.unreadable = 0;
+    }
+  }
 }
+onBeforeUnmount(() => {
+  clearTimeout(nameTimer);
+  clearTimeout(codeTimer);
+  stopCode();
+});
+
+/** Names: the cache's at once, then the server's (it wins: the cache may
+ *  hold something dropped since). A server that can't answer leaves the
+ *  cache's. */
+async function searchNames(q: string, now: boolean) {
+  const dbs = filterScope();
+  const inScope = new Set(dbs.map(([c, d]) => dbKey(c, d)));
+  for (const k of Object.keys(finds)) if (!inScope.has(k)) delete finds[k];
+  await Promise.all(dbs.map(async ([cid, db]) => {
+    const k = dbKey(cid, db);
+    const f = findsFor(cid, db, q);
+    if (f.server && !now) return;
+    f.searching = true;
+    try {
+      const cached = await conns.searchCached(cid, db, q);
+      if (finds[k] !== f) return;
+      if (!f.server) f.names = cached;
+      if (!conns.isConnected(cid) || (isBilled(cid) && !now)) return;
+      const server = await conns.searchObjectsOrNull(cid, db, q, { tree: true, limit: 200 });
+      if (finds[k] !== f || !server) return;
+      f.names = server;
+      f.server = true;
+    } finally {
+      if (finds[k] === f) f.searching = false;
+    }
+  }));
+}
+
+/** Code searches in flight (`search_database` ids), stopped by the next one. */
+let codeRuns: string[] = [];
+function stopCode() {
+  for (const id of codeRuns) invoke('cancel_query', { args: { session_id: `search:${id}` } }).catch(() => {});
+  codeRuns = [];
+}
+/** "En el código": each connected database's definitions, on a session of
+ *  its own (the tree's stays free); billed engines' on Enter only (`now`). */
+async function searchCode(q: string, now: boolean) {
+  stopCode();
+  const dbs = filterScope().filter(([cid]) => conns.isConnected(cid) && (now || !isBilled(cid)));
+  await Promise.all(dbs.map(async ([cid, db]) => {
+    const k = dbKey(cid, db);
+    const f = findsFor(cid, db, q);
+    const id = crypto.randomUUID();
+    codeRuns.push(id);
+    f.codeSearching = true;
+    try {
+      const r = await invoke<{ hits: CodeHit[]; unreadable: string[] }>('search_database', {
+        args: {
+          connection_id: cid, database: db, search_id: id, names: false, code: true,
+          query: { text: q, case_sensitive: false, whole_word: false, kinds: [], max_hits: 500 },
+        },
+      });
+      if (finds[k] !== f || !inCode.value) return;
+      const { objects, lines } = codeObjects(r.hits);
+      f.code = objects;
+      f.lines = lines;
+      f.unreadable = r.unreadable.length;
+    } catch {
+      // Stopped by the next search, or the server refused: nothing to add.
+    } finally {
+      codeRuns = codeRuns.filter((x) => x !== id);
+      if (finds[k] === f) f.codeSearching = false;
+    }
+  }));
+}
+
+/** The line under the filter: what it's doing, or what it can't. */
+const filterNote = computed(() => {
+  const q = filter.value.trim();
+  if (!q || activeTag.value !== null) return '';
+  const now = Object.values(finds).filter((f) => f.pattern === needle.value);
+  if (now.some((f) => f.searching)) return t('explorer:filter.searching');
+  if (now.some((f) => f.codeSearching)) return t('explorer:filter.searchingCode');
+  const billed = [...new Set(Object.entries(finds)
+    .filter(([k, f]) => f.pattern === needle.value && !f.server && isBilled(k.split('\u0000')[0]))
+    .map(([k]) => conns.driverOf(k.split('\u0000')[0])?.name ?? ''))].filter(Boolean);
+  if (billed.length) return t('explorer:filter.enterBilled', { engines: listOf(billed) });
+  if (inCode.value && q.length < CODE_MIN) return t('explorer:filter.codeMin', { n: CODE_MIN });
+  const unreadable = now.reduce((n, f) => n + f.unreadable, 0);
+  if (inCode.value && unreadable) return t('explorer:filter.codeUnreadable', { count: unreadable, n: unreadable.toLocaleString(locale()) });
+  return '';
+});
+
+// What's found (and any background re-read) changes the tree's data: the
+// filter runs again over it, so new rows are filtered like the rest and the
+// way to them opens.
+watch(data, () => {
+  if (filter.value.trim()) void nextTick(applyFilter);
+});
 /** The tag the explorer is filtered by (`tag:prod`), if any. */
 const activeTag = computed(() => {
   const m = /^tag:\s*(.*)$/i.exec(filter.value.trim());
@@ -1438,7 +1612,7 @@ const activeTag = computed(() => {
 });
 function clearFilter() {
   filter.value = '';
-  applyFilter();
+  onFilterInput();
 }
 
 // -- reveal (from a tab: double click / "Ir a la base") -------------------------------------
@@ -1455,7 +1629,7 @@ watch(() => ui.reveal?.seq, async () => {
   const r = ui.reveal;
   const c = r ? conns.byId(r.connectionId) : null;
   if (!r || !c) return;
-  if (filter.value) { filter.value = ''; applyFilter(); }
+  if (filter.value) { filter.value = ''; onFilterInput(); }
   if (!(await ensureConnectedOrTell(c.id))) return;
   const d = conns.driverOf(c.id);
   // No database ("Ir a…" a connection): the connection's own node.
@@ -1674,14 +1848,24 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
         :placeholder="$t('explorer:filter.placeholder')"
         clearable
         size="small"
-        @input="applyFilter"
-        @clear="applyFilter"
+        @input="onFilterInput"
+        @clear="onFilterInput"
         @keydown.esc="clearFilter"
-        @keydown.enter="searchServer"
+        @keydown.enter="scheduleFinds(true)"
       >
         <template #prefix><el-icon><ei-search /></el-icon></template>
+        <template #suffix>
+          <button
+            class="ex-codebtn"
+            :class="{ on: inCode }"
+            :aria-pressed="inCode"
+            :aria-label="$t('explorer:filter.inCode')"
+            :title="$t('explorer:filter.inCode')"
+            @click.stop="inCode = !inCode"
+          >&lt;/&gt;</button>
+        </template>
       </el-input>
-      <div v-if="filter.trim() && activeTag === null" class="ex-filter-hint">{{ $t('explorer:keySearch.helpEnter') }}</div>
+      <div v-if="filterNote" class="ex-filter-hint" aria-live="polite">{{ filterNote }}</div>
       <div v-if="activeTag !== null" class="ex-tagbar">
         <span>{{ $t('explorer:filter.onlyTag') }}</span>
         <span v-if="activeTag" class="ex-tag" :style="{ '--t': tagColor(activeTag) }">{{ activeTag }}</span>
@@ -1820,6 +2004,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
             >{{ n.badge.text }}</span>
             <span v-if="n.changes" class="ex-changes" :title="$t('explorer:tree.projectChanges', { count: n.changes })">{{ n.changes }}</span>
             <span v-if="n.hint" class="ex-hint" :class="{ keep: n.hintKeep }" :title="n.hintTitle">{{ n.hint }}</span>
+            <span v-if="n.codeLine" class="ex-codehit" :title="n.codeLine">{{ $t('explorer:filter.codeTag') }}</span>
             <span v-if="n.type === 'connerr'" class="ex-connerr-actions">
               <button class="ex-connerr-btn" :disabled="conns.live[n.connectionId]?.status === 'connecting'" @click.stop="retryConnect(n.connectionId!)">{{ $t('explorer:tree.retry') }}</button>
               <button class="ex-connerr-btn" @click.stop="explainError(n.connectionId!)">{{ $t('explorer:tree.whatsWrong') }}</button>
@@ -1866,6 +2051,19 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-header { display: flex; align-items: center; gap: 2px; height: 35px; padding: 0 8px 0 20px; flex-shrink: 0; }
 .ex-filter { padding: 0 8px 6px; flex-shrink: 0; }
 .ex-filter-hint { padding: 3px 2px 0; font-size: 11px; color: var(--nm-text-dim); }
+/* "En el código": the filter also looks in definitions. */
+.ex-codebtn {
+  display: inline-flex; align-items: center; height: 18px; padding: 0 4px; margin-right: -2px;
+  font: 600 10.5px var(--nm-mono); color: var(--nm-text-muted); background: transparent;
+  border: 1px solid transparent; border-radius: 3px; cursor: pointer;
+}
+.ex-codebtn:hover { color: var(--nm-text-strong); }
+.ex-codebtn.on { color: var(--nm-text-strong); border-color: var(--ide-focus); background: color-mix(in srgb, var(--ide-focus) 18%, transparent); }
+/* An object the filter found by its code: a small tag, the line as its tooltip. */
+.ex-codehit {
+  flex-shrink: 0; margin-left: 4px; padding: 0 4px; border-radius: 3px; font-size: 10px; line-height: 14px;
+  color: var(--nm-syn-type); background: color-mix(in srgb, var(--nm-syn-type) 14%, transparent);
+}
 .ex-tagbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11.5px; color: var(--nm-text-dim); }
 .ex-tagbar .ex-tag { cursor: default; }
 .ex-tagbar-all {
