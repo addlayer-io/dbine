@@ -6545,6 +6545,9 @@
  "Cassandra y ScyllaDB no listan sus snapshots por CQL": [
   "crates/drivers/cassandra/src/backup.rs"
  ],
+ "Catalog": [
+  "crates/drivers/mysql/src/references.rs"
+ ],
  "Categoría": [
   "crates/drivers/sqlserver/src/agent/alert.rs",
   "crates/drivers/sqlserver/src/agent/job.rs",
@@ -15380,6 +15383,9 @@
  ],
  "El servidor no informa la configuración del campo vectorial {0} (RediSearch anterior a 2.8 no la muestra en FT.INFO): indicá su tipo y dimensión, p. ej. VECTOR(3, FLOAT32), y su algoritmo y distancia.": [
   "crates/drivers/redis/src/ddl.rs"
+ ],
+ "El servidor no le muestra a este usuario el código del objeto (hace falta ser su DEFINER o tener un privilegio como SHOW_ROUTINE, SHOW VIEW o SELECT global): la lista tiene solo lo que registra el catálogo.": [
+  "crates/drivers/mysql/src/references.rs"
  ],
  "El servidor no mandó el snapshot": [
   "crates/drivers/etcd/src/backup.rs"
@@ -29499,6 +29505,9 @@
  "No se pudo leer /status/metrics ({0}): hace falta un usuario administrador si Drill tiene autenticación.": [
   "crates/drivers/drill/src/lib.rs"
  ],
+ "No se pudo leer ALL_DEPENDENCIES: lo que usa se buscó por nombre en su código, sin confirmarlo con el diccionario.": [
+  "crates/drivers/oracle/src/references.rs"
+ ],
  "No se pudo leer CLIENT LIST (en servicios administrados suele estar deshabilitado): {0}": [
   "crates/drivers/redis/src/monitor.rs"
  ],
@@ -29746,6 +29755,18 @@
   "crates/drivers/dremio/src/lib.rs",
   "crates/drivers/dremio/src/scheduler/mod.rs"
  ],
+ "No se pudo leer sys.sql_expression_dependencies (hace falta VIEW DEFINITION en la base y SELECT sobre esa vista, que por omisión solo tiene db_owner): lo que usa su código se buscó en su definición.": [
+  "crates/drivers/sqlserver/src/references.rs"
+ ],
+ "No se pudo leer sys.sql_expression_dependencies (hace falta VIEW DEFINITION en la base y SELECT sobre esa vista, que por omisión solo tiene db_owner): se buscó en las definiciones que se pueden leer.": [
+  "crates/drivers/sqlserver/src/dependencies.rs"
+ ],
+ "No se pudo leer sys.sql_expression_dependencies: lo que usa su código se buscó en su definición.": [
+  "crates/drivers/sqlserver/src/references.rs"
+ ],
+ "No se pudo leer sys.sql_expression_dependencies: se buscó en las definiciones que se pueden leer.": [
+  "crates/drivers/sqlserver/src/dependencies.rs"
+ ],
  "No se pudo leer system.asynchronous_metrics ({0}).": [
   "crates/drivers/clickhouse/src/monitor.rs"
  ],
@@ -29799,7 +29820,10 @@
   "crates/drivers/cassandra/src/monitor.rs",
   "crates/drivers/duckdb/src/monitor.rs",
   "crates/drivers/firebird/src/monitor.rs",
+  "crates/drivers/firebird/src/references.rs",
+  "crates/drivers/hana/src/references.rs",
   "crates/drivers/iotdb/src/lib.rs",
+  "crates/drivers/odbc/src/references.rs",
   "crates/drivers/oracle/src/monitor.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
@@ -32194,7 +32218,8 @@
  ],
  "Oracle": [
   "crates/dbine-schema/src/dialect/oracle.rs",
-  "crates/drivers/oracle/src/lib.rs"
+  "crates/drivers/oracle/src/lib.rs",
+  "crates/drivers/oracle/src/references.rs"
  ],
  "Oracle Autonomous Database no ejecuta jobs de tipo {0}.": [
   "crates/drivers/oracle/src/scheduler/job.rs"
@@ -39783,6 +39808,9 @@
  "Sin permiso para SYSTEM FLUSH LOGS: las consultas aparecen cuando el servidor vuelca el registro (cada 7,5 s por defecto).": [
   "crates/drivers/clickhouse/src/profiler.rs"
  ],
+ "Sin permiso para leer information_schema.{0}: lo que usa se buscó por otra vía y puede estar incompleto o sin confirmar.": [
+  "crates/drivers/mysql/src/references.rs"
+ ],
  "Sin permisos de DBA se ven solo las sesiones propias (EXA_ALL_SESSIONS).": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
@@ -44140,6 +44168,7 @@
  ],
  "True": [
   "crates/drivers/cosmosdb/src/lib.rs",
+  "crates/drivers/cosmosdb/src/objects_page.rs",
   "crates/drivers/cosmosdb/src/transfer.rs"
  ],
  "Truncado (TRUNCATE)": [
@@ -44301,6 +44330,7 @@
   "crates/drivers/duckdb/src/plan.rs",
   "crates/drivers/influxdb/src/plan.rs",
   "crates/drivers/iotdb/src/monitor.rs",
+  "crates/drivers/mysql/src/references.rs",
   "crates/drivers/mysql/src/session.rs",
   "crates/drivers/odbc/src/jobs/iris.rs",
   "crates/drivers/odbc/src/plan.rs",
@@ -49417,6 +49447,9 @@
  "dropSearchIndex necesita el nombre del índice": [
   "crates/drivers/mongodb/src/shell.rs"
  ],
+ "dsql: no objects by page: {0}": [
+  "crates/drivers/dsql/src/lib.rs"
+ ],
  "dsql: pg_proc listed no functions": [
   "crates/drivers/dsql/src/lib.rs"
  ],
@@ -52656,11 +52689,23 @@
  "este motor todavía no lista sus objetos por páginas": [
   "crates/dbine-driver/src/lib.rs",
   "crates/drivers/bigquery/src/paging.rs",
+  "crates/drivers/clickhouse/src/objects_page.rs",
+  "crates/drivers/dremio/src/objects_page.rs",
+  "crates/drivers/drill/src/objects_page.rs",
+  "crates/drivers/dynamodb/src/objects_page.rs",
+  "crates/drivers/elasticsearch/src/objects_page.rs",
   "crates/drivers/firebird/src/lib.rs",
+  "crates/drivers/flightsql/src/objects_page.rs",
   "crates/drivers/hana/src/lib.rs",
+  "crates/drivers/influxdb/src/object_pages.rs",
+  "crates/drivers/kdb/src/lib.rs",
   "crates/drivers/mysql/src/session.rs",
+  "crates/drivers/odbc/src/objects_page.rs",
   "crates/drivers/oracle/src/lib.rs",
-  "crates/drivers/sqlserver/src/objects_page.rs"
+  "crates/drivers/phoenix/src/objects_page.rs",
+  "crates/drivers/postgres/src/object_page.rs",
+  "crates/drivers/sqlserver/src/objects_page.rs",
+  "crates/drivers/trino/src/objects_page.rs"
  ],
  "este motor todavía no lista sus procesos en DBine": [
   "crates/drivers/odbc/src/processes.rs"
@@ -58680,6 +58725,9 @@
  "odbc: no definition for {0}: {1}": [
   "crates/drivers/odbc/src/lib.rs"
  ],
+ "odbc: the driver writes 32-bit lengths: no row or parameter arrays": [
+  "crates/drivers/odbc/src/odbc.rs"
+ ],
  "offset": [
   "crates/drivers/redis/src/monitor.rs"
  ],
@@ -63538,6 +63586,12 @@
  ],
  "{0}: no la acepta": [
   "crates/dbine-tunnel/src/lib.rs"
+ ],
+ "{0}: no materialized views to join: {1}": [
+  "crates/drivers/trino/src/objects_page.rs"
+ ],
+ "{0}: no objects by page: {1}": [
+  "crates/drivers/postgres/src/session.rs"
  ],
  "{0}: no se copian las columnas {1}": [
   "src-tauri/src/commands/migration.rs"

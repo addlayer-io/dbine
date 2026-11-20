@@ -26,6 +26,7 @@
 
 ### Fixes
 
+- **View dependencies… on SQL Server without db_owner:** a login that may not read `sys.sql_expression_dependencies` got an error. It now gets the objects whose code names the table or view, found by reading their definitions, and the tab says which permission would confirm them.
 - **OceanBase sequences missing from the explorer:** on OceanBase 4.4 a database's sequences didn't show. The catalog view DBine read names the database only by its id. They are now read by owner.
 - **Compare data out of memory on wide queries:** comparing two queries with many columns, such as 60 columns over millions of rows, could stop with DuckDB's "Out of Memory Error: failed to pin block". Without a number tolerance or **NULL equals blank**, each row now goes to DuckDB as a hash of its values as compared, as a table compare does, and the compare fits its memory. With a tolerance or **NULL equals blank**, DuckDB works on one thread with more memory for wide results.
 - **SQL Server numbers as text in DataFrame SQL:** a notebook cell over an earlier SQL Server result loaded its nullable numeric, decimal, money, bit, date and time columns as text. A `SUM` over them failed, and comparisons and sorting went by text. They now load with their types.
