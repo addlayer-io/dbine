@@ -5,15 +5,16 @@
 //! shows what did work instead of failing.
 
 use crate::catalog::{cell, first_cell, info_type, lit, rows, system_schema, user_schema};
+use crate::object_page::{self, Branch};
 use crate::plan::{self, StmtKind};
 use crate::rustls_connect::MakeRustlsConnect;
 use crate::script;
 use crate::{err, Variant};
 use dbine_driver::sql::{qualified_name, select_top, Limit, Quote, ScriptStatement};
 use dbine_driver::{
-    async_trait, kinds, ColumnDef, ColumnInfo, DbObject, Error, KeyDef, ObjectRef, Plan,
-    QueryOutcome, Result, ResultColumn, ScriptError, Session, StatementResult, TableSchema,
-    TxState,
+    async_trait, kinds, ColumnDef, ColumnInfo, DbObject, Error, KeyDef, ObjectPage, ObjectQuery,
+    ObjectRef, Plan, QueryOutcome, Result, ResultColumn, ScriptError, Session, StatementResult,
+    TableSchema, TxState,
 };
 use futures::{pin_mut, StreamExt};
 use std::sync::Arc;
@@ -196,22 +197,28 @@ impl PgSession {
     fn info_schema_relations(&self) -> String {
         format!(
             "SELECT CASE WHEN table_type = 'VIEW' THEN 'view' ELSE 'table' END AS kind,
-                    table_schema AS schema, table_name AS name
+                    table_schema AS sch, table_name AS name
              FROM information_schema.tables WHERE {}",
             self.filter("table_schema")
         )
     }
 
-    /// Tables, views and materialized views from `pg_class`.
-    async fn pg_relations(&self) -> Result<Vec<DbObject>> {
-        let sql = format!(
+    /// Tables, views and materialized views from `pg_class`: `kind`,
+    /// `sch` and `name`.
+    fn pg_relations_sql(&self) -> String {
+        format!(
             "SELECT CASE WHEN c.relkind IN ('r', 'p') THEN 'table'
-                         WHEN c.relkind = 'm' THEN 'materialized_view' ELSE 'view' END,
-                    n.nspname::text, c.relname::text
+                         WHEN c.relkind = 'm' THEN 'materialized_view' ELSE 'view' END AS kind,
+                    n.nspname::text AS sch, c.relname::text AS name
              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
              WHERE c.relkind IN ('r', 'p', 'v', 'm') AND {}",
             self.filter("n.nspname")
-        );
+        )
+    }
+
+    /// Tables, views and materialized views from `pg_class`.
+    async fn pg_relations(&self) -> Result<Vec<DbObject>> {
+        let sql = self.pg_relations_sql();
         if self.simple {
             return Ok(self
                 .text(&sql)
@@ -237,10 +244,11 @@ impl PgSession {
             .collect())
     }
 
-    /// Functions, procedures and triggers from `pg_proc` / `pg_trigger`.
-    async fn pg_routines_and_triggers(&self) -> Vec<DbObject> {
-        let routines = format!(
-            "SELECT {kind}, n.nspname::text, p.proname::text, NULL::text
+    /// Functions and procedures from `pg_proc`, not an extension's:
+    /// `kind`, `sch`, `name` and a null `parent`.
+    fn routines_sql(&self) -> String {
+        format!(
+            "SELECT {kind} AS kind, n.nspname::text AS sch, p.proname::text AS name, NULL::text AS parent
              FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
              WHERE {routines} AND {filter}
                AND NOT EXISTS (SELECT 1 FROM pg_depend d
@@ -248,15 +256,23 @@ impl PgSession {
             kind = self.routine_kind(),
             routines = self.routine_filter(),
             filter = self.filter("n.nspname"),
-        );
-        let triggers = format!(
-            "SELECT 'trigger', n.nspname::text, t.tgname::text, c.relname::text
+        )
+    }
+
+    /// User triggers from `pg_trigger`, with their table as `parent`.
+    fn triggers_sql(&self) -> String {
+        format!(
+            "SELECT 'trigger' AS kind, n.nspname::text AS sch, t.tgname::text AS name, c.relname::text AS parent
              FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
              WHERE NOT t.tgisinternal AND {}",
             self.filter("n.nspname")
-        );
+        )
+    }
+
+    /// Functions, procedures and triggers from `pg_proc` / `pg_trigger`.
+    async fn pg_routines_and_triggers(&self) -> Vec<DbObject> {
         let mut out = Vec::new();
-        for sql in [routines, triggers] {
+        for sql in [self.routines_sql(), self.triggers_sql()] {
             if self.simple {
                 match self.text(&sql).await {
                     Ok(rows) => out.extend(rows.iter().map(|r| DbObject {
@@ -284,73 +300,89 @@ impl PgSession {
         out
     }
 
-    async fn redshift_objects(&self) -> Result<Vec<DbObject>> {
-        let svv = format!(
+    /// Redshift's tables and views (`svv_tables`): `kind`, `sch`, `name`.
+    fn redshift_relations_sql(&self) -> String {
+        format!(
             "SELECT CASE WHEN table_type = 'VIEW' THEN 'view' ELSE 'table' END AS kind,
-                    table_schema AS schema, table_name AS name
+                    table_schema AS sch, table_name AS name
              FROM svv_tables WHERE table_catalog = current_database() AND {}",
             self.filter("table_schema")
-        );
+        )
+    }
+
+    /// Redshift's stored procedures and Python/SQL UDFs (`pg_proc_info` has
+    /// `prokind`): `kind`, `sch`, `name`.
+    fn redshift_routines_sql(&self) -> String {
+        format!(
+            "SELECT CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END AS kind,
+                    n.nspname AS sch, p.proname AS name
+             FROM pg_proc_info p JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE {}",
+            self.filter("n.nspname")
+        )
+    }
+
+    async fn redshift_objects(&self) -> Result<Vec<DbObject>> {
         let pg_class = format!(
             "SELECT CASE WHEN c.relkind = 'r' THEN 'table' ELSE 'view' END AS kind,
-                    n.nspname AS schema, c.relname AS name
+                    n.nspname AS sch, c.relname AS name
              FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
              WHERE c.relkind IN ('r', 'v') AND {}",
             self.filter("n.nspname")
         );
         let mut out = text_objects(
             &self
-                .first_working(&[svv, pg_class, self.info_schema_relations()])
+                .first_working(&[
+                    self.redshift_relations_sql(),
+                    pg_class,
+                    self.info_schema_relations(),
+                ])
                 .await?,
             true,
         );
-        // Stored procedures and Python/SQL UDFs; pg_proc_info has prokind.
-        let routines = format!(
-            "SELECT CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END AS kind,
-                    n.nspname AS schema, p.proname AS name
-             FROM pg_proc_info p JOIN pg_namespace n ON n.oid = p.pronamespace
-             WHERE {}",
-            self.filter("n.nspname")
-        );
-        match self.text(&routines).await {
+        match self.text(&self.redshift_routines_sql()).await {
             Ok(r) => out.extend(text_objects(&r, true)),
             Err(e) => tracing::debug!("redshift: routines unavailable: {e}"),
         }
         Ok(out)
     }
 
-    /// Sources and sinks of the streaming engines (tables fed by a
-    /// connector are listed as tables, not as sources).
-    async fn streaming_objects(&self) -> Vec<DbObject> {
-        let queries: [String; 2] = match self.variant {
+    /// The streaming engines' sources and sinks: `kind`, `sch`, `name`.
+    fn streaming_sql(&self) -> [String; 2] {
+        match self.variant {
             Variant::RisingWave => [
-                "SELECT 'source' AS kind, sc.name AS schema, s.name AS name
+                "SELECT 'source' AS kind, sc.name AS sch, s.name AS name
                  FROM rw_catalog.rw_sources s JOIN rw_catalog.rw_schemas sc ON sc.id = s.schema_id
                  WHERE s.associated_table_id IS NULL"
                     .into(),
-                "SELECT 'sink' AS kind, sc.name AS schema, s.name AS name
+                "SELECT 'sink' AS kind, sc.name AS sch, s.name AS name
                  FROM rw_catalog.rw_sinks s JOIN rw_catalog.rw_schemas sc ON sc.id = s.schema_id"
                     .into(),
             ],
             _ => [
                 format!(
-                    "SELECT 'source' AS kind, sc.name AS schema, s.name AS name
+                    "SELECT 'source' AS kind, sc.name AS sch, s.name AS name
                      FROM mz_catalog.mz_sources s JOIN mz_catalog.mz_schemas sc ON sc.id = s.schema_id
                      JOIN mz_catalog.mz_databases d ON d.id = sc.database_id
                      WHERE s.id LIKE 'u%' AND s.type NOT IN ('progress', 'subsource', 'table') AND d.name = {}",
                     lit(self.variant, &self.database)
                 ),
                 format!(
-                    "SELECT 'sink' AS kind, sc.name AS schema, s.name AS name
+                    "SELECT 'sink' AS kind, sc.name AS sch, s.name AS name
                      FROM mz_catalog.mz_sinks s JOIN mz_catalog.mz_schemas sc ON sc.id = s.schema_id
                      JOIN mz_catalog.mz_databases d ON d.id = sc.database_id
                      WHERE s.id LIKE 'u%' AND d.name = {}",
                     lit(self.variant, &self.database)
                 ),
             ],
-        };
+        }
+    }
+
+    /// Sources and sinks of the streaming engines (tables fed by a
+    /// connector are listed as tables, not as sources).
+    async fn streaming_objects(&self) -> Vec<DbObject> {
         let mut out = Vec::new();
-        for q in queries {
+        for q in self.streaming_sql() {
             match self.text(&q).await {
                 Ok(rows) => out.extend(text_objects(&rows, true)),
                 Err(e) => tracing::debug!("{:?}: sources/sinks unavailable: {e}", self.variant),
@@ -986,14 +1018,77 @@ impl PgSession {
     }
 }
 
+impl PgSession {
+    /// `list_objects`'s first-choice catalog queries, as the branches of a
+    /// page ([`object_page`]). Where one of them fails, so does the page,
+    /// and the app pages `list_objects` with its fallbacks.
+    fn page_branches(&self) -> Vec<Branch> {
+        let v = self.variant;
+        match v {
+            Variant::Redshift => vec![
+                Branch::column(&[kinds::TABLE, kinds::VIEW], self.redshift_relations_sql()),
+                Branch::column(
+                    &[kinds::PROCEDURE, kinds::FUNCTION],
+                    self.redshift_routines_sql(),
+                ),
+            ],
+            Variant::Denodo => vec![Branch::column(
+                &[kinds::TABLE, kinds::VIEW],
+                self.info_schema_relations(),
+            )],
+            Variant::H2 => {
+                let mut out = vec![Branch::column(
+                    &[kinds::TABLE, kinds::VIEW],
+                    self.info_schema_relations(),
+                )];
+                out.extend(self.compare_branches());
+                out
+            }
+            _ => {
+                let mut out = vec![Branch::column(
+                    &[kinds::TABLE, kinds::MATERIALIZED_VIEW, kinds::VIEW],
+                    self.pg_relations_sql(),
+                )];
+                if v.streaming() {
+                    let [sources, sinks] = self.streaming_sql();
+                    out.push(Branch::column(&[crate::SOURCE], sources));
+                    out.push(Branch::column(&[crate::SINK], sinks));
+                } else if v != Variant::CrateDb {
+                    out.push(Branch::column(
+                        &[kinds::FUNCTION, kinds::PROCEDURE],
+                        self.routines_sql(),
+                    ));
+                    out.push(Branch::column(&[kinds::TRIGGER], self.triggers_sql()).with_parent());
+                }
+                out.extend(self.compare_branches());
+                out
+            }
+        }
+    }
+}
+
+/// The engine takes `COLLATE "C"`, to sort by bytes as the tree does. The
+/// others have no collations and already compare text that way.
+fn collates_bytes(v: Variant) -> bool {
+    !matches!(
+        v,
+        Variant::Redshift
+            | Variant::Denodo
+            | Variant::H2
+            | Variant::CrateDb
+            | Variant::Materialize
+            | Variant::RisingWave
+    )
+}
+
 /// Objects from a text-protocol catalog query with `kind`, `name` and,
-/// when `with_schema`, `schema` columns.
+/// when `with_schema`, `sch` columns.
 fn text_objects(rows: &[SimpleQueryRow], with_schema: bool) -> Vec<DbObject> {
     rows.iter()
         .filter_map(|r| {
             Some(DbObject {
                 kind: cell(r, "kind")?,
-                schema: if with_schema { cell(r, "schema") } else { None },
+                schema: if with_schema { cell(r, "sch") } else { None },
                 name: cell(r, "name")?,
                 parent: None,
             })
@@ -1071,9 +1166,55 @@ impl Session for PgSession {
                 out
             }
         };
-        out.sort_by(|a, b| (&a.schema, &a.name).cmp(&(&b.schema, &b.name)));
+        // One per kind, schema and name (overloaded functions; a trigger
+        // name on several tables keeps the first table), in a total order.
+        out.sort_by(|a, b| {
+            (&a.schema, &a.name, &a.kind, &a.parent).cmp(&(&b.schema, &b.name, &b.kind, &b.parent))
+        });
         out.dedup_by(|a, b| a.kind == b.kind && a.schema == b.schema && a.name == b.name);
         Ok(out)
+    }
+
+    /// One page with one catalog query: `list_objects`'s queries, each
+    /// narrowed by the filters and the cursor ([`object_page`]). When the
+    /// query fails on a first page (a catalog this variant lacks), the
+    /// answer is `Unsupported` and the app pages `list_objects`, which
+    /// falls back or skips what's missing.
+    async fn list_objects_page(&mut self, query: &ObjectQuery) -> Result<ObjectPage> {
+        let v = self.variant;
+        let dialect = object_page::Dialect {
+            collate: if collates_bytes(v) {
+                " COLLATE \"C\""
+            } else {
+                ""
+            },
+            schemaless: v == Variant::Denodo,
+        };
+        let Some(p) = object_page::plan(&self.page_branches(), query, dialect)? else {
+            return Ok(ObjectPage::default());
+        };
+        // Bound over the extended protocol; inlined as literals where the
+        // explorer only speaks the simple one: the connection asked for it,
+        // or the engine's catalog is read that way (H2 can't send these
+        // columns in binary; Redshift's and Denodo's, as `list_objects`).
+        let rows = if self.simple || !v.has_pg_catalog() {
+            let params: Vec<&str> = p.params.iter().map(String::as_str).collect();
+            self.inlined(&p.sql, &params).await.map(|rows| {
+                rows.iter()
+                    .map(|r| [0, 1, 2, 3].map(|i| r.get(i).map(str::to_string)))
+                    .collect()
+            })
+        } else {
+            object_page::query(&self.client, &p).await.map_err(err)
+        };
+        match rows {
+            Ok(rows) => Ok(object_page::page(rows, query)),
+            Err(e) if query.after.is_none() => {
+                tracing::debug!("{v:?}: no objects by page: {e}");
+                Err(object_page::unsupported())
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Every schema of the session's database, the empty ones too:

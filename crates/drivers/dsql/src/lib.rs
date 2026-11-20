@@ -12,6 +12,10 @@ mod aws;
 mod index_usage;
 // tokio-postgres over rustls, shared with the PostgreSQL driver.
 mod monitor;
+// The explorer's pages of objects, shared with the PostgreSQL driver.
+#[allow(dead_code)]
+#[path = "../../postgres/src/object_page.rs"]
+mod object_page;
 mod permissions;
 // The function catalog of pg_proc, shared with the PostgreSQL driver.
 #[allow(dead_code)]
@@ -37,9 +41,9 @@ use dbine_driver::sql::{
 use dbine_driver::{
     async_trait, ddl, json_bytes, json_f64, json_i64, kinds, ColumnDef, ColumnInfo,
     ConnectionConfig, CreateTemplate, DbObject, DdlParts, DesignerSpec, Driver, DriverInfo, Error,
-    Family, Field, FieldKind, Language, Message, MessageLevel, ObjectKindInfo, ObjectRef,
-    QueryOutcome, Result, ResultColumn, SchemaInfo, ScriptError, Session, TableSchema, TlsSupport,
-    TxState,
+    Family, Field, FieldKind, Language, Message, MessageLevel, ObjectKindInfo, ObjectPage,
+    ObjectQuery, ObjectRef, QueryOutcome, Result, ResultColumn, SchemaInfo, ScriptError, Session,
+    TableSchema, TlsSupport, TxState,
 };
 use futures::StreamExt;
 use rustls_connect::MakeRustlsConnect as MakeTlsConnector;
@@ -547,6 +551,44 @@ fn connect_error(e: tokio_postgres::Error) -> Error {
     }
 }
 
+/// The user schemas' tables, views (materialized ones too) and sequences:
+/// `kind`, `sch`, `name`.
+fn relations_sql() -> String {
+    format!(
+        "SELECT CASE WHEN c.relkind IN ('v', 'm') THEN 'view' WHEN c.relkind = 'S' THEN 'sequence'
+                     ELSE 'table' END AS kind,
+                n.nspname::text AS sch, c.relname::text AS name
+         FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+         WHERE c.relkind IN ('r', 'p', 'v', 'm', 'S')
+           AND n.nspname NOT IN {SYSTEM_SCHEMAS} AND n.nspname NOT LIKE 'pg\\_%'
+         ORDER BY 2, 3"
+    )
+}
+
+/// The user schemas' functions, one per name: `sch`, `name`.
+fn functions_sql() -> String {
+    format!(
+        "SELECT DISTINCT n.nspname::text AS sch, p.proname::text AS name
+         FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname NOT IN {SYSTEM_SCHEMAS} AND n.nspname NOT LIKE 'pg\\_%'
+         ORDER BY 1, 2"
+    )
+}
+
+/// `list_objects`'s first-choice catalog queries, as the branches of an
+/// explorer page.
+fn page_branches() -> Vec<object_page::Branch> {
+    use object_page::Branch;
+    vec![
+        Branch::column(
+            &[kinds::TABLE, kinds::VIEW, kinds::SEQUENCE],
+            relations_sql(),
+        ),
+        Branch::one(kinds::FUNCTION, functions_sql()),
+        Branch::one(kinds::TYPE, structure::domains_sql()),
+    ]
+}
+
 fn err(e: tokio_postgres::Error) -> Error {
     if e.code() == Some(&SqlState::QUERY_CANCELED) {
         return Error::Cancelled;
@@ -873,26 +915,14 @@ impl Session for DsqlSession {
     }
 
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
-        let rel = format!(
-            "SELECT n.nspname::text, c.relname::text, c.relkind::text
-             FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-             WHERE c.relkind IN ('r', 'p', 'v', 'm', 'S')
-               AND n.nspname NOT IN {SYSTEM_SCHEMAS} AND n.nspname NOT LIKE 'pg\\_%'
-             ORDER BY 1, 2"
-        );
         let mut out = Vec::new();
-        match self.client.query(rel.as_str(), &[]).await {
+        match self.client.query(relations_sql().as_str(), &[]).await {
             Ok(rows) => {
                 for r in rows {
-                    let kind = match r.get::<_, String>(2).as_str() {
-                        "v" | "m" => kinds::VIEW,
-                        "S" => kinds::SEQUENCE,
-                        _ => kinds::TABLE,
-                    };
                     out.push(DbObject {
-                        kind: kind.into(),
-                        schema: Some(r.get(0)),
-                        name: r.get(1),
+                        kind: r.get(0),
+                        schema: Some(r.get(1)),
+                        name: r.get(2),
                         parent: None,
                     });
                 }
@@ -919,29 +949,41 @@ impl Session for DsqlSession {
             }
         }
         // Routines are optional in DSQL (SQL functions only); skip if refused.
-        let fns = format!(
-            "SELECT n.nspname::text, p.proname::text
-             FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-             WHERE n.nspname NOT IN {SYSTEM_SCHEMAS} AND n.nspname NOT LIKE 'pg\\_%'
-             ORDER BY 1, 2"
-        );
-        if let Ok(rows) = self.client.query(fns.as_str(), &[]).await {
-            let mut last: Option<(String, String)> = None;
-            for r in rows {
-                let key: (String, String) = (r.get(0), r.get(1));
-                if last.as_ref() != Some(&key) {
-                    out.push(DbObject {
-                        kind: kinds::FUNCTION.into(),
-                        schema: Some(key.0.clone()),
-                        name: key.1.clone(),
-                        parent: None,
-                    });
-                }
-                last = Some(key);
-            }
+        if let Ok(rows) = self.client.query(functions_sql().as_str(), &[]).await {
+            out.extend(rows.iter().map(|r| DbObject {
+                kind: kinds::FUNCTION.into(),
+                schema: Some(r.get(0)),
+                name: r.get(1),
+                parent: None,
+            }));
         }
         out.extend(structure::list_domains(&self.client).await);
+        // A total order: a table and a function with the same name by kind.
+        out.sort_by(|a, b| (&a.schema, &a.name, &a.kind).cmp(&(&b.schema, &b.name, &b.kind)));
         Ok(out)
+    }
+
+    /// One page with one catalog query: `list_objects`'s queries, each
+    /// narrowed by the filters and the cursor (`object_page`). When it
+    /// fails on a first page (a catalog view DSQL doesn't offer), the answer
+    /// is `Unsupported` and the app pages `list_objects`, which falls back
+    /// or skips what's missing.
+    async fn list_objects_page(&mut self, query: &ObjectQuery) -> Result<ObjectPage> {
+        let dialect = object_page::Dialect {
+            collate: " COLLATE \"C\"",
+            schemaless: false,
+        };
+        let Some(p) = object_page::plan(&page_branches(), query, dialect)? else {
+            return Ok(ObjectPage::default());
+        };
+        match object_page::query(&self.client, &p).await {
+            Ok(rows) => Ok(object_page::page(rows, query)),
+            Err(e) if query.after.is_none() => {
+                tracing::debug!("dsql: no objects by page: {e}");
+                Err(object_page::unsupported())
+            }
+            Err(e) => Err(err(e)),
+        }
     }
 
     /// Every schema in `pg_namespace` but the temporary and TOAST ones;

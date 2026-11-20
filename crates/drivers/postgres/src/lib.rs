@@ -30,6 +30,7 @@ mod health;
 mod index_usage;
 mod jobs;
 mod monitor;
+mod object_page;
 mod permissions;
 mod pg_functions;
 mod plan;
