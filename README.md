@@ -157,6 +157,10 @@ and queries are organized inside each database.
   [docs/query-editor.md](docs/query-editor.md#result-tabs).
 - **Column filters** on a table's data (values, ranges, nulls, text). They are
   applied on the server, with each engine's own filter.
+- **Search in results:** searches every loaded row and column, highlights the
+  matches, lists the columns they're in with how many, and can leave only the
+  matching rows and columns. Details:
+  [docs/query-editor.md](docs/query-editor.md#search-in-results).
 - **Copy results** in 10 formats: with or without headers, CSV, JSON, JSON
   Lines, YAML, INSERT, UPDATE, Mongo inserts… The default format for ⌘C is
   configurable.

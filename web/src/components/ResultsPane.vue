@@ -11,6 +11,9 @@ import type { Cell, Message, MessageLevel, ObjectRef, QueryOutcome, ResultColumn
 import { sortRows } from '../composables/gridSort';
 import { buildChanges, buildInserts, inferColumnSources, inferTarget, resolveEditing, rowKey, skippedKeyColumns, type EditSetup, type Edits, type ScriptValue } from '../composables/gridEdit';
 import ResultGrid from './ResultGrid.vue';
+import GridSearchBar from './GridSearchBar.vue';
+import { useGridSearch } from '../composables/useGridSearch';
+import { filteredView, keyedIn, placeIn, rowAt, setIn } from '../composables/gridSearch';
 import AddDocumentDialog from './AddDocumentDialog.vue';
 import JsonTreeView from './JsonTreeView.vue';
 import PlanView from './PlanView.vue';
@@ -24,7 +27,7 @@ import ExportDialog, { type ExportSource } from './ExportDialog.vue';
 import type { MultiDbExport } from '../composables/multiDbParts';
 import type { FilterState } from '../composables/gridFilter';
 import { EXPORT_FORMATS, defaultOptions, exportApi, fileName, type ExportFormat } from '../composables/export';
-import { inCodeEditor, isSaveShortcut, modalOpen } from '../composables/shortcuts';
+import { inCodeEditor, isMac, isSaveShortcut, modalOpen } from '../composables/shortcuts';
 import { bindingLabel, registerCommand } from '../composables/commands';
 import { inFocusedEditor } from '../stores/editorGroups';
 import { startTask, useTasksStore, type TaskHandle } from '../stores/tasks';
@@ -252,6 +255,73 @@ const gridEdits = computed<Edits>(() => {
   return out;
 });
 
+// -- search (the bar over the grid, issue #142) --------------------------------------------------
+/** The search over the current result's loaded rows, in the grid's order
+ *  (a local sort searches again). New rows aren't searched. */
+const finder = reactive(useGridSearch(() => {
+  void sortTick.value;
+  const r = current.value;
+  return r && view.value === 'table' ? { rows: r.rows, columns: r.columns } : null;
+}));
+/** "Solo filas con coincidencias": the rows the grid shows, as indexes into
+ *  `gridRows` (the matching ones, then the new rows); null: all of them. */
+const searchView = computed<number[] | null>(() => {
+  const shown = finder.rowsShown;
+  return shown ? filteredView(shown, current.value?.rows.length ?? 0, currentAdded.value.length) : null;
+});
+/** The grid's row `p` as an index into `gridRows` (what edits use), and back
+ *  (-1: not shown). */
+const toFull = (p: number) => rowAt(searchView.value, p);
+const toView = (i: number) => placeIn(searchView.value, i);
+const shownRows = computed(() => {
+  const v = searchView.value;
+  const all = gridRows.value;
+  return v ? v.map((i) => all[i]) : all;
+});
+const shownEdits = computed<Edits>(() => keyedIn(searchView.value, gridEdits.value));
+const shownDeletes = computed(() => setIn(searchView.value, currentDeletes.value));
+/** The result rows "Solo filas" leaves, for the export's "filas de la búsqueda". */
+const searchFound = computed(() => {
+  const s = finder.rowsShown;
+  const r = current.value;
+  return s && r ? Array.from(s, (i) => r.rows[i]) : null;
+});
+/** The match the search is on, in the grid's rows. */
+const searchCurrent = computed(() => {
+  const s = finder.at;
+  if (!s) return null;
+  const p = toView(finder.rowOf(s));
+  return p >= 0 ? { r: p, c: s.c } : null;
+});
+/** Marks beside the scroll bar: not when only matching rows show. */
+const searchMarks = computed(() => (finder.onlyRows ? null : finder.markRows));
+const searchBar = ref<InstanceType<typeof GridSearchBar> | null>(null);
+const findKey = isMac ? '⌘F' : 'Ctrl+F';
+function goMatch(dir: 1 | -1) {
+  const s = finder.go(dir);
+  if (!s) return;
+  const p = toView(finder.rowOf(s));
+  if (p >= 0) grid.value?.goTo(p, s.c);
+}
+// Other rows in the grid (the row filter on or off): back to the current match.
+watch(searchView, () => nextTick(() => {
+  const c = searchCurrent.value;
+  if (c) grid.value?.goTo(c.r, c.c);
+}));
+function openSearch() {
+  if (!current.value || view.value !== 'table') return;
+  finder.show();
+  nextTick(() => searchBar.value?.focus());
+}
+/** ⌘F (Ctrl+F) with the focus in the pane opens the search; the document
+ *  view has its own (it takes the key first). */
+function onPaneKey(e: KeyboardEvent) {
+  if (e.defaultPrevented || e.altKey || e.shiftKey || !(isMac ? e.metaKey : e.ctrlKey) || e.key.toLowerCase() !== 'f') return;
+  if (view.value !== 'table' || !current.value) return;
+  e.preventDefault();
+  openSearch();
+}
+
 /** The current result's own statement (`resultSql`), and its place among
  *  that statement's results: by index (an export runs the statement and
  *  takes that one) and among those with rows (the SELECT behind it). The
@@ -460,7 +530,7 @@ function addRow() {
   const list = (added[active.value] ??= []);
   list.push({});
   const r = current.value.rows.length + list.length - 1;
-  nextTick(() => grid.value?.editRow(r));
+  nextTick(() => grid.value?.editRow(toView(r)));
 }
 function addDocuments(list: Record<string, unknown>[]) {
   docs.value = [...docs.value, ...list];
@@ -842,6 +912,8 @@ async function quickExportAll(path: string, options: ReturnType<typeof defaultOp
 
 function onExportCommand(cmd: string) {
   if (cmd === 'advanced') exporting.value = { format: 'csv' };
+  // Only the search's rows show: the dialog asks which rows go.
+  else if (searchFound.value) exporting.value = { format: cmd as ExportFormat };
   else quickExport(cmd as ExportFormat);
 }
 
@@ -983,7 +1055,7 @@ const liveText = computed(() => {
 </script>
 
 <template>
-  <div ref="root" class="rp">
+  <div ref="root" class="rp" @keydown="onPaneKey">
     <div class="sr-only" aria-live="polite" aria-atomic="true">{{ liveText }}</div>
     <div class="nm-subtabs">
       <!-- Before the sub-tabs: the query editor's "Fijar" for its only result. -->
@@ -1016,6 +1088,17 @@ const liveText = computed(() => {
         @click="addRow"
       >
         <el-icon><ei-plus /></el-icon> {{ addsDocuments && editSource?.language === 'json' ? $t('results:insert.addDocument') : $t('results:insert.addRow') }}
+      </button>
+      <button
+        v-if="current && view === 'table'"
+        class="rp-export"
+        :class="{ on: finder.open }"
+        :aria-pressed="finder.open"
+        :aria-label="$t('results:search.open', { key: findKey })"
+        :title="$t('results:search.open', { key: findKey })"
+        @click="finder.open ? finder.close() : openSearch()"
+      >
+        <el-icon><ei-search /></el-icon>
       </button>
       <el-dropdown v-if="current" trigger="click" @command="onExportCommand">
         <button class="rp-export" :title="$t('results:export.title')">
@@ -1070,6 +1153,15 @@ const liveText = computed(() => {
       <div v-if="current.truncated" class="rp-trunc">
         {{ $t(sortedLoaded ? 'results:truncatedSorted' : 'results:truncated', { shown: current.rows.length.toLocaleString(locale()), total: totalText(current) }) }}
       </div>
+      <GridSearchBar
+        v-if="finder.open && view === 'table'"
+        ref="searchBar"
+        :s="finder"
+        :columns="current.columns.length"
+        :loaded="current.truncated ? current.rows.length : null"
+        @go="goMatch"
+        @close="finder.close()"
+      />
       <ChartView
         v-if="view === 'chart'"
         :key="`${active}:${chartKey ?? ''}`"
@@ -1112,13 +1204,13 @@ const liveText = computed(() => {
       <ResultGrid
         ref="grid"
         :columns="current.columns"
-        :rows="gridRows"
+        :rows="shownRows"
         :copy-context="{ table: table ?? null, dialect: dialect ?? '', keyColumns, script: copyScript }"
         :editable="canEdit && !applying"
         :no-edit-reason="noEditReason"
         :read-only-columns="readOnlyColumns"
-        :edits="gridEdits"
-        :deleted="currentDeletes"
+        :edits="shownEdits"
+        :deleted="shownDeletes"
         :deletable="canDelete && !applying"
         :no-delete-reason="noDeleteReason"
         :filterable="filterable"
@@ -1129,9 +1221,16 @@ const liveText = computed(() => {
         :sort="gridSort"
         :loaded-of="current.truncated ? current.total_rows : null"
         :links="links"
-        @follow="follow"
-        @edit="onEdit"
-        @delete="onDelete"
+        :row-numbers="searchView"
+        :filtered="!!searchView"
+        :highlight="finder.re"
+        :highlight-column="finder.scope"
+        :current="searchCurrent"
+        :only-columns="finder.columnsShown"
+        :marks="searchMarks"
+        @follow="(l, r) => follow(l, toFull(r))"
+        @edit="(r, c, v) => onEdit(toFull(r), c, v)"
+        @delete="(rows, mark) => onDelete(rows.map(toFull), mark)"
         @add="addRow"
         @filter="(c, st) => emit('filter', c, st)"
         @sort="onSort"
@@ -1170,6 +1269,7 @@ const liveText = computed(() => {
       :title="title ?? $t('results:defaultFileName')"
       :dialect="dialect ?? ''"
       :initial-format="exporting.format"
+      :found="searchFound"
       @close="exporting = null"
     />
       <el-dialog
@@ -1209,6 +1309,7 @@ const liveText = computed(() => {
   border: 1px solid var(--nm-border); border-radius: 3px; cursor: pointer;
 }
 .rp-export.off { opacity: 0.5; cursor: default; }
+.rp-export.on { color: var(--nm-text-strong); border-color: var(--ide-focus); background: color-mix(in srgb, var(--ide-focus) 18%, transparent); }
 .rp-export:hover:not(.off) { color: var(--nm-text-strong); border-color: var(--nm-border-hover); }
 .rp-menu-row { display: flex; justify-content: space-between; gap: 24px; width: 100%; }
 .rp-menu-row kbd { font-family: var(--nm-mono); font-size: 11px; color: var(--nm-text-dim); }

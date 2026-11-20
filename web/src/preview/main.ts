@@ -30,6 +30,8 @@
 //   table designer: preview/samples.ts; &alter=1 edits the table in place, &vtype=FLOAT[3]|Array(Float32)|float_vector(3)|… the types
 //   other engines keep vectors in)
 // |docs-edit&set=vectors (vector fields in the editable JSON tree)|adddoc&set=vectors ("Agregar documento" with vector fields)
+// |results&set=search[&rows=N][&cols=N] (the search over the grid, issue #142: a wide result, 200,000 rows by default, cut at
+//   "Filas máx.")
 // |nbwrite&set=vectors (a write cell's preview with a vector column)|datagen&set=vectors (test data's sample with a vector column)
 // |vecwork[&tab=data|indexes|datacompare][&usage=vector][&vtype=…] (the workbench over a fake pgvector backend: preview/vecwork-samples.ts)
 import './lang';
@@ -94,7 +96,7 @@ import { rowsForScripts } from '../composables/vector';
 import AddDocumentDialog from '../components/AddDocumentDialog.vue';
 import GenerateDataDialog from '../components/GenerateDataDialog.vue';
 import { installVectorWorkbench } from './vecwork-samples';
-import type { Cell } from '../api/types';
+import type { Cell, ResultColumn } from '../api/types';
 
 import MultiDbRunDialog from '../components/MultiDbRunDialog.vue';
 import App from '../App.vue';
@@ -353,6 +355,37 @@ function fkJumpView() {
 // arrays of numbers, never in the WHERE).
 const pvVecEdits = reactive<Record<number, Record<number, Cell>>>({});
 const pvVecAdded = reactive<Record<number, Cell>[]>([]);
+// view=results&set=search: a wide, long result for the grid's search bar.
+function searchResultsView() {
+  const n = Number(params.get('rows') ?? 200_000);
+  const extra = Number(params.get('cols') ?? 26);
+  const estados = ['activo', 'pendiente', 'inactivo', 'bloqueado'];
+  const ciudades = ['Rosario', 'Córdoba', 'Mendoza', 'Salta', 'La Plata'];
+  const columns: ResultColumn[] = [
+    { name: 'id', type_name: 'int' },
+    { name: 'cliente', type_name: 'varchar' },
+    { name: 'estado', type_name: 'varchar' },
+    { name: 'ciudad', type_name: 'varchar' },
+    { name: 'monto', type_name: 'decimal' },
+    { name: 'notas', type_name: 'varchar' },
+    ...Array.from({ length: extra }, (_, k) => ({ name: `campo_${k + 1}`, type_name: 'varchar' })),
+  ];
+  const rows: Cell[][] = Array.from({ length: n }, (_, i) => [
+    i + 1,
+    `cliente_${(i * 7919) % 50_000}`,
+    estados[i % 4],
+    ciudades[(i * 3) % 5],
+    String(((i * 7331) % 900_000) / 100),
+    i % 997 === 0 ? `revisar cliente_${(i * 31) % 50_000} con el área de cobranzas` : i % 13 === 0 ? null : 'sin novedades',
+    ...Array.from({ length: extra }, (_, k) => (k === 7 && i % 4999 === 0 ? `ref cliente_${i % 50_000}` : `v${(i + k) % 101}`)),
+  ]);
+  return h(ResultsPane, {
+    running: false, title: 'Clientes', dialect: 'mssql',
+    source: { connectionId: 'x', database: 'ventas', sql: 'select * from clientes' },
+    outcome: { results: [{ columns, rows, total_rows: n * 3, truncated: true, rows_affected: null }], messages: [], error: null, elapsed_ms: 412, plans: [] },
+  });
+}
+
 function vectorsView() {
   const { columns, rows } = sampleVectorResult;
   if (!params.get('edit')) {
@@ -539,6 +572,7 @@ const app = createApp({
           })
         : view === 'vecviewer' ? vecViewerView()
         : view === 'results' && params.get('set') === 'vectors' ? vectorsView()
+        : view === 'results' && params.get('set') === 'search' ? searchResultsView()
         : view === 'results'
           ? h(ResultsPane, {
             running: false, title: 'Ventas', dialect: 'mssql',

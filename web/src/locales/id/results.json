@@ -65,6 +65,7 @@
     "title": "Ekspor hasil",
     "format": "Format",
     "rows": "Baris",
+    "found_other": "{{rows}} baris hasil pencarian",
     "loaded": "Yang dimuat ({{rows}})",
     "all": "Semua{{total}}: menjalankan kueri lagi",
     "allHelp": "Dijalankan lagi dalam sesi baca-saja dan ditulis ke berkas saat baris berdatangan, tanpa batas. Jika kueri mengubah data, mesin menolaknya.",
@@ -123,9 +124,11 @@
     "scopeRow": "baris",
     "scopeAll": "semua baris",
     "scopeLoaded": "{{rows}} baris yang dimuat",
+    "scopeFound_other": "{{rows}} baris hasil pencarian",
     "copyHeader": "Salin ({{scope}})",
     "copyAllWithHeaders": "Salin semua dengan header",
     "copyLoadedWithHeaders": "Salin {{rows}} baris yang dimuat dengan header",
+    "copyFoundWithHeaders_other": "Salin {{rows}} baris hasil pencarian beserta header",
     "copyFormatHeader": "Format ⌘C",
     "hideColumn": "Sembunyikan kolom «{{name}}»",
     "columnsMenu": "Kolom…",
@@ -317,5 +320,21 @@
     "removeField": "Hapus field ini",
     "edited": "Diubah: disimpan dengan «Simpan»",
     "apply": "Terapkan"
+  },
+  "search": {
+    "open": "Cari di hasil ({{key}})",
+    "placeholder": "Cari di hasil",
+    "caseSensitive": "Cocokkan huruf besar/kecil",
+    "searching": "Mencari… {{percent}}",
+    "place": "{{at}} dari {{total}}",
+    "count_other": "{{n}} kecocokan",
+    "onlyRows": "Hanya baris yang cocok",
+    "onlyColumns": "Hanya kolom yang cocok",
+    "inColumns_other": "Di {{n}} dari {{count}} kolom:",
+    "onlyIn": "Cari hanya di “{{name}}”",
+    "allColumns": "Cari lagi di semua kolom",
+    "loaded_other": "Di {{rows}} baris yang dimuat",
+    "loadedHelp": "Kueri mengembalikan lebih banyak baris daripada yang dimuat: pencarian tidak melihat sisanya.",
+    "close": "Tutup pencarian (Esc)"
   }
 }
