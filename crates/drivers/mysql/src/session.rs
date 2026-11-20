@@ -1780,12 +1780,23 @@ impl MySqlSession {
         let dbl = lit(db);
         match self.variant {
             Variant::OceanBase => {
-                let sql = format!(
-                    "SELECT * FROM oceanbase.DBA_OB_SEQUENCE_OBJECTS WHERE DATABASE_NAME = {dbl}"
-                );
-                self.optional_rows(&sql)
-                    .await
-                    .iter()
+                // By owner: `DBA_OB_SEQUENCE_OBJECTS` names the database
+                // only by id in 4.4 (no `DATABASE_NAME`, so nothing came
+                // back); the older query stays for versions without
+                // `DBA_SEQUENCES`.
+                let mut rows = self
+                    .optional_rows(&format!(
+                        "SELECT * FROM oceanbase.DBA_SEQUENCES WHERE SEQUENCE_OWNER = {dbl}"
+                    ))
+                    .await;
+                if rows.is_empty() {
+                    rows = self
+                        .optional_rows(&format!(
+                            "SELECT * FROM oceanbase.DBA_OB_SEQUENCE_OBJECTS WHERE DATABASE_NAME = {dbl}"
+                        ))
+                        .await;
+                }
+                rows.iter()
                     .filter_map(|r| {
                         let name = named(r, &["SEQUENCE_NAME"])?;
                         let g = |n: &[&str], d: &str| named(r, n).unwrap_or_else(|| d.to_string());
@@ -1799,7 +1810,9 @@ impl MySqlSession {
                         let ddl = crate::structure::oceanbase_sequence(
                             &name,
                             [
-                                &g(&["START_WITH", "START_VALUE"], "1"),
+                                // DBA_SEQUENCES has the next value to hand out, as
+                                // Oracle's DDL starts a recreated sequence from.
+                                &g(&["START_WITH", "START_VALUE", "LAST_NUMBER"], "1"),
                                 &g(&["INCREMENT_BY"], "1"),
                                 &g(&["MIN_VALUE"], "1"),
                                 &g(&["MAX_VALUE"], "9223372036854775807"),
