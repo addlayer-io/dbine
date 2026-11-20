@@ -135,6 +135,7 @@
     "columnsHint": "Przy porównaniu odczytywane są kolumny obu wyników i łączone w pary według nazwy; potem można zmienić pary i klucz.",
     "stale": "Zapytanie się zmieniło: przy porównaniu jego kolumny zostaną odczytane ponownie.",
     "keyOf": "„{{column}}” jest częścią klucza",
+    "allKeys": "Zaznacz lub odznacz wszystkie kolumny jako część klucza",
     "notCompared": "Nie jest porównywana",
     "unpairedRight": "Kolumny z prawej bez pary (nie są porównywane): {{list}}",
     "tolerance": "Liczby",

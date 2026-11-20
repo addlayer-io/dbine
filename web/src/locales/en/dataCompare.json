@@ -128,6 +128,7 @@
     "columnsHint": "When comparing, the columns of both results are read and paired by name; afterwards the pairs and the key can be changed.",
     "stale": "A query changed: its columns are read again when comparing.",
     "keyOf": "“{{column}}” is part of the key",
+    "allKeys": "Check or uncheck all columns as part of the key",
     "notCompared": "Not compared",
     "unpairedRight": "Columns on the right without a pair (not compared): {{list}}",
     "tolerance": "Numbers",
