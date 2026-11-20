@@ -811,9 +811,9 @@ pub(crate) fn write_index(flavor: Flavor, m: &mut Obj, ix: &IndexDef, t: &VecTyp
 /// Hamming (the only engine and distance for them), bytes to Lucene
 /// (unless `mode` / `compression_level` pick the engine), and L1 / L∞ to
 /// NMSLIB, the only one with them. Other floats keep the server's default
-/// (on 2.18 alone, Faiss without `cosinesimil`: there cosine needs the
-/// engine chosen). `space` is the native distance; bits get `hamming` when
-/// it's empty.
+/// (on 2.18 alone, Faiss without `cosinesimil`: there the session gives
+/// cosine Lucene when it runs the mapping, see [`cosine_on_lucene`]).
+/// `space` is the native distance; bits get `hamming` when it's empty.
 fn os_engine(
     ix: &IndexDef,
     t: &VecType,
@@ -882,7 +882,8 @@ pub(crate) fn od_settings(ixs: &[(&IndexDef, &VecType)]) -> Result<Obj> {
                 params.push((key.to_string(), val.trim().to_string()));
             }
         }
-        let space_key = space.clone().unwrap_or_default();
+        // No distance named is the engine's default, `l2`.
+        let space_key = space.clone().unwrap_or_else(|| "l2".into());
         match &first {
             None => {
                 if let Some(s) = &space {
@@ -1036,6 +1037,22 @@ fn field_mut<'a>(doc: &'a mut J, path: &str) -> Option<&'a mut J> {
     field_mut(&mut o[i].1, &path[split + 1..])
 }
 
+/// A bit vector of `dims` dimensions given one 0 or 1 per dimension, as
+/// the signed bytes its field takes. `None` when it isn't one (a value
+/// already packed is `dims / 8` long).
+fn packed_bits(bits: &[f64], dims: Option<u32>) -> Option<Vec<i64>> {
+    let dims = dims? as usize;
+    if bits.len() != dims || dims < 8 || !bits.iter().all(|b| *b == 0.0 || *b == 1.0) {
+        return None;
+    }
+    Some(
+        v::to_bits(bits)
+            .into_iter()
+            .map(|b| i64::from(b as i8))
+            .collect(),
+    )
+}
+
 /// A document's bit (binary) vectors given one 0 or 1 per dimension, as
 /// results show them, packed into the signed bytes the field takes (a
 /// value already packed is `dims / 8` long and stays). `fields` are the
@@ -1046,7 +1063,6 @@ pub fn pack_bits(doc: &mut J, fields: &[(String, VecType)]) -> bool {
         .iter()
         .filter(|(_, t)| t.elem == Elem::Bit && !t.multi)
     {
-        let Some(dims) = t.dims else { continue };
         let Some(val) = field_mut(doc, path) else {
             continue;
         };
@@ -1054,24 +1070,75 @@ pub fn pack_bits(doc: &mut J, fields: &[(String, VecType)]) -> bool {
         let bits: Option<Vec<f64>> = a
             .iter()
             .map(|x| match x {
-                J::Num(n) => n.as_f64().filter(|b| *b == 0.0 || *b == 1.0),
+                J::Num(n) => n.as_f64(),
                 _ => None,
             })
             .collect();
-        match bits {
-            Some(bits) if bits.len() == dims as usize && dims >= 8 => {
-                *val = J::Arr(
-                    v::to_bits(&bits)
-                        .into_iter()
-                        .map(|b| J::Num(i64::from(b as i8).into()))
-                        .collect(),
-                );
-                changed = true;
-            }
-            _ => {}
+        if let Some(bytes) = bits.and_then(|b| packed_bits(&b, t.dims)) {
+            *val = J::Arr(bytes.into_iter().map(|b| J::Num(b.into())).collect());
+            changed = true;
         }
     }
     changed
+}
+
+// -- scripts that know their columns' types ---------------------------------------------------
+
+/// The vector type of a script's column, from its type (DBine's spelling,
+/// `dense_vector(16, bit)`, as a result or a describe names it) or its
+/// [`VectorMeta`]. `None`: not a dense vector.
+pub fn script_type(c: &dbine_driver::ResultColumn) -> Option<VecType> {
+    let meta = c.vector.as_ref();
+    let mut t = match VecType::parse(&c.type_name) {
+        Some(Ok(t)) => t,
+        _ => {
+            let m = meta?;
+            let elem = match m.element {
+                VectorElement::Bit => Elem::Bit,
+                VectorElement::I8 => Elem::Byte,
+                VectorElement::Bf16 => Elem::Bf16,
+                _ => Elem::Float,
+            };
+            VecType::new("dense_vector", m.dims, elem)
+        }
+    };
+    if t.dims.is_none() {
+        t.dims = meta.and_then(|m| m.dims);
+    }
+    (!t.sparse && !t.multi && !meta.is_some_and(|m| m.sparse)).then_some(t)
+}
+
+/// A vector value of an insert or update script (a JSON array of numbers,
+/// or its text) as its field takes it: a bit vector given one 0 or 1 per
+/// dimension (as results show it) packed into its signed bytes, a byte
+/// vector's numbers as integers. `None`: written as it is.
+pub fn script_value(val: &serde_json::Value, t: &VecType) -> Option<serde_json::Value> {
+    let nums = v::parse_value(val)?;
+    let ints = |n: Vec<i64>| serde_json::Value::Array(n.into_iter().map(Into::into).collect());
+    match t.elem {
+        Elem::Bit => packed_bits(&nums, t.dims).map(ints),
+        Elem::Byte => nums
+            .iter()
+            .map(|&x| (x.fract() == 0.0 && (-128.0..=127.0).contains(&x)).then_some(x as i64))
+            .collect::<Option<Vec<i64>>>()
+            .map(ints),
+        Elem::Float | Elem::Bf16 => None,
+    }
+}
+
+/// Script values written for their columns' vector types (see
+/// [`script_value`]); `types` by position.
+pub fn script_row(row: &[serde_json::Value], types: &[Option<VecType>]) -> Vec<serde_json::Value> {
+    row.iter()
+        .enumerate()
+        .map(|(i, val)| {
+            types
+                .get(i)
+                .and_then(Option::as_ref)
+                .and_then(|t| script_value(val, t))
+                .unwrap_or_else(|| val.clone())
+        })
+        .collect()
 }
 
 /// The indices a `_bulk` body writes documents to (`default`: the path's
@@ -1225,6 +1292,107 @@ pub fn indexed_vectors(body: &str) -> Vec<String> {
     out
 }
 
+// -- OpenSearch's default engine by version ----------------------------------------------------
+
+/// Calls `f` with each `knn_vector` field a mapping body defines (its
+/// dotted path and mapping), anywhere in the body: an index's creation,
+/// `_mapping` or a template.
+fn knn_fields(j: &mut J, f: &mut dyn FnMut(&str, &mut J)) {
+    fn walk(j: &mut J, keys: &mut Vec<String>, f: &mut dyn FnMut(&str, &mut J)) {
+        match j {
+            J::Obj(o) => {
+                for (k, v) in o.iter_mut() {
+                    keys.push(k.clone());
+                    if v.get("type").and_then(J::as_str) == Some("knn_vector") {
+                        // The field's path: the keys after the first
+                        // `properties`, without the `properties` between.
+                        let path: Vec<&str> = keys
+                            .iter()
+                            .skip_while(|k| *k != "properties")
+                            .filter(|k| *k != "properties")
+                            .map(String::as_str)
+                            .collect();
+                        let name = if path.is_empty() {
+                            k.clone()
+                        } else {
+                            path.join(".")
+                        };
+                        f(&name, v);
+                    }
+                    walk(v, keys, f);
+                    keys.pop();
+                }
+            }
+            J::Arr(a) => a.iter_mut().for_each(|v| walk(v, keys, f)),
+            _ => {}
+        }
+    }
+    walk(j, &mut Vec::new(), f);
+}
+
+/// A mapping body for OpenSearch 2.18, whose default engine, Faiss, has
+/// no cosine distance until 2.19: each float or byte `knn_vector` field
+/// searched by `cosinesimil` with an HNSW method that names no engine (nor
+/// a `mode`, `compression_level` or `model_id`, which decide it) gets
+/// Lucene, which has it for both. `None`: no field needs it; else the new
+/// body and the fields changed.
+pub fn cosine_on_lucene(body: &str) -> Option<(String, Vec<String>)> {
+    let mut j = J::parse(body).ok()?;
+    let mut changed = Vec::new();
+    knn_fields(&mut j, &mut |name, f| {
+        let set = |k: &str| f.get(k).is_some_and(|v| !v.text().trim().is_empty());
+        let float_or_byte = f.get("data_type").is_none_or(|d| {
+            let d = d.text();
+            d.eq_ignore_ascii_case("float") || d.eq_ignore_ascii_case("byte")
+        });
+        if !float_or_byte
+            || ["mode", "compression_level", "model_id"]
+                .iter()
+                .any(|k| set(k))
+        {
+            return;
+        }
+        let top_space = f.get("space_type").map(J::text);
+        let Some(method) = f.get("method") else {
+            return;
+        };
+        let space = method.get("space_type").map(J::text).or(top_space);
+        let hnsw = method
+            .get("name")
+            .is_none_or(|n| n.text().eq_ignore_ascii_case("hnsw"));
+        let engine = method
+            .get("engine")
+            .is_some_and(|e| !e.text().trim().is_empty());
+        if !hnsw || engine || !space.is_some_and(|s| s.trim().eq_ignore_ascii_case("cosinesimil")) {
+            return;
+        }
+        if let J::Obj(o) = f {
+            if let Some((_, J::Obj(m))) = o.iter_mut().find(|(k, _)| k == "method") {
+                put(m, "engine", J::Str("lucene".into()));
+                changed.push(name.to_string());
+            }
+        }
+    });
+    (!changed.is_empty()).then(|| (j.pretty(), changed))
+}
+
+/// The `knn_vector` fields of a mapping body whose method names the NMSLIB
+/// engine, which OpenSearch 3.0 and later refuse for a new index.
+pub fn nmslib_fields(body: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(mut j) = J::parse(body) {
+        knn_fields(&mut j, &mut |name, f| {
+            let nmslib = f
+                .at(&["method", "engine"])
+                .is_some_and(|e| e.text().trim().eq_ignore_ascii_case("nmslib"));
+            if nmslib && !out.iter().any(|n| n == name) {
+                out.push(name.to_string());
+            }
+        });
+    }
+    out
+}
+
 // -- what the designer offers ------------------------------------------------------------------
 
 /// The vector indexes the designer creates on `flavor`.
@@ -1293,6 +1461,61 @@ mod tests {
 
     fn j(s: &str) -> J {
         J::parse(s).unwrap()
+    }
+
+    #[test]
+    fn script_types_and_values() {
+        use dbine_driver::ResultColumn;
+        let t = |c: ResultColumn| script_type(&c).map(|t| (t.dims, t.elem));
+        assert_eq!(
+            t(ResultColumn::new("b", "dense_vector(16, bit)")),
+            Some((Some(16), Elem::Bit))
+        );
+        assert_eq!(
+            t(ResultColumn::new("b", "knn_vector(8, binary)")),
+            Some((Some(8), Elem::Bit))
+        );
+        // A bare spelling takes its dimension from the meta.
+        assert_eq!(
+            t(ResultColumn::new("b", "dense_vector")
+                .with_vector(VectorMeta::dense(Some(3), VectorElement::F32))),
+            Some((Some(3), Elem::Float))
+        );
+        assert_eq!(
+            t(ResultColumn::new("b", "vector(3)")
+                .with_vector(VectorMeta::dense(Some(3), VectorElement::I8))),
+            Some((Some(3), Elem::Byte))
+        );
+        // Not dense vectors.
+        assert_eq!(t(ResultColumn::new("r", "rank_vectors(3)")), None);
+        assert_eq!(
+            t(ResultColumn::new("s", "sparse_vector")
+                .with_vector(VectorMeta::sparse(None, VectorElement::F32))),
+            None
+        );
+        assert_eq!(t(ResultColumn::new("k", "keyword")), None);
+
+        let bits = VecType::new("dense_vector", Some(8), Elem::Bit);
+        assert_eq!(
+            script_value(&json!([1, 0, 0, 0, 0, 0, 0, 1]), &bits),
+            Some(json!([-127]))
+        );
+        assert_eq!(
+            script_value(&json!("[0,0,0,0,0,0,0,1]"), &bits),
+            Some(json!([1]))
+        );
+        // Not bits of that length: as it is.
+        assert_eq!(script_value(&json!([1, 2, 0, 0, 0, 0, 0, 1]), &bits), None);
+        assert_eq!(script_value(&json!([5]), &bits), None);
+        assert_eq!(script_value(&json!(1), &bits), None, "not a vector at all");
+        let bytes = VecType::new("dense_vector", Some(2), Elem::Byte);
+        assert_eq!(
+            script_value(&json!([1.0, -128.0]), &bytes),
+            Some(json!([1, -128]))
+        );
+        assert_eq!(script_value(&json!([1.0, 128.0]), &bytes), None);
+        let floats = VecType::new("dense_vector", Some(2), Elem::Float);
+        assert_eq!(script_value(&json!([1.0, 2.0]), &floats), None);
     }
 
     #[test]
@@ -1864,6 +2087,72 @@ mod tests {
     }
 
     #[test]
+    fn cosine_without_an_engine_gets_lucene_where_asked() {
+        let body = r#"{"settings":{"index":{"knn":true}},"mappings":{"properties":{
+            "a":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"cosinesimil","parameters":{"m":16}}},
+            "b":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"l2"}},
+            "c":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"cosinesimil","engine":"faiss"}},
+            "d":{"type":"knn_vector","dimension":3,"mode":"on_disk","method":{"name":"hnsw","space_type":"cosinesimil"}},
+            "e":{"type":"knn_vector","dimension":8,"data_type":"binary","method":{"name":"hnsw","space_type":"cosinesimil"}},
+            "y":{"type":"knn_vector","dimension":8,"data_type":"byte","method":{"name":"hnsw","space_type":"cosinesimil"}},
+            "f":{"type":"knn_vector","dimension":3,"space_type":"cosinesimil","method":{"name":"hnsw"}},
+            "g":{"type":"knn_vector","dimension":3,"method":{"name":"ivf","space_type":"cosinesimil"}},
+            "h":{"type":"knn_vector","dimension":3},
+            "o":{"properties":{"i":{"type":"knn_vector","dimension":3,"method":{"space_type":"cosinesimil"}}}},
+            "t":{"type":"text"}}}}"#;
+        let (out, fields) = cosine_on_lucene(body).unwrap();
+        assert_eq!(fields, ["a", "y", "f", "o.i"]);
+        let j = J::parse(&out).unwrap();
+        let engine = |path: &[&str]| {
+            let mut p = vec!["mappings", "properties"];
+            p.extend(path);
+            p.extend(["method", "engine"]);
+            j.at(&p).map(J::text)
+        };
+        assert_eq!(engine(&["a"]).as_deref(), Some("lucene"));
+        assert_eq!(engine(&["f"]).as_deref(), Some("lucene"));
+        assert_eq!(engine(&["y"]).as_deref(), Some("lucene"));
+        assert_eq!(engine(&["o", "properties", "i"]).as_deref(), Some("lucene"));
+        assert_eq!(engine(&["c"]).as_deref(), Some("faiss"));
+        for f in ["b", "d", "e", "g", "h"] {
+            assert_eq!(engine(&[f]), None, "{f}");
+        }
+        // The rest of the body is as it was.
+        assert_eq!(
+            j.at(&["mappings", "properties", "a", "method", "parameters", "m"])
+                .map(J::text)
+                .as_deref(),
+            Some("16")
+        );
+        assert_eq!(
+            j.at(&["settings", "index", "knn"]).map(J::text).as_deref(),
+            Some("true")
+        );
+        assert!(
+            cosine_on_lucene(r#"{"properties":{"b":{"type":"knn_vector","dimension":3}}}"#)
+                .is_none()
+        );
+        assert!(cosine_on_lucene("not json").is_none());
+    }
+
+    #[test]
+    fn nmslib_fields_are_found_anywhere_in_a_mapping() {
+        let body = r#"{"mappings":{"properties":{
+            "a":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"l1","engine":"nmslib"}},
+            "b":{"type":"knn_vector","dimension":3,"method":{"name":"hnsw","space_type":"l2","engine":"faiss"}},
+            "o":{"properties":{"c":{"type":"knn_vector","dimension":3,"method":{"engine":"NMSLIB"}}}}}}}"#;
+        assert_eq!(nmslib_fields(body), ["a", "o.c"]);
+        // A template's mapping, and `_mapping`'s.
+        let tpl = r#"{"index_patterns":["x*"],"template":{"mappings":{"properties":{"v":{"type":"knn_vector","method":{"engine":"nmslib"}}}}}}"#;
+        assert_eq!(nmslib_fields(tpl), ["v"]);
+        let m = r#"{"properties":{"v":{"type":"knn_vector","method":{"engine":"nmslib"}}}}"#;
+        assert_eq!(nmslib_fields(m), ["v"]);
+        assert!(
+            nmslib_fields(r#"{"mappings":{"properties":{"b":{"type":"knn_vector"}}}}"#).is_empty()
+        );
+    }
+
+    #[test]
     fn open_distro_indexes_are_the_index_settings() {
         let s = j(
             r#"{"index.knn":"true","index.knn.space_type":"cosinesimil","index.knn.algo_param.m":"8"}"#,
@@ -1888,6 +2177,10 @@ mod tests {
         let mut other = ix.clone();
         other.vector.as_mut().unwrap().metric = Some("cosine".into());
         assert!(od_settings(&[(&ix, &t), (&other, &t)]).is_err());
+        // No distance named is l2: it agrees with an index by l2.
+        other.vector.as_mut().unwrap().metric = None;
+        let out = od_settings(&[(&ix, &t), (&other, &t)]).unwrap();
+        assert_eq!(J::Obj(out).compact(), r#"{"knn.space_type":"l2"}"#);
         other.vector.as_mut().unwrap().metric = Some("ip".into());
         assert!(od_settings(&[(&other, &t)]).is_err());
     }

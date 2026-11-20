@@ -36,6 +36,7 @@ CODE_START = re.compile(
     re.I,
 )
 PLACEHOLDER = re.compile(r"\{\{|\}\}|\{[^{}]*\}")
+SERDE_ATTR = re.compile(r"#\[serde\((?:[^\]\"]|\"(?:[^\"\\]|\\.)*\")*\)\]")
 # A `format!` placeholder as written in a message (`{}`, `{name}`, `{0:?}`,
 # `{:.1}`, `{n:>4}`): no spaces and no code inside. Any other brace left is
 # code (a JavaScript or JSON body, a q lambda).
@@ -316,6 +317,9 @@ def main():
     files = [f for f in files if not (f.name == "tests.rs" or f.name.endswith("_tests.rs"))]
     for f in sorted(files):
         src = strip_tests(f.read_text(encoding="utf-8"))
+        # serde attributes carry Rust code (`bound(deserialize = "'de: 'static")`,
+        # `rename = "…"`), never a message.
+        src = SERDE_ATTR.sub("", src)
         for lit in literals(src):
             if user_facing(lit):
                 msgs.setdefault(normalize(lit), set()).add(str(f.relative_to(ROOT)))

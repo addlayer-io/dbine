@@ -11,9 +11,12 @@
 //!
 //! Each one creates its `dbine_vec*` indices through the driver's own DDL
 //! (a designer `TableSchema` with a vector column and a vector index),
-//! fills them with `insert_script` (bit vectors one 0 / 1 per dimension, as
-//! the grid hands them over), reads them back as results, by id and as the
-//! schema, searches by similarity, edits vectors with `update_script`,
+//! fills them with `insert_script_typed` (bit vectors one 0 / 1 per
+//! dimension, as the grid hands them over, typed as a describe gives them)
+//! sent straight over HTTP, as a script copied out of DBine runs, reads them
+//! back as results, by id and as the schema, searches by similarity, edits
+//! vectors with `update_script_typed` (over HTTP) and `update_script`
+//! (through the session, which packs bits by the mapping),
 //! copies the index with `read_batches` / `bulk_load`, and drops what it
 //! made first, and last through a guard that also runs when it fails
 //! partway. `opensearch_byte_and_binary_vectors` creates byte and binary
@@ -23,7 +26,7 @@
 use dbine_driver::transfer::{BatchSink, BatchSource, Cell, LoadSpec, ReadSpec, RowBatch};
 use dbine_driver::{
     async_trait, ColumnDef, ConnectionConfig, DdlParts, Driver, IndexDef, ObjectRef, QueryOutcome,
-    RowChange, Session, TableSchema, VectorElement, VectorIndex, VectorMeta,
+    ResultColumn, RowChange, Session, TableSchema, VectorElement, VectorIndex, VectorMeta,
 };
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
@@ -32,6 +35,10 @@ const INDEX: &str = "dbine_vec";
 const COPY: &str = "dbine_vec_copy";
 const LOADED: &str = "dbine_vec_loaded";
 const BYTES: &str = "dbine_vec_bytes";
+
+/// The tests share their index names (and two of them a server): one at a
+/// time.
+static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn driver(id: &str) -> Arc<dyn Driver> {
     dbine_driver_elasticsearch::drivers()
@@ -46,6 +53,51 @@ async fn run(s: &mut Box<dyn Session>, text: &str) -> QueryOutcome {
         .await
         .unwrap_or_else(|e| panic!("{text}\n{e}"));
     out
+}
+
+/// Runs a script's requests straight over HTTP, as a script copied out of
+/// DBine would run: without the session's own rewriting (it packs bit
+/// vectors by the mapping).
+async fn raw(url: &str, script: &str) {
+    use dbine_driver_elasticsearch::console::{self, Command};
+    let client = reqwest::Client::new();
+    for c in console::parse(script).unwrap() {
+        let Command::Http(r) = c else {
+            panic!("SQL in {script}")
+        };
+        let method = reqwest::Method::from_bytes(r.method.as_bytes()).unwrap();
+        let mut req = client.request(method, format!("{}{}", url.trim_end_matches('/'), r.path));
+        if let Some(b) = &r.body {
+            let ct = if r.is_ndjson() {
+                "application/x-ndjson"
+            } else {
+                "application/json"
+            };
+            req = req.header("content-type", ct).body(format!("{b}\n"));
+        }
+        let resp = req.send().await.unwrap();
+        let status = resp.status();
+        let text = resp.text().await.unwrap();
+        assert!(status.is_success(), "{script}\n{status}: {text}");
+        assert!(!text.contains("\"errors\":true"), "{script}\n{text}");
+    }
+}
+
+/// The index's columns typed as a describe gives them (the app's typed
+/// scripts from a table).
+async fn described(s: &mut Box<dyn Session>, index: &str, names: &[String]) -> Vec<ResultColumn> {
+    let cols = s.columns(&obj(index)).await.unwrap();
+    names
+        .iter()
+        .map(|n| {
+            let ty = cols
+                .iter()
+                .find(|c| &c.name == n)
+                .map(|c| c.data_type.clone())
+                .unwrap_or_default();
+            ResultColumn::new(n.clone(), ty)
+        })
+        .collect()
 }
 
 async fn cleanup(s: &mut Box<dyn Session>) {
@@ -171,6 +223,7 @@ fn vi(alg: &str, metric: &str, params: &[(&str, &str)]) -> VectorIndex {
 }
 
 async fn exercise(case: Case, url: &str) {
+    let _serial = SERIAL.lock().await;
     let d = driver(case.id);
     assert!(d.capabilities().vectors);
     let spec = d.designer().unwrap();
@@ -220,7 +273,9 @@ async fn exercise(case: Case, url: &str) {
         Some((_, m)) if m.element == VectorElement::Bit => json!((0..16)
             .map(|b| u8::from((b + i).is_multiple_of(3)))
             .collect::<Vec<_>>()),
-        Some(_) => json!([i as i64, -(i as i64), 127]),
+        // Bytes as a float source gives them: the typed script writes
+        // them as integers.
+        Some(_) => json!([i as f64, 0.0 - i as f64, 127.0]),
         None => Value::Null,
     };
     let mut names = vec!["_id".to_string(), "title".into(), "emb".into()];
@@ -243,9 +298,11 @@ async fn exercise(case: Case, url: &str) {
     })
     .collect();
     // Bit vectors as results show them, one 0 / 1 per dimension: the
-    // session packs them by the mapping when it runs the script.
-    let insert = d.insert_script(&obj(INDEX), &names, &rows).unwrap();
-    run(&mut s, &insert).await;
+    // typed script packs them, so it runs as it is, over plain HTTP.
+    let typed = described(&mut s, INDEX, &names).await;
+    let insert = d.insert_script_typed(&obj(INDEX), &typed, &rows).unwrap();
+    println!("{insert}");
+    raw(url, &insert).await;
 
     // 3. Read back: vector columns marked, cells exact.
     let browse = s.browse_query(&obj(INDEX), 10);
@@ -436,25 +493,43 @@ async fn exercise(case: Case, url: &str) {
     run(&mut s, &update).await;
     let out = run(&mut s, &browse).await;
     assert_eq!(cells(&out, "emb")[1].1, json!("[0.25,0.5,-1]"));
-    // A bit vector edited as the grid shows it.
+    // A bit vector edited as the grid shows it: typed (packed in the
+    // script, run over HTTP), then untyped (packed by the session).
     if let Some((_, m)) = &case.other {
         if m.element == VectorElement::Bit {
-            let bits = json!([0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1]);
+            let change = |bits: Value| {
+                vec![RowChange {
+                    key: vec![("_id".into(), json!("3"))],
+                    set: vec![("other".into(), bits)],
+                    ..Default::default()
+                }]
+            };
+            let typed = described(&mut s, INDEX, &["other".to_string()]).await;
+            let update = d
+                .update_script_typed(
+                    &obj(INDEX),
+                    &change(json!([0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 1])),
+                    &typed,
+                )
+                .unwrap();
+            assert!(update.contains("[96,-15]"), "{update}");
+            raw(url, &update).await;
+            let out = run(&mut s, &browse).await;
+            assert_eq!(
+                cells(&out, "other")[2].1,
+                json!("[0,1,1,0,0,0,0,0,1,1,1,1,0,0,0,1]")
+            );
             let update = d
                 .update_script(
                     &obj(INDEX),
-                    &[RowChange {
-                        key: vec![("_id".into(), json!("3"))],
-                        set: vec![("other".into(), bits)],
-                        ..Default::default()
-                    }],
+                    &change(json!([1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1])),
                 )
                 .unwrap();
             run(&mut s, &update).await;
             let out = run(&mut s, &browse).await;
             assert_eq!(
                 cells(&out, "other")[2].1,
-                json!("[0,1,1,0,0,0,0,0,1,1,1,1,0,0,0,1]")
+                json!("[1,1,0,0,0,0,0,0,0,0,0,0,0,0,1,1]")
             );
         }
     }
@@ -666,6 +741,115 @@ async fn opendistro_vectors() {
     .await;
 }
 
+/// OpenSearch float vector indexes that name no engine, by distance, as
+/// each version's default engine takes them: L2 everywhere; cosine
+/// everywhere, on 2.18 through Lucene, which the session picks there
+/// (Faiss, the default from 2.18, has cosine from 2.19), up to 1536
+/// dimensions; L1, which DBine gives NMSLIB (the only engine with it),
+/// until 3.0, where DBine refuses it before the server does, saying what to
+/// choose. Each one also reads back as made and syncs to nothing.
+#[tokio::test]
+#[ignore]
+async fn opensearch_default_engines() {
+    let Ok(url) = std::env::var("DBINE_TEST_OPENSEARCH_URL") else {
+        return;
+    };
+    let _serial = SERIAL.lock().await;
+    let d = driver("opensearch");
+    let mut s = d
+        .connect(&config("opensearch", &url), None)
+        .await
+        .expect("connect");
+    let version = s.server_version().await.unwrap();
+    println!("{version}");
+    cleanup(&mut s).await;
+    let _guard = Guard {
+        id: "opensearch",
+        url: url.clone(),
+    };
+    let at_least = |v: &str| dbine_driver::functions::version_at_least(&version, v);
+    let on_2_18 = at_least("2.18") && !at_least("2.19");
+    for (metric, dims, takes) in [
+        ("l2", 3, true),
+        ("cosine", 3, true),
+        ("cosine", 1536, true),
+        ("l1", 3, !at_least("3.0")),
+    ] {
+        let table = TableSchema {
+            kind: "index".into(),
+            name: BYTES.into(),
+            columns: vec![
+                col("title", "keyword"),
+                col("emb", &format!("knn_vector({dims})")),
+            ],
+            indexes: vec![IndexDef {
+                name: "emb_idx".into(),
+                columns: vec!["emb".into()],
+                vector: Some(VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some(metric.into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            options: [("number_of_replicas".to_string(), "0".to_string())].into(),
+            ..Default::default()
+        };
+        let parts = DdlParts {
+            drop: true,
+            if_exists: true,
+            create: true,
+            ..Default::default()
+        };
+        let ddl = d.table_ddl(&table, parts).unwrap();
+        let mut out = QueryOutcome::default();
+        let made = s.execute(&ddl, 10, &mut out).await;
+        println!("{metric}({dims}): {made:?} {:?}", out.messages);
+        assert_eq!(
+            made.is_ok(),
+            takes,
+            "{metric}({dims}) on {version}: {made:?}\n{ddl}"
+        );
+        if let Err(e) = &made {
+            // DBine says why, and what to choose, before the server refuses.
+            let e = e.to_string();
+            assert!(e.contains("NMSLIB") && e.contains("Faiss o Lucene"), "{e}");
+        }
+        let lucene = on_2_18 && metric == "cosine";
+        assert_eq!(
+            out.messages.iter().any(|m| m.contains("Lucene")),
+            lucene,
+            "{metric} on {version}: {:?}",
+            out.messages
+        );
+        if takes {
+            let schema = s.database_schema().await.unwrap();
+            let got = schema.iter().find(|t| t.name == BYTES).unwrap();
+            let read = got.indexes[0].vector.clone().unwrap();
+            println!("{metric}({dims}): read back {read:?}");
+            assert_eq!(read.metric.as_deref(), Some(metric));
+            assert_eq!(
+                read.params.get("engine").map(String::as_str) == Some("lucene"),
+                lucene,
+                "{metric} on {version}: {read:?}"
+            );
+            let mut model = got.clone();
+            model.indexes = table.indexes.clone();
+            let same = d
+                .sync_script(&[dbine_driver::TableChange::Alter {
+                    old: got.clone(),
+                    new: model,
+                }])
+                .unwrap();
+            assert!(
+                same.statements.is_empty() && same.warnings.is_empty(),
+                "{metric}: {same:?}"
+            );
+        }
+        cleanup(&mut s).await;
+    }
+}
+
 /// OpenSearch byte and binary vectors whose vector index names no engine
 /// (the designer's default): created, filled as the grid hands them over,
 /// searched, and more of them added to the k-NN index by schema sync.
@@ -675,6 +859,7 @@ async fn opensearch_byte_and_binary_vectors() {
     let Ok(url) = std::env::var("DBINE_TEST_OPENSEARCH_URL") else {
         return;
     };
+    let _serial = SERIAL.lock().await;
     let d = driver("opensearch");
     let mut s = d
         .connect(&config("opensearch", &url), None)
@@ -733,16 +918,18 @@ async fn opensearch_byte_and_binary_vectors() {
             vec![
                 json!(format!("{}", i + 1)),
                 json!(format!("t{i}")),
-                json!([1 + i as i64, -2, 3, 127]),
+                json!([1.0 + i as f64, -2.0, 3.0, 127.0]),
                 bits(i),
             ]
         })
         .collect();
-    run(
-        &mut s,
-        &d.insert_script(&obj(BYTES), &names, &rows).unwrap(),
-    )
-    .await;
+    // Typed as a describe gives them: bits packed and bytes as integers in
+    // the script itself, which runs over plain HTTP.
+    let typed = described(&mut s, BYTES, &names).await;
+    let insert = d.insert_script_typed(&obj(BYTES), &typed, &rows).unwrap();
+    println!("{insert}");
+    assert!(insert.contains(r#""b":[1,-2,3,127]"#), "{insert}");
+    raw(&url, &insert).await;
     let browse = s.browse_query(&obj(BYTES), 10);
     let out = run(&mut s, &browse).await;
     assert_eq!(cells(&out, "b")[0].1, json!("[1,-2,3,127]"));
@@ -825,6 +1012,191 @@ async fn opensearch_byte_and_binary_vectors() {
     cleanup(&mut s).await;
 }
 
+/// Elasticsearch 9.x quantizations and elements DBine writes as given:
+/// a BBQ HNSW index with `rescore_vector` (9.1+ for floats from 64
+/// dimensions), an int8 `flat` index, and a `bfloat16` vector (9.3+): made
+/// from the designer, filled by a typed script, read back with their
+/// element, their indexes listed as the designer wrote them, a sync
+/// against the model with nothing to do, and searched.
+#[tokio::test]
+#[ignore]
+async fn elasticsearch9_quantized_and_bfloat16_vectors() {
+    let Ok(url) = std::env::var("DBINE_TEST_ELASTICSEARCH9_URL") else {
+        return;
+    };
+    let _serial = SERIAL.lock().await;
+    let d = driver("elasticsearch");
+    let mut s = d
+        .connect(&config("elasticsearch", &url), None)
+        .await
+        .expect("connect");
+    let version = s.server_version().await.unwrap();
+    println!("{version}");
+    cleanup(&mut s).await;
+    let _guard = Guard {
+        id: "elasticsearch",
+        url: url.clone(),
+    };
+    let bf16 = dbine_driver::functions::version_at_least(&version, "9.3");
+    let index = |col: &str, vi: VectorIndex| IndexDef {
+        name: format!("{col}_idx"),
+        columns: vec![col.into()],
+        vector: Some(vi),
+        ..Default::default()
+    };
+    let mut columns = vec![
+        col("title", "keyword"),
+        col("q", "dense_vector(64)"),
+        col("f", "dense_vector(4)"),
+    ];
+    let mut indexes = vec![
+        index(
+            "q",
+            vi(
+                "hnsw",
+                "l2",
+                &[
+                    ("quantization", "bbq"),
+                    ("m", "16"),
+                    ("ef_construction", "100"),
+                    ("rescore_vector", r#"{"oversample":3.0}"#),
+                ],
+            ),
+        ),
+        index("f", vi("flat", "l2", &[("quantization", "int8")])),
+    ];
+    if bf16 {
+        columns.push(col("h", "dense_vector(4, bfloat16)"));
+        // By L2: a cosine index keeps the normalized bfloat16 vector and its
+        // length, so 9.2+ (which rebuilds vectors from the index) gives
+        // back `[1.0009766, …]` for `[1, …]`.
+        indexes.push(index("h", vi("hnsw", "l2", &[("quantization", "none")])));
+    }
+    let table = TableSchema {
+        kind: "index".into(),
+        name: INDEX.into(),
+        columns,
+        indexes,
+        options: [("number_of_replicas".to_string(), "0".to_string())].into(),
+        ..Default::default()
+    };
+    let parts = DdlParts {
+        drop: true,
+        if_exists: true,
+        create: true,
+        ..Default::default()
+    };
+    let ddl = d.table_ddl(&table, parts).unwrap();
+    println!("{ddl}");
+    run(&mut s, &ddl).await;
+
+    // Rows typed as a describe gives the columns; values bfloat16 keeps.
+    let mut names: Vec<String> = ["_id", "title", "q", "f"].map(String::from).to_vec();
+    if bf16 {
+        names.push("h".into());
+    }
+    let q = |i: usize| -> Vec<f64> { (0..64).map(|k| ((k + i) % 5) as f64 - 2.0).collect() };
+    let rows: Vec<Vec<Value>> = (0..3)
+        .map(|i| {
+            let mut r = vec![
+                json!((i + 1).to_string()),
+                json!(format!("t{i}")),
+                json!(q(i)),
+                json!([i as f64, 0.5, -0.25, 1.0]),
+            ];
+            if bf16 {
+                r.push(json!([1.0, i as f64, 0.5, -2.0]));
+            }
+            r
+        })
+        .collect();
+    let typed = described(&mut s, INDEX, &names).await;
+    run(
+        &mut s,
+        &d.insert_script_typed(&obj(INDEX), &typed, &rows).unwrap(),
+    )
+    .await;
+    let browse = s.browse_query(&obj(INDEX), 10);
+    let out = run(&mut s, &browse).await;
+    let r = &out.results[0];
+    let meta = |n: &str| {
+        r.columns
+            .iter()
+            .find(|c| c.name == n)
+            .unwrap()
+            .vector
+            .clone()
+    };
+    assert_eq!(
+        meta("q"),
+        Some(VectorMeta::dense(Some(64), VectorElement::F32))
+    );
+    assert_eq!(cells(&out, "f")[2].1, json!("[2,0.5,-0.25,1]"));
+    assert_eq!(
+        cells(&out, "q")[1].1,
+        json!(dbine_driver::vector::text(q(1)))
+    );
+    if bf16 {
+        assert_eq!(
+            meta("h"),
+            Some(VectorMeta::dense(Some(4), VectorElement::Bf16))
+        );
+        assert_eq!(cells(&out, "h")[1].1, json!("[1,1,0.5,-2]"));
+    }
+    let schema = s.database_schema().await.unwrap();
+    let got = schema.iter().find(|t| t.name == INDEX).unwrap();
+    for ix in &table.indexes {
+        let col = &ix.columns[0];
+        let c = got.columns.iter().find(|c| &c.name == col).unwrap();
+        let want_ty = &table
+            .columns
+            .iter()
+            .find(|c| &c.name == col)
+            .unwrap()
+            .data_type;
+        assert_eq!(&c.data_type, want_ty);
+        let read = got
+            .indexes
+            .iter()
+            .find(|i| &i.columns[0] == col)
+            .and_then(|i| i.vector.clone())
+            .unwrap_or_else(|| panic!("{col}: {:?}", got.indexes));
+        let want = ix.vector.as_ref().unwrap();
+        println!("{col}: read back {read:?}");
+        assert_eq!(read.algorithm, want.algorithm, "{col}");
+        assert_eq!(read.metric, want.metric, "{col}");
+        for (k, v) in &want.params {
+            let got_v = read.params.get(k).map(|x| x.replace(' ', ""));
+            assert_eq!(got_v.as_deref(), Some(v.as_str()), "{col}: {k} in {read:?}");
+        }
+    }
+    let mut model = got.clone();
+    model.indexes = table.indexes.clone();
+    let same = d
+        .sync_script(&[dbine_driver::TableChange::Alter {
+            old: got.clone(),
+            new: model,
+        }])
+        .unwrap();
+    assert!(
+        same.statements.is_empty() && same.warnings.is_empty(),
+        "{same:?}"
+    );
+    // Searched: the closest to document 2's vector is document 2.
+    let out = run(
+        &mut s,
+        &format!(
+            "POST /{INDEX}/_search\n{{\"knn\": {{\"field\": \"q\", \"query_vector\": {}, \"k\": 1, \"num_candidates\": 10}}}}",
+            dbine_driver::vector::text(q(1))
+        ),
+    )
+    .await;
+    let r = &out.results[0];
+    let id = r.columns.iter().position(|c| c.name == "_id").unwrap();
+    assert_eq!(r.rows[0][id], json!("2"), "{:?}", r.rows);
+    cleanup(&mut s).await;
+}
+
 /// Elasticsearch 7, whose dense_vector has no ANN index (nor `index`): a
 /// vector field without a vector index is created, filled, read back and
 /// described; one with a vector index is refused by the server.
@@ -834,6 +1206,7 @@ async fn elasticsearch7_vectors() {
     let Ok(url) = std::env::var("DBINE_TEST_ELASTICSEARCH7_URL") else {
         return;
     };
+    let _serial = SERIAL.lock().await;
     let d = driver("elasticsearch");
     let mut s = d
         .connect(&config("elasticsearch", &url), None)
@@ -923,6 +1296,7 @@ async fn elasticsearch_rank_vectors() {
     let Ok(url) = std::env::var("DBINE_TEST_ELASTICSEARCH9_URL") else {
         return;
     };
+    let _serial = SERIAL.lock().await;
     let d = driver("elasticsearch");
     let mut s = d
         .connect(&config("elasticsearch", &url), None)

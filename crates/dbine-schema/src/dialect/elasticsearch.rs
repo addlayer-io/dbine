@@ -150,6 +150,15 @@ impl Search {
         }
     }
 
+    /// The most dimensions a vector field of this flavor takes.
+    fn max_dims(&self) -> u32 {
+        match self.flavor {
+            Flavor::Elastic => 4096,
+            Flavor::OpenSearch => 16_000,
+            Flavor::OpenDistro => 10_000,
+        }
+    }
+
     /// The vector type of this flavor for a logical vector.
     fn render_vector(&self, t: &L) -> Rendered {
         use IssueCode::*;
@@ -162,11 +171,11 @@ impl Search {
         else {
             return Rendered::exact("float");
         };
-        let (base, max) = match self.flavor {
-            Flavor::Elastic => ("dense_vector", 4096),
-            Flavor::OpenSearch => ("knn_vector", 16_000),
-            Flavor::OpenDistro => ("knn_vector", 10_000),
+        let base = match self.flavor {
+            Flavor::Elastic => "dense_vector",
+            _ => "knn_vector",
         };
+        let max = self.max_dims();
         let engine = self.engine();
         if *sparse {
             return super::vector_fallback(self, t);
@@ -202,9 +211,74 @@ impl Search {
                 "{base}({n}, {})",
                 if self.flavor == Flavor::Elastic { "bit" } else { "binary" }
             )),
-            VectorElement::Bit => float().with(Warning, TypeApproximated, format!("Vector de bits como números (0 y 1): {engine} guarda bits solo de a 8 dimensiones, y Open Distro, nunca.")),
+            VectorElement::Bit if self.flavor == Flavor::OpenDistro => float().with(Warning, TypeApproximated, "Vector de bits como números (0 y 1): Open Distro no tiene vectores de bits."),
+            VectorElement::Bit => float().with(Warning, TypeApproximated, format!("Vector de bits como números (0 y 1): {engine} guarda bits solo de a 8 dimensiones.")),
             VectorElement::I8 | VectorElement::U8 => float().with(Info, TypeChanged, "Vector de bytes como números float."),
             VectorElement::I32 => float().with(Loss, PrecisionLoss, "Vector de enteros de 32 bits como float de 32 bits: los valores pasados de 16777216 (2^24) se redondean."),
+        }
+    }
+
+    /// The dimension and element of the vector field a column of logical
+    /// type `column` is on this flavor, or why it isn't one (it renders as
+    /// a list of numbers).
+    fn target_vector(&self, column: &L) -> Result<(Option<u32>, VectorElement), String> {
+        let engine = self.engine();
+        let L::Vector { dims, sparse, .. } = column else {
+            return Err(format!("su columna no es un vector en {engine}"));
+        };
+        let rendered = self.render_type(column);
+        match self.parse_type(&crate::parse::parse(&rendered.native)) {
+            L::Vector { dims, element, .. } => Ok((dims, element)),
+            _ if *sparse => Err(format!(
+                "{engine} no tiene índices vectoriales de vectores dispersos"
+            )),
+            _ if dims.is_none() => Err(format!("{engine} necesita la dimensión del vector")),
+            _ if dims.is_some_and(|d| d > self.max_dims()) => Err(format!(
+                "{engine} admite vectores de hasta {} dimensiones",
+                self.max_dims()
+            )),
+            _ => Err(format!("su columna no es un vector en {engine}")),
+        }
+    }
+
+    /// Takes OpenSearch's own index settings (`index.replication.*`,
+    /// `index.remote_store.*`) out of the index's other settings, as the
+    /// driver reads them (`settings_extra`), each one reported.
+    fn drop_opensearch_settings(&self, t: &mut TableSchema, table: &str, report: &mut Report) {
+        const KEY: &str = "settings_extra";
+        let Some(serde_json::Value::Object(mut extra)) = t
+            .options
+            .get(KEY)
+            .and_then(|s| serde_json::from_str(s).ok())
+        else {
+            return;
+        };
+        let own = |k: &str| {
+            let rel = k.strip_prefix("index.").unwrap_or(k);
+            rel.starts_with("replication.") || rel.starts_with("remote_store.")
+        };
+        let gone: Vec<String> = extra.keys().filter(|k| own(k)).cloned().collect();
+        if gone.is_empty() {
+            return;
+        }
+        for k in &gone {
+            extra.remove(k);
+            report.push(
+                Severity::Info,
+                IssueCode::OptionDropped,
+                table,
+                None,
+                format!(
+                    "{} no tiene el ajuste «{k}» de OpenSearch: se quita.",
+                    self.engine()
+                ),
+            );
+        }
+        if extra.is_empty() {
+            t.options.remove(KEY);
+        } else {
+            t.options
+                .insert(KEY.into(), serde_json::Value::Object(extra).to_string());
         }
     }
 
@@ -364,32 +438,55 @@ impl Dialect for Search {
                 c.options.insert("format".into(), DATE_FORMAT.into());
             }
         }
+        // OpenSearch writes its replication type into every index's
+        // settings (and remote-backed storage there too): Elasticsearch
+        // and Open Distro refuse an index with settings they don't know.
+        if self.flavor != Flavor::OpenSearch {
+            self.drop_opensearch_settings(t, &source_name, report);
+        }
         // A vector from another of these flavors (one dialect, so its type
         // came as it was): this flavor's vector type, and its index in
-        // this flavor's terms.
+        // this flavor's terms. Open Distro checks its own spelling too:
+        // OpenSearch's `knn_vector` may be byte or binary, or have more
+        // dimensions than Open Distro takes, and its index may use what
+        // Open Distro lacks; so on Open Distro every vector index is
+        // mapped (its own settings map to themselves).
         let own = match self.flavor {
             Flavor::Elastic => "dense_vector",
             _ => "knn_vector",
         };
-        let mut moved: Vec<String> = Vec::new();
+        let mut moved: Vec<(String, L)> = Vec::new();
         for c in &mut t.columns {
             let spec = crate::parse::parse(&c.data_type);
-            if !matches!(spec.name.as_str(), "dense_vector" | "knn_vector") || spec.name == own {
+            if !matches!(spec.name.as_str(), "dense_vector" | "knn_vector")
+                || (spec.name == own && self.flavor != Flavor::OpenDistro)
+            {
                 continue;
             }
-            let r = self.render_type(&self.parse_type(&spec));
-            for n in r.notes {
-                report.push(n.severity, n.code, &source_name, Some(&c.name), n.message);
+            let source = self.parse_type(&spec);
+            let r = self.render_type(&source);
+            if spec.name != own || self.parse_type(&crate::parse::parse(&r.native)) != source {
+                for n in r.notes {
+                    report.push(n.severity, n.code, &source_name, Some(&c.name), n.message);
+                }
+                c.data_type = r.native;
             }
-            c.data_type = r.native;
-            moved.push(c.name.clone());
+            moved.push((c.name.clone(), source));
         }
         for ix in &mut t.indexes {
-            let on_moved = ix.columns.first().is_some_and(|c| moved.contains(c));
-            let Some(v) = ix.vector.as_ref().filter(|_| on_moved) else {
+            let column = ix
+                .columns
+                .first()
+                .and_then(|c| moved.iter().find(|(m, _)| m == c))
+                .map(|(_, l)| l);
+            let Some((v, column)) = ix.vector.as_ref().zip(column) else {
                 continue;
             };
-            match self.vector_index(v, &super::VectorIndexCtx::default()) {
+            let ctx = super::VectorIndexCtx {
+                column: Some(column),
+                ..Default::default()
+            };
+            match self.vector_index(v, &ctx) {
                 Ok(m) => {
                     ix.kind = m.kind;
                     ix.vector = Some(m.index);
@@ -444,7 +541,17 @@ impl Dialect for Search {
                     format!("«{col}» ya tiene su índice vectorial"),
                 ))
             } else {
-                None
+                // Open Distro's distance and HNSW parameters are the whole
+                // index's settings: the first vector index sets them.
+                kept.first()
+                    .filter(|k| self.flavor == Flavor::OpenDistro && od_settings(k) != od_settings(&ix))
+                    .map(|first| (
+                        Severity::Dropped,
+                        format!(
+                            "en Open Distro la distancia y los parámetros k-NN son de todo el índice, y ya los fija «{}»",
+                            first.name
+                        ),
+                    ))
             };
             match why {
                 Some((sev, why)) => report.push(
@@ -466,15 +573,48 @@ impl Dialect for Search {
 
     /// Another engine's vector index as a field's ANN index: HNSW (or
     /// Elasticsearch's `flat`) with `m` and `ef_construction`; the inner
-    /// product that takes any vector (`max_inner_product`).
+    /// product that takes any vector (`max_inner_product`). With the
+    /// column's type, what its vector field is here decides: bit (binary)
+    /// vectors are searched by Hamming (their L2 ranks the same) and only
+    /// they are; OpenSearch searches bytes with Lucene, which has no L1;
+    /// Elasticsearch quantizes only floats, int4 an even dimension and BBQ
+    /// from 64. A column that isn't a vector field here has none.
     fn vector_index(
         &self,
         v: &VectorIndex,
         ctx: &super::VectorIndexCtx<'_>,
     ) -> Result<super::VectorIndexMapping, String> {
-        let _ = ctx;
+        let column = ctx.column;
+        let engine = self.engine();
+        let mut notes = Vec::new();
+        let target = column.map(|c| self.target_vector(c)).transpose()?;
+        let bits = target.is_some_and(|(_, e)| e == VectorElement::Bit);
+        let bytes = target.is_some_and(|(_, e)| e == VectorElement::I8);
         let metric = match v.metric.as_deref().map(str::to_ascii_lowercase).as_deref() {
             None => None,
+            Some("hamming") if bits => Some("hamming"),
+            Some(x @ "l2") if bits => {
+                notes.push(format!(
+                        "la distancia {x} queda hamming: sobre vectores binarios (bit) los vecinos más cercanos son los mismos"
+                    ));
+                Some("hamming")
+            }
+            Some(m) if bits => {
+                return Err(format!(
+                    "{engine} busca los vectores de bits solo por distancia de Hamming, no «{m}»"
+                ))
+            }
+            Some("hamming") if target.is_some() => {
+                return Err(format!(
+                    "en {engine} la distancia de Hamming es solo de vectores de bits"
+                ))
+            }
+            Some("l1") if bytes && self.flavor == Flavor::OpenSearch => {
+                return Err(
+                    "OpenSearch busca los vectores byte con Lucene, que no tiene la distancia «l1»"
+                        .into(),
+                )
+            }
             Some("cosine") => Some("cosine"),
             Some("l2") => Some("l2"),
             Some("ip") if self.flavor == Flavor::Elastic => Some("max_inner_product"),
@@ -483,8 +623,7 @@ impl Dialect for Search {
             Some("l1") if self.flavor != Flavor::Elastic => Some("l1"),
             Some(m) => {
                 return Err(format!(
-                    "{} no tiene la distancia «{m}» en sus índices vectoriales",
-                    self.engine()
+                    "{engine} no tiene la distancia «{m}» en sus índices vectoriales"
                 ))
             }
         };
@@ -511,24 +650,58 @@ impl Dialect for Search {
             }
         }
         if self.flavor == Flavor::Elastic {
+            // Quantized floats only: int4 needs an even dimension, BBQ 64
+            // or more.
+            let fits = |q: &str| match target {
+                None => true,
+                Some((dims, e)) => {
+                    matches!(e, VectorElement::F32 | VectorElement::Bf16)
+                        && match q {
+                            "int4" => dims.is_some_and(|d| d.is_multiple_of(2)),
+                            "bbq" => dims.is_some_and(|d| d >= 64),
+                            _ => true,
+                        }
+                }
+            };
             if let Some(q) = v
                 .params
                 .get(param::QUANTIZATION)
                 .map(|q| q.to_ascii_lowercase())
-                .filter(|q| matches!(q.as_str(), "int8" | "int4" | "bbq"))
+                .filter(|q| matches!(q.as_str(), "int8" | "int4" | "bbq") && fits(q))
             {
                 params.insert(param::QUANTIZATION.to_string(), q);
             }
         }
-        Ok(super::VectorIndexMapping::new(
+        let mut mapping = super::VectorIndexMapping::new(
             None,
             VectorIndex {
                 algorithm: Some(algorithm.to_string()),
                 metric: metric.map(str::to_string),
                 params,
             },
-        ))
+        );
+        mapping.notes = notes;
+        Ok(mapping)
     }
+}
+
+/// What an Open Distro vector index sets for its whole index: the distance
+/// (`l2` when none is named, the engine's default) and the HNSW
+/// parameters.
+fn od_settings(ix: &dbine_driver::IndexDef) -> (String, Vec<(String, String)>) {
+    let v = ix.vector.clone().unwrap_or_default();
+    let metric = v
+        .metric
+        .map(|m| m.trim().to_ascii_lowercase())
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| "l2".into());
+    let params = v
+        .params
+        .into_iter()
+        .map(|(k, x)| (k, x.trim().to_string()))
+        .filter(|(_, x)| !x.is_empty())
+        .collect();
+    (metric, params)
 }
 
 /// An index name Elasticsearch accepts: lower case, without `\ / * ? " < >
@@ -946,6 +1119,235 @@ mod tests {
         );
     }
 
+    #[test]
+    fn vector_indexes_follow_the_column() {
+        let es = lookup("elasticsearch").unwrap();
+        let os = lookup("opensearch").unwrap();
+        let od = lookup("opendistro").unwrap();
+        let ix = |metric: &str, params: &[(&str, &str)]| VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some(metric.into()),
+            params: params
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        };
+        let vec = |dims: u32, element| L::Vector {
+            dims: Some(dims),
+            element,
+            sparse: false,
+        };
+        let metric = |d: &dyn Dialect, v: VectorIndex, c: L| {
+            d.vector_index_pair(&v, Some(&c))
+                .map(|(_, v)| v.metric.unwrap_or_default())
+        };
+        // Bits: Hamming (their L2 ranks the same), nothing else; only where
+        // the column stays a bit vector (by eights, never on Open Distro).
+        let bits = vec(16, VectorElement::Bit);
+        for d in [es, os] {
+            assert_eq!(
+                metric(d, ix("hamming", &[]), bits.clone()).unwrap(),
+                "hamming"
+            );
+            assert_eq!(metric(d, ix("l2", &[]), bits.clone()).unwrap(), "hamming");
+            assert!(metric(d, ix("cosine", &[]), bits.clone())
+                .unwrap_err()
+                .contains("Hamming"));
+            assert!(metric(d, ix("hamming", &[]), vec(3, VectorElement::F32)).is_err());
+        }
+        assert!(metric(es, ix("hamming", &[]), vec(10, VectorElement::Bit)).is_err());
+        assert!(metric(od, ix("hamming", &[]), bits.clone()).is_err());
+        assert_eq!(metric(od, ix("l2", &[]), bits).unwrap(), "l2");
+        // OpenSearch searches bytes with Lucene: no L1 there.
+        assert!(metric(os, ix("l1", &[]), vec(3, VectorElement::I8)).is_err());
+        assert_eq!(
+            metric(os, ix("l1", &[]), vec(3, VectorElement::F32)).unwrap(),
+            "l1"
+        );
+        assert_eq!(
+            metric(os, ix("cosine", &[]), vec(3, VectorElement::I8)).unwrap(),
+            "cosine"
+        );
+        // Elasticsearch quantizes floats only, int4 an even dimension, BBQ
+        // from 64.
+        let quant = |q: &str, c: L| {
+            es.vector_index_pair(&ix("cosine", &[("quantization", q)]), Some(&c))
+                .unwrap()
+                .1
+                .params
+                .get("quantization")
+                .cloned()
+        };
+        assert_eq!(
+            quant("int4", vec(4, VectorElement::F32)).as_deref(),
+            Some("int4")
+        );
+        assert_eq!(quant("int4", vec(3, VectorElement::F32)), None);
+        assert_eq!(quant("bbq", vec(32, VectorElement::F32)), None);
+        assert_eq!(
+            quant("bbq", vec(64, VectorElement::F32)).as_deref(),
+            Some("bbq")
+        );
+        assert_eq!(quant("int8", vec(3, VectorElement::I8)), None);
+        assert_eq!(
+            quant("int8", vec(3, VectorElement::F16)).as_deref(),
+            Some("int8")
+        );
+        // A column that isn't a vector field here has no vector index.
+        let free = L::Vector {
+            dims: None,
+            element: VectorElement::F32,
+            sparse: false,
+        };
+        assert!(os
+            .vector_index_pair(&ix("l2", &[]), Some(&free))
+            .unwrap_err()
+            .contains("dimensión"));
+        assert!(es.vector_index_pair(&ix("l2", &[]), Some(&free)).is_ok());
+        assert!(es
+            .vector_index_pair(&ix("l2", &[]), Some(&vec(5000, VectorElement::F32)))
+            .is_err());
+        let sparse = L::Vector {
+            dims: Some(100),
+            element: VectorElement::F32,
+            sparse: true,
+        };
+        assert!(es
+            .vector_index_pair(&ix("ip", &[]), Some(&sparse))
+            .unwrap_err()
+            .contains("dispersos"));
+        assert!(es
+            .vector_index_pair(&ix("l2", &[]), Some(&L::Text { unicode: true }))
+            .is_err());
+    }
+
+    #[test]
+    fn foreign_vectors_move_by_their_column() {
+        let one = |src: &str, ty: &str, v: VectorIndex, dst: &str| {
+            let t = TableSchema {
+                kind: "table".into(),
+                name: "items".into(),
+                columns: vec![dbine_driver::ColumnDef {
+                    name: "emb".into(),
+                    data_type: ty.into(),
+                    ..Default::default()
+                }],
+                indexes: vec![dbine_driver::IndexDef {
+                    name: "items_emb".into(),
+                    columns: vec!["emb".into()],
+                    vector: Some(v),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            };
+            crate::convert(&[t], src, dst, &Default::default()).unwrap()
+        };
+        let l2 = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("l2".into()),
+            ..Default::default()
+        };
+        // MongoDB's bit vectors searched by euclidean distance: Hamming on
+        // the bit vectors of Elasticsearch and OpenSearch, L2 on the float
+        // ones of Open Distro and Solr.
+        for (dst, ty, metric) in [
+            ("elasticsearch", "dense_vector(16, bit)", "hamming"),
+            ("opensearch", "knn_vector(16, binary)", "hamming"),
+            ("opendistro", "knn_vector(16)", "l2"),
+            ("solr", "knn_vector(16)", "l2"),
+        ] {
+            let c = one("mongodb", "vector(16, bit)", l2.clone(), dst);
+            let t = &c.tables[0];
+            assert_eq!(t.columns[0].data_type, ty, "{dst}");
+            assert_eq!(
+                t.indexes[0]
+                    .vector
+                    .as_ref()
+                    .and_then(|v| v.metric.as_deref()),
+                Some(metric),
+                "{dst}: {:?}",
+                c.issues
+            );
+        }
+        // By cosine, bits have no vector index on Elasticsearch.
+        let cosine = VectorIndex {
+            metric: Some("cosine".into()),
+            ..l2.clone()
+        };
+        let c = one("mongodb", "vector(16, bit)", cosine, "elasticsearch");
+        assert!(c.tables[0].indexes.is_empty());
+        assert!(
+            c.issues.iter().any(|i| i.severity == Severity::Dropped
+                && i.object.as_deref() == Some("items_emb")
+                && i.message.contains("Hamming")),
+            "{:?}",
+            c.issues
+        );
+        // A ClickHouse array searched by a vector index that states its
+        // dimension: a vector field with its index.
+        let ch = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("cosine".into()),
+            params: [("dimensions".to_string(), "3".to_string())].into(),
+        };
+        for (dst, ty) in [
+            ("elasticsearch", "dense_vector(3)"),
+            ("opensearch", "knn_vector(3)"),
+            ("solr", "knn_vector(3)"),
+        ] {
+            let c = one("clickhouse", "Array(Float32)", ch.clone(), dst);
+            let t = &c.tables[0];
+            assert_eq!(t.columns[0].data_type, ty, "{dst}");
+            assert_eq!(t.indexes.len(), 1, "{dst}: {:?}", c.issues);
+        }
+        // pgvector's vector(3) with an int4-quantized index: Elasticsearch
+        // leaves the quantization to the engine (int4 needs an even
+        // dimension).
+        let q = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("cosine".into()),
+            params: [("quantization".to_string(), "int4".to_string())].into(),
+        };
+        let c = one("postgres", "vector(3)", q, "elasticsearch");
+        let v = c.tables[0].indexes[0].vector.clone().unwrap();
+        assert!(!v.params.contains_key("quantization"), "{v:?}");
+        // Between these engines too: Elasticsearch's bit vectors (l2_norm
+        // is Hamming) keep it on OpenSearch and lose the index on Open
+        // Distro, which has no bit vectors.
+        let hamming = VectorIndex {
+            algorithm: Some("hnsw".into()),
+            metric: Some("hamming".into()),
+            ..Default::default()
+        };
+        let os = one(
+            "elasticsearch",
+            "dense_vector(16, bit)",
+            hamming.clone(),
+            "opensearch",
+        );
+        assert_eq!(
+            os.tables[0].indexes[0]
+                .vector
+                .as_ref()
+                .and_then(|v| v.metric.as_deref()),
+            Some("hamming")
+        );
+        let od = one(
+            "elasticsearch",
+            "dense_vector(16, bit)",
+            hamming,
+            "opendistro",
+        );
+        assert!(od.tables[0].indexes.is_empty());
+        assert!(
+            od.issues
+                .iter()
+                .any(|i| i.severity == Severity::Dropped && i.message.contains("Hamming")),
+            "{:?}",
+            od.issues
+        );
+    }
+
     fn table(ty: &str, vector: Option<VectorIndex>) -> TableSchema {
         TableSchema {
             kind: "table".into(),
@@ -1043,6 +1445,228 @@ mod tests {
             "{:?}",
             c.issues
         );
+    }
+
+    #[test]
+    fn opensearch_vectors_move_to_open_distro_as_it_takes_them() {
+        let index =
+            |name: &str, col: &str, metric: &str, params: &[(&str, &str)]| dbine_driver::IndexDef {
+                name: name.into(),
+                columns: vec![col.into()],
+                vector: Some(VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some(metric.into()),
+                    params: params
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect(),
+                }),
+                ..Default::default()
+            };
+        let one = |ty: &str, ix: dbine_driver::IndexDef, dst: &str| {
+            let mut t = table(ty, None);
+            t.indexes = vec![ix];
+            crate::convert(&[t], "opensearch", dst, &Default::default()).unwrap()
+        };
+        let dropped = |c: &crate::Conversion, why: &str| {
+            c.issues.iter().any(|i| {
+                i.severity == Severity::Dropped
+                    && i.object.as_deref() == Some("items_emb")
+                    && i.message.contains(why)
+            })
+        };
+        // Binary vectors: Open Distro has floats only, and Hamming only
+        // for bits.
+        let c = one(
+            "knn_vector(16, binary)",
+            index("items_emb", "emb", "hamming", &[("engine", "faiss")]),
+            "opendistro",
+        );
+        let t = &c.tables[0];
+        assert_eq!(t.columns[1].data_type, "knn_vector(16)");
+        assert!(t.indexes.is_empty(), "{:?}", t.indexes);
+        assert!(dropped(&c, "Hamming"), "{:?}", c.issues);
+        assert!(
+            c.issues
+                .iter()
+                .any(|i| i.object.as_deref() == Some("emb") && i.severity == Severity::Warning),
+            "{:?}",
+            c.issues
+        );
+        // Byte vectors become floats and keep their index, in Open
+        // Distro's terms (no engine).
+        let c = one(
+            "knn_vector(3, byte)",
+            index(
+                "items_emb",
+                "emb",
+                "l2",
+                &[("engine", "lucene"), ("m", "8")],
+            ),
+            "opendistro",
+        );
+        let t = &c.tables[0];
+        assert_eq!(t.columns[1].data_type, "knn_vector(3)");
+        assert_eq!(
+            t.indexes[0].vector,
+            Some(VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("l2".into()),
+                params: [("m".to_string(), "8".to_string())].into(),
+            })
+        );
+        // More dimensions than Open Distro takes: not a vector there.
+        let c = one(
+            "knn_vector(12000)",
+            index("items_emb", "emb", "l2", &[]),
+            "opendistro",
+        );
+        assert!(!c.tables[0].columns[1].data_type.starts_with("knn_vector"));
+        assert!(c.tables[0].indexes.is_empty());
+        assert!(dropped(&c, "10000 dimensiones"), "{:?}", c.issues);
+        // A float vector keeps its type; its index loses what Open Distro
+        // lacks: the engine, `mode`, the inner product and L∞.
+        let c = one(
+            "knn_vector(3)",
+            index(
+                "items_emb",
+                "emb",
+                "cosine",
+                &[("engine", "faiss"), ("m", "24"), ("mode", "on_disk")],
+            ),
+            "opendistro",
+        );
+        let t = &c.tables[0];
+        assert_eq!(t.columns[1].data_type, "knn_vector(3)");
+        assert_eq!(
+            t.indexes[0].vector,
+            Some(VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                params: [("m".to_string(), "24".to_string())].into(),
+            })
+        );
+        for m in ["ip", "linf"] {
+            let c = one(
+                "knn_vector(3)",
+                index("items_emb", "emb", m, &[]),
+                "opendistro",
+            );
+            assert!(c.tables[0].indexes.is_empty(), "{m}");
+            assert!(dropped(&c, &format!("«{m}»")), "{m}: {:?}", c.issues);
+        }
+        // Open Distro's distance and parameters belong to the whole index:
+        // a second vector field searched otherwise loses its index.
+        let mut t = table("knn_vector(3)", None);
+        t.columns.push(dbine_driver::ColumnDef {
+            name: "emb2".into(),
+            data_type: "knn_vector(3)".into(),
+            ..Default::default()
+        });
+        t.indexes = vec![
+            index("items_emb", "emb", "cosine", &[]),
+            index("items_emb2", "emb2", "l2", &[]),
+        ];
+        let c = crate::convert(
+            &[t.clone()],
+            "opensearch",
+            "opendistro",
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(c.tables[0].indexes.len(), 1, "{:?}", c.tables[0].indexes);
+        assert!(
+            c.issues
+                .iter()
+                .any(|i| i.object.as_deref() == Some("items_emb2")
+                    && i.severity == Severity::Dropped
+                    && i.message.contains("«items_emb»")),
+            "{:?}",
+            c.issues
+        );
+        // OpenSearch keeps both, and its own settings as they are.
+        let c = crate::convert(&[t], "opensearch", "opensearch", &Default::default()).unwrap();
+        assert_eq!(c.tables[0].indexes.len(), 2);
+        let c = one(
+            "knn_vector(16, binary)",
+            index("items_emb", "emb", "hamming", &[("engine", "faiss")]),
+            "opensearch",
+        );
+        assert_eq!(c.tables[0].columns[1].data_type, "knn_vector(16, binary)");
+        assert_eq!(
+            c.tables[0].indexes[0]
+                .vector
+                .as_ref()
+                .and_then(|v| v.params.get("engine"))
+                .map(String::as_str),
+            Some("faiss")
+        );
+        // Open Distro to Open Distro: its own settings map to themselves.
+        let own = index(
+            "items_emb",
+            "emb",
+            "l1",
+            &[("m", "8"), ("ef_construction", "256")],
+        );
+        let mut t = table("knn_vector(3)", None);
+        t.indexes = vec![own.clone()];
+        let c = crate::convert(&[t], "opendistro", "opendistro", &Default::default()).unwrap();
+        assert_eq!(c.tables[0].columns[1].data_type, "knn_vector(3)");
+        assert_eq!(c.tables[0].indexes[0].vector, own.vector);
+        assert!(
+            !c.issues
+                .iter()
+                .any(|i| matches!(i.object.as_deref(), Some("emb" | "items_emb"))
+                    && i.code != IssueCode::NullabilityChanged),
+            "{:?}",
+            c.issues
+        );
+    }
+
+    #[test]
+    fn opensearch_settings_stay_on_opensearch() {
+        let mut t = table("knn_vector(3)", None);
+        t.options.insert(
+            "settings_extra".into(),
+            r#"{"index.max_result_window":"50000","index.replication.type":"DOCUMENT","index.remote_store.enabled":"false"}"#.into(),
+        );
+        for dst in ["opendistro", "elasticsearch"] {
+            let c = crate::convert(&[t.clone()], "opensearch", dst, &Default::default()).unwrap();
+            assert_eq!(
+                c.tables[0]
+                    .options
+                    .get("settings_extra")
+                    .map(String::as_str),
+                Some(r#"{"index.max_result_window":"50000"}"#),
+                "{dst}"
+            );
+            assert_eq!(
+                c.issues
+                    .iter()
+                    .filter(
+                        |i| i.code == IssueCode::OptionDropped && i.message.contains("OpenSearch")
+                    )
+                    .count(),
+                2,
+                "{dst}: {:?}",
+                c.issues
+            );
+        }
+        let c = crate::convert(
+            &[t.clone()],
+            "opensearch",
+            "opensearch",
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(c.tables[0].options, t.options);
+        // Nothing else left: the option goes.
+        t.options.insert(
+            "settings_extra".into(),
+            r#"{"index.replication.type":"DOCUMENT"}"#.into(),
+        );
+        let c = crate::convert(&[t], "opensearch", "opendistro", &Default::default()).unwrap();
+        assert!(!c.tables[0].options.contains_key("settings_extra"));
     }
 
     #[test]

@@ -506,6 +506,58 @@ pub fn update_script(
     Ok(reqs.join("\n\n"))
 }
 
+/// [`update_script`] knowing the columns' types: BYTE vectors are written
+/// as integers, and a value Solr would change without a word (a fraction,
+/// past -128..127) is an error (see [`vectors::script_bytes_value`]).
+pub fn insert_script_typed(
+    target: &ObjectRef,
+    columns: &[dbine_driver::ResultColumn],
+    rows: &[Vec<Value>],
+) -> Result<String> {
+    let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+    let bytes: Vec<bool> = columns.iter().map(vectors::script_bytes).collect();
+    let rows = rows
+        .iter()
+        .map(|r| {
+            r.iter()
+                .enumerate()
+                .map(|(i, v)| match (bytes.get(i), names.get(i)) {
+                    (Some(true), Some(n)) => {
+                        Ok(vectors::script_bytes_value(n, v)?.unwrap_or_else(|| v.clone()))
+                    }
+                    _ => Ok(v.clone()),
+                })
+                .collect::<Result<Vec<Value>>>()
+        })
+        .collect::<Result<Vec<_>>>()?;
+    update_script(target, &names, &rows)
+}
+
+/// [`atomic_update_script`] knowing the columns' types (by name), with
+/// BYTE vectors as in [`insert_script_typed`].
+pub fn atomic_update_script_typed(
+    target: &ObjectRef,
+    changes: &[RowChange],
+    types: &[dbine_driver::ResultColumn],
+) -> Result<String> {
+    let bytes: Vec<&str> = types
+        .iter()
+        .filter(|c| vectors::script_bytes(c))
+        .map(|c| c.name.as_str())
+        .collect();
+    let mut changes = changes.to_vec();
+    for ch in &mut changes {
+        for (c, v) in &mut ch.set {
+            if bytes.contains(&c.as_str()) {
+                if let Some(ints) = vectors::script_bytes_value(c, v)? {
+                    *v = ints;
+                }
+            }
+        }
+    }
+    atomic_update_script(target, &changes)
+}
+
 /// Edited documents as one `update` request of atomic updates
 /// (`{"id": …, "field": {"set": …}}`) with a commit. The key has to be the
 /// collection's uniqueKey (a single field); `{"set": null}` removes a field.
@@ -1157,6 +1209,73 @@ mod tests {
             ..Default::default()
         }];
         assert!(atomic_update_script(&target, &keyless).is_err());
+    }
+
+    #[test]
+    fn typed_scripts_write_byte_vectors_as_integers() {
+        use dbine_driver::{ResultColumn, VectorElement, VectorMeta};
+        let target = ObjectRef {
+            kind: kinds::COLLECTION.into(),
+            schema: None,
+            name: "v".into(),
+        };
+        // Typed as a describe (type only) and as a result (type and meta).
+        let columns = vec![
+            ResultColumn::new("id", "string"),
+            ResultColumn::new("b", "knn_vector(3, BYTE)"),
+            ResultColumn::new("m", "").with_vector(VectorMeta::dense(Some(3), VectorElement::I8)),
+            ResultColumn::new("f", "knn_vector(3)")
+                .with_vector(VectorMeta::dense(Some(3), VectorElement::F32)),
+        ];
+        let row = vec![
+            json!("1"),
+            json!([1.0, -128.0, 127.0]),
+            json!("[4,5,6]"),
+            json!([1.0, 0.5, 2.0]),
+        ];
+        let text = insert_script_typed(&target, &columns, &[row]).unwrap();
+        assert!(
+            text.contains(r#"{"id":"1","b":[1,-128,127],"m":[4,5,6],"f":[1.0,0.5,2.0]}"#),
+            "{text}"
+        );
+        // A null stays out; a value Solr would truncate or wrap is refused.
+        let row = vec![json!("2"), Value::Null, Value::Null, Value::Null];
+        assert!(insert_script_typed(&target, &columns, &[row])
+            .unwrap()
+            .contains(r#"{"id":"2"}"#));
+        for bad in [json!([1.5, 0, 0]), json!([200, 0, 0])] {
+            let err = insert_script_typed(&target, &columns, &[vec![json!("3"), bad]])
+                .unwrap_err()
+                .to_string();
+            assert!(err.contains("«b»"), "{err}");
+        }
+        // Untyped, the numbers go as they are.
+        let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+        assert!(
+            update_script(&target, &names, &[vec![json!("4"), json!([1.0, 2.0, 3.0])]])
+                .unwrap()
+                .contains(r#""b":[1.0,2.0,3.0]"#)
+        );
+        // Atomic updates, typed by name.
+        let changes = vec![RowChange {
+            key: vec![("id".into(), json!("1"))],
+            set: vec![
+                ("b".into(), json!([7.0, 8.0, -9.0])),
+                ("f".into(), json!([0.25, 1.0, 2.0])),
+            ],
+            ..Default::default()
+        }];
+        assert_eq!(
+            atomic_update_script_typed(&target, &changes, &columns).unwrap(),
+            "POST /solr/v/update?commit=true\n[\n{\"id\":\"1\",\"b\":{\"set\":[7,8,-9]},\"f\":{\"set\":[0.25,1.0,2.0]}}\n]"
+        );
+        let changes = vec![RowChange {
+            key: vec![("id".into(), json!("1"))],
+            set: vec![("b".into(), json!([0.5, 0, 0]))],
+            ..Default::default()
+        }];
+        assert!(atomic_update_script_typed(&target, &changes, &columns).is_err());
+        assert!(atomic_update_script_typed(&target, &changes, &[]).is_ok());
     }
 
     #[test]
