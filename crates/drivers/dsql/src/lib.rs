@@ -21,8 +21,13 @@ mod permissions;
 #[allow(dead_code)]
 #[path = "../../postgres/src/pg_functions.rs"]
 mod pg_functions;
+// What an object uses from pg_depend, shared with the PostgreSQL driver.
+#[allow(dead_code)]
+#[path = "../../postgres/src/pg_references.rs"]
+mod pg_references;
 mod plan;
 mod processes;
+mod references;
 mod rename;
 #[path = "../../postgres/src/rustls_connect.rs"]
 mod rustls_connect;
@@ -1360,6 +1365,15 @@ impl Session for DsqlSession {
         table: &ObjectRef,
     ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         index_usage::report(&self.client, table).await.map(Some)
+    }
+
+    /// `pg_depend` plus the definition's text (see `references`).
+    async fn references(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        references::references(self, target, scan).await
     }
 }
 

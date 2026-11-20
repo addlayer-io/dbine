@@ -504,7 +504,7 @@ fn num(r: &SimpleQueryRow, name: &str) -> u64 {
 }
 
 /// Foreign key rows grouped by constraint.
-fn group_foreign_keys(rows: &[SimpleQueryRow]) -> Vec<ForeignKeyDef> {
+pub(crate) fn group_foreign_keys(rows: &[SimpleQueryRow]) -> Vec<ForeignKeyDef> {
     let mut out: Vec<ForeignKeyDef> = Vec::new();
     for r in rows {
         let name = cell(r, "con");
