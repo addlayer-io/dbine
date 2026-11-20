@@ -1,5 +1,6 @@
 {
   "menu": "View dependencies…",
+  "lineageMenu": "View lineage…",
   "tab": "Dependencies",
   "refresh": "Refresh",
   "copy": "Copy",
@@ -8,6 +9,9 @@
   "outside": "Only what is in the database is visible: applications, reports and external scripts that use it do not appear here.",
   "unreadable": "The definition of {{names}} could not be read. Whatever depends on the object there is not in the list.",
   "none": "Nothing in the database depends on this object.",
+  "usesTitle": "What it uses",
+  "usedByTitle": "What uses it",
+  "usesNone": "It doesn't use other objects in the database.",
   "on": "on {{parent}}",
   "dynamic": "Dynamic SQL",
   "relation": {
@@ -15,6 +19,12 @@
     "index": "Indexes and primary keys",
     "check": "CHECK constraints",
     "code": "Views, routines and triggers"
+  },
+  "relationUses": {
+    "foreign_key": "Tables its foreign keys point to",
+    "index": "Indexes",
+    "check": "CHECK constraints",
+    "code": "Tables, views and routines its code names"
   },
   "confidence": {
     "confirmed": "Confirmed",
@@ -37,5 +47,23 @@
     "synonym": "Synonym",
     "type": "Type",
     "sequence": "Sequence"
+  },
+  "view": {
+    "label": "View",
+    "list": "List",
+    "lineage": "Lineage"
+  },
+  "lineage": {
+    "search": "Search the diagram",
+    "hint": "Click: details · double-click: open · + on the sides: one more level",
+    "loadUses": "Show what it uses",
+    "loadUsedBy": "Show what uses it",
+    "error": "Couldn't read: {{error}}",
+    "capped": "The diagram reached {{n}} objects and adds no more: open the lineage of one of them to continue from there.",
+    "external": "External source",
+    "open": "Open",
+    "recenter": "View its lineage",
+    "uses": "Uses",
+    "usedBy": "Used by"
   }
 }

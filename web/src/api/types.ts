@@ -1007,6 +1007,20 @@ export interface DependencyReport {
   /** Objects whose definition couldn't be read. */
   unreadable: string[];
   note: string | null;
+  /** `getReferences`: what the target reads from outside the database. */
+  external?: ExternalRef[];
+}
+
+/** A source outside the database (`dbine_driver::ExternalRef`): a Power BI
+ *  partition's, a linked server, a foreign table's remote one. */
+export interface ExternalRef {
+  system?: string | null;
+  server?: string | null;
+  database?: string | null;
+  schema?: string | null;
+  name?: string | null;
+  detail?: string | null;
+  mentions?: Mention[];
 }
 
 /** What "Renombrar…" renames (`dbine_driver::RenameTarget`). */

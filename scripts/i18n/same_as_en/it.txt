@@ -377,3 +377,4 @@ vectors.json:metric.hamming
 vectors.json:metric.jaccard
 vectors.json:metricShort.hamming
 vectors.json:metricShort.jaccard
+dependencies.json:view.lineage

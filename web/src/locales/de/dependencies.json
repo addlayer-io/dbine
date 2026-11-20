@@ -1,5 +1,6 @@
 {
   "menu": "Abhängigkeiten anzeigen…",
+  "lineageMenu": "Lineage anzeigen…",
   "tab": "Abhängigkeiten",
   "refresh": "Aktualisieren",
   "copy": "Kopieren",
@@ -8,6 +9,9 @@
   "outside": "Sichtbar ist nur, was in der Datenbank liegt: Anwendungen, Berichte und externe Skripte, die sie verwenden, erscheinen hier nicht.",
   "unreadable": "Die Definition von {{names}} konnte nicht gelesen werden. Was dort vom Objekt abhängt, steht nicht in der Liste.",
   "none": "Nichts in der Datenbank hängt von diesem Objekt ab.",
+  "usesTitle": "Verwendet",
+  "usedByTitle": "Wird verwendet von",
+  "usesNone": "Es verwendet keine anderen Objekte der Datenbank.",
   "on": "auf {{parent}}",
   "dynamic": "Dynamisches SQL",
   "relation": {
@@ -15,6 +19,12 @@
     "index": "Indizes und Primärschlüssel",
     "check": "CHECK-Einschränkungen",
     "code": "Sichten, Routinen und Trigger"
+  },
+  "relationUses": {
+    "foreign_key": "Tabellen, auf die seine Fremdschlüssel verweisen",
+    "index": "Indizes",
+    "check": "CHECK-Constraints",
+    "code": "Tabellen, Sichten und Routinen, die sein Code nennt"
   },
   "confidence": {
     "confirmed": "Bestätigt",
@@ -37,5 +47,23 @@
     "synonym": "Synonym",
     "type": "Typ",
     "sequence": "Sequenz"
+  },
+  "view": {
+    "label": "Ansicht",
+    "list": "Liste",
+    "lineage": "Lineage"
+  },
+  "lineage": {
+    "search": "Im Diagramm suchen",
+    "hint": "Klick: Details · Doppelklick: öffnen · + an den Seiten: eine Ebene mehr",
+    "loadUses": "Verwendete Objekte anzeigen",
+    "loadUsedBy": "Verwender anzeigen",
+    "error": "Lesen nicht möglich: {{error}}",
+    "capped": "Das Diagramm hat {{n}} Objekte erreicht und fügt keine weiteren hinzu: Öffnen Sie die Lineage eines davon, um von dort aus fortzufahren.",
+    "external": "Externe Quelle",
+    "open": "Öffnen",
+    "recenter": "Lineage anzeigen",
+    "uses": "Verwendet",
+    "usedBy": "Verwendet von"
   }
 }

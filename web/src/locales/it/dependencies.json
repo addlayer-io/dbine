@@ -1,5 +1,6 @@
 {
   "menu": "Mostra dipendenze…",
+  "lineageMenu": "Mostra lineage…",
   "tab": "Dipendenze",
   "refresh": "Aggiorna",
   "copy": "Copia",
@@ -8,6 +9,9 @@
   "outside": "Si vede solo ciò che è nel database: le applicazioni, i report e gli script esterni che lo usano non compaiono qui.",
   "unreadable": "Non è stato possibile leggere la definizione di: {{names}}. Ciò che dipende dall'oggetto lì non è nell'elenco.",
   "none": "Nulla nel database dipende da questo oggetto.",
+  "usesTitle": "Cosa usa",
+  "usedByTitle": "Cosa lo usa",
+  "usesNone": "Non usa altri oggetti del database.",
   "on": "su {{parent}}",
   "dynamic": "SQL dinamico",
   "relation": {
@@ -15,6 +19,12 @@
     "index": "Indici e chiavi primarie",
     "check": "Vincoli CHECK",
     "code": "Viste, routine e trigger"
+  },
+  "relationUses": {
+    "foreign_key": "Tabelle a cui puntano le sue chiavi esterne",
+    "index": "Indici",
+    "check": "Vincoli CHECK",
+    "code": "Tabelle, viste e routine citate dal suo codice"
   },
   "confidence": {
     "confirmed": "Confermata",
@@ -37,5 +47,23 @@
     "synonym": "Sinonimo",
     "type": "Tipo",
     "sequence": "Sequenza"
+  },
+  "view": {
+    "label": "Vista",
+    "list": "Elenco",
+    "lineage": "Lineage"
+  },
+  "lineage": {
+    "search": "Cerca nel diagramma",
+    "hint": "Clic: vedi dettaglio · doppio clic: apri · + ai lati: un livello in più",
+    "loadUses": "Mostra cosa usa",
+    "loadUsedBy": "Mostra cosa lo usa",
+    "error": "Impossibile leggere: {{error}}",
+    "capped": "Il diagramma ha raggiunto {{n}} oggetti e non ne aggiunge altri: apri il lineage di uno di essi per continuare da lì.",
+    "external": "Origine esterna",
+    "open": "Apri",
+    "recenter": "Mostra il suo lineage",
+    "uses": "Usa",
+    "usedBy": "Usato da"
   }
 }

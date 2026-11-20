@@ -1268,6 +1268,7 @@ mod tests {
             scanned: 3,
             unreadable: vec![],
             note: None,
+            external: vec![],
         }
     }
 

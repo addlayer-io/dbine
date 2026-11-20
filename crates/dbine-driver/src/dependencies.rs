@@ -16,7 +16,7 @@
 //! nobody can tell without reading it. Comments never count.
 
 use crate::info::DriverInfo;
-use crate::model::ObjectRef;
+use crate::model::{DbObject, ObjectRef};
 use crate::schema::TableSchema;
 use crate::sql::{code_tokens, NameToken, ScriptDialect, TokenKind};
 use crate::{kinds, Result, Session};
@@ -42,6 +42,10 @@ pub struct DependencyScan {
     /// [`crate::Capabilities::foreign_keys`]: `database_schema` reports
     /// foreign keys, indexes and checks.
     pub foreign_keys: bool,
+    /// Kinds whose definition is code someone wrote (not the engine's
+    /// generated DDL): [`references_scan`] reads the target's when it's one.
+    #[serde(default)]
+    pub written_kinds: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -57,6 +61,37 @@ pub struct DependencyReport {
     /// What the UI tells the user about the result (a missing permission…).
     #[serde(default)]
     pub note: Option<String>,
+    /// [`crate::Session::references`]: what the target reads from outside
+    /// the database (another server or database, a file, a service): a Power
+    /// BI partition's source, a linked server, a foreign table's remote one.
+    #[serde(default)]
+    pub external: Vec<ExternalRef>,
+}
+
+/// A source outside the database (see [`DependencyReport::external`]). Each
+/// part is what the engine says; none is required.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ExternalRef {
+    /// The kind of system, as the engine names it (`SQL Server`,
+    /// `Databricks`, `postgres_fdw`, `Excel`…).
+    #[serde(default)]
+    pub system: Option<String>,
+    /// Its server, host or URL.
+    #[serde(default)]
+    pub server: Option<String>,
+    #[serde(default)]
+    pub database: Option<String>,
+    #[serde(default)]
+    pub schema: Option<String>,
+    /// The table, file or object read there.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// What the UI shows besides (the partition, the link's name…).
+    #[serde(default)]
+    pub detail: Option<String>,
+    /// Where the target's source names it.
+    #[serde(default)]
+    pub mentions: Vec<Mention>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -158,6 +193,12 @@ impl DependencyScan {
             source_kinds: code_kinds(info),
             dialect,
             foreign_keys,
+            written_kinds: info
+                .object_kinds
+                .iter()
+                .filter(|k| k.has_definition && !k.generated_definition)
+                .map(|k| k.id.to_string())
+                .collect(),
         }
     }
 }
@@ -213,6 +254,486 @@ pub async fn scan<S: Session + ?Sized>(
     }
     sort(&mut report.items);
     Ok(report)
+}
+
+// -- what the target uses (`Session::references`) -----------------------------------------
+
+/// More names than this in one body are resolved against the whole object
+/// list (read once) instead of one lookup each.
+pub const LOOKUP_CAP: usize = 40;
+
+/// Words after which a name is an object the body uses (`FROM x`, `JOIN
+/// x`, `INSERT INTO x`, `EXEC x`…).
+const USES_AFTER: &[&str] = &[
+    "from", "join", "into", "update", "table", "exec", "execute", "call", "using", "merge",
+    "truncate", "apply", "perform", "lateral",
+];
+/// Words that end a `FROM a, b` list.
+const LIST_ENDS: &[&str] = &[
+    "where",
+    "group",
+    "order",
+    "having",
+    "union",
+    "intersect",
+    "except",
+    "minus",
+    "select",
+    "set",
+    "values",
+    "on",
+    "limit",
+    "window",
+    "qualify",
+    "returning",
+    "when",
+    "then",
+    "else",
+    "end",
+    "begin",
+    "pivot",
+    "unpivot",
+];
+/// Words a name followed by `(` usually is that are no object of the
+/// database (keywords and built-in functions): not looked up.
+const NOT_OBJECTS: &[&str] = &[
+    "in",
+    "exists",
+    "values",
+    "count",
+    "sum",
+    "avg",
+    "min",
+    "max",
+    "cast",
+    "convert",
+    "coalesce",
+    "isnull",
+    "nullif",
+    "ifnull",
+    "nvl",
+    "nvl2",
+    "row_number",
+    "rank",
+    "dense_rank",
+    "ntile",
+    "lag",
+    "lead",
+    "over",
+    "upper",
+    "lower",
+    "trim",
+    "ltrim",
+    "rtrim",
+    "substring",
+    "substr",
+    "len",
+    "length",
+    "replace",
+    "concat",
+    "round",
+    "floor",
+    "ceiling",
+    "ceil",
+    "abs",
+    "dateadd",
+    "datediff",
+    "getdate",
+    "now",
+    "date",
+    "year",
+    "month",
+    "day",
+    "format",
+    "iif",
+    "if",
+    "case",
+    "not",
+    "and",
+    "or",
+    "any",
+    "all",
+    "some",
+    "with",
+    "as",
+    "on",
+    "select",
+    "insert",
+    "update",
+    "delete",
+    "into",
+    "table",
+    "returns",
+    "return",
+    "begin",
+    "end",
+    "declare",
+    "set",
+    "exec",
+    "execute",
+    "call",
+    "default",
+    "primary",
+    "key",
+    "references",
+    "foreign",
+    "check",
+    "unique",
+    "index",
+    "varchar",
+    "nvarchar",
+    "char",
+    "nchar",
+    "int",
+    "integer",
+    "bigint",
+    "smallint",
+    "tinyint",
+    "decimal",
+    "numeric",
+    "float",
+    "real",
+    "datetime",
+    "datetime2",
+    "timestamp",
+    "time",
+    "text",
+    "boolean",
+    "bit",
+    "money",
+    "varbinary",
+    "binary",
+    "string",
+    "array",
+    "map",
+    "struct",
+    "row",
+    "using",
+    "extract",
+    "position",
+    "overlay",
+    "trunc",
+    "to_char",
+    "to_date",
+    "to_number",
+    "string_agg",
+    "listagg",
+    "group_concat",
+    "json_value",
+    "json_query",
+    "openjson",
+    "try_cast",
+    "try_convert",
+    "datepart",
+    "datename",
+    "eomonth",
+    "isnumeric",
+    "newid",
+    "scope_identity",
+    "object_id",
+    "db_name",
+    "user_name",
+    "current_user",
+    "session_user",
+    "system_user",
+    "raiserror",
+    "throw",
+    "print",
+    "power",
+    "sqrt",
+    "exp",
+    "log",
+    "mod",
+    "sign",
+    "random",
+    "rand",
+    "greatest",
+    "least",
+    "decode",
+    "regexp_replace",
+    "regexp_like",
+    "regexp_substr",
+    "split_part",
+    "array_agg",
+    "unnest",
+    "generate_series",
+    "filter",
+    "within",
+    "partition",
+    "rows",
+    "range",
+    "interval",
+    "type",
+    "returning",
+];
+
+/// A name the body uses as an object: its qualifiers (nearest first, as
+/// [`match_qualifiers`] takes them), the name, where it's written and
+/// whether it's called (`name(`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UsedName {
+    pub quals: Vec<String>,
+    pub name: String,
+    pub at: usize,
+    pub call: bool,
+}
+
+/// The names `body` uses as objects: after `FROM`, `JOIN`, `INTO`, `UPDATE`,
+/// `EXEC`, `CALL`… (and the rest of a `FROM a, b` list), and those called
+/// (`f(`) that aren't keywords or built-ins. Strings and comments never
+/// count. A name may still be a CTE or an alias: resolving it against the
+/// database's objects drops those.
+pub fn used_names(body: &str, dialect: &ScriptDialect) -> Vec<UsedName> {
+    let toks = code_tokens(body, dialect);
+    let is = |k: usize, p: &str| {
+        toks.get(k)
+            .is_some_and(|t| t.kind == TokenKind::Punct && t.text == p)
+    };
+    let word = |t: &NameToken<'_>| {
+        // A quoted name is never a keyword.
+        let quoted = matches!(body.as_bytes().get(t.start), Some(b'"' | b'`' | b'['));
+        (t.kind == TokenKind::Name && !quoted).then(|| t.text.to_ascii_lowercase())
+    };
+    let mut out = Vec::new();
+    let mut depth = 0i32;
+    // Inside a FROM list, at this depth.
+    let mut list: Option<i32> = None;
+    let mut i = 0;
+    while i < toks.len() {
+        let t = &toks[i];
+        if t.kind == TokenKind::Punct {
+            match t.text {
+                "(" => depth += 1,
+                ")" => {
+                    depth -= 1;
+                    if list.is_some_and(|d| depth < d) {
+                        list = None;
+                    }
+                }
+                ";" => list = None,
+                _ => {}
+            }
+            i += 1;
+            continue;
+        }
+        if t.kind != TokenKind::Name {
+            i += 1;
+            continue;
+        }
+        // The chain `a.b.c` starting here.
+        let mut parts = vec![t.text];
+        let mut j = i;
+        while is(j + 1, ".") && toks.get(j + 2).is_some_and(|n| n.kind == TokenKind::Name) {
+            parts.push(toks[j + 2].text);
+            j += 2;
+        }
+        let single = (parts.len() == 1).then(|| word(t)).flatten();
+        if let Some(w) = single.as_deref() {
+            if w == "from" {
+                list = Some(depth);
+            } else if LIST_ENDS.contains(&w) && list == Some(depth) {
+                list = None;
+            }
+        }
+        let prev = i.checked_sub(1).map(|k| &toks[k]);
+        let after_word = prev
+            .and_then(word)
+            .is_some_and(|w| USES_AFTER.contains(&w.as_str()));
+        let in_list = list == Some(depth)
+            && prev.is_some_and(|p| p.kind == TokenKind::Punct && p.text == ",");
+        let call = is(j + 1, "(");
+        let keyword = single.as_deref().is_some_and(|w| {
+            USES_AFTER.contains(&w) || LIST_ENDS.contains(&w) || NOT_OBJECTS.contains(&w)
+        });
+        if (after_word || in_list || call) && !keyword {
+            let name = parts.pop().unwrap_or_default().to_string();
+            out.push(UsedName {
+                quals: parts.iter().rev().map(|p| p.to_string()).collect(),
+                name,
+                at: toks[j].start,
+                call,
+            });
+        }
+        i = j + 1;
+    }
+    out
+}
+
+/// The generic [`crate::Session::references`]: a table's foreign keys
+/// (the tables it points at, from the catalog: confirmed), and the objects
+/// the target's own source names, resolved against the database's objects
+/// (probable). Only a kind whose definition someone wrote is read (a SQL
+/// table's is generated DDL).
+pub async fn references_scan<S: Session + ?Sized>(
+    s: &mut S,
+    target: &DependencyTarget,
+    ctx: &DependencyScan,
+) -> Result<DependencyReport> {
+    let t = &target.object;
+    let mut report = DependencyReport::default();
+    if ctx.foreign_keys && t.kind == kinds::TABLE {
+        let fks = match s.index_usage(t).await {
+            Ok(Some(u)) if !u.foreign_keys.is_empty() => u.foreign_keys,
+            _ => s
+                .database_schema()
+                .await?
+                .into_iter()
+                .find(|x| names_table(x.schema.as_deref(), &x.name, t))
+                .map(|x| x.foreign_keys)
+                .unwrap_or_default(),
+        };
+        report.items.extend(foreign_key_parents(&fks, t));
+    }
+    if ctx.written_kinds.contains(&t.kind) {
+        match s.definition(t).await {
+            Ok(Some(body)) => {
+                report.scanned = 1;
+                let used = used_names(&body, &ctx.dialect);
+                let objects = resolve_names(s, &used).await?;
+                report.items.extend(used_objects(&body, &used, &objects, t));
+            }
+            Ok(None) => {}
+            Err(_) => report.unreadable.push(display_name(t.schema(), &t.name)),
+        }
+    }
+    sort(&mut report.items);
+    Ok(report)
+}
+
+/// The tables `fks` (the target's own foreign keys) point at.
+pub fn foreign_key_parents(
+    fks: &[crate::schema::ForeignKeyDef],
+    target: &ObjectRef,
+) -> Vec<Dependent> {
+    fks.iter()
+        .map(|fk| {
+            let name = fk
+                .name
+                .as_deref()
+                .map(|n| format!("{n} "))
+                .unwrap_or_default();
+            Dependent {
+                kind: kinds::TABLE.to_string(),
+                schema: fk.ref_schema.clone().or_else(|| target.schema.clone()),
+                name: fk.ref_table.clone(),
+                parent: None,
+                relation: Relation::ForeignKey,
+                confidence: Confidence::Confirmed,
+                detail: Some(format!(
+                    "{name}({}) → {} ({})",
+                    fk.columns.join(", "),
+                    display_name(fk.ref_schema.as_deref(), &fk.ref_table),
+                    fk.ref_columns.join(", ")
+                )),
+                mentions: Vec::new(),
+            }
+        })
+        .collect()
+}
+
+/// The database's objects named like `used`: one lookup per name (narrow on
+/// most engines), or the whole list once when there are many names or the
+/// driver can't look up by name.
+async fn resolve_names<S: Session + ?Sized>(s: &mut S, used: &[UsedName]) -> Result<Vec<DbObject>> {
+    let mut names: Vec<String> = Vec::new();
+    for u in used {
+        if !names.iter().any(|n| eq(n, &u.name)) {
+            names.push(u.name.clone());
+        }
+    }
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    if names.len() <= LOOKUP_CAP {
+        let mut found = Vec::new();
+        for name in &names {
+            let q = crate::ObjectQuery {
+                name: Some(name.clone()),
+                limit: 50,
+                ..Default::default()
+            };
+            match s.list_objects_page(&q).await {
+                Ok(page) => found.extend(page.objects),
+                Err(crate::Error::Unsupported(_)) => return s.list_objects().await,
+                Err(e) => return Err(e),
+            }
+        }
+        return Ok(found);
+    }
+    s.list_objects().await
+}
+
+/// What `used` resolves to among `objects`, each once with the lines that
+/// name it. A qualified name must match the object's schema; an unqualified
+/// one that several schemas have takes the target's schema's when there's
+/// one. A call prefers routines, anything else prefers tables and views.
+pub fn used_objects(
+    body: &str,
+    used: &[UsedName],
+    objects: &[DbObject],
+    target: &ObjectRef,
+) -> Vec<Dependent> {
+    const ROUTINES: &[&str] = &[kinds::FUNCTION, kinds::PROCEDURE, "package", "aggregate"];
+    let mut hits: Vec<(DbObject, Vec<(usize, bool)>)> = Vec::new();
+    for u in used {
+        let named: Vec<&DbObject> = objects
+            .iter()
+            .filter(|o| eq(&o.name, &u.name))
+            .filter(|o| match (&o.schema, u.quals.is_empty()) {
+                (_, true) => true,
+                (Some(sc), false) => match_qualifiers(&u.quals, sc) != Qualified::Other,
+                (None, false) => true,
+            })
+            .filter(|o| {
+                !same_object(
+                    &ObjectRef {
+                        kind: o.kind.clone(),
+                        schema: o.schema.clone(),
+                        name: o.name.clone(),
+                    },
+                    target,
+                )
+            })
+            .collect();
+        if named.is_empty() {
+            continue;
+        }
+        // Several schemas: the target's own first.
+        let in_own: Vec<&DbObject> = named
+            .iter()
+            .copied()
+            .filter(|o| u.quals.is_empty() && o.schema.is_some() && o.schema == target.schema)
+            .collect();
+        let pool = if in_own.is_empty() { named } else { in_own };
+        // A call: the routines among them; otherwise the rest first.
+        let fits: Vec<&DbObject> = pool
+            .iter()
+            .copied()
+            .filter(|o| ROUTINES.contains(&o.kind.as_str()) == u.call)
+            .collect();
+        let chosen = if fits.is_empty() { pool } else { fits };
+        for o in chosen {
+            match hits.iter_mut().find(|(h, _)| h == o) {
+                Some((_, at)) => at.push((u.at, false)),
+                None => hits.push((o.clone(), vec![(u.at, false)])),
+            }
+        }
+    }
+    hits.into_iter()
+        .map(|(o, mut at)| {
+            at.sort();
+            Dependent {
+                kind: o.kind,
+                schema: o.schema,
+                name: o.name,
+                parent: o.parent,
+                relation: Relation::Code,
+                confidence: Confidence::Probable,
+                detail: None,
+                mentions: mentions(body, &at),
+            }
+        })
+        .collect()
 }
 
 /// Foreign keys that point at the target (or hold the column), and the
@@ -557,6 +1078,265 @@ fn sort(items: &mut [Dependent]) {
 mod tests {
     use super::*;
     use crate::schema::{CheckDef, ForeignKeyDef, IndexDef, KeyDef};
+
+    // -- references ------------------------------------------------------------------------
+
+    const PROC: &str = "CREATE PROCEDURE dbo.sp_cargar AS
+BEGIN
+  INSERT INTO indicadores.medidas (id, valor)
+  SELECT p.id, sum(p.valor) FROM dbo.Pedidos p, ventas.facturas f
+    JOIN [dbo].[Clientes] c ON c.id = p.cliente_id
+  WHERE p.fecha > getdate()
+  EXEC dbo.sp_log 'ok'
+  SELECT dbo.fn_total(1)
+  -- FROM comentario
+  EXEC('SELECT * FROM dinamica')
+END";
+
+    fn obj(kind: &str, schema: &str, name: &str) -> DbObject {
+        DbObject {
+            kind: kind.into(),
+            schema: Some(schema.into()),
+            name: name.into(),
+            parent: None,
+        }
+    }
+
+    fn objects() -> Vec<DbObject> {
+        vec![
+            obj("table", "indicadores", "medidas"),
+            obj("table", "dbo", "Pedidos"),
+            obj("table", "dbo", "Clientes"),
+            obj("table", "ventas", "Clientes"),
+            obj("table", "ventas", "facturas"),
+            obj("procedure", "dbo", "sp_log"),
+            obj("procedure", "dbo", "sp_cargar"),
+            obj("function", "dbo", "fn_total"),
+            obj("table", "dbo", "p"),
+        ]
+    }
+
+    #[test]
+    fn the_names_a_body_uses_as_objects() {
+        let used = used_names(PROC, &ScriptDialect::tsql());
+        let got: Vec<String> = used
+            .iter()
+            .map(|u| {
+                let q: Vec<&str> = u.quals.iter().rev().map(String::as_str).collect();
+                format!(
+                    "{}{}{}",
+                    q.join("."),
+                    if q.is_empty() { "" } else { "." },
+                    u.name
+                )
+            })
+            .collect();
+        // Not the aliases, the columns after ON, sum() or getdate(), the
+        // comment, the dynamic SQL in the string, nor the procedure itself.
+        assert_eq!(
+            got,
+            [
+                "indicadores.medidas",
+                "dbo.Pedidos",
+                "ventas.facturas",
+                "dbo.Clientes",
+                "dbo.sp_log",
+                "dbo.fn_total"
+            ]
+        );
+        assert!(used.iter().find(|u| u.name == "fn_total").unwrap().call);
+    }
+
+    #[test]
+    fn used_names_resolve_to_objects_with_their_lines() {
+        let target = ObjectRef {
+            kind: "procedure".into(),
+            schema: Some("dbo".into()),
+            name: "sp_cargar".into(),
+        };
+        let used = used_names(PROC, &ScriptDialect::tsql());
+        let got = used_objects(PROC, &used, &objects(), &target);
+        let names: Vec<String> = got
+            .iter()
+            .map(|d| {
+                format!(
+                    "{} {}.{} {:?}",
+                    d.kind,
+                    d.schema.as_deref().unwrap(),
+                    d.name,
+                    d.mentions.iter().map(|m| m.line).collect::<Vec<_>>()
+                )
+            })
+            .collect();
+        // dbo.Clientes, not ventas.Clientes: the name is qualified.
+        assert_eq!(
+            names,
+            [
+                "table indicadores.medidas [3]",
+                "table dbo.Pedidos [4]",
+                "table ventas.facturas [4]",
+                "table dbo.Clientes [5]",
+                "procedure dbo.sp_log [7]",
+                "function dbo.fn_total [8]",
+            ]
+        );
+        assert!(got
+            .iter()
+            .all(|d| d.relation == Relation::Code && d.confidence == Confidence::Probable));
+    }
+
+    #[test]
+    fn an_unqualified_name_takes_the_targets_schema_and_a_call_takes_the_routine() {
+        let target = ObjectRef {
+            kind: "view".into(),
+            schema: Some("ventas".into()),
+            name: "v".into(),
+        };
+        let body = "CREATE VIEW ventas.v AS SELECT x FROM Clientes WHERE total(1) > 0";
+        let mut objs = objects();
+        objs.push(obj("table", "dbo", "total"));
+        objs.push(obj("function", "ventas", "total"));
+        let used = used_names(body, &ScriptDialect::tsql());
+        let got = used_objects(body, &used, &objs, &target);
+        let names: Vec<String> = got
+            .iter()
+            .map(|d| format!("{} {}.{}", d.kind, d.schema.as_deref().unwrap(), d.name))
+            .collect();
+        assert_eq!(names, ["table ventas.Clientes", "function ventas.total"]);
+    }
+
+    /// A session with fixed objects and bodies; with `lookups`, it answers
+    /// `list_objects_page` by name and counts the calls.
+    struct Fake {
+        objects: Vec<DbObject>,
+        tables: Vec<TableSchema>,
+        lookups: Option<u32>,
+        whole_lists: u32,
+    }
+
+    #[async_trait::async_trait]
+    impl Session for Fake {
+        async fn server_version(&mut self) -> Result<String> {
+            Ok(String::new())
+        }
+        async fn list_databases(&mut self) -> Result<Vec<String>> {
+            Ok(vec![])
+        }
+        async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
+            self.whole_lists += 1;
+            Ok(self.objects.clone())
+        }
+        async fn list_objects_page(&mut self, q: &crate::ObjectQuery) -> Result<crate::ObjectPage> {
+            let Some(n) = self.lookups.as_mut() else {
+                return Err(crate::Error::Unsupported("no".into()));
+            };
+            *n += 1;
+            let name = q.name.clone().unwrap_or_default();
+            Ok(crate::ObjectPage {
+                objects: self
+                    .objects
+                    .iter()
+                    .filter(|o| eq(&o.name, &name))
+                    .cloned()
+                    .collect(),
+                next: None,
+            })
+        }
+        async fn columns(&mut self, _: &ObjectRef) -> Result<Vec<crate::ColumnInfo>> {
+            Ok(vec![])
+        }
+        async fn definition(&mut self, o: &ObjectRef) -> Result<Option<String>> {
+            Ok((o.name == "sp_cargar").then(|| PROC.to_string()))
+        }
+        async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
+            Ok(self.tables.clone())
+        }
+        fn browse_query(&self, _: &ObjectRef, _: u32) -> String {
+            String::new()
+        }
+        async fn execute(&mut self, _: &str, _: usize, _: &mut crate::QueryOutcome) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    fn ready<T>(f: impl std::future::Future<Output = T>) -> T {
+        let mut f = std::pin::pin!(f);
+        match f
+            .as_mut()
+            .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()))
+        {
+            std::task::Poll::Ready(v) => v,
+            std::task::Poll::Pending => panic!("waited"),
+        }
+    }
+
+    fn ctx() -> DependencyScan {
+        DependencyScan {
+            source_kinds: vec!["procedure".into(), "view".into()],
+            dialect: ScriptDialect::tsql(),
+            foreign_keys: true,
+            written_kinds: vec!["procedure".into(), "view".into()],
+        }
+    }
+
+    #[test]
+    fn references_of_a_procedure_by_lookup_or_by_the_whole_list() {
+        let target = DependencyTarget {
+            object: ObjectRef {
+                kind: "procedure".into(),
+                schema: Some("dbo".into()),
+                name: "sp_cargar".into(),
+            },
+            column: None,
+        };
+        // Lookups by name: one per distinct name, never the whole list.
+        let mut s = Fake {
+            objects: objects(),
+            tables: vec![],
+            lookups: Some(0),
+            whole_lists: 0,
+        };
+        let r = ready(references_scan(&mut s, &target, &ctx())).unwrap();
+        assert_eq!(r.items.len(), 6);
+        assert_eq!(r.scanned, 1);
+        assert_eq!((s.lookups, s.whole_lists), (Some(6), 0));
+        // No lookup by name: the whole list, once.
+        let mut s = Fake {
+            objects: objects(),
+            tables: vec![],
+            lookups: None,
+            whole_lists: 0,
+        };
+        let r = ready(references_scan(&mut s, &target, &ctx())).unwrap();
+        assert_eq!(r.items.len(), 6);
+        assert_eq!(s.whole_lists, 1);
+    }
+
+    #[test]
+    fn a_tables_references_are_its_foreign_keys_and_its_ddl_is_not_read() {
+        let mut s = Fake {
+            objects: objects(),
+            tables: schema(),
+            lookups: Some(0),
+            whole_lists: 0,
+        };
+        let r = ready(references_scan(&mut s, &table("dbo", "Pedidos"), &ctx())).unwrap();
+        assert_eq!(r.scanned, 0);
+        assert_eq!(r.items.len(), 1);
+        assert_eq!(
+            (
+                r.items[0].name.as_str(),
+                r.items[0].relation,
+                r.items[0].confidence
+            ),
+            ("Clientes", Relation::ForeignKey, Confidence::Confirmed)
+        );
+        assert!(r.items[0]
+            .detail
+            .as_deref()
+            .unwrap()
+            .contains("→ dbo.Clientes"));
+    }
 
     fn table(schema: &str, name: &str) -> DependencyTarget {
         DependencyTarget {

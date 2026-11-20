@@ -168,6 +168,8 @@ export interface DependenciesTab extends TabBase {
   kind: 'dependencies';
   object: ObjectRef;
   column: string | null;
+  /** The list (what uses it, and what it uses) or the lineage diagram. */
+  view?: 'list' | 'lineage';
 }
 
 /** "Salud · <base>": the database's health check. */
@@ -748,14 +750,18 @@ export const useTabsStore = defineStore('tabs', {
       this.place({ id: newId(), kind: 'indexes', connectionId, database, object, focus, preview: false });
     },
 
-    /** An object's (or column's) "Dependencias" tab, one per target. */
-    openDependencies(connectionId: string, database: string, object: ObjectRef, column: string | null = null) {
+    /** An object's (or column's) "Dependencias" tab, one per target; `view`:
+     *  the list or the lineage diagram ("Ver linaje…"). */
+    openDependencies(connectionId: string, database: string, object: ObjectRef, column: string | null = null, view: 'list' | 'lineage' = 'list') {
       const open = this.tabs.find(
         (t) => t.kind === 'dependencies' && t.connectionId === connectionId && t.database === database &&
           t.object.kind === object.kind && t.object.schema === object.schema && t.object.name === object.name && t.column === column,
-      );
-      if (open) return this.activate(open.id);
-      this.place({ id: newId(), kind: 'dependencies', connectionId, database, object, column, preview: false });
+      ) as DependenciesTab | undefined;
+      if (open) {
+        open.view = view;
+        return this.activate(open.id);
+      }
+      this.place({ id: newId(), kind: 'dependencies', connectionId, database, object, column, view, preview: false });
     },
 
     /** A database's "Chequeo de salud" tab, one per database. */
@@ -887,6 +893,12 @@ export const useTabsStore = defineStore('tabs', {
       if (JSON.stringify(t.picks) === JSON.stringify(picks)) return;
       t.picks = picks;
       this.persist();
+    },
+
+    /** A "Dependencias" tab's list or lineage diagram. */
+    setDependenciesView(id: string, view: 'list' | 'lineage') {
+      const t = this.tabs.find((x) => x.id === id);
+      if (t?.kind === 'dependencies') { t.view = view; this.persist(); }
     },
 
     setView(id: string, view: ObjectView) {

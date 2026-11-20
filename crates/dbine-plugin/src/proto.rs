@@ -396,6 +396,14 @@ pub enum Call {
         target: dbine_driver::DependencyTarget,
         scan: dbine_driver::DependencyScan,
     },
+    /// What an object itself uses (the other direction). A host published
+    /// before it answers `Unsupported`, and the app runs the generic scan
+    /// through the host's other calls.
+    References {
+        session: u64,
+        target: dbine_driver::DependencyTarget,
+        scan: dbine_driver::DependencyScan,
+    },
     /// The server's sessions (the Monitor's "Procesos"). A host published
     /// before it answers `Unsupported`; the app only asks drivers whose
     /// capabilities say `processes`.
@@ -752,6 +760,7 @@ pub enum Reply {
     Units(Vec<dbine_driver::ScriptStatement>),
     IndexUsage(Option<dbine_driver::IndexUsageReport>),
     Dependents(dbine_driver::DependencyReport),
+    References(dbine_driver::DependencyReport),
     Processes(Vec<dbine_driver::ServerProcess>),
     Choices(Vec<dbine_driver::FieldChoices>),
     DatabaseProperties(dbine_driver::DatabaseProperties),
@@ -1384,6 +1393,7 @@ mod tests {
                         source_kinds: vec!["view".into()],
                         dialect: dbine_driver::ScriptDialect::generic(),
                         foreign_keys: true,
+                        written_kinds: vec!["view".into()],
                     },
                 },
                 "Dependents",

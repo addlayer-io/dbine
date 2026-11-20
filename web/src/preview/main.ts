@@ -32,6 +32,7 @@
 // |docs-edit&set=vectors (vector fields in the editable JSON tree)|adddoc&set=vectors ("Agregar documento" with vector fields)
 // |results&set=search[&rows=N][&cols=N] (the search over the grid, issue #142: a wide result, 200,000 rows by default, cut at
 //   "Filas máx.")
+// |lineage[&list=1] (the "Dependencias" tab's lineage diagram, or its list, over a fake backend: preview/lineage-samples.ts)
 // |explorerfilter (the explorer's filter over a fake backend: folders not open, the cache, a server search, "En el código" and a
 //   billed engine: preview/explorer-filter-samples.ts)
 // |nbwrite&set=vectors (a write cell's preview with a vector column)|datagen&set=vectors (test data's sample with a vector column)
@@ -99,6 +100,7 @@ import AddDocumentDialog from '../components/AddDocumentDialog.vue';
 import GenerateDataDialog from '../components/GenerateDataDialog.vue';
 import { installVectorWorkbench } from './vecwork-samples';
 import { installExplorerFilterPreview } from './explorer-filter-samples';
+import { installLineagePreview } from './lineage-samples';
 import type { Cell, ResultColumn } from '../api/types';
 
 import MultiDbRunDialog from '../components/MultiDbRunDialog.vue';
@@ -521,6 +523,7 @@ const app = createApp({
     view === 'projects' || view === 'vecwork' ? h(App) : view === 'split' ? splitPreview() : view === 'timeline' ? h(TimelinePreview) : h('div', { style: 'height: 100vh; display: flex; flex-direction: column;' }, [
       view === 'tabs' ? h('div', { style: 'width: 1100px; background: var(--ide-editor)' }, [h(EditorTabs)]) :
       view === 'keys' ? h('div', { style: 'width: 340px; height: 640px; background: var(--ide-sidebar)' }, [h(ExplorerSidebar)]) :
+      view === 'lineage' ? h('div', { style: 'height: 100vh; display: flex; flex-direction: column;' }, [h(DependenciesView, { tab: lineageTab! })]) :
       view === 'explorerfilter' ? h('div', { style: 'width: 360px; height: 720px; display: flex; flex-direction: column; background: var(--ide-sidebar)' }, [h(ExplorerSidebar)]) :
       view === 'connection' ? connectionTab() : view === 'monitor'
         ? h(MonitorView, { tab: { id: 'm', kind: 'monitor', connectionId: 'c1', database: '', preview: false }, active: true }) :
@@ -778,6 +781,7 @@ if (view.startsWith('scheduler')) setupScheduler(params);
 if (view === 'projects') installProjectsPreview();
 if (view === 'vecwork') installVectorWorkbench(params);
 if (view === 'explorerfilter') installExplorerFilterPreview();
+const lineageTab = view === 'lineage' ? installLineagePreview(params) : null;
 if (view === 'timeline') installTimelinePreview();
 // ?vim=1: the editors in Vim mode. ?bind=view.ai=Mod-b,…: the user's own
 // shortcuts. Again after a moment: the settings view loads its mock first.

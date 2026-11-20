@@ -49,6 +49,10 @@ and queries are organized inside each database.
   (the cache at once, then the server) and, optionally, inside their code
   (views, routines, Power BI measures and tables). Details:
   [`docs/explorer-cache.md`](docs/explorer-cache.md#the-filter).
+- **Dependencies and lineage:** what an object uses and what uses it (tables,
+  views, routines, foreign keys and sources outside the database), as a list
+  or as a lineage diagram that opens level by level. Details:
+  [`docs/engine-support.md`](docs/engine-support.md#dependencies).
 - **Folders and groups**, for example per client or per environment. They can
   be nested and colored, and servers are moved between them by dragging.
 - **Import connections** from DBeaver, DbGate, DataGrip / JetBrains, Azure Data

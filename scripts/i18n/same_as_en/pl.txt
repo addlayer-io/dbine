@@ -242,3 +242,4 @@ vectors.json:viewer.min
 vectors.json:metric.l1
 vectors.json:metricShort.hamming
 vectors.json:metricShort.jaccard
+dependencies.json:view.lineage

@@ -3816,6 +3816,41 @@ column: the view with SCHEMABINDING is confirmed, the procedure as probable
 the view that does not use it nor the other table's procedure appear. The
 default version, run on the same database, finds the same code.
 
+### What it uses, and the lineage
+
+The same tab also lists **what the object itself uses** (an object, not a
+column): the tables and views a view reads, the routines a procedure calls,
+the tables a table's foreign keys point at, and sources outside the database
+(a Power BI partition's, a linked server, a foreign table's remote one).
+**Lineage** draws both directions as a diagram: what it uses to the left, what
+uses it to the right, and each card's **+** loads one more level that way, up
+to 200 cards. Right click › **View lineage…** opens it directly.
+
+The contract is `Session::references` (`crates/dbine-driver/src/dependencies.rs`),
+which returns a `DependencyReport` whose items are the objects used, plus
+`external` for what is outside the database. The default version works for
+every engine with definitions or foreign keys:
+
+- **A table**: its foreign keys' tables, from `index_usage` when the driver
+  reports it, else from `database_schema` (**Confirmed**). Its DDL isn't read:
+  it's generated, not written (`ObjectKindInfo::generated_definition`).
+- **Anything with written code** (views, routines, triggers, packages, Power
+  BI's tables…): its own definition, read once. It takes the names written
+  after `FROM`, `JOIN`, `INTO`, `UPDATE`, `EXEC`, `CALL`… (and the rest of a
+  `FROM a, b` list), and those called as `name(`, leaving out keywords,
+  built-in functions, strings and comments. Each name is then looked up in the
+  database (`list_objects_page` by name, or the whole list once when there
+  are more than 40 names or the driver can't look up by name). What doesn't
+  resolve (an alias, a CTE, a column) drops out. A qualified name must match
+  the object's schema; an unqualified one that several schemas have takes the
+  object's own schema's. These are **Probable**, with the lines that name
+  them.
+
+Drivers whose engine records dependencies answer from their catalog instead;
+the per-engine versions are listed as they land. A driver process published
+before answers `References` with Unsupported, and the app runs the default
+version through its other calls.
+
 ## Disable and enable indexes
 
 Right click on an index (in the explorer or in the **Indexes** tab) ›
