@@ -1651,6 +1651,21 @@ pub trait Session: Send {
         dependencies::scan(self, target, scan).await
     }
 
+    /// What `target` itself uses (see [`dependencies`]): the tables and views
+    /// a view reads, the routines a procedure calls, the tables a table's
+    /// foreign keys point at, and sources outside the database
+    /// ([`dependencies::DependencyReport::external`]). The other direction of
+    /// [`Session::dependents`]. The default reads the target's own source and
+    /// resolves the names it uses; drivers whose engine records dependencies
+    /// override it with catalog queries.
+    async fn references(
+        &mut self,
+        target: &DependencyTarget,
+        scan: &DependencyScan,
+    ) -> Result<DependencyReport> {
+        dependencies::references_scan(self, target, scan).await
+    }
+
     /// The engine's own "Chequeo de salud" findings for `database` (see
     /// [`health`]): configuration, statistics, space, bloat… The app adds
     /// the checks every engine shares. Empty: none of its own.

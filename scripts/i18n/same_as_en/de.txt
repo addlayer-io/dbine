@@ -419,3 +419,4 @@ vectors.json:metricShort.jaccard
 vectors.json:viewer.norm
 vectors.json:viewer.min
 vectors.json:viewer.max
+dependencies.json:view.lineage

@@ -443,6 +443,39 @@ pub async fn get_dependents(
 
 const DEPENDENTS_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
 
+/// What an object itself uses (the lineage's sources): the tables a view
+/// reads, the routines a procedure calls, a table's foreign keys' tables and
+/// what it reads from outside the database. The other direction of
+/// `get_dependents`, on the same long lane.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_references(
+    state: State<'_, AppState>,
+    args: DependentsArgs,
+) -> CommandResult<dbine_driver::DependencyReport> {
+    let id = state
+        .store
+        .get_connection(&args.connection_id)?
+        .map(|c| c.config.driver)
+        .unwrap_or_default();
+    let driver = dbine_drivers::find(&id)
+        .ok_or_else(|| dbine_driver::Error::Unsupported(format!("driver desconocido: {id}")))?;
+    let scan = dbine_driver::DependencyScan::new(
+        driver.info(),
+        driver.script_dialect(),
+        driver.capabilities().foreign_keys,
+    );
+    let target = args.target;
+    state
+        .meta_read_on(
+            Lane::Long,
+            &args.connection_id,
+            &args.database,
+            DEPENDENTS_LIMIT,
+            move |s| Box::pin(async move { s.references(&target, &scan).await }),
+        )
+        .await
+}
+
 #[derive(Deserialize)]
 pub struct ScanKeysArgs {
     pub connection_id: String,

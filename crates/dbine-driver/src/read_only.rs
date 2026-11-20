@@ -997,6 +997,14 @@ impl Session for ReadOnlySession {
     ) -> Result<crate::DependencyReport> {
         self.inner.dependents(target, scan).await
     }
+
+    async fn references(
+        &mut self,
+        target: &crate::DependencyTarget,
+        scan: &crate::DependencyScan,
+    ) -> Result<crate::DependencyReport> {
+        self.inner.references(target, scan).await
+    }
 }
 
 #[cfg(test)]

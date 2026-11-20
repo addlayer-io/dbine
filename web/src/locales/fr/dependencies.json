@@ -1,5 +1,6 @@
 {
   "menu": "Voir les dépendances…",
+  "lineageMenu": "Voir la traçabilité…",
   "tab": "Dépendances",
   "refresh": "Actualiser",
   "copy": "Copier",
@@ -8,6 +9,9 @@
   "outside": "Seul ce qui se trouve dans la base est visible : les applications, rapports et scripts externes qui l'utilisent n'apparaissent pas ici.",
   "unreadable": "Impossible de lire la définition de : {{names}}. Ce qui dépend de l'objet à cet endroit ne figure pas dans la liste.",
   "none": "Rien dans la base ne dépend de cet objet.",
+  "usesTitle": "Ce qu'il utilise",
+  "usedByTitle": "Ce qui l'utilise",
+  "usesNone": "Il n'utilise aucun autre objet de la base.",
   "on": "sur {{parent}}",
   "dynamic": "SQL dynamique",
   "relation": {
@@ -15,6 +19,12 @@
     "index": "Index et clés primaires",
     "check": "Contraintes CHECK",
     "code": "Vues, routines et déclencheurs"
+  },
+  "relationUses": {
+    "foreign_key": "Tables vers lesquelles pointent ses clés étrangères",
+    "index": "Index",
+    "check": "Contraintes CHECK",
+    "code": "Tables, vues et routines citées par son code"
   },
   "confidence": {
     "confirmed": "Confirmée",
@@ -37,5 +47,23 @@
     "synonym": "Synonyme",
     "type": "Type",
     "sequence": "Séquence"
+  },
+  "view": {
+    "label": "Affichage",
+    "list": "Liste",
+    "lineage": "Traçabilité"
+  },
+  "lineage": {
+    "search": "Rechercher dans le diagramme",
+    "hint": "Clic : voir le détail · double-clic : ouvrir · + sur les côtés : un niveau de plus",
+    "loadUses": "Voir ce qu'il utilise",
+    "loadUsedBy": "Voir ce qui l'utilise",
+    "error": "Lecture impossible : {{error}}",
+    "capped": "Le diagramme a atteint {{n}} objets et n'en ajoute plus : ouvrez la traçabilité de l'un d'eux pour continuer à partir de là.",
+    "external": "Source externe",
+    "open": "Ouvrir",
+    "recenter": "Voir sa traçabilité",
+    "uses": "Utilise",
+    "usedBy": "Utilisé par"
   }
 }

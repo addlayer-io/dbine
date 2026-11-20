@@ -1,5 +1,6 @@
 {
   "menu": "查看依赖项…",
+  "lineageMenu": "查看沿袭…",
   "tab": "依赖项",
   "refresh": "刷新",
   "copy": "复制",
@@ -8,6 +9,9 @@
   "outside": "只能看到数据库内部的内容：使用它的应用程序、报表和外部脚本不会显示在此处。",
   "unreadable": "无法读取 {{names}} 的定义。依赖于其中对象的内容不在列表中。",
   "none": "数据库中没有任何内容依赖于此对象。",
+  "usesTitle": "它使用的对象",
+  "usedByTitle": "使用它的对象",
+  "usesNone": "未使用数据库中的其他对象。",
   "on": "位于 {{parent}}",
   "dynamic": "动态 SQL",
   "relation": {
@@ -15,6 +19,12 @@
     "index": "索引和主键",
     "check": "CHECK 约束",
     "code": "视图、例程和触发器"
+  },
+  "relationUses": {
+    "foreign_key": "其外键指向的表",
+    "index": "索引",
+    "check": "CHECK 约束",
+    "code": "其代码中引用的表、视图和例程"
   },
   "confidence": {
     "confirmed": "已确认",
@@ -37,5 +47,23 @@
     "synonym": "同义词",
     "type": "类型",
     "sequence": "序列"
+  },
+  "view": {
+    "label": "视图",
+    "list": "列表",
+    "lineage": "沿袭"
+  },
+  "lineage": {
+    "search": "在图中搜索",
+    "hint": "单击：查看详情 · 双击：打开 · 两侧的 +：再展开一层",
+    "loadUses": "查看它使用的对象",
+    "loadUsedBy": "查看使用它的对象",
+    "error": "无法读取：{{error}}",
+    "capped": "图中已达到 {{n}} 个对象，不再继续添加：请打开其中某个对象的沿袭，从那里继续。",
+    "external": "外部来源",
+    "open": "打开",
+    "recenter": "查看其沿袭",
+    "uses": "使用",
+    "usedBy": "被使用于"
   }
 }

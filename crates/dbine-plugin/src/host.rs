@@ -403,6 +403,7 @@ impl Call {
             | ListSchemas { session }
             | IndexUsage { session, .. }
             | Dependents { session, .. }
+            | References { session, .. }
             | Processes { session }
             | CancelQuery { session, .. }
             | CreateDatabaseChoices { session }
@@ -1233,6 +1234,18 @@ impl State {
                     .lock()
                     .await
                     .dependents(&target, &scan)
+                    .await?,
+            ),
+            Call::References {
+                session,
+                target,
+                scan,
+            } => Reply::References(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .references(&target, &scan)
                     .await?,
             ),
             Call::Processes { session } => {

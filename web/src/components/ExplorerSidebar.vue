@@ -1185,7 +1185,11 @@ async function onContext(e: MouseEvent, n: TNode) {
       items.push({ label: t('explorer:menu.copyName'), divided: true, action: () => copy(o.schema ? `${o.schema}.${o.name}` : o.name) });
       if (indexesShown(cid!, o)) items.splice(kind?.has_columns ?? true ? 2 : 1, 0, { label: t('explorer:indexes.menu'), action: () => tabs.openIndexes(cid!, db, ref) });
       if (conns.driverOf(cid!)?.supports_dependencies) {
-        items.splice(items.findIndex((i) => i.label === t('explorer:menu.copyName')), 0, { label: t('dependencies:menu'), action: () => tabs.openDependencies(cid!, db, ref) });
+        items.splice(
+          items.findIndex((i) => i.label === t('explorer:menu.copyName')), 0,
+          { label: t('dependencies:menu'), action: () => tabs.openDependencies(cid!, db, ref) },
+          { label: t('dependencies:lineageMenu'), action: () => tabs.openDependencies(cid!, db, ref, null, 'lineage') },
+        );
       }
       if (kind?.has_columns) {
         items.push({

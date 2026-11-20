@@ -1,5 +1,6 @@
 {
   "menu": "Zobacz zależności…",
+  "lineageMenu": "Pokaż lineage…",
   "tab": "Zależności",
   "refresh": "Odśwież",
   "copy": "Kopiuj",
@@ -8,6 +9,9 @@
   "outside": "Widoczne jest tylko to, co jest w bazie: aplikacje, raporty i zewnętrzne skrypty, które jej używają, nie pojawiają się tutaj.",
   "unreadable": "Nie udało się odczytać definicji: {{names}}. To, co zależy tam od obiektu, nie znajduje się na liście.",
   "none": "Nic w bazie nie zależy od tego obiektu.",
+  "usesTitle": "Czego używa",
+  "usedByTitle": "Co go używa",
+  "usesNone": "Nie używa innych obiektów bazy.",
   "on": "w {{parent}}",
   "dynamic": "dynamiczny SQL",
   "relation": {
@@ -15,6 +19,12 @@
     "index": "Indeksy i klucze główne",
     "check": "Ograniczenia CHECK",
     "code": "Widoki, procedury i wyzwalacze"
+  },
+  "relationUses": {
+    "foreign_key": "Tabele, na które wskazują jego klucze obce",
+    "index": "Indeksy",
+    "check": "Ograniczenia CHECK",
+    "code": "Tabele, widoki i procedury wymienione w jego kodzie"
   },
   "confidence": {
     "confirmed": "Potwierdzona",
@@ -37,5 +47,23 @@
     "synonym": "Synonim",
     "type": "Typ",
     "sequence": "Sekwencja"
+  },
+  "view": {
+    "label": "Widok",
+    "list": "Lista",
+    "lineage": "Lineage"
+  },
+  "lineage": {
+    "search": "Szukaj na diagramie",
+    "hint": "Kliknięcie: szczegóły · dwukrotne kliknięcie: otwórz · + po bokach: jeszcze jeden poziom",
+    "loadUses": "Pokaż, czego używa",
+    "loadUsedBy": "Pokaż, co go używa",
+    "error": "Nie można odczytać: {{error}}",
+    "capped": "Diagram osiągnął {{n}} obiektów i nie dodaje kolejnych: otwórz lineage jednego z nich, aby kontynuować stamtąd.",
+    "external": "Źródło zewnętrzne",
+    "open": "Otwórz",
+    "recenter": "Pokaż jego lineage",
+    "uses": "Używa",
+    "usedBy": "Używany przez"
   }
 }

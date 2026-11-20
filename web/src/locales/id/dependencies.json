@@ -1,5 +1,6 @@
 {
   "menu": "Lihat dependensi…",
+  "lineageMenu": "Lihat lineage…",
   "tab": "Dependensi",
   "refresh": "Perbarui",
   "copy": "Salin",
@@ -8,6 +9,9 @@
   "outside": "Hanya yang ada di basis data yang terlihat: aplikasi, laporan, dan skrip eksternal yang menggunakannya tidak muncul di sini.",
   "unreadable": "Definisi tidak dapat dibaca untuk: {{names}}. Yang bergantung pada objek di sana tidak ada dalam daftar.",
   "none": "Tidak ada yang bergantung pada objek ini di basis data.",
+  "usesTitle": "Yang digunakannya",
+  "usedByTitle": "Yang menggunakannya",
+  "usesNone": "Tidak menggunakan objek lain di basis data.",
   "on": "di {{parent}}",
   "dynamic": "SQL dinamis",
   "relation": {
@@ -15,6 +19,12 @@
     "index": "Indeks dan kunci primer",
     "check": "Batasan CHECK",
     "code": "View, rutin, dan trigger"
+  },
+  "relationUses": {
+    "foreign_key": "Tabel yang dituju kunci asingnya",
+    "index": "Indeks",
+    "check": "Batasan CHECK",
+    "code": "Tabel, tampilan, dan rutin yang disebut kodenya"
   },
   "confidence": {
     "confirmed": "Terkonfirmasi",
@@ -37,5 +47,23 @@
     "synonym": "Sinonim",
     "type": "Tipe",
     "sequence": "Sekuens"
+  },
+  "view": {
+    "label": "Tampilan",
+    "list": "Daftar",
+    "lineage": "Lineage"
+  },
+  "lineage": {
+    "search": "Cari di diagram",
+    "hint": "Klik: lihat detail · klik ganda: buka · + di samping: satu tingkat lagi",
+    "loadUses": "Lihat yang digunakannya",
+    "loadUsedBy": "Lihat yang menggunakannya",
+    "error": "Tidak dapat membaca: {{error}}",
+    "capped": "Diagram mencapai {{n}} objek dan tidak menambah lagi: buka lineage salah satunya untuk melanjutkan dari sana.",
+    "external": "Sumber eksternal",
+    "open": "Buka",
+    "recenter": "Lihat lineage-nya",
+    "uses": "Menggunakan",
+    "usedBy": "Digunakan oleh"
   }
 }

@@ -156,6 +156,11 @@ export const api = {
   /** What depends on a table, column, view or routine ("Ver dependencias…"). */
   getDependents: (connectionId: string, database: string, target: DependencyTarget) =>
     invoke<DependencyReport>('get_dependents', { args: { connection_id: connectionId, database, target } }),
+  /** What `target` itself uses: the tables a view reads, the routines a
+   *  procedure calls, a table's foreign keys' tables, sources outside the
+   *  database (`external`). The other direction of `getDependents`. */
+  getReferences: (connectionId: string, database: string, target: DependencyTarget) =>
+    invoke<DependencyReport>('get_references', { args: { connection_id: connectionId, database, target } }),
   getDefinition: (connectionId: string, database: string, object: ObjectRef) =>
     invoke<string>('get_definition', { args: { connection_id: connectionId, database, object } }),
   browseQuery: (connectionId: string, database: string, object: ObjectRef, limit: number) =>
