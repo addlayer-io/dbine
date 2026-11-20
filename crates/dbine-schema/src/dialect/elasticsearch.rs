@@ -150,6 +150,15 @@ impl Search {
         }
     }
 
+    /// The most dimensions a vector field of this flavor takes.
+    fn max_dims(&self) -> u32 {
+        match self.flavor {
+            Flavor::Elastic => 4096,
+            Flavor::OpenSearch => 16_000,
+            Flavor::OpenDistro => 10_000,
+        }
+    }
+
     /// The vector type of this flavor for a logical vector.
     fn render_vector(&self, t: &L) -> Rendered {
         use IssueCode::*;
@@ -162,11 +171,11 @@ impl Search {
         else {
             return Rendered::exact("float");
         };
-        let (base, max) = match self.flavor {
-            Flavor::Elastic => ("dense_vector", 4096),
-            Flavor::OpenSearch => ("knn_vector", 16_000),
-            Flavor::OpenDistro => ("knn_vector", 10_000),
+        let base = match self.flavor {
+            Flavor::Elastic => "dense_vector",
+            _ => "knn_vector",
         };
+        let max = self.max_dims();
         let engine = self.engine();
         if *sparse {
             return super::vector_fallback(self, t);
@@ -222,6 +231,10 @@ impl Search {
                 "{engine} no tiene índices vectoriales de vectores dispersos"
             )),
             _ if dims.is_none() => Err(format!("{engine} necesita la dimensión del vector")),
+            _ if dims.is_some_and(|d| d > self.max_dims()) => Err(format!(
+                "{engine} admite vectores de hasta {} dimensiones",
+                self.max_dims()
+            )),
             _ => Err(format!("su columna no es un vector en {engine}")),
         }
     }
@@ -383,7 +396,11 @@ impl Dialect for Search {
         }
         // A vector from another of these flavors (one dialect, so its type
         // came as it was): this flavor's vector type, and its index in
-        // this flavor's terms.
+        // this flavor's terms. Open Distro checks its own spelling too:
+        // OpenSearch's `knn_vector` may be byte or binary, or have more
+        // dimensions than Open Distro takes, and its index may use what
+        // Open Distro lacks; so on Open Distro every vector index is
+        // mapped (its own settings map to themselves).
         let own = match self.flavor {
             Flavor::Elastic => "dense_vector",
             _ => "knn_vector",
@@ -391,16 +408,20 @@ impl Dialect for Search {
         let mut moved: Vec<(String, L)> = Vec::new();
         for c in &mut t.columns {
             let spec = crate::parse::parse(&c.data_type);
-            if !matches!(spec.name.as_str(), "dense_vector" | "knn_vector") || spec.name == own {
+            if !matches!(spec.name.as_str(), "dense_vector" | "knn_vector")
+                || (spec.name == own && self.flavor != Flavor::OpenDistro)
+            {
                 continue;
             }
-            let r = self.render_type(&self.parse_type(&spec));
-            for n in r.notes {
-                report.push(n.severity, n.code, &source_name, Some(&c.name), n.message);
+            let source = self.parse_type(&spec);
+            let r = self.render_type(&source);
+            if spec.name != own || self.parse_type(&crate::parse::parse(&r.native)) != source {
+                for n in r.notes {
+                    report.push(n.severity, n.code, &source_name, Some(&c.name), n.message);
+                }
+                c.data_type = r.native;
             }
-            c.data_type = r.native;
-            let target = self.parse_type(&crate::parse::parse(&c.data_type));
-            moved.push((c.name.clone(), target));
+            moved.push((c.name.clone(), source));
         }
         for ix in &mut t.indexes {
             let column = ix
@@ -457,7 +478,17 @@ impl Dialect for Search {
                     format!("«{col}» ya tiene su índice vectorial"),
                 ))
             } else {
-                None
+                // Open Distro's distance and HNSW parameters are the whole
+                // index's settings: the first vector index sets them.
+                kept.first()
+                    .filter(|k| self.flavor == Flavor::OpenDistro && od_settings(k) != od_settings(&ix))
+                    .map(|first| (
+                        Severity::Dropped,
+                        format!(
+                            "en Open Distro la distancia y los parámetros k-NN son de todo el índice, y ya los fija «{}»",
+                            first.name
+                        ),
+                    ))
             };
             match why {
                 Some((sev, why)) => report.push(
@@ -578,6 +609,25 @@ impl Dialect for Search {
             },
         ))
     }
+}
+
+/// What an Open Distro vector index sets for its whole index: the distance
+/// (`l2` when none is named, the engine's default) and the HNSW
+/// parameters.
+fn od_settings(ix: &dbine_driver::IndexDef) -> (String, Vec<(String, String)>) {
+    let v = ix.vector.clone().unwrap_or_default();
+    let metric = v
+        .metric
+        .map(|m| m.trim().to_ascii_lowercase())
+        .filter(|m| !m.is_empty())
+        .unwrap_or_else(|| "l2".into());
+    let params = v
+        .params
+        .into_iter()
+        .map(|(k, x)| (k, x.trim().to_string()))
+        .filter(|(_, x)| !x.is_empty())
+        .collect();
+    (metric, params)
 }
 
 /// An index name Elasticsearch accepts: lower case, without `\ / * ? " < >
@@ -1310,6 +1360,182 @@ mod tests {
             c.issues.iter().any(
                 |i| i.object.as_deref() == Some("items_emb") && i.severity == Severity::Dropped
             ),
+            "{:?}",
+            c.issues
+        );
+    }
+
+    #[test]
+    fn opensearch_vectors_move_to_open_distro_as_it_takes_them() {
+        let index =
+            |name: &str, col: &str, metric: &str, params: &[(&str, &str)]| dbine_driver::IndexDef {
+                name: name.into(),
+                columns: vec![col.into()],
+                vector: Some(VectorIndex {
+                    algorithm: Some("hnsw".into()),
+                    metric: Some(metric.into()),
+                    params: params
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect(),
+                }),
+                ..Default::default()
+            };
+        let one = |ty: &str, ix: dbine_driver::IndexDef, dst: &str| {
+            let mut t = table(ty, None);
+            t.indexes = vec![ix];
+            crate::convert(&[t], "opensearch", dst, &Default::default()).unwrap()
+        };
+        let dropped = |c: &crate::Conversion, why: &str| {
+            c.issues.iter().any(|i| {
+                i.severity == Severity::Dropped
+                    && i.object.as_deref() == Some("items_emb")
+                    && i.message.contains(why)
+            })
+        };
+        // Binary vectors: Open Distro has floats only, and Hamming only
+        // for bits.
+        let c = one(
+            "knn_vector(16, binary)",
+            index("items_emb", "emb", "hamming", &[("engine", "faiss")]),
+            "opendistro",
+        );
+        let t = &c.tables[0];
+        assert_eq!(t.columns[1].data_type, "knn_vector(16)");
+        assert!(t.indexes.is_empty(), "{:?}", t.indexes);
+        assert!(dropped(&c, "Hamming"), "{:?}", c.issues);
+        assert!(
+            c.issues
+                .iter()
+                .any(|i| i.object.as_deref() == Some("emb") && i.severity == Severity::Warning),
+            "{:?}",
+            c.issues
+        );
+        // Byte vectors become floats and keep their index, in Open
+        // Distro's terms (no engine).
+        let c = one(
+            "knn_vector(3, byte)",
+            index(
+                "items_emb",
+                "emb",
+                "l2",
+                &[("engine", "lucene"), ("m", "8")],
+            ),
+            "opendistro",
+        );
+        let t = &c.tables[0];
+        assert_eq!(t.columns[1].data_type, "knn_vector(3)");
+        assert_eq!(
+            t.indexes[0].vector,
+            Some(VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("l2".into()),
+                params: [("m".to_string(), "8".to_string())].into(),
+            })
+        );
+        // More dimensions than Open Distro takes: not a vector there.
+        let c = one(
+            "knn_vector(12000)",
+            index("items_emb", "emb", "l2", &[]),
+            "opendistro",
+        );
+        assert!(!c.tables[0].columns[1].data_type.starts_with("knn_vector"));
+        assert!(c.tables[0].indexes.is_empty());
+        assert!(dropped(&c, "10000 dimensiones"), "{:?}", c.issues);
+        // A float vector keeps its type; its index loses what Open Distro
+        // lacks: the engine, `mode`, the inner product and L∞.
+        let c = one(
+            "knn_vector(3)",
+            index(
+                "items_emb",
+                "emb",
+                "cosine",
+                &[("engine", "faiss"), ("m", "24"), ("mode", "on_disk")],
+            ),
+            "opendistro",
+        );
+        let t = &c.tables[0];
+        assert_eq!(t.columns[1].data_type, "knn_vector(3)");
+        assert_eq!(
+            t.indexes[0].vector,
+            Some(VectorIndex {
+                algorithm: Some("hnsw".into()),
+                metric: Some("cosine".into()),
+                params: [("m".to_string(), "24".to_string())].into(),
+            })
+        );
+        for m in ["ip", "linf"] {
+            let c = one(
+                "knn_vector(3)",
+                index("items_emb", "emb", m, &[]),
+                "opendistro",
+            );
+            assert!(c.tables[0].indexes.is_empty(), "{m}");
+            assert!(dropped(&c, &format!("«{m}»")), "{m}: {:?}", c.issues);
+        }
+        // Open Distro's distance and parameters belong to the whole index:
+        // a second vector field searched otherwise loses its index.
+        let mut t = table("knn_vector(3)", None);
+        t.columns.push(dbine_driver::ColumnDef {
+            name: "emb2".into(),
+            data_type: "knn_vector(3)".into(),
+            ..Default::default()
+        });
+        t.indexes = vec![
+            index("items_emb", "emb", "cosine", &[]),
+            index("items_emb2", "emb2", "l2", &[]),
+        ];
+        let c = crate::convert(
+            &[t.clone()],
+            "opensearch",
+            "opendistro",
+            &Default::default(),
+        )
+        .unwrap();
+        assert_eq!(c.tables[0].indexes.len(), 1, "{:?}", c.tables[0].indexes);
+        assert!(
+            c.issues
+                .iter()
+                .any(|i| i.object.as_deref() == Some("items_emb2")
+                    && i.severity == Severity::Dropped
+                    && i.message.contains("«items_emb»")),
+            "{:?}",
+            c.issues
+        );
+        // OpenSearch keeps both, and its own settings as they are.
+        let c = crate::convert(&[t], "opensearch", "opensearch", &Default::default()).unwrap();
+        assert_eq!(c.tables[0].indexes.len(), 2);
+        let c = one(
+            "knn_vector(16, binary)",
+            index("items_emb", "emb", "hamming", &[("engine", "faiss")]),
+            "opensearch",
+        );
+        assert_eq!(c.tables[0].columns[1].data_type, "knn_vector(16, binary)");
+        assert_eq!(
+            c.tables[0].indexes[0]
+                .vector
+                .as_ref()
+                .and_then(|v| v.params.get("engine"))
+                .map(String::as_str),
+            Some("faiss")
+        );
+        // Open Distro to Open Distro: its own settings map to themselves.
+        let own = index(
+            "items_emb",
+            "emb",
+            "l1",
+            &[("m", "8"), ("ef_construction", "256")],
+        );
+        let mut t = table("knn_vector(3)", None);
+        t.indexes = vec![own.clone()];
+        let c = crate::convert(&[t], "opendistro", "opendistro", &Default::default()).unwrap();
+        assert_eq!(c.tables[0].columns[1].data_type, "knn_vector(3)");
+        assert_eq!(c.tables[0].indexes[0].vector, own.vector);
+        assert!(
+            !c.issues
+                .iter()
+                .any(|i| matches!(i.object.as_deref(), Some("emb" | "items_emb"))
+                    && i.code != IssueCode::NullabilityChanged),
             "{:?}",
             c.issues
         );

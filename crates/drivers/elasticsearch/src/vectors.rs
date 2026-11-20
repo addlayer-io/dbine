@@ -882,7 +882,8 @@ pub(crate) fn od_settings(ixs: &[(&IndexDef, &VecType)]) -> Result<Obj> {
                 params.push((key.to_string(), val.trim().to_string()));
             }
         }
-        let space_key = space.clone().unwrap_or_default();
+        // No distance named is the engine's default, `l2`.
+        let space_key = space.clone().unwrap_or_else(|| "l2".into());
         match &first {
             None => {
                 if let Some(s) = &space {
@@ -2009,6 +2010,10 @@ mod tests {
         let mut other = ix.clone();
         other.vector.as_mut().unwrap().metric = Some("cosine".into());
         assert!(od_settings(&[(&ix, &t), (&other, &t)]).is_err());
+        // No distance named is l2: it agrees with an index by l2.
+        other.vector.as_mut().unwrap().metric = None;
+        let out = od_settings(&[(&ix, &t), (&other, &t)]).unwrap();
+        assert_eq!(J::Obj(out).compact(), r#"{"knn.space_type":"l2"}"#);
         other.vector.as_mut().unwrap().metric = Some("ip".into());
         assert!(od_settings(&[(&other, &t)]).is_err());
     }
