@@ -3151,6 +3151,7 @@ pub(crate) mod tests {
             schema: None,
             running: Arc::new(std::sync::Mutex::new(None)),
             profiler: None,
+            uc_functions: None,
         }
     }
 

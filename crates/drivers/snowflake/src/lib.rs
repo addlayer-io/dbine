@@ -17,6 +17,7 @@ mod health;
 mod index_usage;
 mod jobs;
 mod monitor;
+mod paging;
 mod permissions;
 mod plan;
 mod processes;
@@ -1329,6 +1330,14 @@ impl Session for SnowflakeSession {
             }
         }
         Ok(out)
+    }
+
+    /// One narrow catalog query per page (see [`paging`]).
+    async fn list_objects_page(
+        &mut self,
+        query: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        self.objects_page(query).await
     }
 
     /// `INFORMATION_SCHEMA.SCHEMATA` of the session's database (the
