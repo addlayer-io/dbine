@@ -3680,6 +3680,7 @@
   "No se pudo leer el CPU ni la memoria de los tservers (yb_servers_metrics)": "Couldn't read the tservers' CPU or memory (yb_servers_metrics)",
   "No se pudo leer el JMX de {0} de {1} RegionServers; si sus nombres no resuelven desde esta máquina, indicá sus URLs en la conexión (campo «RegionServers de HBase»).": "Couldn't read the JMX of {0} of {1} RegionServers; if their names don't resolve from this machine, set their URLs in the connection (“HBase RegionServers” field).",
   "No se pudo leer el JMX del Master de HBase en {0}: indicá la URL de su interfaz web en la conexión (campo «Master de HBase») para ver CPU, memoria, regiones y pedidos.": "Couldn't read the HBase Master JMX at {0}: set its web UI URL in the connection (“HBase Master” field) to see CPU, memory, regions and requests.",
+  "No se pudo leer el catálogo de dependencias ({0}): se muestran solo sus claves foráneas y los nombres que usa su definición.": "Couldn't read the dependency catalog ({0}): only its foreign keys and the names its definition uses are shown.",
   "No se pudo leer el cluster manager ({0}): faltan CPU, memoria, disco y buckets (hace falta el rol de lectura del cluster).": "Couldn't read the cluster manager ({0}): CPU, memory, disk and buckets are missing (the cluster read role is required).",
   "No se pudo leer el endpoint de métricas {0} ({1}).": "Couldn't read the metrics endpoint {0} ({1}).",
   "No se pudo leer el estado de réplica: hace falta el privilegio {0} ({1}).": "Couldn't read the replica status: the {0} privilege is required ({1}).",

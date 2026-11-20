@@ -3894,6 +3894,48 @@ Drivers whose engine records dependencies answer from their catalog instead:
   gets what its code names, as the default version finds it (**Probable**). If
   `ALL_DEPENDENCIES` can't be read, the default version answers and the tab
   says so. Sequences use the default version.
+- **PostgreSQL and the forks that keep its catalog** (TimescaleDB, AlloyDB,
+  Cloud SQL, Aurora PostgreSQL, EDB, Fujitsu, YugabyteDB, Greenplum,
+  Cloudberry, Greengage, KingbaseES, openGauss): everything comes from
+  `pg_depend` and is **Confirmed**. A view or materialized view lists the
+  tables, views, sequences and functions its rewrite rule uses. A trigger
+  lists its table, its function and what its `WHEN` calls. A function or
+  procedure with a SQL-standard body (PostgreSQL 14+) lists what that body
+  uses, plus any table whose row type is in its signature; other bodies
+  (PL/pgSQL, a string) aren't tracked by the engine, so the default scan of
+  their text is added (**Probable**). A table lists its foreign keys' tables,
+  the sequences and functions of its defaults and generated columns, the
+  functions of its checks and index expressions, what its row-level security
+  policies read, the parent of a partition or inherited table, and the
+  sequences it owns. A foreign table's remote source goes in the external
+  sources: the wrapper (`postgres_fdw`, `mysql_fdw`…), the server's host and
+  port, and the remote database, schema and table from its options (user
+  mappings are never read). The server's objects and extension functions are
+  left out. If the catalog can't be read, the default version runs and the tab
+  says why.
+- **Amazon Redshift:** views from `pg_depend` and `pg_rewrite`
+  (**Confirmed**), plus the default text scan, since late-binding views record
+  nothing. Everything else uses the default version.
+- **Yellowbrick:** PostgreSQL's catalog without policies, inheritance or
+  foreign tables (**Confirmed**), plus the default text scan.
+- **CockroachDB:** tables, views and materialized views from
+  `crdb_internal.backward_dependencies` (the tables, views and sequences they
+  use) and the foreign keys, **Confirmed**. An object in another database (a
+  cross-database view) is an external source. CockroachDB doesn't expose what
+  functions use, nor which functions a view calls: those come from the text
+  (**Probable**), and routines use the default version.
+- **Materialize:** `mz_internal.mz_object_dependencies`, **Confirmed** (user
+  objects only). Objects in another database, and the connections that sources
+  and sinks use, are external sources.
+- **RisingWave:** `rw_catalog.rw_depend`, **Confirmed**. A materialized view
+  also lists the base tables of the views it reads, as the engine records
+  them. A source's or connector table's connector (Kafka, CDC…) is an external
+  source, with only its plaintext properties.
+- **Amazon Aurora DSQL:** PostgreSQL's `pg_depend` for views, functions and
+  table defaults, checks and indexes (**Confirmed**), always merged with the
+  default text scan, since DSQL's catalog is a subset. It has no foreign keys,
+  triggers or foreign tables.
+- **Denodo, CrateDB, H2:** the default version.
 - **MySQL (and Aurora MySQL, Cloud SQL for MySQL):** From MySQL 8.0.13, a
   view's tables and views come from `information_schema.VIEW_TABLE_USAGE` and
   its functions from `VIEW_ROUTINE_USAGE` (**Confirmed**), with the lines of

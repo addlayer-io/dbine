@@ -26534,7 +26534,8 @@
  ],
  "Materialize": [
   "crates/drivers/postgres/src/lib.rs",
-  "crates/drivers/postgres/src/processes.rs"
+  "crates/drivers/postgres/src/processes.rs",
+  "crates/drivers/postgres/src/references.rs"
  ],
  "Materialize no cuenta cuántas veces se usa cada índice. Se listan los índices sin estadísticas de uso.": [
   "crates/drivers/postgres/src/index_usage.rs"
@@ -29573,6 +29574,9 @@
  ],
  "No se pudo leer el archivo «{0}»: {1}.": [
   "crates/drivers/odbc/src/monitor.rs"
+ ],
+ "No se pudo leer el catálogo de dependencias ({0}): se muestran solo sus claves foráneas y los nombres que usa su definición.": [
+  "crates/drivers/postgres/src/pg_references.rs"
  ],
  "No se pudo leer el cluster manager ({0}): faltan CPU, memoria, disco y buckets (hace falta el rol de lectura del cluster).": [
   "crates/drivers/couchbase/src/lib.rs"

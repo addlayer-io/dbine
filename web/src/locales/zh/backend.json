@@ -3496,6 +3496,7 @@
   "No se pudo leer el CPU ni la memoria de los tservers (yb_servers_metrics)": "无法读取 tserver 的 CPU 或内存（yb_servers_metrics）",
   "No se pudo leer el JMX de {0} de {1} RegionServers; si sus nombres no resuelven desde esta máquina, indicá sus URLs en la conexión (campo «RegionServers de HBase»).": "无法读取 {1} 个 RegionServer 中 {0} 个的 JMX；如果它们的名称无法从这台电脑解析，请在连接中设置它们的 URL（“HBase RegionServers”字段）。",
   "No se pudo leer el JMX del Master de HBase en {0}: indicá la URL de su interfaz web en la conexión (campo «Master de HBase») para ver CPU, memoria, regiones y pedidos.": "无法读取 {0} 处的 HBase Master JMX：请在连接中设置其 Web UI URL（“HBase Master”字段）以查看 CPU、内存、区域和请求。",
+  "No se pudo leer el catálogo de dependencias ({0}): se muestran solo sus claves foráneas y los nombres que usa su definición.": "无法读取依赖目录（{0}）：仅显示其外键以及其定义中使用的名称。",
   "No se pudo leer el cluster manager ({0}): faltan CPU, memoria, disco y buckets (hace falta el rol de lectura del cluster).": "无法读取集群管理器（{0}）：缺少 CPU、内存、磁盘和存储桶信息（需要集群读取角色）。",
   "No se pudo leer el endpoint de métricas {0} ({1}).": "无法读取指标端点 {0}（{1}）。",
   "No se pudo leer el estado de réplica: hace falta el privilegio {0} ({1}).": "无法读取副本状态：需要 {0} 权限（{1}）。",

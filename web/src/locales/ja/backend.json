@@ -3842,6 +3842,7 @@
   "No se pudo leer el CPU ni la memoria de los tservers (yb_servers_metrics)": "tserver の CPU とメモリ(yb_servers_metrics)を読み取れませんでした",
   "No se pudo leer el JMX de {0} de {1} RegionServers; si sus nombres no resuelven desde esta máquina, indicá sus URLs en la conexión (campo «RegionServers de HBase»).": "{1} 個の RegionServer のうち {0} 個の JMX を読み取れませんでした。この PC から名前が解決できない場合は、接続の「HBase の RegionServer」欄にその URL を指定してください。",
   "No se pudo leer el JMX del Master de HBase en {0}: indicá la URL de su interfaz web en la conexión (campo «Master de HBase») para ver CPU, memoria, regiones y pedidos.": "{0} の HBase マスターの JMX を読み取れませんでした。CPU、メモリ、リージョン、リクエストを表示するには、接続にその Web インターフェースの URL(「HBase のマスター」欄)を指定してください。",
+  "No se pudo leer el catálogo de dependencias ({0}): se muestran solo sus claves foráneas y los nombres que usa su definición.": "依存関係カタログを読み取れませんでした（{0}）。外部キーと、定義で使用されている名前のみを表示しています。",
   "No se pudo leer el cluster manager ({0}): faltan CPU, memoria, disco y buckets (hace falta el rol de lectura del cluster).": "クラスターマネージャー({0})を読み取れませんでした。CPU、メモリ、ディスク、バケットがありません(クラスターの読み取りロールが必要です)。",
   "No se pudo leer el endpoint de métricas {0} ({1}).": "メトリクスのエンドポイント {0}({1})を読み取れませんでした。",
   "No se pudo leer el estado de réplica: hace falta el privilegio {0} ({1}).": "レプリカの状態を読み取れませんでした。権限 {0}({1})が必要です。",

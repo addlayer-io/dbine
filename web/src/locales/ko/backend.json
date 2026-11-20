@@ -3610,6 +3610,7 @@
   "No se pudo leer el CPU ni la memoria de los tservers (yb_servers_metrics)": "tserver의 CPU와 메모리를 읽지 못했습니다(yb_servers_metrics)",
   "No se pudo leer el JMX de {0} de {1} RegionServers; si sus nombres no resuelven desde esta máquina, indicá sus URLs en la conexión (campo «RegionServers de HBase»).": "RegionServer {1}개 중 {0}개의 JMX를 읽지 못했습니다. 이름이 이 컴퓨터에서 확인되지 않으면 연결의 「HBase RegionServers」 필드에 URL을 지정하세요.",
   "No se pudo leer el JMX del Master de HBase en {0}: indicá la URL de su interfaz web en la conexión (campo «Master de HBase») para ver CPU, memoria, regiones y pedidos.": "{0}에서 HBase 마스터의 JMX를 읽지 못했습니다. CPU, 메모리, 리전, 요청을 보려면 연결의 「HBase 마스터」 필드에 웹 인터페이스의 URL을 지정하세요.",
+  "No se pudo leer el catálogo de dependencias ({0}): se muestran solo sus claves foráneas y los nombres que usa su definición.": "종속성 카탈로그를 읽을 수 없습니다({0}). 외래 키와 정의에서 사용하는 이름만 표시합니다.",
   "No se pudo leer el cluster manager ({0}): faltan CPU, memoria, disco y buckets (hace falta el rol de lectura del cluster).": "클러스터 매니저를 읽지 못했습니다({0}). CPU, 메모리, 디스크, 버킷이 없습니다(클러스터 읽기 역할 필요).",
   "No se pudo leer el endpoint de métricas {0} ({1}).": "메트릭 엔드포인트 {0}을(를) 읽지 못했습니다({1}).",
   "No se pudo leer el estado de réplica: hace falta el privilegio {0} ({1}).": "복제 상태를 읽지 못했습니다. {0} 권한이 필요합니다({1}).",

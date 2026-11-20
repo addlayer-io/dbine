@@ -4781,6 +4781,7 @@
   "No se pudo leer el JMX de {0} de {1} RegionServers; si sus nombres no resuelven desde esta máquina, indicá sus URLs en la conexión (campo «RegionServers de HBase»).": "Не вдалося прочитати JMX RegionServers: {0} з {1}; якщо їхні назви не розпізнаються з цього комп'ютера, вкажіть їхні URL у підключенні (поле «RegionServers HBase»).",
   "No se pudo leer el JMX del Master de HBase en {0}: indicá la URL de su interfaz web en la conexión (campo «Master de HBase») para ver CPU, memoria, regiones y pedidos.": "Не вдалося прочитати JMX Master HBase за адресою {0}: вкажіть URL його вебінтерфейсу в підключенні (поле «Master HBase»), щоб побачити CPU, пам'ять, регіони та запити.",
   "No se pudo leer el archivo «{0}»: {1}.": "Не вдалося прочитати файл «{0}»: {1}.",
+  "No se pudo leer el catálogo de dependencias ({0}): se muestran solo sus claves foráneas y los nombres que usa su definición.": "Не вдалося прочитати каталог залежностей ({0}): показано лише його зовнішні ключі та імена, які використовує його визначення.",
   "No se pudo leer el cluster manager ({0}): faltan CPU, memoria, disco y buckets (hace falta el rol de lectura del cluster).": "Не вдалося прочитати cluster manager ({0}): бракує CPU, пам'яті, диска та бакетів (потрібна роль читання кластера).",
   "No se pudo leer el endpoint de métricas {0} ({1}).": "Не вдалося прочитати кінцеву точку метрик {0} ({1}).",
   "No se pudo leer el estado de réplica: hace falta el privilegio {0} ({1}).": "Не вдалося прочитати стан реплікації: потрібна привілея {0} ({1}).",
