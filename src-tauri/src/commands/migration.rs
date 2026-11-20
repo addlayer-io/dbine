@@ -371,7 +371,8 @@ async fn pick(state: &AppState, args: &PlanArgs) -> CommandResult<Picked> {
         ))
     })?;
     let all: Vec<TableSchema> = state
-        .meta_read(
+        .meta_read_on(
+            crate::state::Lane::Long,
             &args.connection_id,
             &args.database,
             crate::commands::explorer::SCHEMA_LIMIT,

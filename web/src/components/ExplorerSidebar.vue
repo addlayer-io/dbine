@@ -478,10 +478,10 @@ function connectionNode(c: SavedConnection): TNode {
     const node: TNode = { id, label: c.name, type: 'connection', connectionId: c.id, hint: d?.name ?? c.config.driver };
     const live = conns.live[c.id];
     if (!d) node.children = [status(id, 'error', t('explorer:tree.driverUnavailable', { driver: c.config.driver }))];
-    // Connect first: until the server answers nothing of the tree shows
-    // ("Conectando…"); if it fails, only the banner. What shows afterwards
-    // (the cache included) is a confirmed connection's.
-    else if (!live || live.status === 'connecting') {
+    // While connecting, last time's databases (the explorer cache) show and
+    // open at once, the connection saying "Conectando…"; without them, only
+    // that. If the connect fails, only the banner.
+    else if (!live || (live.status === 'connecting' && !live.databases.length)) {
       const label = live ? (conns.downloadNote(d.id) ?? t('explorer:tree.connecting')) : t('explorer:tree.expandToConnect');
       node.children = [status(id, 'loading', label)];
     }
@@ -503,6 +503,7 @@ function connectionNode(c: SavedConnection): TNode {
       // What applies to every database of the connection.
       node.children.unshift(contextsNode(c, ''));
     }
+    if (live?.status === 'connecting' && node.children?.length && live.databases.length) node.hint = conns.downloadNote(d!.id) ?? t('explorer:tree.connecting');
     return node;
 }
 
@@ -628,21 +629,50 @@ async function onExpand(n: TNode) {
   if (n.type === 'connection' && n.connectionId) {
     const id = n.connectionId;
     const d = conns.driverOf(id);
-    // Connect (or validate) first; a connection that failed isn't retried
-    // here: its banner shows, and "Reintentar" tries again.
-    if (!(await conns.ensureConnected(id, { auto: true }))) return;
+    // A connection that failed isn't retried here: its banner shows, and
+    // "Reintentar" tries again.
+    const connected = conns.ensureConnected(id, { auto: true });
+    // Engines with a single namespace: its objects, the cache's at once
+    // (while connecting too), then the server's.
+    if (d && !d.databases_label && !conns.isConnected(id)) {
+      await conns.cachedDatabases(id);
+      const only = conns.live[id]?.databases[0];
+      if (only !== undefined && conns.live[id]?.status === 'connecting') loadDatabase(id, only);
+    }
+    if (!(await connected)) return;
     conns.loadContexts(id);
-    // Engines with a single namespace: its objects (the cache's at once,
-    // then the server's).
     if (d && !d.databases_label) loadDatabase(id, conns.live[id]?.databases[0] ?? '');
   } else if (n.type === 'database' && n.connectionId) {
     loadDatabase(n.connectionId, n.database ?? '');
   } else if (n.type === 'object' && n.object && n.connectionId) {
-    conns.loadColumns(n.connectionId, n.database ?? '', n.object);
+    conns.loadColumns(n.connectionId, n.database ?? '', n.object, false, { tree: true });
     // The indexes and foreign keys load with the columns.
-    if (indexesShown(n.connectionId, n.object)) loadIndexUsage(n.connectionId, n.database ?? '', n.object);
+    if (indexesShown(n.connectionId, n.object)) loadIndexUsage(n.connectionId, n.database ?? '', n.object, false, true);
   }
 }
+/** Back in DBine: what's open and loaded is read again in the background
+ *  when the server's answer is older than REREAD_MS, so changes made outside
+ *  DBine show up without "Actualizar" (the store decides by age). */
+function rereadOpen() {
+  const ready = (l?: { status: string }) => l?.status === 'ready';
+  for (const key of expanded.value) {
+    const n = findNode(key);
+    if (!n?.connectionId || !conns.isConnected(n.connectionId)) continue;
+    const cid = n.connectionId;
+    const db = n.database ?? '';
+    if (n.type === 'connection') {
+      const d = conns.driverOf(cid);
+      const only = conns.live[cid]?.databases[0] ?? '';
+      if (d && !d.databases_label && ready(conns.objects[dbKey(cid, only)])) void conns.loadObjects(cid, only);
+    } else if (n.type === 'database' && ready(conns.objects[dbKey(cid, db)])) {
+      void conns.loadObjects(cid, db);
+    } else if (n.type === 'object' && n.object && ready(conns.columns[objKey(cid, db, n.object.schema, n.object.name)])) {
+      void conns.loadColumns(cid, db, n.object, false, { tree: true });
+    }
+  }
+}
+onMounted(() => window.addEventListener('focus', rereadOpen));
+onBeforeUnmount(() => window.removeEventListener('focus', rereadOpen));
 /** After a (re)connect: el-tree-v2 doesn't fire `node-expand` for nodes it
  *  restores open, so what's open below the connection and failed (or never
  *  loaded) loads again here. */
@@ -660,7 +690,7 @@ function reloadExpanded(connectionId: string) {
     } else if (n.type === 'database' && failed(conns.objects[dbKey(connectionId, db)])) {
       loadDatabase(connectionId, db);
     } else if (n.type === 'object' && n.object && failed(conns.columns[objKey(connectionId, db, n.object.schema, n.object.name)])) {
-      conns.loadColumns(connectionId, db, n.object);
+      conns.loadColumns(connectionId, db, n.object, false, { tree: true });
     }
   }
 }
@@ -1061,8 +1091,8 @@ async function onContext(e: MouseEvent, n: TNode) {
         items.push({
           label: t('explorer:menu.refreshColumns'),
           action: () => {
-            conns.loadColumns(cid!, db, o, true);
-            if (indexesShown(cid!, o)) loadIndexUsage(cid!, db, ref, true);
+            conns.loadColumns(cid!, db, o, true, { tree: true });
+            if (indexesShown(cid!, o)) loadIndexUsage(cid!, db, ref, true, true);
           },
         });
       }

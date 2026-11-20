@@ -33,12 +33,15 @@ export interface LiveConnection {
 }
 
 export interface Loadable<T> {
-  /** stale: `items` are the explorer cache's (last time's), shown while the
-   *  server is asked again (the connection is confirmed by then); its answer
-   *  replaces them. */
+  /** stale: `items` are what was shown before (the explorer cache's, last
+   *  time's, or this session's older read), kept while the server is asked
+   *  again; its answer replaces them. */
   status: 'loading' | 'ready' | 'error' | 'stale';
   items: T;
   error: string | null;
+  /** When the server's answer arrived (ms since the epoch): an older one is
+   *  read again in the background on its next use (`REREAD_MS`). */
+  at?: number;
 }
 
 /** An engine library being downloaded on first use (DuckDB). */
@@ -94,6 +97,16 @@ const columnsItem = (o: { kind: string; schema: string | null; name: string }) =
 
 /** Object lists being read, by `dbKey` (a second expand waits for the first). */
 const objectsLoading = new Map<string, Promise<void>>();
+/** Columns being read, by `objKey` (likewise). */
+const columnsLoading = new Map<string, Promise<ColumnInfo[]>>();
+/** A connect's read of last time's database list (the explorer cache), by
+ *  connection: the tree waits for it before opening a cached database. */
+const priming = new Map<string, Promise<void>>();
+/** Past this age, what the server answered is read again in the background
+ *  on its next use (an expand, the window's focus): changes made outside
+ *  DBine show up without "Actualizar". */
+export const REREAD_MS = 5 * 60_000;
+const isOld = (l: { at?: number }) => Date.now() - (l.at ?? 0) > REREAD_MS;
 /** Permission checks in flight, by `dbKey`. */
 const permissionsLoading = new Map<string, Promise<void>>();
 
@@ -293,13 +306,20 @@ export const useConnectionsStore = defineStore('connections', {
     async openConnection(id: string, password: string | null): Promise<boolean> {
       const conn = this.byId(id);
       if (!conn) return false;
-      // Nothing of the tree shows until the server answers: what's shown
-      // afterwards is a confirmed connection's (cache included).
+      // While the server is asked, last time's databases (the explorer
+      // cache) show at once, and so do their cached objects when opened; a
+      // failed connect replaces them with its error.
       const gen = generation.get(id) ?? 0;
       const prev = this.live[id];
       this.live[id] = {
         status: 'connecting', serverVersion: '', databases: [], defaultDatabase: prev?.defaultDatabase ?? '', error: null,
       };
+      const primed = api.getCached<string[]>(id, '', 'databases').catch(() => null).then((dbs) => {
+        const l = this.live[id];
+        if (dbs?.length && l?.status === 'connecting' && !l.databases.length && (generation.get(id) ?? 0) === gen) l.databases = dbs;
+      });
+      priming.set(id, primed);
+      void primed.finally(() => { if (priming.get(id) === primed) priming.delete(id); });
       await this.listenDownloads();
       try {
         // A failed download leaves no stale progress behind.
@@ -454,7 +474,10 @@ export const useConnectionsStore = defineStore('connections', {
       return this.connect(id);
     },
 
-    async loadObjects(connectionId: string, database: string, force = false) {
+    /** A database's objects: the tree's and the editor's list. `quiet`: a
+     *  background re-read (an old answer, a structure change run in the
+     *  editor), whose failure keeps what's shown instead of an error. */
+    async loadObjects(connectionId: string, database: string, force = false, quiet = false) {
       const k = dbKey(connectionId, database);
       // Databases of keys aren't listed: their keys are searched, page by page.
       if (this.driverOf(connectionId)?.key_search) {
@@ -468,20 +491,23 @@ export const useConnectionsStore = defineStore('connections', {
         this.objects[k] = { status: 'ready', items: [], error: null };
         return this.searchKeys(connectionId, database, last?.pattern ?? '', last?.keyType ?? '');
       }
-      if (!force && this.objects[k]?.status === 'ready') return;
+      const cur = this.objects[k];
+      if (!force && cur?.status === 'ready') {
+        // An old answer: read again in the background, what's shown stays.
+        if (isOld(cur) && !objectsLoading.has(k)) void this.loadObjects(connectionId, database, true, true);
+        return;
+      }
       if (!force && objectsLoading.has(k)) return objectsLoading.get(k);
+      // A background re-read doesn't connect again a connection that failed.
+      const auto = !force || quiet;
       const run = (async () => {
-        const had = this.objects[k]?.items ?? [];
-        this.objects[k] = { status: had.length ? 'stale' : 'loading', items: had, error: null };
-        // The connection first: nothing is shown from a server that can't
-        // be reached.
-        if (!(await this.ensureConnected(connectionId, { auto: !force }))) {
-          this.objects[k] = failedLoad(this.live[connectionId]?.error ?? t('common:error'));
-          return;
-        }
-        // Confirmed: what's there stays while the server is asked; the
-        // first time, last time's list from the explorer cache.
-        if (!had.length) {
+        const prev = this.objects[k];
+        const had = prev?.items ?? [];
+        this.objects[k] = { status: had.length ? 'stale' : 'loading', items: had, error: null, at: prev?.at };
+        // The first time, last time's list from the explorer cache at once,
+        // also while the connection is still opening; a connection that
+        // failed shows its error instead.
+        if (!had.length && !(auto && this.live[connectionId]?.status === 'error')) {
           const [cached, cachedSchemas] = await Promise.all([
             api.getCached<DbObject[]>(connectionId, database, 'objects').catch(() => null),
             api.getCached<SchemaInfo[]>(connectionId, database, 'schemas').catch(() => null),
@@ -491,12 +517,20 @@ export const useConnectionsStore = defineStore('connections', {
             this.objects[k] = { status: 'stale', items: cached ?? [], error: null };
           }
         }
+        // A server that can't be reached replaces what's shown with its error.
+        if (!(await this.ensureConnected(connectionId, { auto }))) {
+          this.objects[k] = failedLoad(this.live[connectionId]?.error ?? t('common:error'));
+          return;
+        }
         try {
           const read = await api.listDatabaseObjects(connectionId, database);
           this.schemas[k] = read.schemas;
-          this.objects[k] = { status: 'ready', items: read.objects, error: null };
+          this.objects[k] = { status: 'ready', items: read.objects, error: null, at: Date.now() };
         } catch (e) {
-          this.objects[k] = failedLoad(errorMessage(e));
+          // A background re-read that fails keeps what's shown (and tries
+          // again after REREAD_MS); any other read shows the error.
+          if (quiet && had.length) this.objects[k] = { status: 'ready', items: had, error: null, at: Date.now() };
+          else this.objects[k] = failedLoad(errorMessage(e));
           void this.recheckAfter(connectionId, e);
         }
       })();
@@ -504,7 +538,7 @@ export const useConnectionsStore = defineStore('connections', {
       try {
         await run;
       } finally {
-        objectsLoading.delete(k);
+        if (objectsLoading.get(k) === run) objectsLoading.delete(k);
       }
     },
 
@@ -555,28 +589,85 @@ export const useConnectionsStore = defineStore('connections', {
       }
     },
 
-    async loadColumns(connectionId: string, database: string, obj: DbObject, force = false) {
+    /** An object's columns. `opts.tree`: asked by the explorer tree (read on
+     *  the tree's own session, not behind the editor's); `opts.quiet`: a
+     *  background re-read, whose failure keeps what's shown. */
+    async loadColumns(
+      connectionId: string, database: string, obj: DbObject, force = false, opts: { tree?: boolean; quiet?: boolean } = {},
+    ): Promise<ColumnInfo[]> {
       const k = objKey(connectionId, database, obj.schema, obj.name);
-      if (!force && this.columns[k]?.status === 'ready') return this.columns[k].items;
-      const had = this.columns[k]?.items ?? [];
-      this.columns[k] = { status: had.length ? 'stale' : 'loading', items: had, error: null };
-      // The connection first; then the cache (instant) and the server.
-      if (!(await this.ensureConnected(connectionId, { auto: !force }))) {
-        this.columns[k] = failedLoad(this.live[connectionId]?.error ?? t('common:error'));
-        return [];
+      const cur = this.columns[k];
+      if (!force && cur?.status === 'ready') {
+        // An old answer: read again in the background, what's shown stays.
+        if (isOld(cur) && !columnsLoading.has(k)) void this.loadColumns(connectionId, database, obj, true, { ...opts, quiet: true });
+        return cur.items;
       }
-      if (!had.length) {
-        const cached = await api.getCached<ColumnInfo[]>(connectionId, database, 'columns', columnsItem(obj)).catch(() => null);
-        if (cached?.length && this.columns[k]?.status === 'loading') this.columns[k] = { status: 'stale', items: cached, error: null };
-      }
+      const running = columnsLoading.get(k);
+      if (!force && running) return running;
+      // A background re-read doesn't connect again a connection that failed.
+      const auto = !force || !!opts.quiet;
+      const run = (async (): Promise<ColumnInfo[]> => {
+        const prev = this.columns[k];
+        const had = prev?.items ?? [];
+        this.columns[k] = { status: had.length ? 'stale' : 'loading', items: had, error: null, at: prev?.at };
+        // The cache at once (also while connecting), then the server.
+        if (!had.length && !(auto && this.live[connectionId]?.status === 'error')) {
+          const cached = await api.getCached<ColumnInfo[]>(connectionId, database, 'columns', columnsItem(obj)).catch(() => null);
+          if (cached?.length && this.columns[k]?.status === 'loading') this.columns[k] = { status: 'stale', items: cached, error: null };
+        }
+        if (!(await this.ensureConnected(connectionId, { auto }))) {
+          this.columns[k] = failedLoad(this.live[connectionId]?.error ?? t('common:error'));
+          return [];
+        }
+        try {
+          const items = await api.getColumns(connectionId, database, { kind: obj.kind, schema: obj.schema, name: obj.name }, opts.tree);
+          this.columns[k] = { status: 'ready', items, error: null, at: Date.now() };
+          return items;
+        } catch (e) {
+          void this.recheckAfter(connectionId, e);
+          if (opts.quiet && had.length) {
+            this.columns[k] = { status: 'ready', items: had, error: null, at: Date.now() };
+            return had;
+          }
+          this.columns[k] = failedLoad(errorMessage(e));
+          return [];
+        }
+      })();
+      columnsLoading.set(k, run);
       try {
-        const items = await api.getColumns(connectionId, database, { kind: obj.kind, schema: obj.schema, name: obj.name });
-        this.columns[k] = { status: 'ready', items, error: null };
-        return items;
-      } catch (e) {
-        this.columns[k] = failedLoad(errorMessage(e));
-        void this.recheckAfter(connectionId, e);
-        return [];
+        return await run;
+      } finally {
+        if (columnsLoading.get(k) === run) columnsLoading.delete(k);
+      }
+    },
+
+    /** A connect's read of last time's databases (see `openConnection`):
+     *  resolved once they're in `live` (or there were none). */
+    cachedDatabases(id: string): Promise<void> {
+      return priming.get(id) ?? Promise.resolve();
+    },
+
+    /** The editor ran `sql` on this database and it changes structure
+     *  (CREATE, ALTER, DROP, RENAME…): its object list is read again in the
+     *  background, and so are the loaded columns of the objects it names;
+     *  the other loaded columns are read again on their next use. */
+    structureChanged(connectionId: string, database: string, sql: string) {
+      if (this.driverOf(connectionId)?.key_search) return;
+      const k = dbKey(connectionId, database);
+      if (this.objects[k]?.status === 'ready') void this.loadObjects(connectionId, database, true, true);
+      const words = new Set(sql.toLowerCase().match(/[\w$#]+/g) ?? []);
+      const prefix = `${k}\u0000`;
+      for (const [key, l] of Object.entries(this.columns)) {
+        if (!key.startsWith(prefix) || l.status !== 'ready') continue;
+        const [schema, name] = key.slice(prefix.length).split('\u0000');
+        if (words.has(name.toLowerCase())) {
+          const obj = this.objects[k]?.items.find((o) => o.name === name && (o.schema ?? '') === schema);
+          if (obj) {
+            void this.loadColumns(connectionId, database, obj, true, { quiet: true });
+            continue;
+          }
+        }
+        l.at = 0;
       }
     },
 

@@ -34,7 +34,8 @@ pub async fn database_schema(
     args: DatabaseArgs,
 ) -> CommandResult<Vec<TableSchema>> {
     state
-        .meta_read(
+        .meta_read_on(
+            crate::state::Lane::Long,
             &args.connection_id,
             &args.database,
             crate::commands::explorer::SCHEMA_LIMIT,

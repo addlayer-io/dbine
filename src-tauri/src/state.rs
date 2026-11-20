@@ -117,6 +117,32 @@ pub fn meta_key(connection_id: &str, database: &str) -> String {
     format!("meta:{connection_id}:{database}")
 }
 
+/// Which of a database's structure-read sessions a read waits on. Each lane
+/// is a session of its own, so a slow read on one never queues another's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lane {
+    /// Everything that isn't the tree or long: the editor's autocomplete
+    /// columns, the pickers, the dialogs.
+    Default,
+    /// The explorer tree's reads (the object list, an expanded object's
+    /// columns and indexes, the login's permissions, a key search): what
+    /// the user is waiting to see, never behind the editor or a long read.
+    Tree,
+    /// Reads that may take minutes on a big database: a whole schema (a
+    /// compare, a migration, a snapshot) or a dependents scan.
+    Long,
+}
+
+/// The session key of a database's structure reads on `lane`.
+pub fn meta_lane_key(connection_id: &str, database: &str, lane: Lane) -> String {
+    let base = meta_key(connection_id, database);
+    match lane {
+        Lane::Default => base,
+        Lane::Tree => format!("{base}\u{1}tree"),
+        Lane::Long => format!("{base}\u{1}long"),
+    }
+}
+
 pub fn driver_info(id: &str) -> CommandResult<&'static DriverInfo> {
     dbine_drivers::find(id).map(|d| d.info()).ok_or_else(|| {
         CommandError::BadRequest(format!("esta versión no incluye el driver '{id}'"))
@@ -572,7 +598,28 @@ impl AppState {
             Box<dyn std::future::Future<Output = dbine_driver::Result<T>> + Send + 'a>,
         >,
     {
-        let key = meta_key(connection_id, database);
+        self.meta_read_on(Lane::Default, connection_id, database, limit, f)
+            .await
+    }
+
+    /// `meta_read` on one of the database's lanes (see [`Lane`]): each lane
+    /// queues only its own reads.
+    pub async fn meta_read_on<T, F>(
+        &self,
+        lane: Lane,
+        connection_id: &str,
+        database: &str,
+        limit: std::time::Duration,
+        f: F,
+    ) -> CommandResult<T>
+    where
+        F: for<'a> FnOnce(
+            &'a mut Box<dyn Session>,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = dbine_driver::Result<T>> + Send + 'a>,
+        >,
+    {
+        let key = meta_lane_key(connection_id, database, lane);
         let entry = self.session(&key, connection_id, database).await?;
         let on = if database.is_empty() {
             String::new()
@@ -798,5 +845,88 @@ mod tests {
         assert!(password_applies(&fields, &cfg));
         assert!(password_applies(&[Field::password()], &cfg));
         assert!(!password_applies(&[Field::host()], &cfg));
+    }
+
+    /// A long read (a schema compare) holding its lane doesn't queue the
+    /// tree: the tree's read answers at once, while another read on the long
+    /// lane waits and gives up "busy". Disconnecting drops every lane.
+    #[tokio::test]
+    async fn a_long_read_does_not_queue_the_tree() {
+        use std::time::Duration;
+        let dir = std::env::temp_dir().join(format!(
+            "dbine-lanes-{}-{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("t.sqlite");
+        rusqlite::Connection::open(&file)
+            .unwrap()
+            .execute_batch("CREATE TABLE t (id INTEGER)")
+            .unwrap();
+        let state = Arc::new(AppState::new(StateStore::open_in_memory().unwrap()));
+        state
+            .store
+            .save_connection(&dbine_core::SavedConnection {
+                id: "lanes".into(),
+                name: "lanes".into(),
+                color: None,
+                config: ConnectionConfig {
+                    driver: "sqlite".into(),
+                    host: file.to_string_lossy().into_owned(),
+                    ..Default::default()
+                },
+                save_password: false,
+                folder_id: None,
+                tags: vec![],
+                mcp_level: None,
+                updated_at: String::new(),
+            })
+            .unwrap();
+        let (held_tx, held_rx) = tokio::sync::oneshot::channel::<()>();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+        let long = {
+            let state = state.clone();
+            tokio::spawn(async move {
+                state
+                    .meta_read_on(
+                        Lane::Long,
+                        "lanes",
+                        "",
+                        Duration::from_secs(30),
+                        move |_s| {
+                            Box::pin(async move {
+                                let _ = held_tx.send(());
+                                let _ = release_rx.await;
+                                Ok(())
+                            })
+                        },
+                    )
+                    .await
+            })
+        };
+        held_rx.await.unwrap();
+        let objects = state
+            .meta_read_on(Lane::Tree, "lanes", "", Duration::from_secs(5), |s| {
+                Box::pin(s.list_objects())
+            })
+            .await
+            .unwrap();
+        assert!(objects.iter().any(|o| o.name == "t"), "{objects:?}");
+        let queued = state
+            .meta_read_on(Lane::Long, "lanes", "", Duration::from_millis(200), |s| {
+                Box::pin(s.list_objects())
+            })
+            .await;
+        assert!(
+            matches!(queued, Err(CommandError::Busy(_))),
+            "a read on the held lane waits: {queued:?}"
+        );
+        release_tx.send(()).unwrap();
+        long.await.unwrap().unwrap();
+        assert_eq!(state.sessions.len(), 2, "one session per lane used");
+        state.close_connection_sessions("lanes");
+        assert!(state.sessions.is_empty(), "disconnect drops every lane");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
