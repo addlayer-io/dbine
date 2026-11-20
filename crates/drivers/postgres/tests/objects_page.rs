@@ -340,7 +340,9 @@ async fn postgres_many_views() {
     }
     drop_scratch(&mut s).await;
     let r = AssertUnwindSafe(async {
-        run(&mut s, &format!("CREATE SCHEMA {SCHEMA}")).await.unwrap();
+        run(&mut s, &format!("CREATE SCHEMA {SCHEMA}"))
+            .await
+            .unwrap();
         run(&mut s, &format!("CREATE TABLE {SCHEMA}.the_table (a int)"))
             .await
             .unwrap();
