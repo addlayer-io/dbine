@@ -589,22 +589,71 @@ answers `Unsupported`, and the app then pages `list_objects` itself. It
 reads the whole list once and serves the next pages from it for a minute,
 so a big database's first folder still waits for the whole list.
 
-**Every engine is pending** for the narrow query (second batch of the
-explorer redesign, 2026-11-19). Each one still works through the whole
-list, as before. The crates to do, by family:
+Each engine below says how its folders are read. Each one was compared
+page by page with its whole list, live on the engine's container where
+one exists.
 
-- **Relational:** sqlserver, sqlserver_legacy, postgres (and the engines
-  on its protocol), mysql (and MariaDB, TiDB, SingleStore…), oracle,
-  firebird, hana, sqlite, libsql, duckdb, dsql, spanner.
-- **Analytical and cloud:** snowflake, databricks (its catalogs already
-  come from Unity Catalog's API, per schema), bigquery, athena, trino,
-  dremio, drill, clickhouse, flightsql, phoenix, tdengine, iotdb, kdb,
-  powerbi, ksqldb, influxdb.
-- **Documents, search, wide-column and graph:** mongodb, cosmosdb,
-  couchbase, couchdb, dynamodb, cassandra, elasticsearch, solr, neo4j,
-  orientdb.
-- **ODBC:** odbc (it depends on the driver behind it: `SQLTables` filters
-  by schema and type).
+**Narrow query (folders, searches and lookups):**
+
+- **SQL Server family:** SQL Server, the legacy-TLS driver and Babelfish
+  (live); Azure SQL, Synapse and Fabric (same query, not tested on the
+  service).
+- **PostgreSQL family:**
+  - Live: PostgreSQL, CockroachDB, TimescaleDB, YugabyteDB, Greengage 6
+    and 7, openGauss, CrateDB, Materialize, RisingWave and H2.
+  - Same query, not tested on the service: Aurora DSQL, Cloudberry,
+    Redshift, Denodo, Yellowbrick, KingbaseES, EDB, Fujitsu, AlloyDB,
+    Cloud SQL and Aurora PostgreSQL.
+- **MySQL family:**
+  - Live: MySQL, MariaDB, TiDB, StarRocks, Doris and VeloDB, GreptimeDB,
+    and OceanBase.
+  - Same query: Aurora MySQL and Cloud SQL for MySQL (live against MySQL),
+    SingleStore.
+- **Oracle** (and Autonomous Database), **Firebird** 3 and later, **SAP HANA**.
+- **Embedded and files:** SQLite, libSQL/Turso, DuckDB (database files and
+  folders of CSV, Parquet and JSON).
+- **Analytical and cloud:**
+  - Databricks: Unity Catalog per schema; `hive_metastore` and foreign
+    catalogs through `information_schema`.
+  - Snowflake, BigQuery and Spanner.
+  - ClickHouse and Timeplus Proton.
+  - Trino, Starburst and Presto.
+  - Dremio, Apache Drill and Apache Phoenix.
+  - Arrow Flight SQL with DuckDB behind it.
+  - kdb+.
+  - InfluxDB 1, 2 and 3, and TDengine.
+- **Documents, search and wide-column:** MongoDB (and FerretDB, DocumentDB),
+  Cassandra (and ScyllaDB, Keyspaces), Couchbase, CouchDB, DynamoDB,
+  Elasticsearch (and OpenSearch), Cosmos DB.
+- **Graph:** Neo4j, Memgraph, OrientDB.
+
+BigQuery answers each folder, search and lookup with an `INFORMATION_SCHEMA`
+query job: it bills the minimum of a query (10 MB) and shows in the
+project's job history. Without permission to run jobs it reads the whole
+list, as before.
+
+**In part (the rest reads the whole list once):**
+
+| Engine | Read narrowly | Read whole, and why |
+|---|---|---|
+| ODBC (every preset) | A schema's tables and views, through `SQLTables` for that schema | Routines, sequences, synonyms and types, searches across schemas and objects without a schema: ODBC's catalog calls can't match names ignoring case or page. |
+| Elasticsearch, OpenSearch | Folders | Searches and lookups that can find indices: a wildcard leaves out hidden indices behind an alias and data streams' backing indices, which the list shows. |
+| DynamoDB | Tables, and one table's indexes | Searches and lookups across every table's indexes: each table takes a `DescribeTable` call. |
+| IoTDB, TimechoDB | Searches and lookups (`SHOW DEVICES … WHERE DEVICE CONTAINS`) | Folders: devices come in the schema tree's order and can't be paged by name. |
+
+**Whole list once (no narrow query):**
+
+| Engine | Reason |
+|---|---|
+| Power BI | Its objects come from one read of the whole model, which hierarchies, relationships and the auto date/time exclusion need. |
+| Amazon Athena | `ListTableMetadata` can't filter by kind or keep an order, and returns 50 at a time. An `information_schema` query per folder would be queued and billed, and AWS documents it as unreliable on big Glue catalogs. |
+| Arrow Flight SQL on other engines (DataFusion, InfluxDB 3, Dremio over Flight…) | The protocol's `GetTables` can't page or filter by kind. Dremio has its own driver, which reads narrowly. |
+| Avatica (generic) | Its metadata calls list everything, and the database behind it is unknown. |
+| Solr | Its collection and core listings have no name filter or paging. |
+| Neptune | Its only catalog is the statistics summary, one document for the whole graph. |
+| ksqlDB | `SHOW STREAMS`, `TABLES` and `TOPICS` take no filter, order or limit. |
+| Manticore | It lists its tables only with `SHOW TABLES`. |
+| Databend | Its sequences come only from `SHOW SEQUENCES`. |
 
 Not applicable: Redis, Valkey, Dragonfly and etcd. Their keys are searched
 page by page already (key search), and their tree never lists objects.
