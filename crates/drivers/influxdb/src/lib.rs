@@ -11,6 +11,8 @@ mod functions;
 mod http;
 mod jobs;
 mod monitor;
+mod object_pages;
+mod pages;
 mod permissions;
 mod plan;
 mod processes;

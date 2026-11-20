@@ -253,14 +253,27 @@ impl SqlSession {
     }
 
     pub(crate) async fn sql(&self, q: &str) -> Result<(Vec<String>, Vec<Vec<J>>)> {
+        self.sql_with(q, serde_json::Map::new()).await
+    }
+
+    /// [`Self::sql`] with bound parameters (`$name` in `q`).
+    pub(crate) async fn sql_with(
+        &self,
+        q: &str,
+        params: serde_json::Map<String, J>,
+    ) -> Result<(Vec<String>, Vec<Vec<J>>)> {
         let db = self
             .db
             .as_deref()
             .ok_or_else(|| Error::Query("No hay una base de datos seleccionada.".into()))?;
+        let mut body = json!({ "db": db, "q": q, "format": "jsonl" });
+        if !params.is_empty() {
+            body["params"] = J::Object(params);
+        }
         let req = self
             .http
             .post(format!("{}/api/v3/query_sql", self.base))
-            .json(&json!({ "db": db, "q": q, "format": "jsonl" }));
+            .json(&body);
         let body = http::text(self.auth(req).send().await.map_err(send_err)?).await?;
         jsonl_table(&body)
     }
@@ -728,6 +741,29 @@ impl Session for SqlSession {
                 parent: None,
             })
             .collect())
+    }
+
+    /// One query (see [`crate::pages`]): the catalog filtered, sorted and
+    /// paged by DataFusion.
+    async fn list_objects_page(
+        &mut self,
+        q: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        use crate::object_pages;
+        use crate::pages;
+        if self.db.is_none() || !pages::wanted(q) {
+            return Ok(Default::default());
+        }
+        let size = q.page_size();
+        let off = object_pages::offsets(q, 1);
+        let (sql, params) = pages::v3_page(q, off[0], size);
+        let (_, rows) = self.sql_with(&sql, params).await?;
+        let names = rows
+            .into_iter()
+            .filter_map(|r| r.first()?.as_str().map(str::to_string))
+            .map(pages::measurement)
+            .collect();
+        Ok(object_pages::merge(size, &off, vec![names]))
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {

@@ -939,6 +939,10 @@ impl Session for KsqlSession {
         Ok(vec!["default".into()])
     }
 
+    /// No `list_objects_page`: `SHOW STREAMS`, `SHOW TABLES` and
+    /// `SHOW TOPICS` take no filter, order or limit, so a page would read
+    /// the same whole lists this does; the app reads them once and pages
+    /// them itself.
     async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
         let mut out = Vec::new();
         for (stmt, field, kind) in [

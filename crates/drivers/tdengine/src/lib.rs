@@ -15,6 +15,9 @@ mod create_db;
 mod ddl;
 mod functions;
 mod jobs;
+#[path = "../../influxdb/src/object_pages.rs"]
+mod object_pages;
+mod objects_page;
 mod permissions;
 mod processes;
 mod profiler;
@@ -300,6 +303,7 @@ impl Driver for TdDriver {
             db: db.map(str::to_string),
             cancel: Arc::new(Cancel::default()),
             profiler: None,
+            missing_catalogs: None,
             rt: tokio::runtime::Handle::current(),
         };
         let check = async {
@@ -456,6 +460,9 @@ pub struct TdSession {
     rt: tokio::runtime::Handle,
     /// The running profiler, if any.
     profiler: Option<profiler::State>,
+    /// The optional catalogs (views, streams, topics) this server lacks,
+    /// once the explorer's pages have asked.
+    missing_catalogs: Option<Vec<&'static str>>,
 }
 
 /// A cell as the UI wants it, given its TDengine type.
@@ -612,6 +619,24 @@ impl TdSession {
             );
         }
         Ok(())
+    }
+
+    /// The optional catalogs this server lacks (as `list_objects` reads
+    /// them), asked once per session.
+    async fn missing_catalogs(&mut self) -> Result<Vec<&'static str>> {
+        if let Some(m) = &self.missing_catalogs {
+            return Ok(m.clone());
+        }
+        let mut missing = Vec::new();
+        for s in objects_page::SOURCES.iter().filter(|s| s.optional) {
+            match self.query(&objects_page::probe(s)).await {
+                Ok(_) => {}
+                Err(e) if e.is_query() => missing.push(s.from),
+                Err(e) => return Err(e),
+            }
+        }
+        self.missing_catalogs = Some(missing.clone());
+        Ok(missing)
     }
 
     fn db(&self) -> Result<String> {
@@ -835,6 +860,37 @@ impl Session for TdSession {
             }
         }
         Ok(out)
+    }
+
+    /// Two sources (see [`objects_page`]): the names in ASCII, filtered,
+    /// sorted and paged by the server; the rest, read whole.
+    async fn list_objects_page(
+        &mut self,
+        q: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        use object_pages::WHOLE_MAX;
+        let db = self.db()?;
+        let missing = self.missing_catalogs().await?;
+        let srcs = objects_page::sources(q, &db, &missing);
+        if srcs.is_empty() {
+            return Ok(Default::default());
+        }
+        let size = q.page_size();
+        let off = object_pages::offsets(q, 2);
+        let ascii = match objects_page::ascii_page(q, &db, &srcs, off[0], size) {
+            Some(sql) => objects_page::objects(self.query(&sql).await?.data, &db),
+            None => Vec::new(),
+        };
+        let others = self.query(&objects_page::others(&db, &srcs)).await?.data;
+        if others.len() > WHOLE_MAX {
+            return Err(object_pages::unsupported());
+        }
+        let others = objects_page::objects(others, &db);
+        Ok(object_pages::merge(
+            size,
+            &off,
+            vec![ascii, object_pages::slice(others, q, off[1], size)],
+        ))
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {

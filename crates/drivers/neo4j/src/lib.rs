@@ -53,6 +53,9 @@ mod index_usage;
 mod jobs;
 mod monitor;
 mod neptune;
+#[path = "../../influxdb/src/object_pages.rs"]
+mod object_pages;
+mod objects_page;
 mod packstream;
 mod permissions;
 mod plan;
@@ -651,6 +654,64 @@ impl GraphSession {
             .run_with(q, db, Bolt::Map(Vec::new()), &mut |_, r| rows.push(r))
             .await?;
         Ok((ran.fields, rows))
+    }
+
+    /// [`Self::records`] of a query with parameters.
+    async fn records_with(
+        &mut self,
+        q: &str,
+        params: Bolt,
+    ) -> Result<Vec<serde_json::Map<String, Value>>> {
+        let mut rows = Vec::new();
+        let ran = self
+            .run_with(q, None, params, &mut |_, r| rows.push(r))
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|r| ran.fields.iter().cloned().zip(r).collect())
+            .collect())
+    }
+
+    /// A kind's whole list, with `list_objects`' own calls (the kinds
+    /// whose catalog takes no filter; see [`objects_page`]). `catalog`
+    /// keeps indexes and constraints, read once for both.
+    async fn whole(
+        &mut self,
+        kind: &'static str,
+        catalog: &mut Option<Vec<CatalogEntry>>,
+    ) -> Result<Vec<DbObject>> {
+        let obj = |name: String, parent: Option<String>| DbObject {
+            kind: kind.into(),
+            schema: None,
+            name,
+            parent,
+        };
+        Ok(match kind {
+            LABEL | RELATIONSHIP => self
+                .labels(kind == RELATIONSHIP)
+                .await?
+                .into_iter()
+                .map(|n| obj(n, None))
+                .collect(),
+            kinds::TRIGGER => match self.records("SHOW TRIGGERS").await {
+                Ok(rows) => rows
+                    .iter()
+                    .map(|r| obj(r.get("trigger name").map(as_text).unwrap_or_default(), None))
+                    .collect(),
+                Err(_) => Vec::new(),
+            },
+            _ => {
+                if catalog.is_none() {
+                    *catalog = Some(self.catalog().await.unwrap_or_default());
+                }
+                catalog
+                    .iter()
+                    .flatten()
+                    .filter(|e| e.kind == kind)
+                    .map(|e| obj(e.name.clone(), Some(e.target.clone())))
+                    .collect()
+            }
+        })
     }
 
     /// Rows as maps by column name.
@@ -1909,6 +1970,53 @@ impl Session for GraphSession {
             }
         }
         Ok(out)
+    }
+
+    /// Two parts per kind (see [`objects_page`]): the names the server
+    /// filters, sorts and pages, and the rest, read whole; a kind whose
+    /// catalog takes no filter is read whole in the first.
+    async fn list_objects_page(
+        &mut self,
+        q: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        use objects_page::Origin;
+        let Some(sources) = objects_page::sources(self.flavor) else {
+            return Err(object_pages::unsupported());
+        };
+        let size = q.page_size();
+        let off = object_pages::offsets(q, 2 * sources.len());
+        let mut parts: Vec<Vec<DbObject>> = vec![Vec::new(); 2 * sources.len()];
+        let mut catalog = None;
+        for (i, s) in sources.iter().enumerate() {
+            if !objects_page::any(q) || !object_pages::wants(q, s.kind) {
+                continue;
+            }
+            match s.origin {
+                Origin::Cypher(t) => {
+                    // Indexes, constraints and procedures may be refused
+                    // (permissions, editions): `list_objects` goes without.
+                    let optional = s.kind != LABEL && s.kind != RELATIONSHIP;
+                    let read = |r: Result<_>| match r {
+                        Ok(rows) => Ok(objects_page::objects(s.kind, rows)),
+                        Err(_) if optional => Ok(Vec::new()),
+                        Err(e) => Err(e),
+                    };
+                    if let Some((cypher, params)) =
+                        objects_page::plain_page(self.flavor, t, q, off[2 * i], size)
+                    {
+                        parts[2 * i] = read(self.records_with(&cypher, params).await)?;
+                    }
+                    let (cypher, params) = objects_page::rest(self.flavor, t);
+                    let rest = read(self.records_with(&cypher, params).await)?;
+                    parts[2 * i + 1] = object_pages::slice(rest, q, off[2 * i + 1], size);
+                }
+                Origin::Whole => {
+                    let all = self.whole(s.kind, &mut catalog).await?;
+                    parts[2 * i] = object_pages::slice(all, q, off[2 * i], size);
+                }
+            }
+        }
+        Ok(object_pages::merge(size, &off, parts))
     }
 
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {

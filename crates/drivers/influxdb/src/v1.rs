@@ -857,6 +857,43 @@ impl Session for InfluxQlSession {
             .collect())
     }
 
+    /// Two sources (see [`crate::pages`]): the names in ASCII without
+    /// capitals, paged by the server; the rest, read whole.
+    async fn list_objects_page(
+        &mut self,
+        q: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        use crate::object_pages::{self, WHOLE_MAX};
+        use crate::pages;
+        if self.db.is_none() || !pages::wanted(q) {
+            return Ok(Default::default());
+        }
+        let size = q.page_size();
+        let off = object_pages::offsets(q, 2);
+        let names = |rows: Vec<Vec<J>>| rows.iter().map(|r| str_at(r, 0)).collect::<Vec<_>>();
+        let plain = match pages::v1_plain(q, off[0], size) {
+            Some(stmt) => names(self.first_column(&stmt).await?),
+            None => Vec::new(),
+        };
+        let rest = names(self.first_column(&pages::v1_rest(q)).await?);
+        if rest.len() > WHOLE_MAX {
+            return Err(object_pages::unsupported());
+        }
+        let rest = rest
+            .into_iter()
+            .filter(|n| !pages::plain_v1(n))
+            .map(pages::measurement)
+            .collect();
+        Ok(object_pages::merge(
+            size,
+            &off,
+            vec![
+                plain.into_iter().map(pages::measurement).collect(),
+                object_pages::slice(rest, q, off[1], size),
+            ],
+        ))
+    }
+
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let m = ident(&obj.name);
         let tags = self

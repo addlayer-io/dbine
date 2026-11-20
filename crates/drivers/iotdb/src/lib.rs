@@ -51,6 +51,8 @@ mod create_db;
 mod functions;
 mod jobs;
 mod monitor;
+#[path = "../../influxdb/src/object_pages.rs"]
+mod object_pages;
 mod permissions;
 mod processes;
 mod profiler;
@@ -678,6 +680,14 @@ impl IotDbSession {
 /// Row cap for the monitor's metadata views.
 fn monitor_rows() -> usize {
     200
+}
+
+/// What `WHERE DEVICE CONTAINS` looks for when a name holds `s`: its
+/// longest stretch without backquotes (a node quoted in the name may be
+/// written either way in the server's path), so every device that holds
+/// `s` holds it too.
+fn contains_text(s: &str) -> &str {
+    s.split('`').max_by_key(|p| p.len()).unwrap_or("")
 }
 
 fn texts(t: &Table, col: usize) -> Vec<String> {
@@ -1313,6 +1323,69 @@ impl Session for IotDbSession {
         Ok(v)
     }
 
+    /// Searches and lookups only: `SHOW DEVICES … WHERE DEVICE CONTAINS`
+    /// narrows the devices on the server (ignoring case, over the whole
+    /// path: a superset of the names that match), and they're sorted and
+    /// paged here. IoTDB lists devices in its schema tree's order, not by
+    /// name, and can't page by name, so a folder (every device) is left
+    /// to the app, which reads `list_objects` once and keeps it. The
+    /// cursor is the offset in the sorted matches, as `page_of`'s.
+    async fn list_objects_page(
+        &mut self,
+        q: &dbine_driver::ObjectQuery,
+    ) -> Result<dbine_driver::ObjectPage> {
+        let Some(db) = self.db.clone() else {
+            return Ok(Default::default());
+        };
+        if !object_pages::wants(q, DEVICE) || !object_pages::schema_ok(q, None) {
+            return Ok(Default::default());
+        }
+        let Some(text) = q
+            .name
+            .as_deref()
+            .or(q.pattern.as_deref())
+            .map(contains_text)
+            .filter(|t| !t.is_empty())
+        else {
+            return Err(object_pages::unsupported());
+        };
+        let t = match self
+            .query(
+                &format!(
+                    "SHOW DEVICES {db}.** WHERE DEVICE CONTAINS '{}'",
+                    text.replace('\'', "''")
+                ),
+                100_000,
+            )
+            .await
+        {
+            Ok(t) => t,
+            // A server without the filter: the app pages `list_objects`.
+            Err(e) if e.is_query() => {
+                tracing::debug!("iotdb: devices by page: {e}");
+                return Err(object_pages::unsupported());
+            }
+            Err(e) => return Err(e),
+        };
+        let prefix = format!("{db}.");
+        let devices = texts(&t, 0)
+            .into_iter()
+            .map(|d| DbObject {
+                kind: DEVICE.into(),
+                schema: None,
+                name: d.strip_prefix(&prefix).map(str::to_string).unwrap_or(d),
+                parent: None,
+            })
+            .collect();
+        let size = q.page_size();
+        let off = object_pages::offsets(q, 1);
+        Ok(object_pages::merge(
+            size,
+            &off,
+            vec![object_pages::slice(devices, q, off[0], size)],
+        ))
+    }
+
     async fn columns(&mut self, obj: &ObjectRef) -> Result<Vec<ColumnInfo>> {
         let device = self.device_path(obj);
         let t = self
@@ -1581,6 +1654,15 @@ impl Session for IotDbSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_searches_drop_backquotes() {
+        assert_eq!(contains_text("wf01.wt01"), "wf01.wt01");
+        assert_eq!(contains_text("`Ñandú`"), "Ñandú");
+        assert_eq!(contains_text("wf01.`a b`.d"), "wf01.");
+        assert_eq!(contains_text("`ab`.`cdef`"), "cdef");
+        assert_eq!(contains_text("``"), "");
+    }
 
     /// Saved connections keep `encrypt` / `trust_server_certificate`'s
     /// scheme and checks; new ones are https, verified.
