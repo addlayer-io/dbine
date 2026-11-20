@@ -15,8 +15,14 @@
 //! confidence (dynamic SQL and deferred names aren't in the catalog).
 //! Encrypted modules have no body: listed as unreadable when the catalog
 //! says they use the target.
+//!
+//! Reading `sys.sql_expression_dependencies` takes VIEW DEFINITION on the
+//! database and SELECT on the view, which only db_owner has by default.
+//! When the server refuses it (or Babelfish or Fabric refuse the query),
+//! the generic scan runs and the note says why.
 
-use crate::{text, SqlServerSession};
+use crate::variant::Variant;
+use crate::{err, is_desync, text, SqlServerSession};
 use dbine_driver::dependencies::{
     find_mentions, schema_dependents, Confidence, DependencyReport, DependencyScan,
     DependencyTarget, Dependent, Relation,
@@ -44,22 +50,31 @@ SELECT RTRIM(o.type), s.name, o.name, OBJECT_NAME(o.parent_object_id), m.definit
    AND (dep.referencing_id IS NOT NULL OR m.definition LIKE @P3 ESCAPE '\\')
  ORDER BY s.name, o.name";
 
+/// SQL Server's refusals for a missing permission: SELECT on an object
+/// (229) or a column (230), an action (297), a VIEW … permission (300).
+const DENIED: &[u32] = &[229, 230, 297, 300];
+
 pub(crate) async fn dependents(
     s: &mut SqlServerSession,
     target: &DependencyTarget,
     scan: &DependencyScan,
 ) -> Result<DependencyReport> {
-    let mut report = DependencyReport::default();
-    let tables = s.database_schema().await?;
-    report.items.extend(fulltext_index_users(&tables, target));
-    report.items.extend(schema_dependents(&tables, target));
     let object = qualified_name(Quote::Bracket, target.object.schema(), &target.object.name);
     let column = target.column.clone().unwrap_or_default();
     let pattern = format!(
         "%{}%",
         like_escape(target.column.as_deref().unwrap_or(&target.object.name))
     );
-    for r in s.rows(MODULES_SQL, &[&object, &column, &pattern]).await? {
+    let Some(rows) = modules(s, &[&object, &column, &pattern]).await? else {
+        let mut report = dbine_driver::dependencies::scan(s, target, scan).await?;
+        report.note = Some(note(s.variant).into());
+        return Ok(report);
+    };
+    let mut report = DependencyReport::default();
+    let tables = s.database_schema().await?;
+    report.items.extend(fulltext_index_users(&tables, target));
+    report.items.extend(schema_dependents(&tables, target));
+    for r in rows {
         if let Some(d) = module(&r, target, scan, &mut report) {
             report.items.push(d);
         }
@@ -73,6 +88,43 @@ pub(crate) async fn dependents(
         )
     });
     Ok(report)
+}
+
+/// `MODULES_SQL`'s rows, or `None` when the server refuses the read for a
+/// missing permission (any refusal on Babelfish and Fabric, which may lack
+/// the view). A broken connection is replaced and the read retried, like
+/// any catalog read.
+async fn modules(s: &mut SqlServerSession, params: &[&str]) -> Result<Option<Vec<Row>>> {
+    let mut r = s.try_rows(MODULES_SQL, params).await;
+    if matches!(&r, Err(e) if is_desync(e)) {
+        s.reconnect().await?;
+        r = s.try_rows(MODULES_SQL, params).await;
+    }
+    match r {
+        Ok(rows) => Ok(Some(rows)),
+        Err(tiberius::error::Error::Server(e)) if refused(s.variant, e.code()) => {
+            tracing::debug!("sqlserver: dependency catalog refused: {}", e.message());
+            Ok(None)
+        }
+        Err(e) => Err(err(e)),
+    }
+}
+
+/// Whether the server's error `code` means the catalog can't be read here.
+fn refused(v: Variant, code: u32) -> bool {
+    matches!(v, Variant::Babelfish | Variant::Fabric) || DENIED.contains(&code)
+}
+
+/// The note when the generic scan answers instead of the catalog.
+fn note(v: Variant) -> &'static str {
+    match v {
+        Variant::SqlServer | Variant::AzureSql => {
+            "No se pudo leer sys.sql_expression_dependencies (hace falta VIEW DEFINITION en la base y SELECT sobre esa vista, que por omisión solo tiene db_owner): se buscó en las definiciones que se pueden leer."
+        }
+        Variant::Fabric | Variant::Babelfish => {
+            "No se pudo leer sys.sql_expression_dependencies: se buscó en las definiciones que se pueden leer."
+        }
+    }
 }
 
 /// The tables whose full-text index uses this catalog or stoplist (the
@@ -164,6 +216,37 @@ fn like_escape(s: &str) -> String {
         out.push(c);
     }
     out
+}
+
+#[cfg(test)]
+mod refusal_tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_permission_falls_back_to_the_generic_scan() {
+        for code in [229, 230, 297, 300] {
+            assert!(refused(Variant::SqlServer, code), "{code}");
+            assert!(refused(Variant::AzureSql, code), "{code}");
+        }
+        // Any other error is the server's (a syntax error, a timeout…).
+        assert!(!refused(Variant::SqlServer, 208));
+        assert!(!refused(Variant::AzureSql, 1222));
+        // Babelfish and Fabric may lack the view: any refusal.
+        assert!(refused(Variant::Babelfish, 208));
+        assert!(refused(Variant::Fabric, 208));
+    }
+
+    #[test]
+    fn the_note_says_what_permission_is_missing() {
+        for v in [Variant::SqlServer, Variant::AzureSql] {
+            assert!(note(v).contains("VIEW DEFINITION"));
+            assert!(note(v).contains("db_owner"));
+        }
+        for v in [Variant::Babelfish, Variant::Fabric] {
+            assert!(note(v).starts_with("No se pudo leer sys.sql_expression_dependencies"));
+            assert!(!note(v).contains("VIEW DEFINITION"));
+        }
+    }
 }
 
 #[cfg(test)]

@@ -2,7 +2,8 @@
 //! view, a procedure, a table with a foreign key and a computed column, a
 //! trigger and synonyms, with references to another database and through
 //! a linked server; and the generic version, with a note, for a user who
-//! can't read `sys.sql_expression_dependencies`. Everything it creates
+//! can't read `sys.sql_expression_dependencies`, in both directions
+//! (`references` and `dependents`). Everything it creates
 //! (two databases, a linked server and a login) is dropped at the end, also
 //! when a check fails.
 //!
@@ -384,6 +385,35 @@ async fn checks(
     for name in ["Clientes", "Pedidos"] {
         assert_eq!(
             find(&fallback, kinds::TABLE, "dbo", name)
+                .unwrap_or_else(|| panic!("{name}"))
+                .confidence,
+            Confidence::Probable
+        );
+    }
+
+    // The other direction too (`dependents`): the generic scan, and a note,
+    // instead of the server's refusal.
+    let users = weak
+        .dependents(&target(kinds::TABLE, "dbo", "Clientes"), &scan)
+        .await
+        .expect("dependents without SELECT on the dependency view");
+    eprintln!("dependents without permission: {users:#?}");
+    assert!(users
+        .note
+        .as_deref()
+        .is_some_and(|n| n.contains("sys.sql_expression_dependencies")));
+    let fk = users
+        .items
+        .iter()
+        .find(|x| x.relation == Relation::ForeignKey)
+        .expect("foreign key");
+    assert_eq!(
+        (fk.name.as_str(), fk.confidence),
+        ("Pedidos", Confidence::Confirmed)
+    );
+    for (kind, name) in [(kinds::VIEW, "vPedidos"), (kinds::PROCEDURE, "pUsa")] {
+        assert_eq!(
+            find(&users, kind, "dbo", name)
                 .unwrap_or_else(|| panic!("{name}"))
                 .confidence,
             Confidence::Probable
