@@ -2028,6 +2028,16 @@ impl Session for PgSession {
         self.object_comments_impl().await
     }
 
+    /// What the object uses, from the dependency catalog of each variant
+    /// (see `references`).
+    async fn references(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        self.references_impl(target, scan).await
+    }
+
     /// "Buscar en la base" from the catalog (see `search`).
     async fn search_code(
         &mut self,

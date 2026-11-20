@@ -28,6 +28,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod references;
 mod rename;
 mod results;
 mod scheduler;
@@ -1180,6 +1181,16 @@ impl Session for DatabricksSession {
             }
         }
         Ok(out)
+    }
+
+    /// What the object uses: Unity Catalog's lineage and its definition
+    /// (see [`references`]).
+    async fn references(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        self.references_of(target, scan).await
     }
 
     async fn index_usage(

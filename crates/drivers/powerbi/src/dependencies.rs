@@ -472,7 +472,7 @@ pub(crate) fn find_mentions(
 }
 
 /// The lines at these byte offsets, once each, in order.
-fn mentions(expr: &str, offsets: &[usize]) -> Vec<Mention> {
+pub(crate) fn mentions(expr: &str, offsets: &[usize]) -> Vec<Mention> {
     let mut lines: Vec<u32> = offsets
         .iter()
         .map(|&o| expr[..o.min(expr.len())].matches('\n').count() as u32 + 1)
@@ -493,7 +493,7 @@ fn mentions(expr: &str, offsets: &[usize]) -> Vec<Mention> {
         .collect()
 }
 
-fn dedupe_and_sort(items: &mut Vec<Dependent>) {
+pub(crate) fn dedupe_and_sort(items: &mut Vec<Dependent>) {
     let mut seen = std::collections::BTreeSet::new();
     items.retain(|d| {
         seen.insert((

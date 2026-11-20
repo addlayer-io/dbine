@@ -180,9 +180,16 @@ pub(crate) async fn calc_dependencies_of<S: Service>(
     s: &mut S,
     m: &Model,
 ) -> Result<Vec<CalcDependency>> {
-    let sets = s
-        .dax(&Target::of(m), "EVALUATE INFO.CALCDEPENDENCY()", &arrow())
-        .await?;
+    calc_dependencies_query(s, m, "EVALUATE INFO.CALCDEPENDENCY()").await
+}
+
+/// The rows of `query`: an `INFO.CALCDEPENDENCY()`, filtered or not.
+pub(crate) async fn calc_dependencies_query<S: Service>(
+    s: &mut S,
+    m: &Model,
+    query: &str,
+) -> Result<Vec<CalcDependency>> {
+    let sets = s.dax(&Target::of(m), query, &arrow()).await?;
     let Some(set) = sets.first() else {
         return Ok(Vec::new());
     };

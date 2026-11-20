@@ -26,6 +26,7 @@ mod processes;
 mod profiler;
 mod properties;
 mod read_only;
+mod references;
 mod rename;
 mod rename_db;
 mod scheduler;

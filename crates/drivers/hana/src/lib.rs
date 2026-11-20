@@ -18,6 +18,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod references;
 mod rename;
 mod scheduler;
 mod schema;
@@ -1355,6 +1356,15 @@ impl Session for HanaSession {
         table: &ObjectRef,
     ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         index_usage::report(self, table).await.map(Some)
+    }
+
+    /// From `SYS.OBJECT_DEPENDENCIES` and the foreign keys (see `references`).
+    async fn references(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        references::references(self, target, scan).await
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {

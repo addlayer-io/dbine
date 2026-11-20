@@ -3768,7 +3768,9 @@ routines, triggers, packages, synonyms, aliases, streams, tasks and sinks
   confirmed in objects with SCHEMABINDING (the catalog does not record
   columns in the others). Encrypted modules are listed as unreadable.
   **Babelfish** and **Fabric Warehouse** use the default version if their
-  catalog does not have that view.
+  catalog does not have that view. A login that may not read
+  `sys.sql_expression_dependencies` (by default only db_owner may) gets the
+  default version too, and the tab says why.
 - **Power BI**: relationships on a column are foreign keys, and measures,
   calculated columns and tables, calculation items and RLS filters come from
   `INFO.CALCDEPENDENCY()` (**Confirmed**) when the account has write
@@ -3846,10 +3848,269 @@ every engine with definitions or foreign keys:
   object's own schema's. These are **Probable**, with the lines that name
   them.
 
-Drivers whose engine records dependencies answer from their catalog instead;
-the per-engine versions are listed as they land. A driver process published
-before answers `References` with Unsupported, and the app runs the default
-version through its other calls.
+Drivers whose engine records dependencies answer from their catalog instead:
+
+- **SQL Server and Azure SQL Database:** one query reads what
+  `sys.sql_expression_dependencies` records for the object. For a view,
+  procedure, function or trigger, every name the server resolved to an object
+  of the database comes out **Confirmed**: tables, views, routines, sequences,
+  synonyms and user types, including `NEXT VALUE FOR` and parameter types. A
+  trigger also lists its table. A table lists the tables its foreign keys
+  point at, and the functions and types its computed columns and CHECK and
+  DEFAULT constraints use (**Confirmed**, with the column or constraint as
+  detail). A synonym lists its base object from `sys.synonyms`. Names written
+  with another database or a linked server go to the external sources, with
+  the server, database, schema and name the catalog records; a linked server's
+  system comes from `sys.servers`. The definition is read once for the lines
+  that name each object. Names the catalog leaves unresolved are looked up by
+  name in a single query and come out **Probable**. Reading that view needs
+  VIEW DEFINITION on the database and SELECT on the view (by default only
+  db_owner has it). Without them, the default version runs and the tab says
+  why.
+- **Babelfish:** the same query runs, but Babelfish's
+  `sys.sql_expression_dependencies` is always empty. Foreign keys and a
+  trigger's table come from the catalog (**Confirmed**); what views and
+  routines use comes from their definition, looked up by name (**Probable**).
+- **Microsoft Fabric Data Warehouse:** the same query reads only
+  `sys.sql_expression_dependencies` and the foreign keys (no linked servers,
+  triggers or synonyms). If the warehouse refuses the view, the default
+  version runs and the tab says so. Not yet tested against a real warehouse.
+- **Oracle and Oracle Autonomous Database:** `ALL_DEPENDENCIES` gives what a
+  view, materialized view, procedure, function, package, trigger, type or
+  synonym uses (**Confirmed**), with the lines of its definition that name
+  each object. A package is one object, so its spec and its body count
+  together, and a type likewise with its body. A materialized view's container
+  table is shown as the materialized view. What Oracle maintains (SYS's
+  `STANDARD`, the `DBMS_*` packages and the public synonyms of them) is left
+  out. A table's foreign keys come from `ALL_CONSTRAINTS` and the types its
+  columns use from `ALL_DEPENDENCIES`; a synonym's object comes from
+  `ALL_SYNONYMS`. Sources outside the database are listed with their server
+  and service, taken from the link's host in `DBA_DB_LINKS` or `ALL_DB_LINKS`
+  (else the link's name). These are a routine's remote objects through a
+  database link, recorded in `ALL_DEPENDENCIES`, and a synonym's link. Oracle
+  doesn't record views' and materialized views' links, so the `name@link`
+  names in their code are read instead. An external table lists its files,
+  with the access driver and the directory. An object that isn't VALID also
+  gets what its code names, as the default version finds it (**Probable**). If
+  `ALL_DEPENDENCIES` can't be read, the default version answers and the tab
+  says so. Sequences use the default version.
+- **PostgreSQL and the forks that keep its catalog** (TimescaleDB, AlloyDB,
+  Cloud SQL, Aurora PostgreSQL, EDB, Fujitsu, YugabyteDB, Greenplum,
+  Cloudberry, Greengage, KingbaseES, openGauss): everything comes from
+  `pg_depend` and is **Confirmed**. A view or materialized view lists the
+  tables, views, sequences and functions its rewrite rule uses. A trigger
+  lists its table, its function and what its `WHEN` calls. A function or
+  procedure with a SQL-standard body (PostgreSQL 14+) lists what that body
+  uses, plus any table whose row type is in its signature; other bodies
+  (PL/pgSQL, a string) aren't tracked by the engine, so the default scan of
+  their text is added (**Probable**). A table lists its foreign keys' tables,
+  the sequences and functions of its defaults and generated columns, the
+  functions of its checks and index expressions, what its row-level security
+  policies read, the parent of a partition or inherited table, and the
+  sequences it owns. A foreign table's remote source goes in the external
+  sources: the wrapper (`postgres_fdw`, `mysql_fdw`…), the server's host and
+  port, and the remote database, schema and table from its options (user
+  mappings are never read). The server's objects and extension functions are
+  left out. If the catalog can't be read, the default version runs and the tab
+  says why.
+- **Amazon Redshift:** views from `pg_depend` and `pg_rewrite`
+  (**Confirmed**), plus the default text scan, since late-binding views record
+  nothing. Everything else uses the default version.
+- **Yellowbrick:** PostgreSQL's catalog without policies, inheritance or
+  foreign tables (**Confirmed**), plus the default text scan.
+- **CockroachDB:** tables, views and materialized views from
+  `crdb_internal.backward_dependencies` (the tables, views and sequences they
+  use) and the foreign keys, **Confirmed**. An object in another database (a
+  cross-database view) is an external source. CockroachDB doesn't expose what
+  functions use, nor which functions a view calls: those come from the text
+  (**Probable**), and routines use the default version.
+- **Materialize:** `mz_internal.mz_object_dependencies`, **Confirmed** (user
+  objects only). Objects in another database, and the connections that sources
+  and sinks use, are external sources.
+- **RisingWave:** `rw_catalog.rw_depend`, **Confirmed**. A materialized view
+  also lists the base tables of the views it reads, as the engine records
+  them. A source's or connector table's connector (Kafka, CDC…) is an external
+  source, with only its plaintext properties.
+- **Amazon Aurora DSQL:** PostgreSQL's `pg_depend` for views, functions and
+  table defaults, checks and indexes (**Confirmed**), always merged with the
+  default text scan, since DSQL's catalog is a subset. It has no foreign keys,
+  triggers or foreign tables.
+- **Denodo, CrateDB, H2:** the default version.
+- **MySQL (and Aurora MySQL, Cloud SQL for MySQL):** From MySQL 8.0.13, a
+  view's tables and views come from `information_schema.VIEW_TABLE_USAGE` and
+  its functions from `VIEW_ROUTINE_USAGE` (**Confirmed**), with the lines of
+  the view that name them. A trigger's table comes from
+  `information_schema.TRIGGERS` (**Confirmed**, with `BEFORE`/`AFTER` and the
+  event). A table's foreign keys come from `KEY_COLUMN_USAGE` (**Confirmed**).
+  Procedures and functions, and views on older versions, use the default scan
+  of their code (**Probable**). In MySQL a schema is a database and a
+  connection opens one, so anything in another database goes under external
+  sources with that database: a view's tables, a name qualified with another
+  database in the code, or a foreign key to another database. A FEDERATED
+  table's remote host, database and table come from its `CONNECTION` (or from
+  `mysql.servers` for a `CREATE SERVER` link), without the user or password.
+  `information_schema` only shows rows the login has privileges on, so what it
+  hides is Probable at most. When the login can't see an object's code, the
+  report says so.
+- **MariaDB:** It has no view usage tables, so views, procedures and functions
+  use the default scan of their code (**Probable**), including the first table
+  of the nested joins MariaDB stores views with. A trigger's table comes from
+  `information_schema.TRIGGERS` and a table's foreign keys from
+  `KEY_COLUMN_USAGE` (**Confirmed**). Objects of another database are external
+  sources with that database. FederatedX tables give their remote host,
+  database and table. CONNECT tables give their source by `TABLE_TYPE`: a
+  server and table for MYSQL, ODBC, JDBC and MONGO, a file for the file types,
+  or a table of the same server for PROXY and similar types. User names and
+  passwords are never copied.
+- **TiDB:** Views use the default scan of their code (**Probable**). A table's
+  foreign keys come from `KEY_COLUMN_USAGE` (**Confirmed**). A key to another
+  database becomes an external source with that database. TiDB 7.5's catalog
+  reports the table's own database for such a key, so the database is taken
+  from `SHOW CREATE TABLE`. TiDB has no routines or triggers.
+- **OceanBase (MySQL mode):** Views, procedures and functions use the default
+  scan of their code (**Probable**); 4.4 has no view usage tables. A trigger's
+  table comes from `information_schema.TRIGGERS` and a table's foreign keys
+  from `KEY_COLUMN_USAGE` (**Confirmed**). Objects of another database,
+  including a foreign key's parent, are external sources with that database.
+- **StarRocks, Apache Doris and VeloDB:** Views and materialized views use the
+  default scan of their code (**Probable**). A name in another catalog
+  (`hive_cat.db.t`) is an external source, with the catalog's type from `SHOW
+  CATALOGS` and its name; the default catalog counts as this one. An external
+  table (`ENGINE=MYSQL`, `HIVE`, `ELASTICSEARCH`, `JDBC`…) gives its host or
+  metastore, database and table from its `PROPERTIES`, without user or
+  password.
+- **SingleStore, Databend, GreptimeDB and Manticore:** The default version
+  (code scan, **Probable**). Names qualified with another database go under
+  external sources; Manticore has neither views nor foreign keys.
+- **Db2 (LUW):** What an object uses is read from Db2's dependency catalog. A
+  view's tables and views come from `SYSCAT.VIEWDEP`. A procedure's or
+  function's come from `SYSCAT.ROUTINEDEP` (all overloads of the name), and
+  for SQL routines also from their package in `SYSCAT.PACKAGEDEP`; routines
+  are named by their real name and kind from `SYSCAT.ROUTINES`. A trigger's
+  come from `SYSCAT.TRIGDEP` plus the table it is defined on, an alias's from
+  its base object in `SYSCAT.TABLES`, and a table's foreign-key parents from
+  `SYSCAT.REFERENCES`. All of these are **Confirmed**. The object's own source
+  is also read, to show the lines that name each object and to add, as
+  **Probable**, any name the catalog didn't record. A nickname is shown as an
+  external source with its federated server, database, remote schema and
+  table. Sequences and types use the default version. Without access to the
+  `SYSCAT` views (a database created `RESTRICTIVE`), everything falls back to
+  the default version and the tab says so. Db2 for i and Db2 for z/OS use the
+  default version.
+- **SAP HANA:** What an object uses is read from `SYS.OBJECT_DEPENDENCIES`:
+  the direct dependencies of a view, procedure, function, trigger, synonym or
+  sequence, with the base object's type as its kind (a table type is shown as
+  a type). A table's foreign-key parents come from
+  `SYS.REFERENTIAL_CONSTRAINTS`. All of these are **Confirmed**. Objects in
+  `SYS` and `PUBLIC` are left out. The object's own source is also read, to
+  show the lines that name each object and to add, as **Probable**, any name
+  the catalog didn't record. A virtual table's remote source, database, owner
+  and object from `SYS.VIRTUAL_TABLES` are shown as an external source, both
+  when the virtual table is the object and when the object uses it; the remote
+  source's adapter is shown when the login can read `SYS.REMOTE_SOURCES`.
+  Table types use the default version. Not yet tested against a real HANA
+  server.
+- **Firebird:** What an object uses is read from `RDB$DEPENDENCIES` for views,
+  procedures, functions, triggers and packages. Each object appears once, the
+  column-level rows are combined, and a packaged routine is shown as its
+  package, with the routines it calls. Tables are told apart from views
+  through `RDB$RELATIONS`, and generators, domains, procedures and functions
+  are shown with their own kinds. A table's foreign-key parents come from
+  `RDB$RELATION_CONSTRAINTS` and `RDB$REF_CONSTRAINTS`. All of these are
+  **Confirmed**. System objects, exceptions, collations and the domains
+  Firebird creates for columns are left out. The object's own source is also
+  read, to show the lines that name each object and to add, as **Probable**,
+  any name the catalog didn't record. Firebird records no external sources, so
+  `EXECUTE STATEMENT … ON EXTERNAL` doesn't appear. Sequences and domains use
+  the default version. Firebird 3 or later.
+- **Power BI:** What a measure, a calculated column or table, a calculation
+  group's items, a role's RLS filters or a model function uses comes from
+  `INFO.CALCDEPENDENCY()`, filtered on the object, when the account has write
+  permission on a model on capacity (**Confirmed**); otherwise DBine reads the
+  DAX expressions and resolves the tables, columns, measures and functions
+  they name against the model (**Probable**). A table also lists the tables
+  its relationships point at (**Confirmed**). Its sources outside the model
+  come from each partition's Power Query (M): SQL Server, Databricks,
+  Snowflake, PostgreSQL, Oracle, MySQL, ODBC, Excel, CSV, SharePoint, Web and
+  other `X.Database` sources. They are reported with the server, database,
+  schema and table that the navigation steps or the native query reach, with
+  parameter values filled in (passwords and keys are left out). Shared
+  expressions, parameters and other tables named in the M are listed as
+  **Probable**. Without write permission the expressions are hidden and the
+  tab says so. Direct Lake partitions are not read yet.
+- **MongoDB and DocumentDB:** What a view uses comes from its stored
+  definition in `listCollections`: `viewOn` and the pipeline's `$lookup`,
+  `$graphLookup`, `$unionWith`, `$merge` and `$out`, including sub-pipelines,
+  all **Confirmed**. A collection in another database is listed as an external
+  source. Collections use nothing: documents reference each other only by
+  convention. FerretDB has no views.
+- **Cassandra, ScyllaDB and Amazon Keyspaces:** What an object uses comes from
+  `system_schema` and is **Confirmed**: a materialized view's base table
+  (`system_schema.views`), the user-defined types used by a table's columns, a
+  type's fields and a function's arguments and result, and an aggregate's
+  state and final functions (`system_schema.aggregates`). CQL has no foreign
+  keys. Keyspaces has only tables and types.
+- **ClickHouse and Timeplus:** What an object uses is read from
+  `system.tables`. A view's or materialized view's stored definition, which
+  ClickHouse keeps with its names qualified, is searched for the tables, views
+  and dictionaries it names (including those in `dictGet` and `joinGet`); they
+  are resolved in one query across the server's databases and are
+  **Probable**, with their lines. A materialized view's source tables are
+  **Confirmed**, because `system.tables` lists the view in their
+  `dependencies_table` (Timeplus does the same for plain views), and so are
+  its `TO` table (`INTO` on Timeplus) and a refreshable view's `DEPENDS ON`
+  views. On recent servers, `loading_dependencies_*` confirms a dictionary's
+  source table and the dictionaries a table's defaults read. A table's engine
+  arguments give Distributed's underlying table (an item when the cluster
+  includes this server, otherwise a source outside), the tables a Merge table
+  matches, Buffer's destination and Dictionary's dictionary, all
+  **Confirmed**. MySQL, PostgreSQL, MongoDB, S3, URL, File, Kafka and similar
+  engines, a dictionary's non-local `SOURCE`, and table functions such as
+  `remote()`, `mysql()` or `s3()` in a view are listed as sources outside the
+  database, keeping only their host, database, table, path or URL. An object
+  in another database of the server is listed with that database as its
+  schema.
+- **BigQuery:** Metadata queries are billed jobs, so what an object uses is
+  read only from the REST API: a view's or materialized view's query from
+  `tables.get`, a SQL function's or procedure's body from `routines.get`. The
+  names they use (`project.dataset.table`, `dataset.table`, or a bare name in
+  the object's own dataset) are looked up with `tables.get` or `routines.get`,
+  or one `tables.list` per dataset when there are many, and are **Probable**,
+  with their lines; CTEs and aliases drop out. A table's declared foreign keys
+  and the base table of a snapshot or clone are **Confirmed**. Tables of
+  another project, an external table's files, `EXTERNAL_QUERY` connections
+  (with the tables their query names), JavaScript libraries and remote
+  function endpoints are listed as sources outside the database.
+- **Snowflake:** What an object uses comes from
+  `SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES` (**Confirmed**), merged with
+  its own definition read as in the default version (**Probable**).
+  Procedures, which the view doesn't track, and objects newer than its lag of
+  up to three hours come from the definition alone, and when the catalog has
+  nothing yet a note says so. Objects of another database, stages,
+  integrations and an external table's location
+  (`INFORMATION_SCHEMA.EXTERNAL_TABLES`) are listed as sources outside the
+  database. A table's foreign keys are **Confirmed**. Without access to
+  ACCOUNT_USAGE (IMPORTED PRIVILEGES on the SNOWFLAKE database), the
+  definition is used and a note says so. Not yet tested against a real
+  account.
+- **Databricks:** For tables, views and materialized views, what they use
+  comes from Unity Catalog's lineage API
+  (`/api/2.0/lineage-tracking/table-lineage`): upstream tables of the same
+  catalog are **Confirmed**, with the notebooks or jobs that carried them.
+  Tables of other catalogs, upstream files, and the notebooks, jobs,
+  pipelines, queries and dashboards that wrote the table are listed as sources
+  outside the database, each with a link to it in the workspace. Views,
+  materialized views and functions also have their definition read as in the
+  default version (**Probable** until lineage confirms it), where a name of
+  another catalog is a source outside. Unity Catalog's informational foreign
+  keys are **Confirmed**. Lineage covers what has run since September 2024.
+  For `hive_metastore`, or without BROWSE or SELECT on the table, the
+  definition and the keys are used and a note says so. Not yet tested against
+  a real workspace.
+
+The engines not listed here use the default version. A driver process
+published before answers `References` with Unsupported, and the app runs the
+default version through its other calls.
 
 ## Disable and enable indexes
 

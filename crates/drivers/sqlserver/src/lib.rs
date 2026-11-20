@@ -20,6 +20,7 @@ mod plan;
 mod processes;
 mod profiler;
 mod properties;
+mod references;
 mod rename;
 mod schema;
 mod script;
@@ -2251,6 +2252,16 @@ impl Session for SqlServerSession {
             }
             r => r,
         }
+    }
+
+    /// What the object uses, from `sys.sql_expression_dependencies` (see
+    /// `references`).
+    async fn references(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        references::references(self, target, scan).await
     }
 
     /// T-SQL's built-ins for the server's version plus the database's own

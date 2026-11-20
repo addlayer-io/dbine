@@ -496,3 +496,24 @@ vectors.json:viewer.max
 vectors.json:designer.metric
 backend:Divergencia
 explorer.json:filter.codeTag
+backend:dsql: no objects by page: {0}
+backend:odbc: the driver writes 32-bit lengths: no row or parameter arrays
+backend:{0}: no materialized views to join: {1}
+backend:{0}: no objects by page: {1}
+backend:Catalogs
+backend:Excel
+backend:Item
+backend:Kind
+backend:Web
+backend:Bigtable
+backend:Buffer
+backend:Cassandra
+backend:Databricks {0}
+backend:Executable
+backend:Hudi
+backend:Infos
+backend:Kafka
+backend:Pulsar
+backend:Redpanda
+backend:Snowflake stage
+backend:Timeplus

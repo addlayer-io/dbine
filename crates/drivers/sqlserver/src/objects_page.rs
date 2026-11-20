@@ -21,7 +21,7 @@ use crate::{text, SqlServerSession};
 use dbine_driver::{kinds, DbObject, Error, ObjectPage, ObjectQuery, Result};
 
 /// The `sys.objects` types `list_objects` lists, with their kind.
-const OBJECT_TYPES: &[(&str, &str)] = &[
+pub(crate) const OBJECT_TYPES: &[(&str, &str)] = &[
     ("U", kinds::TABLE),
     ("V", kinds::VIEW),
     ("P", kinds::PROCEDURE),
@@ -35,7 +35,8 @@ const OBJECT_TYPES: &[(&str, &str)] = &[
 ];
 
 /// The ones `structure::list_objects` adds on SQL Server and Azure SQL.
-const MORE_OBJECT_TYPES: &[(&str, &str)] = &[("SO", kinds::SEQUENCE), ("SN", kinds::SYNONYM)];
+pub(crate) const MORE_OBJECT_TYPES: &[(&str, &str)] =
+    &[("SO", kinds::SEQUENCE), ("SN", kinds::SYNONYM)];
 
 /// Where the previous page ended: its last object's schema, name, source
 /// and catalog id (the whole sort key). Written as a JSON array.
