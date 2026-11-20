@@ -825,7 +825,7 @@ async fn the_scratch_database_is_encrypted_and_goes_when_it_closes() {
     let root = temp_dir("enc");
     let ctl = Ctl::default();
     // A small memory limit, so the work spills to the temp files.
-    let mut s = Scratch::open(Some(&root.0), &ctl, None, "128MB")
+    let mut s = Scratch::open(Some(&root.0), &ctl, None, "128MB", None)
         .await
         .expect("opens");
     let dir = s.dir.clone();
@@ -944,7 +944,7 @@ async fn the_scratch_compares_tables_far_bigger_than_its_memory() {
     let root = temp_dir("big");
     let ctl = Arc::new(Ctl::default());
     let started = std::time::Instant::now();
-    let mut s = Scratch::open(Some(&root.0), &ctl, None, MEMORY_LIMIT)
+    let mut s = Scratch::open(Some(&root.0), &ctl, None, MEMORY_LIMIT, None)
         .await
         .expect("opens");
     s.create(&ctl).await.unwrap();
@@ -1103,7 +1103,7 @@ fn the_order_key_sorts_as_the_grid_does() {
 #[test]
 fn equal_rows_hash_alike_by_their_canonical_values() {
     let row = |v: Vec<Value>| v;
-    let h = |p: &[Value]| hash_of(p, 1);
+    let h = |p: &[Value]| hash_of(p, 1, &Exact);
     assert_eq!(
         h(&row(vec![
             json!(1),
@@ -1141,7 +1141,7 @@ fn equal_rows_hash_alike_by_their_canonical_values() {
 async fn order_key_ties_are_cut_by_key() {
     let root = temp_dir("ties");
     let ctl = Arc::new(Ctl::default());
-    let mut s = Scratch::open(Some(&root.0), &ctl, None, MEMORY_LIMIT)
+    let mut s = Scratch::open(Some(&root.0), &ctl, None, MEMORY_LIMIT, None)
         .await
         .expect("opens");
     s.create(&ctl).await.unwrap();
@@ -1196,7 +1196,7 @@ async fn long_keys_fit_the_scratch_memory() {
         let root = temp_dir("longkeys");
         let ctl = Arc::new(Ctl::default());
         let started = std::time::Instant::now();
-        let mut s = Scratch::open(Some(&root.0), &ctl, None, MEMORY_LIMIT)
+        let mut s = Scratch::open(Some(&root.0), &ctl, None, MEMORY_LIMIT, None)
             .await
             .expect("opens");
         s.create(&ctl).await.unwrap();
@@ -1249,6 +1249,33 @@ async fn long_keys_fit_the_scratch_memory() {
     }
 }
 
+/// The scratch DuckDB's memory and threads: the default with no layout
+/// columns; with them one thread and memory that grows with the columns
+/// (60 columns ran 512 MB out from 4 threads on, a DBA's "failed to pin
+/// block"), up to 2 GB.
+#[test]
+fn wide_layouts_get_one_thread_and_more_memory() {
+    let rules: Arc<dyn Rules> = Arc::new(
+        crate::commands::data_compare_query::QueryRules::new(
+            crate::commands::data_compare_query::QueryOptions {
+                absolute: 0.01,
+                ..Default::default()
+            },
+        )
+        .unwrap(),
+    );
+    let layout = |n: usize| Layout {
+        rules: rules.clone(),
+        values: 1..1 + n,
+    };
+    assert_eq!(resources(None), (MEMORY_LIMIT.to_string(), None));
+    assert_eq!(resources(Some(&layout(60))), ("812MB".to_string(), Some(1)));
+    assert_eq!(
+        resources(Some(&layout(400))),
+        ("2048MB".to_string(), Some(1))
+    );
+}
+
 /// Issue #107 as reported: a short composite key on which nothing matches
 /// (the key adjusted to a column that differs between the sides), so every
 /// row is a difference: 8,000,000 of them. Picking the first
@@ -1260,7 +1287,7 @@ async fn millions_of_differences_fit_the_scratch_memory() {
     let max = super::super::MAX_DIFF_ROWS;
     let root = temp_dir("many");
     let ctl = Arc::new(Ctl::default());
-    let mut s = Scratch::open(Some(&root.0), &ctl, None, MEMORY_LIMIT)
+    let mut s = Scratch::open(Some(&root.0), &ctl, None, MEMORY_LIMIT, None)
         .await
         .expect("opens");
     s.create(&ctl).await.unwrap();

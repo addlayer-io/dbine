@@ -156,6 +156,12 @@ impl QueryRules {
         Some(s)
     }
 
+    /// Values are the same exactly when their texts as compared are: no
+    /// tolerance and no NULL as BLANK ([`whole::Rules::form`]).
+    fn exact(&self) -> bool {
+        !self.tolerant() && !self.opts.null_as_blank
+    }
+
     /// A tolerance was asked for. Without one, numbers are the same only
     /// when their canonical text is ([`canon`] keeps every digit of an
     /// integer or a decimal): `f64` would take two int64 ids past 2^53 for
@@ -209,8 +215,25 @@ impl whole::Rules for QueryRules {
         }
     }
 
+    /// Without a tolerance or NULL as BLANK two values are the same exactly
+    /// when their texts as compared are (both NULL included): their form.
+    fn form(&self, v: &Value) -> String {
+        match self.text(v) {
+            Some(t) => format!("1{t}"),
+            None => "0".into(),
+        }
+    }
+
+    /// Nothing past the hashes when sameness is equal forms
+    /// ([`QueryRules::exact`]): the scratch DuckDB's joins then carry a few
+    /// hashes a row, not three columns per compared column, which ran out of
+    /// its memory on a wide result (a DBA's 60 columns, "failed to pin block").
     fn columns(&self) -> &'static [(&'static str, &'static str)] {
-        &[("c", "VARCHAR"), ("x", "DOUBLE"), ("b", "BOOLEAN")]
+        if self.exact() {
+            &[]
+        } else {
+            &[("c", "VARCHAR"), ("x", "DOUBLE"), ("b", "BOOLEAN")]
+        }
     }
 
     fn cells(&self, v: &Value) -> Vec<Cell> {
