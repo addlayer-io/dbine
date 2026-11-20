@@ -616,6 +616,28 @@ pub struct ObjectKindInfo {
     pub browsable: bool,
     /// Has source to show ([`crate::Session::definition`]).
     pub has_definition: bool,
+    /// Its definition is DDL the engine generates (a SQL table's `CREATE
+    /// TABLE`), not code someone wrote: a code search ("Buscar en la base",
+    /// the explorer's filter) leaves it out unless asked for by kind.
+    /// [`Self::new`] sets it for tables; [`Self::written`] clears it.
+    #[serde(default)]
+    pub generated_definition: bool,
+}
+
+/// `a == b` in a `const fn`.
+const fn same_str(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 impl ObjectKindInfo {
@@ -632,7 +654,14 @@ impl ObjectKindInfo {
             has_columns,
             browsable,
             has_definition,
+            generated_definition: same_str(id, kinds::TABLE),
         }
+    }
+    /// Its definition is code someone wrote, searched like a view's (a Power
+    /// BI table's partitions in M and calculated columns in DAX).
+    pub const fn written(mut self) -> Self {
+        self.generated_definition = false;
+        self
     }
     pub const fn tables() -> Self {
         Self::new(kinds::TABLE, "Tablas", true, true, true)
@@ -998,5 +1027,20 @@ mod tests {
         let ca = Field::tls_cacert();
         assert_eq!((ca.key, ca.label), ("cacert", "cacert"));
         assert!(matches!(ca.kind, FieldKind::File) && !ca.help.is_empty());
+    }
+    #[test]
+    fn only_a_tables_definition_is_generated_unless_written() {
+        assert!(ObjectKindInfo::tables().generated_definition);
+        assert!(ObjectKindInfo::new(kinds::TABLE, "Tablas", true, true, true).generated_definition);
+        assert!(!ObjectKindInfo::views().generated_definition);
+        assert!(!ObjectKindInfo::procedures().generated_definition);
+        assert!(
+            !ObjectKindInfo::new("virtual_table", "Tablas virtuales", true, true, true)
+                .generated_definition
+        );
+        assert!(!ObjectKindInfo::tables().written().generated_definition);
+        // A manifest without the field (an older host) reads as not generated.
+        let k: ObjectKindInfo = serde_json::from_str(r#"{"id":"view","label":"Vistas","has_columns":true,"browsable":true,"has_definition":true}"#).unwrap();
+        assert!(!k.generated_definition);
     }
 }
