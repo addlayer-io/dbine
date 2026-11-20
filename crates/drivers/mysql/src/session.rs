@@ -3043,6 +3043,17 @@ impl Session for MySqlSession {
     async fn function_catalog(&mut self) -> Result<Vec<dbine_driver::FunctionInfo>> {
         self.function_catalog_impl().await
     }
+
+    /// What the object uses: the catalog where it records it (a view's
+    /// tables and functions, a trigger's table, foreign keys), then its
+    /// code (see `references`).
+    async fn references(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        crate::references::references(self, target, scan).await
+    }
 }
 
 #[cfg(test)]
