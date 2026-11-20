@@ -794,8 +794,9 @@ const TSQL: &[&str] = &[
 /// that calls a model or another service (`vector_embedding`,
 /// `ai_generate_embeddings`, `aiSimilarity`, `ai_similarity`, Databricks'
 /// `vector_search`). Engines whose language isn't SQL (Cassandra's
-/// `similarity_*`, Neo4j's `vector.similarity.*`, Redis' `VSIM`, MongoDB's
-/// `$vectorSearch`) aren't checked here: their reads are always approved.
+/// `similarity_*`, Redis' `VSIM`, MongoDB's `$vectorSearch`) aren't checked
+/// here: their reads are always approved. Neo4j's Cypher has its own list
+/// (`reads::cypher`), with its vector functions.
 fn vector_functions(driver: &str) -> &'static [&'static str] {
     match driver {
         d if vector_extension(d).is_some() => PGVECTOR,
@@ -1291,6 +1292,9 @@ pub(crate) fn approval_free(
     dialect: &ScriptDialect,
     query: &str,
 ) -> Result<(), String> {
+    if language == Language::Cypher {
+        return super::cypher::approval_free(driver, query);
+    }
     if language != Language::Sql {
         return Err(format!("{language:?} statements aren't checked"));
     }
@@ -1597,14 +1601,22 @@ mod tests {
         assert_eq!(pg("SELECT ifnull(a, 0) FROM t"), Err("ifnull".into()));
         assert_eq!(my("SELECT strpos(a, 'x') FROM t"), Err("strpos".into()));
         assert_eq!(lite("SELECT strpos(a, 'x') FROM t"), Ok(()));
-        assert!(approval_free(
-            Language::Cypher,
-            "neo4j",
-            "neo4j",
-            &ScriptDialect::generic(),
-            "RETURN 1"
-        )
-        .is_err());
+        // Cypher has its own list (`reads::cypher`): Neo4j's only.
+        let cypher = |driver: &str, q: &str| {
+            approval_free(
+                Language::Cypher,
+                driver,
+                driver,
+                &ScriptDialect::generic(),
+                q,
+            )
+        };
+        assert_eq!(cypher("neo4j", "RETURN toUpper('a')"), Ok(()));
+        assert_eq!(
+            cypher("neo4j", "RETURN apoc.text.join(['a'], ',')"),
+            Err("apoc.text.join".into())
+        );
+        assert!(cypher("memgraph", "RETURN 1").is_err());
         // DAX goes through the driver's own units, never this lexer.
         assert!(approval_free(
             Language::Dax,
@@ -1957,9 +1969,23 @@ mod tests {
             on("sqlite", "SELECT vector_extract(v) FROM t"),
             Err("vector_extract".into())
         );
-        // Non-SQL engines aren't checked: their reads are approved.
+        // Non-SQL engines aren't checked: their reads are approved. Neo4j's
+        // Cypher is (`reads::cypher`): its own vector functions are listed,
+        // not a plugin's.
         assert!(on("cassandra", "SELECT similarity_cosine(v, [1, 2]) FROM t").is_err());
-        assert!(on("neo4j", "RETURN vector.similarity.cosine([1, 2], [1, 2])").is_err());
+        if dbine_drivers::find("neo4j").is_some() {
+            assert_eq!(
+                on("neo4j", "RETURN vector.similarity.cosine([1, 2], [1, 2])"),
+                Ok(())
+            );
+            assert_eq!(
+                on("neo4j", "RETURN gds.similarity.cosine([1, 2], [1, 2])"),
+                Err("gds.similarity.cosine".into())
+            );
+        }
+        if dbine_drivers::find("memgraph").is_some() {
+            assert!(on("memgraph", "RETURN 1").is_err());
+        }
     }
 
     /// The list follows each family's vector variants: pgvector's names on

@@ -1383,6 +1383,8 @@ paths, not the boundary.
 | EDB, KingbaseES, openGauss | no: approval | Autonomous transactions commit outside the read-only transaction |
 | Denodo, RisingWave, Materialize, CrateDB, H2 | no: approval | No read-only transaction the server enforces |
 | The other engines of the MySQL driver | no: approval | Not verified to enforce read-only transactions |
+| Neo4j (5 and 2025) | yes | One Cypher statement in an auto-commit transaction in READ access mode (Bolt's `mode: "r"`), which the server enforces on a writable connection too ("Writing in read access mode not allowed"); DBine's read check runs first (procedures other than the index searches, `LOAD CSV`). Its function list is Neo4j's own, Cypher 25's vector functions included |
+| Memgraph, Amazon Neptune | no: approval | No read access mode the server enforces |
 | Power BI | yes (the API itself) | The query APIs only run DAX queries, which can't change a model, so there is no read-only transaction to open: the boundary is the service. A query that is one unit with one `EVALUATE` runs at once (through the driver's own splitter, at background priority, always with a timeout and a row limit); `DEFINE` plus several `EVALUATE`s, or anything else, asks for approval. The driver's `GRANT`, `REVOKE`, `RENAME` and `ALTER` commands are never read-only. Not tried against a tenant |
 | Every other engine | no: approval | Not implemented in its driver yet (`Unsupported`) |
 

@@ -310,6 +310,13 @@ const READ_PROCEDURES: &[&str] = &[
     "GDS.LIST",
     "GDS.VERSION",
     "NEPTUNE.READ",
+    // Vector and full-text searches (Neo4j's; Memgraph's `vector_search`).
+    "DB.INDEX.VECTOR.QUERYNODES",
+    "DB.INDEX.VECTOR.QUERYRELATIONSHIPS",
+    "DB.INDEX.FULLTEXT.QUERYNODES",
+    "DB.INDEX.FULLTEXT.QUERYRELATIONSHIPS",
+    "VECTOR_SEARCH.SEARCH",
+    "VECTOR_SEARCH.SHOW_INDEX_INFO",
 ];
 
 /// Why a statement isn't a read, or `None` when it only reads.
@@ -734,6 +741,29 @@ mod tests {
         assert_eq!(
             write_reason("CALL { CREATE (n) } IN TRANSACTIONS").as_deref(),
             Some("CREATE")
+        );
+        // Similarity searches read: Neo4j 2025's Cypher 25 functions and
+        // the vector index procedures (Memgraph's too); building an index
+        // or setting a vector writes.
+        for read in [
+            "CYPHER 25 MATCH (n:Doc) RETURN vector_distance(n.e, vector([1, 0], 2, FLOAT32), COSINE) AS d, vector_norm(n.e, EUCLIDEAN), vector_dimension_count(n.e)",
+            "MATCH (n:Doc) RETURN vector.similarity.cosine(n.e, $q) AS s ORDER BY s DESC LIMIT 5",
+            "CYPHER 25 CALL db.index.vector.queryNodes('ix', 5, vector([1, 0], 2, FLOAT32)) YIELD node, score RETURN node, score",
+            "CALL db.index.vector.queryRelationships('ix', 5, $q) YIELD relationship, score RETURN score",
+            "CALL db.index.fulltext.queryNodes('ft', 'hola') YIELD node RETURN node",
+            "CALL vector_search.search('ix', 5, [1.0, 0.0]) YIELD node, similarity RETURN node",
+        ] {
+            assert_eq!(write_reason(read), None, "{read}");
+        }
+        assert_eq!(
+            write_reason("CALL db.index.vector.createNodeIndex('ix', 'Doc', 'e', 2, 'cosine')")
+                .as_deref(),
+            Some("CALL db.index.vector.createnodeindex")
+        );
+        assert_eq!(
+            write_reason("MATCH (n) CALL db.create.setNodeVectorProperty(n, 'e', [1.0])")
+                .as_deref(),
+            Some("CALL db.create.setnodevectorproperty")
         );
     }
 
