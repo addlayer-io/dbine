@@ -15234,7 +15234,7 @@
  "El resultado pasa los 25 MiB que Databricks entrega en la respuesta, y no se pudo leer de su almacenamiento en la nube: {0}. Probá con un LIMIT o con menos columnas.": [
   "crates/drivers/databricks/src/results.rs"
  ],
- "El resultado tiene una columna REAL_VECTOR y el cliente de HANA que usa DBine no lee ese tipo: pedila como texto con TO_NVARCHAR(columna).": [
+ "El resultado tiene una columna de un tipo que el cliente de HANA que usa DBine no lee: pedila como texto con TO_NVARCHAR(columna).": [
   "crates/drivers/hana/src/vector.rs"
  ],
  "El rol actual no puede listar usuarios (SHOW USERS): se ve solo el propio": [
@@ -21826,7 +21826,7 @@
  "Igual a": [
   "crates/drivers/odbc/src/scheduler/db2zos.rs"
  ],
- "Illegal type code 96": [
+ "Illegal type code": [
   "crates/drivers/hana/src/vector.rs"
  ],
  "Imagen (copia de los archivos de la base)": [
@@ -52654,7 +52654,13 @@
   "crates/drivers/sqlserver/src/variant.rs"
  ],
  "este motor todavía no lista sus objetos por páginas": [
-  "crates/dbine-driver/src/lib.rs"
+  "crates/dbine-driver/src/lib.rs",
+  "crates/drivers/bigquery/src/paging.rs",
+  "crates/drivers/firebird/src/lib.rs",
+  "crates/drivers/hana/src/lib.rs",
+  "crates/drivers/mysql/src/session.rs",
+  "crates/drivers/oracle/src/lib.rs",
+  "crates/drivers/sqlserver/src/objects_page.rs"
  ],
  "este motor todavía no lista sus procesos en DBine": [
   "crates/drivers/odbc/src/processes.rs"

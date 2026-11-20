@@ -5031,8 +5031,6 @@ dependencies = [
 [[package]]
 name = "hdbconnect_impl"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac3d271e4c2a3e519a08a2cd1477fe7786874000c27e0f2bd7d6875f5e1f528e"
 dependencies = [
  "async-trait",
  "bigdecimal",

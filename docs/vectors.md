@@ -453,12 +453,17 @@ Particularities:
   vector loads into pgvector's `sparsevec`, and pgvector's binary vectors into
   `BINARY` columns. Values past 4,000 bytes are written as a
   `TO_CLOB('…') || '…'` chain.
-- **SAP HANA Cloud:** DBine's HANA client predates the vector type. A server
-  that sends vectors as binary has them decoded and marked, with the dimension
-  from the catalog. One that sends the vector type itself makes table browsing
-  read them as text (`TO_NVARCHAR`), still marked. In that case an ad-hoc query
-  with a vector column fails with an explanation (read it with
-  `TO_NVARCHAR(column)`), and a computed vector isn't marked. Edits write
+- **SAP HANA Cloud:** DBine's HANA client (a patched copy of `hdbconnect`,
+  see `vendor/hdbconnect_impl/PATCHES.md`) asks for the data format that has
+  `REAL_VECTOR`, so the server sends vectors as that type: every vector column
+  of a result is marked and decoded, a computed one (`TO_REAL_VECTOR(…)`,
+  `VECTOR_EMBEDDING(…)`) or a view's too, with the dimension from the catalog
+  for a table's column. A server that answers in an older format sends them as
+  binary; they're decoded and marked when the catalog says the column is a
+  vector. A `HALF_VECTOR` column is marked as such from the catalog. A
+  column type newer than the client fails with an explanation (read it with
+  `TO_NVARCHAR(column)`), and a table's browse then reads its vectors as
+  text. Edits write
   `TO_REAL_VECTOR('[…]')`, or `TO_HALF_VECTOR('[…]')` for a `HALF_VECTOR`
   column when the column types are known. Outside HANA Cloud the designer's
   error says vector indexes are HANA Cloud's.
@@ -959,9 +964,7 @@ offers no vector type or index.
 - **Notebooks** keep only a column's name and type in the file.
 - **sqlite-vec** is not read: DBine never loads SQLite extensions.
 - **Moving vectors between engines** needs each side's driver to know the
-  vector type. SQL Server's vector TDS feature carries float32 only; SAP HANA
-  on a server that sends the vector type itself fails ad-hoc queries with a
-  vector column (use `TO_NVARCHAR(column)`).
+  vector type. SQL Server's vector TDS feature carries float32 only.
 - **A vector set** (Redis 8) keeps normalized vectors.
 - **Not tested against a server:** see the "Tested" column above and
   [`engine-support.md`](engine-support.md#vectors). SAP HANA Cloud, Db2 12.1.2,
