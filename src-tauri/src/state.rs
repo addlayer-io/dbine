@@ -63,7 +63,14 @@ pub struct AppState {
     /// server or tunnel that doesn't answer) gives up at once instead of
     /// finishing after the user let go of the connection.
     disconnects: Arc<DashMap<String, Arc<Notify>>>,
+    /// Whole object lists read for drivers without their own
+    /// `list_objects_page`, by `meta_key`: the explorer's pages of a
+    /// database come out of one read for a while (see `list_object_page`).
+    pub object_lists: Arc<DashMap<String, KeptObjectList>>,
 }
+
+/// A whole object list and when it was read (see `AppState::object_lists`).
+pub type KeptObjectList = (std::time::Instant, Arc<Vec<dbine_driver::DbObject>>);
 
 /// One key's opening: held while a session is opened; remembers the last
 /// failure so whoever waited for that attempt gets its error too.
@@ -234,6 +241,7 @@ impl AppState {
             functions: Arc::default(),
             opening: Arc::default(),
             disconnects: Arc::default(),
+            object_lists: Arc::default(),
         }
     }
 
@@ -754,6 +762,9 @@ impl AppState {
             keep
         });
         self.tunnels.close(connection_id);
+        // Its kept object lists: the next connect reads them again.
+        let prefix = meta_key(connection_id, "");
+        self.object_lists.retain(|k, _| !k.starts_with(&prefix));
         // A session still opening gives up (see `open_session`).
         if let Some(stop) = self.disconnects.get(connection_id) {
             stop.notify_waiters();

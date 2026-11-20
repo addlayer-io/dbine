@@ -10,7 +10,7 @@ import { asker, providerLabel } from '../composables/aiTask';
 import { markdownParts } from '../composables/markdown';
 import { useUiStore } from '../stores/ui';
 import { dataCompareApi, type AiFilter, type DataCompareProgress, type DataCompareResult, type DataRow, type DataRows, type DataScript, type DataSide, type Dir, type QuerySide, type RowKind } from '../api/dataCompare';
-import type { Cell, ObjectRef, QueryProgress, ResultColumn, SortKey } from '../api/types';
+import type { Cell, DbObject, ObjectRef, QueryProgress, ResultColumn, SortKey } from '../api/types';
 import DataCompareQueries from '../components/DataCompareQueries.vue';
 import ExportDialog, { type CompareExport } from '../components/ExportDialog.vue';
 import { DEFAULT_FORM, WHOLE_ROWS, comparedPairs, mergePairs, pairRows, queryOptions, sideSignature, wholeQuery, withKey, type PairRow, type ToleranceForm } from '../composables/queryCompare';
@@ -128,10 +128,57 @@ function hasDatabases(p: Pick): boolean {
   return !!conns.driverOf(p.connectionId)?.databases_label || dbsOf(p).length > 0;
 }
 const connecting = (p: Pick) => conns.live[p.connectionId]?.status === 'connecting';
-function tablesOf(p: Pick) {
-  const d = conns.driverOf(p.connectionId);
-  const browsable = new Set(d?.object_kinds.filter((k) => k.browsable ?? true).map((k) => k.id) ?? []);
-  return (conns.objects[dbKey(p.connectionId, p.database)]?.items ?? []).filter((o) => browsable.has(o.kind));
+// -- the tables a side picks from: a server search, never the whole database --------------
+const sideOf = (p: Pick): 'left' | 'right' => (p === left ? 'left' : 'right');
+const schemaOf = (id: string) => id.split('\u0001')[0] ?? '';
+/** Each side's schema ('': every schema). */
+const schemaPick = reactive<Record<'left' | 'right', string>>({ left: schemaOf(left.table), right: schemaOf(right.table) });
+/** The kinds a side can compare (the browsable ones). */
+function browsableKinds(p: Pick): string[] {
+  return conns.driverOf(p.connectionId)?.object_kinds.filter((k) => k.browsable ?? true).map((k) => k.id) ?? [];
+}
+/** Each side's list on screen: what its picker's box searched, in its schema. */
+const pickList = reactive<Record<'left' | 'right', DbObject[]>>({ left: [], right: [] });
+/** Each side's chosen table, as its server names it. */
+const pickedTable = reactive<Record<'left' | 'right', DbObject | null>>({ left: null, right: null });
+/** The side's tables for its picker: the search's, the chosen one kept. */
+function tablesOf(p: Pick): DbObject[] {
+  const s = sideOf(p);
+  const c = pickedTable[s];
+  return c && !pickList[s].some((o) => tableId(o) === tableId(c)) ? [c, ...pickList[s]] : pickList[s];
+}
+const searchSeq = { left: 0, right: 0 };
+/** The picker's box says `q`: the side's tables (in its schema) whose name
+ *  holds it, a page from the server. */
+async function searchTables(p: Pick, q = '') {
+  const s = sideOf(p);
+  const seq = ++searchSeq[s];
+  if (!p.connectionId || !conns.isConnected(p.connectionId)) return;
+  const found = await conns.searchObjects(p.connectionId, p.database, q, { schema: schemaPick[s] || null, kinds: browsableKinds(p) });
+  if (seq === searchSeq[s]) pickList[s] = found;
+}
+/** `p.table` looked up on the side's database: kept when it's there (by
+ *  name; engines' default schemas count as the same, so dbo.X finds
+ *  public.x), let go when it isn't. */
+async function resolveTable(p: Pick) {
+  const s = sideOf(p);
+  if (!p.table) {
+    pickedTable[s] = null;
+    return;
+  }
+  if (!p.connectionId || !conns.isConnected(p.connectionId)) return;
+  const [schema, name] = p.table.split('\u0001');
+  const kinds = browsableKinds(p);
+  const exact = await conns.findObject(p.connectionId, p.database, schema || null, name ?? '', kinds);
+  const any = exact ?? await conns.findObject(p.connectionId, p.database, null, name ?? '', kinds);
+  const o = exact ?? (any && normSchema(any.schema) === normSchema(schema || null) ? any : null);
+  if (!o) {
+    p.table = '';
+    pickedTable[s] = null;
+    return;
+  }
+  pickedTable[s] = o;
+  if (tableId(o) !== p.table) p.table = tableId(o);
 }
 async function prepare(p: Pick) {
   if (!p.connectionId) return;
@@ -141,72 +188,72 @@ async function prepare(p: Pick) {
   if (live && !p.database && !live.databases.length) p.database = live.defaultDatabase;
   // Another connection keeps the database if it has one by that name.
   if (live && live.databases.length && !live.databases.includes(p.database)) p.database = live.defaultDatabase || live.databases[0];
-  await conns.loadObjects(p.connectionId, p.database);
+  // Changing the connection or database keeps the chosen table when the
+  // new one has it; only a table that isn't there is cleared.
+  await Promise.all([
+    conns.driverOf(p.connectionId)?.key_search ? null : conns.loadLevel(p.connectionId, p.database),
+    searchTables(p, ''),
+    resolveTable(p),
+  ]);
 }
 watch(() => [left.connectionId, left.database], () => prepare(left), { immediate: true });
 watch(() => [right.connectionId, right.database], () => prepare(right), { immediate: true });
 
-/** The table in `list` that is `id` (schema and name; engines' default
- *  schemas count as the same, so dbo.X finds public.x). */
-function sameTable(list: ReturnType<typeof tablesOf>, id: string) {
-  const [schema, name] = id.split('\u0001');
-  return list.find((o) => tableId(o) === id)
-    ?? list.find((o) => o.name.toLowerCase() === (name ?? '').toLowerCase() && normSchema(o.schema) === normSchema(schema || null));
-}
-// Changing the connection or database keeps the chosen table when the new
-// one has it; only a table that isn't there is cleared. Waits for the real
-// list (a cached one may lack new tables).
-for (const p of [left, right]) {
-  watch(() => [p.connectionId, p.database, p.table, conns.objects[dbKey(p.connectionId, p.database)]?.status], () => {
-    if (!p.table || conns.objects[dbKey(p.connectionId, p.database)]?.status !== 'ready') return;
-    const o = sameTable(tablesOf(p), p.table);
-    p.table = o ? tableId(o) : '';
-  });
-}
 // Same table on the right by default (same schema first).
-watch(() => [left.table, tablesOf(right).length], () => {
+watch(() => [left.table, right.connectionId, right.database, conns.isConnected(right.connectionId)], async () => {
   if (right.table || !left.table) return;
   if (right.connectionId === left.connectionId && right.database === left.database) return;
-  const list = tablesOf(right);
-  const name = left.table.split('\u0001')[1] ?? '';
-  const same = sameTable(list, left.table) ?? list.find((o) => o.name.toLowerCase() === name.toLowerCase());
-  if (same) right.table = tableId(same);
+  if (!conns.isConnected(right.connectionId)) return;
+  const [schema, name] = left.table.split('\u0001');
+  const kinds = browsableKinds(right);
+  const same = await conns.findObject(right.connectionId, right.database, schema || null, name ?? '', kinds)
+    ?? await conns.findObject(right.connectionId, right.database, null, name ?? '', kinds);
+  if (same && !right.table) right.table = tableId(same);
 });
 
 // -- the schema, picked apart from the table (#92) -----------------------------------
 // Engines with many schemas (Databricks' catalog.schema, SQL Server's) list
 // hundreds of tables: a side picks its schema first, then one of its tables.
-const schemaOf = (id: string) => id.split('\u0001')[0] ?? '';
-/** The schemas a side's tables are in (none: the engine has no schemas). */
+/** A side's schemas (none: the engine has no schemas). */
 function schemasOf(p: Pick): string[] {
-  return [...new Set(tablesOf(p).map((o) => o.schema ?? '').filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const listed = conns.schemas[dbKey(p.connectionId, p.database)];
+  const names = listed ? listed.filter((x) => !x.system).map((x) => x.name) : tablesOf(p).map((o) => o.schema ?? '').filter(Boolean);
+  return [...new Set(names)].sort((a, b) => a.localeCompare(b));
 }
-const sideOf = (p: Pick): 'left' | 'right' => (p === left ? 'left' : 'right');
-/** Each side's schema ('': every schema). */
-const schemaPick = reactive<Record<'left' | 'right', string>>({ left: schemaOf(left.table), right: schemaOf(right.table) });
 /** The side's tables in its schema. */
 function tablesIn(p: Pick) {
   const s = schemaPick[sideOf(p)];
   return s ? tablesOf(p).filter((o) => (o.schema ?? '') === s) : tablesOf(p);
 }
-/** Another schema: a table that isn't in it is let go. */
+/** Another schema: a table that isn't in it is let go, and its tables are
+ *  searched. */
 function pickSchema(p: Pick, s: string | undefined) {
   schemaPick[sideOf(p)] = s ?? '';
   if (p.table && s && schemaOf(p.table) !== s) p.table = '';
+  void searchTables(p, '');
 }
 for (const p of [left, right]) {
-  // A table chosen (or matched on the right) brings its schema.
-  watch(() => p.table, (id) => { if (id) schemaPick[sideOf(p)] = schemaOf(id); });
+  watch(() => p.table, (id) => {
+    const s = sideOf(p);
+    // A table chosen (or matched on the right) brings its schema.
+    if (id) schemaPick[s] = schemaOf(id);
+    const hit = id ? tablesOf(p).find((o) => tableId(o) === id) : null;
+    if (hit) pickedTable[s] = hit;
+    else void resolveTable(p);
+  });
   // Another connection or database without that schema: every schema.
-  watch(() => conns.objects[dbKey(p.connectionId, p.database)]?.status, (st) => {
+  watch(() => conns.schemas[dbKey(p.connectionId, p.database)], () => {
     const s = schemaPick[sideOf(p)];
-    if (st === 'ready' && s && !schemasOf(p).includes(s)) schemaPick[sideOf(p)] = '';
+    if (s && !schemasOf(p).includes(s)) {
+      schemaPick[sideOf(p)] = '';
+      void searchTables(p, '');
+    }
   });
 }
 
 function side(p: Pick): DataSide | null {
-  const o = tablesOf(p).find((x) => tableId(x) === p.table);
-  return o ? { connection_id: p.connectionId, database: p.database, object: { kind: o.kind, schema: o.schema, name: o.name } } : null;
+  const o = pickedTable[sideOf(p)];
+  return o && tableId(o) === p.table ? { connection_id: p.connectionId, database: p.database, object: { kind: o.kind, schema: o.schema, name: o.name } } : null;
 }
 
 // -- not the same table on both sides ------------------------------------------------
@@ -270,18 +317,18 @@ onBeforeUnmount(() => { if (saveTimer) { clearTimeout(saveTimer); savePicks(); }
 /** The left table's columns, to choose the key before comparing (a table
  *  without a primary key needs one). */
 const leftColumnInfo = computed(() => {
-  const o = tablesOf(left).find((x) => tableId(x) === left.table);
-  if (!o) return [];
+  const o = pickedTable.left;
+  if (!o || tableId(o) !== left.table) return [];
   return conns.columns[objKey(left.connectionId, left.database, o.schema, o.name)]?.items ?? [];
 });
 const leftColumns = computed(() => leftColumnInfo.value.map((c) => c.name));
 /** The left table's columns are known and none is a primary key: a key has to be chosen. */
 const needsKey = computed(() => leftColumnInfo.value.length > 0 && !leftColumnInfo.value.some((c) => c.primary_key));
 watch(() => [left.connectionId, left.database, left.table], () => { key.value = []; });
-// Load its columns once the table (and the database's object list) is there.
-watch(() => [left.connectionId, left.database, left.table, tablesOf(left).length], () => {
-  const o = tablesOf(left).find((x) => tableId(x) === left.table);
-  if (o) conns.loadColumns(left.connectionId, left.database, o);
+// Load its columns once the table is found.
+watch(() => [left.connectionId, left.database, left.table, pickedTable.left], () => {
+  const o = pickedTable.left;
+  if (o && tableId(o) === left.table) conns.loadColumns(left.connectionId, left.database, o);
 }, { immediate: true });
 
 /** The compare running now (whole tables, so it can take a while): its id,
@@ -1112,7 +1159,10 @@ async function suggestKey() {
         >
           <el-option v-for="s in schemasOf(p)" :key="s" :label="s" :value="s" />
         </el-select>
-        <el-select v-model="p.table" filterable size="small" class="dc-table" :placeholder="$t('dataCompare:table')">
+        <el-select
+          v-model="p.table" filterable remote :remote-method="(q: string) => searchTables(p, q)" size="small" class="dc-table"
+          :placeholder="$t('dataCompare:table')" @visible-change="(open: boolean) => open && searchTables(p, '')"
+        >
           <el-option
             v-for="o in tablesIn(p)" :key="tableId(o)" :value="tableId(o)"
             :label="schemaPick[sideOf(p)] || !o.schema ? o.name : `${o.schema}.${o.name}`"

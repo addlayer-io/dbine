@@ -436,6 +436,7 @@ impl Call {
             | ClearJobHistory { session, .. }
             | SchedulerLogs { session }
             | FunctionCatalog { session }
+            | ListObjectsPage { session, .. }
             | ExecuteBound { session, .. } => Some(*session),
             CloneScript { from, .. } => Some(*from),
             // Closing the source stops the copy (the target's close waits for it).
@@ -1509,6 +1510,14 @@ impl State {
                     .function_catalog()
                     .await?,
             ),
+            Call::ListObjectsPage { session, query } => Reply::ObjectPage(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .list_objects_page(&query)
+                    .await?,
+            ),
         })
     }
 }
@@ -2135,6 +2144,7 @@ mod tests {
             json!({"KeyRange": {"session": s, "table": obj(), "column": "id"}}),
             json!({"TransactionState": {"session": s}}),
             json!({"ListSchemas": {"session": s}}),
+            json!({"ListObjectsPage": {"session": s, "query": {"kind": "table"}}}),
             json!({"DatabaseSchema": {"session": s}}),
         ] {
             // Some have a default answer (an empty list, `None`); none fails

@@ -635,6 +635,13 @@ pub enum Call {
     FunctionCatalog {
         session: u64,
     },
+    /// One page of the database's objects (`Session::list_objects_page`). A
+    /// host published before it, or a driver without it, answers
+    /// `Unsupported`: the app then pages `list_objects` itself.
+    ListObjectsPage {
+        session: u64,
+        query: dbine_driver::ObjectQuery,
+    },
 }
 
 /// Host → app.
@@ -750,6 +757,7 @@ pub enum Reply {
     ObjectForm(dbine_driver::ObjectForm),
     SchedulerLogs(Vec<dbine_driver::MonitorTable>),
     Functions(Vec<dbine_driver::FunctionInfo>),
+    ObjectPage(dbine_driver::ObjectPage),
 }
 
 /// What a driver says about itself without a connection: the connection
@@ -1688,6 +1696,18 @@ mod tests {
                 "SchedulerActionForm",
             ),
             (54, Call::FunctionCatalog { session: 3 }, "FunctionCatalog"),
+            (
+                55,
+                Call::ListObjectsPage {
+                    session: 3,
+                    query: dbine_driver::ObjectQuery {
+                        schema: Some("dbo".into()),
+                        kind: Some("table".into()),
+                        ..Default::default()
+                    },
+                },
+                "ListObjectsPage",
+            ),
         ] {
             let body = rmp_serde::to_vec_named(&ToHost::Call { id, call }).unwrap();
             assert!(rmp_serde::from_slice::<OldToHost>(&body).is_err());
@@ -1970,6 +1990,44 @@ mod tests {
         let body = rmp_serde::to_vec_named(&Reply::IndexUsage(report.clone())).unwrap();
         match rmp_serde::from_slice::<Reply>(&body).unwrap() {
             Reply::IndexUsage(back) => assert_eq!(back, report),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_object_page_and_its_query_round_trip() {
+        let query = dbine_driver::ObjectQuery {
+            schema: Some("dbo".into()),
+            kind: Some("view".into()),
+            not_kinds: vec!["table".into()],
+            pattern: Some("ord".into()),
+            after: Some("1000".into()),
+            limit: 50,
+            ..Default::default()
+        };
+        let call = Call::ListObjectsPage {
+            session: 4,
+            query: query.clone(),
+        };
+        match rmp_serde::from_slice::<Call>(&rmp_serde::to_vec_named(&call).unwrap()).unwrap() {
+            Call::ListObjectsPage { session, query: q } => {
+                assert_eq!(session, 4);
+                assert_eq!(q, query);
+            }
+            other => panic!("{other:?}"),
+        }
+        let page = dbine_driver::ObjectPage {
+            objects: vec![DbObject {
+                kind: "view".into(),
+                schema: Some("dbo".into()),
+                name: "orders_v".into(),
+                parent: None,
+            }],
+            next: Some("1050".into()),
+        };
+        let body = rmp_serde::to_vec_named(&Reply::ObjectPage(page.clone())).unwrap();
+        match rmp_serde::from_slice::<Reply>(&body).unwrap() {
+            Reply::ObjectPage(back) => assert_eq!(back, page),
             other => panic!("{other:?}"),
         }
     }

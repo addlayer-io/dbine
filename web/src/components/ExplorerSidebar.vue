@@ -6,7 +6,7 @@ import SupportReminder from './SupportReminder.vue';
 import TelemetryConsent from './TelemetryConsent.vue';
 import UpdateNotice from './UpdateNotice.vue';
 import SchemaIcon from './SchemaIcon.vue';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { locale } from '../i18n';
@@ -14,7 +14,7 @@ import { tb } from '../i18n/backend';
 import { errorMessage } from '../api/client';
 import type { ConnectionFolder, DbObject, DriverInfo, KeyEntry, KeySearch, Permissions, ProjectInfo, SavedConnection, SavedQuery, SchemaInfo } from '../api/types';
 import { useProjectsStore } from '../stores/projects';
-import { dbKey, objKey, useConnectionsStore, type KeyBrowse } from '../stores/connections';
+import { dbKey, folderKey, objKey, useConnectionsStore, type FolderLoad, type FolderSpec, type KeyBrowse } from '../stores/connections';
 import { confirmDisconnect, useTabsStore } from '../stores/tabs';
 import { useServerJobsStore } from '../stores/serverJobs';
 import { useUiStore } from '../stores/ui';
@@ -69,6 +69,8 @@ type NodeType = 'group' | 'connection' | 'database' | 'schema' | 'folder' | 'que
   | 'contexts' | 'context'
   // A key database's search row, namespace folders and "Cargar más".
   | 'keysearch' | 'keyns' | 'keymore'
+  // A tree folder's "Cargar más" (its next page of objects).
+  | 'objmore'
   // A table's "Índices" folder and its indexes.
   | 'indexes' | 'index'
   // "Proyectos": the linked projects whose base is this database.
@@ -110,6 +112,8 @@ interface TNode {
   key?: KeyEntry;
   /** A namespace folder's prefix (`user:1:`). */
   prefix?: string;
+  /** A kind folder (or its "Cargar más"): which objects it reads, page by page. */
+  spec?: FolderSpec;
   /** The schema a schema node, or a kind folder inside one, stands for. */
   schema?: string;
   /** Flat mode: an object's non-default schema, shown dim before its name. */
@@ -195,9 +199,9 @@ function databaseChildren(c: SavedConnection, d: DriverInfo, db: string, parentI
       : [status(mid, 'empty', t('explorer:tree.noMigrations'))],
   });
   out.push(contextsNode(c, db));
-  if (!objs || objs.status === 'loading') return [...out, status(parentId, 'loading', t('common:loading'))];
-  if (objs.status === 'error') return [...out, status(parentId, 'error', objs.error ?? t('common:error'))];
   if (d.key_search) {
+    if (!objs || objs.status === 'loading') return [...out, status(parentId, 'loading', t('common:loading'))];
+    if (objs.status === 'error') return [...out, status(parentId, 'error', objs.error ?? t('common:error'))];
     const kind = d.object_kinds[0];
     const fid = `f:${c.id}:${db}:${kind?.id ?? 'key'}`;
     const b = conns.keys[k];
@@ -208,59 +212,87 @@ function databaseChildren(c: SavedConnection, d: DriverInfo, db: string, parentI
     });
     return out;
   }
-  // Flat mode ignores the listed schemas: only those with objects count.
-  const { schemas, rank } = schemasOf(c, d, objs.items, groupBySchema.value ? conns.schemas[k] : null);
+  // The tree reads by folder, never the whole database: the schemas first
+  // (from the server's list), then each kind folder's own pages when opened.
+  const lv = conns.levels[k];
+  if (!lv || lv.status === 'loading') return [...out, status(parentId, 'loading', t('common:loading'))];
+  if (lv.status === 'error') return [...out, status(parentId, 'error', lv.error ?? t('common:error'))];
+  const hitsNode = serverHitsNode(c, db);
+  if (hitsNode) out.push(hitsNode);
+  const { schemas, rank } = schemasOf(c, d, [], lv.items);
+  const pageBase = (schema: string | null): FolderSpec => ({ schema, kind: null });
   if (schemas && groupBySchema.value) {
     // One node per schema, its kind folders inside; objects without a
-    // schema stay at the database level, after them.
-    const bySchema = new Map<string, DbObject[]>(schemas.map((s) => [s, []]));
-    const loose: DbObject[] = [];
-    for (const o of objs.items) (o.schema != null ? bySchema.get(o.schema)! : loose).push(o);
-    for (const [s, items] of bySchema) {
-      const sid = `s:${c.id}:${db}:${s}`;
+    // schema (when the driver has some) stay at the database level.
+    for (const s of schemas) {
       out.push({
-        id: sid, label: s, type: 'schema', connectionId: c.id, database: db, schema: s, count: items.length,
-        children: items.length ? kindFolders(c, d, db, items, s, 'none', rank) : [status(sid, 'empty', t('explorer:tree.noSchemaObjects'))],
+        id: `s:${c.id}:${db}:${s}`, label: s, type: 'schema', connectionId: c.id, database: db, schema: s,
+        children: kindFolders(c, d, db, pageBase(s), 'none', rank),
       });
     }
-    out.push(...kindFolders(c, d, db, loose, undefined, 'hint', rank));
+    const loose = conns.objectFolders[folderKey(c.id, db, LOOSE)];
+    if (loose?.items.length) out.push(...looseFolders(c, d, db, loose, rank));
     return out;
   }
-  // Flat: with several schemas, objects sorted by schema and qualified.
-  // Ranks and positions are looked up, not recomputed, per comparison.
-  let items = objs.items;
-  if (schemas) {
-    const pos = new Map(schemas.map((s, i) => [s, i]));
-    const at = (o: DbObject) => (o.schema == null ? schemas.length : pos.get(o.schema)!);
-    items = [...items].sort((a, b) => at(a) - at(b) || byName(a.name, b.name));
-  }
-  out.push(...kindFolders(c, d, db, items, undefined, schemas ? 'qualify' : 'hint', rank));
+  // Flat (no schema list, or grouping off): each kind across schemas, the
+  // schema before each name when there are several.
+  out.push(...kindFolders(c, d, db, pageBase(null), schemas ? 'qualify' : 'hint', rank));
   return out;
 }
 
-/** The kind folders (Tablas, Vistas…) of a list of objects: only kinds with
- *  items, then "Otros" for kinds the driver returned but didn't declare.
- *  Inside a schema node their ids carry the schema. */
-function kindFolders(c: SavedConnection, d: DriverInfo, db: string, objs: DbObject[], schema: string | undefined, show: SchemaShow, rank: SchemaRank): TNode[] {
-  const base = schema === undefined ? `f:${c.id}:${db}` : `f:${c.id}:${db}:${schema}`;
+/** Objects without a schema on an engine with schemas: what their folder's
+ *  first page brought, by kind, at the database level. */
+const LOOSE: FolderSpec = { schema: null, noSchema: true, kind: null };
+function looseFolders(c: SavedConnection, d: DriverInfo, db: string, loose: FolderLoad, rank: SchemaRank): TNode[] {
   const out: TNode[] = [];
-  for (const kind of d.object_kinds) {
-    const items = objs.filter((o) => o.kind === kind.id);
-    if (!items.length) continue;
+  const kinds = [...new Set(loose.items.map((o) => o.kind))];
+  for (const kind of kinds) {
+    const info = d.object_kinds.find((x) => x.id === kind);
+    const items = loose.items.filter((o) => o.kind === kind);
+    const id = `f:${c.id}:${db}:__loose:${kind}`;
     out.push({
-      id: `${base}:${kind.id}`, label: tb(kind.label), type: 'folder', connectionId: c.id, database: db, kindId: kind.id, schema, count: items.length,
-      children: items.map((o) => objectNode(c, db, o, kind.has_columns, show, rank)),
+      id, label: info ? tb(info.label) : t('explorer:tree.others'), type: 'folder', connectionId: c.id, database: db, kindId: info ? kind : undefined, count: items.length,
+      children: items.map((o) => objectNode(c, db, o, info?.has_columns ?? false, 'hint', rank)),
     });
   }
-  const declared = new Set(d.object_kinds.map((k) => k.id));
-  const other = objs.filter((o) => !declared.has(o.kind));
-  if (other.length) {
-    out.push({
-      id: `${base}:__other`, label: t('explorer:tree.others'), type: 'folder', connectionId: c.id, database: db, schema, count: other.length,
-      children: other.map((o) => objectNode(c, db, o, false, show, rank)),
-    });
+  if (loose.next) out.push({ id: `fm:${c.id}:${db}:__loose`, label: t('explorer:tree.loadMore'), type: 'objmore', connectionId: c.id, database: db, spec: LOOSE });
+  return out;
+}
+
+/** The kind folders (Tablas, Vistas…) of a schema (or of every schema,
+ *  `base.schema` null): every kind the driver declares, each loading its own
+ *  pages when opened (whether it's empty can't be known before), then
+ *  "Otros" once its first page found kinds the driver doesn't declare.
+ *  Inside a schema node their ids carry the schema. */
+function kindFolders(c: SavedConnection, d: DriverInfo, db: string, base: FolderSpec, show: SchemaShow, rank: SchemaRank): TNode[] {
+  const out = d.object_kinds.map((kind) => folderNode(c, db, { ...base, kind: kind.id }, tb(kind.label), kind.id, kind.has_columns, show, rank));
+  const other: FolderSpec = { ...base, kind: null, other: d.object_kinds.map((k) => k.id) };
+  if (conns.objectFolders[folderKey(c.id, db, other)]?.items.length) {
+    out.push(folderNode(c, db, other, t('explorer:tree.others'), undefined, false, show, rank));
   }
   return out;
+}
+
+/** A kind folder: what its pages brought so far, "Cargar más" while more
+ *  remain; loading, an error or "Sin objetos" until then. */
+function folderNode(
+  c: SavedConnection, db: string, spec: FolderSpec, label: string, kindId: string | undefined, hasColumns: boolean, show: SchemaShow, rank: SchemaRank,
+): TNode {
+  const at = spec.schema == null ? `f:${c.id}:${db}` : `f:${c.id}:${db}:${spec.schema}`;
+  const id = `${at}:${spec.other ? '__other' : spec.kind}`;
+  const st = conns.objectFolders[folderKey(c.id, db, spec)];
+  const node: TNode = {
+    id, label, type: 'folder', connectionId: c.id, database: db, kindId, schema: spec.schema ?? undefined, spec,
+    count: st?.items.length || undefined, hint: st?.next ? '+' : undefined,
+  };
+  if (!st || st.status === 'loading') node.children = [status(id, 'loading', t('common:loading'))];
+  else if (st.status === 'error') node.children = [status(id, 'error', st.error ?? t('common:error'))];
+  else if (!st.items.length) node.children = [status(id, 'empty', t('explorer:tree.noSchemaObjects'))];
+  else {
+    node.children = st.items.map((o) => objectNode(c, db, o, hasColumns, show, rank));
+    if (st.next) node.children.push({ id: `fm:${id}`, label: t('explorer:tree.loadMore'), type: 'objmore', connectionId: c.id, database: db, spec, status: st.more ? 'loading' : undefined });
+  }
+  return node;
 }
 
 // -- schemas -------------------------------------------------------------------------------
@@ -314,10 +346,9 @@ function schemasOf(c: SavedConnection, d: DriverInfo, objs: DbObject[], listed?:
 function schemaLevel(connectionId: string, db: string): string[] | null {
   const c = conns.byId(connectionId);
   const d = conns.driverOf(connectionId);
-  const k = dbKey(connectionId, db);
-  const objs = conns.objects[k];
-  if (!groupBySchema.value || !c || !d || d.key_search || !objs?.items) return null;
-  return schemasOf(c, d, objs.items, conns.schemas[k]).schemas;
+  const lv = conns.levels[dbKey(connectionId, db)];
+  if (!groupBySchema.value || !c || !d || d.key_search || !lv?.items) return null;
+  return schemasOf(c, d, [], lv.items).schemas;
 }
 
 // -- key databases (Redis, etcd) -----------------------------------------------------------
@@ -492,7 +523,7 @@ function connectionNode(c: SavedConnection): TNode {
     else {
       node.children = live.databases.map((db) => {
         const did = `d:${c.id}:${db}`;
-        const loaded = conns.objects[dbKey(c.id, db)];
+        const loaded = levelOf(c.id, db);
         return {
           id: did, label: db, type: 'database' as const, connectionId: c.id, database: db,
           hint: loaded?.status === 'stale' ? t('explorer:tree.refreshing') : db === live.defaultDatabase ? t('explorer:tree.defaultDatabase') : undefined,
@@ -644,11 +675,28 @@ async function onExpand(n: TNode) {
     if (d && !d.databases_label) loadDatabase(id, conns.live[id]?.databases[0] ?? '');
   } else if (n.type === 'database' && n.connectionId) {
     loadDatabase(n.connectionId, n.database ?? '');
+  } else if (n.type === 'schema' && n.connectionId && n.schema != null) {
+    probeOthers(n.connectionId, n.database ?? '', n.schema);
+  } else if (n.type === 'folder' && n.spec && n.connectionId) {
+    void conns.loadFolder(n.connectionId, n.database ?? '', n.spec);
   } else if (n.type === 'object' && n.object && n.connectionId) {
     conns.loadColumns(n.connectionId, n.database ?? '', n.object, false, { tree: true });
     // The indexes and foreign keys load with the columns.
     if (indexesShown(n.connectionId, n.object)) loadIndexUsage(n.connectionId, n.database ?? '', n.object, false, true);
   }
+}
+/** The tree's database level as loaded: a key database's key search, any
+ *  other's schema list. */
+function levelOf(connectionId: string, db: string): { status: string } | undefined {
+  const k = dbKey(connectionId, db);
+  return conns.driverOf(connectionId)?.key_search ? conns.objects[k] : conns.levels[k];
+}
+/** "Otros" of a schema (or of every schema, `schema` null): its first page,
+ *  in the background; the folder shows only if it found something. */
+function probeOthers(connectionId: string, db: string, schema: string | null) {
+  const d = conns.driverOf(connectionId);
+  if (!d || d.key_search) return;
+  void conns.loadFolder(connectionId, db, { schema, kind: null, other: d.object_kinds.map((k) => k.id) });
 }
 /** Back in DBine: what's open and loaded is read again in the background
  *  when the server's answer is older than REREAD_MS, so changes made outside
@@ -663,9 +711,11 @@ function rereadOpen() {
     if (n.type === 'connection') {
       const d = conns.driverOf(cid);
       const only = conns.live[cid]?.databases[0] ?? '';
-      if (d && !d.databases_label && ready(conns.objects[dbKey(cid, only)])) void conns.loadObjects(cid, only);
-    } else if (n.type === 'database' && ready(conns.objects[dbKey(cid, db)])) {
-      void conns.loadObjects(cid, db);
+      if (d && !d.databases_label && ready(levelOf(cid, only))) void conns.loadLevel(cid, only);
+    } else if (n.type === 'database' && ready(levelOf(cid, db))) {
+      void conns.loadLevel(cid, db);
+    } else if (n.type === 'folder' && n.spec && ready(conns.objectFolders[folderKey(cid, db, n.spec)])) {
+      void conns.loadFolder(cid, db, n.spec);
     } else if (n.type === 'object' && n.object && ready(conns.columns[objKey(cid, db, n.object.schema, n.object.name)])) {
       void conns.loadColumns(cid, db, n.object, false, { tree: true });
     }
@@ -686,9 +736,11 @@ function reloadExpanded(connectionId: string) {
       conns.loadContexts(connectionId);
       const d = conns.driverOf(connectionId);
       const only = conns.live[connectionId]?.databases[0] ?? '';
-      if (d && !d.databases_label && failed(conns.objects[dbKey(connectionId, only)])) loadDatabase(connectionId, only);
-    } else if (n.type === 'database' && failed(conns.objects[dbKey(connectionId, db)])) {
+      if (d && !d.databases_label && failed(levelOf(connectionId, only))) loadDatabase(connectionId, only);
+    } else if (n.type === 'database' && failed(levelOf(connectionId, db))) {
       loadDatabase(connectionId, db);
+    } else if (n.type === 'folder' && n.spec && failed(conns.objectFolders[folderKey(connectionId, db, n.spec)])) {
+      void conns.loadFolder(connectionId, db, n.spec);
     } else if (n.type === 'object' && n.object && failed(conns.columns[objKey(connectionId, db, n.object.schema, n.object.name)])) {
       conns.loadColumns(connectionId, db, n.object, false, { tree: true });
     }
@@ -708,7 +760,18 @@ watch(
 );
 
 function loadDatabase(connectionId: string, database: string, force = false) {
-  conns.loadObjects(connectionId, database, force);
+  // Its schema level (Refresh: everything loaded below it too); then, in
+  // the background, the database-level "Otros" of a flat tree, or the
+  // objects without a schema of a grouped one.
+  const level = force ? conns.refreshDatabase(connectionId, database) : conns.loadLevel(connectionId, database);
+  void level.then(() => {
+    const d = conns.driverOf(connectionId);
+    if (!d || d.key_search || conns.levels[dbKey(connectionId, database)]?.status !== 'ready') return;
+    const c = conns.byId(connectionId);
+    const grouped = !!c && groupBySchema.value && !!schemasOf(c, d, [], conns.levels[dbKey(connectionId, database)]?.items).schemas;
+    if (grouped) void conns.loadFolder(connectionId, database, LOOSE);
+    else probeOthers(connectionId, database, null);
+  });
   conns.loadQueries(connectionId, database, force);
   conns.loadMigrations(connectionId, database, force);
   conns.loadPermissions(connectionId, database);
@@ -1032,7 +1095,7 @@ async function onContext(e: MouseEvent, n: TNode) {
       for (const tpl of d?.create_templates.filter((x) => x.kind === n.kindId) ?? []) {
         items.push({ label: tb(tpl.label), action: () => newFromTemplate(cid!, db, tpl, n.schema ?? defaultSchema(cid!)) });
       }
-      items.push({ label: t('common:refresh'), divided: items.length > 0, action: () => conns.loadObjects(cid!, db, true) });
+      items.push({ label: t('common:refresh'), divided: items.length > 0, action: () => (n.spec ? conns.loadFolder(cid!, db, n.spec, true) : conns.refreshDatabase(cid!, db)) });
       break;
     }
     case 'schema': {
@@ -1289,6 +1352,56 @@ function filterByTag(tag: string) {
   filter.value = activeTag.value?.toLowerCase() === tag.toLowerCase() ? '' : `tag:${tag}`;
   applyFilter();
 }
+/** The filter's "Enter": the tree only holds what its folders loaded, so
+ *  the open databases (or each connected one's default, when none is open)
+ *  are searched on the server; the hits show at the top of each database. */
+const serverHits = reactive<Record<string, { pattern: string; items: DbObject[]; loading: boolean }>>({});
+async function searchServer() {
+  const q = filter.value.trim();
+  if (!q || activeTag.value !== null) return;
+  const dbs = new Map<string, [string, string]>();
+  for (const key of expanded.value) {
+    const n = findNode(key);
+    if (!n?.connectionId || !conns.isConnected(n.connectionId) || conns.driverOf(n.connectionId)?.key_search) continue;
+    if (n.type === 'database') dbs.set(dbKey(n.connectionId, n.database ?? ''), [n.connectionId, n.database ?? '']);
+    else if (n.type === 'connection' && !conns.driverOf(n.connectionId)?.databases_label) {
+      const only = conns.live[n.connectionId]?.databases[0] ?? '';
+      dbs.set(dbKey(n.connectionId, only), [n.connectionId, only]);
+    }
+  }
+  if (!dbs.size) {
+    for (const c of localList.value) {
+      const live = conns.live[c.id];
+      if (live?.status !== 'connected' || conns.driverOf(c.id)?.key_search) continue;
+      const db = live.defaultDatabase || live.databases[0] || '';
+      dbs.set(dbKey(c.id, db), [c.id, db]);
+    }
+  }
+  await Promise.all([...dbs].map(async ([k, [cid, db]]) => {
+    serverHits[k] = { pattern: q, items: serverHits[k]?.pattern === q ? serverHits[k].items : [], loading: true };
+    const items = await conns.searchObjects(cid, db, q, { tree: true, limit: 200 });
+    if (serverHits[k]?.pattern === q) serverHits[k] = { pattern: q, items, loading: false };
+  }));
+  // Shown through the filter: the paths to the hits open.
+  await nextTick();
+  applyFilter();
+}
+/** A database's server-search hits for the filter's text, as a folder at
+ *  its top (leaves: a hit opens like any object; its folder has the rest). */
+function serverHitsNode(c: SavedConnection, db: string): TNode | null {
+  const hits = serverHits[dbKey(c.id, db)];
+  const q = filter.value.trim();
+  if (!hits || !q || hits.pattern !== q) return null;
+  const id = `sr:${c.id}:${db}`;
+  return {
+    id, label: t('explorer:menu.searchOnServer', { pattern: q }), type: 'folder', connectionId: c.id, database: db, count: hits.items.length || undefined,
+    children: hits.loading
+      ? [status(id, 'loading', t('explorer:tree.searching'))]
+      : hits.items.length
+        ? hits.items.map((o) => ({ ...objectNode(c, db, o, false, 'qualify'), id: `sr:${c.id}:${db}:${o.kind}:${o.schema ?? ''}:${o.name}`, children: undefined }))
+        : [status(id, 'empty', t('explorer:tree.noSchemaObjects'))],
+  };
+}
 /** The tag the explorer is filtered by (`tag:prod`), if any. */
 const activeTag = computed(() => {
   const m = /^tag:\s*(.*)$/i.exec(filter.value.trim());
@@ -1318,7 +1431,7 @@ watch(() => ui.reveal?.seq, async () => {
   const d = conns.driverOf(c.id);
   // No database ("Ir a…" a connection): the connection's own node.
   const connOnly = !!d?.databases_label && !r.database && !r.queryId && !r.object;
-  if (!connOnly) await Promise.all([conns.loadObjects(c.id, r.database), conns.loadQueries(c.id, r.database)]);
+  if (!connOnly) await Promise.all([conns.loadLevel(c.id, r.database), conns.loadQueries(c.id, r.database)]);
   // Everything above the target must be open.
   const keys: string[] = [];
   for (let f = conns.folders.find((x) => x.id === c.folder_id), g = 0; f && g < 50; f = conns.folders.find((x) => x.id === f!.parent_id), g++) {
@@ -1334,11 +1447,26 @@ watch(() => ui.reveal?.seq, async () => {
   } else if (r.object) {
     // The schema node (when the tree has that level) and the kind folder.
     const s = r.object.schema;
-    const kind = d?.key_search || d?.object_kinds.some((k) => k.id === r.object!.kind) ? r.object.kind : '__other';
-    if (s != null && schemaLevel(c.id, r.database)?.includes(s)) {
+    const declared = !!d?.key_search || !!d?.object_kinds.some((k) => k.id === r.object!.kind);
+    const kind = declared ? r.object.kind : '__other';
+    const grouped = s != null && !!schemaLevel(c.id, r.database)?.includes(s);
+    if (grouped) {
       keys.push(`s:${c.id}:${r.database}:${s}`, `f:${c.id}:${r.database}:${s}:${kind}`);
     } else {
       keys.push(`f:${c.id}:${r.database}:${kind}`);
+    }
+    // Its folder's first page, with the object in it even when it's
+    // further down a big folder.
+    if (d && !d.key_search) {
+      const spec: FolderSpec = declared
+        ? { schema: grouped ? s : null, kind: r.object.kind }
+        : { schema: grouped ? s : null, kind: null, other: d.object_kinds.map((k) => k.id) };
+      await conns.loadFolder(c.id, r.database, spec);
+      const st = conns.objectFolders[folderKey(c.id, r.database, spec)];
+      const o = r.object;
+      if (st && !st.items.some((x) => x.kind === o.kind && x.name === o.name && (x.schema ?? null) === (o.schema ?? null))) {
+        st.items.push({ kind: o.kind, schema: o.schema ?? null, name: o.name, parent: null });
+      }
     }
     const sep = d?.key_search?.separator;
     if (sep) {
@@ -1432,6 +1560,10 @@ function onClick(n: TNode, node: { expanded: boolean; isLeaf?: boolean }, e?: Mo
       return;
     }
   }
+  if (n.type === 'objmore' && n.spec) {
+    void conns.moreFolder(n.connectionId!, n.database ?? '', n.spec);
+    return;
+  }
   if (n.type === 'keymore') {
     conns.moreKeys(n.connectionId!, n.database ?? '');
     return;
@@ -1515,9 +1647,11 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
         @input="applyFilter"
         @clear="applyFilter"
         @keydown.esc="clearFilter"
+        @keydown.enter="searchServer"
       >
         <template #prefix><el-icon><ei-search /></el-icon></template>
       </el-input>
+      <div v-if="filter.trim() && activeTag === null" class="ex-filter-hint">{{ $t('explorer:keySearch.helpEnter') }}</div>
       <div v-if="activeTag !== null" class="ex-tagbar">
         <span>{{ $t('explorer:filter.onlyTag') }}</span>
         <span v-if="activeTag" class="ex-tag" :style="{ '--t': tagColor(activeTag) }">{{ activeTag }}</span>
@@ -1623,6 +1757,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
             <KeySearchRow v-else-if="n.type === 'keysearch'" :connection-id="n.connectionId" :database="n.database ?? ''" />
             <el-icon v-else-if="n.type === 'keyns'" class="ex-ic f"><ei-folder-opened v-if="expanded.includes(n.id)" /><ei-folder v-else /></el-icon>
             <el-icon v-else-if="n.type === 'keymore'" class="ex-ic q"><ei-arrow-down /></el-icon>
+            <el-icon v-else-if="n.type === 'objmore'" class="ex-ic q" :class="{ 'is-loading': n.status === 'loading' }"><ei-loading v-if="n.status === 'loading'" /><ei-arrow-down v-else /></el-icon>
             <span v-else-if="n.type === 'object' && n.key?.key_type" class="ex-ktype" :class="n.key.key_type">{{ typeTag(n.key.key_type) }}</span>
             <el-icon v-else-if="n.type === 'object'" class="ex-ic o"><component :is="`ei-${n.icon}`" /></el-icon>
             <span v-if="n.type !== 'keysearch'" class="ex-label" :title="n.status === 'error' ? n.label : n.type === 'connerr' ? conns.live[n.connectionId]?.error ?? n.label : undefined"><span v-if="n.qualifier" class="ex-qual">{{ n.qualifier }}.</span>{{ n.label }}</span>
@@ -1700,6 +1835,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 }
 .ex-header { display: flex; align-items: center; gap: 2px; height: 35px; padding: 0 8px 0 20px; flex-shrink: 0; }
 .ex-filter { padding: 0 8px 6px; flex-shrink: 0; }
+.ex-filter-hint { padding: 3px 2px 0; font-size: 11px; color: var(--nm-text-dim); }
 .ex-tagbar { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 11.5px; color: var(--nm-text-dim); }
 .ex-tagbar .ex-tag { cursor: default; }
 .ex-tagbar-all {
@@ -1781,9 +1917,9 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
 .ex-ic.mg.failed { color: var(--nm-danger); }
 .ex-ic.mg.interrupted, .ex-ic.mg.cancelled { color: var(--nm-warning); }
 .ex-ic.mg.elsewhere { opacity: 0.6; }
-.ex-node.keymore { color: var(--nm-link); cursor: pointer; }
-.ex-node.keymore:hover .ex-label { text-decoration: underline; }
-.ex-node.keymore .ex-label { flex-shrink: 0; }
+.ex-node.keymore, .ex-node.objmore { color: var(--nm-link); cursor: pointer; }
+.ex-node.keymore:hover .ex-label, .ex-node.objmore:hover .ex-label { text-decoration: underline; }
+.ex-node.keymore .ex-label, .ex-node.objmore .ex-label { flex-shrink: 0; }
 /* A key's type, as Redis names it. */
 .ex-ktype {
   flex-shrink: 0; min-width: 30px; padding: 0 3px; border-radius: 3px; box-sizing: border-box; text-align: center;

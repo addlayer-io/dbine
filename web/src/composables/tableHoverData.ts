@@ -1,4 +1,4 @@
-import { computed, shallowReactive, watch } from 'vue';
+import { computed, reactive, shallowReactive, watch } from 'vue';
 import { api, errorMessage } from '../api/client';
 import type { DbObject, DriverInfo } from '../api/types';
 import type { TableSchema } from '../api/schema-types';
@@ -27,20 +27,23 @@ const refText = (name: string) => `[${name.replace(/]/g, ']]')}]`;
 
 export function useTableHover(tab: () => { connectionId: string; database: string }, driver: () => DriverInfo | null | undefined, ready: () => boolean) {
   const conns = useConnectionsStore();
+  /** Names looked up on the server and not found (the popup says so). */
+  const looked = reactive(new Set<string>());
 
   /** The tab's database and, on cross-database engines, the others. */
   const index = computed<HoverIndex | null>(() => {
     const d = driver();
     if (!d || !ready()) return null;
     const { connectionId, database } = tab();
-    const own = conns.objects[dbKey(connectionId, database)];
-    const objects = own && (own.status === 'ready' || own.status === 'stale') ? own.items : [];
+    // What's known of each database (the tree's folders, searches,
+    // lookups): a name not among them is looked up when hovered.
+    const objects = conns.knownObjects(connectionId, database);
     let databases: Record<string, DbObject[] | null> | undefined;
     if (d.cross_database) {
       databases = {};
       for (const db of conns.live[connectionId]?.databases ?? []) {
-        const o = conns.objects[dbKey(connectionId, db)];
-        databases[db] = o && (o.status === 'ready' || o.status === 'stale') ? o.items : null;
+        const known = conns.knownObjects(connectionId, db);
+        databases[db] = known.length ? known : null;
       }
     }
     return { language: d.language, dialect: d.dialect, database, objects, kinds: d.object_kinds, databases };
@@ -56,12 +59,11 @@ export function useTableHover(tab: () => { connectionId: string; database: strin
   }
 
   /** database → its tables as `database_schema` reads them (comments), and
-   *  the explorer's object list they were read against. */
-  const described = shallowReactive<Record<string, { against: DbObject[] | null; tables: TableSchema[] | null }>>({});
+   *  when the explorer last read that database's structure (its level). */
+  const described = shallowReactive<Record<string, { against: number | null; tables: TableSchema[] | null }>>({});
   function tablesOf(connectionId: string, database: string): TableSchema[] | null {
     const k = dbKey(connectionId, database);
-    const objs = conns.objects[k];
-    const against = objs?.status === 'ready' ? objs.items : null;
+    const against = conns.levels[k]?.at ?? null;
     const had = described[k];
     // Read again only when the explorer read the objects again (a refresh).
     const refreshed = !!had && had.against !== null && against !== null && had.against !== against;
@@ -82,13 +84,18 @@ export function useTableHover(tab: () => { connectionId: string; database: strin
     const { connectionId } = tab();
     let o = r.object;
     if (!o) {
-      // Another database, its objects not loaded when hovered.
-      const objs = conns.objects[dbKey(connectionId, r.database)];
-      if (!objs) { once(`objects\u0000${r.database}`, () => conns.loadObjects(connectionId, r.database)); return LOADING; }
-      if (objs.status === 'error') return { status: 'error', message: objs.error ?? '' };
+      // A name not known yet (another database's, or one the tree hasn't
+      // shown): looked up by name on the server.
       const idx = index.value;
-      o = idx ? tableNamed(idx, r.database, objs.items, r.path) : null;
-      if (!o) return objs.status === 'ready' ? { status: 'empty' } : LOADING;
+      o = idx ? tableNamed(idx, r.database, conns.knownObjects(connectionId, r.database), r.path) : null;
+      if (!o) {
+        const name = r.path[r.path.length - 1] ?? '';
+        const schema = r.path.length > 1 ? r.path[r.path.length - 2] : null;
+        const lk = `${r.database}\u0000${schema ?? ''}\u0000${name}`;
+        if (looked.has(lk)) return { status: 'empty' };
+        once(`lookup\u0000${lk}`, () => conns.findObject(connectionId, r.database, schema, name).finally(() => looked.add(lk)));
+        return LOADING;
+      }
     }
     const c = conns.columns[objKey(connectionId, r.database, o.schema, o.name)];
     if (!c) {
@@ -129,14 +136,14 @@ export function useTableHover(tab: () => { connectionId: string; database: strin
     return c.items.map((x) => x.name);
   }
 
-  /** model measure → its definition, and the explorer's object list it was
-   *  read against (read again after a refresh). */
-  const definitions = shallowReactive<Record<string, { against: DbObject[] | null; text: string | null; error: string | null; done: boolean }>>({});
+  /** model measure → its definition, and when the model's object list it
+   *  was read against arrived (read again after a refresh). */
+  const definitions = shallowReactive<Record<string, { against: number | null; text: string | null; error: string | null; done: boolean }>>({});
   function definitionOf(m: DbObject): { text: string | null; error: string | null; done: boolean } {
     const { connectionId, database } = tab();
     const k = `${dbKey(connectionId, database)}\u0000${m.name}`;
     const objs = conns.objects[dbKey(connectionId, database)];
-    const against = objs?.status === 'ready' ? objs.items : null;
+    const against = objs?.status === 'ready' ? objs.at ?? null : null;
     const had = definitions[k];
     const refreshed = !!had && had.against !== null && against !== null && had.against !== against;
     if (!had || refreshed) {

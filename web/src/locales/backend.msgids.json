@@ -51651,6 +51651,9 @@
  "este motor solo admite usuario y contraseña": [
   "crates/drivers/sqlserver/src/variant.rs"
  ],
+ "este motor todavía no lista sus objetos por páginas": [
+  "crates/dbine-driver/src/lib.rs"
+ ],
  "este motor todavía no lista sus procesos en DBine": [
   "crates/drivers/odbc/src/processes.rs"
  ],

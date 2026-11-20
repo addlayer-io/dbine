@@ -2,8 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import type {
-  AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
-  ExecuteResponse, FilteredBrowse, QueryOutcome, ResultsStatus, RunMode, StoreArgs, StoredRunMeta, RunParams, RunningTask, SavedConnection, SavedQuery, ScriptUnit, SecretBrowseListing, SecretSource, SecretSourceApproval, SecretSourceTest, SecretSourceUnlock, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WhatsNew, WindowRole,
+  AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectPage, ObjectQuery, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
+  ExecuteResponse, FilteredBrowse, QueryOutcome, ResultsStatus, RunMode, StoreArgs, StoredRunMeta, RunParams, RunningTask, SavedConnection, SavedQuery, SchemaInfo, ScriptUnit, SecretBrowseListing, SecretSource, SecretSourceApproval, SecretSourceTest, SecretSourceUnlock, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WhatsNew, WindowRole,
 } from './types';
 import type { ColumnFilter } from '../composables/gridFilter';
 import type { MultiDbResponse } from './types';
@@ -122,9 +122,22 @@ export const api = {
     invoke<string[]>('list_databases', { args: { connection_id: connectionId, database: '' } }),
   listObjects: (connectionId: string, database: string) =>
     invoke<DbObject[]>('list_objects', { args: { connection_id: connectionId, database } }),
-  /** The explorer's load of a database: its objects and, when the driver lists them, all its schemas. */
+  /** A whole database's objects and, when the driver lists them, all its
+   *  schemas: for what needs every object (a migration, a backup, a script).
+   *  The tree reads by folder (`listObjectPage`). */
   listDatabaseObjects: (connectionId: string, database: string) =>
     invoke<DatabaseObjects>('list_database_objects', { args: { connection_id: connectionId, database } }),
+  /** A database's schemas, empty ones too; null: the driver doesn't list them. */
+  listSchemas: (connectionId: string, database: string) =>
+    invoke<SchemaInfo[] | null>('list_schemas', { args: { connection_id: connectionId, database } }),
+  /** One page of a database's objects: a tree folder, a search, a lookup.
+   *  `fresh`: from the server, not a list kept a moment ago; `tree`: on the
+   *  tree's own session. */
+  listObjectPage: (connectionId: string, database: string, query: ObjectQuery, opts: { fresh?: boolean; tree?: boolean } = {}) =>
+    invoke<ObjectPage>('list_object_page', { args: { connection_id: connectionId, database, query, fresh: !!opts.fresh, tree: !!opts.tree } }),
+  /** A tree folder's first page as the explorer cache kept it, or null. */
+  getCachedPage: (connectionId: string, database: string, query: ObjectQuery) =>
+    invoke<DbObject[] | null>('get_cached', { args: { connection_id: connectionId, database, kind: 'page', item: '', query } }),
   /** What the explorer showed last time (the explorer cache), or null.
    *  `kind`: databases | objects | schemas | columns; `item`: the object, for columns. */
   getCached: <T>(connectionId: string, database: string, kind: 'databases' | 'objects' | 'schemas' | 'columns', item = '') =>

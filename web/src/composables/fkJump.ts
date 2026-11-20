@@ -125,11 +125,9 @@ export const pendingJumps = reactive(new Map<string, Record<string, FilterState>
 export async function openFiltered(connectionId: string, database: string, table: ObjectRef, filters: Record<string, FilterState>) {
   const conns = useConnectionsStore();
   const tabs = useTabsStore();
-  // The explorer's own reference, so an open tab of the table is reused.
-  await conns.loadObjects(connectionId, database).catch(() => undefined);
-  const objs = conns.objects[dbKey(connectionId, database)]?.items ?? [];
-  const found = objs.find((o) => o.name === table.name && o.schema === table.schema)
-    ?? objs.find((o) => eq(o.name, table.name) && eq(o.schema, table.schema));
+  // The explorer's own reference, so an open tab of the table is reused:
+  // looked up by name, not by reading the whole database.
+  const found = await conns.findObject(connectionId, database, table.schema, table.name).catch(() => null);
   const object: ObjectRef = found ? { kind: found.kind, schema: found.schema, name: found.name } : table;
   // A new tab's view mounts after this and takes its filters then.
   tabs.openObject(connectionId, database, object, 'data');

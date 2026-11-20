@@ -18572,5 +18572,6 @@
   "s SIN(float_exp) -> FLOAT": "s SIN(float_exp) -> FLOAT",
   "{0}: pg_proc listed no functions": "{0}: pg_proc listed no functions",
   "en la base {0}: {1}": "데이터베이스 {0}에서: {1}",
-  "el resultado no tiene las mismas columnas que en la primera base": "결과의 열이 첫 번째 데이터베이스와 같지 않습니다"
+  "el resultado no tiene las mismas columnas que en la primera base": "결과의 열이 첫 번째 데이터베이스와 같지 않습니다",
+  "este motor todavía no lista sus objetos por páginas": "이 엔진은 아직 개체를 페이지 단위로 나열하지 않습니다"
 }

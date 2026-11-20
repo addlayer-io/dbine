@@ -208,11 +208,16 @@ export async function openGoTo(text = '') {
       if (d?.databases_label) add([databaseItem(c.id, db)]);
     }
   }
-  for (const [k, loaded] of Object.entries(conns.objects)) {
+  // What's known of each open database: whole lists something read, the
+  // tree's folders, what searches and lookups found.
+  const visited = new Set<string>();
+  for (const k of [...Object.keys(conns.objects), ...Object.keys(conns.levels), ...Object.keys(conns.found)]) {
+    if (visited.has(k)) continue;
+    visited.add(k);
     const [cid, db] = k.split('\u0000');
     if (!conns.byId(cid)) continue;
     known(cid, db);
-    add(loaded.items.map((o) => objectItem(cid, db, o)));
+    add(conns.knownObjects(cid, db).map((o) => objectItem(cid, db, o)));
   }
   for (const loaded of Object.values(conns.queries)) add(loaded.items.map(queryItem));
 

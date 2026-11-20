@@ -88,7 +88,7 @@ function renameClosed() {
 }
 
 function altered(table: TableSchema) {
-  conns.loadObjects(props.tab.connectionId, props.tab.database, true);
+  void conns.refreshDatabase(props.tab.connectionId, props.tab.database);
   tabs.close(props.tab.id);
   const kind = driver.value?.object_kinds.find((k) => k.id === table.kind);
   if (kind) tabs.openObject(props.tab.connectionId, props.tab.database, { kind: table.kind, schema: table.schema, name: table.name }, kind.browsable ? 'structure' : 'definition', false);
@@ -106,7 +106,7 @@ function created(table: TableSchema) {
   // "Nueva tabla" → "tabla" (translated first, then without its "new").
   const object = label ? tb(label).replace(/^(nuev[oa]|new|nov[oa]|nouvel(le)?|nouveau|nuov[oa]) /i, '') : t('designer:object');
   ElMessage.success(t('designer:createdToast', { object, name: table.name }));
-  conns.loadObjects(props.tab.connectionId, props.tab.database, true);
+  void conns.refreshDatabase(props.tab.connectionId, props.tab.database);
   tabs.close(props.tab.id);
   const kind = driver.value?.object_kinds.find((k) => k.id === table.kind);
   if (kind) tabs.openObject(props.tab.connectionId, props.tab.database, { kind: table.kind, schema: table.schema, name: table.name }, kind.browsable ? 'structure' : 'definition', false);

@@ -18572,5 +18572,6 @@
   "Área de trabajo": "Рабочая область",
   "Últimas actualizaciones": "Последние обновления",
   "en la base {0}: {1}": "в базе {0}: {1}",
-  "el resultado no tiene las mismas columnas que en la primera base": "в результате нет тех же столбцов, что в первой базе"
+  "el resultado no tiene las mismas columnas que en la primera base": "в результате нет тех же столбцов, что в первой базе",
+  "este motor todavía no lista sus objetos por páginas": "этот движок пока не выводит свои объекты постранично"
 }
