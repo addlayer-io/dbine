@@ -543,6 +543,48 @@ WHERE created >= date_trunc('month', now());
 Names are saved with the results when DBine closes
 ([results-store.md](results-store.md)).
 
+## Search in results
+
+**⌘F** (Ctrl+F on Windows and Linux) with the focus in a result's grid, or
+the magnifier on the results bar, opens a search box over the grid. It works
+the same on every engine, in the editor's results, a table's data and a
+notebook cell's result.
+
+- **What it searches.** Every row the result brought, not only the ones on
+  screen, and every column except vector columns (their cells show a
+  preview). It looks at each value's text as the grid shows it; `NULL` is
+  not text and never matches (the column filters have NULL / NOT NULL).
+  **Aa** tells capitals apart. The search runs in the background, in slices:
+  on a result of millions of rows the window keeps responding, the counts
+  fill in as it goes and **Searching… 40 %** says how far it is. Typing again
+  starts over.
+- **Where the matches are.** Under the box, **In 3 of 50 columns:** lists
+  the columns with matches and how many each has, most first. A click on one
+  limits the search to that column and goes to its first match; another
+  click searches all columns again. The matching text is highlighted in the
+  cells, and marks beside the scroll bar show where the matching rows are.
+- **Going from match to match.** Enter goes to the next one and Shift+Enter
+  to the previous one (also the arrows), wrapping around; **3 of 47** says
+  where you are. The match becomes the active cell, so ⌘C copies it. A
+  column you hid shows again when you go to a match in it.
+- **Only rows with matches** leaves the matching rows in the grid, with
+  their numbers in the result. **Only columns with matches** leaves the
+  columns that have any. Both apply to the grid only: the result is the
+  same.
+- **Copy and export.** With **Only rows with matches**, copying everything
+  copies the rows found and the copy menu says so. The export asks: **The
+  rows found** (chosen), the loaded ones, or all of them by running the
+  query again.
+- **Edits.** Cells can be edited and rows marked for deletion with the
+  filter on; each change stays on its row. New rows always show at the end.
+- **A cut result.** When the query returned more rows than were fetched
+  (**Settings › General › Max rows per query**), the bar says **In the 5,000
+  fetched rows**: the search can't see the rest. A table's column filters
+  run on the server, over the whole table.
+
+**Esc** in the box, or its ×, closes the search and the grid shows
+everything again.
+
 ## Keyboard shortcuts
 
 The keys of every action, the editor's included (**Run the selection or

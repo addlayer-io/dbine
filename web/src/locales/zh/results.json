@@ -65,6 +65,7 @@
     "title": "导出结果",
     "format": "格式",
     "rows": "行",
+    "found_other": "搜索命中的 {{rows}} 行",
     "loaded": "已加载的（{{rows}}）",
     "all": "全部{{total}}：重新运行查询",
     "allHelp": "它会在只读会话中重新运行，并在行到达时写入文件，没有限制。如果查询会修改数据，引擎会拒绝。",
@@ -123,9 +124,11 @@
     "scopeRow": "行",
     "scopeAll": "所有行",
     "scopeLoaded": "已加载的 {{rows}} 行",
+    "scopeFound_other": "搜索命中的 {{rows}} 行",
     "copyHeader": "复制（{{scope}}）",
     "copyAllWithHeaders": "连同表头复制全部",
     "copyLoadedWithHeaders": "连同表头复制已加载的 {{rows}} 行",
+    "copyFoundWithHeaders_other": "复制搜索命中的 {{rows}} 行（含表头）",
     "copyFormatHeader": "⌘C 格式",
     "hideColumn": "隐藏列“{{name}}”",
     "columnsMenu": "列…",
@@ -317,5 +320,21 @@
     "removeField": "移除此字段",
     "edited": "已修改：使用“保存”保存",
     "apply": "应用"
+  },
+  "search": {
+    "open": "在结果中搜索（{{key}}）",
+    "placeholder": "在结果中搜索",
+    "caseSensitive": "区分大小写",
+    "searching": "正在搜索… {{percent}}",
+    "place": "第 {{at}} 个，共 {{total}} 个",
+    "count_other": "{{n}} 个匹配项",
+    "onlyRows": "仅含匹配的行",
+    "onlyColumns": "仅含匹配的列",
+    "inColumns_other": "在 {{count}} 列中的 {{n}} 列：",
+    "onlyIn": "仅在“{{name}}”中搜索",
+    "allColumns": "重新在所有列中搜索",
+    "loaded_other": "在已加载的 {{rows}} 行中",
+    "loadedHelp": "查询返回的行数多于已加载的行数：搜索看不到其余的行。",
+    "close": "关闭搜索（Esc）"
   }
 }

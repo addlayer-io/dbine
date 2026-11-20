@@ -65,6 +65,7 @@
     "title": "結果をエクスポート",
     "format": "形式",
     "rows": "行",
+    "found_other": "検索に一致した {{rows}} 行",
     "loaded": "読み込み済み({{rows}})",
     "all": "すべて{{total}}: クエリを再実行",
     "allHelp": "読み取り専用のセッションで再実行し、行が届くたびにファイルへ書き込みます。上限はありません。クエリがデータを変更する場合、エンジンが拒否します。",
@@ -123,9 +124,11 @@
     "scopeRow": "行",
     "scopeAll": "すべての行",
     "scopeLoaded": "読み込み済みの {{rows}} 行",
+    "scopeFound_other": "検索に一致した {{rows}} 行",
     "copyHeader": "コピー({{scope}})",
     "copyAllWithHeaders": "ヘッダー付きですべてコピー",
     "copyLoadedWithHeaders": "読み込み済みの {{rows}} 行をヘッダー付きでコピー",
+    "copyFoundWithHeaders_other": "検索に一致した {{rows}} 行をヘッダー付きでコピー",
     "copyFormatHeader": "⌘C の形式",
     "hideColumn": "列「{{name}}」を非表示",
     "columnsMenu": "列…",
@@ -317,5 +320,21 @@
     "removeField": "このフィールドを削除",
     "edited": "変更済み: 「保存」で保存されます",
     "apply": "適用"
+  },
+  "search": {
+    "open": "結果内を検索（{{key}}）",
+    "placeholder": "結果内を検索",
+    "caseSensitive": "大文字と小文字を区別",
+    "searching": "検索中… {{percent}}",
+    "place": "{{at}} / {{total}}",
+    "count_other": "{{n}} 件の一致",
+    "onlyRows": "一致する行のみ",
+    "onlyColumns": "一致する列のみ",
+    "inColumns_other": "{{count}} 列中 {{n}} 列：",
+    "onlyIn": "「{{name}}」のみ検索",
+    "allColumns": "すべての列を再検索",
+    "loaded_other": "取得済みの {{rows}} 行内",
+    "loadedHelp": "クエリは取得した行数より多くの行を返しました。検索は残りの行を対象にしません。",
+    "close": "検索を閉じる（Esc）"
   }
 }

@@ -53,12 +53,15 @@ const props = defineProps<{
   initialFormat?: ExportFormat;
   /** A data compare's list instead of a result. */
   compare?: CompareExport | null;
+  /** The rows the results pane's search leaves ("Solo filas con
+   *  coincidencias"): offered, and chosen, as what goes. */
+  found?: Cell[][] | null;
 }>();
 const emit = defineEmits<{ close: [] }>();
 const tasks = useTasksStore();
 
 const opts = reactive<ExportOptions>(defaultOptions(props.initialFormat ?? 'csv', props.title, props.dialect));
-const scope = ref<'loaded' | 'all'>(props.truncated && props.source ? 'all' : 'loaded');
+const scope = ref<'found' | 'loaded' | 'all'>(props.found ? 'found' : props.truncated && props.source ? 'all' : 'loaded');
 const running = ref(false);
 const cancelling = ref(false);
 const progress = ref(0);
@@ -133,8 +136,9 @@ async function run() {
       h.progress({ total: props.compare.rows, unit: 'rows' });
       result = await props.compare.run(path, options);
     } else {
-      h.progress({ total: props.rows.length, unit: 'rows' });
-      result = await exportApi.rows(path, options, props.columns, props.rows, props.source?.connectionId);
+      const rows = scope.value === 'found' && props.found ? props.found : props.rows;
+      h.progress({ total: rows.length, unit: 'rows' });
+      result = await exportApi.rows(path, options, props.columns, rows, props.source?.connectionId);
     }
     const rows = result.rows.toLocaleString(locale());
     h.setReopen(undefined);
@@ -185,6 +189,7 @@ function toBackground() {
       </el-form-item>
       <el-form-item v-else :label="$t('results:exportDialog.rows')">
         <el-radio-group v-model="scope" class="ed-scope">
+          <el-radio v-if="found" value="found">{{ $t('results:exportDialog.found', { count: found.length, rows: found.length.toLocaleString(locale()) }) }}</el-radio>
           <el-radio value="loaded">{{ $t('results:exportDialog.loaded', { rows: rows.length.toLocaleString(locale()) }) }}</el-radio>
           <el-radio value="all" :disabled="!source">
             {{ $t('results:exportDialog.all', { total: truncated ? ` (${totalRows.toLocaleString(locale())}+)` : '' }) }}

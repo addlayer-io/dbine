@@ -16,6 +16,7 @@ import { columnKind, describe, menuFor, parseFilter, type ColumnFilter, type Fil
 import { gridFontSize } from '../composables/appearance';
 import { COPY_FORMATS, defaultCopyFormat, formatRows, setDefaultCopyFormat, type CopyContext, type CopyFormat } from '../composables/copyFormats';
 import { revealCell } from '../composables/gridReveal';
+import { cellText, parts } from '../composables/gridSearch';
 
 // Virtualized result grid: only the rows in view are in the DOM, so tens of
 // thousands of rows scroll smoothly. Columns resize by dragging the header
@@ -63,6 +64,22 @@ const props = defineProps<{
   /** Foreign keys from and to the rows' table: the menu offers the jumps
    *  and ⌘/Ctrl+click on a key cell goes to the referenced row. */
   links?: GridLinks | null;
+  // -- the pane's search (useGridSearch) --
+  /** The number each row shows (0-based), when the rows are some of the
+   *  result's ("Solo filas con coincidencias"): its place in the result. */
+  rowNumbers?: number[] | null;
+  /** The rows are the search's ("Solo filas"): copying "everything" says so. */
+  filtered?: boolean;
+  /** The search: matching text is highlighted in the cells. */
+  highlight?: RegExp | null;
+  /** The search is limited to this column. */
+  highlightColumn?: number | null;
+  /** The match the search is on. */
+  current?: { r: number; c: number } | null;
+  /** Only these columns show ("Solo columnas con coincidencias"). */
+  onlyColumns?: Set<number> | null;
+  /** Rows with matches (ascending): marked beside the scroll bar. */
+  marks?: ArrayLike<number> | null;
 }>();
 const emit = defineEmits<{
   /** A cell's new value; `undefined` reverts it. */
@@ -145,7 +162,8 @@ watch(
 // Another grid font size: the columns keep their proportions at the new size.
 watch(gridFontSize, (n, o) => { widths.value = widths.value.map((w) => Math.round((w * n) / o)); });
 
-const isHidden = (c: number) => hiddenNames.value.has(props.columns[c]?.name);
+/** Hidden: by the user, or by the search's "Solo columnas con coincidencias". */
+const isHidden = (c: number) => hiddenNames.value.has(props.columns[c]?.name) || (!!props.onlyColumns && !props.onlyColumns.has(c));
 /** Width of the columns before `c` (or all of them), hidden ones left out. */
 const widthUpTo = (c: number) => widths.value.slice(0, c).reduce((a, w, i) => (isHidden(i) ? a : a + w), 0);
 const totalW = computed(() => NUM_W + widthUpTo(widths.value.length));
@@ -160,7 +178,13 @@ const visible = computed(() => props.rows.slice(first.value, last.value).map((r,
 
 let ro: ResizeObserver | null = null;
 onMounted(() => {
-  ro = new ResizeObserver(() => { viewH.value = scroller.value?.clientHeight ?? 400; });
+  ro = new ResizeObserver(() => {
+    viewH.value = scroller.value?.clientHeight ?? 400;
+    if (props.marks?.length) {
+      measureBars();
+      drawMarks();
+    }
+  });
   if (scroller.value) ro.observe(scroller.value);
 });
 onBeforeUnmount(() => ro?.disconnect());
@@ -246,6 +270,99 @@ function vecTitle(c: number, p: VectorPreview) {
   return [t('vectors:cell.dims', { count: p.dims ?? 0 }), m ? ELEMENT_NAMES[m.element] : '', p.sparse ? t('vectors:cell.sparse') : '']
     .filter(Boolean).join(' · ');
 }
+
+// -- the pane's search (highlight, the current match, the marks) -------------------------------
+/** The search's matches in the cells in view: row → column → the shown text
+ *  split around them. A cell whose match is past the 500-character cut is
+ *  still marked as a hit (its background). */
+const hlShown = computed(() => {
+  const out = new Map<number, Map<number, { s: string; hit: boolean }[]>>();
+  const re = props.highlight;
+  if (!re) return out;
+  const only = props.highlightColumn ?? null;
+  for (const { i } of visible.value) {
+    for (let c = 0; c < props.columns.length; c++) {
+      if ((only !== null && c !== only) || isHidden(c) || isUnset(i, c) || vecShowMetas.value[c]) continue;
+      const v = valueAt(i, c);
+      const full = cellText(v);
+      if (full === null || !re.test(full)) continue;
+      let row = out.get(i);
+      if (!row) out.set(i, (row = new Map()));
+      row.set(c, parts(display(v), re));
+    }
+  }
+  return out;
+});
+const hlAt = (r: number, c: number) => hlShown.value.get(r)?.get(c) ?? null;
+const isCurrent = (r: number, c: number) => !!props.current && props.current.r === r && props.current.c === c;
+
+/** Shows the cell and makes it the active one, without taking the focus
+ *  (the search box keeps it). A column the user hid shows again. */
+function goTo(r: number, c: number) {
+  const name = props.columns[c]?.name;
+  if (name && hiddenNames.value.has(name)) {
+    const next = new Set(hiddenNames.value);
+    next.delete(name);
+    hiddenNames.value = next;
+  }
+  selection.value = { r, c };
+  anchor.value = null;
+  rowSel.value = null;
+  clearExtras();
+  nextTick(() => reveal(r, c));
+}
+
+// "Solo filas con coincidencias" on, off or with other matches: the same
+// places are other rows now, so the selection goes and the grid starts at
+// the top (the pane then shows the current match, if any).
+watch(() => props.rowNumbers, () => {
+  selection.value = null;
+  anchor.value = null;
+  rowSel.value = null;
+  clearExtras();
+  editing.value = null;
+  scroller.value?.scrollTo({ top: 0 });
+});
+
+const markCanvas = ref<HTMLCanvasElement | null>(null);
+/** The scroll bars' size: the marks go just inside the vertical one. */
+const bars = ref({ w: 0, h: 0 });
+function measureBars() {
+  const el = scroller.value;
+  if (el) bars.value = { w: el.offsetWidth - el.clientWidth, h: el.offsetHeight - el.clientHeight };
+}
+/** A tick per matching row beside the scroll bar (rows that fall on the
+ *  same pixel share it), and a longer one for the current match. */
+function drawMarks() {
+  const cv = markCanvas.value;
+  const m = props.marks;
+  const el = scroller.value;
+  if (!cv || !m || !el) return;
+  const dpr = window.devicePixelRatio || 1;
+  const h = Math.max(1, el.clientHeight - rowH.value * HEAD.value);
+  cv.width = Math.round(4 * dpr);
+  cv.height = Math.round(h * dpr);
+  const ctx = cv.getContext('2d');
+  if (!ctx) return;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const n = Math.max(1, props.rows.length);
+  const css = getComputedStyle(el);
+  const tick = Math.max(1, Math.round(2 * dpr));
+  const px = cv.height;
+  ctx.fillStyle = css.getPropertyValue('--nm-warning').trim() || '#d7a12a';
+  let last = -1;
+  for (let k = 0; k < m.length; k++) {
+    const y = Math.min(px - tick, Math.floor((m[k] / n) * px));
+    if (y === last) continue;
+    last = y;
+    ctx.fillRect(0, y, cv.width, tick);
+  }
+  if (props.current) {
+    ctx.fillStyle = css.getPropertyValue('--ide-focus').trim() || '#3794ff';
+    ctx.fillRect(0, Math.min(px - 2 * tick, Math.floor((props.current.r / n) * px)), cv.width, 2 * tick);
+  }
+}
+watch([() => props.marks, () => props.current, () => props.rows.length, viewH, rowH], () => nextTick(() => { measureBars(); drawMarks(); }));
 
 function cellClass(v: Cell) {
   if (v === null) return 'nm-null';
@@ -604,7 +721,7 @@ const selectionStats = computed(() => {
   return { cells: cells.length, count, numbers: n, sum, avg: n ? sum / n : 0, min, max };
 });
 
-defineExpose({ editRow, selectionStats });
+defineExpose({ editRow, selectionStats, goTo });
 
 // -- deleting rows (marked here; the DELETE code comes with the UPDATEs) -----------------
 function selectedRows(): number[] {
@@ -910,13 +1027,15 @@ function onContext(e: MouseEvent, r: number, c: number | null) {
     else if (canEditRow(r) && props.readOnlyColumns?.[c]) items.push({ label: t('results:grid.notEditable', { reason: props.readOnlyColumns[c] }), disabled: true });
   }
   const loaded = props.loadedOf != null ? { rows: props.rows.length.toLocaleString(locale()) } : null;
+  // "Solo filas con coincidencias": "everything" is the search's rows.
+  const found = props.filtered ? { count: props.rows.length, rows: props.rows.length.toLocaleString(locale()) } : null;
   const scope = rowSel.value || block.value || cellExtra.value.length ? t('results:grid.scopeSelected') : selection.value ? t('results:grid.scopeRow')
-    : loaded ? t('results:grid.scopeLoaded', loaded) : t('results:grid.scopeAll');
+    : found ? t('results:grid.scopeFound', found) : loaded ? t('results:grid.scopeLoaded', loaded) : t('results:grid.scopeAll');
   items.push({ label: t('results:grid.copyHeader', { scope }), header: true, divided: true });
   for (const f of COPY_FORMATS) {
     items.push({ label: t(`results:grid.copyFormat.${f.id}.label`, f.label), shortcut: f.id === copyFormat.value ? '⌘C' : undefined, action: () => copyAs(f.id) });
   }
-  items.push({ label: loaded ? t('results:grid.copyLoadedWithHeaders', loaded) : t('results:grid.copyAllWithHeaders'), action: () => { rowSel.value = null; selection.value = null; clearExtras(); copy(formatRows('tsv_headers', props.columns, props.rows)); } });
+  items.push({ label: found ? t('results:grid.copyFoundWithHeaders', found) : loaded ? t('results:grid.copyLoadedWithHeaders', loaded) : t('results:grid.copyAllWithHeaders'), action: () => { rowSel.value = null; selection.value = null; clearExtras(); copy(formatRows('tsv_headers', props.columns, props.rows)); } });
   items.push({ label: t('results:grid.copyFormatHeader'), header: true, divided: true });
   for (const f of COPY_FORMATS) {
     items.push({
@@ -972,6 +1091,7 @@ function columnsMenu(e: MouseEvent) {
 </script>
 
 <template>
+  <div class="rg-wrap">
   <div
     ref="scroller"
     class="rg"
@@ -1042,14 +1162,14 @@ function columnsMenu(e: MouseEvent) {
         :style="{ top: (i + HEAD) * rowH + 'px', width: totalW + 'px' }"
       >
         <div class="rg-num" :style="{ width: NUM_W + 'px' }" @click="selectRow(i, $event)" @contextmenu="onContext($event, i, null)">
-          {{ isAdded(i) ? '+' : i + 1 }}
+          {{ isAdded(i) ? '+' : (rowNumbers?.[i] ?? i) + 1 }}
         </div>
         <div
           v-for="(v, c) in r"
           :key="c"
           v-show="!isHidden(c)"
           class="rg-cell"
-          :class="[isUnset(i, c) ? 'rg-default' : cellClass(valueAt(i, c)), { active: selection && selection.r === i && selection.c === c, ranged: inBlock(i, c), edited: isEdited(i, c), 'rg-link': modHeld && isLinkCell(i, c) }]"
+          :class="[isUnset(i, c) ? 'rg-default' : cellClass(valueAt(i, c)), { active: selection && selection.r === i && selection.c === c, ranged: inBlock(i, c), edited: isEdited(i, c), 'rg-link': modHeld && isLinkCell(i, c), hit: !!hlAt(i, c), 'hit-cur': isCurrent(i, c) }]"
           :style="{ width: widths[c] + 'px' }"
           :title="isEdited(i, c) ? $t('results:grid.before', { value: display(v) }) : undefined"
           @mousedown="onCellDown($event, i, c)"
@@ -1059,7 +1179,7 @@ function columnsMenu(e: MouseEvent) {
           @contextmenu="onContext($event, i, c)"
         ><span v-if="vecAt(i, c)" class="rg-vec"><span class="rg-vtext">{{ vecAt(i, c)!.text }}</span><span
           v-if="vecAt(i, c)!.dims != null" class="rg-vdims" :class="{ sparse: vecAt(i, c)!.sparse }" :title="vecTitle(c, vecAt(i, c)!)"
-        >{{ vecAt(i, c)!.dims }}</span></span><template v-else>{{ isUnset(i, c) ? $t('results:grid.defaultValue') : display(valueAt(i, c)) }}</template></div>
+        >{{ vecAt(i, c)!.dims }}</span></span><template v-else-if="hlAt(i, c)"><template v-for="(p, k) in hlAt(i, c)!" :key="k"><mark v-if="p.hit" class="rg-mark">{{ p.s }}</mark><template v-else>{{ p.s }}</template></template></template><template v-else>{{ isUnset(i, c) ? $t('results:grid.defaultValue') : display(valueAt(i, c)) }}</template></div>
       </div>
     </div>
     <input
@@ -1084,6 +1204,14 @@ function columnsMenu(e: MouseEvent) {
       ><div class="rg-peek-text">{{ peek.text }}</div><div v-if="peek.cut" class="rg-peek-cut">{{ $t('results:grid.peekCut') }}</div></div>
     </Teleport>
   </div>
+  <canvas
+    v-if="marks?.length"
+    ref="markCanvas"
+    class="rg-marks"
+    aria-hidden="true"
+    :style="{ top: rowH * HEAD + 'px', right: bars.w + 'px', bottom: bars.h + 'px' }"
+  />
+  </div>
 </template>
 
 <style>
@@ -1098,6 +1226,16 @@ function columnsMenu(e: MouseEvent) {
 </style>
 
 <style scoped>
+/* The grid and, over its right edge, the search's marks (they don't scroll). */
+.rg-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rg-marks { position: absolute; width: 4px; z-index: 4; pointer-events: none; }
 .rg {
   position: relative;
   flex: 1;
@@ -1245,6 +1383,11 @@ function columnsMenu(e: MouseEvent) {
 .rg-row.deleted .rg-cell { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--nm-danger) 70%, transparent); opacity: 0.7; }
 .rg-row.deleted .rg-num { color: var(--nm-danger); box-shadow: inset 2px 0 0 var(--nm-danger); }
 .rg-cell.edited { background: color-mix(in srgb, var(--nm-warning) 22%, transparent); box-shadow: inset 2px 0 0 var(--nm-warning); }
+/* The search: a cell with a match, the text that matches, the current one. */
+.rg-cell.hit { background: color-mix(in srgb, var(--nm-warning) 10%, transparent); }
+.rg-mark { background: color-mix(in srgb, var(--nm-warning) 45%, transparent); color: inherit; border-radius: 2px; }
+.rg-cell.hit-cur { outline: 2px solid var(--nm-warning); outline-offset: -2px; }
+.rg-cell.hit-cur .rg-mark { background: var(--nm-warning); color: var(--ide-editor); }
 /* A vector cell: its first numbers, and its dimensions in a small badge. */
 .rg-vec { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; height: var(--rg-row); vertical-align: top; }
 .rg-vtext { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--nm-syn-number); }
