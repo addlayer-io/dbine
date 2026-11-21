@@ -710,8 +710,9 @@ pub async fn get_cross_users(
             }
         };
         let mut all_cached = true;
+        let mut left_out = 0usize;
         for model in models.iter().take(MODELS_CAP) {
-            let (externals, cached) = match externals_of(&state, pbi, model).await {
+            let (externals, cached, silent_skip) = match externals_of(&state, pbi, model).await {
                 Ok(r) => r,
                 Err(e) => {
                     res.notes.push(unreadable_note(&pbi.name, Some(model), &e));
@@ -719,6 +720,7 @@ pub async fn get_cross_users(
                 }
             };
             all_cached &= cached;
+            left_out += usize::from(silent_skip);
             res.users.extend(users_in(
                 &externals,
                 pbi,
@@ -726,6 +728,12 @@ pub async fn get_cross_users(
                 &source_conn,
                 &args.database,
                 &args.object,
+            ));
+        }
+        if left_out > 0 {
+            res.notes.push(format!(
+                "{left_out} modelos de «{}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar",
+                pbi.name
             ));
         }
         if models.len() > MODELS_CAP {
@@ -758,15 +766,20 @@ async fn models_of(state: &AppState, pbi: &SavedConnection) -> CommandResult<Arc
     Ok(list)
 }
 
-/// A model's external sources and whether they came from the index.
+/// The start of the note a Power BI read leaves when the Fabric definition API was left out of a
+/// background read (`LineageScope::silent`): its permission isn't granted yet.
+const FABRIC_SILENT_PREFIX: &str = "Este modelo se lee mejor con la API de Fabric";
+
+/// A model's external sources, whether they came from the index, and whether the read left the
+/// Fabric API out for want of its permission (then nothing is kept: approving it must show more).
 async fn externals_of(
     state: &AppState,
     pbi: &SavedConnection,
     model: &str,
-) -> CommandResult<(Sources, bool)> {
+) -> CommandResult<(Sources, bool, bool)> {
     let key = (pbi.id.clone(), model.to_string());
     if let Some(s) = with_index(|i| i.sources.get(&key, Instant::now())) {
-        return Ok((s, true));
+        return Ok((s, true, false));
     }
     let driver = dbine_drivers::find(&pbi.config.driver).ok_or_else(|| {
         CommandError::BadRequest(format!(
@@ -782,12 +795,25 @@ async fn externals_of(
     let db = model.to_string();
     let graph = state
         .meta_read_on(Lane::Long, &pbi.id, model, SCAN_LIMIT, move |s| {
-            Box::pin(async move { s.lineage_graph(&db, &LineageScope::default(), &scan).await })
+            Box::pin(async move {
+                // A search across models the user didn't open never asks for a sign-in or a consent.
+                let scope = LineageScope {
+                    silent: true,
+                    ..Default::default()
+                };
+                s.lineage_graph(&db, &scope, &scan).await
+            })
         })
         .await?;
+    let skipped = graph
+        .notes
+        .iter()
+        .any(|n| n.starts_with(FABRIC_SILENT_PREFIX));
     let s = Arc::new(graph.external);
-    with_index(|i| i.sources.put(key, s.clone(), Instant::now()));
-    Ok((s, false))
+    if !skipped {
+        with_index(|i| i.sources.put(key, s.clone(), Instant::now()));
+    }
+    Ok((s, false, skipped))
 }
 
 #[cfg(test)]

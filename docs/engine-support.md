@@ -4270,6 +4270,7 @@ host or credential in the answer; audited as `source_resolve`).
 |---|---|
 | Power BI semantic model, reports and dashboards (same workspace) | Implemented; unit-tested against fixtures, **not against a real tenant** |
 | Reports in other workspaces that read a shared model | Not listed: only the model's own workspace is read |
+| Searching from a SQL object across Power BI models | A background search never opens a sign-in or a consent: a model that needs the Fabric definition API (`SemanticModel.ReadWrite.All`) is read without it unless that permission is already granted, and a note says how many models were left that way. Opening the model once from the explorer grants it |
 | Reports and dashboards with a browser sign-in | The sign-in asks `Dataset.Read.All`, `Workspace.Read.All` and `Capacity.Read.All`, not `Report.Read.All` / `Dashboard.Read.All`: Power BI answers 401 on them, and the lineage shows a note (and draws everything else) instead of failing. A client with `.default` (Azure CLI) reads them |
 | Sources that are files, SharePoint, web or ODBC | Have no server: nothing to follow |
 | Short host and its FQDN (`srv` / `srv.corp.local`) | Not matched automatically (it would need DNS): link it once by hand |

@@ -19113,5 +19113,8 @@
   "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI가 토큰을 수락하지 않았습니다(HTTP 401). 다시 로그인하세요.",
   "no existe la conexión interna '{0}'": "내부 연결 '{0}'이(가) 없습니다",
   "hay varias conexiones que coinciden: elegí una": "일치하는 연결이 여러 개입니다. 하나를 선택하세요",
-  "la fuente no es un servidor al que DBine pueda conectarse": "이 원본은 DBine이 연결할 수 있는 서버가 아닙니다"
+  "la fuente no es un servidor al que DBine pueda conectarse": "이 원본은 DBine이 연결할 수 있는 서버가 아닙니다",
+  "Este modelo se lee mejor con la API de Fabric": "이 모델은 Fabric API로 읽는 것이 더 좋습니다",
+  "Este modelo se lee mejor con la API de Fabric, que pide un permiso (SemanticModel.ReadWrite.All) que todavía no está aprobado: una búsqueda en segundo plano no lo pide. Abrí el modelo una vez desde el explorador para aprobarlo.": "이 모델은 Fabric API로 읽는 것이 더 좋지만, 아직 승인되지 않은 권한(SemanticModel.ReadWrite.All)이 필요합니다. 백그라운드 검색은 이 권한을 요청하지 않습니다. 탐색기에서 모델을 한 번 열어 승인하십시오.",
+  "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "「{1}」의 모델 {0}개를 Fabric API 없이 읽었습니다. 이 API에는 아직 승인되지 않은 권한이 필요합니다. 탐색기에서 하나를 열어 승인한 후 다시 검색하십시오"
 }

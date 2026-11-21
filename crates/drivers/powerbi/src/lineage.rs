@@ -336,6 +336,13 @@ pub(crate) async fn lineage_in<S: Service>(
     s: &mut S,
     scope: &LineageScope,
 ) -> Result<LineageGraph> {
+    s.meta_state().silent = scope.silent;
+    let g = lineage_read(s, scope).await;
+    s.meta_state().silent = false;
+    g
+}
+
+async fn lineage_read<S: Service>(s: &mut S, scope: &LineageScope) -> Result<LineageGraph> {
     let model = session_model(s)?;
     let meta = crate::meta::model_for(s, &model).await?;
     let mut g = LineageGraph::default();

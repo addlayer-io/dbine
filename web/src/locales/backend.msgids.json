@@ -18300,6 +18300,12 @@
  "Este job tiene un disparador que DBine no conoce: se conserva como está.": [
   "crates/drivers/databricks/src/scheduler/form.rs"
  ],
+ "Este modelo se lee mejor con la API de Fabric": [
+  "src-tauri/src/commands/cross.rs"
+ ],
+ "Este modelo se lee mejor con la API de Fabric, que pide un permiso (SemanticModel.ReadWrite.All) que todavía no está aprobado: una búsqueda en segundo plano no lo pide. Abrí el modelo una vez desde el explorador para aprobarlo.": [
+  "crates/drivers/powerbi/src/meta/mod.rs"
+ ],
  "Este modo de TLS necesita el archivo de la CA: completá {0}.": [
   "crates/dbine-driver/src/config.rs"
  ],
@@ -62244,6 +62250,9 @@
  ],
  "{0} modelo(s) · local, nada sale de esta máquina": [
   "crates/dbine-ai/src/detect.rs"
+ ],
+ "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": [
+  "src-tauri/src/commands/cross.rs"
  ],
  "{0} modelos sin permiso de escritura: su historial no se ve y no se pueden actualizar desde DBine.": [
   "crates/drivers/powerbi/src/refresh/jobs.rs"

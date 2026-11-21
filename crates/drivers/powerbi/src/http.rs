@@ -454,6 +454,12 @@ impl Api {
         self.tokens.account()
     }
 
+    /// There is a token for `audience` without asking the user anything (see
+    /// [`crate::auth::TokenProvider::token_silent`]).
+    pub async fn token_ready_silent(&self, audience: Audience) -> bool {
+        matches!(self.tokens.token_silent(audience).await, Ok(Some(_)))
+    }
+
     /// The model's capacity SKU, once known: Arrow runs at 120 per minute
     /// on a known capacity that isn't Premium Per User (`PP…`), at 40
     /// otherwise (G4).

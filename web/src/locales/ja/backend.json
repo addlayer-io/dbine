@@ -19113,5 +19113,8 @@
   "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI がトークンを受け付けませんでした（HTTP 401）。もう一度サインインしてください。",
   "no existe la conexión interna '{0}'": "内部接続「{0}」は存在しません",
   "hay varias conexiones que coinciden: elegí una": "一致する接続が複数あります。1 つ選んでください",
-  "la fuente no es un servidor al que DBine pueda conectarse": "このソースは DBine が接続できるサーバーではありません"
+  "la fuente no es un servidor al que DBine pueda conectarse": "このソースは DBine が接続できるサーバーではありません",
+  "Este modelo se lee mejor con la API de Fabric": "このモデルは Fabric API で読み取るほうが適しています",
+  "Este modelo se lee mejor con la API de Fabric, que pide un permiso (SemanticModel.ReadWrite.All) que todavía no está aprobado: una búsqueda en segundo plano no lo pide. Abrí el modelo una vez desde el explorador para aprobarlo.": "このモデルは Fabric API で読み取るほうが適していますが、まだ承認されていない権限（SemanticModel.ReadWrite.All）が必要です。バックグラウンド検索ではこの権限を要求しません。エクスプローラーでモデルを一度開いて承認してください。",
+  "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "「{1}」の {0} 個のモデルは Fabric API を使わずに読み取られました。この API にはまだ承認されていない権限が必要です。エクスプローラーでいずれか1つを開いて承認し、もう一度検索してください"
 }
