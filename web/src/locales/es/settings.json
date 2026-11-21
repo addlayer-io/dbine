@@ -46,7 +46,9 @@
     "editorFontSize": "Tamaño de letra del editor",
     "editorFontSizeHelp": "El texto del editor de SQL y de los scripts.",
     "gridFontSize": "Tamaño de letra de la grilla",
-    "gridFontSizeHelp": "Las celdas de la grilla de resultados; las filas crecen con la letra."
+    "gridFontSizeHelp": "Las celdas de la grilla de resultados; las filas crecen con la letra.",
+    "gridTypes": "Tipo de dato en los encabezados",
+    "gridTypesHelp": "El tipo de cada columna, en letra chica debajo de su nombre, en las grillas de resultados."
   },
   "sync": {
     "folderDialogTitle": "Carpeta para el backup de DBine",

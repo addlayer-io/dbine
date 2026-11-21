@@ -46,7 +46,9 @@
     "editorFontSize": "编辑器字号",
     "editorFontSizeHelp": "SQL 和脚本编辑器中的文本。",
     "gridFontSize": "网格字号",
-    "gridFontSizeHelp": "结果网格的单元格；行高会随文本增长。"
+    "gridFontSizeHelp": "结果网格的单元格；行高会随文本增长。",
+    "gridTypes": "表头显示数据类型",
+    "gridTypesHelp": "在结果网格中，每列的类型以小字显示在列名下方。"
   },
   "sync": {
     "folderDialogTitle": "DBine 备份文件夹",

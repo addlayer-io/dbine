@@ -46,7 +46,9 @@
     "editorFontSize": "Taille de police de l'éditeur",
     "editorFontSizeHelp": "Le texte de l'éditeur SQL et de scripts.",
     "gridFontSize": "Taille de police de la grille",
-    "gridFontSizeHelp": "Les cellules de la grille de résultats ; les lignes grandissent avec la police."
+    "gridFontSizeHelp": "Les cellules de la grille de résultats ; les lignes grandissent avec la police.",
+    "gridTypes": "Type de données dans les en-têtes",
+    "gridTypesHelp": "Le type de chaque colonne, en petits caractères sous son nom, dans les grilles de résultats."
   },
   "sync": {
     "folderDialogTitle": "Dossier pour la sauvegarde de DBine",

@@ -32,6 +32,7 @@ import SnippetSettings from './SnippetSettings.vue';
 import ShortcutSettings from './ShortcutSettings.vue';
 import { VIM_SETTING } from '../composables/commands';
 import { RUN_LENS_SETTING } from '../composables/resultNames';
+import { GRID_TYPES_KEY } from '../composables/gridHeader';
 import MailSettings from './MailSettings.vue';
 import McpSettings from './McpSettings.vue';
 import { GLOBAL_INSTRUCTIONS } from '../composables/contexts';
@@ -192,6 +193,11 @@ const vimMode = computed({
 const runLens = computed({
   get: () => settings.get<boolean>(RUN_LENS_SETTING, true) !== false,
   set: (v) => settings.set(RUN_LENS_SETTING, v),
+});
+/** Each column's data type under its name in the grids (on unless turned off). */
+const gridTypes = computed({
+  get: () => settings.get<boolean>(GRID_TYPES_KEY, true) !== false,
+  set: (v) => settings.set(GRID_TYPES_KEY, v),
 });
 
 // -- drivers ------------------------------------------------------------------------
@@ -515,6 +521,10 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
           <el-select v-model="gridFont" style="width: 240px">
             <el-option v-for="n in FONT_SIZES" :key="n" :label="`${n} px`" :value="n" />
           </el-select>
+        </div>
+        <div class="st-row">
+          <div><strong>{{ $t('settings:general.gridTypes') }}</strong><span>{{ $t('settings:general.gridTypesHelp') }}</span></div>
+          <el-switch v-model="gridTypes" />
         </div>
         <div class="st-row">
           <div><strong>{{ $t('settings:general.copyFormat') }}</strong><span>{{ $t('settings:general.copyFormatHelp') }}</span></div>

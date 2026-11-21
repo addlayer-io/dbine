@@ -46,7 +46,9 @@
     "editorFontSize": "Rozmiar czcionki edytora",
     "editorFontSizeHelp": "Tekst edytora SQL i skryptów.",
     "gridFontSize": "Rozmiar czcionki siatki",
-    "gridFontSizeHelp": "Komórki siatki wyników; wiersze rosną wraz z czcionką."
+    "gridFontSizeHelp": "Komórki siatki wyników; wiersze rosną wraz z czcionką.",
+    "gridTypes": "Typ danych w nagłówkach",
+    "gridTypesHelp": "Typ każdej kolumny, małą czcionką pod jej nazwą, w siatkach wyników."
   },
   "sync": {
     "folderDialogTitle": "Folder na kopię zapasową DBine",

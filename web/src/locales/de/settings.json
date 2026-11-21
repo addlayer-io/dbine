@@ -46,7 +46,9 @@
     "editorFontSize": "Schriftgröße im Editor",
     "editorFontSizeHelp": "Der Text des SQL- und Skripteditors.",
     "gridFontSize": "Schriftgröße im Raster",
-    "gridFontSizeHelp": "Die Zellen des Ergebnisrasters; Zeilen wachsen mit dem Text."
+    "gridFontSizeHelp": "Die Zellen des Ergebnisrasters; Zeilen wachsen mit dem Text.",
+    "gridTypes": "Datentyp in den Spaltenköpfen",
+    "gridTypesHelp": "Der Typ jeder Spalte, in kleiner Schrift unter ihrem Namen, in den Ergebnisrastern."
   },
   "sync": {
     "folderDialogTitle": "Ordner für die DBine-Sicherung",
