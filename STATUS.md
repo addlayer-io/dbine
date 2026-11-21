@@ -28,9 +28,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.6.3 | 2026-11-18 | 0e26e2f0..e8b61cec, everything 1.6.3 adds since v1.6.2 (#123 SQL Server catalog reads, #124 Compare data export, the per-day telemetry, the multi-database export of every row, the grid's keyboard scroll, the release commit); e8b61cec..031d392f, libz-sys 1.1.33 and the picomatch review; 6fa05571..f7e04ee7, lettre 0.11.24 past six SMTP advisories | 0 open | — |
 | codeql | 2026-11-21 | Rust, TypeScript/Vue and workflows | 4 open | — |
-| osv | 2026-11-21 | every lockfile (Cargo, npm) at [`ce303f69d`](https://github.com/addlayer-io/dbine/commit/ce303f69dd2e) | 0 open | — |
-| scorecard | 2026-11-20 | repository settings and workflows at [`e2c6b6de4`](https://github.com/addlayer-io/dbine/commit/e2c6b6de4bac) | score 7.6/10 | — |
-| trivy | 2026-11-21 | whole repository at [`ce303f69d`](https://github.com/addlayer-io/dbine/commit/ce303f69dd2e) | 0 open | — |
+| osv | 2026-11-21 | every lockfile (Cargo, npm) at [`0592837b0`](https://github.com/addlayer-io/dbine/commit/0592837b0dae) | 0 open | — |
+| scorecard | 2026-11-21 | repository settings and workflows at [`ce303f69d`](https://github.com/addlayer-io/dbine/commit/ce303f69dd2e) | score 7.6/10 | — |
+| trivy | 2026-11-21 | whole repository at [`0592837b0`](https://github.com/addlayer-io/dbine/commit/0592837b0dae) | 0 open | — |
 
 ## Not counted, and why
 
@@ -402,7 +402,7 @@ Dependencies their authors no longer maintain. Not a vulnerability, so not count
 
 ## Repository practices
 
-OpenSSF Scorecard: **7.6/10** (2026-11-20). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **7.6/10** (2026-11-21). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
