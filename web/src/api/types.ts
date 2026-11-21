@@ -1013,6 +1013,8 @@ export interface DependencyReport {
   jobs?: JobDependent[];
   /** What to tell about the jobs read, each a whole message (translate with `tb`). */
   job_notes?: string[];
+  /** `getDependents`: what outside the database reads the target (a Power BI report or dashboard reading a model). */
+  external_users?: ExternalRef[];
 }
 
 /** What part of a database to draw (`dbine_driver::dependencies::LineageScope`). */
@@ -1052,6 +1054,8 @@ export interface LineageGraph {
   objects: ObjectRef[];
   edges: LineageEdge[];
   external?: { source: ExternalRef; to: ObjectRef }[];
+  /** What outside the database reads its objects (Power BI reports and dashboards reading a model). */
+  consumers?: { consumer: ExternalRef; from: ObjectRef }[];
   jobs?: LineageJob[];
   scanned: number;
   unreadable: string[];
