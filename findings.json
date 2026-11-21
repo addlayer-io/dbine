@@ -33,7 +33,7 @@
     {
       "source": "osv",
       "date": "2026-11-21",
-      "revision": "78feff49bd3e",
+      "revision": "d879602b79c8",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -41,7 +41,7 @@
     {
       "source": "trivy",
       "date": "2026-11-21",
-      "revision": "78feff49bd3e",
+      "revision": "d879602b79c8",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -52,12 +52,12 @@
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 4
+      "found": 0
     },
     {
       "source": "scorecard",
       "date": "2026-11-21",
-      "revision": "05f5c06d6be0",
+      "revision": "78feff49bd3e",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.5
@@ -4028,42 +4028,6 @@
       "dismissed": "2026-11-20",
       "reason": "false positive — Vendored hdbconnect_impl 0.32.0 (upstream code): ClientInfoKey::as_ref returns the HANA protocol client-info key names (APPLICATION, APPLICATIONUSER, DRIVER…), not a credential.",
       "by": "mpanichella"
-    },
-    {
-      "id": "CQ-466",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "src-tauri",
-      "found": "2026-11-20",
-      "status": "open"
-    },
-    {
-      "id": "CQ-467",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "src-tauri",
-      "found": "2026-11-20",
-      "status": "open"
-    },
-    {
-      "id": "CQ-468",
-      "source": "codeql",
-      "severity": "HIGH",
-      "kind": "Static analysis finding",
-      "component": "src-tauri",
-      "found": "2026-11-20",
-      "status": "open"
-    },
-    {
-      "id": "CQ-469",
-      "source": "codeql",
-      "severity": "CRITICAL",
-      "kind": "Static analysis finding",
-      "component": "crates/dbine-sync",
-      "found": "2026-11-20",
-      "status": "open"
     },
     {
       "id": "CQ-66",

@@ -11,26 +11,21 @@ _Updated 2026-11-21._
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
 | OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
-| CodeQL (static analysis) | 1 | 3 | 0 | 0 |
+| CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-| ID | Severity | Source | Finding | Where | Fix |
-|---|---|---|---|---|---|
-| CQ-469 | CRITICAL | codeql | Static analysis finding | `crates/dbine-sync` | pending |
-| CQ-466 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-467 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
-| CQ-468 | HIGH | codeql | Static analysis finding | `src-tauri` | pending |
+_None._
 
 ## What the last scans covered
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.6.3 | 2026-11-18 | 0e26e2f0..e8b61cec, everything 1.6.3 adds since v1.6.2 (#123 SQL Server catalog reads, #124 Compare data export, the per-day telemetry, the multi-database export of every row, the grid's keyboard scroll, the release commit); e8b61cec..031d392f, libz-sys 1.1.33 and the picomatch review; 6fa05571..f7e04ee7, lettre 0.11.24 past six SMTP advisories | 0 open | — |
-| codeql | 2026-11-21 | Rust, TypeScript/Vue and workflows | 4 open | — |
-| osv | 2026-11-21 | every lockfile (Cargo, npm) at [`78feff49b`](https://github.com/addlayer-io/dbine/commit/78feff49bd3e) | 0 open | — |
-| scorecard | 2026-11-21 | repository settings and workflows at [`05f5c06d6`](https://github.com/addlayer-io/dbine/commit/05f5c06d6be0) | score 7.5/10 | — |
-| trivy | 2026-11-21 | whole repository at [`78feff49b`](https://github.com/addlayer-io/dbine/commit/78feff49bd3e) | 0 open | — |
+| codeql | 2026-11-21 | Rust, TypeScript/Vue and workflows | 0 open | — |
+| osv | 2026-11-21 | every lockfile (Cargo, npm) at [`d879602b7`](https://github.com/addlayer-io/dbine/commit/d879602b79c8) | 0 open | — |
+| scorecard | 2026-11-21 | repository settings and workflows at [`78feff49b`](https://github.com/addlayer-io/dbine/commit/78feff49bd3e) | score 7.5/10 | — |
+| trivy | 2026-11-21 | whole repository at [`d879602b7`](https://github.com/addlayer-io/dbine/commit/d879602b79c8) | 0 open | — |
 
 ## Not counted, and why
 
