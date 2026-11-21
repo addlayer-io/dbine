@@ -36,6 +36,7 @@ pub mod dependencies;
 pub mod functions;
 pub mod health;
 pub mod http;
+pub mod lineage;
 pub mod meta;
 pub mod monitor;
 pub mod objects;
@@ -616,6 +617,16 @@ impl Session for PowerBiSession {
             Some(r) => Ok(r),
             None => dbine_driver::dependencies::references_scan(self, target, scan).await,
         }
+    }
+
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &dbine_driver::dependencies::LineageScope,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::dependencies::LineageGraph> {
+        let _ = (database, scan);
+        lineage::lineage_graph(&mut self.cx, scope).await
     }
 
     async fn health_checks(
