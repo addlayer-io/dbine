@@ -312,6 +312,11 @@ impl Fake {
                 routes.remove(i);
             }
         }
+        if r.status == 401 {
+            return Err(Error::AuthFailed(
+                "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.".into(),
+            ));
+        }
         if r.status >= 400 {
             let code = r
                 .body

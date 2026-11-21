@@ -4270,6 +4270,7 @@ host or credential in the answer; audited as `source_resolve`).
 |---|---|
 | Power BI semantic model, reports and dashboards (same workspace) | Implemented; unit-tested against fixtures, **not against a real tenant** |
 | Reports in other workspaces that read a shared model | Not listed: only the model's own workspace is read |
+| Reports and dashboards with a browser sign-in | The sign-in asks `Dataset.Read.All`, `Workspace.Read.All` and `Capacity.Read.All`, not `Report.Read.All` / `Dashboard.Read.All`: Power BI answers 401 on them, and the lineage shows a note (and draws everything else) instead of failing. A client with `.default` (Azure CLI) reads them |
 | Sources that are files, SharePoint, web or ODBC | Have no server: nothing to follow |
 | Short host and its FQDN (`srv` / `srv.corp.local`) | Not matched automatically (it would need DNS): link it once by hand |
 | Who reads an object from other connections | Only Power BI connections are scanned in this version; the first read of many models can be slow (sequential, then cached) |

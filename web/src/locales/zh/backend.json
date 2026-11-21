@@ -19106,5 +19106,9 @@
   "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "连接“{0}”需要先连接（请先打开它，然后重试）",
   "no se pudo abrir la conexión «{0}»: {1}": "无法打开连接“{0}”：{1}",
   "no se pudo leer el modelo «{0}» de «{1}»: {2}": "无法读取“{1}”中的模型“{0}”：{2}",
-  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "“{0}”包含超过 {1} 个模型：已读取前 {2} 个"
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "“{0}”包含超过 {1} 个模型：已读取前 {2} 个",
+  "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": "此连接的登录没有读取报表和仪表板的权限",
+  "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": "此连接的登录没有读取报表和仪表板的权限（Report.Read.All 和 Dashboard.Read.All）：血缘不会显示谁在读取该模型。请使用这些权限重新登录，或使用其他 Microsoft 客户端。令牌权限：{0}。",
+  "no se pudieron leer": "无法读取",
+  "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI 未接受该令牌（HTTP 401）：请重新登录。"
 }

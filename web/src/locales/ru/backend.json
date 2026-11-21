@@ -19106,5 +19106,9 @@
   "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "подключение «{0}» сначала нужно подключить (откройте его и повторите попытку)",
   "no se pudo abrir la conexión «{0}»: {1}": "не удалось открыть подключение «{0}»: {1}",
   "no se pudo leer el modelo «{0}» de «{1}»: {2}": "не удалось прочитать модель «{0}» из «{1}»: {2}",
-  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "в «{0}» более {1} моделей: прочитаны первые {2}"
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "в «{0}» более {1} моделей: прочитаны первые {2}",
+  "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": "У входа этого подключения нет разрешения на чтение отчётов и дашбордов",
+  "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": "У входа этого подключения нет разрешения на чтение отчётов и дашбордов (Report.Read.All и Dashboard.Read.All): lineage не показывает, кто читает модель. Войдите снова с этими разрешениями или используйте другой клиент Microsoft. Разрешения токена: {0}.",
+  "no se pudieron leer": "не удалось прочитать",
+  "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI не принял токен (HTTP 401): войдите снова."
 }
