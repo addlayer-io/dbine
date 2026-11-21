@@ -1696,6 +1696,22 @@ pub trait Session: Send {
         dependencies::job_references_scan(self, database, job_id, scan).await
     }
 
+    /// The lineage of the whole `database`, or of the part `scope` names: every
+    /// object as a node and every dependency as an edge (see
+    /// [`dependencies::LineageGraph`]), with the server's jobs when
+    /// `scope.jobs` is set. The default reads the objects once, the foreign
+    /// keys from [`Session::database_schema`] and the definitions of what has
+    /// source ([`dependencies::graph_scan`]); drivers whose engine records
+    /// dependencies override it with catalog queries.
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &dependencies::LineageScope,
+        scan: &DependencyScan,
+    ) -> Result<dependencies::LineageGraph> {
+        dependencies::graph_scan(self, database, scope, scan).await
+    }
+
     /// The engine's own "Chequeo de salud" findings for `database` (see
     /// [`health`]): configuration, statistics, space, bloat… The app adds
     /// the checks every engine shares. Empty: none of its own.

@@ -420,6 +420,15 @@ pub enum Call {
         job_id: String,
         scan: dbine_driver::DependencyScan,
     },
+    /// The lineage of a whole database. A host published before it answers
+    /// `Unsupported`, and the app runs the generic scan through the host's
+    /// other calls.
+    LineageGraph {
+        session: u64,
+        database: String,
+        scope: dbine_driver::dependencies::LineageScope,
+        scan: dbine_driver::DependencyScan,
+    },
     /// The server's sessions (the Monitor's "Procesos"). A host published
     /// before it answers `Unsupported`; the app only asks drivers whose
     /// capabilities say `processes`.
@@ -779,6 +788,7 @@ pub enum Reply {
     References(dbine_driver::DependencyReport),
     JobDependents(dbine_driver::DependencyReport),
     JobReferences(dbine_driver::DependencyReport),
+    LineageGraph(dbine_driver::dependencies::LineageGraph),
     Processes(Vec<dbine_driver::ServerProcess>),
     Choices(Vec<dbine_driver::FieldChoices>),
     DatabaseProperties(dbine_driver::DatabaseProperties),

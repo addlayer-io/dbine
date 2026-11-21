@@ -406,6 +406,7 @@ impl Call {
             | References { session, .. }
             | JobDependents { session, .. }
             | JobReferences { session, .. }
+            | LineageGraph { session, .. }
             | Processes { session }
             | CancelQuery { session, .. }
             | CreateDatabaseChoices { session }
@@ -1274,6 +1275,19 @@ impl State {
                     .lock()
                     .await
                     .job_references(&database, &job_id, &scan)
+                    .await?,
+            ),
+            Call::LineageGraph {
+                session,
+                database,
+                scope,
+                scan,
+            } => Reply::LineageGraph(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .lineage_graph(&database, &scope, &scan)
                     .await?,
             ),
             Call::Processes { session } => {

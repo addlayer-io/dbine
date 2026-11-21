@@ -1015,6 +1015,52 @@ export interface DependencyReport {
   job_notes?: string[];
 }
 
+/** What part of a database to draw (`dbine_driver::dependencies::LineageScope`). */
+export interface LineageScope {
+  /** Empty: all the schemas. */
+  schemas?: string[];
+  /** Empty: every kind that can be part of a lineage. */
+  kinds?: string[];
+  /** Objects kept at most; 0 or none: the backend's default. */
+  limit?: number;
+  /** Add the server's jobs, with what their steps use. */
+  jobs?: boolean;
+}
+
+/** An edge of the database lineage: `from` is used by `to`. */
+export interface LineageEdge {
+  from: ObjectRef;
+  to: ObjectRef;
+  relation: Dependent['relation'];
+  confidence: Confidence;
+  detail?: string | null;
+  mentions?: Mention[];
+}
+
+/** A server job and what its steps use. */
+export interface LineageJob {
+  id: string;
+  name: string;
+  kind: string;
+  group?: string | null;
+  uses: Dependent[];
+  external: ExternalRef[];
+}
+
+/** The lineage of a whole database (`dbine_driver::dependencies::LineageGraph`). */
+export interface LineageGraph {
+  objects: ObjectRef[];
+  edges: LineageEdge[];
+  external?: { source: ExternalRef; to: ObjectRef }[];
+  jobs?: LineageJob[];
+  scanned: number;
+  unreadable: string[];
+  truncated: boolean;
+  /** What to tell the user, each a whole message (translate with `tb`). */
+  notes: string[];
+  job_notes?: string[];
+}
+
 /** A server job whose steps run or name the target
  *  (`dbine_driver::JobDependent`): its `id` is the jobs calls' one. */
 export interface JobDependent {

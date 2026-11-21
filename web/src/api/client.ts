@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import type {
-  AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, MonitorSnapshot, ObjectPage, ObjectQuery, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
+  AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, LineageGraph, LineageScope, MonitorSnapshot, ObjectPage, ObjectQuery, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
   ExecuteResponse, FilteredBrowse, QueryOutcome, ResultsStatus, RunMode, StoreArgs, StoredRunMeta, RunParams, RunningTask, SavedConnection, SavedQuery, SchemaInfo, ScriptUnit, SecretBrowseListing, SecretSource, SecretSourceApproval, SecretSourceTest, SecretSourceUnlock, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WhatsNew, WindowRole,
 } from './types';
 import type { ColumnFilter } from '../composables/gridFilter';
@@ -165,6 +165,10 @@ export const api = {
    *  and those of other databases as `external`. */
   getJobReferences: (connectionId: string, database: string, jobId: string) =>
     invoke<DependencyReport>('get_job_references', { args: { connection_id: connectionId, database, job_id: jobId } }),
+  /** The lineage of a whole database, a schema or a folder: every object as a
+   *  node, every dependency as an edge, plus the server's jobs when asked. */
+  getLineageGraph: (connectionId: string, database: string, scope: LineageScope = {}) =>
+    invoke<LineageGraph>('get_lineage_graph', { args: { connection_id: connectionId, database, scope } }),
   getDefinition: (connectionId: string, database: string, object: ObjectRef) =>
     invoke<string>('get_definition', { args: { connection_id: connectionId, database, object } }),
   browseQuery: (connectionId: string, database: string, object: ObjectRef, limit: number) =>
