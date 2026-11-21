@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### New
+
+- **Lineage across connections:** the lineage follows a source outside the database into the connection that holds it. A Power BI table that reads a SQL Server, Databricks, PostgreSQL… table shows that source as a grey card: one click finds the saved connection it points to (or asks once, or offers to **create the connection from the source** with the server and database already filled in), and the card becomes the real table, with what it uses, level by level. The other way round, **Include other connections** shows which Power BI tables read an object, and from there the semantic model and the reports and dashboards that read it, with the connection of each card marked. In DBine Enterprise the company's server resolves the source to the connections each person may use.
+
 ## [1.7.0] - 2026-11-21
 
 ### New

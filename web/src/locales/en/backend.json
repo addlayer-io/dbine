@@ -107,7 +107,6 @@
   "-- BigQuery solo tiene índices vectoriales y de búsqueda: el índice {0} no se crea.": "-- BigQuery only has vector and search indexes: index {0} is not created.",
   "-- DBine · script de {0} · {1}\n\n": "-- DBine · {0} script · {1}\n\n",
   "-- Ejecutalo con el modo de envío «Todo el texto de una vez»: el cuerpo lleva «;».\n": "-- Run it with the “All text at once” send mode: the body contains “;”.\n",
-  "-- El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.\n": "-- The original's search index {0} also indexes {1}: here it is created with the part that belongs to this collection.\n",
   "-- El índice local {0} solo se puede crear junto con la tabla (CREATE TABLE).": "-- The local index {0} can only be created together with the table (CREATE TABLE).",
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- The vector index does not state its distance: it is created with cosine distance and DiskANN.",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- The vector index {0} does not state its distance: {1}. If it comes from another database, DBine could not read its configuration: you need to be the index owner or have the SELECT_CATALOG_ROLE role.",
@@ -19099,5 +19098,13 @@
   "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "the first {0} definitions were read; for the rest only the dependencies the catalog records are shown",
   "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "the first {0} definitions were read; the rest add no lines to the diagram",
   "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "{0} objects in the schema are not VALID: Oracle may have recorded their dependencies only in part",
-  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: the vector index is trained on the documents and the collection is new; it is created deferred, and after loading them it is built with BUILD INDEX ON {1}({2})."
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: the vector index is trained on the documents and the collection is new; it is created deferred, and after loading them it is built with BUILD INDEX ON {1}({2}).",
+  "Con los permisos de esta conexión no se pudieron leer los reportes y tableros del área de trabajo: el linaje no muestra quién lee el modelo.": "The permissions of this connection were not enough to read the workspace's reports and dashboards: the lineage does not show who reads the model.",
+  "El área de trabajo tiene más de 500 reportes o tableros: se muestran los primeros 500.": "The workspace has more than 500 reports or dashboards: the first 500 are shown.",
+  "El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.": "The search index {0} of the original also indexes {1}: here it is created with this collection's part.",
+  "Se leyeron los mosaicos de los primeros 100 tableros: los demás pueden leer este modelo y no aparecen.": "The tiles of the first 100 dashboards were read: the others may read this model and do not appear.",
+  "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "connection \"{0}\" needs to connect first (open it and try again)",
+  "no se pudo abrir la conexión «{0}»: {1}": "could not open connection \"{0}\": {1}",
+  "no se pudo leer el modelo «{0}» de «{1}»: {2}": "could not read model \"{0}\" of \"{1}\": {2}",
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "\"{0}\" has more than {1} models: the first {2} were read"
 }

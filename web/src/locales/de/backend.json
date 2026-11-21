@@ -106,7 +106,6 @@
   "-- BigQuery solo tiene índices vectoriales y de búsqueda: el índice {0} no se crea.": "-- BigQuery hat nur Vektor- und Suchindizes: Der Index {0} wird nicht erstellt.",
   "-- DBine · script de {0} · {1}\n\n": "-- DBine · Skript von {0} · {1}\n\n",
   "-- Ejecutalo con el modo de envío «Todo el texto de una vez»: el cuerpo lleva «;».\n": "-- Führen Sie es mit dem Sendemodus «Gesamten Text auf einmal» aus: Der Rumpf enthält «;».\n",
-  "-- El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.\n": "-- Der Suchindex {0} des Originals indiziert auch {1}: Hier wird er mit dem Teil dieser Collection erstellt.\n",
   "-- El índice local {0} solo se puede crear junto con la tabla (CREATE TABLE).": "-- Der lokale Index {0} kann nur zusammen mit der Tabelle erstellt werden (CREATE TABLE).",
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- Der Vektorindex gibt die Distanz nicht an: Er wird mit der Kosinus-Distanz und DiskANN erstellt.",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- Der Vektorindex {0} gibt die Distanz nicht an: {1}. Stammt er aus einer anderen Datenbank, konnte DBine seine Konfiguration nicht lesen: Dazu muss man Eigentümer des Index sein oder die Rolle SELECT_CATALOG_ROLE haben.",
@@ -19099,5 +19098,13 @@
   "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "die ersten {0} Definitionen wurden gelesen; für den Rest werden nur die im Katalog erfassten Abhängigkeiten angezeigt",
   "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "die ersten {0} Definitionen wurden gelesen; der Rest fügt dem Diagramm keine Linien hinzu",
   "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "{0} Objekte des Schemas sind nicht VALID: Oracle hat deren Abhängigkeiten möglicherweise nur teilweise erfasst",
-  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: Der Vektorindex wird mit den Dokumenten trainiert und die Collection ist neu; er wird verzögert erstellt und nach dem Laden der Dokumente mit BUILD INDEX ON {1}({2}) aufgebaut."
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: Der Vektorindex wird mit den Dokumenten trainiert und die Collection ist neu; er wird verzögert erstellt und nach dem Laden der Dokumente mit BUILD INDEX ON {1}({2}) aufgebaut.",
+  "Con los permisos de esta conexión no se pudieron leer los reportes y tableros del área de trabajo: el linaje no muestra quién lee el modelo.": "Mit den Berechtigungen dieser Verbindung konnten die Berichte und Dashboards des Arbeitsbereichs nicht gelesen werden: Die Lineage zeigt nicht, wer das Modell liest.",
+  "El área de trabajo tiene más de 500 reportes o tableros: se muestran los primeros 500.": "Der Arbeitsbereich enthält mehr als 500 Berichte oder Dashboards: Es werden die ersten 500 angezeigt.",
+  "El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.": "Der Suchindex {0} des Originals indiziert auch {1}: Hier wird er mit dem Teil dieser Collection erstellt.",
+  "Se leyeron los mosaicos de los primeros 100 tableros: los demás pueden leer este modelo y no aparecen.": "Die Kacheln der ersten 100 Dashboards wurden gelesen: Die übrigen können dieses Modell lesen und erscheinen nicht.",
+  "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "Die Verbindung „{0}“ muss sich zuerst verbinden (öffnen Sie sie und versuchen Sie es erneut)",
+  "no se pudo abrir la conexión «{0}»: {1}": "Verbindung „{0}“ konnte nicht geöffnet werden: {1}",
+  "no se pudo leer el modelo «{0}» de «{1}»: {2}": "Modell „{0}“ von „{1}“ konnte nicht gelesen werden: {2}",
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "„{0}“ hat mehr als {1} Modelle: Die ersten {2} wurden gelesen"
 }

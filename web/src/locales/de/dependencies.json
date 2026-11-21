@@ -52,7 +52,8 @@
     "measure": "Measure",
     "calculation_group": "Berechnungsgruppe",
     "role": "Rolle",
-    "expression": "Ausdruck"
+    "expression": "Ausdruck",
+    "model": "Semantikmodell"
   },
   "view": {
     "label": "Ansicht",
@@ -105,5 +106,35 @@
     "noMatch": "Kein Objekt entspricht den Filtern.",
     "relations": "Beziehungen ({{count}})",
     "relationsTip": "Fremdschlüssel (und die Beziehungen eines Modells) verlaufen parallel zum Lineage: Aktivieren Sie sie, um sie daneben zu sehen."
+  },
+  "cross": {
+    "switch": "Andere Verbindungen einbeziehen",
+    "switchTip": "Zeigt, was dieses Objekt aus anderen Verbindungen liest: die davon gespeisten Power-BI-Tabellen und von dort ihre Modelle, Berichte und Dashboards.",
+    "searching": "Power-BI-Verbindungen werden durchsucht …",
+    "searched": "Durchsucht in: {{names}}",
+    "searchedItem": "{{name}} (Modelle: {{models}}{{cached}})",
+    "cached": ", im Cache",
+    "nobody": "Keine andere Verbindung liest dieses Objekt.",
+    "refresh": "Erneut suchen",
+    "via": {
+      "link": "von Ihnen verknüpft",
+      "auto": "stimmt nach Server und Datenbank überein",
+      "enterprise": "aus DBine Enterprise"
+    },
+    "reader": "Dieses Power-BI-Element liest das Objekt.",
+    "openLink": "In Power BI öffnen",
+    "resolving": "Verbindung dieser Quelle wird gesucht …",
+    "follow": "Lineage in {{name}} anzeigen",
+    "followPicked": "Lineage anzeigen",
+    "unlink": "Verknüpfung aufheben",
+    "many": "Mehrere Verbindungen passen zu dieser Quelle. Wählen Sie eine aus: Beim nächsten Mal wird dieselbe verwendet.",
+    "pick": "Verbindung",
+    "remembered": "Die Auswahl wird gemerkt; „Verknüpfung aufheben“ entfernt sie.",
+    "none": "Keine gespeicherte Verbindung passt zu dieser Quelle.",
+    "create": "Verbindung aus der Quelle erstellen …",
+    "notFound": "Dieses Objekt wurde in {{name}} nicht gefunden.",
+    "badge": "Verbindung: {{name}}",
+    "report": "Power-BI-Bericht",
+    "dashboard": "Power-BI-Dashboard"
   }
 }

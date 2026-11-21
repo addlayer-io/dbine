@@ -18587,7 +18587,6 @@
   "(el nombre de la key hasta su último «:»)": "(le nom de la key jusqu'à son dernier « : »)",
   "(sin reducir)": "(sans réduction)",
   "-- BigQuery solo tiene índices vectoriales y de búsqueda: el índice {0} no se crea.": "-- BigQuery n'a que des index vectoriels et de recherche : l'index {0} n'est pas créé.",
-  "-- El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.\n": "-- L'index de recherche {0} de l'original indexe aussi {1} : ici il est créé avec la partie de cette collection.\n",
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- L'index vectoriel n'indique pas la distance : il est créé avec la distance cosinus et DiskANN.",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- L'index vectoriel {0} n'indique pas la distance : {1}. S'il provient d'une autre base, DBine n'a pas pu lire sa configuration : il faut être propriétaire de l'index ou avoir le rôle SELECT_CATALOG_ROLE.",
   "-- El índice vectorial «": "-- L'index vectoriel « ",
@@ -19099,5 +19098,13 @@
   "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "les {0} premières définitions ont été lues ; pour le reste, seules les dépendances enregistrées par le catalogue sont affichées",
   "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "les {0} premières définitions ont été lues ; le reste n'ajoute aucune ligne au diagramme",
   "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "{0} objets du schéma ne sont pas VALID : Oracle n'a peut-être enregistré leurs dépendances que partiellement",
-  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0} : l'index vectoriel est entraîné avec les documents et la collection est nouvelle ; il est créé en différé, puis, une fois les documents chargés, construit avec BUILD INDEX ON {1}({2})."
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0} : l'index vectoriel est entraîné avec les documents et la collection est nouvelle ; il est créé en différé, puis, une fois les documents chargés, construit avec BUILD INDEX ON {1}({2}).",
+  "Con los permisos de esta conexión no se pudieron leer los reportes y tableros del área de trabajo: el linaje no muestra quién lee el modelo.": "Avec les autorisations de cette connexion, impossible de lire les rapports et tableaux de bord de l'espace de travail : la traçabilité n'indique pas qui lit le modèle.",
+  "El área de trabajo tiene más de 500 reportes o tableros: se muestran los primeros 500.": "L'espace de travail contient plus de 500 rapports ou tableaux de bord : les 500 premiers sont affichés.",
+  "El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.": "L'index de recherche {0} de l'original indexe aussi {1} : ici il est créé avec la partie de cette collection.",
+  "Se leyeron los mosaicos de los primeros 100 tableros: los demás pueden leer este modelo y no aparecen.": "Les vignettes des 100 premiers tableaux de bord ont été lues : les autres peuvent lire ce modèle sans apparaître.",
+  "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "la connexion « {0} » doit d'abord se connecter (ouvrez-la et réessayez)",
+  "no se pudo abrir la conexión «{0}»: {1}": "impossible d'ouvrir la connexion « {0} » : {1}",
+  "no se pudo leer el modelo «{0}» de «{1}»: {2}": "impossible de lire le modèle « {0} » de « {1} » : {2}",
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "« {0} » contient plus de {1} modèles : les {2} premiers ont été lus"
 }

@@ -132,7 +132,6 @@
   "-- Borrar una parte separada es definitivo: revisá cada una antes.\n{0}": "-- Usunięcie oddzielonej części jest nieodwracalne: sprawdź każdą przed wykonaniem.\n{0}",
   "-- DBine · script de {0} · {1}\n\n": "-- DBine · skrypt {0} · {1}\n\n",
   "-- Ejecutalo con el modo de envío «Todo el texto de una vez»: el cuerpo lleva «;».\n": "-- Uruchom w trybie wysyłania „Cały tekst naraz”: treść zawiera „;”.\n",
-  "-- El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.\n": "-- Indeks wyszukiwania {0} oryginału indeksuje także {1}: tutaj jest tworzony z częścią tej kolekcji.\n",
   "-- El índice local {0} solo se puede crear junto con la tabla (CREATE TABLE).": "-- Indeks lokalny {0} można utworzyć tylko razem z tabelą (CREATE TABLE).",
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- Indeks wektorowy nie podaje metryki odległości: zostanie utworzony z odległością cosinusową i DiskANN.",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- Indeks wektorowy {0} nie podaje metryki odległości: {1}. Jeśli pochodzi z innej bazy, DBine nie mógł odczytać jego konfiguracji: trzeba być właścicielem indeksu lub mieć rolę SELECT_CATALOG_ROLE.",
@@ -19099,5 +19098,13 @@
   "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "odczytano pierwsze definicje ({0}); dla reszty wyświetlane są tylko zależności zapisane w katalogu",
   "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "odczytano pierwsze definicje ({0}); reszta nie dodaje linii do diagramu",
   "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "W schemacie obiektów w stanie innym niż VALID: {0}. Oracle mógł zapisać ich zależności tylko częściowo",
-  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: indeks wektorowy jest trenowany na dokumentach, a kolekcja jest nowa; tworzy się go z opóźnieniem, a po załadowaniu dokumentów buduje poleceniem BUILD INDEX ON {1}({2})."
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: indeks wektorowy jest trenowany na dokumentach, a kolekcja jest nowa; tworzy się go z opóźnieniem, a po załadowaniu dokumentów buduje poleceniem BUILD INDEX ON {1}({2}).",
+  "Con los permisos de esta conexión no se pudieron leer los reportes y tableros del área de trabajo: el linaje no muestra quién lee el modelo.": "Uprawnienia tego połączenia nie pozwoliły odczytać raportów i pulpitów nawigacyjnych obszaru roboczego: lineage nie pokazuje, kto odczytuje model.",
+  "El área de trabajo tiene más de 500 reportes o tableros: se muestran los primeros 500.": "Obszar roboczy zawiera ponad 500 raportów lub pulpitów nawigacyjnych: wyświetlono pierwsze 500.",
+  "El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.": "Indeks wyszukiwania {0} oryginału indeksuje także {1}: tutaj jest tworzony z częścią tej kolekcji.",
+  "Se leyeron los mosaicos de los primeros 100 tableros: los demás pueden leer este modelo y no aparecen.": "Odczytano kafelki pierwszych 100 pulpitów nawigacyjnych: pozostałe mogą odczytywać ten model i nie są widoczne.",
+  "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "połączenie „{0}” musi się najpierw nawiązać (otwórz je i spróbuj ponownie)",
+  "no se pudo abrir la conexión «{0}»: {1}": "nie można otworzyć połączenia „{0}”: {1}",
+  "no se pudo leer el modelo «{0}» de «{1}»: {2}": "nie można odczytać modelu „{0}” z „{1}”: {2}",
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "„{0}” zawiera ponad {1} modeli: odczytano pierwsze {2}"
 }

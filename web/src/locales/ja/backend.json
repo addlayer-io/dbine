@@ -106,7 +106,6 @@
   "-- BigQuery solo tiene índices vectoriales y de búsqueda: el índice {0} no se crea.": "-- BigQuery には検索インデックスとベクトルインデックスしかないため、インデックス {0} は作成されません。",
   "-- DBine · script de {0} · {1}\n\n": "-- DBine · {0} のスクリプト · {1}\n\n",
   "-- Ejecutalo con el modo de envío «Todo el texto de una vez»: el cuerpo lleva «;».\n": "-- 送信モード「全文を一度に」で実行してください。本文に「;」が含まれます。\n",
-  "-- El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.\n": "-- 元の検索インデックス {0} は {1} もインデックス化していました。ここではこのコレクション分だけで作成します。\n",
   "-- El índice local {0} solo se puede crear junto con la tabla (CREATE TABLE).": "-- ローカルインデックス {0} はテーブルと同時にのみ作成できます(CREATE TABLE)。",
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- ベクトルインデックスに距離の指定がないため、コサイン距離と DiskANN で作成します。",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- ベクトルインデックス {0} に距離の指定がありません: {1}。他のデータベース由来の場合、DBine はその設定を読み取れませんでした。インデックスの所有者であるか、SELECT_CATALOG_ROLE ロールが必要です。",
@@ -19099,5 +19098,13 @@
   "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "最初の {0} 件の定義を読み込みました。残りについてはカタログに記録された依存関係のみ表示します",
   "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "最初の {0} 件の定義を読み込みました。残りはダイアグラムに線を追加しません",
   "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "スキーマ内の {0} 個のオブジェクトが VALID ではありません。Oracle はそれらの依存関係を一部しか記録していない可能性があります",
-  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: ベクトルインデックスはドキュメントで学習されますが、コレクションが新規のため、作成は遅延されます。ドキュメントの読み込み後に BUILD INDEX ON {1}({2}) で構築します。"
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: ベクトルインデックスはドキュメントで学習されますが、コレクションが新規のため、作成は遅延されます。ドキュメントの読み込み後に BUILD INDEX ON {1}({2}) で構築します。",
+  "Con los permisos de esta conexión no se pudieron leer los reportes y tableros del área de trabajo: el linaje no muestra quién lee el modelo.": "この接続の権限では、ワークスペースのレポートとダッシュボードを読み取れませんでした。リネージには、このモデルを読み取っているものが表示されません。",
+  "El área de trabajo tiene más de 500 reportes o tableros: se muestran los primeros 500.": "ワークスペースにレポートまたはダッシュボードが 500 件を超えています。先頭の 500 件を表示します。",
+  "El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.": "元の検索インデックス {0} は {1} もインデックス化していました。ここではこのコレクション分だけで作成します。",
+  "Se leyeron los mosaicos de los primeros 100 tableros: los demás pueden leer este modelo y no aparecen.": "先頭 100 件のダッシュボードのタイルを読み取りました。残りのダッシュボードはこのモデルを読み取っていても表示されません。",
+  "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "接続「{0}」は先に接続する必要があります (開いてからやり直してください)",
+  "no se pudo abrir la conexión «{0}»: {1}": "接続「{0}」を開けませんでした: {1}",
+  "no se pudo leer el modelo «{0}» de «{1}»: {2}": "「{1}」のモデル「{0}」を読み取れませんでした: {2}",
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "「{0}」にはモデルが {1} 件を超えています。先頭の {2} 件を読み取りました"
 }
