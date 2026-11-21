@@ -30,6 +30,7 @@ pub mod admin;
 pub mod auth;
 pub mod catalog;
 pub mod config;
+pub mod consumers;
 pub mod dax;
 pub mod definition;
 pub mod dependencies;
@@ -66,6 +67,9 @@ pub const ROLE: &str = "role";
 pub const PERSPECTIVE: &str = "perspective";
 /// A shared M expression or parameter.
 pub const EXPRESSION: &str = "expression";
+/// The semantic model itself, named as the database: the node the reports
+/// and dashboards that read it hang from in the lineage.
+pub const MODEL: &str = "model";
 
 pub fn drivers() -> Vec<Arc<dyn Driver>> {
     vec![Arc::new(PowerBiDriver { info: info() })]

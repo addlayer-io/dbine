@@ -116,7 +116,7 @@ impl Fake {
             configured_by: Some("john@contoso.com".into()),
             ..Default::default()
         };
-        Fake {
+        let f = Fake {
             settings: Settings::from_config(&config(true, &[])).unwrap(),
             model: Some(model.clone()),
             models: vec![model],
@@ -134,7 +134,11 @@ impl Fake {
             routes: Mutex::new(Vec::new()),
             requests: Mutex::new(Vec::new()),
             listings: 0,
-        }
+        };
+        // A workspace with no reports or dashboards, unless a test says
+        // otherwise ([`Fake::consumers`]).
+        f.consumers(&[], &[], &[]);
+        f
     }
 
     /// The model's owner on a connection that isn't read-only, whose token
@@ -148,6 +152,29 @@ impl Fake {
             m.is_refreshable = Some(true);
         }
         f
+    }
+
+    /// The workspace's reports and dashboards as the service lists them
+    /// (replacing any before), and each dashboard's tiles (`(dashboard id,
+    /// tiles)`).
+    pub fn consumers(&self, reports: &[Value], dashboards: &[Value], tiles: &[(&str, Vec<Value>)]) {
+        let g = GROUP;
+        let mut routes = self.routes.lock().unwrap();
+        routes.retain(|r| {
+            r.fabric
+                || !(r.path == format!("/groups/{g}/reports")
+                    || r.path == format!("/groups/{g}/dashboards")
+                    || r.path.starts_with(&format!("/groups/{g}/dashboards/")))
+        });
+        drop(routes);
+        let get = |path: String, v: Vec<Value>| {
+            self.route(Method::Get, &path, 200, serde_json::json!({ "value": v }))
+        };
+        get(format!("/groups/{g}/reports"), reports.to_vec());
+        get(format!("/groups/{g}/dashboards"), dashboards.to_vec());
+        for (id, t) in tiles {
+            get(format!("/groups/{g}/dashboards/{id}/tiles"), t.clone());
+        }
     }
 
     pub fn set_read_only(&mut self, read_only: bool) {
