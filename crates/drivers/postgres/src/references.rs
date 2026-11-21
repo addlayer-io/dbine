@@ -45,7 +45,7 @@ type Read = Option<(DependencyReport, bool)>;
 
 /// Variants whose `pg_depend` is PostgreSQL's, tested or a close fork: what
 /// it records for views, triggers and tables is all they use.
-fn trusts_catalog(v: Variant) -> bool {
+pub(crate) fn trusts_catalog(v: Variant) -> bool {
     matches!(
         v,
         Variant::Postgres
@@ -65,13 +65,13 @@ fn trusts_catalog(v: Variant) -> bool {
 }
 
 /// The five columns every query here answers, as [`pr::used`] takes them.
-fn row5(r: &SimpleQueryRow) -> [Option<String>; 5] {
+pub(crate) fn row5(r: &SimpleQueryRow) -> [Option<String>; 5] {
     ["kind", "sch", "name", "rel", "detail"].map(|c| cell(r, c))
 }
 
 /// A `p->'key'` property of RisingWave's `connector_props`, only when it's
 /// plaintext (a secret's reference is never read).
-fn rw_prop(keys: &[&str]) -> String {
+pub(crate) fn rw_prop(keys: &[&str]) -> String {
     let parts: Vec<String> = keys
         .iter()
         .map(|k| format!("CASE WHEN p->'{k}'->>'type' = 'plaintext' THEN p->'{k}'->>'value' END"))
@@ -106,7 +106,7 @@ pub(crate) fn cockroach_sql(schema: &str, name: &str) -> String {
 }
 
 /// Materialize's object type for a kind.
-fn mz_type(kind: &str) -> Option<&'static str> {
+pub(crate) fn mz_type(kind: &str) -> Option<&'static str> {
     Some(match kind {
         kinds::TABLE => "table",
         kinds::VIEW => "view",
@@ -278,7 +278,7 @@ impl PgSession {
         Ok(report)
     }
 
-    fn pg_catalog(&self) -> Catalog {
+    pub(crate) fn pg_catalog(&self) -> Catalog {
         Catalog {
             version: self.version,
             full: !matches!(self.variant, Variant::Redshift | Variant::Yellowbrick),

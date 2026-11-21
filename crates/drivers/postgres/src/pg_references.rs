@@ -39,24 +39,24 @@ pub(crate) struct Catalog {
 }
 
 impl Catalog {
-    fn policies(self) -> bool {
+    pub(crate) fn policies(self) -> bool {
         self.full && self.version >= 90500
     }
 
-    fn foreign_tables(self) -> bool {
+    pub(crate) fn foreign_tables(self) -> bool {
         self.full && self.version >= 90100
     }
 
-    fn generated(self) -> bool {
+    pub(crate) fn generated(self) -> bool {
         self.full && self.version >= 120000
     }
 
-    fn prokind(self) -> bool {
+    pub(crate) fn prokind(self) -> bool {
         self.version >= 110000
     }
 
     /// `p.prokind` as the explorer's kind.
-    fn routine_kind(self) -> &'static str {
+    pub(crate) fn routine_kind(self) -> &'static str {
         if self.prokind() {
             "CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END"
         } else {
