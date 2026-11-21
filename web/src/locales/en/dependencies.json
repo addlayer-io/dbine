@@ -47,7 +47,12 @@
     "synonym": "Synonym",
     "type": "Type",
     "sequence": "Sequence",
-    "job": "Job"
+    "job": "Job",
+    "schema": "Schema",
+    "measure": "Measure",
+    "calculation_group": "Calculation group",
+    "role": "Role",
+    "expression": "Expression"
   },
   "view": {
     "label": "View",
@@ -71,5 +76,32 @@
     "title": "Server jobs that run it",
     "steps": "Steps: {{steps}}",
     "open": "Open the job"
+  },
+  "database": {
+    "tab": "Lineage",
+    "noSchema": "(no schema)",
+    "loading": "Reading the dependencies…",
+    "error": "Could not read the lineage: {{error}}",
+    "retry": "Retry",
+    "ask": {
+      "text": "This engine has no dependency query in its catalog: to draw the lineage, the definitions of the database's views, routines and triggers have to be read and searched for the objects they name. On a large database it can take a while.",
+      "button": "Analyze"
+    },
+    "search": "Filter by name",
+    "kinds": "Kinds",
+    "onlyConfirmed": "Only confirmed",
+    "onlyConnected": "Only with dependencies",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all",
+    "expand": "Expand the schema",
+    "collapse": "Collapse the schema",
+    "members": "Objects: {{count}}",
+    "weight": "Dependencies: {{count}}",
+    "summary": "{{objects}} objects, {{lines}} dependencies, {{scanned}} definitions read.",
+    "overview": "The database has {{objects}} objects in {{schemas}} schemas: an overview by schema is shown, and each line's thickness is the number of dependencies crossing it. A click on a schema shows its detail and a double click expands it.",
+    "truncated": "The database has more objects than were read, so the diagram is incomplete. Open the lineage of a schema or a kind to see it whole.",
+    "hidden": "The diagram shows only the first cards: {{hidden}} objects are missing. Collapse a schema or use the filters.",
+    "empty": "There are no objects to draw in this scope.",
+    "noMatch": "No object matches the filters."
   }
 }
