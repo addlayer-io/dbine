@@ -51,7 +51,7 @@ test('a repeated line keeps the surest confidence; an edge to an unlisted object
 
 test('filters: kind, text with neighbours, only confirmed, only connected', () => {
   const model = m.buildModel(graph());
-  const none = m.noFilters();
+  const none = { ...m.noFilters(), relations: true };
   assert.equal(m.applyFilters(model, none).nodes.length, 6);
   assert.deepEqual(m.kindsOf(model.nodes.values()), ['external', 'job', 'table', 'view']);
 
@@ -122,7 +122,7 @@ test('schemas and the engines that load a catalog query at once', () => {
 
 test('layout: used to the left of its users, isolated objects in columns at the left', () => {
   const model = m.buildModel(graph());
-  const { nodes, edges } = m.applyFilters(model, m.noFilters());
+  const { nodes, edges } = m.applyFilters(model, { ...m.noFilters(), relations: true });
   const v = m.buildView(nodes, edges, new Set(m.schemasOf(nodes)));
   const p = m.layoutDb(v.lineage, 214, 46);
   assert.equal(p.pos.size, v.lineage.nodes.size);
@@ -148,4 +148,21 @@ test('layout of a lone graph with no lines still has bounds', () => {
   const p = m.layoutDb(v.lineage, 214, 46);
   assert.equal(p.pos.size, 4);
   assert.ok(p.bounds.width >= 214);
+});
+
+test('relations (foreign keys) start hidden, so the lineage shows alone, and come back with the switch', () => {
+  const model = m.buildModel(graph());
+  const fk = (e) => e.relation === 'foreign_key';
+  assert.equal(m.noFilters().relations, false);
+  // Hidden: only the lineage lines, whatever the other filters say.
+  const lineage = m.applyFilters(model, m.noFilters());
+  assert.ok(lineage.edges.length > 0 && !lineage.edges.some(fk));
+  // On: the foreign key is there along with them, and nothing else changes.
+  const both = m.applyFilters(model, { ...m.noFilters(), relations: true });
+  assert.equal(both.edges.filter(fk).length, 1);
+  assert.equal(both.edges.length, lineage.edges.length + 1);
+  // A table that only a foreign key linked is a card with no line now.
+  const only = m.applyFilters(m.buildModel(graph({ edges: [edge(o('table', 'dbo', 'Clientes'), o('table', 'dbo', 'Pedidos'), 'confirmed', 'foreign_key')] })), { ...m.noFilters(), onlyConnected: true });
+  assert.ok(!only.nodes.some((n) => n.name === 'Pedidos'));
+  assert.ok(m.isRelation({ relation: 'foreign_key' }) && !m.isRelation({ relation: 'code' }));
 });

@@ -102,6 +102,8 @@
     "truncated": "Il database ha più oggetti di quelli letti, quindi il diagramma è incompleto. Apri il lineage di uno schema o di un tipo per vederlo per intero.",
     "hidden": "Il diagramma mostra solo le prime schede: mancano {{hidden}} oggetti. Comprimi uno schema o usa i filtri.",
     "empty": "Non ci sono oggetti da disegnare con questo ambito.",
-    "noMatch": "Nessun oggetto soddisfa i filtri."
+    "noMatch": "Nessun oggetto soddisfa i filtri.",
+    "relations": "Relazioni ({{count}})",
+    "relationsTip": "Le chiavi esterne (e le relazioni di un modello) corrono in parallelo al lineage: attivale per vederle accanto ad esso."
   }
 }

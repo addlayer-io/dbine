@@ -16,7 +16,7 @@ import { useTabsStore } from '../stores/tabs';
 import { KIND_ICONS } from '../composables/kindIcons';
 import type { LineageNode } from '../composables/lineage';
 import {
-  OVERVIEW_ABOVE, applyFilters, buildModel, buildView, groupOf, hasCatalogLineage, kindsOf, layoutDb, noFilters, objectCount, schemaId, schemasOf,
+  OVERVIEW_ABOVE, applyFilters, buildModel, buildView, groupOf, hasCatalogLineage, isRelation, kindsOf, layoutDb, noFilters, objectCount, schemaId, schemasOf,
   type DbModel, type Filters,
 } from '../composables/databaseLineage';
 import LineageCanvas from './LineageCanvas.vue';
@@ -145,6 +145,7 @@ const scopeText = computed(() => {
 const summary = computed(() => t('dependencies:database.summary', {
   objects: objects.value, lines: model.value?.edges.length ?? 0, scanned: model.value?.scanned ?? 0,
 }));
+const relationCount = computed(() => (model.value?.edges ?? []).filter(isRelation).length);
 const filtering = computed(() => !!(filters.value.kinds.length || filters.value.text || filters.value.onlyConfirmed || filters.value.onlyConnected));
 </script>
 
@@ -177,6 +178,9 @@ const filtering = computed(() => !!(filters.value.kinds.length || filters.value.
         </el-select>
         <el-checkbox v-model="filters.onlyConfirmed" size="small">{{ $t('dependencies:database.onlyConfirmed') }}</el-checkbox>
         <el-checkbox v-model="filters.onlyConnected" size="small">{{ $t('dependencies:database.onlyConnected') }}</el-checkbox>
+        <el-tooltip :content="$t('dependencies:database.relationsTip')" placement="bottom" :show-after="300">
+          <el-checkbox v-model="filters.relations" size="small">{{ $t('dependencies:database.relations', { count: relationCount }) }}</el-checkbox>
+        </el-tooltip>
         <el-button v-if="schemas.length > 1" size="small" @click="setAll(!allExpanded)">{{ allExpanded ? $t('dependencies:database.collapseAll') : $t('dependencies:database.expandAll') }}</el-button>
         <span class="dl-legend"><i class="dl-key solid" />{{ $t('dependencies:confidence.confirmed') }}</span>
         <span class="dl-legend"><i class="dl-key dashed" />{{ $t('dependencies:confidence.probable') }}</span>
