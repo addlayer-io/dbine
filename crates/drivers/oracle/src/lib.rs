@@ -25,6 +25,7 @@ mod functions;
 mod health;
 mod index_usage;
 mod jobs;
+mod lineage;
 mod monitor;
 mod objects_page;
 mod permissions;
@@ -1962,6 +1963,17 @@ impl Session for OracleSession {
         scan: &dbine_driver::DependencyScan,
     ) -> Result<dbine_driver::DependencyReport> {
         self.references_impl(target, scan).await
+    }
+
+    /// The whole schema's lineage from ALL_DEPENDENCIES, the foreign keys
+    /// and ALL_SYNONYMS (see `lineage`).
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &dbine_driver::dependencies::LineageScope,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::dependencies::LineageGraph> {
+        self.lineage_graph_impl(database, scope, scan).await
     }
 
     /// ALL_TABLES.NUM_ROWS, the optimizer statistics (see `stats`).
