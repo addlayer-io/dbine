@@ -19110,5 +19110,8 @@
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": "この接続のサインインには、レポートとダッシュボードを読み取る権限がありません",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": "この接続のサインインには、レポートとダッシュボードを読み取る権限がありません（Report.Read.All と Dashboard.Read.All）。リネージには、誰がモデルを読み取っているかが表示されません。これらの権限で再度サインインするか、別の Microsoft クライアントを使用してください。トークンの権限：{0}。",
   "no se pudieron leer": "読み取れませんでした",
-  "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI がトークンを受け付けませんでした（HTTP 401）。もう一度サインインしてください。"
+  "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI がトークンを受け付けませんでした（HTTP 401）。もう一度サインインしてください。",
+  "no existe la conexión interna '{0}'": "内部接続「{0}」は存在しません",
+  "hay varias conexiones que coinciden: elegí una": "一致する接続が複数あります。1 つ選んでください",
+  "la fuente no es un servidor al que DBine pueda conectarse": "このソースは DBine が接続できるサーバーではありません"
 }

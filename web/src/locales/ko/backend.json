@@ -19110,5 +19110,8 @@
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": "이 연결의 로그인에는 보고서와 대시보드를 읽을 권한이 없습니다",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": "이 연결의 로그인에는 보고서와 대시보드를 읽을 권한이 없습니다 (Report.Read.All 및 Dashboard.Read.All): 계보에 모델을 읽는 사용자가 표시되지 않습니다. 해당 권한으로 다시 로그인하거나 다른 Microsoft 클라이언트를 사용하세요. 토큰 권한: {0}.",
   "no se pudieron leer": "읽을 수 없음",
-  "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI가 토큰을 수락하지 않았습니다(HTTP 401). 다시 로그인하세요."
+  "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI가 토큰을 수락하지 않았습니다(HTTP 401). 다시 로그인하세요.",
+  "no existe la conexión interna '{0}'": "내부 연결 '{0}'이(가) 없습니다",
+  "hay varias conexiones que coinciden: elegí una": "일치하는 연결이 여러 개입니다. 하나를 선택하세요",
+  "la fuente no es un servidor al que DBine pueda conectarse": "이 원본은 DBine이 연결할 수 있는 서버가 아닙니다"
 }

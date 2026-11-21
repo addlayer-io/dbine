@@ -119,7 +119,8 @@
     "via": {
       "link": "von Ihnen verknüpft",
       "auto": "stimmt nach Server und Datenbank überein",
-      "enterprise": "aus DBine Enterprise"
+      "enterprise": "aus DBine Enterprise",
+      "internal": "interne Lineage-Verbindung"
     },
     "reader": "Dieses Power-BI-Element liest das Objekt.",
     "openLink": "In Power BI öffnen",
@@ -130,12 +131,32 @@
     "many": "Mehrere Verbindungen passen zu dieser Quelle. Wählen Sie eine aus: Beim nächsten Mal wird dieselbe verwendet.",
     "pick": "Verbindung",
     "remembered": "Die Auswahl wird gemerkt; „Verknüpfung aufheben“ entfernt sie.",
-    "none": "Keine gespeicherte Verbindung passt zu dieser Quelle.",
     "create": "Mit der Quelle verbinden",
-    "userPrompt": "Benutzer für die Verbindung mit {{source}}. Die Verbindung ist temporär und schreibgeschützt: Sie wird nicht gespeichert.",
     "notFound": "Dieses Objekt wurde in {{name}} nicht gefunden.",
     "badge": "Verbindung: {{name}}",
     "report": "Power-BI-Bericht",
-    "dashboard": "Power-BI-Dashboard"
+    "dashboard": "Power-BI-Dashboard",
+    "loginIntro": "Um die Lineage anzuzeigen, müssen Sie sich mit {{source}} verbinden. Die Verbindung ist schreibgeschützt.",
+    "user": "Benutzer",
+    "password": "Passwort",
+    "remember": "Auf diesem Computer merken",
+    "loginNote": "Die Verbindung ist intern für die Lineage und erscheint nicht im Explorer. Das Passwort wird nur im Systemschlüsselbund gespeichert, wenn das Kontrollkästchen aktiviert bleibt.",
+    "connecting": "Verbindung mit der Quelle wird hergestellt …",
+    "cantConnect": "Verbindung mit {{name}} nicht möglich.",
+    "noServer": "Diese Quelle ist kein Server, mit dem sich DBine verbinden kann."
+  },
+  "sources": {
+    "nav": "Lineage-Quellen",
+    "title": "Lineage-Quellen",
+    "intro": "Verbindungen, die die Lineage selbstständig aufgebaut hat, um einer Quelle bis zu einer anderen Datenbank zu folgen (zum Beispiel die SQL-Server-Tabelle, die ein Power-BI-Modell liest). Sie erscheinen nicht im Explorer. Sie können sie vergessen oder als normale Verbindungen zum Explorer hinzufügen; diese bleiben schreibgeschützt.",
+    "none": "Noch keine vorhanden: Sie werden beim Verfolgen einer Lineage-Quelle angelegt.",
+    "remembered": "Passwort auf diesem Computer gespeichert",
+    "notRemembered": "Kein Passwort gespeichert: Es wird bei jeder Sitzung abgefragt",
+    "addToExplorer": "Zum Explorer hinzufügen",
+    "forget": "Vergessen",
+    "forgetConfirm": "Die Verbindung „{{name}}“ und ihr gespeichertes Passwort werden gelöscht. Die Lineage fragt es beim nächsten Verfolgen dieser Quelle erneut ab.",
+    "forgotten": "Verbindung vergessen.",
+    "added": "„{{name}}“ ist jetzt im Explorer.",
+    "internalNote": "Interne Lineage-Verbindung: „{{name}}“ ist nicht im Explorer."
   }
 }

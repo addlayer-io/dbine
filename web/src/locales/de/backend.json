@@ -19110,5 +19110,8 @@
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": "Die Anmeldung dieser Verbindung hat keine Berechtigung zum Lesen von Berichten und Dashboards",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": "Die Anmeldung dieser Verbindung hat keine Berechtigung zum Lesen von Berichten und Dashboards (Report.Read.All und Dashboard.Read.All): Die Lineage zeigt nicht, wer das Modell liest. Melden Sie sich erneut mit diesen Berechtigungen an oder verwenden Sie einen anderen Microsoft-Client. Berechtigungen des Tokens: {0}.",
   "no se pudieron leer": "konnten nicht gelesen werden",
-  "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI hat das Token nicht akzeptiert (HTTP 401): Melden Sie sich erneut an."
+  "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI hat das Token nicht akzeptiert (HTTP 401): Melden Sie sich erneut an.",
+  "no existe la conexión interna '{0}'": "die interne Verbindung '{0}' existiert nicht",
+  "hay varias conexiones que coinciden: elegí una": "mehrere Verbindungen passen: Wählen Sie eine aus",
+  "la fuente no es un servidor al que DBine pueda conectarse": "die Quelle ist kein Server, mit dem sich DBine verbinden kann"
 }

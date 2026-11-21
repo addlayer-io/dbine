@@ -119,7 +119,8 @@
     "via": {
       "link": "ditautkan oleh Anda",
       "auto": "cocok berdasarkan server dan basis data",
-      "enterprise": "dari DBine Enterprise"
+      "enterprise": "dari DBine Enterprise",
+      "internal": "koneksi internal lineage"
     },
     "reader": "Item Power BI ini membaca objek tersebut.",
     "openLink": "Buka di Power BI",
@@ -130,12 +131,32 @@
     "many": "Beberapa koneksi cocok dengan sumber ini. Pilih salah satu: lain kali koneksi yang sama akan dipakai.",
     "pick": "Koneksi",
     "remembered": "Pilihan diingat; \"Putuskan tautan\" menghapusnya.",
-    "none": "Tidak ada koneksi tersimpan yang cocok dengan sumber ini.",
     "create": "Hubungkan ke sumber",
-    "userPrompt": "Pengguna untuk terhubung ke {{source}}. Koneksi bersifat sementara dan hanya-baca: tidak disimpan.",
     "notFound": "Objek ini tidak ditemukan di {{name}}.",
     "badge": "Koneksi: {{name}}",
     "report": "Laporan Power BI",
-    "dashboard": "Dasbor Power BI"
+    "dashboard": "Dasbor Power BI",
+    "loginIntro": "Untuk melihat lineage-nya, perlu terhubung ke {{source}}. Koneksi ini hanya-baca.",
+    "user": "Pengguna",
+    "password": "Kata sandi",
+    "remember": "Ingat di komputer ini",
+    "loginNote": "Koneksi ini internal untuk lineage dan tidak muncul di penjelajah. Kata sandi disimpan di keychain sistem hanya jika kotak centang dibiarkan terpilih.",
+    "connecting": "Menghubungkan ke sumber…",
+    "cantConnect": "Tidak dapat terhubung ke {{name}}.",
+    "noServer": "Sumber ini bukan server yang dapat dihubungi DBine."
+  },
+  "sources": {
+    "nav": "Sumber lineage",
+    "title": "Sumber lineage",
+    "intro": "Koneksi yang dibuat lineage sendiri untuk menelusuri suatu sumber hingga ke basis data lain (misalnya, tabel SQL Server yang dibaca model Power BI). Koneksi ini tidak muncul di penjelajah. Anda dapat melupakannya atau menambahkannya ke penjelajah sebagai koneksi biasa, yang tetap hanya-baca.",
+    "none": "Belum ada: dibuat saat menelusuri sumber lineage.",
+    "remembered": "Kata sandi diingat di komputer ini",
+    "notRemembered": "Kata sandi tidak diingat: diminta di setiap sesi",
+    "addToExplorer": "Tambahkan ke penjelajah",
+    "forget": "Lupakan",
+    "forgetConfirm": "Koneksi \"{{name}}\" dan kata sandinya yang diingat akan dihapus. Lineage akan memintanya lagi saat menelusuri sumber itu berikutnya.",
+    "forgotten": "Koneksi dilupakan.",
+    "added": "\"{{name}}\" sudah ada di penjelajah.",
+    "internalNote": "Koneksi internal lineage: \"{{name}}\" tidak ada di penjelajah."
   }
 }

@@ -119,7 +119,8 @@
     "via": {
       "link": "powiązane przez Ciebie",
       "auto": "zgodne według serwera i bazy danych",
-      "enterprise": "z DBine Enterprise"
+      "enterprise": "z DBine Enterprise",
+      "internal": "wewnętrzne połączenie lineage"
     },
     "reader": "Ten element Power BI odczytuje obiekt.",
     "openLink": "Otwórz w Power BI",
@@ -130,12 +131,32 @@
     "many": "Do tego źródła pasuje kilka połączeń. Wybierz jedno: następnym razem zostanie użyte to samo.",
     "pick": "Połączenie",
     "remembered": "Wybór jest zapamiętywany; „Odłącz” go usuwa.",
-    "none": "Żadne zapisane połączenie nie pasuje do tego źródła.",
     "create": "Połącz ze źródłem",
-    "userPrompt": "Użytkownik do połączenia z {{source}}. Połączenie jest tymczasowe i tylko do odczytu: nie jest zapisywane.",
     "notFound": "Nie znaleziono tego obiektu w {{name}}.",
     "badge": "Połączenie: {{name}}",
     "report": "Raport Power BI",
-    "dashboard": "Pulpit nawigacyjny Power BI"
+    "dashboard": "Pulpit nawigacyjny Power BI",
+    "loginIntro": "Aby zobaczyć lineage, trzeba połączyć się z {{source}}. Połączenie jest tylko do odczytu.",
+    "user": "Użytkownik",
+    "password": "Hasło",
+    "remember": "Zapamiętaj na tym komputerze",
+    "loginNote": "Połączenie jest wewnętrzne dla lineage i nie pojawia się w eksploratorze. Hasło jest zapisywane w pęku kluczy systemu tylko wtedy, gdy pole pozostanie zaznaczone.",
+    "connecting": "Łączenie ze źródłem…",
+    "cantConnect": "Nie można połączyć się z {{name}}.",
+    "noServer": "To źródło nie jest serwerem, z którym DBine może się połączyć."
+  },
+  "sources": {
+    "nav": "Źródła lineage",
+    "title": "Źródła lineage",
+    "intro": "Połączenia, które lineage utworzyło samodzielnie, aby śledzić źródło do innej bazy (na przykład tabelę SQL Server odczytywaną przez model Power BI). Nie pojawiają się w eksploratorze. Można je usunąć z pamięci lub dodać do eksploratora jako zwykłe połączenia, które nadal są tylko do odczytu.",
+    "none": "Na razie brak: są tworzone podczas śledzenia źródła lineage.",
+    "remembered": "Hasło zapamiętane na tym komputerze",
+    "notRemembered": "Brak zapamiętanego hasła: jest wymagane w każdej sesji",
+    "addToExplorer": "Dodaj do eksploratora",
+    "forget": "Zapomnij",
+    "forgetConfirm": "Połączenie „{{name}}” i jego zapamiętane hasło zostaną usunięte. Lineage zapyta o nie ponownie przy następnym śledzeniu tego źródła.",
+    "forgotten": "Połączenie zapomniane.",
+    "added": "„{{name}}” jest już w eksploratorze.",
+    "internalNote": "Wewnętrzne połączenie lineage: „{{name}}” nie ma w eksploratorze."
   }
 }

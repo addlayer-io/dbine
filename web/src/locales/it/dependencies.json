@@ -119,7 +119,8 @@
     "via": {
       "link": "collegata da te",
       "auto": "corrisponde per server e database",
-      "enterprise": "di DBine Enterprise"
+      "enterprise": "di DBine Enterprise",
+      "internal": "connessione interna del lineage"
     },
     "reader": "Questo elemento di Power BI legge l'oggetto.",
     "openLink": "Apri in Power BI",
@@ -130,12 +131,32 @@
     "many": "Più connessioni corrispondono a questa origine. Sceglierne una: la volta successiva verrà usata la stessa.",
     "pick": "Connessione",
     "remembered": "La scelta viene ricordata; «Scollega» la rimuove.",
-    "none": "Nessuna connessione salvata corrisponde a questa origine.",
     "create": "Connetti all'origine",
-    "userPrompt": "Utente per connettersi a {{source}}. La connessione è temporanea e di sola lettura: non viene salvata.",
     "notFound": "Questo oggetto non è stato trovato in {{name}}.",
     "badge": "Connessione: {{name}}",
     "report": "Report di Power BI",
-    "dashboard": "Dashboard di Power BI"
+    "dashboard": "Dashboard di Power BI",
+    "loginIntro": "Per vedere il suo lineage bisogna connettersi a {{source}}. La connessione è di sola lettura.",
+    "user": "Utente",
+    "password": "Password",
+    "remember": "Ricorda su questo computer",
+    "loginNote": "La connessione è interna al lineage e non compare nell'esplora risorse. La password viene salvata nel portachiavi di sistema solo se lasci selezionata la casella.",
+    "connecting": "Connessione all'origine…",
+    "cantConnect": "Impossibile connettersi a {{name}}.",
+    "noServer": "Questa origine non è un server a cui DBine possa connettersi."
+  },
+  "sources": {
+    "nav": "Origini del lineage",
+    "title": "Origini del lineage",
+    "intro": "Connessioni che il lineage ha creato da solo per seguire un'origine fino a un altro database (ad esempio, la tabella di SQL Server letta da un modello di Power BI). Non compaiono nell'esplora risorse. Puoi dimenticarle o aggiungerle all'esplora risorse come connessioni normali, che restano di sola lettura.",
+    "none": "Non ce n'è ancora nessuna: vengono create seguendo un'origine del lineage.",
+    "remembered": "Password ricordata su questo computer",
+    "notRemembered": "Nessuna password ricordata: viene richiesta a ogni sessione",
+    "addToExplorer": "Aggiungi all'esplora risorse",
+    "forget": "Dimentica",
+    "forgetConfirm": "La connessione «{{name}}» e la sua password ricordata verranno eliminate. Il lineage la richiederà di nuovo la prossima volta che seguirà quell'origine.",
+    "forgotten": "Connessione dimenticata.",
+    "added": "«{{name}}» è ora nell'esplora risorse.",
+    "internalNote": "Connessione interna del lineage: «{{name}}» non è nell'esplora risorse."
   }
 }

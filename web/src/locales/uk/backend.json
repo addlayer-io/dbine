@@ -19110,5 +19110,8 @@
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": "Вхід цього підключення не має дозволу на читання звітів і дашбордів",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": "Вхід цього підключення не має дозволу на читання звітів і дашбордів (Report.Read.All і Dashboard.Read.All): lineage не показує, хто читає модель. Увійдіть знову з цими дозволами або скористайтеся іншим клієнтом Microsoft. Дозволи токена: {0}.",
   "no se pudieron leer": "не вдалося прочитати",
-  "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI не прийняв токен (HTTP 401): увійдіть знову."
+  "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI не прийняв токен (HTTP 401): увійдіть знову.",
+  "no existe la conexión interna '{0}'": "внутрішнього підключення '{0}' не існує",
+  "hay varias conexiones que coinciden: elegí una": "збігається кілька підключень: виберіть одне",
+  "la fuente no es un servidor al que DBine pueda conectarse": "джерело не є сервером, до якого DBine може підключитися"
 }
