@@ -26,6 +26,8 @@ export interface LineageNode {
   jobId?: string;
   jobKind?: string;
   root?: boolean;
+  /** A schema's card in the database lineage's overview: how many objects it holds. */
+  members?: number;
   /** What it uses (to the left). */
   up: SideState;
   /** What uses it (to the right). */
@@ -43,6 +45,8 @@ export interface LineageEdge {
   detail?: string | null;
   /** The lines of `to`'s source (or `from`'s, for what uses it) that name the other. */
   mentions: Mention[];
+  /** The database lineage's overview: how many dependencies this line stands for. */
+  weight?: number;
 }
 
 export interface Lineage {

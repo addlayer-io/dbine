@@ -224,7 +224,7 @@ fn dep_row(r: &Row) -> Result<DepRow> {
 /// Every link this user may see: DBA_DB_LINKS with the privilege, else
 /// ALL_DB_LINKS. Empty when neither can be read (the link's name stands
 /// for its server then).
-fn read_links(c: &Connection) -> Vec<LinkRow> {
+pub(crate) fn read_links(c: &Connection) -> Vec<LinkRow> {
     let read = |view: &str| -> Result<Vec<LinkRow>> {
         let mut out = Vec::new();
         for r in c
@@ -339,7 +339,7 @@ pub(crate) fn ref_kind(ty: &str, mview: bool) -> Option<&'static str> {
 }
 
 /// An owner as the explorer shows it: none for the session's schema.
-fn schema_of(owner: &str, session: &str) -> Option<String> {
+pub(crate) fn schema_of(owner: &str, session: &str) -> Option<String> {
     (!owner.is_empty() && owner != session).then(|| owner.to_string())
 }
 
@@ -402,7 +402,7 @@ pub(crate) fn remote_place(host: &str) -> (String, Option<String>) {
 }
 
 /// An object read through a database link.
-fn linked(
+pub(crate) fn linked(
     links: &[LinkRow],
     link: &str,
     referencing_owner: &str,

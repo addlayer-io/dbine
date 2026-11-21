@@ -2038,6 +2038,17 @@ impl Session for PgSession {
         self.references_impl(target, scan).await
     }
 
+    /// The lineage of the whole database from the dependency catalog of
+    /// each variant (see `lineage`).
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &dbine_driver::dependencies::LineageScope,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::dependencies::LineageGraph> {
+        self.lineage_impl(database, scope, scan).await
+    }
+
     /// "Buscar en la base" from the catalog (see `search`).
     async fn search_code(
         &mut self,

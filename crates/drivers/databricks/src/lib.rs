@@ -21,6 +21,7 @@ mod functions;
 mod health;
 mod index_usage;
 mod jobs;
+mod lineage;
 mod monitor;
 mod paging;
 mod permissions;
@@ -1191,6 +1192,17 @@ impl Session for DatabricksSession {
         scan: &dbine_driver::DependencyScan,
     ) -> Result<dbine_driver::DependencyReport> {
         self.references_of(target, scan).await
+    }
+
+    /// The whole catalog's lineage: Unity Catalog's `table_lineage` in one
+    /// query, and the definitions' code (see `lineage`).
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &dbine_driver::dependencies::LineageScope,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::dependencies::LineageGraph> {
+        self.lineage_of(database, scope, scan).await
     }
 
     async fn index_usage(

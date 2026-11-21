@@ -15,7 +15,12 @@
 //! `Review` when the name only shows inside a string (dynamic SQL), so
 //! nobody can tell without reading it. Comments never count.
 
+mod graph;
 mod job_scan;
+pub use graph::{
+    graph_scan, LineageEdge, LineageExternal, LineageGraph, LineageJob, LineageScope,
+    GRAPH_DEFINITIONS, GRAPH_OBJECTS,
+};
 pub use job_scan::{job_dependents_scan, job_hit, job_references_scan, merge_jobs, JOBS_READ};
 
 use crate::info::DriverInfo;

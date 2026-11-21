@@ -3,7 +3,7 @@ import { watch } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api/client';
-import type { ObjectRef, ProjectTarget, SavedQuery } from '../api/types';
+import type { LineageScope, ObjectRef, ProjectTarget, SavedQuery } from '../api/types';
 import { emptySpec, type QuerySpec } from '../api/queryBuilder';
 import { t as tr } from '../i18n';
 import { readJson, writeJson } from './storage';
@@ -172,6 +172,9 @@ export interface DependenciesTab extends TabBase {
   view?: 'list' | 'lineage';
   /** A server job's lineage (`object.kind` "job"): its id, for the jobs calls. */
   jobId?: string | null;
+  /** The lineage of a whole database, a schema or a kind's folder ("Linaje"): the
+   *  part it draws (`object` is then the database). */
+  scope?: LineageScope;
 }
 
 /** "Salud · <base>": the database's health check. */
@@ -768,6 +771,20 @@ export const useTabsStore = defineStore('tabs', {
         return this.activate(open.id);
       }
       this.place({ id: newId(), kind: 'dependencies', connectionId, database, object, column, view, jobId, preview: false });
+    },
+
+    /** The "Linaje" tab of a database, a schema or a kind's folder (`scope`), one per part. */
+    openDatabaseLineage(connectionId: string, database: string, scope: LineageScope = {}) {
+      const key = JSON.stringify([scope.schemas ?? [], scope.kinds ?? []]);
+      const open = this.tabs.find(
+        (t) => t.kind === 'dependencies' && t.scope && t.connectionId === connectionId && t.database === database &&
+          JSON.stringify([t.scope.schemas ?? [], t.scope.kinds ?? []]) === key,
+      );
+      if (open) return this.activate(open.id);
+      this.place({
+        id: newId(), kind: 'dependencies', connectionId, database, object: { kind: 'database', schema: null, name: database },
+        column: null, view: 'lineage', scope, preview: false,
+      });
     },
 
     /** A database's "Chequeo de salud" tab, one per database. */

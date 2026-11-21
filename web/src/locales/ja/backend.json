@@ -119,7 +119,6 @@
   "-- Restaurar {0} desde un backup\n": "-- バックアップから {0} を復元\n",
   "-- Unity Catalog no tiene WITH GRANT OPTION: para que pueda otorgar permisos sobre el objeto, otorgale MANAGE.\n{0}": "-- Unity Catalog には WITH GRANT OPTION がありません。オブジェクトに対する権限を付与できるようにするには、MANAGE を付与してください。\n{0}",
   "-- ksqlDB reemplaza el valor completo de la clave: las columnas que no figuran quedan en NULL.": "-- ksqlDB はキーの値全体を置き換えます。記載のない列は NULL になります。",
-  "-- {0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "-- {0}: ベクトルインデックスはドキュメントで学習され、コレクションは新規のため、遅延作成されます。ドキュメントの読み込み後に BUILD INDEX ON {1}({2}) で構築します。",
   "-- Índice vectorial {0} omitido: {1}.": "-- ベクトルインデックス {0} をスキップしました: {1}。",
   "-- Índice vectorial: SQL Server 2025 lo crea con ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, y mientras exista el índice, la tabla no admite INSERT, UPDATE ni DELETE.": "-- ベクトルインデックス: SQL Server 2025 は ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON で作成します。インデックスがある間、テーブルは INSERT、UPDATE、DELETE を受け付けません。",
   "-- Índice {0} ({1}) omitido: se crea a mano.": "-- インデックス {0}({1})はスキップされました。手動で作成してください。",
@@ -19093,5 +19092,12 @@
   "Snowflake stage": "Snowflake stage",
   "Timeplus": "Timeplus",
   "no se pudieron leer los jobs del servidor: {0}": "サーバーのジョブを読み取れませんでした：{0}",
-  "se leyeron los primeros {0} jobs del servidor, de {1}": "サーバーの {1} 件のジョブのうち、最初の {0} 件だけを読み取りました"
+  "se leyeron los primeros {0} jobs del servidor, de {1}": "サーバーの {1} 件のジョブのうち、最初の {0} 件だけを読み取りました",
+  "El linaje de Unity Catalog (system.access.table_lineage) no está disponible para este usuario o catálogo (hace falta SELECT sobre esa tabla del sistema y un catálogo de Unity Catalog): las líneas salen de las definiciones, sin confirmar.": "Unity Catalog のリネージ（system.access.table_lineage）はこのユーザーまたはカタログでは利用できません（そのシステムテーブルへの SELECT 権限と Unity Catalog のカタログが必要です）。線は定義から作成されており、未確認です。",
+  "No se pudo leer SYS.OBJECT_DEPENDENCIES ni SYS.REFERENTIAL_CONSTRAINTS: {0}": "SYS.OBJECT_DEPENDENCIES と SYS.REFERENTIAL_CONSTRAINTS を読み込めませんでした: {0}",
+  "No se pudo leer el catálogo de dependencias (SYSCAT): {0}": "依存関係カタログ（SYSCAT）を読み込めませんでした: {0}",
+  "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "最初の {0} 件の定義を読み込みました。残りについてはカタログに記録された依存関係のみ表示します",
+  "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "最初の {0} 件の定義を読み込みました。残りはダイアグラムに線を追加しません",
+  "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "スキーマ内の {0} 個のオブジェクトが VALID ではありません。Oracle はそれらの依存関係を一部しか記録していない可能性があります",
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: ベクトルインデックスはドキュメントで学習されますが、コレクションが新規のため、作成は遅延されます。ドキュメントの読み込み後に BUILD INDEX ON {1}({2}) で構築します。"
 }

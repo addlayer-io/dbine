@@ -2634,6 +2634,31 @@ impl Session for RemoteSession {
             Ok(_) => Err(unexpected()),
         }
     }
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &dbine_driver::dependencies::LineageScope,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::dependencies::LineageGraph> {
+        match self
+            .host
+            .call(Call::LineageGraph {
+                session: self.id,
+                database: database.to_string(),
+                scope: scope.clone(),
+                scan: scan.clone(),
+            })
+            .await
+        {
+            Ok(Reply::LineageGraph(r)) => Ok(r),
+            // A host built before the call: the generic scan, through its other calls.
+            Err(Error::Unsupported(_)) => {
+                dbine_driver::dependencies::graph_scan(self, database, scope, scan).await
+            }
+            Err(e) => Err(e),
+            Ok(_) => Err(unexpected()),
+        }
+    }
     async fn job_references(
         &mut self,
         database: &str,

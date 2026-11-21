@@ -47,7 +47,12 @@
     "synonym": "Synonim",
     "type": "Typ",
     "sequence": "Sekwencja",
-    "job": "Zadanie"
+    "job": "Zadanie",
+    "schema": "Schemat",
+    "measure": "Miara",
+    "calculation_group": "Grupa obliczeń",
+    "role": "Rola",
+    "expression": "Wyrażenie"
   },
   "view": {
     "label": "Widok",
@@ -71,5 +76,32 @@
     "title": "Zadania serwera, które go uruchamiają",
     "steps": "Kroki: {{steps}}",
     "open": "Otwórz zadanie"
+  },
+  "database": {
+    "tab": "Lineage",
+    "noSchema": "(bez schematu)",
+    "loading": "Odczyt zależności…",
+    "error": "Nie można odczytać lineage: {{error}}",
+    "retry": "Ponów",
+    "ask": {
+      "text": "Ten silnik nie ma w swoim katalogu zapytania o zależności: aby narysować lineage, trzeba odczytać definicje widoków, procedur i wyzwalaczy bazy i wyszukać w nich obiekty, które nazywają. W dużej bazie może to potrwać.",
+      "button": "Analizuj"
+    },
+    "search": "Filtruj według nazwy",
+    "kinds": "Typy",
+    "onlyConfirmed": "Tylko potwierdzone",
+    "onlyConnected": "Tylko z zależnościami",
+    "expandAll": "Rozwiń wszystko",
+    "collapseAll": "Zwiń wszystko",
+    "expand": "Rozwiń schemat",
+    "collapse": "Zwiń schemat",
+    "members": "Obiekty: {{count}}",
+    "weight": "Zależności: {{count}}",
+    "summary": "Obiektów: {{objects}}, zależności: {{lines}}, odczytane definicje: {{scanned}}.",
+    "overview": "Baza ma {{objects}} obiektów w schematach ({{schemas}}): wyświetlono przegląd według schematów, a grubość każdej linii to liczba zależności, które ją przecinają. Kliknięcie schematu pokazuje jego szczegóły, a dwukrotne kliknięcie rozwija go.",
+    "truncated": "Baza ma więcej obiektów, niż odczytano, więc diagram jest niekompletny. Otwórz lineage schematu lub typu, aby zobaczyć go w całości.",
+    "hidden": "Diagram pokazuje tylko pierwsze karty: brakuje obiektów — {{hidden}}. Zwiń któryś ze schematów lub użyj filtrów.",
+    "empty": "W tym zakresie nie ma obiektów do narysowania.",
+    "noMatch": "Żaden obiekt nie spełnia filtrów."
   }
 }

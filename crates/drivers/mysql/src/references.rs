@@ -44,7 +44,7 @@ use mysql_async::Row;
 pub(crate) const NOTE_CODE_HIDDEN: &str = "El servidor no le muestra a este usuario el código del objeto (hace falta ser su DEFINER o tener un privilegio como SHOW_ROUTINE, SHOW VIEW o SELECT global): la lista tiene solo lo que registra el catálogo.";
 
 /// A catalog view refused for lack of a privilege.
-fn note_catalog_denied(view: &str) -> String {
+pub(crate) fn note_catalog_denied(view: &str) -> String {
     format!(
         "Sin permiso para leer information_schema.{view}: lo que usa se buscó por otra vía y puede estar incompleto o sin confirmar."
     )
@@ -260,7 +260,10 @@ async fn table(
 
 /// A catalog query's rows; `Err(true)` when a privilege is missing,
 /// `Err(false)` when the server lacks it (an older version, another engine).
-async fn catalog_rows(s: &mut MySqlSession, sql: &str) -> std::result::Result<Vec<Row>, bool> {
+pub(crate) async fn catalog_rows(
+    s: &mut MySqlSession,
+    sql: &str,
+) -> std::result::Result<Vec<Row>, bool> {
     match s.conn.query::<Row, _>(sql).await {
         Ok(rows) => Ok(rows),
         Err(e) => {
@@ -351,7 +354,7 @@ fn view_uses<R: Cells>(rows: &[R], db: &str) -> (Vec<Dependent>, Vec<ExternalRef
 
 /// The kind of what a view uses, from `TABLES.TABLE_TYPE` (NULL: a table
 /// the login can't see, or one dropped since).
-fn used_kind(table_type: Option<&str>) -> &'static str {
+pub(crate) fn used_kind(table_type: Option<&str>) -> &'static str {
     match table_type.map(str::to_ascii_uppercase).as_deref() {
         Some("FUNCTION") => kinds::FUNCTION,
         Some("PROCEDURE") => kinds::PROCEDURE,

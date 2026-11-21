@@ -70,6 +70,7 @@ mod convert;
 mod ddl;
 mod functions;
 mod index_usage;
+mod lineage;
 mod monitor;
 mod objects_page;
 mod permissions;
@@ -1682,6 +1683,17 @@ impl Session for MongoSession {
         scan: &dbine_driver::DependencyScan,
     ) -> Result<dbine_driver::DependencyReport> {
         self.references_report(target, scan).await
+    }
+
+    /// The whole database's lineage: its views' definitions in one
+    /// `listCollections` (see `lineage`).
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &dbine_driver::dependencies::LineageScope,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::dependencies::LineageGraph> {
+        self.lineage_of(database, scope, scan).await
     }
 
     /// Operators and shell methods for the version `buildInfo` reports (see

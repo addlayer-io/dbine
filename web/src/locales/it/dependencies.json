@@ -47,7 +47,12 @@
     "synonym": "Sinonimo",
     "type": "Tipo",
     "sequence": "Sequenza",
-    "job": "Job"
+    "job": "Job",
+    "schema": "Schema",
+    "measure": "Misura",
+    "calculation_group": "Gruppo di calcolo",
+    "role": "Ruolo",
+    "expression": "Espressione"
   },
   "view": {
     "label": "Vista",
@@ -71,5 +76,32 @@
     "title": "Job del server che lo eseguono",
     "steps": "Passaggi: {{steps}}",
     "open": "Apri il job"
+  },
+  "database": {
+    "tab": "Lineage",
+    "noSchema": "(senza schema)",
+    "loading": "Lettura delle dipendenze…",
+    "error": "Impossibile leggere il lineage: {{error}}",
+    "retry": "Riprova",
+    "ask": {
+      "text": "Questo motore non ha una query di dipendenze nel proprio catalogo: per disegnare il lineage bisogna leggere le definizioni di viste, routine e trigger del database e cercarvi gli oggetti che nominano. Su un database grande può richiedere tempo.",
+      "button": "Analizza"
+    },
+    "search": "Filtra per nome",
+    "kinds": "Tipi",
+    "onlyConfirmed": "Solo confermate",
+    "onlyConnected": "Solo con dipendenze",
+    "expandAll": "Espandi tutto",
+    "collapseAll": "Comprimi tutto",
+    "expand": "Espandi lo schema",
+    "collapse": "Comprimi lo schema",
+    "members": "Oggetti: {{count}}",
+    "weight": "Dipendenze: {{count}}",
+    "summary": "{{objects}} oggetti, {{lines}} dipendenze, {{scanned}} definizioni lette.",
+    "overview": "Il database ha {{objects}} oggetti in {{schemas}} schemi: viene mostrata una panoramica per schema, e lo spessore di ogni linea è il numero di dipendenze che la attraversano. Un clic su uno schema ne mostra il dettaglio e un doppio clic lo espande.",
+    "truncated": "Il database ha più oggetti di quelli letti, quindi il diagramma è incompleto. Apri il lineage di uno schema o di un tipo per vederlo per intero.",
+    "hidden": "Il diagramma mostra solo le prime schede: mancano {{hidden}} oggetti. Comprimi uno schema o usa i filtri.",
+    "empty": "Non ci sono oggetti da disegnare con questo ambito.",
+    "noMatch": "Nessun oggetto soddisfa i filtri."
   }
 }

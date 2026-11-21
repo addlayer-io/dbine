@@ -360,7 +360,7 @@ fn relationships(meta: &ModelMeta, target: &DependencyTarget) -> Vec<Dependent> 
 
 /// What an expression names.
 #[derive(Debug, Clone, PartialEq)]
-enum Use {
+pub(crate) enum Use {
     Table(String),
     Column(String, String),
     Measure(String),
@@ -369,7 +369,7 @@ enum Use {
 
 impl Use {
     /// The object it is in the explorer: a column is its table.
-    fn object(&self) -> (&'static str, String) {
+    pub(crate) fn object(&self) -> (&'static str, String) {
         match self {
             Use::Table(t) | Use::Column(t, _) => (TABLE, t.to_lowercase()),
             Use::Measure(m) => (MEASURE, m.to_lowercase()),
@@ -408,7 +408,7 @@ fn dedupe_uses(uses: Vec<Use>) -> Vec<Use> {
 
 /// The kind of the model's table `name`: a calculation group's table is
 /// the group.
-fn table_kind(meta: &ModelMeta, name: &str) -> &'static str {
+pub(crate) fn table_kind(meta: &ModelMeta, name: &str) -> &'static str {
     if meta.calculation_groups.iter().any(|g| same(&g.table, name)) {
         CALCULATION_GROUP
     } else {
@@ -460,7 +460,7 @@ fn group(
 /// (not a call), `'T'[c]` (a column, or the table's measure), a bare
 /// `[x]` (a measure, else a column of the home table, else of the one
 /// table that has it), and the model's functions called.
-fn dax_uses(expr: &str, home: Option<&str>, meta: &ModelMeta) -> Vec<(Use, usize)> {
+pub(crate) fn dax_uses(expr: &str, home: Option<&str>, meta: &ModelMeta) -> Vec<(Use, usize)> {
     let toks = code(expr);
     let table_at = |t: Option<&Token<'_>>| {
         t.and_then(|t| match t.kind {
@@ -572,7 +572,7 @@ fn is_target_row(r: &CalcDependency, target: &DependencyTarget) -> bool {
 }
 
 /// What a row's referenced object is.
-fn calc_use(r: &CalcDependency) -> Option<Use> {
+pub(crate) fn calc_use(r: &CalcDependency) -> Option<Use> {
     let table = r.referenced_table.clone().filter(|t| !t.is_empty());
     let rt = r.referenced_object_type.to_ascii_uppercase();
     Some(match rt.as_str() {
@@ -603,13 +603,13 @@ fn lines(codes: &[Code], at: &[(usize, usize)]) -> Vec<Mention> {
     out
 }
 
-fn at_lines(text: &str, offsets: &[usize]) -> Vec<Mention> {
+pub(crate) fn at_lines(text: &str, offsets: &[usize]) -> Vec<Mention> {
     let mut o = offsets.to_vec();
     o.sort_unstable();
     mentions(text, &o)
 }
 
-fn add_external(out: &mut Vec<ExternalRef>, mut x: ExternalRef, mut at: Vec<Mention>) {
+pub(crate) fn add_external(out: &mut Vec<ExternalRef>, mut x: ExternalRef, mut at: Vec<Mention>) {
     match out.iter_mut().find(|e| {
         (
             &e.system,

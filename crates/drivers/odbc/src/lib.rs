@@ -17,6 +17,7 @@ mod functions;
 mod health;
 mod index_usage;
 mod jobs;
+mod lineage;
 mod monitor;
 mod objects_page;
 mod odbc;
@@ -1724,6 +1725,20 @@ impl Session for OdbcSession {
             return references::db2(self, target, scan).await;
         }
         dbine_driver::dependencies::references_scan(self, target, scan).await
+    }
+
+    /// Db2 LUW's whole-database lineage from its dependency catalog (see
+    /// `lineage`); the other presets, the contract's default.
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &dbine_driver::dependencies::LineageScope,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::dependencies::LineageGraph> {
+        if design::eng(self.preset) == design::Eng::Db2 {
+            return lineage::db2(self, database, scope, scan).await;
+        }
+        dbine_driver::dependencies::graph_scan(self, database, scope, scan).await
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {

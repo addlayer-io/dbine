@@ -97,7 +97,7 @@ fn uses_sql(v: Variant) -> std::borrow::Cow<'static, str> {
 }
 
 /// The `sys.objects` types a body can use, as `list_objects` names them.
-const USABLE_TYPES: &str = "'U','V','P','PC','FN','IF','TF','FS','FT','SO','SN'";
+pub(crate) const USABLE_TYPES: &str = "'U','V','P','PC','FN','IF','TF','FS','FT','SO','SN'";
 
 /// Names in one lookup (SQL Server takes up to 2,100 parameters).
 const NAMES_PER_LOOKUP: usize = 1000;
@@ -180,7 +180,7 @@ pub(crate) async fn references(
 }
 
 /// The note when `sys.sql_expression_dependencies` can't be read.
-fn note(v: Variant) -> &'static str {
+pub(crate) fn note(v: Variant) -> &'static str {
     match v {
         Variant::SqlServer | Variant::AzureSql => {
             "No se pudo leer sys.sql_expression_dependencies (hace falta VIEW DEFINITION en la base y SELECT sobre esa vista, que por omisión solo tiene db_owner): lo que usa su código se buscó en su definición."
@@ -260,25 +260,25 @@ impl SqlServerSession {
 
 /// One `USES_SQL` row.
 #[derive(Debug, Clone, Default, PartialEq)]
-struct UseRow {
-    via: String,
+pub(crate) struct UseRow {
+    pub(crate) via: String,
     /// The computed column or the constraint that uses it.
-    sub: Option<String>,
-    server: Option<String>,
-    database: Option<String>,
-    schema: Option<String>,
-    entity: Option<String>,
+    pub(crate) sub: Option<String>,
+    pub(crate) server: Option<String>,
+    pub(crate) database: Option<String>,
+    pub(crate) schema: Option<String>,
+    pub(crate) entity: Option<String>,
     /// `sys.objects.type` (or `TYPE`) of what it resolves to here.
-    kind: Option<String>,
-    resolved_schema: Option<String>,
-    resolved_name: Option<String>,
+    pub(crate) kind: Option<String>,
+    pub(crate) resolved_schema: Option<String>,
+    pub(crate) resolved_name: Option<String>,
     /// `DB_NAME()`.
-    current: Option<String>,
+    pub(crate) current: Option<String>,
     /// A linked server's product (or provider).
-    product: Option<String>,
+    pub(crate) product: Option<String>,
 }
 
-fn use_row(r: &Row) -> UseRow {
+pub(crate) fn use_row(r: &Row) -> UseRow {
     UseRow {
         via: text(r, 0).unwrap_or_default(),
         sub: text(r, 1),
@@ -295,7 +295,7 @@ fn use_row(r: &Row) -> UseRow {
 }
 
 #[derive(Debug, PartialEq)]
-enum Used {
+pub(crate) enum Used {
     Item(Dependent),
     External(ExternalRef),
     /// A name in this database that resolves to nothing the explorer lists:
@@ -305,7 +305,7 @@ enum Used {
 
 /// A row as an object of this database (confirmed) or an outside source.
 /// `engine` names the system of another database on the same server.
-fn classify(u: &UseRow, engine: &str) -> Used {
+pub(crate) fn classify(u: &UseRow, engine: &str) -> Used {
     let other_db = u
         .database
         .as_deref()
@@ -347,7 +347,7 @@ fn classify(u: &UseRow, engine: &str) -> Used {
 }
 
 /// The explorer's kind for a `sys.objects.type` (`TYPE`: a user type).
-fn kind_of(code: &str) -> Option<&'static str> {
+pub(crate) fn kind_of(code: &str) -> Option<&'static str> {
     if code == "TYPE" {
         return Some(kinds::TYPE);
     }
@@ -409,7 +409,7 @@ fn add_mentions(
 /// `body` with the names of its variables (`@ids`, `@@ROWCOUNT`) blanked,
 /// lines and offsets kept: the tokenizer reads `@ids` as `@` and `ids`, and
 /// a table variable named like a type or a table isn't that object.
-fn without_variables(body: &str) -> String {
+pub(crate) fn without_variables(body: &str) -> String {
     let mut out = String::with_capacity(body.len());
     let mut var = false;
     for c in body.chars() {
@@ -424,7 +424,7 @@ fn without_variables(body: &str) -> String {
 }
 
 /// Line `n` (1-based) of `body` as a mention shows it.
-fn line(body: &str, n: u32) -> String {
+pub(crate) fn line(body: &str, n: u32) -> String {
     body.split('\n')
         .nth(n.saturating_sub(1) as usize)
         .unwrap_or_default()
@@ -436,7 +436,7 @@ fn line(body: &str, n: u32) -> String {
 
 /// Where `body` writes `x` with its database (and server): a local object
 /// of the same name, or the same one through another server, isn't it.
-fn external_mentions(
+pub(crate) fn external_mentions(
     body: &str,
     used: &[UsedName],
     x: &ExternalRef,
@@ -494,7 +494,7 @@ fn unresolved(used: Vec<UsedName>, report: &DependencyReport) -> Vec<UsedName> {
         .collect()
 }
 
-fn same(a: &str, b: &str) -> bool {
+pub(crate) fn same(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b) || a.to_lowercase() == b.to_lowercase()
 }
 

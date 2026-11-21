@@ -508,6 +508,49 @@ pub async fn get_job_references(
         .await
 }
 
+#[derive(Deserialize)]
+pub struct LineageGraphArgs {
+    pub connection_id: String,
+    pub database: String,
+    #[serde(default)]
+    pub scope: dbine_driver::dependencies::LineageScope,
+}
+
+/// The lineage of a whole database, a schema or a folder ("Ver linaje…" on
+/// them): every object as a node and every dependency as an edge, with the
+/// server's jobs when the engine has them. The generic scan reads every
+/// definition, so it runs on the long lane like `get_dependents`.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_lineage_graph(
+    state: State<'_, AppState>,
+    args: LineageGraphArgs,
+) -> CommandResult<dbine_driver::dependencies::LineageGraph> {
+    let id = state
+        .store
+        .get_connection(&args.connection_id)?
+        .map(|c| c.config.driver)
+        .unwrap_or_default();
+    let driver = dbine_drivers::find(&id)
+        .ok_or_else(|| dbine_driver::Error::Unsupported(format!("driver desconocido: {id}")))?;
+    let scan = dbine_driver::DependencyScan::new(
+        driver.info(),
+        driver.script_dialect(),
+        driver.capabilities().foreign_keys,
+    );
+    let mut scope = args.scope;
+    scope.jobs = scope.jobs && driver.capabilities().jobs;
+    let database = args.database.clone();
+    state
+        .meta_read_on(
+            Lane::Long,
+            &args.connection_id,
+            &args.database,
+            DEPENDENTS_LIMIT,
+            move |s| Box::pin(async move { s.lineage_graph(&database, &scope, &scan).await }),
+        )
+        .await
+}
+
 const DEPENDENTS_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// What an object itself uses (the lineage's sources): the tables a view

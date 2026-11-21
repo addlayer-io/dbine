@@ -739,9 +739,6 @@
  "-- {0} solo en el destino: no se borran (opción «Incluir borrados»).\n": [
   "src-tauri/src/tasks/steps.rs"
  ],
- "-- {0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": [
-  "crates/drivers/couchbase/src/ddl.rs"
- ],
  "-- {0}: no hay cambios que guardar.\n": [
   "crates/drivers/dremio/src/scheduler/mod.rs",
   "crates/drivers/hana/src/scheduler/mod.rs",
@@ -11124,6 +11121,7 @@
  "Databricks": [
   "crates/dbine-core/src/conn_import/mod.rs",
   "crates/dbine-schema/src/dialect/spark.rs",
+  "crates/drivers/databricks/src/lineage.rs",
   "crates/drivers/databricks/src/references.rs",
   "crates/drivers/powerbi/src/references/m.rs"
  ],
@@ -11202,6 +11200,7 @@
   "crates/drivers/databricks/src/u2m.rs"
  ],
  "Databricks {0}": [
+  "crates/drivers/databricks/src/lineage.rs",
   "crates/drivers/databricks/src/references.rs"
  ],
  "Datacenter": [
@@ -14670,6 +14669,9 @@
  ],
  "El job {0} no se está ejecutando.": [
   "crates/drivers/oracle/src/scheduler/action.rs"
+ ],
+ "El linaje de Unity Catalog (system.access.table_lineage) no está disponible para este usuario o catálogo (hace falta SELECT sobre esa tabla del sistema y un catálogo de Unity Catalog): las líneas salen de las definiciones, sin confirmar.": [
+  "crates/drivers/databricks/src/lineage.rs"
  ],
  "El linaje de Unity Catalog no está disponible para este objeto (hace falta BROWSE o SELECT sobre la tabla y un catálogo de Unity Catalog): lo que usa sale de su definición, sin confirmar.": [
   "crates/drivers/databricks/src/references.rs"
@@ -26587,6 +26589,7 @@
  ],
  "Materialize": [
   "crates/drivers/postgres/src/lib.rs",
+  "crates/drivers/postgres/src/lineage.rs",
   "crates/drivers/postgres/src/processes.rs",
   "crates/drivers/postgres/src/references.rs"
  ],
@@ -29602,6 +29605,9 @@
  "No se pudo leer STATEMENTS_SUMMARY ({0}).": [
   "crates/drivers/mysql/src/monitor.rs"
  ],
+ "No se pudo leer SYS.OBJECT_DEPENDENCIES ni SYS.REFERENTIAL_CONSTRAINTS: {0}": [
+  "crates/drivers/hana/src/lineage.rs"
+ ],
  "No se pudo leer SYSTEM.CATALOG: {0}": [
   "crates/drivers/phoenix/src/monitor.rs"
  ],
@@ -29628,6 +29634,9 @@
  ],
  "No se pudo leer el archivo «{0}»: {1}.": [
   "crates/drivers/odbc/src/monitor.rs"
+ ],
+ "No se pudo leer el catálogo de dependencias (SYSCAT): {0}": [
+  "crates/drivers/odbc/src/lineage.rs"
  ],
  "No se pudo leer el catálogo de dependencias ({0}): se muestran solo sus claves foráneas y los nombres que usa su definición.": [
   "crates/drivers/postgres/src/pg_references.rs"
@@ -32283,6 +32292,7 @@
  "Oracle": [
   "crates/dbine-schema/src/dialect/oracle.rs",
   "crates/drivers/oracle/src/lib.rs",
+  "crates/drivers/oracle/src/lineage.rs",
   "crates/drivers/oracle/src/references.rs",
   "crates/drivers/powerbi/src/references/m.rs"
  ],
@@ -40215,6 +40225,7 @@
   "crates/dbine-schema/src/dialect/snowflake.rs",
   "crates/drivers/powerbi/src/references/m.rs",
   "crates/drivers/snowflake/src/lib.rs",
+  "crates/drivers/snowflake/src/lineage.rs",
   "crates/drivers/snowflake/src/references.rs"
  ],
  "Snowflake admite hasta 38 dígitos; el origen tiene {0}.": [
@@ -53576,10 +53587,12 @@
   "crates/drivers/powerbi/src/objects.rs"
  ],
  "filtro de seguridad (RLS)": [
-  "crates/drivers/powerbi/src/dependencies.rs"
+  "crates/drivers/powerbi/src/dependencies.rs",
+  "crates/drivers/powerbi/src/lineage.rs"
  ],
  "filtro de {0}": [
-  "crates/drivers/powerbi/src/dependencies.rs"
+  "crates/drivers/powerbi/src/dependencies.rs",
+  "crates/drivers/powerbi/src/lineage.rs"
  ],
  "filtro del índice {0}: JSON inválido ({1})": [
   "crates/drivers/couchdb/src/ddl.rs"
@@ -57494,6 +57507,12 @@
   "crates/drivers/bigquery/src/jobs.rs"
  ],
  "no se pudieron leer los jobs del servidor: {0}": [
+  "crates/dbine-driver/src/dependencies/graph.rs",
+  "crates/drivers/hana/src/lineage.rs",
+  "crates/drivers/odbc/src/lineage.rs",
+  "crates/drivers/oracle/src/lineage.rs",
+  "crates/drivers/postgres/src/lineage.rs",
+  "crates/drivers/sqlserver/src/lineage.rs",
   "src-tauri/src/commands/explorer.rs"
  ],
  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": [
@@ -60043,8 +60062,21 @@
  "se interrumpió": [
   "crates/dbine-transfer/src/engine.rs"
  ],
+ "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": [
+  "crates/drivers/sqlserver/src/lineage.rs"
+ ],
+ "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": [
+  "crates/dbine-driver/src/dependencies/graph.rs",
+  "crates/drivers/postgres/src/lineage.rs"
+ ],
  "se leyeron los primeros {0} jobs del servidor, de {1}": [
-  "crates/dbine-driver/src/dependencies/job_scan.rs"
+  "crates/dbine-driver/src/dependencies/graph.rs",
+  "crates/dbine-driver/src/dependencies/job_scan.rs",
+  "crates/drivers/hana/src/lineage.rs",
+  "crates/drivers/odbc/src/lineage.rs",
+  "crates/drivers/oracle/src/lineage.rs",
+  "crates/drivers/postgres/src/lineage.rs",
+  "crates/drivers/sqlserver/src/lineage.rs"
  ],
  "se listan los transforms, los monitores de alertas y las políticas de snapshots; las políticas ISM y los rollups no": [
   "crates/drivers/elasticsearch/src/jobs.rs"
@@ -62746,6 +62778,9 @@
  "{0} no vuelve a crear «{1}» desde DBine: lo que nombra lo renombrado solo se lista, porque recrearlo le cambiaría el dueño, los permisos o los datos; corregilo a mano": [
   "src-tauri/src/commands/rename.rs"
  ],
+ "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": [
+  "crates/drivers/oracle/src/lineage.rs"
+ ],
  "{0} objetos inválidos": [
   "crates/drivers/hana/src/health.rs",
   "crates/drivers/odbc/src/health.rs",
@@ -63541,6 +63576,9 @@
  ],
  "{0}: el índice queda completo (filtro: {1}).": [
   "crates/dbine-schema/src/convert.rs"
+ ],
+ "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": [
+  "crates/drivers/couchbase/src/ddl.rs"
  ],
  "{0}: el índice vectorial «{1}» necesita la dimensión de los vectores (parámetro dim)": [
   "crates/drivers/mysql/src/vectors.rs"

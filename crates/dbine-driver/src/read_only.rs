@@ -1023,6 +1023,15 @@ impl Session for ReadOnlySession {
     ) -> Result<crate::DependencyReport> {
         self.inner.job_references(database, job_id, scan).await
     }
+
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &crate::dependencies::LineageScope,
+        scan: &crate::DependencyScan,
+    ) -> Result<crate::dependencies::LineageGraph> {
+        self.inner.lineage_graph(database, scope, scan).await
+    }
 }
 
 #[cfg(test)]

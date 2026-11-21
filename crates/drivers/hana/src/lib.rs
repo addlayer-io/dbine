@@ -11,6 +11,7 @@ mod functions;
 mod health;
 mod index_usage;
 mod jobs;
+mod lineage;
 mod monitor;
 mod objects_page;
 mod permissions;
@@ -1365,6 +1366,17 @@ impl Session for HanaSession {
         scan: &dbine_driver::DependencyScan,
     ) -> Result<dbine_driver::DependencyReport> {
         references::references(self, target, scan).await
+    }
+
+    /// The whole schema's lineage from `SYS.OBJECT_DEPENDENCIES`, the
+    /// foreign keys and the virtual tables (see `lineage`).
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &dbine_driver::dependencies::LineageScope,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::dependencies::LineageGraph> {
+        lineage::graph(self, database, scope, scan).await
     }
 
     async fn create_database(&mut self, name: &str) -> Result<()> {

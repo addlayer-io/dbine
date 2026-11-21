@@ -4171,6 +4171,65 @@ database's step not counted), `crates/drivers/postgres/tests/lineage_jobs.rs`
 `crates/drivers/oracle/tests/lineage_jobs.rs` (`DBMS_SCHEDULER`: a
 `STORED_PROCEDURE` job **Confirmed**, a PL/SQL block **Probable**).
 
+### Lineage of a whole database
+
+Right click on a database, a schema, a folder (Tables, Views…) or a Power BI
+model › **View lineage…** opens the lineage of all of it, not of one object:
+every object is a card and every dependency a line (solid = the engine's
+catalog, dashed = read from code), with the sources outside the database and
+the server's jobs. Above about 200 objects it opens as an overview with one
+card per schema (the line's width is how many dependencies cross) and a double
+click opens a schema; it can be filtered by kind and text, to the confirmed
+lines only, and to the objects that have dependencies. Nothing about columns:
+it is object level.
+
+The contract is `Session::lineage_graph` (`crates/dbine-driver/src/dependencies/graph.rs`),
+which returns a `LineageGraph`: the objects, the edges (from the used object to
+the one that uses it), the external sources and the jobs, with `truncated`,
+`notes` and `unreadable`. The default version works for every engine that has
+**View dependencies…**: it lists the objects once, takes the foreign keys from
+`database_schema` (**Confirmed**), reads the definition of each object whose code
+someone wrote (up to 600) and resolves the names it uses against that list
+(**Probable**, with the lines), and adds the jobs and what their steps use.
+Engines that record dependencies override it with one catalog read instead of
+one per object, and load it when the tab opens. The others show what the scan
+does and an **Analizar** button, because reading every definition can take long.
+
+| Engine | Source of the whole-database graph |
+|---|---|
+| SQL Server, Azure SQL, Fabric | `sys.sql_expression_dependencies` + `sys.foreign_keys` (**Confirmed**), the definitions only for the lines and for the names the catalog leaves unresolved (**Probable**); other databases and linked servers as external sources; SQL Server Agent jobs |
+| PostgreSQL and the forks that keep its catalog (TimescaleDB, AlloyDB, Cloud SQL, Aurora, EDB, Fujitsu, YugabyteDB, Greenplum, Cloudberry, Greengage, KingbaseES, openGauss) | `pg_depend` + `pg_rewrite` + `pg_constraint` (**Confirmed**: views, routines, triggers, defaults, checks, indexes, policies, inheritance); routines whose body the catalog doesn't track are parsed (**Probable**); foreign tables as external sources; pg_cron jobs |
+| CockroachDB, Materialize, RisingWave, Redshift, Yellowbrick | their own catalogs (`crdb_internal.backward_dependencies`, `mz_object_dependencies`, `rw_depend`); Redshift lists views and routines only and parses every source; Yellowbrick has no policies, inheritance or foreign tables |
+| Oracle | `ALL_DEPENDENCIES` + `ALL_CONSTRAINTS` + `ALL_SYNONYMS` (**Confirmed**); database links and other schemas as external sources; `DBMS_SCHEDULER` jobs |
+| Db2 LUW | `SYSCAT.VIEWDEP`, `ROUTINEDEP`, `PACKAGEDEP`, `TRIGDEP` and `REFERENCES`; nicknames as external sources |
+| SAP HANA | `SYS.OBJECT_DEPENDENCIES`, `SYS.REFERENTIAL_CONSTRAINTS`, virtual tables as external sources |
+| MySQL, MariaDB | `VIEW_TABLE_USAGE` and `VIEW_ROUTINE_USAGE` (MySQL 8: **Confirmed**; MariaDB and older MySQL read each view's definition: **Probable**), `KEY_COLUMN_USAGE`, `TRIGGERS`; routines parsed; events as jobs |
+| ClickHouse | `system.tables` (`dependencies_*`, materialized views' targets, Distributed, Buffer and Dictionary sources), views' queries (**Probable**); dictionaries are nodes |
+| Snowflake | `ACCOUNT_USAGE.OBJECT_DEPENDENCIES` (**Confirmed**, with its latency), external tables' files; tasks stay nodes |
+| Databricks | `system.access.table_lineage` (**Confirmed**, last 365 days, up to 200,000 rows): jobs, notebooks, pipelines, queries and dashboards as external sources; definitions and foreign keys from the default scan |
+| MongoDB | the views' `viewOn` and pipelines (`$lookup`, `$graphLookup`, `$unionWith`) (**Confirmed**) |
+| Power BI | `INFO.CALCDEPENDENCY()` for the whole model (**Confirmed** with write permission on a model on capacity; else the DAX is resolved against the model: **Probable**), relationships, roles' table filters, and each partition's Power Query sources as external sources |
+
+Every other engine with **View dependencies…** uses the default version. What
+is left out, and why:
+
+| Engine | What is missing | Reason |
+|---|---|---|
+| Db2 LUW | functions and triggers aren't nodes | the ODBC driver's object list doesn't include them yet, so the edges through them aren't drawn |
+| PostgreSQL family | foreign tables aren't nodes; triggers with the same name on different tables merge; overloaded routines are one node per name | the explorer doesn't list foreign tables, and `ObjectRef` carries no table or signature |
+| Oracle | views over `name@link` show no external source | Oracle doesn't record views' links |
+| SQL Server | references to system objects of another database aren't external sources | the catalog doesn't record them |
+| ClickHouse | Merge tables' regular expressions aren't resolved | they aren't a name |
+| Aurora DSQL, Denodo, CrateDB, H2 | the default version | no catalog read worth a query |
+| Power BI | columns, hierarchies and perspectives aren't nodes; no jobs; the schema filter doesn't apply | object level only; its refreshes run no code that names an object; a model has no schemas |
+
+Tested against real servers: SQL Server (with the Agent), PostgreSQL,
+CockroachDB, pg_cron, Oracle, Db2, MySQL, MariaDB, ClickHouse and MongoDB, and
+the PostgreSQL test also against YugabyteDB and TimescaleDB. Not against a
+real server: SAP HANA, Snowflake, Databricks, Power BI, Materialize, RisingWave,
+Redshift, Yellowbrick, Greenplum, EDB and the other PostgreSQL forks, Azure SQL,
+Fabric and Babelfish (unit tests of the queries and the row mapping only).
+
 ## Disable and enable indexes
 
 Right click on an index (in the explorer or in the **Indexes** tab) ›

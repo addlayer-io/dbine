@@ -16,6 +16,7 @@ mod functions;
 mod health;
 mod index_usage;
 mod jobs;
+mod lineage;
 mod monitor;
 mod paging;
 mod permissions;
@@ -1687,6 +1688,17 @@ impl Session for SnowflakeSession {
         scan: &dbine_driver::DependencyScan,
     ) -> Result<dbine_driver::DependencyReport> {
         self.references_of(target, scan).await
+    }
+
+    /// The whole database's lineage: `OBJECT_DEPENDENCIES` in one read, and
+    /// the code of what it doesn't track (see `lineage`).
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &dbine_driver::dependencies::LineageScope,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::dependencies::LineageGraph> {
+        self.lineage_of(database, scope, scan).await
     }
 
     /// Snowflake's jobs are its tasks, which the lineage already shows as
