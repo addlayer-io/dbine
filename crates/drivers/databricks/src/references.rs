@@ -192,7 +192,7 @@ pub(crate) fn entity_url(base: &str, e: &Entity) -> Option<String> {
 }
 
 /// Which service a path is in.
-fn storage_system(path: &str) -> &'static str {
+pub(crate) fn storage_system(path: &str) -> &'static str {
     let lower = path.to_ascii_lowercase();
     if lower.starts_with("s3://") || lower.starts_with("s3a://") {
         "Amazon S3"
@@ -369,7 +369,7 @@ impl DatabricksSession {
 
     /// Jobs' and pipelines' names (`jobs/get`, `pipelines/{id}`), at most
     /// [`NAME_LOOKUPS`]; one that can't be read keeps its id.
-    async fn entity_names(&self, entities: &[Entity]) -> Vec<(String, String)> {
+    pub(crate) async fn entity_names(&self, entities: &[Entity]) -> Vec<(String, String)> {
         let mut out = Vec::new();
         for e in entities
             .iter()
