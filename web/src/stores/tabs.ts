@@ -3,7 +3,7 @@ import { watch } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api/client';
-import type { LineageScope, ObjectRef, ProjectTarget, SavedQuery } from '../api/types';
+import type { ConnectionConfig, LineageScope, ObjectRef, ProjectTarget, SavedQuery } from '../api/types';
 import { emptySpec, type QuerySpec } from '../api/queryBuilder';
 import { t as tr } from '../i18n';
 import { readJson, writeJson } from './storage';
@@ -114,6 +114,8 @@ export interface ConnectionFormTab extends TabBase {
   editId: string | null;
   duplicateOf: string | null;
   folderId: string | null;
+  /** A new connection that starts from this host, port and database (a lineage source; no credentials). */
+  prefill?: ConnectionConfig | null;
 }
 
 /** "Comparar esquemas": this database (left) against another one. */
@@ -717,13 +719,13 @@ export const useTabsStore = defineStore('tabs', {
 
     /** The connection form in a tab (one per edited connection; a new one
      *  reuses an open "new connection" tab). */
-    openConnectionForm(o: { editId?: string | null; duplicateOf?: string | null; folderId?: string | null }) {
+    openConnectionForm(o: { editId?: string | null; duplicateOf?: string | null; folderId?: string | null; prefill?: ConnectionConfig | null }) {
       const editId = o.editId ?? null;
-      const open = this.tabs.find((t) => t.kind === 'connection' && t.editId === editId && !o.duplicateOf && !t.duplicateOf);
+      const open = !o.prefill && this.tabs.find((t) => t.kind === 'connection' && t.editId === editId && !o.duplicateOf && !t.duplicateOf && !t.prefill);
       if (open) return this.activate(open.id);
       this.place({
         id: newId(), kind: 'connection', connectionId: editId ?? '', database: '', preview: false,
-        editId, duplicateOf: o.duplicateOf ?? null, folderId: o.folderId ?? null,
+        editId, duplicateOf: o.duplicateOf ?? null, folderId: o.folderId ?? null, prefill: o.prefill ?? null,
       });
     },
 

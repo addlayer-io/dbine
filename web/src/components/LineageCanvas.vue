@@ -4,7 +4,8 @@
 // ER diagram: drag to pan, ⌘/Ctrl + wheel to zoom, F fits. A click selects a
 // card, a double click opens it; what goes at a card's sides (the object lineage's
 // `+` buttons) comes in the `before` and `after` slots. A line's width follows its
-// `weight` (the database overview's lines stand for several dependencies).
+// `weight` (the database overview's lines stand for several dependencies). A card of another
+// connection gets its badge in the `badge` slot.
 import { nextTick, watch } from 'vue';
 import { usePanZoom } from '../composables/usePanZoom';
 import type { LineageEdge, LineageNode, Placed } from '../composables/lineage';
@@ -86,7 +87,7 @@ const weightStyle = (e: LineageEdge) => ((e.weight ?? 1) > 1 ? { '--ln-w': Math.
         v-for="n in nodes"
         :key="n.id"
         class="ln-card"
-        :class="{ root: n.root, external: !!n.external, schema: n.kind === 'schema', sel: selected === n.id, hit: hits.has(n.id), dim: hits.size > 0 && !hits.has(n.id) }"
+        :class="{ root: n.root, external: !!n.external, foreign: !!n.conn, schema: n.kind === 'schema', sel: selected === n.id, hit: hits.has(n.id), dim: hits.size > 0 && !hits.has(n.id) }"
         :style="{ left: placed.pos.get(n.id)?.x + 'px', top: placed.pos.get(n.id)?.y + 'px', width: w + 'px', height: h + 'px' }"
         :title="title(n)"
         @click.stop="emit('update:selected', n.id)"
@@ -99,6 +100,7 @@ const weightStyle = (e: LineageEdge) => ((e.weight ?? 1) > 1 ? { '--ln-w': Math.
           <div class="ln-sub">{{ sub(n) }}</div>
         </div>
         <slot name="after" :n="n" />
+        <slot name="badge" :n="n" />
       </div>
     </div>
     <div class="ln-zoom" @pointerdown.stop>
@@ -133,6 +135,7 @@ const weightStyle = (e: LineageEdge) => ((e.weight ?? 1) > 1 ? { '--ln-w': Math.
 .ln-card.sel { border-color: var(--ide-focus); background: color-mix(in srgb, var(--ide-focus) 12%, var(--ide-sidebar)); }
 .ln-card.external { border-style: dashed; color: var(--nm-text-dim); }
 .ln-card.schema { border-width: 2px; background: color-mix(in srgb, var(--ide-sidebar) 85%, var(--nm-text-dim)); }
+.ln-card.foreign { border-color: color-mix(in srgb, var(--nm-accent, var(--ide-focus)) 55%, var(--nm-border)); }
 .ln-card.hit { box-shadow: 0 0 0 2px var(--nm-warning); }
 .ln-card.dim { opacity: 0.4; }
 .ln-ic { flex-shrink: 0; color: var(--nm-accent-2, var(--nm-text-dim)); }

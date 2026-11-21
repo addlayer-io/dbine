@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import type {
-  AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, LineageGraph, LineageScope, MonitorSnapshot, ObjectPage, ObjectQuery, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
+  AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, LineageGraph, LineageScope, LocatedSource, CrossUsers, SourceMatch, ExternalRef, MonitorSnapshot, ObjectPage, ObjectQuery, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
   ExecuteResponse, FilteredBrowse, QueryOutcome, ResultsStatus, RunMode, StoreArgs, StoredRunMeta, RunParams, RunningTask, SavedConnection, SavedQuery, SchemaInfo, ScriptUnit, SecretBrowseListing, SecretSource, SecretSourceApproval, SecretSourceTest, SecretSourceUnlock, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WhatsNew, WindowRole,
 } from './types';
 import type { ColumnFilter } from '../composables/gridFilter';
@@ -169,6 +169,19 @@ export const api = {
    *  node, every dependency as an edge, plus the server's jobs when asked. */
   getLineageGraph: (connectionId: string, database: string, scope: LineageScope = {}) =>
     invoke<LineageGraph>('get_lineage_graph', { args: { connection_id: connectionId, database, scope } }),
+  /** Which saved connection a source outside the database (an `ExternalRef`) is; `connectionId` is the
+   *  one whose lineage shows it. */
+  lineageResolveSource: (connectionId: string, source: ExternalRef) =>
+    invoke<SourceMatch>('lineage_resolve_source', { args: { connection_id: connectionId, source } }),
+  /** Remember (or, with null, forget) which connection a source is. */
+  lineageLinkSource: (signature: string, connectionId: string | null) =>
+    invoke<null>('lineage_link_source', { args: { signature, connection_id: connectionId } }),
+  /** Where the source's table is in `connectionId`: its database and the object found there. */
+  lineageLocateSource: (connectionId: string, source: ExternalRef) =>
+    invoke<LocatedSource | null>('lineage_locate_source', { args: { connection_id: connectionId, source } }),
+  /** Who reads `object` from other connections (the Power BI tables fed by it). */
+  getCrossUsers: (connectionId: string, database: string, object: ObjectRef, refresh = false) =>
+    invoke<CrossUsers>('get_cross_users', { args: { connection_id: connectionId, database, object, refresh } }),
   getDefinition: (connectionId: string, database: string, object: ObjectRef) =>
     invoke<string>('get_definition', { args: { connection_id: connectionId, database, object } }),
   browseQuery: (connectionId: string, database: string, object: ObjectRef, limit: number) =>
