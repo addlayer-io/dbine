@@ -46,8 +46,12 @@ const cross = ref(false);
 const crossState = ref<'idle' | 'loading' | 'done' | 'error'>('idle');
 const crossInfo = ref<CrossUsers | null>(null);
 const crossError = ref('');
-const sees = computed(() => (cross.value ? graph.value : withoutCross(graph.value)));
-const shown = computed(() => (relations.value ? sees.value : withoutRelations(sees.value)));
+// A copy each time: `graph` is mutated in place and re-triggered, and a computed that hands back the
+// same object wouldn't tell the layout below it that anything changed.
+const shown = computed(() => {
+  const g = cross.value ? graph.value : withoutCross(graph.value);
+  return relations.value ? { ...g } : withoutRelations(g);
+});
 const placed = computed(() => layout(shown.value, W, H));
 const nodes = computed(() => [...shown.value.nodes.values()]);
 const canvas = ref<InstanceType<typeof LineageCanvas> | null>(null);
