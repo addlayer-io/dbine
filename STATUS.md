@@ -2,7 +2,7 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-11-20._
+_Updated 2026-11-21._
 
 ## Open findings
 
@@ -27,10 +27,10 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.6.3 | 2026-11-18 | 0e26e2f0..e8b61cec, everything 1.6.3 adds since v1.6.2 (#123 SQL Server catalog reads, #124 Compare data export, the per-day telemetry, the multi-database export of every row, the grid's keyboard scroll, the release commit); e8b61cec..031d392f, libz-sys 1.1.33 and the picomatch review; 6fa05571..f7e04ee7, lettre 0.11.24 past six SMTP advisories | 0 open | — |
-| codeql | 2026-11-20 | Rust, TypeScript/Vue and workflows | 4 open | — |
-| osv | 2026-11-20 | every lockfile (Cargo, npm) at [`e2c6b6de4`](https://github.com/addlayer-io/dbine/commit/e2c6b6de4bac) | 0 open | — |
-| scorecard | 2026-11-20 | repository settings and workflows at [`ba7cee261`](https://github.com/addlayer-io/dbine/commit/ba7cee26163a) | score 7.6/10 | — |
-| trivy | 2026-11-20 | whole repository at [`e2c6b6de4`](https://github.com/addlayer-io/dbine/commit/e2c6b6de4bac) | 0 open | — |
+| codeql | 2026-11-21 | Rust, TypeScript/Vue and workflows | 4 open | — |
+| osv | 2026-11-21 | every lockfile (Cargo, npm) at [`ce303f69d`](https://github.com/addlayer-io/dbine/commit/ce303f69dd2e) | 0 open | — |
+| scorecard | 2026-11-20 | repository settings and workflows at [`e2c6b6de4`](https://github.com/addlayer-io/dbine/commit/e2c6b6de4bac) | score 7.6/10 | — |
+| trivy | 2026-11-21 | whole repository at [`ce303f69d`](https://github.com/addlayer-io/dbine/commit/ce303f69dd2e) | 0 open | — |
 
 ## Not counted, and why
 
@@ -408,7 +408,7 @@ OpenSSF Scorecard: **7.6/10** (2026-11-20). The checks below 10, with Scorecard'
 |---|---|---|
 | Binary-Artifacts: 9/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 4/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
-| Code-Review: 0/10 — Found 0/12 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
+| Code-Review: 0/10 — Found 0/4 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Vulnerabilities: 9/10 — 1 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
