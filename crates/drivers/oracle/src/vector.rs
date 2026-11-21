@@ -339,14 +339,19 @@ fn canonical(t: &str) -> Option<String> {
     ))
 }
 
+/// Most dimensions an Oracle VECTOR takes. A sparse vector's text says its
+/// dimensions, and spreading it out allocates that many: text claiming more
+/// isn't read as a vector (`{1:1}/4294967295` would ask for 34 GB).
+const MAX_VECTOR_DIMS: u32 = 65_535;
+
 /// A sparse vector's parts: dimensions, indices from 0 and values, from
 /// Oracle's text (`[5,[0,2],[1.5,3]]`) or pgvector's (`{1:1.5,3:3}/5`,
-/// indices from 1).
+/// indices from 1). `None` past [`MAX_VECTOR_DIMS`].
 fn sparse_parts(t: &str) -> Option<(u32, Vec<u32>, Vec<f64>)> {
     let t = t.trim();
     if let Some(rest) = t.strip_prefix('{') {
         let (pairs, dims) = rest.split_once("}/")?;
-        let dims: u32 = dims.trim().parse().ok()?;
+        let dims: u32 = dims.trim().parse().ok().filter(|d| *d <= MAX_VECTOR_DIMS)?;
         let (mut idx, mut val) = (Vec::new(), Vec::new());
         for p in pairs.split(',').map(str::trim).filter(|p| !p.is_empty()) {
             let (i, x) = p.split_once(':')?;
@@ -360,7 +365,9 @@ fn sparse_parts(t: &str) -> Option<(u32, Vec<u32>, Vec<f64>)> {
     let [dims, idx, val] = v.as_array()?.as_slice() else {
         return None;
     };
-    let dims = u32::try_from(dims.as_u64()?).ok()?;
+    let dims = u32::try_from(dims.as_u64()?)
+        .ok()
+        .filter(|d| *d <= MAX_VECTOR_DIMS)?;
     let idx: Option<Vec<u32>> = idx
         .as_array()?
         .iter()
@@ -806,6 +813,13 @@ mod tests {
         assert!(l.starts_with("TO_CLOB('[0.123456,"), "{}", &l[..40]);
         // Not a sparse vector: an index past the dimensions, a bad pair.
         assert_eq!(dense_text("[2,[5],[1]]"), None);
+        // Dimensions past Oracle's limit, from untrusted text: refused before
+        // anything is allocated (security scan F4).
+        assert_eq!(dense_text("{1:1}/65536"), None);
+        assert_eq!(dense_text("{1:1}/4294967295"), None);
+        assert_eq!(dense_text("[4294967295,[0],[1]]"), None);
+        assert_eq!(sparse_text("{1:1}/4294967295", None), None);
+        assert!(dense_text("{1:1}/65535").is_some());
         assert_eq!(sparse_text("{0:1}/3", None), None);
         assert_eq!(sparse_text("{1:x}/3", None), None);
         assert_eq!(dense_text("[1,2]"), None);

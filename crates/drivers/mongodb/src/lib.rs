@@ -638,7 +638,12 @@ impl Driver for MongoDriver {
         if !parts.indexes || warnings.is_empty() {
             return Ok(script);
         }
-        let mut lines: Vec<String> = warnings.iter().map(|w| format!("// {w}")).collect();
+        // A warning holds names from the source (an index's): a line break in
+        // one can't end the comment and add a statement.
+        let mut lines: Vec<String> = warnings
+            .iter()
+            .map(|w| format!("// {}", security::comment_text(w)))
+            .collect();
         lines.push(script);
         Ok(lines.join("\n"))
     }
@@ -1696,6 +1701,57 @@ impl Session for MongoSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An index's name from the source can't add a command to the script:
+    /// a line break in it stays inside the `//` warning (security scan F1).
+    #[test]
+    fn a_line_break_in_an_index_name_stays_in_the_warning() {
+        let t = dbine_driver::TableSchema {
+            name: "c".into(),
+            columns: vec![dbine_driver::ColumnDef {
+                name: "v".into(),
+                data_type: "vector(3)".into(),
+                ..Default::default()
+            }],
+            indexes: vec![dbine_driver::IndexDef {
+                name: "x\ndb.dropDatabase()//".into(),
+                columns: vec!["v".into()],
+                vector: Some(dbine_driver::VectorIndex {
+                    algorithm: Some("ivfflat".into()),
+                    metric: Some("ip".into()),
+                    params: [("lists".to_string(), "10".to_string())]
+                        .into_iter()
+                        .collect(),
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let d = MongoDriver {
+            flavor: Flavor::Mongo,
+        };
+        let parts = dbine_driver::DdlParts {
+            create: true,
+            indexes: true,
+            ..Default::default()
+        };
+        let text = d.table_ddl(&t, parts).unwrap();
+        assert!(text.starts_with("// "), "{text}");
+        assert!(
+            !text
+                .lines()
+                .any(|l| l.trim_start().starts_with("db.dropDatabase")),
+            "{text}"
+        );
+        // As the driver runs it: the collection and its index, and nothing
+        // else (the name stays escaped inside the index's JSON).
+        let stmts = shell::parse_script(&text).unwrap();
+        assert_eq!(stmts.len(), 2, "{text}");
+        assert!(
+            stmts.iter().all(|st| !st.cmd.contains_key("dropDatabase")),
+            "{text}"
+        );
+    }
 
     #[test]
     fn browse_query_quotes_odd_names() {
