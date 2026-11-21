@@ -21,7 +21,7 @@ use crate::catalog::Model;
 use crate::http::Priority;
 use crate::meta::service::Service;
 use dbine_driver::dependencies::ExternalRef;
-use dbine_driver::Result;
+use dbine_driver::{Error, Result};
 use serde_json::Value;
 
 pub const REPORT: &str = "Power BI report";
@@ -33,6 +33,8 @@ pub const MAX_ITEMS: usize = 500;
 pub const MAX_DASHBOARDS_READ: usize = 100;
 
 pub const NOT_READABLE: &str = "Con los permisos de esta conexión no se pudieron leer los reportes y tableros del área de trabajo: el linaje no muestra quién lee el modelo.";
+/// The sign-in has no scope for reports and dashboards (HTTP 401 on them while the model reads fine).
+pub const NO_SCOPE: &str = "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft.";
 pub const TOO_MANY: &str =
     "El área de trabajo tiene más de 500 reportes o tableros: se muestran los primeros 500.";
 pub const TILES_CAPPED: &str = "Se leyeron los mosaicos de los primeros 100 tableros: los demás pueden leer este modelo y no aparecen.";
@@ -96,11 +98,26 @@ pub(crate) async fn read<S: Service>(s: &mut S, model: &Model) -> Result<Consume
     Ok(c)
 }
 
+/// What a failed read of reports or dashboards means: only a lost connection ends the lineage. A 401 here
+/// is the sign-in missing the scope for these endpoints (the model itself was read with the same token),
+/// so it is a note and the rest of the lineage still draws.
+fn degrade(e: Error, no_scope: &mut bool) -> Result<()> {
+    match e {
+        Error::AuthFailed(_) => {
+            *no_scope = true;
+            Ok(())
+        }
+        e if crate::meta::is_fatal(&e) => Err(e),
+        _ => Ok(()),
+    }
+}
+
 async fn read_uncached<S: Service>(s: &mut S, model: &Model) -> Result<Consumers> {
     let mut out = Consumers::default();
     let base = base(model);
     let workspace = Some(model.workspace.name.clone()).filter(|n| !n.is_empty());
     let mut readable = true;
+    let mut no_scope = false;
 
     let mut reports: Vec<(String, String, Option<String>)> = Vec::new();
     match s
@@ -118,8 +135,10 @@ async fn read_uncached<S: Service>(s: &mut S, model: &Model) -> Result<Consumers
                 }
             }
         }
-        Err(e) if crate::meta::is_fatal(&e) => return Err(e),
-        Err(_) => readable = false,
+        Err(e) => {
+            degrade(e, &mut no_scope)?;
+            readable = false;
+        }
     }
     for (_, name, url) in &reports {
         out.items.push(ExternalRef {
@@ -152,8 +171,8 @@ async fn read_uncached<S: Service>(s: &mut S, model: &Model) -> Result<Consumers
                     .await
                 {
                     Ok(t) => t,
-                    Err(e) if crate::meta::is_fatal(&e) => return Err(e),
-                    Err(_) => {
+                    Err(e) => {
+                        degrade(e, &mut no_scope)?;
                         readable = false;
                         continue;
                     }
@@ -191,10 +210,14 @@ async fn read_uncached<S: Service>(s: &mut S, model: &Model) -> Result<Consumers
                 }
             }
         }
-        Err(e) if crate::meta::is_fatal(&e) => return Err(e),
-        Err(_) => readable = false,
+        Err(e) => {
+            degrade(e, &mut no_scope)?;
+            readable = false;
+        }
     }
-    if !readable {
+    if no_scope {
+        out.notes.push(NO_SCOPE.into());
+    } else if !readable {
         out.notes.push(NOT_READABLE.into());
     }
     Ok(out)
@@ -204,6 +227,7 @@ async fn read_uncached<S: Service>(s: &mut S, model: &Model) -> Result<Consumers
 mod tests {
     use super::*;
     use crate::dependencies::dependents_in;
+    use crate::http::Method;
     use crate::lineage::lineage_in;
     use crate::meta::fake::{Fake, GROUP};
     use crate::{MODEL, TABLE};
@@ -360,6 +384,45 @@ mod tests {
         .unwrap();
         assert!(r.external_users.is_empty());
         assert_eq!(r.note.as_deref(), Some(NOT_READABLE));
+    }
+
+    /// A 401 on reports and dashboards (the sign-in has no scope for them, while the model reads fine)
+    /// used to end the whole lineage with "volvé a iniciar sesión". It is a note now, and the graph draws.
+    #[tokio::test]
+    async fn a_401_on_reports_is_a_note_not_the_end_of_the_lineage() {
+        let mut f = Fake::writer();
+        f.definition(LINEAGE);
+        let g = GROUP;
+        for path in [
+            format!("/groups/{g}/reports"),
+            format!("/groups/{g}/dashboards"),
+        ] {
+            f.routes.lock().unwrap().retain(|r| r.path != path);
+            f.route(Method::Get, &path, 401, serde_json::json!({}));
+        }
+        let graph = lineage_in(&mut f, &LineageScope::default()).await.unwrap();
+        assert!(graph.consumers.is_empty());
+        assert!(
+            graph.notes.iter().any(|n| n == NO_SCOPE),
+            "{:?}",
+            graph.notes
+        );
+        assert!(graph.objects.len() > 1 && !graph.edges.is_empty());
+        let r = dependents_in(
+            &mut f,
+            &DependencyTarget {
+                object: ObjectRef {
+                    kind: TABLE.into(),
+                    schema: None,
+                    name: "Sales".into(),
+                },
+                column: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(r.external_users.is_empty());
+        assert_eq!(r.note.as_deref(), Some(NO_SCOPE));
     }
 
     #[tokio::test]

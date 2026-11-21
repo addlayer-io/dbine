@@ -19106,5 +19106,7 @@
   "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "연결 '{0}'을(를) 먼저 연결해야 합니다(연결을 연 후 다시 시도하세요)",
   "no se pudo abrir la conexión «{0}»: {1}": "연결 '{0}'을(를) 열 수 없습니다: {1}",
   "no se pudo leer el modelo «{0}» de «{1}»: {2}": "'{1}'의 모델 '{0}'을(를) 읽을 수 없습니다: {2}",
-  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "'{0}'에 모델이 {1}개를 넘습니다. 처음 {2}개를 읽었습니다"
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "'{0}'에 모델이 {1}개를 넘습니다. 처음 {2}개를 읽었습니다",
+  "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft.": "이 연결의 로그인에는 보고서와 대시보드를 읽을 권한(Report.Read.All 및 Dashboard.Read.All)이 없습니다. 계보에 이 모델을 읽는 항목이 표시되지 않습니다. 해당 권한으로 다시 로그인하거나 다른 Microsoft 클라이언트를 사용하세요.",
+  "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI가 토큰을 수락하지 않았습니다(HTTP 401). 다시 로그인하세요."
 }

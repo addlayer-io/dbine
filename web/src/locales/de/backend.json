@@ -19106,5 +19106,7 @@
   "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "Die Verbindung „{0}“ muss sich zuerst verbinden (öffnen Sie sie und versuchen Sie es erneut)",
   "no se pudo abrir la conexión «{0}»: {1}": "Verbindung „{0}“ konnte nicht geöffnet werden: {1}",
   "no se pudo leer el modelo «{0}» de «{1}»: {2}": "Modell „{0}“ von „{1}“ konnte nicht gelesen werden: {2}",
-  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "„{0}“ hat mehr als {1} Modelle: Die ersten {2} wurden gelesen"
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "„{0}“ hat mehr als {1} Modelle: Die ersten {2} wurden gelesen",
+  "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft.": "Die Anmeldung dieser Verbindung hat keine Berechtigung, Berichte und Dashboards zu lesen (Report.Read.All und Dashboard.Read.All): Die Lineage zeigt nicht, wer das Modell liest. Melden Sie sich mit diesen Berechtigungen erneut an oder verwenden Sie einen anderen Microsoft-Client.",
+  "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI hat das Token nicht akzeptiert (HTTP 401): Melden Sie sich erneut an."
 }

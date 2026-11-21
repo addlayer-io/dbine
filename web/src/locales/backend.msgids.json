@@ -14542,6 +14542,9 @@
  "El idioma (locale) de la conexión con la que corre.": [
   "crates/drivers/odbc/src/scheduler/ase.rs"
  ],
+ "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft.": [
+  "crates/drivers/powerbi/src/consumers.rs"
+ ],
  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace (en Azure Databricks, Microsoft Entra ID), con SSO y MFA; necesita libre el puerto 8020 de este equipo.": [
   "crates/drivers/databricks/src/lib.rs",
   "driver azure_databricks"
@@ -34095,6 +34098,9 @@
  ],
  "Power BI no aceptó el cambio de permisos": [
   "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": [
+  "crates/drivers/powerbi/src/meta/fake.rs"
  ],
  "Power BI no aceptó el token ({0}): volvé a iniciar sesión.": [
   "crates/drivers/powerbi/src/http.rs"
