@@ -13,6 +13,7 @@ mod health;
 mod index_usage;
 mod jobs;
 mod legacy_probe;
+mod lineage;
 mod monitor;
 mod objects_page;
 mod permissions;
@@ -2262,6 +2263,16 @@ impl Session for SqlServerSession {
         scan: &dbine_driver::DependencyScan,
     ) -> Result<dbine_driver::DependencyReport> {
         references::references(self, target, scan).await
+    }
+
+    /// The whole database in two catalog reads (see `lineage`).
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &dbine_driver::dependencies::LineageScope,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::dependencies::LineageGraph> {
+        lineage::graph(self, database, scope, scan).await
     }
 
     /// T-SQL's built-ins for the server's version plus the database's own
