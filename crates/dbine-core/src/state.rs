@@ -885,7 +885,10 @@ impl StateStore {
     pub fn delete_lineage_connection(&self, id: &str) -> Result<bool> {
         let n = self
             .lock()?
-            .execute("DELETE FROM connections WHERE id = ?1 AND temporary = 3", [id])
+            .execute(
+                "DELETE FROM connections WHERE id = ?1 AND temporary = 3",
+                [id],
+            )
             .map_err(db_err)?;
         if n > 0 {
             self.notify(StateChange::new("lineage-connection", Some(id)));

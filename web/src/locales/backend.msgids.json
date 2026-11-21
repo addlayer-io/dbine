@@ -53847,6 +53847,9 @@
  "hay varias conexiones llamadas «{0}»: indicá su id (list_connections)": [
   "src-tauri/src/mcp/tools.rs"
  ],
+ "hay varias conexiones que coinciden: elegí una": [
+  "src-tauri/src/commands/cross.rs"
+ ],
  "hay varias conexiones «{0}» en esta máquina: elegí cuál es en el paso de la tarea": [
   "src-tauri/src/notebook/headless.rs"
  ],
@@ -55333,6 +55336,9 @@
  ],
  "la frase no es correcta": [
   "crates/dbine-tunnel/src/lib.rs"
+ ],
+ "la fuente no es un servidor al que DBine pueda conectarse": [
+  "src-tauri/src/commands/cross.rs"
  ],
  "la función": [
   "crates/drivers/mysql/src/rename_db.rs",
@@ -57065,6 +57071,9 @@
   "src-tauri/src/commands/multi_db.rs",
   "src-tauri/src/commands/ssh_profiles.rs",
   "src-tauri/src/state.rs"
+ ],
+ "no existe la conexión interna '{0}'": [
+  "src-tauri/src/commands/cross.rs"
  ],
  "no existe la consulta persistente {0}": [
   "crates/drivers/ksqldb/src/jobs.rs",
