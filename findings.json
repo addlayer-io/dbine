@@ -1,38 +1,6 @@
 {
   "scans": [
     {
-      "source": "osv",
-      "date": "2026-11-21",
-      "revision": "6f3365384f70",
-      "kind": "full",
-      "scope": "every lockfile (Cargo, npm)",
-      "found": 0
-    },
-    {
-      "source": "trivy",
-      "date": "2026-11-21",
-      "revision": "6f3365384f70",
-      "kind": "full",
-      "scope": "whole repository",
-      "found": 0
-    },
-    {
-      "source": "codeql",
-      "date": "2026-11-21",
-      "revision": "",
-      "kind": "full",
-      "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 0
-    },
-    {
-      "source": "scorecard",
-      "date": "2026-11-21",
-      "revision": "8b3ba8e51012",
-      "kind": "full",
-      "scope": "repository settings and workflows",
-      "score": 7.6
-    },
-    {
       "source": "claude-security",
       "release": "v1.7.0",
       "scan_id": "fcfb817d-a9fe-4109-b862-f21273cd126a",
@@ -71,6 +39,38 @@
       "kind": "changes",
       "scope": "c1b4d9a994e8..6f3365384f70",
       "found": 0
+    },
+    {
+      "source": "osv",
+      "date": "2026-11-21",
+      "revision": "80aca97a3117",
+      "kind": "full",
+      "scope": "every lockfile (Cargo, npm)",
+      "found": 0
+    },
+    {
+      "source": "trivy",
+      "date": "2026-11-21",
+      "revision": "80aca97a3117",
+      "kind": "full",
+      "scope": "whole repository",
+      "found": 0
+    },
+    {
+      "source": "codeql",
+      "date": "2026-11-21",
+      "revision": "",
+      "kind": "full",
+      "scope": "Rust, TypeScript/Vue and workflows",
+      "found": 0
+    },
+    {
+      "source": "scorecard",
+      "date": "2026-11-21",
+      "revision": "ad34705cefd1",
+      "kind": "full",
+      "scope": "repository settings and workflows",
+      "score": 7.6
     }
   ],
   "findings": [
