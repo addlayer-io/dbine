@@ -18587,7 +18587,6 @@
   "(el nombre de la key hasta su último «:»)": "（key 名称，到其最后一个“:”为止）",
   "(sin reducir)": "（未降维）",
   "-- BigQuery solo tiene índices vectoriales y de búsqueda: el índice {0} no se crea.": "-- BigQuery 只有向量索引和搜索索引：不会创建索引 {0}。",
-  "-- El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.\n": "-- 原表的搜索索引 {0} 也会索引 {1}：此处仅按本集合的部分创建。\n",
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- 向量索引未指定距离：将以余弦距离和 DiskANN 创建。",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- 向量索引 {0} 未指定距离：{1}。如果它来自其他数据库，说明 DBine 无法读取其配置：需要是索引所有者或拥有 SELECT_CATALOG_ROLE 角色。",
   "-- El índice vectorial «": "-- 向量索引“",
@@ -19099,5 +19098,13 @@
   "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "已读取前 {0} 个定义；其余部分仅显示目录中记录的依赖关系",
   "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "已读取前 {0} 个定义；其余部分不会向图表添加线条",
   "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "模式中有 {0} 个对象不是 VALID 状态：Oracle 可能只记录了它们的部分依赖关系",
-  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}：向量索引需要用文档进行训练，而该集合是新建的；因此延迟创建，在加载文档后使用 BUILD INDEX ON {1}({2}) 构建。"
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}：向量索引需要用文档进行训练，而该集合是新建的；因此延迟创建，在加载文档后使用 BUILD INDEX ON {1}({2}) 构建。",
+  "Con los permisos de esta conexión no se pudieron leer los reportes y tableros del área de trabajo: el linaje no muestra quién lee el modelo.": "使用此连接的权限无法读取工作区的报表和仪表板：沿袭不会显示谁在读取该模型。",
+  "El área de trabajo tiene más de 500 reportes o tableros: se muestran los primeros 500.": "工作区中的报表或仪表板超过 500 个：仅显示前 500 个。",
+  "El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.": "原表的搜索索引 {0} 也会索引 {1}：此处仅按本集合的部分创建。",
+  "Se leyeron los mosaicos de los primeros 100 tableros: los demás pueden leer este modelo y no aparecen.": "已读取前 100 个仪表板的磁贴：其余仪表板可能读取此模型，但不会显示。",
+  "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "连接“{0}”需要先连接（请先打开它，然后重试）",
+  "no se pudo abrir la conexión «{0}»: {1}": "无法打开连接“{0}”：{1}",
+  "no se pudo leer el modelo «{0}» de «{1}»: {2}": "无法读取“{1}”中的模型“{0}”：{2}",
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "“{0}”包含超过 {1} 个模型：已读取前 {2} 个"
 }

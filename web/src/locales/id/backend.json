@@ -18587,7 +18587,6 @@
   "(el nombre de la key hasta su último «:»)": "(nama key hingga «:» terakhirnya)",
   "(sin reducir)": "(tanpa reduksi)",
   "-- BigQuery solo tiene índices vectoriales y de búsqueda: el índice {0} no se crea.": "-- BigQuery hanya memiliki indeks vektor dan indeks pencarian: indeks {0} tidak dibuat.",
-  "-- El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.\n": "-- Indeks pencarian {0} pada aslinya juga mengindeks {1}: di sini dibuat dengan bagian milik koleksi ini.\n",
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- Indeks vektor tidak menyebutkan jarak: dibuat dengan jarak kosinus dan DiskANN.",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- Indeks vektor {0} tidak menyebutkan jarak: {1}. Jika berasal dari basis data lain, DBine tidak dapat membaca konfigurasinya: Anda harus menjadi pemilik indeks atau memiliki peran SELECT_CATALOG_ROLE.",
   "-- El índice vectorial «": "-- Indeks vektor «",
@@ -19099,5 +19098,13 @@
   "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "{0} definisi pertama dibaca; untuk sisanya hanya dependensi yang dicatat katalog yang ditampilkan",
   "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "{0} definisi pertama dibaca; sisanya tidak menambah garis pada diagram",
   "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "{0} objek dalam skema tidak berstatus VALID: Oracle mungkin hanya mencatat sebagian dependensinya",
-  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: indeks vektor dilatih dengan dokumen dan koleksinya baru; indeks dibuat secara tertunda, lalu setelah dokumen dimuat dibangun dengan BUILD INDEX ON {1}({2})."
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: indeks vektor dilatih dengan dokumen dan koleksinya baru; indeks dibuat secara tertunda, lalu setelah dokumen dimuat dibangun dengan BUILD INDEX ON {1}({2}).",
+  "Con los permisos de esta conexión no se pudieron leer los reportes y tableros del área de trabajo: el linaje no muestra quién lee el modelo.": "Dengan izin koneksi ini, laporan dan dasbor ruang kerja tidak dapat dibaca: lineage tidak menampilkan siapa yang membaca model.",
+  "El área de trabajo tiene más de 500 reportes o tableros: se muestran los primeros 500.": "Ruang kerja memiliki lebih dari 500 laporan atau dasbor: 500 pertama ditampilkan.",
+  "El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.": "Indeks pencarian {0} pada aslinya juga mengindeks {1}: di sini dibuat dengan bagian milik koleksi ini.",
+  "Se leyeron los mosaicos de los primeros 100 tableros: los demás pueden leer este modelo y no aparecen.": "Ubin dari 100 dasbor pertama telah dibaca: dasbor lainnya mungkin membaca model ini dan tidak ditampilkan.",
+  "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "koneksi \"{0}\" harus terhubung terlebih dahulu (buka lalu coba lagi)",
+  "no se pudo abrir la conexión «{0}»: {1}": "tidak dapat membuka koneksi \"{0}\": {1}",
+  "no se pudo leer el modelo «{0}» de «{1}»: {2}": "tidak dapat membaca model \"{0}\" dari \"{1}\": {2}",
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "\"{0}\" memiliki lebih dari {1} model: {2} pertama telah dibaca"
 }

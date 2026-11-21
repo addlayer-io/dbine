@@ -132,7 +132,6 @@
   "-- Borrar una parte separada es definitivo: revisá cada una antes.\n{0}": "-- Видалення відокремленої частини незворотне: перевірте кожну перед цим.\n{0}",
   "-- DBine · script de {0} · {1}\n\n": "-- DBine · скрипт {0} · {1}\n\n",
   "-- Ejecutalo con el modo de envío «Todo el texto de una vez»: el cuerpo lleva «;».\n": "-- Виконайте його в режимі надсилання «Весь текст одразу»: тіло містить «;».\n",
-  "-- El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.\n": "-- Пошуковий індекс {0} оригіналу також індексує {1}: тут він створюється з частиною цієї колекції.\n",
   "-- El índice local {0} solo se puede crear junto con la tabla (CREATE TABLE).": "-- Локальний індекс {0} можна створити лише разом із таблицею (CREATE TABLE).",
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- Векторний індекс не вказує відстань: він створюється з косинусною відстанню та DiskANN.",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- Векторний індекс {0} не вказує відстань: {1}. Якщо він з іншої бази, DBine не зміг прочитати його конфігурацію: потрібно бути власником індексу або мати роль SELECT_CATALOG_ROLE.",
@@ -19099,5 +19098,13 @@
   "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "прочитано перші визначення ({0}); для решти показано лише залежності, записані в каталозі",
   "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "прочитано перші визначення ({0}); решта не додає ліній на діаграму",
   "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "У схемі об’єктів не в стані VALID: {0}. Oracle міг записати їхні залежності лише частково",
-  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: векторний індекс навчається на документах, а колекція нова; його створюють відкладено, а після завантаження документів будують командою BUILD INDEX ON {1}({2})."
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: векторний індекс навчається на документах, а колекція нова; його створюють відкладено, а після завантаження документів будують командою BUILD INDEX ON {1}({2}).",
+  "Con los permisos de esta conexión no se pudieron leer los reportes y tableros del área de trabajo: el linaje no muestra quién lee el modelo.": "З правами цього підключення не вдалося прочитати звіти та дашборди робочої області: походження не показує, хто читає модель.",
+  "El área de trabajo tiene más de 500 reportes o tableros: se muestran los primeros 500.": "У робочій області понад 500 звітів або дашбордів: показано перші 500.",
+  "El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.": "Пошуковий індекс {0} оригіналу також індексує {1}: тут він створюється з частиною цієї колекції.",
+  "Se leyeron los mosaicos de los primeros 100 tableros: los demás pueden leer este modelo y no aparecen.": "Прочитано плитки перших 100 дашбордів: решта можуть читати цю модель і не відображаються.",
+  "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "підключення «{0}» спершу потрібно підключити (відкрийте його й повторіть спробу)",
+  "no se pudo abrir la conexión «{0}»: {1}": "не вдалося відкрити підключення «{0}»: {1}",
+  "no se pudo leer el modelo «{0}» de «{1}»: {2}": "не вдалося прочитати модель «{0}» з «{1}»: {2}",
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "у «{0}» понад {1} моделей: прочитано перші {2}"
 }

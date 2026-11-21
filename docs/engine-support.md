@@ -4230,6 +4230,52 @@ real server: SAP HANA, Snowflake, Databricks, Power BI, Materialize, RisingWave,
 Redshift, Yellowbrick, Greenplum, EDB and the other PostgreSQL forks, Azure SQL,
 Fabric and Babelfish (unit tests of the queries and the row mapping only).
 
+### Lineage across connections
+
+A source outside the database can be followed into the connection that holds
+it, and an object can be asked who reads it from other connections. The case
+that drives it is Power BI and its sources: a semantic model's table reads a
+SQL Server, Databricks, PostgreSQL… table, and the model feeds reports and
+dashboards. In the lineage of an object, a grey source card opens a panel that
+resolves it: the source's engine, server and database are normalized into a key
+(`dbine_core::SourceKey`: case, `localhost`/`.`/the machine name, default
+ports, SQL Server `server\instance` and `server,port`, Azure and Fabric hosts,
+Databricks workspaces, Snowflake accounts, Oracle `host:port/service`) and
+compared with the saved connections. One match: **Ver su linaje en…** replaces
+the grey card with the real object and loads what it uses, level by level. Several:
+a picker, remembered (`lineage_links`, local to the machine). None: **Crear
+conexión desde la fuente…** opens the connection form with the engine, host and
+database filled in (no credentials). **Desvincular** removes a saved link.
+
+The switch **Incluir otras conexiones** (off by default) asks the other
+direction: it reads the models of every saved Power BI connection, takes the
+external sources of their tables and adds to the right of the object the Power
+BI tables that read it. Their **+** loads the model and the reports and
+dashboards that read it. The result of each model is kept 15 minutes
+(**Buscar de nuevo** reads it again); a connection that isn't connected says so
+instead of failing.
+
+Reports and dashboards come from the Power BI REST API (reports and dashboards
+of the model's workspace, and a dashboard's tiles): a dashboard shows once per
+path to the model, through a report or straight from a tile. The contract
+carries them as `LineageGraph::consumers` and `DependencyReport::external_users`
+(**what outside the database reads an object**, the other direction of `external`).
+
+DBine Enterprise: its connections hold no server, so the client asks the
+Enterprise server (`POST /api/v1/desktop/resolve-source`: engine, server,
+database -> the connections this person may use, with permissions applied, no
+host or credential in the answer; audited as `source_resolve`).
+
+| What | State |
+|---|---|
+| Power BI semantic model, reports and dashboards (same workspace) | Implemented; unit-tested against fixtures, **not against a real tenant** |
+| Reports in other workspaces that read a shared model | Not listed: only the model's own workspace is read |
+| Sources that are files, SharePoint, web or ODBC | Have no server: nothing to follow |
+| Short host and its FQDN (`srv` / `srv.corp.local`) | Not matched automatically (it would need DNS): link it once by hand |
+| Who reads an object from other connections | Only Power BI connections are scanned in this version; the first read of many models can be slow (sequential, then cached) |
+| A Power BI connection that needs its password | Noted as "necesita conectarse primero": it has to be opened before |
+| DBine Enterprise resolution | Tested against the real Enterprise server (PostgreSQL); the desktop's HTTP call has no automated test (it needs a signed-in session) |
+
 ## Disable and enable indexes
 
 Right click on an index (in the explorer or in the **Indexes** tab) ›

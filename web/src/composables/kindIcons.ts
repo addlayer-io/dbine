@@ -9,6 +9,6 @@ export const KIND_ICONS: Record<string, string> = {
   constraint: 'lock', supertable: 'menu', subtable: 'grid', task: 'timer', file: 'document',
   label: 'coordinate', vertex: 'coordinate', relationship: 'connection', edge: 'connection',
   source: 'upload', sink: 'download', synonym: 'link', domain: 'price-tag', virtual_table: 'grid',
-  measure: 'data-line', calculation_group: 'files', role: 'user', expression: 'edit-pen',
+  model: 'data-analysis', measure: 'data-line', calculation_group: 'files', role: 'user', expression: 'edit-pen',
   fulltext_catalog: 'reading', fulltext_stoplist: 'document-remove',
 };

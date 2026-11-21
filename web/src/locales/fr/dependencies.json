@@ -52,7 +52,8 @@
     "measure": "Mesure",
     "calculation_group": "Groupe de calcul",
     "role": "Rôle",
-    "expression": "Expression"
+    "expression": "Expression",
+    "model": "Modèle sémantique"
   },
   "view": {
     "label": "Affichage",
@@ -105,5 +106,35 @@
     "noMatch": "Aucun objet ne correspond aux filtres.",
     "relations": "Relations ({{count}})",
     "relationsTip": "Les clés étrangères (et les relations d’un modèle) vont en parallèle de la traçabilité : activez-les pour les voir à côté d’elle."
+  },
+  "cross": {
+    "switch": "Inclure les autres connexions",
+    "switchTip": "Affiche ce qui lit cet objet depuis d'autres connexions : les tables Power BI qui en sont alimentées et, de là, leurs modèles, rapports et tableaux de bord.",
+    "searching": "Recherche dans les connexions Power BI…",
+    "searched": "Recherché dans : {{names}}",
+    "searchedItem": "{{name}} (modèles : {{models}}{{cached}})",
+    "cached": ", en cache",
+    "nobody": "Aucune autre connexion ne lit cet objet.",
+    "refresh": "Rechercher à nouveau",
+    "via": {
+      "link": "liée par vous",
+      "auto": "correspond par serveur et base de données",
+      "enterprise": "de DBine Enterprise"
+    },
+    "reader": "Cet élément Power BI lit l'objet.",
+    "openLink": "Ouvrir dans Power BI",
+    "resolving": "Recherche de la connexion de cette source…",
+    "follow": "Voir sa traçabilité dans {{name}}",
+    "followPicked": "Voir sa traçabilité",
+    "unlink": "Dissocier",
+    "many": "Plusieurs connexions correspondent à cette source. Choisissez-en une : la même sera utilisée la prochaine fois.",
+    "pick": "Connexion",
+    "remembered": "Le choix est mémorisé ; « Dissocier » le supprime.",
+    "none": "Aucune connexion enregistrée ne correspond à cette source.",
+    "create": "Créer une connexion à partir de la source…",
+    "notFound": "Cet objet est introuvable dans {{name}}.",
+    "badge": "Connexion : {{name}}",
+    "report": "Rapport Power BI",
+    "dashboard": "Tableau de bord Power BI"
   }
 }

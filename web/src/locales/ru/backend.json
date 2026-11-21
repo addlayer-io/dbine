@@ -18587,7 +18587,6 @@
   "(el nombre de la key hasta su último «:»)": "(имя key до последнего «:»)",
   "(sin reducir)": "(без сжатия)",
   "-- BigQuery solo tiene índices vectoriales y de búsqueda: el índice {0} no se crea.": "-- В BigQuery есть только векторные индексы и индексы поиска: индекс {0} не создаётся.",
-  "-- El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.\n": "-- Поисковый индекс {0} оригинала индексирует также {1}: здесь он создаётся с частью этой коллекции.\n",
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- Векторный индекс не указывает расстояние: он создаётся с косинусным расстоянием и DiskANN.",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- Векторный индекс {0} не указывает расстояние: {1}. Если он из другой базы, DBine не смог прочитать его конфигурацию: нужно быть владельцем индекса или иметь роль SELECT_CATALOG_ROLE.",
   "-- El índice vectorial «": "-- Векторный индекс «",
@@ -19099,5 +19098,13 @@
   "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "прочитаны первые определения ({0}); для остальных показаны только зависимости, записанные в каталоге",
   "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "прочитаны первые определения ({0}); остальные не добавляют линий на диаграмму",
   "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "В схеме объектов не в состоянии VALID: {0}. Oracle мог записать их зависимости лишь частично",
-  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: векторный индекс обучается на документах, а коллекция новая; он создаётся отложенно, а после загрузки документов строится командой BUILD INDEX ON {1}({2})."
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: векторный индекс обучается на документах, а коллекция новая; он создаётся отложенно, а после загрузки документов строится командой BUILD INDEX ON {1}({2}).",
+  "Con los permisos de esta conexión no se pudieron leer los reportes y tableros del área de trabajo: el linaje no muestra quién lee el modelo.": "С правами этого подключения не удалось прочитать отчёты и дашборды рабочей области: происхождение не показывает, кто читает модель.",
+  "El área de trabajo tiene más de 500 reportes o tableros: se muestran los primeros 500.": "В рабочей области более 500 отчётов или дашбордов: показаны первые 500.",
+  "El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.": "Поисковый индекс {0} оригинала индексирует также {1}: здесь он создаётся с частью этой коллекции.",
+  "Se leyeron los mosaicos de los primeros 100 tableros: los demás pueden leer este modelo y no aparecen.": "Прочитаны плитки первых 100 дашбордов: остальные могут читать эту модель и не отображаются.",
+  "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "подключение «{0}» сначала нужно подключить (откройте его и повторите попытку)",
+  "no se pudo abrir la conexión «{0}»: {1}": "не удалось открыть подключение «{0}»: {1}",
+  "no se pudo leer el modelo «{0}» de «{1}»: {2}": "не удалось прочитать модель «{0}» из «{1}»: {2}",
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "в «{0}» более {1} моделей: прочитаны первые {2}"
 }

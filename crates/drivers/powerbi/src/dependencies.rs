@@ -53,6 +53,10 @@ pub(crate) async fn dependents_in<S: Service>(
     let m = session_model(s)?;
     let meta = crate::meta::model_for(s, &m).await?;
     let mut report = DependencyReport::default();
+    // Whatever the object, the reports and dashboards that read its model.
+    let c = crate::consumers::read(s, &m).await?;
+    report.external_users = c.items;
+    report.note = c.notes.into_iter().next();
     if meta.tier == Tier::Stats {
         report.note = Some(NO_METADATA.into());
         return Ok(report);

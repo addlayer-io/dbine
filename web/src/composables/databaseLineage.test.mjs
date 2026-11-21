@@ -166,3 +166,10 @@ test('relations (foreign keys) start hidden, so the lineage shows alone, and com
   assert.ok(!only.nodes.some((n) => n.name === 'Pedidos'));
   assert.ok(m.isRelation({ relation: 'foreign_key' }) && !m.isRelation({ relation: 'code' }));
 });
+
+test('what outside reads the database (reports, dashboards) is a grey card to the right of the model', () => {
+  const model = m.buildModel(graph({ consumers: [{ consumer: { system: 'Power BI report', name: 'Tablero', detail: 'https://app.powerbi.com/r/1' }, from: o('view', 'rep', 'v_ventas') }] }));
+  const rep = [...model.nodes.values()].find((n) => n.external?.system === 'Power BI report');
+  assert.ok(rep);
+  assert.ok(model.edges.some((e) => e.from === nodeId(o('view', 'rep', 'v_ventas')) && e.to === rep.id && e.relation === 'external'));
+});

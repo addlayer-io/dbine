@@ -4,7 +4,7 @@
 // overview by schema (a card per schema, line weight = dependencies crossing) and
 // the layout with the objects that have no line in a column at the side.
 
-import type { Confidence, LineageGraph } from '../api/types';
+import type { Confidence, ExternalRef, LineageGraph } from '../api/types';
 import { externalId, jobNodeId, layout, nodeId, type Lineage, type LineageEdge, type LineageNode, type Placed } from './lineage';
 
 /** Above this many objects the diagram opens as an overview by schema. */
@@ -55,7 +55,7 @@ export function buildModel(g: LineageGraph): DbModel {
     }
     for (const m of e.mentions) if (!have.mentions.some((x) => x.line === m.line && x.text === m.text)) have.mentions.push(m);
   };
-  const outside = (x: NonNullable<LineageGraph['external']>[number]['source']) => {
+  const outside = (x: ExternalRef) => {
     const id = externalId(x);
     if (!nodes.has(id)) {
       nodes.set(id, { id, kind: 'external', schema: x.schema ?? null, name: x.name ?? x.database ?? x.server ?? x.system ?? '?', external: x, up: 'done', down: 'done' });
@@ -68,6 +68,10 @@ export function buildModel(g: LineageGraph): DbModel {
   }
   for (const x of g.external ?? []) {
     edge({ from: outside(x.source), to: object(x.to), relation: 'external', confidence: 'confirmed', detail: x.source.detail, mentions: [...(x.source.mentions ?? [])] });
+  }
+  // What outside the database reads its objects (a Power BI report or dashboard reading a model).
+  for (const c of g.consumers ?? []) {
+    edge({ from: object(c.from), to: outside(c.consumer), relation: 'external', confidence: 'confirmed', detail: c.consumer.detail, mentions: [...(c.consumer.mentions ?? [])] });
   }
   for (const j of g.jobs ?? []) {
     const id = jobNodeId(j.id);

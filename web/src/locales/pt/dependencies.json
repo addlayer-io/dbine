@@ -52,7 +52,8 @@
     "measure": "Medida",
     "calculation_group": "Grupo de cálculo",
     "role": "Papel",
-    "expression": "Expressão"
+    "expression": "Expressão",
+    "model": "Modelo semântico"
   },
   "view": {
     "label": "Visualização",
@@ -105,5 +106,35 @@
     "noMatch": "Nenhum objeto atende aos filtros.",
     "relations": "Relações ({{count}})",
     "relationsTip": "As chaves estrangeiras (e as relações de um modelo) correm em paralelo à linhagem: ative-as para vê-las junto com ela."
+  },
+  "cross": {
+    "switch": "Incluir outras conexões",
+    "switchTip": "Mostra o que lê este objeto a partir de outras conexões: as tabelas do Power BI alimentadas por ele e, a partir daí, seus modelos, relatórios e painéis.",
+    "searching": "Pesquisando nas conexões do Power BI…",
+    "searched": "Pesquisado em: {{names}}",
+    "searchedItem": "{{name}} (modelos: {{models}}{{cached}})",
+    "cached": ", em cache",
+    "nobody": "Nenhuma outra conexão lê este objeto.",
+    "refresh": "Pesquisar novamente",
+    "via": {
+      "link": "vinculada por você",
+      "auto": "coincide por servidor e banco de dados",
+      "enterprise": "do DBine Enterprise"
+    },
+    "reader": "Este item do Power BI lê o objeto.",
+    "openLink": "Abrir no Power BI",
+    "resolving": "Procurando a conexão desta fonte…",
+    "follow": "Ver linhagem em {{name}}",
+    "followPicked": "Ver linhagem",
+    "unlink": "Desvincular",
+    "many": "Várias conexões coincidem com esta fonte. Escolha uma: da próxima vez, a mesma será usada.",
+    "pick": "Conexão",
+    "remembered": "A escolha fica lembrada; “Desvincular” a remove.",
+    "none": "Nenhuma conexão salva coincide com esta fonte.",
+    "create": "Criar conexão a partir da fonte…",
+    "notFound": "Este objeto não foi encontrado em {{name}}.",
+    "badge": "Conexão: {{name}}",
+    "report": "Relatório do Power BI",
+    "dashboard": "Painel do Power BI"
   }
 }

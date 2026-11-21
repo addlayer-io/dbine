@@ -52,7 +52,8 @@
     "measure": "측정값",
     "calculation_group": "계산 그룹",
     "role": "역할",
-    "expression": "식"
+    "expression": "식",
+    "model": "의미 체계 모델"
   },
   "view": {
     "label": "보기",
@@ -105,5 +106,35 @@
     "noMatch": "필터에 맞는 개체가 없습니다.",
     "relations": "관계 ({{count}})",
     "relationsTip": "외래 키(및 모델의 관계)는 계보와 별개로 이어집니다. 켜면 계보 옆에서 함께 볼 수 있습니다."
+  },
+  "cross": {
+    "switch": "다른 연결 포함",
+    "switchTip": "다른 연결에서 이 개체를 읽는 항목을 표시합니다. 이 개체로 데이터를 받는 Power BI 테이블과, 그에 연결된 모델, 보고서, 대시보드입니다.",
+    "searching": "Power BI 연결에서 검색하는 중…",
+    "searched": "검색한 연결: {{names}}",
+    "searchedItem": "{{name}} (모델: {{models}}{{cached}})",
+    "cached": ", 캐시",
+    "nobody": "이 개체를 읽는 다른 연결이 없습니다.",
+    "refresh": "다시 검색",
+    "via": {
+      "link": "사용자가 연결함",
+      "auto": "서버와 데이터베이스가 일치",
+      "enterprise": "DBine Enterprise 제공"
+    },
+    "reader": "이 Power BI 항목이 개체를 읽습니다.",
+    "openLink": "Power BI에서 열기",
+    "resolving": "이 원본의 연결을 찾는 중…",
+    "follow": "{{name}}에서 계보 보기",
+    "followPicked": "계보 보기",
+    "unlink": "연결 해제",
+    "many": "이 원본과 일치하는 연결이 여러 개 있습니다. 하나를 선택하세요. 다음에도 같은 연결을 사용합니다.",
+    "pick": "연결",
+    "remembered": "선택 내용은 기억되며, '연결 해제'로 제거할 수 있습니다.",
+    "none": "이 원본과 일치하는 저장된 연결이 없습니다.",
+    "create": "원본에서 연결 만들기…",
+    "notFound": "{{name}}에서 이 개체를 찾을 수 없습니다.",
+    "badge": "연결: {{name}}",
+    "report": "Power BI 보고서",
+    "dashboard": "Power BI 대시보드"
   }
 }

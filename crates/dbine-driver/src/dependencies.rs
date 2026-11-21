@@ -18,8 +18,8 @@
 mod graph;
 mod job_scan;
 pub use graph::{
-    graph_scan, LineageEdge, LineageExternal, LineageGraph, LineageJob, LineageScope,
-    GRAPH_DEFINITIONS, GRAPH_OBJECTS,
+    graph_scan, LineageConsumer, LineageEdge, LineageExternal, LineageGraph, LineageJob,
+    LineageScope, GRAPH_DEFINITIONS, GRAPH_OBJECTS,
 };
 pub use job_scan::{job_dependents_scan, job_hit, job_references_scan, merge_jobs, JOBS_READ};
 
@@ -91,6 +91,11 @@ pub struct DependencyReport {
     /// cap, a list that couldn't be read.
     #[serde(default)]
     pub job_notes: Vec<String>,
+    /// [`crate::Session::dependents`]: what outside the database reads the
+    /// target (a Power BI report or dashboard that reads a semantic model,
+    /// a Databricks notebook…), the other direction of [`DependencyReport::external`].
+    #[serde(default)]
+    pub external_users: Vec<ExternalRef>,
 }
 
 /// A server job whose steps run or name the target (see

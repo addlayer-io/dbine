@@ -623,6 +623,9 @@ pub struct MetaState {
     /// Which admin `INFO` functions work per model, when the account isn't
     /// known (else it's host-wide, [`info`]).
     pub admin_works: BTreeMap<String, Vec<&'static str>>,
+    /// The reports and dashboards that read the model, and when they were
+    /// read ([`crate::consumers`]).
+    pub consumers: Option<(String, Instant, Arc<crate::consumers::Consumers>)>,
 }
 
 /// How long a model's metadata is kept (spec §4.3).

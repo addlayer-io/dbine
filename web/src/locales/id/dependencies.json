@@ -52,7 +52,8 @@
     "measure": "Ukuran",
     "calculation_group": "Grup kalkulasi",
     "role": "Peran",
-    "expression": "Ekspresi"
+    "expression": "Ekspresi",
+    "model": "Model semantik"
   },
   "view": {
     "label": "Tampilan",
@@ -105,5 +106,35 @@
     "noMatch": "Tidak ada objek yang cocok dengan filter.",
     "relations": "Relasi ({{count}})",
     "relationsTip": "Kunci asing (dan relasi sebuah model) berjalan paralel dengan lineage: aktifkan untuk melihatnya berdampingan."
+  },
+  "cross": {
+    "switch": "Sertakan koneksi lain",
+    "switchTip": "Menampilkan apa yang membaca objek ini dari koneksi lain: tabel Power BI yang bersumber darinya dan, dari sana, model, laporan, serta dasbornya.",
+    "searching": "Mencari di koneksi Power BI…",
+    "searched": "Dicari di: {{names}}",
+    "searchedItem": "{{name}} (model: {{models}}{{cached}})",
+    "cached": ", dari cache",
+    "nobody": "Tidak ada koneksi lain yang membaca objek ini.",
+    "refresh": "Cari lagi",
+    "via": {
+      "link": "ditautkan oleh Anda",
+      "auto": "cocok berdasarkan server dan basis data",
+      "enterprise": "dari DBine Enterprise"
+    },
+    "reader": "Item Power BI ini membaca objek tersebut.",
+    "openLink": "Buka di Power BI",
+    "resolving": "Mencari koneksi untuk sumber ini…",
+    "follow": "Lihat lineage-nya di {{name}}",
+    "followPicked": "Lihat lineage-nya",
+    "unlink": "Putuskan tautan",
+    "many": "Beberapa koneksi cocok dengan sumber ini. Pilih salah satu: lain kali koneksi yang sama akan dipakai.",
+    "pick": "Koneksi",
+    "remembered": "Pilihan diingat; \"Putuskan tautan\" menghapusnya.",
+    "none": "Tidak ada koneksi tersimpan yang cocok dengan sumber ini.",
+    "create": "Buat koneksi dari sumber…",
+    "notFound": "Objek ini tidak ditemukan di {{name}}.",
+    "badge": "Koneksi: {{name}}",
+    "report": "Laporan Power BI",
+    "dashboard": "Dasbor Power BI"
   }
 }

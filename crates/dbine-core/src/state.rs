@@ -578,6 +578,9 @@ impl StateStore {
         // older state files gain the table here.
         conn.execute_batch(crate::ssh_profiles::TABLE)
             .map_err(db_err)?;
+        // Links the user made between a lineage source and a connection.
+        conn.execute_batch(crate::lineage_link::TABLE)
+            .map_err(db_err)?;
         let store = Self {
             conn: Mutex::new(conn),
             hook: RwLock::new(None),

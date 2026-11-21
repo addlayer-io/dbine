@@ -30,9 +30,10 @@ use crate::meta::info::{calc_dependencies_of, CalcDependency};
 use crate::meta::service::{session_model, Service};
 use crate::meta::{relationship_name, same, ModelMeta, TableKind, Tier};
 use crate::references::{self, m, Use};
-use crate::{Ctx, CALCULATION_GROUP, EXPRESSION, FUNCTION, MEASURE, ROLE, TABLE};
+use crate::{Ctx, CALCULATION_GROUP, EXPRESSION, FUNCTION, MEASURE, MODEL, ROLE, TABLE};
 use dbine_driver::dependencies::{
-    LineageEdge, LineageExternal, LineageGraph, LineageScope, GRAPH_OBJECTS, MAX_MENTIONS,
+    LineageConsumer, LineageEdge, LineageExternal, LineageGraph, LineageScope, GRAPH_OBJECTS,
+    MAX_MENTIONS,
 };
 use dbine_driver::{Confidence, Mention, ObjectRef, Relation, Result};
 
@@ -339,8 +340,9 @@ pub(crate) async fn lineage_in<S: Service>(
     let meta = crate::meta::model_for(s, &model).await?;
     let mut g = LineageGraph::default();
 
-    // The nodes, as the explorer lists them.
-    let mut all: Vec<ObjectRef> = Vec::new();
+    // The nodes, as the explorer lists them. The model comes first, so a
+    // cap leaves it: what reads the model hangs from it.
+    let mut all: Vec<ObjectRef> = vec![node(MODEL, &model.listed_as)];
     all.extend(meta.plain_tables().map(|t| node(TABLE, &t.name)));
     all.extend(
         meta.calculation_groups
@@ -364,8 +366,38 @@ pub(crate) async fn lineage_in<S: Service>(
     }
     let has = |o: &ObjectRef| all.iter().any(|n| same_node(n, o));
 
+    // The model reads its tables, and what outside it reads the model (the
+    // reports and dashboards, over REST: no metadata permission needed).
+    let model_node = node(MODEL, &model.listed_as);
+    let mut model_edges: Vec<LineageEdge> = Vec::new();
+    if has(&model_node) {
+        for o in &all {
+            if o.kind == TABLE || o.kind == CALCULATION_GROUP {
+                model_edges.push(LineageEdge {
+                    from: o.clone(),
+                    to: model_node.clone(),
+                    relation: Relation::Code,
+                    confidence: Confidence::Confirmed,
+                    detail: None,
+                    mentions: Vec::new(),
+                });
+            }
+        }
+        let c = crate::consumers::read(s, &model).await?;
+        g.consumers = c
+            .items
+            .into_iter()
+            .map(|consumer| LineageConsumer {
+                consumer,
+                from: model_node.clone(),
+            })
+            .collect();
+        g.notes.extend(c.notes);
+    }
+
     if meta.tier == Tier::Stats {
         g.notes.push(NO_METADATA.into());
+        g.edges = model_edges;
         g.objects = all;
         return Ok(g);
     }
@@ -588,6 +620,7 @@ pub(crate) async fn lineage_in<S: Service>(
     external.retain(|e| has(&e.to));
     g.external = external;
     g.edges = b.edges;
+    g.edges.extend(model_edges);
     g.objects = all;
     Ok(g)
 }
@@ -942,7 +975,7 @@ mod tests {
         assert!(g
             .edges
             .iter()
-            .filter(|e| e.to.kind != ROLE)
+            .filter(|e| e.to.kind != ROLE && e.to.kind != MODEL)
             .all(|e| e.confidence != Confidence::Confirmed || e.relation == Relation::ForeignKey));
     }
 
@@ -964,7 +997,8 @@ mod tests {
             )],
         );
         let g = graph(&mut f).await;
-        assert!(g.edges.is_empty() && g.external.is_empty());
+        // Only the model reading its tables: no code is known.
+        assert!(g.edges.iter().all(|e| e.to.kind == MODEL) && g.external.is_empty());
         assert_eq!(g.notes, [NO_METADATA]);
         assert!(g.objects.iter().any(|o| o.name == "Sales"));
     }

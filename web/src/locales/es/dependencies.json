@@ -52,7 +52,8 @@
     "measure": "Medida",
     "calculation_group": "Grupo de cálculo",
     "role": "Rol",
-    "expression": "Expresión"
+    "expression": "Expresión",
+    "model": "Modelo semántico"
   },
   "view": {
     "label": "Vista",
@@ -71,6 +72,36 @@
     "recenter": "Ver su linaje",
     "uses": "Usa",
     "usedBy": "Lo usan"
+  },
+  "cross": {
+    "switch": "Incluir otras conexiones",
+    "switchTip": "Muestra lo que lee este objeto desde otras conexiones: las tablas de Power BI que se alimentan de él y, de ahí, sus modelos, reportes y paneles.",
+    "searching": "Buscando en las conexiones de Power BI…",
+    "searched": "Buscado en: {{names}}",
+    "searchedItem": "{{name}} (modelos: {{models}}{{cached}})",
+    "cached": ", en caché",
+    "nobody": "Ninguna otra conexión lee este objeto.",
+    "refresh": "Volver a buscar",
+    "via": {
+      "link": "vinculada por vos",
+      "auto": "coincide por servidor y base",
+      "enterprise": "de DBine Enterprise"
+    },
+    "reader": "Este elemento de Power BI lee el objeto.",
+    "openLink": "Abrir en Power BI",
+    "resolving": "Buscando la conexión de esta fuente…",
+    "follow": "Ver su linaje en {{name}}",
+    "followPicked": "Ver su linaje",
+    "unlink": "Desvincular",
+    "many": "Varias conexiones coinciden con esta fuente. Elegí una: la próxima vez se usa la misma.",
+    "pick": "Conexión",
+    "remembered": "La elección se recuerda; «Desvincular» la quita.",
+    "none": "Ninguna conexión guardada coincide con esta fuente.",
+    "create": "Crear conexión desde la fuente…",
+    "notFound": "No se encontró este objeto en {{name}}.",
+    "badge": "Conexión: {{name}}",
+    "report": "Reporte de Power BI",
+    "dashboard": "Panel de Power BI"
   },
   "jobs": {
     "title": "Jobs del servidor que lo ejecutan",

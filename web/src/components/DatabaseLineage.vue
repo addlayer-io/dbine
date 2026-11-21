@@ -9,18 +9,20 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
-import type { LineageScope } from '../api/types';
+import { ElMessage } from 'element-plus';
+import type { LineageScope, SourceCandidate } from '../api/types';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore } from '../stores/tabs';
 import { KIND_ICONS } from '../composables/kindIcons';
-import type { LineageNode } from '../composables/lineage';
+import { readerKind, type LineageNode } from '../composables/lineage';
 import {
   OVERVIEW_ABOVE, applyFilters, buildModel, buildView, groupOf, hasCatalogLineage, isRelation, kindsOf, layoutDb, noFilters, objectCount, schemaId, schemasOf,
   type DbModel, type Filters,
 } from '../composables/databaseLineage';
 import LineageCanvas from './LineageCanvas.vue';
 import LineageDetail from './LineageDetail.vue';
+import LineageSource from './LineageSource.vue';
 
 const props = defineProps<{ connectionId: string; database: string; scope: LineageScope }>();
 const conns = useConnectionsStore();
@@ -114,11 +116,11 @@ function kindText(kind: string) {
   const own = driver.value?.object_kinds.find((k) => k.id === kind);
   return t(`dependencies:kind.${kind}`, { defaultValue: own ? tb(own.label) : kind });
 }
-const kindLabel = (n: LineageNode) => kindText(n.kind);
-const icon = (n: LineageNode) => (n.kind === 'schema' ? 'folder' : n.external ? 'connection' : n.jobId ? 'alarm-clock' : KIND_ICONS[n.kind] ?? 'document');
+const kindLabel = (n: LineageNode) => (readerKind(n) ? t(`dependencies:cross.${readerKind(n)}`) : kindText(n.kind));
+const icon = (n: LineageNode) => (n.kind === 'schema' ? 'folder' : readerKind(n) ? (readerKind(n) === 'report' ? 'data-analysis' : 'data-board') : n.external ? 'connection' : n.jobId ? 'alarm-clock' : KIND_ICONS[n.kind] ?? 'document');
 function sub(n: LineageNode) {
   if (n.kind === 'schema') return t('dependencies:database.members', { count: n.members ?? 0 });
-  if (n.external) return [n.external.system, n.external.server, n.external.database].filter(Boolean).join(' · ');
+  if (n.external) return (readerKind(n) ? [kindLabel(n)] : [n.external.system, n.external.server, n.external.database]).filter(Boolean).join(' · ');
   return [kindLabel(n), n.jobKind, n.schema].filter(Boolean).join(' · ');
 }
 const title = (n: LineageNode) => (n.kind === 'schema' ? schemaName(n.name) : n.schema ? `${n.schema}.${n.name}` : n.name);
@@ -127,10 +129,25 @@ const hits = computed(() => new Set<string>());
 
 function open(n: LineageNode) {
   if (n.kind === 'schema') return expand(n.name);
-  if (n.external) return;
+  if (n.external) return void (selected.value = n.id);
   if (n.jobId) return tabs.openServerJob(props.connectionId, n.jobId, n.name);
   const object = { kind: n.kind, schema: n.schema, name: n.name };
   tabs.openObject(props.connectionId, props.database, object, ['table', 'collection'].includes(n.kind) ? 'structure' : 'definition');
+}
+/** A source outside the database, followed into the connection that holds it: its lineage opens there, in its own tab. */
+const following = ref(false);
+async function follow(n: LineageNode, c: SourceCandidate) {
+  if (!n.external || following.value) return;
+  following.value = true;
+  try {
+    const found = await api.lineageLocateSource(c.connection_id, n.external);
+    if (!found) return void ElMessage.warning(t('dependencies:cross.notFound', { name: c.name }));
+    tabs.openDependencies(c.connection_id, found.database, found.object, null, 'lineage', null);
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  } finally {
+    following.value = false;
+  }
 }
 /** The object lineage with this card in the middle, in its own tab. */
 function recenter(n: LineageNode) {
@@ -208,6 +225,9 @@ const filtering = computed(() => !!(filters.value.kinds.length || filters.value.
         />
         <LineageDetail v-if="sel" :graph="view.lineage" :sel="sel" :kind-label="kindLabel" @select="selected = $event">
           <template #icon><component :is="`ei-${icon(sel)}`" /></template>
+          <template v-if="sel.external" #extra>
+            <LineageSource :connection-id="connectionId" :source="sel.external" :busy="following" @follow="follow(sel, $event)" />
+          </template>
           <template #actions>
             <template v-if="sel.kind === 'schema'">
               <el-button size="small" @click="expand(sel.name)">{{ $t('dependencies:database.expand') }}</el-button>

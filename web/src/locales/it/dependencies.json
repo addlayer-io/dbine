@@ -52,7 +52,8 @@
     "measure": "Misura",
     "calculation_group": "Gruppo di calcolo",
     "role": "Ruolo",
-    "expression": "Espressione"
+    "expression": "Espressione",
+    "model": "Modello semantico"
   },
   "view": {
     "label": "Vista",
@@ -105,5 +106,35 @@
     "noMatch": "Nessun oggetto soddisfa i filtri.",
     "relations": "Relazioni ({{count}})",
     "relationsTip": "Le chiavi esterne (e le relazioni di un modello) corrono in parallelo al lineage: attivale per vederle accanto ad esso."
+  },
+  "cross": {
+    "switch": "Includi altre connessioni",
+    "switchTip": "Mostra cosa legge questo oggetto da altre connessioni: le tabelle di Power BI che ne sono alimentate e, da lì, i loro modelli, report e dashboard.",
+    "searching": "Ricerca nelle connessioni di Power BI…",
+    "searched": "Cercato in: {{names}}",
+    "searchedItem": "{{name}} (modelli: {{models}}{{cached}})",
+    "cached": ", in cache",
+    "nobody": "Nessun'altra connessione legge questo oggetto.",
+    "refresh": "Cerca di nuovo",
+    "via": {
+      "link": "collegata da te",
+      "auto": "corrisponde per server e database",
+      "enterprise": "di DBine Enterprise"
+    },
+    "reader": "Questo elemento di Power BI legge l'oggetto.",
+    "openLink": "Apri in Power BI",
+    "resolving": "Ricerca della connessione di questa origine…",
+    "follow": "Vedi il suo lineage in {{name}}",
+    "followPicked": "Vedi il suo lineage",
+    "unlink": "Scollega",
+    "many": "Più connessioni corrispondono a questa origine. Sceglierne una: la volta successiva verrà usata la stessa.",
+    "pick": "Connessione",
+    "remembered": "La scelta viene ricordata; «Scollega» la rimuove.",
+    "none": "Nessuna connessione salvata corrisponde a questa origine.",
+    "create": "Crea connessione dall'origine…",
+    "notFound": "Questo oggetto non è stato trovato in {{name}}.",
+    "badge": "Connessione: {{name}}",
+    "report": "Report di Power BI",
+    "dashboard": "Dashboard di Power BI"
   }
 }

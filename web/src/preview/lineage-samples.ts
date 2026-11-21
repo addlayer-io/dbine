@@ -8,8 +8,14 @@
 // procedures, a job and an outside source); &big=1 makes it 300 objects in 8 schemas (opens
 // as an overview by schema); &ask=1 uses an engine without a catalog query ("Analizar");
 // &schema=rep scopes it to a schema.
+// Across connections (&cross=1, mocked lineage_resolve_source / lineage_link_source /
+// lineage_locate_source / get_cross_users): the SQL view in the middle, with "Incluir otras
+// conexiones" turned on, shows the Power BI table that reads it, its model, and the model's report
+// and dashboard. &cross=1&root=pbi puts the Power BI table in the middle: its SQL Server source
+// resolves to the "Ventas" connection (&match=many: two candidates, &match=none: no connection,
+// with a prefill) and "Ver su linaje" turns the grey card into the real object.
 
-import type { DependencyReport, Dependent, JobDependent, LineageEdge, LineageGraph, ObjectRef } from '../api/types';
+import type { CrossUsers, DependencyReport, Dependent, JobDependent, LineageEdge, LineageGraph, ObjectRef, SourceMatch } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type DependenciesTab } from '../stores/tabs';
 
@@ -28,6 +34,7 @@ const USES: Record<string, DependencyReport> = {
   Pedidos: report([dep('table', 'dbo', 'Clientes', 'confirmed', 'foreign_key'), dep('table', 'dbo', 'Productos', 'confirmed', 'foreign_key')]),
   sp_reporte: report([dep('view', 'dbo', 'v_medidas_resumen'), dep('table', 'dbo', 'Clientes')]),
   fn_total: report([dep('table', 'dbo', 'Tarifas')]),
+  medidas: report([dep('table', 'etl', 'stg_medidas', 'confirmed'), dep('view', 'dbo', 'v_base')]),
 };
 /** The job that runs the procedure. */
 const NIGHTLY: JobDependent = {
@@ -41,6 +48,29 @@ const USED_BY: Record<string, DependencyReport> = {
   v_kpis: report([dep('procedure', 'dbo', 'sp_tablero')]),
   medidas: report([dep('view', 'dbo', 'v_medidas_resumen', 'confirmed'), dep('procedure', 'etl', 'sp_cargar_medidas')]),
 };
+
+/** The Power BI side of the cross-connection flows (connection `pbi1`, model `Indicadores`). */
+const PBI = { id: 'pbi1', name: 'Power BI Indicadores', database: 'Indicadores' };
+const PBI_TABLE = { kind: 'table', schema: null, name: 'medidas pbi' };
+const SQL_SOURCE = { system: 'SQL Server', server: 'srv-dw01', database: 'indicadores', schema: 'dbo', name: 'medidas', detail: 'Partición medidas pbi' };
+const PBI_USES: Record<string, DependencyReport> = {
+  'medidas pbi': report([], { external: [SQL_SOURCE] }),
+};
+const PBI_USED_BY: Record<string, DependencyReport> = {
+  'medidas pbi': report([{ ...dep('model', '', 'Indicadores', 'confirmed'), schema: null, mentions: [] }]),
+  Indicadores: report([], {
+    external_users: [
+      { system: 'Power BI report', name: 'Tablero de medidas', detail: 'https://app.powerbi.com/groups/me/reports/r1' },
+      { system: 'Power BI dashboard', name: 'Panel gerencial', detail: 'https://app.powerbi.com/groups/me/dashboards/d1' },
+    ],
+  }),
+};
+const CROSS_USERS: CrossUsers = {
+  users: [{ connection_id: PBI.id, connection_name: PBI.name, database: PBI.database, object: PBI_TABLE, detail: 'Partición medidas pbi' }],
+  searched: [{ connection_id: PBI.id, name: PBI.name, models: 3, cached: false }],
+  notes: [],
+};
+const sqlMatch = (id: string, name: string) => ({ connection_id: id, name, driver: 'sqlserver', via: 'auto' as const });
 
 const ref = (kind: string, schema: string, name: string): ObjectRef => ({ kind, schema, name });
 const ledge = (from: ObjectRef, to: ObjectRef, confidence: LineageEdge['confidence'] = 'confirmed', relation: LineageEdge['relation'] = 'code'): LineageEdge => ({
@@ -110,6 +140,14 @@ export function installLineagePreview(params: URLSearchParams) {
       column: null, view: 'lineage', scope: schema ? { schemas: [schema] } : {},
     });
   }
+  const cross = !!params.get('cross');
+  if (cross) {
+    for (const [id, name, driver] of [['c1', 'Ventas', 'sqlserver'], ['c2', 'Ventas (réplica)', 'sqlserver'], [PBI.id, PBI.name, 'powerbi']]) {
+      if (!conns.list.some((c) => c.id === id)) conns.list.push({ id, name, config: { driver } } as never);
+      conns.live[id] = { status: 'connected', serverVersion: '', databases: ['ventas'], defaultDatabase: 'ventas', error: null };
+    }
+    for (const d of ['sqlserver', 'powerbi']) if (!conns.drivers.some((x) => x.id === d)) conns.drivers.push({ id: d, object_kinds: [], fields: [] } as never);
+  }
   const tab: DependenciesTab = {
     id: 'lin1', kind: 'dependencies', connectionId: 'c1', database: 'ventas', preview: false,
     object: { kind: 'view', schema: 'dbo', name: 'v_medidas_resumen' }, column: null, view: params.get('list') ? 'list' : 'lineage',
@@ -119,7 +157,13 @@ export function installLineagePreview(params: URLSearchParams) {
     tab.object = { kind: 'job', schema: null, name: NIGHTLY.name };
     tab.jobId = NIGHTLY.id;
   }
+  if (cross && params.get('root') === 'pbi') {
+    tab.connectionId = PBI.id;
+    tab.database = PBI.database;
+    tab.object = PBI_TABLE;
+  }
   if (params.get('scope') !== 'db') tabs.tabs.push(tab);
+  const linked: { signature: string; id: string | null }[] = [];
   let cb = 0;
   (window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
@@ -128,12 +172,33 @@ export function installLineagePreview(params: URLSearchParams) {
     invoke: async (cmd: string, payload?: { args?: Args }) => {
       const a = payload?.args ?? {};
       const name = String(((a.target as Args | undefined)?.object as Args | undefined)?.name ?? '');
+      const onPbi = a.connection_id === PBI.id;
       switch (cmd) {
         case 'plugin:event|listen': return ++cb;
         case 'plugin:event|unlisten': return null;
         case 'get_lineage_graph': await new Promise((r) => setTimeout(r, 400)); return params.get('big') ? bigGraph() : smallGraph();
-        case 'get_references': await new Promise((r) => setTimeout(r, 250)); return USES[name] ?? report([]);
-        case 'get_dependents': await new Promise((r) => setTimeout(r, 300)); return USED_BY[name] ?? report([]);
+        case 'get_references': await new Promise((r) => setTimeout(r, 250)); return (onPbi ? PBI_USES : USES)[name] ?? report([]);
+        case 'get_dependents': await new Promise((r) => setTimeout(r, 300)); return (onPbi ? PBI_USED_BY : USED_BY)[name] ?? report([]);
+        case 'get_cross_users': await new Promise((r) => setTimeout(r, 900)); return CROSS_USERS;
+        case 'lineage_resolve_source': {
+          await new Promise((r) => setTimeout(r, 350));
+          const signature = 'sqlserver|srv-dw01|1433||indicadores';
+          const mode = params.get('match');
+          const own = linked.find((l) => l.signature === signature);
+          const m: SourceMatch = own?.id
+            ? { status: 'one', signature, candidates: [{ ...sqlMatch(own.id, own.id === 'c2' ? 'Ventas (réplica)' : 'Ventas'), via: 'link' }], prefill: null }
+            : mode === 'many' ? { status: 'many', signature, candidates: [sqlMatch('c1', 'Ventas'), sqlMatch('c2', 'Ventas (réplica)')], prefill: null }
+            : mode === 'none' ? { status: 'none', signature, candidates: [], prefill: { driver: 'sqlserver', host: 'srv-dw01', port: 1433, database: 'indicadores', username: null, password: null, encrypt: true, trust_server_certificate: false, read_only: false, options: {} } }
+            : { status: 'one', signature, candidates: [sqlMatch('c1', 'Ventas')], prefill: null };
+          return m;
+        }
+        case 'lineage_link_source': {
+          const i = linked.findIndex((l) => l.signature === a.signature);
+          if (i >= 0) linked.splice(i, 1);
+          if (a.connection_id) linked.push({ signature: String(a.signature), id: String(a.connection_id) });
+          return null;
+        }
+        case 'lineage_locate_source': await new Promise((r) => setTimeout(r, 300)); return { database: 'indicadores', object: ref('table', 'dbo', 'medidas') };
         case 'get_job_references': await new Promise((r) => setTimeout(r, 250)); return report([dep('procedure', 'dbo', 'sp_reporte', 'confirmed', 'code', 1)]);
         case 'list_settings': case 'get_settings': return {};
         default: return null;

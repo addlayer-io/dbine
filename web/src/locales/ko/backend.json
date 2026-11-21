@@ -18587,7 +18587,6 @@
   "(el nombre de la key hasta su último «:»)": "(마지막 «:»까지의 key 이름)",
   "(sin reducir)": "(축소 없음)",
   "-- BigQuery solo tiene índices vectoriales y de búsqueda: el índice {0} no se crea.": "-- BigQuery에는 벡터 인덱스와 검색 인덱스만 있습니다. 인덱스 {0}은(는) 만들지 않습니다.",
-  "-- El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.\n": "-- 원본의 검색 인덱스 {0}은(는) {1}도 인덱싱합니다. 여기서는 이 컬렉션에 해당하는 부분만 만듭니다.\n",
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- 벡터 인덱스에 거리가 지정되어 있지 않습니다. 코사인 거리와 DiskANN으로 만듭니다.",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- 벡터 인덱스 {0}에 거리가 지정되어 있지 않습니다. {1}. 다른 데이터베이스에서 가져온 경우 DBine이 구성을 읽지 못한 것입니다. 인덱스 소유자이거나 SELECT_CATALOG_ROLE 역할이 필요합니다.",
   "-- El índice vectorial «": "-- 벡터 인덱스 «",
@@ -19099,5 +19098,13 @@
   "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "처음 {0}개의 정의를 읽었으며, 나머지는 카탈로그에 기록된 종속성만 표시합니다",
   "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "처음 {0}개의 정의를 읽었으며, 나머지는 다이어그램에 선을 추가하지 않습니다",
   "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "스키마의 개체 {0}개가 VALID 상태가 아닙니다. Oracle이 해당 종속성을 일부만 기록했을 수 있습니다",
-  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: 벡터 인덱스는 문서로 학습되는데 컬렉션이 새로 만들어졌으므로 지연 생성되며, 문서를 로드한 후 BUILD INDEX ON {1}({2})로 구축합니다."
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: 벡터 인덱스는 문서로 학습되는데 컬렉션이 새로 만들어졌으므로 지연 생성되며, 문서를 로드한 후 BUILD INDEX ON {1}({2})로 구축합니다.",
+  "Con los permisos de esta conexión no se pudieron leer los reportes y tableros del área de trabajo: el linaje no muestra quién lee el modelo.": "이 연결의 권한으로는 작업 영역의 보고서와 대시보드를 읽을 수 없었습니다. 계보에 이 모델을 읽는 항목이 표시되지 않습니다.",
+  "El área de trabajo tiene más de 500 reportes o tableros: se muestran los primeros 500.": "작업 영역에 보고서 또는 대시보드가 500개를 넘습니다. 처음 500개만 표시합니다.",
+  "El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.": "원본의 검색 인덱스 {0}은(는) {1}도 인덱싱합니다. 여기서는 이 컬렉션에 해당하는 부분만 만듭니다.",
+  "Se leyeron los mosaicos de los primeros 100 tableros: los demás pueden leer este modelo y no aparecen.": "처음 100개 대시보드의 타일을 읽었습니다. 나머지 대시보드는 이 모델을 읽더라도 표시되지 않습니다.",
+  "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "연결 '{0}'을(를) 먼저 연결해야 합니다(연결을 연 후 다시 시도하세요)",
+  "no se pudo abrir la conexión «{0}»: {1}": "연결 '{0}'을(를) 열 수 없습니다: {1}",
+  "no se pudo leer el modelo «{0}» de «{1}»: {2}": "'{1}'의 모델 '{0}'을(를) 읽을 수 없습니다: {2}",
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "'{0}'에 모델이 {1}개를 넘습니다. 처음 {2}개를 읽었습니다"
 }

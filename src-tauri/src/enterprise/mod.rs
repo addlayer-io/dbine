@@ -12,6 +12,7 @@
 pub mod channel;
 mod events;
 mod gateway;
+mod resolve;
 mod signin;
 
 use crate::error::{CommandError, CommandResult};
@@ -25,6 +26,8 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 pub use gateway::open_session;
+#[allow(unused_imports)] // wired by get_cross_lineage
+pub use resolve::{driver_of_system, resolve_source, SourceRequest};
 
 fn gateway_tls() -> Arc<rustls::ClientConfig> {
     gateway::tls()

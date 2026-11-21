@@ -52,7 +52,8 @@
     "measure": "メジャー",
     "calculation_group": "計算グループ",
     "role": "ロール",
-    "expression": "式"
+    "expression": "式",
+    "model": "セマンティック モデル"
   },
   "view": {
     "label": "表示",
@@ -105,5 +106,35 @@
     "noMatch": "フィルターに一致するオブジェクトはありません。",
     "relations": "リレーション（{{count}}）",
     "relationsTip": "外部キー（およびモデルのリレーション）はリネージと並行しています。オンにすると、リネージと並べて表示できます。"
+  },
+  "cross": {
+    "switch": "他の接続を含める",
+    "switchTip": "他の接続からこのオブジェクトを読み取っているものを表示します。このオブジェクトから取り込む Power BI のテーブルと、そこからたどれるモデル、レポート、ダッシュボードです。",
+    "searching": "Power BI の接続を検索しています…",
+    "searched": "検索先: {{names}}",
+    "searchedItem": "{{name}} (モデル: {{models}}{{cached}})",
+    "cached": " (キャッシュ)",
+    "nobody": "このオブジェクトを読み取っている他の接続はありません。",
+    "refresh": "再検索",
+    "via": {
+      "link": "ユーザーがリンク",
+      "auto": "サーバーとデータベースで一致",
+      "enterprise": "DBine Enterprise から"
+    },
+    "reader": "この Power BI の項目がオブジェクトを読み取っています。",
+    "openLink": "Power BI で開く",
+    "resolving": "このソースの接続を探しています…",
+    "follow": "{{name}} でリネージを表示",
+    "followPicked": "リネージを表示",
+    "unlink": "リンクを解除",
+    "many": "このソースに一致する接続が複数あります。1 つ選んでください。次回も同じ接続が使われます。",
+    "pick": "接続",
+    "remembered": "選択は記憶されます。「リンクを解除」で削除できます。",
+    "none": "このソースに一致する保存済みの接続はありません。",
+    "create": "ソースから接続を作成…",
+    "notFound": "このオブジェクトは {{name}} に見つかりませんでした。",
+    "badge": "接続: {{name}}",
+    "report": "Power BI レポート",
+    "dashboard": "Power BI ダッシュボード"
   }
 }

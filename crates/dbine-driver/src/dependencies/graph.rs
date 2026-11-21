@@ -86,6 +86,15 @@ pub struct LineageJob {
     pub external: Vec<ExternalRef>,
 }
 
+/// Something outside the database that reads one of its objects: a Power BI
+/// report or dashboard reading a semantic model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LineageConsumer {
+    pub consumer: ExternalRef,
+    /// The object it reads.
+    pub from: ObjectRef,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LineageGraph {
     /// The nodes, also those no edge touches (what is left alone shows too).
@@ -93,6 +102,9 @@ pub struct LineageGraph {
     pub edges: Vec<LineageEdge>,
     #[serde(default)]
     pub external: Vec<LineageExternal>,
+    /// What outside the database reads its objects (reports, dashboards).
+    #[serde(default)]
+    pub consumers: Vec<LineageConsumer>,
     #[serde(default)]
     pub jobs: Vec<LineageJob>,
     /// Definitions read.

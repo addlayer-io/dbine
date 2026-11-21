@@ -52,7 +52,8 @@
     "measure": "度量值",
     "calculation_group": "计算组",
     "role": "角色",
-    "expression": "表达式"
+    "expression": "表达式",
+    "model": "语义模型"
   },
   "view": {
     "label": "视图",
@@ -105,5 +106,35 @@
     "noMatch": "没有对象符合筛选条件。",
     "relations": "关系（{{count}}）",
     "relationsTip": "外键（以及模型的关系）与沿袭并行：启用后可在沿袭旁查看。"
+  },
+  "cross": {
+    "switch": "包含其他连接",
+    "switchTip": "显示其他连接中读取此对象的内容：由它提供数据的 Power BI 表，以及由此关联的模型、报表和仪表板。",
+    "searching": "正在搜索 Power BI 连接…",
+    "searched": "已搜索：{{names}}",
+    "searchedItem": "{{name}}（模型：{{models}}{{cached}}）",
+    "cached": "，来自缓存",
+    "nobody": "没有其他连接读取此对象。",
+    "refresh": "重新搜索",
+    "via": {
+      "link": "由您关联",
+      "auto": "按服务器和数据库匹配",
+      "enterprise": "来自 DBine Enterprise"
+    },
+    "reader": "此 Power BI 项目读取该对象。",
+    "openLink": "在 Power BI 中打开",
+    "resolving": "正在查找此数据源的连接…",
+    "follow": "在 {{name}} 中查看其沿袭",
+    "followPicked": "查看其沿袭",
+    "unlink": "取消关联",
+    "many": "有多个连接与此数据源匹配。请选择一个：下次将使用相同的连接。",
+    "pick": "连接",
+    "remembered": "所选内容会被记住；“取消关联”可将其移除。",
+    "none": "没有已保存的连接与此数据源匹配。",
+    "create": "从数据源创建连接…",
+    "notFound": "在 {{name}} 中未找到此对象。",
+    "badge": "连接：{{name}}",
+    "report": "Power BI 报表",
+    "dashboard": "Power BI 仪表板"
   }
 }

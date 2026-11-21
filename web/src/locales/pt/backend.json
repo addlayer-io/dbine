@@ -107,7 +107,6 @@
   "-- BigQuery solo tiene índices vectoriales y de búsqueda: el índice {0} no se crea.": "-- O BigQuery só tem índices vetoriais e de busca: o índice {0} não é criado.",
   "-- DBine · script de {0} · {1}\n\n": "-- DBine · script de {0} · {1}\n\n",
   "-- Ejecutalo con el modo de envío «Todo el texto de una vez»: el cuerpo lleva «;».\n": "-- Execute com o modo de envio “Todo o texto de uma vez”: o corpo contém “;”.\n",
-  "-- El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.\n": "-- O índice de busca {0} do original também indexa {1}: aqui ele é criado com a parte desta coleção.\n",
   "-- El índice local {0} solo se puede crear junto con la tabla (CREATE TABLE).": "-- O índice local {0} só pode ser criado junto com a tabela (CREATE TABLE).",
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- O índice vetorial não indica a distância: ele é criado com a distância cosseno e DiskANN.",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- O índice vetorial {0} não indica a distância: {1}. Se vier de outro banco, o DBine não conseguiu ler a configuração dele: é preciso ser o dono do índice ou ter a role SELECT_CATALOG_ROLE.",
@@ -19099,5 +19098,13 @@
   "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "foram lidas as primeiras {0} definições; do restante só são mostradas as dependências que o catálogo registra",
   "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "foram lidas as primeiras {0} definições; o restante não acrescenta linhas ao diagrama",
   "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "{0} objetos do esquema não estão VALID: o Oracle pode ter registrado suas dependências apenas em parte",
-  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: o índice vetorial é treinado com os documentos e a coleção é nova; ele é criado de forma diferida e, depois de carregá-los, é construído com BUILD INDEX ON {1}({2})."
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: o índice vetorial é treinado com os documentos e a coleção é nova; ele é criado de forma diferida e, depois de carregá-los, é construído com BUILD INDEX ON {1}({2}).",
+  "Con los permisos de esta conexión no se pudieron leer los reportes y tableros del área de trabajo: el linaje no muestra quién lee el modelo.": "Com as permissões desta conexão não foi possível ler os relatórios e painéis do workspace: a linhagem não mostra quem lê o modelo.",
+  "El área de trabajo tiene más de 500 reportes o tableros: se muestran los primeros 500.": "O workspace tem mais de 500 relatórios ou painéis: os primeiros 500 são exibidos.",
+  "El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.": "O índice de busca {0} do original também indexa {1}: aqui ele é criado com a parte desta coleção.",
+  "Se leyeron los mosaicos de los primeros 100 tableros: los demás pueden leer este modelo y no aparecen.": "Foram lidos os blocos dos primeiros 100 painéis: os demais podem ler este modelo e não aparecem.",
+  "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "a conexão “{0}” precisa se conectar primeiro (abra-a e tente novamente)",
+  "no se pudo abrir la conexión «{0}»: {1}": "não foi possível abrir a conexão “{0}”: {1}",
+  "no se pudo leer el modelo «{0}» de «{1}»: {2}": "não foi possível ler o modelo “{0}” de “{1}”: {2}",
+  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "“{0}” tem mais de {1} modelos: os primeiros {2} foram lidos"
 }

@@ -52,7 +52,8 @@
     "measure": "Miara",
     "calculation_group": "Grupa obliczeń",
     "role": "Rola",
-    "expression": "Wyrażenie"
+    "expression": "Wyrażenie",
+    "model": "Model semantyczny"
   },
   "view": {
     "label": "Widok",
@@ -105,5 +106,35 @@
     "noMatch": "Żaden obiekt nie spełnia filtrów.",
     "relations": "Relacje ({{count}})",
     "relationsTip": "Klucze obce (i relacje modelu) biegną równolegle do lineage: włącz je, aby zobaczyć je obok niego."
+  },
+  "cross": {
+    "switch": "Uwzględnij inne połączenia",
+    "switchTip": "Pokazuje, co odczytuje ten obiekt z innych połączeń: tabele Power BI zasilane przez niego, a dalej ich modele, raporty i pulpity nawigacyjne.",
+    "searching": "Wyszukiwanie w połączeniach Power BI…",
+    "searched": "Przeszukano: {{names}}",
+    "searchedItem": "{{name}} (modele: {{models}}{{cached}})",
+    "cached": ", z pamięci podręcznej",
+    "nobody": "Żadne inne połączenie nie odczytuje tego obiektu.",
+    "refresh": "Szukaj ponownie",
+    "via": {
+      "link": "powiązane przez Ciebie",
+      "auto": "zgodne według serwera i bazy danych",
+      "enterprise": "z DBine Enterprise"
+    },
+    "reader": "Ten element Power BI odczytuje obiekt.",
+    "openLink": "Otwórz w Power BI",
+    "resolving": "Wyszukiwanie połączenia dla tego źródła…",
+    "follow": "Zobacz jego lineage w {{name}}",
+    "followPicked": "Zobacz jego lineage",
+    "unlink": "Odłącz",
+    "many": "Do tego źródła pasuje kilka połączeń. Wybierz jedno: następnym razem zostanie użyte to samo.",
+    "pick": "Połączenie",
+    "remembered": "Wybór jest zapamiętywany; „Odłącz” go usuwa.",
+    "none": "Żadne zapisane połączenie nie pasuje do tego źródła.",
+    "create": "Utwórz połączenie ze źródła…",
+    "notFound": "Nie znaleziono tego obiektu w {{name}}.",
+    "badge": "Połączenie: {{name}}",
+    "report": "Raport Power BI",
+    "dashboard": "Pulpit nawigacyjny Power BI"
   }
 }
