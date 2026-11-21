@@ -2839,7 +2839,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-athena"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -2854,7 +2854,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-bigquery"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2869,7 +2869,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-cassandra"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -2885,7 +2885,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-clickhouse"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "async-trait",
  "dbine-driver",
@@ -2900,7 +2900,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-cosmosdb"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -2917,7 +2917,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-couchbase"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
@@ -2930,7 +2930,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-couchdb"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -2944,7 +2944,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-databricks"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
@@ -2958,7 +2958,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-dremio"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
@@ -2971,7 +2971,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-drill"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305",
@@ -2986,7 +2986,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-dsql"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -3004,7 +3004,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-duckdb"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "async-trait",
  "chrono",
@@ -3023,7 +3023,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-dynamodb"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -3038,7 +3038,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-elasticsearch"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
@@ -3052,7 +3052,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-etcd"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
@@ -3065,7 +3065,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-firebird"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -3079,7 +3079,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-flightsql"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "arrow-array 58.4.1",
  "arrow-cast 58.4.1",
@@ -3098,7 +3098,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-hana"
-version = "0.1.17"
+version = "0.1.18"
 dependencies = [
  "dbine-driver",
  "hdbconnect_async",
@@ -3111,7 +3111,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-influxdb"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -3125,7 +3125,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-iotdb"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -3138,7 +3138,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-kdb"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "chrono",
  "dbine-driver",
@@ -3152,7 +3152,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-ksqldb"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "async-trait",
  "dbine-driver",
@@ -3165,7 +3165,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-libsql"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
@@ -3181,7 +3181,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-mongodb"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3195,7 +3195,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-mysql"
-version = "0.1.19"
+version = "0.1.20"
 dependencies = [
  "dbine-driver",
  "futures",
@@ -3208,7 +3208,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-neo4j"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -3231,7 +3231,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-odbc"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "dbine-driver",
  "libloading 0.8.9",
@@ -3242,7 +3242,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-oracle"
-version = "0.1.18"
+version = "0.1.19"
 dependencies = [
  "dbine-driver",
  "oracledb",
@@ -3253,7 +3253,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-orientdb"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "dbine-driver",
  "dbine-tls",
@@ -3267,7 +3267,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-phoenix"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -3284,7 +3284,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-postgres"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "dbine-driver",
  "dbine-tls",
@@ -3299,7 +3299,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-powerbi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "arrow-array 58.4.1",
  "arrow-buffer 58.4.1",
@@ -3326,7 +3326,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-redis"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "dbine-driver",
  "dbine-tls",
@@ -3340,7 +3340,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-snowflake"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aws-lc-rs",
  "base64 0.22.1",
@@ -3356,7 +3356,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-solr"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "dbine-driver",
  "dbine-driver-elasticsearch",
@@ -3367,7 +3367,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-spanner"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
@@ -3381,7 +3381,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-sqlite"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "dbine-driver",
  "rusqlite",
@@ -3392,7 +3392,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-sqlserver"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3414,7 +3414,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-sqlserver_legacy"
-version = "0.1.22"
+version = "0.1.23"
 dependencies = [
  "dbine-driver",
  "dbine-driver-sqlserver",
@@ -3422,7 +3422,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-tdengine"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
@@ -3435,7 +3435,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-trino"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
