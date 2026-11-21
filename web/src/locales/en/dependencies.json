@@ -85,7 +85,8 @@
     "via": {
       "link": "linked by you",
       "auto": "matches by server and database",
-      "enterprise": "from DBine Enterprise"
+      "enterprise": "from DBine Enterprise",
+      "internal": "the lineage's own connection"
     },
     "reader": "This Power BI item reads the object.",
     "openLink": "Open in Power BI",
@@ -102,7 +103,15 @@
     "badge": "Connection: {{name}}",
     "report": "Power BI report",
     "dashboard": "Power BI dashboard",
-    "userPrompt": "User to connect to {{source}}. The connection is temporary and read-only: it isn't saved."
+    "userPrompt": "User to connect to {{source}}. The connection is temporary and read-only: it isn't saved.",
+    "loginIntro": "To see its lineage you need to connect to {{source}}. The connection is read-only.",
+    "user": "User",
+    "password": "Password",
+    "remember": "Remember on this computer",
+    "loginNote": "The connection belongs to the lineage and does not appear in the explorer. The password goes to the system keychain only if the box stays checked.",
+    "connecting": "Connecting to the source…",
+    "cantConnect": "Could not connect to {{name}}.",
+    "noServer": "This source is not a server DBine can connect to."
   },
   "jobs": {
     "title": "Server jobs that run it",
@@ -137,5 +146,19 @@
     "noMatch": "No object matches the filters.",
     "relations": "Relations ({{count}})",
     "relationsTip": "Foreign keys (and a model's relationships) run in parallel to the lineage: turn them on to see them along with it."
+  },
+  "sources": {
+    "nav": "Lineage sources",
+    "title": "Lineage sources",
+    "intro": "Connections the lineage made on its own to follow a source to another database (for example, the SQL Server table a Power BI model reads). They do not appear in the explorer. You can forget them or add them to the explorer as regular connections, which stay read-only.",
+    "none": "There are none yet: they are created when you follow a source in a lineage.",
+    "remembered": "Password remembered on this computer",
+    "notRemembered": "No password remembered: asked every session",
+    "addToExplorer": "Add to explorer",
+    "forget": "Forget",
+    "forgetConfirm": "The connection \"{{name}}\" and its remembered password are removed. The lineage asks again the next time it follows that source.",
+    "forgotten": "Connection forgotten.",
+    "added": "\"{{name}}\" is now in the explorer.",
+    "internalNote": "The lineage's own connection: \"{{name}}\" is not in the explorer."
   }
 }

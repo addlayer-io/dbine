@@ -14,6 +14,11 @@
 // and dashboard. &cross=1&root=pbi puts the Power BI table in the middle: its SQL Server source
 // resolves to the "Ventas" connection (&match=many: two candidates, &match=none: no connection,
 // with a prefill) and "Ver su linaje" turns the grey card into the real object.
+// The lineage's own connections (hidden from the explorer): with one connection a click follows at
+// once; &match=none shows the inline login (user, password, "Recordar en este equipo") and a
+// connect makes the hidden connection `int1` (&remembered=0: password for this run only); then the
+// source resolves to it, the followed card says it is not in the explorer ("Agregar al explorador"),
+// and &sources=1 shows Settings' list of them (&internal=1 starts with one made).
 
 import type { CrossUsers, DependencyReport, Dependent, JobDependent, LineageEdge, LineageGraph, ObjectRef, SourceMatch } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
@@ -164,6 +169,16 @@ export function installLineagePreview(params: URLSearchParams) {
   }
   if (params.get('scope') !== 'db') tabs.tabs.push(tab);
   const linked: { signature: string; id: string | null }[] = [];
+  const SOURCE_SIG = 'sqlserver|srv-dw01|1433||indicadores';
+  const sourceConfig = { driver: 'sqlserver', host: 'srv-dw01', port: 1433, database: 'indicadores', username: 'lector', password: null, encrypt: true, trust_server_certificate: false, read_only: true, options: {} };
+  const makeInternal = (remembered: boolean) => {
+    const c = { id: 'int1', name: 'indicadores · srv-dw01', color: null, config: sourceConfig, save_password: remembered, folder_id: null, tags: [], mcp_level: 'disabled', updated_at: '' };
+    if (!conns.hidden.some((x) => x.id === c.id)) conns.hidden.push(c as never);
+    conns.live[c.id] = { status: 'connected', serverVersion: '', databases: ['indicadores'], defaultDatabase: 'indicadores', error: null };
+    return c;
+  };
+  const internals: Record<string, unknown>[] = [];
+  if (params.get('internal')) internals.push(makeInternal(params.get('remembered') !== '0'));
   let cb = 0;
   (window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
   (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {
@@ -182,17 +197,31 @@ export function installLineagePreview(params: URLSearchParams) {
         case 'get_cross_users': await new Promise((r) => setTimeout(r, 900)); return CROSS_USERS;
         case 'lineage_resolve_source': {
           await new Promise((r) => setTimeout(r, 350));
-          const signature = 'sqlserver|srv-dw01|1433||indicadores';
+          const signature = SOURCE_SIG;
           const mode = params.get('match');
           const own = linked.find((l) => l.signature === signature);
-          const m: SourceMatch = own?.id
-            ? { status: 'one', signature, candidates: [{ ...sqlMatch(own.id, own.id === 'c2' ? 'Ventas (réplica)' : 'Ventas'), via: 'link' }], prefill: null }
-            : mode === 'many' ? { status: 'many', signature, candidates: [sqlMatch('c1', 'Ventas'), sqlMatch('c2', 'Ventas (réplica)')], prefill: null }
-            : mode === 'none' ? { status: 'none', signature, candidates: [], prefill: { driver: 'sqlserver', host: 'srv-dw01', port: 1433, database: 'indicadores', username: null, password: null, encrypt: true, trust_server_certificate: false, read_only: true, options: {} } }
-            : { status: 'one', signature, candidates: [sqlMatch('c1', 'Ventas')], prefill: null };
+          const m: SourceMatch = internals.length && mode === 'none'
+            ? { status: 'one', signature, candidates: [{ connection_id: 'int1', name: 'indicadores · srv-dw01', driver: 'sqlserver', via: 'internal' }], prefill: null, needs_login: false }
+            : own?.id
+            ? { status: 'one', signature, candidates: [{ ...sqlMatch(own.id, own.id === 'c2' ? 'Ventas (réplica)' : 'Ventas'), via: 'link' }], prefill: null, needs_login: false }
+            : mode === 'many' ? { status: 'many', signature, candidates: [sqlMatch('c1', 'Ventas'), sqlMatch('c2', 'Ventas (réplica)')], prefill: null, needs_login: false }
+            : mode === 'none' ? { status: 'none', signature, candidates: [], prefill: { ...sourceConfig, username: null }, needs_login: true }
+            : { status: 'one', signature, candidates: [sqlMatch('c1', 'Ventas')], prefill: null, needs_login: false };
           return m;
         }
-        case 'lineage_open_source': await new Promise((r) => setTimeout(r, 300)); return { connection_id: 'c1', name: 'indicadores · srv-dw01', driver: 'sqlserver', needs_user: false };
+        case 'lineage_open_source': {
+          await new Promise((r) => setTimeout(r, 400));
+          const remembered = !!a.remember && !!a.password;
+          internals.push(makeInternal(remembered));
+          return { connection_id: 'int1', name: 'indicadores · srv-dw01', driver: 'sqlserver', needs_user: false, remembered };
+        }
+        case 'lineage_internal_list': return [...internals];
+        case 'lineage_internal_forget': internals.length = 0; return null;
+        case 'lineage_internal_promote': {
+          const c = { ...internals[0], save_password: true };
+          internals.length = 0;
+          return c;
+        }
         case 'lineage_link_source': {
           const i = linked.findIndex((l) => l.signature === a.signature);
           if (i >= 0) linked.splice(i, 1);

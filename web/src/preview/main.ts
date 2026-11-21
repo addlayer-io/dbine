@@ -81,6 +81,7 @@ import { installTabsPreview } from './tabs-samples';
 import { installSplitPreview, setupSplitConnections, splitPreview } from './split-samples';
 import { sampleDependents } from './dependencies-samples';
 import DependenciesView from '../views/DependenciesView.vue';
+import LineageSourcesSettings from '../components/LineageSourcesSettings.vue';
 import QueryView from '../views/QueryView.vue';
 import { profilerAutostart } from '../stores/tabs';
 import { bigSchema, sampleSchema } from './samples';
@@ -523,7 +524,7 @@ const app = createApp({
     view === 'projects' || view === 'vecwork' ? h(App) : view === 'split' ? splitPreview() : view === 'timeline' ? h(TimelinePreview) : h('div', { style: 'height: 100vh; display: flex; flex-direction: column;' }, [
       view === 'tabs' ? h('div', { style: 'width: 1100px; background: var(--ide-editor)' }, [h(EditorTabs)]) :
       view === 'keys' ? h('div', { style: 'width: 340px; height: 640px; background: var(--ide-sidebar)' }, [h(ExplorerSidebar)]) :
-      view === 'lineage' ? h('div', { style: 'height: 100vh; display: flex; flex-direction: column;' }, [h(DependenciesView, { tab: lineageTab! })]) :
+      view === 'lineage' ? h('div', { style: 'height: 100vh; display: flex; flex-direction: column;' }, [h(DependenciesView, { tab: lineageTab! }), ...(new URLSearchParams(location.search).get('sources') ? [h('div', { style: 'position: fixed; right: 12px; bottom: 12px; width: 560px; padding: 12px 16px; background: var(--ide-sidebar); border: 1px solid var(--nm-border-soft)' }, [h(LineageSourcesSettings)])] : [])]) :
       view === 'explorerfilter' ? h('div', { style: 'width: 360px; height: 720px; display: flex; flex-direction: column; background: var(--ide-sidebar)' }, [h(ExplorerSidebar)]) :
       view === 'connection' ? connectionTab() : view === 'monitor'
         ? h(MonitorView, { tab: { id: 'm', kind: 'monitor', connectionId: 'c1', database: '', preview: false }, active: true }) :

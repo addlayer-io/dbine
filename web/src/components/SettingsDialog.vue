@@ -41,6 +41,7 @@ import NotebookSettings from './notebook/NotebookSettings.vue';
 import DevicesSettings from './DevicesSettings.vue';
 import SecretAccountsSettings from './SecretAccountsSettings.vue';
 import SshProfilesSettings from './SshProfilesSettings.vue';
+import LineageSourcesSettings from './LineageSourcesSettings.vue';
 import { checkForUpdateNow, checkingForUpdate, formatBytes } from '../composables/updates';
 import { ALL_ROWS } from '../composables/queryControls';
 import { KEPT_RESULTS_DEFAULT, KEPT_RESULTS_OPTIONS, KEPT_RESULTS_SETTING, keptLimit } from '../composables/resultRuns';
@@ -471,6 +472,7 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <button :class="{ on: section === 'devices' }" @click="section = 'devices'"><el-icon><ei-iphone /></el-icon>{{ $t('devices:nav') }}</button>
         <button :class="{ on: section === 'secrets' }" @click="section = 'secrets'"><el-icon><ei-key /></el-icon>{{ $t('secretAccounts:nav') }}</button>
         <button :class="{ on: section === 'sshProfiles' }" @click="section = 'sshProfiles'"><el-icon><ei-connection /></el-icon>{{ $t('tunnel:profiles.nav') }}</button>
+        <button :class="{ on: section === 'lineageSources' }" @click="section = 'lineageSources'"><el-icon><ei-share /></el-icon>{{ $t('dependencies:sources.nav') }}</button>
         <button :class="{ on: section === 'lint' }" @click="section = 'lint'"><el-icon><ei-circle-check /></el-icon>{{ $t('lint:nav') }}</button>
         <button :class="{ on: section === 'snippets' }" @click="section = 'snippets'"><el-icon><ei-document-copy /></el-icon>{{ $t('snippets:nav') }}</button>
         <button :class="{ on: section === 'shortcuts' }" @click="section = 'shortcuts'">
@@ -620,6 +622,11 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
       <!-- SSH tunnel profiles (docs/ssh-tunnels.md, "Profiles") -->
       <section v-else-if="section === 'sshProfiles'" class="st-body">
         <SshProfilesSettings />
+      </section>
+
+      <!-- The lineage's internal connections (components/LineageSourcesSettings.vue) -->
+      <section v-else-if="section === 'lineageSources'" class="st-body">
+        <LineageSourcesSettings />
       </section>
 
       <!-- The mail server of the scheduled tasks -->

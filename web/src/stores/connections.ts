@@ -15,6 +15,7 @@ import { rt } from '../composables/i18nLabels';
 import { useOutputStore } from './output';
 import { trackConnectionOpened } from '../composables/telemetry';
 import { savedMigrationsApi, type SavedMigration } from '../api/savedMigrations';
+import { lookupConnection } from '../composables/lineageSource';
 import { contextsApi, type SavedContext } from '../api/contexts';
 import { migrationApi, type MigrationEvent, type RunInfo } from '../api/migration';
 
@@ -173,6 +174,9 @@ export const useConnectionsStore = defineStore('connections', {
   state: () => ({
     drivers: [] as DriverInfo[],
     list: [] as SavedConnection[],
+    /** The lineage's internal connections: found by id (connect, metadata) but never in `list`, so never
+     *  in the sidebar or any picker. */
+    hidden: [] as SavedConnection[],
     folders: [] as ConnectionFolder[],
     loaded: false,
     live: {} as Record<string, LiveConnection>,
@@ -209,11 +213,11 @@ export const useConnectionsStore = defineStore('connections', {
     listening: false,
   }),
   getters: {
-    byId: (s) => (id: string) => s.list.find((c) => c.id === id),
+    byId: (s) => (id: string) => lookupConnection(s.list, s.hidden, id),
     driver: (s) => (id: string) => s.drivers.find((d) => d.id === id),
     /** The driver of a saved connection. */
     driverOf: (s) => (connectionId: string): DriverInfo | undefined => {
-      const id = s.list.find((c) => c.id === connectionId)?.config.driver;
+      const id = lookupConnection(s.list, s.hidden, connectionId)?.config.driver;
       return s.drivers.find((d) => d.id === id);
     },
     isConnected: (s) => (id: string) => s.live[id]?.status === 'connected',
@@ -277,8 +281,31 @@ export const useConnectionsStore = defineStore('connections', {
   },
   actions: {
     async load() {
-      [this.drivers, this.list, this.folders] = await Promise.all([api.listDrivers(), api.listConnections(), api.listFolders()]);
+      [this.drivers, this.list, this.folders, this.hidden] = await Promise.all([
+        api.listDrivers(), api.listConnections(), api.listFolders(), api.lineageInternalList().catch(() => [] as SavedConnection[]),
+      ]);
       this.loaded = true;
+    },
+
+    /** The lineage's internal connections, read again (one was made, forgotten or added to the explorer). */
+    async loadHidden() {
+      this.hidden = await api.lineageInternalList();
+    },
+
+    /** "Agregar al explorador": the internal connection joins the explorer's list as a regular one. */
+    async promoteHidden(id: string) {
+      const saved = await api.lineageInternalPromote(id);
+      this.hidden = this.hidden.filter((c) => c.id !== id);
+      this.list = this.list.filter((c) => c.id !== id);
+      this.list.push(saved);
+      return saved;
+    },
+
+    /** "Olvidar": the internal connection and its remembered password go. */
+    async forgetHidden(id: string) {
+      await api.lineageInternalForget(id);
+      this.hidden = this.hidden.filter((c) => c.id !== id);
+      this.forget(id);
     },
 
     /** `duplicateOf`: the connection the form was copied from;
