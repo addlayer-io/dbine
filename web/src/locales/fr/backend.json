@@ -19107,6 +19107,8 @@
   "no se pudo abrir la conexión «{0}»: {1}": "impossible d'ouvrir la connexion « {0} » : {1}",
   "no se pudo leer el modelo «{0}» de «{1}»: {2}": "impossible de lire le modèle « {0} » de « {1} » : {2}",
   "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "« {0} » contient plus de {1} modèles : les {2} premiers ont été lus",
-  "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft.": "La connexion de cette session n'a pas l'autorisation de lire les rapports et tableaux de bord (Report.Read.All et Dashboard.Read.All) : la traçabilité n'indique pas qui lit le modèle. Reconnectez-vous avec ces autorisations ou utilisez un autre client Microsoft.",
+  "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": "L'authentification de cette connexion n'a pas l'autorisation de lire les rapports et les tableaux de bord",
+  "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": "L'authentification de cette connexion n'a pas l'autorisation de lire les rapports et les tableaux de bord (Report.Read.All et Dashboard.Read.All) : le lignage n'indique pas qui lit le modèle. Reconnectez-vous avec ces autorisations ou utilisez un autre client Microsoft. Autorisations du jeton : {0}.",
+  "no se pudieron leer": "lecture impossible",
   "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI n'a pas accepté le jeton (HTTP 401) : reconnectez-vous."
 }

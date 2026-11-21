@@ -14542,7 +14542,10 @@
  "El idioma (locale) de la conexión con la que corre.": [
   "crates/drivers/odbc/src/scheduler/ase.rs"
  ],
- "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft.": [
+ "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": [
+  "crates/drivers/powerbi/src/consumers.rs"
+ ],
+ "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": [
   "crates/drivers/powerbi/src/consumers.rs"
  ],
  "El inicio de sesión en el navegador abre la página de inicio de sesión del workspace (en Azure Databricks, Microsoft Entra ID), con SSO y MFA; necesita libre el puerto 8020 de este equipo.": [
@@ -57505,6 +57508,9 @@
  ],
  "no se pudieron guardar las filas en un archivo temporal mientras llegan sus tipos: {0}": [
   "crates/drivers/drill/src/transfer.rs"
+ ],
+ "no se pudieron leer": [
+  "crates/drivers/powerbi/src/consumers.rs"
  ],
  "no se pudieron leer las ejecuciones de los jobs: {0}": [
   "crates/drivers/databricks/src/jobs.rs"

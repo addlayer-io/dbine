@@ -33,8 +33,14 @@ pub const MAX_ITEMS: usize = 500;
 pub const MAX_DASHBOARDS_READ: usize = 100;
 
 pub const NOT_READABLE: &str = "Con los permisos de esta conexión no se pudieron leer los reportes y tableros del área de trabajo: el linaje no muestra quién lee el modelo.";
-/// The sign-in has no scope for reports and dashboards (HTTP 401 on them while the model reads fine).
-pub const NO_SCOPE: &str = "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft.";
+/// What the sign-in says when Power BI answers 401 to reports and dashboards (the model itself read fine).
+/// It names the scopes the token carries, so what is missing can be seen.
+pub(crate) fn no_scope(scopes: &str) -> String {
+    format!("El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {scopes}.")
+}
+/// The start of [`no_scope`], for telling the note apart.
+pub const NO_SCOPE: &str =
+    "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros";
 pub const TOO_MANY: &str =
     "El área de trabajo tiene más de 500 reportes o tableros: se muestran los primeros 500.";
 pub const TILES_CAPPED: &str = "Se leyeron los mosaicos de los primeros 100 tableros: los demás pueden leer este modelo y no aparecen.";
@@ -101,10 +107,10 @@ pub(crate) async fn read<S: Service>(s: &mut S, model: &Model) -> Result<Consume
 /// What a failed read of reports or dashboards means: only a lost connection ends the lineage. A 401 here
 /// is the sign-in missing the scope for these endpoints (the model itself was read with the same token),
 /// so it is a note and the rest of the lineage still draws.
-fn degrade(e: Error, no_scope: &mut bool) -> Result<()> {
+fn degrade(e: Error, scope_missing: &mut bool) -> Result<()> {
     match e {
         Error::AuthFailed(_) => {
-            *no_scope = true;
+            *scope_missing = true;
             Ok(())
         }
         e if crate::meta::is_fatal(&e) => Err(e),
@@ -117,7 +123,12 @@ async fn read_uncached<S: Service>(s: &mut S, model: &Model) -> Result<Consumers
     let base = base(model);
     let workspace = Some(model.workspace.name.clone()).filter(|n| !n.is_empty());
     let mut readable = true;
-    let mut no_scope = false;
+    let mut scope_missing = false;
+    let scopes = s
+        .account()
+        .map(|a| a.scopes.join(", "))
+        .filter(|x| !x.is_empty())
+        .unwrap_or_else(|| "no se pudieron leer".to_string());
 
     let mut reports: Vec<(String, String, Option<String>)> = Vec::new();
     match s
@@ -136,7 +147,7 @@ async fn read_uncached<S: Service>(s: &mut S, model: &Model) -> Result<Consumers
             }
         }
         Err(e) => {
-            degrade(e, &mut no_scope)?;
+            degrade(e, &mut scope_missing)?;
             readable = false;
         }
     }
@@ -172,7 +183,7 @@ async fn read_uncached<S: Service>(s: &mut S, model: &Model) -> Result<Consumers
                 {
                     Ok(t) => t,
                     Err(e) => {
-                        degrade(e, &mut no_scope)?;
+                        degrade(e, &mut scope_missing)?;
                         readable = false;
                         continue;
                     }
@@ -211,12 +222,12 @@ async fn read_uncached<S: Service>(s: &mut S, model: &Model) -> Result<Consumers
             }
         }
         Err(e) => {
-            degrade(e, &mut no_scope)?;
+            degrade(e, &mut scope_missing)?;
             readable = false;
         }
     }
-    if no_scope {
-        out.notes.push(NO_SCOPE.into());
+    if scope_missing {
+        out.notes.push(no_scope(&scopes));
     } else if !readable {
         out.notes.push(NOT_READABLE.into());
     }
@@ -403,7 +414,7 @@ mod tests {
         let graph = lineage_in(&mut f, &LineageScope::default()).await.unwrap();
         assert!(graph.consumers.is_empty());
         assert!(
-            graph.notes.iter().any(|n| n == NO_SCOPE),
+            graph.notes.iter().any(|n| n.starts_with(NO_SCOPE)),
             "{:?}",
             graph.notes
         );
@@ -422,7 +433,7 @@ mod tests {
         .await
         .unwrap();
         assert!(r.external_users.is_empty());
-        assert_eq!(r.note.as_deref(), Some(NO_SCOPE));
+        assert!(r.note.as_deref().is_some_and(|n| n.starts_with(NO_SCOPE)));
     }
 
     #[tokio::test]

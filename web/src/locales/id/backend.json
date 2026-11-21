@@ -19107,6 +19107,8 @@
   "no se pudo abrir la conexión «{0}»: {1}": "tidak dapat membuka koneksi \"{0}\": {1}",
   "no se pudo leer el modelo «{0}» de «{1}»: {2}": "tidak dapat membaca model \"{0}\" dari \"{1}\": {2}",
   "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "\"{0}\" memiliki lebih dari {1} model: {2} pertama telah dibaca",
-  "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft.": "Login koneksi ini tidak memiliki izin untuk membaca laporan dan dasbor (Report.Read.All dan Dashboard.Read.All): lineage tidak menampilkan siapa yang membaca model. Masuk lagi dengan izin tersebut atau gunakan klien Microsoft lain.",
+  "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": "Proses masuk untuk koneksi ini tidak memiliki izin untuk membaca laporan dan dasbor",
+  "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": "Proses masuk untuk koneksi ini tidak memiliki izin untuk membaca laporan dan dasbor (Report.Read.All dan Dashboard.Read.All): lineage tidak menampilkan siapa yang membaca model. Masuk kembali dengan izin tersebut atau gunakan klien Microsoft lain. Izin token: {0}.",
+  "no se pudieron leer": "tidak dapat dibaca",
   "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI tidak menerima token (HTTP 401): masuk lagi."
 }
