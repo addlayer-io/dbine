@@ -9,6 +9,7 @@ pub mod conn_import;
 pub mod connections;
 pub mod connstring;
 pub mod contexts;
+pub mod cross;
 pub mod data_compare;
 pub mod data_compare_ai;
 pub mod data_compare_query;

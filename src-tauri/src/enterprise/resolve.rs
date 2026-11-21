@@ -4,9 +4,6 @@
 //! person may use and returns ids only (docs/enterprise.md in
 //! dbine-enterprise, "Resolving a source"). The server audits each question.
 
-// Nothing calls this until `get_cross_lineage` is wired.
-#![allow(dead_code)]
-
 use super::{connection_id, Enterprise};
 use crate::error::CommandResult;
 use dbine_driver::dependencies::ExternalRef;

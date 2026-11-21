@@ -638,9 +638,6 @@
  "-- El schedule está en pausa: después de crearlo, PAUSE SCHEDULE <id>.\n": [
   "crates/drivers/postgres/src/jobs/cockroach.rs"
  ],
- "-- El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.\n": [
-  "crates/drivers/couchbase/src/vector.rs"
- ],
  "-- El índice local {0} solo se puede crear junto con la tabla (CREATE TABLE).": [
   "crates/drivers/dynamodb/src/ddl.rs"
  ],
@@ -8029,6 +8026,9 @@
  ],
  "Con logs archivados": [
   "crates/drivers/mysql/src/backup.rs"
+ ],
+ "Con los permisos de esta conexión no se pudieron leer los reportes y tableros del área de trabajo: el linaje no muestra quién lee el modelo.": [
+  "crates/drivers/powerbi/src/consumers.rs"
  ],
  "Con los permisos de esta conexión solo se leen tablas y columnas (COLUMNSTATISTICS): las medidas, relaciones, jerarquías, roles y definiciones necesitan executeDaxQueries (capacidad Premium o Fabric) o permiso de escritura en el modelo (API de definición de Fabric).": [
   "crates/drivers/powerbi/src/meta/stats.rs"
@@ -15860,7 +15860,13 @@
   "crates/drivers/sqlserver/src/variant.rs",
   "driver fabric"
  ],
+ "El área de trabajo tiene más de 500 reportes o tableros: se muestran los primeros 500.": [
+  "crates/drivers/powerbi/src/consumers.rs"
+ ],
  "El índice de búsqueda necesita bucket.scope.colección.": [
+  "crates/drivers/couchbase/src/vector.rs"
+ ],
+ "El índice de búsqueda {0} del original también indexa {1}: aquí se crea con la parte de esta colección.": [
   "crates/drivers/couchbase/src/vector.rs"
  ],
  "El índice de búsqueda {0} no existía.": [
@@ -38000,6 +38006,9 @@
  "Se leen {0} columnas y se cargan {1}": [
   "crates/drivers/sqlserver/src/transfer.rs"
  ],
+ "Se leyeron los mosaicos de los primeros 100 tableros: los demás pueden leer este modelo y no aparecen.": [
+  "crates/drivers/powerbi/src/consumers.rs"
+ ],
  "Se leyó la política de las primeras {0} tablas con reflexiones.": [
   "crates/drivers/dremio/src/scheduler/policy.rs"
  ],
@@ -52312,6 +52321,7 @@
   "crates/dbine-plugin/src/remote.rs"
  ],
  "esta versión no incluye el driver '{0}'": [
+  "src-tauri/src/commands/cross.rs",
   "src-tauri/src/commands/migration.rs",
   "src-tauri/src/commands/multi_db.rs",
   "src-tauri/src/commands/schema.rs",
@@ -54896,6 +54906,7 @@
   "src-tauri/src/state.rs"
  ],
  "la conexión ya no existe": [
+  "crates/dbine-core/src/lineage_link.rs",
   "src-tauri/src/commands/backup.rs",
   "src-tauri/src/commands/security.rs"
  ],
@@ -54913,6 +54924,9 @@
  ],
  "la conexión {0} ya se cerró o no existe": [
   "crates/drivers/orientdb/src/processes.rs"
+ ],
+ "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": [
+  "src-tauri/src/commands/cross.rs"
  ],
  "la conexión «{0}» necesita la contraseña maestra del origen de «{1}»: conectala en DBine para escribirla": [
   "src-tauri/src/error.rs"
@@ -57038,6 +57052,7 @@
   "src-tauri/src/commands/azure_firewall.rs",
   "src-tauri/src/commands/connections.rs",
   "src-tauri/src/commands/connstring.rs",
+  "src-tauri/src/commands/cross.rs",
   "src-tauri/src/commands/multi_db.rs",
   "src-tauri/src/commands/ssh_profiles.rs",
   "src-tauri/src/state.rs"
@@ -57562,6 +57577,9 @@
  "no se pudo abrir el puerto {0}: {1}": [
   "src-tauri/src/link.rs",
   "src-tauri/src/mcp/mod.rs"
+ ],
+ "no se pudo abrir la conexión «{0}»: {1}": [
+  "src-tauri/src/commands/cross.rs"
  ],
  "no se pudo abrir la transacción de lectura: {0}": [
   "crates/drivers/libsql/src/hrana.rs"
@@ -58154,6 +58172,9 @@
  ],
  "no se pudo leer el historial de system.query_log: {0}": [
   "crates/drivers/clickhouse/src/jobs.rs"
+ ],
+ "no se pudo leer el modelo «{0}» de «{1}»: {2}": [
+  "src-tauri/src/commands/cross.rs"
  ],
  "no se pudo leer el registro de cambios: {0}": [
   "src-tauri/src/commands/updates.rs"
@@ -66225,6 +66246,9 @@
  ],
  "«{0}» tiene más de {1} filas: se tomaron las primeras {2}.": [
   "src-tauri/src/commands/subset/mod.rs"
+ ],
+ "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": [
+  "src-tauri/src/commands/cross.rs"
  ],
  "«{0}» tiene más decimales de los que admite DECIMAL({1},{2}); se perderían dígitos": [
   "crates/drivers/hana/src/transfer.rs"

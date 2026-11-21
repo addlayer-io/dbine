@@ -1,0 +1,780 @@
+//! Cross-connection lineage: from a source a lineage names outside its
+//! database (a Power BI table's SQL Server table) to the saved connection
+//! that holds it, and the other way, who reads an object from another
+//! connection (the Power BI tables that read a SQL table).
+//! Matching rules and the links the user made: `dbine_core::lineage_link`.
+
+use crate::commands::explorer::{object_page, ObjectPageArgs};
+use crate::error::{CommandError, CommandResult};
+use crate::state::{AppState, Lane};
+use dbine_core::lineage_link::{
+    match_connections, new_connection_from_source, source_key_of_config, source_key_of_external,
+    Match,
+};
+use dbine_core::state::SavedConnection;
+use dbine_driver::dependencies::{ExternalRef, LineageExternal, LineageScope};
+use dbine_driver::{ConnectionConfig, DbObject, ObjectQuery, ObjectRef};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::hash::Hash;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
+use tauri::State;
+
+/// How long a Power BI model's sources are kept.
+const INDEX_TTL: Duration = Duration::from_secs(15 * 60);
+/// A model's lineage reads its whole definition: the long lane's ceiling.
+const SCAN_LIMIT: Duration = Duration::from_secs(300);
+/// Models read per Power BI connection at most.
+const MODELS_CAP: usize = 200;
+
+// -- the in-memory index ------------------------------------------------------
+
+/// A map whose entries expire after `ttl`.
+struct TtlCache<K, V> {
+    ttl: Duration,
+    map: HashMap<K, (Instant, V)>,
+}
+
+impl<K: Eq + Hash, V: Clone> TtlCache<K, V> {
+    fn new(ttl: Duration) -> Self {
+        TtlCache {
+            ttl,
+            map: HashMap::new(),
+        }
+    }
+
+    fn get(&self, k: &K, now: Instant) -> Option<V> {
+        let (at, v) = self.map.get(k)?;
+        (now.saturating_duration_since(*at) < self.ttl).then(|| v.clone())
+    }
+
+    fn put(&mut self, k: K, v: V, now: Instant) {
+        self.map.insert(k, (now, v));
+    }
+
+    fn drop_where(&mut self, f: impl Fn(&K) -> bool) {
+        self.map.retain(|k, _| !f(k));
+    }
+}
+
+type Sources = Arc<Vec<LineageExternal>>;
+
+struct Index {
+    /// (connection, model) -> what its tables read outside.
+    sources: TtlCache<(String, String), Sources>,
+    /// connection -> its models.
+    models: TtlCache<String, Arc<Vec<String>>>,
+}
+
+fn index() -> &'static Mutex<Index> {
+    static INDEX: OnceLock<Mutex<Index>> = OnceLock::new();
+    INDEX.get_or_init(|| {
+        Mutex::new(Index {
+            sources: TtlCache::new(INDEX_TTL),
+            models: TtlCache::new(INDEX_TTL),
+        })
+    })
+}
+
+fn with_index<T>(f: impl FnOnce(&mut Index) -> T) -> T {
+    let mut g = index().lock().unwrap_or_else(|e| e.into_inner());
+    f(&mut g)
+}
+
+// -- pure helpers -------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Candidate {
+    pub connection_id: String,
+    pub name: String,
+    pub driver: String,
+    /// `link` (the user's), `auto` (matched by server) or `enterprise`.
+    pub via: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SourceMatch {
+    /// `one`, `many` or `none`.
+    pub status: String,
+    pub signature: String,
+    pub candidates: Vec<Candidate>,
+    /// A new connection's config (no credentials), only when `none`.
+    pub prefill: Option<ConnectionConfig>,
+}
+
+/// `one`, `many` or `none` by how many candidates there are.
+fn status_of(candidates: &[Candidate]) -> &'static str {
+    match candidates.len() {
+        0 => "none",
+        1 => "one",
+        _ => "many",
+    }
+}
+
+/// The candidates once each, in the order given (the user's link first,
+/// then the automatic ones, then Enterprise's): a connection that came by
+/// several ways keeps the first.
+fn merge_candidates(lists: Vec<Vec<Candidate>>) -> Vec<Candidate> {
+    let mut out: Vec<Candidate> = Vec::new();
+    for c in lists.into_iter().flatten() {
+        if !out.iter().any(|o| o.connection_id == c.connection_id) {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn candidate(c: &SavedConnection, via: &str) -> Candidate {
+    Candidate {
+        connection_id: c.id.clone(),
+        name: c.name.clone(),
+        driver: c.config.driver.clone(),
+        via: via.into(),
+    }
+}
+
+fn candidates_of(ids: &[String], conns: &[SavedConnection], via: &str) -> Vec<Candidate> {
+    ids.iter()
+        .filter_map(|id| conns.iter().find(|c| &c.id == id))
+        .map(|c| candidate(c, via))
+        .collect()
+}
+
+fn bare(s: &str) -> String {
+    s.trim()
+        .trim_matches(|c| matches!(c, '[' | ']' | '"' | '`'))
+        .to_lowercase()
+}
+
+/// Whether `ext` (a source some lineage names) is `object` of `database` in
+/// `conn`: the same server and database as the connection's config, the
+/// same name, and the same schema when both name one.
+fn external_reads_object(
+    ext: &ExternalRef,
+    conn: &SavedConnection,
+    database: &str,
+    object: &ObjectRef,
+) -> bool {
+    let Some(key) = source_key_of_external(ext) else {
+        return false;
+    };
+    let Some(name) = ext.name.as_deref() else {
+        return false;
+    };
+    if bare(name) != bare(&object.name) {
+        return false;
+    }
+    if let (Some(a), Some(b)) = (
+        ext.schema.as_deref().filter(|s| !s.trim().is_empty()),
+        object.schema(),
+    ) {
+        if bare(a) != bare(b) {
+            return false;
+        }
+    }
+    // The connection with the database the object is in.
+    let mut at = conn.clone();
+    if !database.is_empty() {
+        at.config.database = database.to_string();
+    }
+    matches!(
+        match_connections(&key, std::slice::from_ref(&at)),
+        Match::One(_)
+    )
+}
+
+/// The object a lookup by name found: a table or view before anything else,
+/// the schema the source names when it names one.
+fn pick_object(objects: &[DbObject], schema: Option<&str>) -> Option<ObjectRef> {
+    let schema = schema.map(bare).filter(|s| !s.is_empty());
+    let rank = |k: &str| match k {
+        "table" => 0,
+        "view" => 1,
+        "materialized_view" => 2,
+        _ => 3,
+    };
+    objects
+        .iter()
+        .filter(|o| {
+            schema
+                .as_deref()
+                .is_none_or(|s| o.schema.as_deref().map(bare).as_deref() == Some(s))
+        })
+        .min_by_key(|o| rank(&o.kind))
+        .map(|o| ObjectRef {
+            kind: o.kind.clone(),
+            schema: o.schema.clone(),
+            name: o.name.clone(),
+        })
+}
+
+fn find_connection(state: &AppState, id: &str) -> CommandResult<SavedConnection> {
+    if let Some(c) = state.store.get_connection(id)? {
+        return Ok(c);
+    }
+    state
+        .store
+        .list_managed_connections()?
+        .into_iter()
+        .find(|c| c.id == id)
+        .ok_or_else(|| CommandError::NotFound(format!("no existe la conexión '{id}'")))
+}
+
+// -- commands -----------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct ResolveSourceArgs {
+    pub connection_id: String,
+    pub source: ExternalRef,
+}
+
+/// Which saved connection a source of a lineage is: the user's link, else
+/// the ones whose server and database match, plus the managed ones DBine
+/// Enterprise says this person may use. With none, the config to create one.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn lineage_resolve_source(
+    state: State<'_, AppState>,
+    args: ResolveSourceArgs,
+) -> CommandResult<SourceMatch> {
+    find_connection(&state, &args.connection_id)?;
+    let Some(key) = source_key_of_external(&args.source) else {
+        return Ok(SourceMatch {
+            status: "none".into(),
+            signature: String::new(),
+            candidates: Vec::new(),
+            prefill: None,
+        });
+    };
+    let signature = key.signature();
+    let mut conns = state.store.list_connections()?;
+    let managed = state.store.list_managed_connections()?;
+    let mut lists = Vec::new();
+    let linked = state.store.lineage_link_get(&signature)?;
+    if let Some(id) = &linked {
+        lists.push(candidates_of(std::slice::from_ref(id), &conns, "link"));
+    }
+    // The user's choice stands: no other candidate competes with it.
+    if linked.is_none() || lists[0].is_empty() {
+        let auto = match match_connections(&key, &conns) {
+            Match::None => Vec::new(),
+            Match::One(id) => vec![id],
+            Match::Many(ids) => ids,
+        };
+        lists.push(candidates_of(&auto, &conns, "auto"));
+        if let Some(req) = crate::enterprise::SourceRequest::from_external(&args.source) {
+            if let Ok(ids) = crate::enterprise::resolve_source(&req).await {
+                conns.extend(managed);
+                lists.push(candidates_of(&ids, &conns, "enterprise"));
+            }
+        }
+    }
+    let candidates = merge_candidates(lists);
+    let status = status_of(&candidates).to_string();
+    let prefill = (status == "none")
+        .then(|| new_connection_from_source(&args.source))
+        .flatten();
+    Ok(SourceMatch {
+        status,
+        signature,
+        candidates,
+        prefill,
+    })
+}
+
+#[derive(Deserialize)]
+pub struct LinkSourceArgs {
+    pub signature: String,
+    /// `None`: remove the link.
+    pub connection_id: Option<String>,
+}
+
+/// Remember (or forget) which connection a source is.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn lineage_link_source(
+    state: State<'_, AppState>,
+    args: LinkSourceArgs,
+) -> CommandResult<()> {
+    match args.connection_id {
+        Some(id) => state.store.lineage_link_set(&args.signature, &id)?,
+        None => state.store.lineage_link_remove(&args.signature)?,
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+pub struct LocateSourceArgs {
+    pub connection_id: String,
+    pub source: ExternalRef,
+}
+
+#[derive(Serialize)]
+pub struct Located {
+    pub database: String,
+    pub object: ObjectRef,
+}
+
+/// Where a source's table is in `connection_id`: its database (the
+/// source's, else the connection's default) and the object found there.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn lineage_locate_source(
+    state: State<'_, AppState>,
+    args: LocateSourceArgs,
+) -> CommandResult<Option<Located>> {
+    let conn = find_connection(&state, &args.connection_id)?;
+    let Some(name) = args
+        .source
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|n| !n.is_empty())
+    else {
+        return Ok(None);
+    };
+    let database = args
+        .source
+        .database
+        .as_deref()
+        .map(|d| {
+            d.trim()
+                .trim_matches(|c| matches!(c, '[' | ']' | '"' | '`'))
+        })
+        .filter(|d| !d.is_empty())
+        .map(String::from)
+        .unwrap_or_else(|| conn.config.database.clone());
+    let page = object_page(
+        &state,
+        ObjectPageArgs {
+            connection_id: args.connection_id.clone(),
+            database: database.clone(),
+            query: ObjectQuery {
+                name: Some(bare_name(name)),
+                limit: 200,
+                ..Default::default()
+            },
+            fresh: false,
+            tree: false,
+        },
+    )
+    .await?;
+    Ok(pick_object(&page.objects, args.source.schema.as_deref())
+        .map(|object| Located { database, object }))
+}
+
+fn bare_name(s: &str) -> String {
+    s.trim()
+        .trim_matches(|c| matches!(c, '[' | ']' | '"' | '`'))
+        .to_string()
+}
+
+#[derive(Deserialize)]
+pub struct CrossUsersArgs {
+    pub connection_id: String,
+    pub database: String,
+    pub object: ObjectRef,
+    #[serde(default)]
+    pub refresh: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CrossUser {
+    pub connection_id: String,
+    pub connection_name: String,
+    /// The semantic model.
+    pub database: String,
+    /// The table of it that reads the object.
+    pub object: ObjectRef,
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Searched {
+    pub connection_id: String,
+    pub name: String,
+    pub models: usize,
+    /// Every model came out of the index kept in memory.
+    pub cached: bool,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct CrossUsers {
+    pub users: Vec<CrossUser>,
+    pub searched: Vec<Searched>,
+    pub notes: Vec<String>,
+}
+
+/// The users `externals` of one model hold for the object.
+fn users_in(
+    externals: &[LineageExternal],
+    pbi: &SavedConnection,
+    model: &str,
+    source_conn: &SavedConnection,
+    database: &str,
+    object: &ObjectRef,
+) -> Vec<CrossUser> {
+    let mut out: Vec<CrossUser> = Vec::new();
+    for e in externals {
+        if !external_reads_object(&e.source, source_conn, database, object) {
+            continue;
+        }
+        if out
+            .iter()
+            .any(|u| u.object.kind == e.to.kind && u.object.name == e.to.name)
+        {
+            continue;
+        }
+        out.push(CrossUser {
+            connection_id: pbi.id.clone(),
+            connection_name: pbi.name.clone(),
+            database: model.to_string(),
+            object: e.to.clone(),
+            detail: e.source.detail.clone(),
+        });
+    }
+    out
+}
+
+/// A note for a connection or model that couldn't be read.
+fn unreadable_note(name: &str, model: Option<&str>, e: &CommandError) -> String {
+    match (e, model) {
+        (CommandError::PasswordRequired(_), _) => {
+            format!("la conexión «{name}» necesita conectarse primero (abrila y volvé a intentar)")
+        }
+        (_, Some(m)) => format!("no se pudo leer el modelo «{m}» de «{name}»: {e}"),
+        (_, None) => format!("no se pudo abrir la conexión «{name}»: {e}"),
+    }
+}
+
+/// Who reads `object` from another connection: the Power BI tables whose
+/// sources are it. Each saved Power BI connection's models are read once
+/// and kept for 15 minutes; `refresh` reads them again.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_cross_users(
+    state: State<'_, AppState>,
+    args: CrossUsersArgs,
+) -> CommandResult<CrossUsers> {
+    let source_conn = find_connection(&state, &args.connection_id)?;
+    let mut res = CrossUsers::default();
+    if source_conn.config.driver == "powerbi" || source_key_of_config(&source_conn.config).is_none()
+    {
+        // No server of its own to be named by a source (a managed
+        // connection, a file) or already a model.
+        return Ok(res);
+    }
+    let pbis: Vec<SavedConnection> = state
+        .store
+        .list_connections()?
+        .into_iter()
+        .filter(|c| c.config.driver == "powerbi" && c.id != args.connection_id)
+        .collect();
+    if args.refresh {
+        let ids: Vec<String> = pbis.iter().map(|c| c.id.clone()).collect();
+        with_index(|i| {
+            i.sources.drop_where(|(c, _)| ids.contains(c));
+            i.models.drop_where(|c| ids.contains(c));
+        });
+    }
+    for pbi in &pbis {
+        let models = match models_of(&state, pbi).await {
+            Ok(m) => m,
+            Err(e) => {
+                res.notes.push(unreadable_note(&pbi.name, None, &e));
+                continue;
+            }
+        };
+        let mut all_cached = true;
+        for model in models.iter().take(MODELS_CAP) {
+            let (externals, cached) = match externals_of(&state, pbi, model).await {
+                Ok(r) => r,
+                Err(e) => {
+                    res.notes.push(unreadable_note(&pbi.name, Some(model), &e));
+                    continue;
+                }
+            };
+            all_cached &= cached;
+            res.users.extend(users_in(
+                &externals,
+                pbi,
+                model,
+                &source_conn,
+                &args.database,
+                &args.object,
+            ));
+        }
+        if models.len() > MODELS_CAP {
+            res.notes.push(format!(
+                "«{}» tiene más de {MODELS_CAP} modelos: se leyeron los primeros {MODELS_CAP}",
+                pbi.name
+            ));
+        }
+        res.searched.push(Searched {
+            connection_id: pbi.id.clone(),
+            name: pbi.name.clone(),
+            models: models.len().min(MODELS_CAP),
+            cached: all_cached,
+        });
+    }
+    Ok(res)
+}
+
+async fn models_of(state: &AppState, pbi: &SavedConnection) -> CommandResult<Arc<Vec<String>>> {
+    if let Some(m) = with_index(|i| i.models.get(&pbi.id, Instant::now())) {
+        return Ok(m);
+    }
+    let list = state
+        .meta_read(&pbi.id, "", SCAN_LIMIT, |s| {
+            Box::pin(async move { s.list_databases().await })
+        })
+        .await?;
+    let list = Arc::new(list);
+    with_index(|i| i.models.put(pbi.id.clone(), list.clone(), Instant::now()));
+    Ok(list)
+}
+
+/// A model's external sources and whether they came from the index.
+async fn externals_of(
+    state: &AppState,
+    pbi: &SavedConnection,
+    model: &str,
+) -> CommandResult<(Sources, bool)> {
+    let key = (pbi.id.clone(), model.to_string());
+    if let Some(s) = with_index(|i| i.sources.get(&key, Instant::now())) {
+        return Ok((s, true));
+    }
+    let driver = dbine_drivers::find(&pbi.config.driver).ok_or_else(|| {
+        CommandError::BadRequest(format!(
+            "esta versión no incluye el driver '{}'",
+            pbi.config.driver
+        ))
+    })?;
+    let scan = dbine_driver::DependencyScan::new(
+        driver.info(),
+        driver.script_dialect(),
+        driver.capabilities().foreign_keys,
+    );
+    let db = model.to_string();
+    let graph = state
+        .meta_read_on(Lane::Long, &pbi.id, model, SCAN_LIMIT, move |s| {
+            Box::pin(async move { s.lineage_graph(&db, &LineageScope::default(), &scan).await })
+        })
+        .await?;
+    let s = Arc::new(graph.external);
+    with_index(|i| i.sources.put(key, s.clone(), Instant::now()));
+    Ok((s, false))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn conn(id: &str, driver: &str, host: &str, db: &str) -> SavedConnection {
+        SavedConnection {
+            id: id.into(),
+            name: format!("name-{id}"),
+            color: None,
+            config: ConnectionConfig {
+                driver: driver.into(),
+                host: host.into(),
+                database: db.into(),
+                ..Default::default()
+            },
+            save_password: false,
+            folder_id: None,
+            tags: vec![],
+            mcp_level: None,
+            updated_at: String::new(),
+        }
+    }
+
+    fn ext(server: &str, db: &str, schema: Option<&str>, name: &str) -> ExternalRef {
+        ExternalRef {
+            system: Some("SQL Server".into()),
+            server: Some(server.into()),
+            database: Some(db.into()),
+            schema: schema.map(Into::into),
+            name: Some(name.into()),
+            ..Default::default()
+        }
+    }
+
+    fn obj(schema: Option<&str>, name: &str) -> ObjectRef {
+        ObjectRef {
+            kind: "table".into(),
+            schema: schema.map(Into::into),
+            name: name.into(),
+        }
+    }
+
+    fn cand(id: &str, via: &str) -> Candidate {
+        Candidate {
+            connection_id: id.into(),
+            name: id.into(),
+            driver: "sqlserver".into(),
+            via: via.into(),
+        }
+    }
+
+    #[test]
+    fn the_status_follows_the_number_of_candidates() {
+        assert_eq!(status_of(&[]), "none");
+        assert_eq!(status_of(&[cand("a", "auto")]), "one");
+        assert_eq!(status_of(&[cand("a", "auto"), cand("b", "auto")]), "many");
+    }
+
+    #[test]
+    fn merging_keeps_each_connection_once_by_its_first_way() {
+        let m = merge_candidates(vec![
+            vec![cand("a", "link")],
+            vec![cand("a", "auto"), cand("b", "auto")],
+            vec![cand("b", "enterprise"), cand("ent-p", "enterprise")],
+        ]);
+        let got: Vec<_> = m
+            .iter()
+            .map(|c| (c.connection_id.as_str(), c.via.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![("a", "link"), ("b", "auto"), ("ent-p", "enterprise")]
+        );
+        assert!(merge_candidates(vec![]).is_empty());
+    }
+
+    #[test]
+    fn ids_of_deleted_connections_make_no_candidate() {
+        let conns = vec![conn("a", "sqlserver", "h", "d")];
+        let c = candidates_of(&["a".into(), "gone".into()], &conns, "auto");
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].driver, "sqlserver");
+    }
+
+    #[test]
+    fn a_source_is_the_object_of_the_connection_that_has_its_server() {
+        let c = conn("a", "sqlserver", "dw01", "sales");
+        let o = obj(Some("dbo"), "Orders");
+        // Spellings of the name, the schema and the server do not matter.
+        assert!(external_reads_object(
+            &ext("DW01", "Sales", Some("[dbo]"), "orders"),
+            &c,
+            "sales",
+            &o
+        ));
+        assert!(external_reads_object(
+            &ext("dw01,1433", "sales", None, "[Orders]"),
+            &c,
+            "sales",
+            &o
+        ));
+    }
+
+    #[test]
+    fn another_server_database_schema_or_name_is_not_the_object() {
+        let c = conn("a", "sqlserver", "dw01", "sales");
+        let o = obj(Some("dbo"), "Orders");
+        let no = |e: ExternalRef, db: &str| !external_reads_object(&e, &c, db, &o);
+        assert!(no(ext("other", "sales", Some("dbo"), "Orders"), "sales"));
+        assert!(no(ext("dw01", "hr", Some("dbo"), "Orders"), "sales"));
+        assert!(no(ext("dw01", "sales", Some("etl"), "Orders"), "sales"));
+        assert!(no(ext("dw01", "sales", Some("dbo"), "Customers"), "sales"));
+        // The object lives in another database of that server.
+        assert!(no(ext("dw01", "sales", Some("dbo"), "Orders"), "hr"));
+        // A file is not a server.
+        let mut f = ext("dw01", "sales", None, "Orders");
+        f.system = Some("Excel".into());
+        assert!(no(f, "sales"));
+        // Nothing named.
+        let mut n = ext("dw01", "sales", None, "x");
+        n.name = None;
+        assert!(no(n, "sales"));
+    }
+
+    #[test]
+    fn a_connection_without_default_database_still_matches_the_named_one() {
+        let c = conn("a", "sqlserver", "dw01", "");
+        assert!(external_reads_object(
+            &ext("dw01", "sales", Some("dbo"), "Orders"),
+            &c,
+            "sales",
+            &obj(Some("dbo"), "Orders")
+        ));
+    }
+
+    #[test]
+    fn the_object_found_prefers_tables_then_views_and_the_schema_asked() {
+        let o = |k: &str, s: &str, n: &str| DbObject {
+            kind: k.into(),
+            schema: Some(s.into()),
+            name: n.into(),
+            parent: None,
+        };
+        let found = vec![
+            o("view", "dbo", "T"),
+            o("table", "etl", "T"),
+            o("synonym", "dbo", "T"),
+        ];
+        assert_eq!(pick_object(&found, None).unwrap().kind, "table");
+        let p = pick_object(&found, Some("[DBO]")).unwrap();
+        assert_eq!(
+            (p.kind.as_str(), p.schema.as_deref()),
+            ("view", Some("dbo"))
+        );
+        assert!(pick_object(&found, Some("nope")).is_none());
+        assert!(pick_object(&[], None).is_none());
+    }
+
+    #[test]
+    fn the_index_entries_expire_after_the_ttl() {
+        let mut c: TtlCache<String, u32> = TtlCache::new(Duration::from_secs(900));
+        let t0 = Instant::now();
+        c.put("k".into(), 7, t0);
+        assert_eq!(c.get(&"k".into(), t0 + Duration::from_secs(899)), Some(7));
+        assert_eq!(c.get(&"k".into(), t0 + Duration::from_secs(900)), None);
+        assert_eq!(c.get(&"other".into(), t0), None);
+        c.drop_where(|k| k == "k");
+        assert_eq!(c.get(&"k".into(), t0), None);
+    }
+
+    #[test]
+    fn the_tables_that_read_the_object_are_its_users_once_each() {
+        let sql = conn("s", "sqlserver", "dw01", "sales");
+        let pbi = conn("p", "powerbi", "", "");
+        let table = |n: &str| obj(None, n);
+        let ex = |name: &str, to: &str| LineageExternal {
+            source: ExternalRef {
+                detail: Some("partition".into()),
+                ..ext("dw01", "sales", Some("dbo"), name)
+            },
+            to: table(to),
+        };
+        let all = vec![
+            ex("Orders", "FactOrders"),
+            ex("Orders", "FactOrders"),
+            ex("Customers", "DimC"),
+        ];
+        let u = users_in(
+            &all,
+            &pbi,
+            "Model1",
+            &sql,
+            "sales",
+            &obj(Some("dbo"), "Orders"),
+        );
+        assert_eq!(u.len(), 1);
+        assert_eq!(
+            (
+                u[0].connection_id.as_str(),
+                u[0].database.as_str(),
+                u[0].object.name.as_str()
+            ),
+            ("p", "Model1", "FactOrders")
+        );
+        assert_eq!(u[0].detail.as_deref(), Some("partition"));
+    }
+
+    #[test]
+    fn a_connection_that_wants_a_password_is_told_to_connect() {
+        let n = unreadable_note("PBI", None, &CommandError::PasswordRequired(None));
+        assert!(n.contains("conectarse primero") && n.contains("PBI"));
+        let n = unreadable_note("PBI", Some("M"), &CommandError::Internal("x".into()));
+        assert!(n.contains("«M»") && n.contains(": x"));
+    }
+}
