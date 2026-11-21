@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { newLineage, addUses, addUsedBy, nodeId, jobNodeId, sideCounts, layout, MAX_NODES } = await import('./lineage.ts');
+const { newLineage, addUses, addUsedBy, nodeId, jobNodeId, sideCounts, layout, withoutRelations, MAX_NODES } = await import('./lineage.ts');
 
 const dep = (kind, schema, name, relation = 'code', confidence = 'probable', mentions = []) => ({ kind, schema, name, parent: null, relation, confidence, detail: null, mentions });
 const report = (items, extra = {}) => ({ items, scanned: 1, unreadable: [], note: null, ...extra });
@@ -96,4 +96,19 @@ test('a job in the middle: what its steps use to its left, nothing to its right'
   addUses(g, id, report([dep('procedure', 'dbo', 'sp_cargar', 'code', 'confirmed')], { external: [{ database: 'stage', schema: 'dbo', name: 'tmp', detail: 'Archivar' }] }));
   assert.equal(g.nodes.size, 3);
   assert.deepEqual(sideCounts(g, id), { up: 2, down: 0 });
+});
+
+test('without relations the foreign keys go, and so do the cards only they reach', () => {
+  const g = newLineage({ kind: 'table', schema: 'dbo', name: 'Pedidos' });
+  const id = nodeId({ kind: 'table', schema: 'dbo', name: 'Pedidos' });
+  addUses(g, id, report([dep('table', 'dbo', 'Clientes', 'foreign_key', 'confirmed'), dep('view', 'dbo', 'v_a', 'code')]));
+  const lineage = withoutRelations(g);
+  assert.deepEqual([...lineage.nodes.values()].map((n) => n.name).sort(), ['Pedidos', 'v_a']);
+  assert.ok(lineage.edges.every((e) => e.relation !== 'foreign_key'));
+  // The graph itself keeps them (the switch can bring them back).
+  assert.equal(g.nodes.size, 3);
+  assert.equal(g.edges.length, 2);
+  // A graph with no foreign keys comes out the same.
+  const plain = newLineage(root);
+  assert.equal(withoutRelations(plain).nodes.size, 1);
 });

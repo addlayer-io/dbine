@@ -102,6 +102,8 @@
     "truncated": "La base tiene más objetos de los que se leyeron, así que el diagrama está incompleto. Abrí el linaje de un esquema o de un tipo para verlo entero.",
     "hidden": "El diagrama muestra solo las primeras tarjetas: faltan {{hidden}} objetos. Contraé algún esquema o usá los filtros.",
     "empty": "No hay objetos para dibujar con este alcance.",
-    "noMatch": "Ningún objeto cumple los filtros."
+    "noMatch": "Ningún objeto cumple los filtros.",
+    "relations": "Relaciones ({{count}})",
+    "relationsTip": "Las claves foráneas (y las relaciones de un modelo) van en paralelo al linaje: activalas para verlas junto a él."
   }
 }

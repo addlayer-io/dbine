@@ -178,6 +178,23 @@ export interface Placed {
 }
 
 /** Left to right: what's used before what uses it. Every card is `w` × `h`. */
+/** The lineage without its relations (foreign keys): their lines go, and so do the cards only they
+ *  reach from the root. */
+export function withoutRelations(g: Lineage): Lineage {
+  const edges = g.edges.filter((e) => e.relation !== 'foreign_key');
+  const root = [...g.nodes.values()].find((n) => n.root);
+  if (!root) return { ...g, edges };
+  const next = new Map<string, string[]>();
+  for (const e of edges) {
+    (next.get(e.from) ?? next.set(e.from, []).get(e.from)!).push(e.to);
+    (next.get(e.to) ?? next.set(e.to, []).get(e.to)!).push(e.from);
+  }
+  const reach = new Set([root.id]);
+  const todo = [root.id];
+  while (todo.length) for (const id of next.get(todo.pop()!) ?? []) if (!reach.has(id)) { reach.add(id); todo.push(id); }
+  return { ...g, edges, nodes: new Map([...g.nodes].filter(([id]) => reach.has(id))) };
+}
+
 export function layout(g: Lineage, w: number, h: number): Placed {
   const dg = new dagre.graphlib.Graph();
   dg.setGraph({ rankdir: 'LR', nodesep: 16, ranksep: 90, marginx: 0, marginy: 0 });

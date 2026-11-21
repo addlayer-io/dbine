@@ -112,13 +112,20 @@ export interface Filters {
   onlyConfirmed: boolean;
   /** Hide what has no line. */
   onlyConnected: boolean;
+  /** Show the relations (foreign keys, a model's relationships) along with the lineage: they are
+   *  two concepts side by side, so they start hidden and the lineage shows alone. */
+  relations: boolean;
 }
-export const noFilters = (): Filters => ({ kinds: [], text: '', onlyConfirmed: false, onlyConnected: false });
+export const noFilters = (): Filters => ({ kinds: [], text: '', onlyConfirmed: false, onlyConnected: false, relations: false });
+
+/** The lines that are relations (foreign keys, a model's relationships), not lineage. */
+export const isRelation = (e: { relation: string }) => e.relation === 'foreign_key';
 
 /** What the filters leave: the cards that pass and the lines among them. */
 export function applyFilters(m: DbModel, f: Filters): { nodes: LineageNode[]; edges: LineageEdge[] } {
   const kindOk = (n: LineageNode) => !f.kinds.length || f.kinds.includes(n.kind);
   let edges = f.onlyConfirmed ? m.edges.filter((e) => e.confidence === 'confirmed') : m.edges;
+  if (!f.relations) edges = edges.filter((e) => !isRelation(e));
   const pool = new Map([...m.nodes].filter(([, n]) => kindOk(n)));
   edges = edges.filter((e) => pool.has(e.from) && pool.has(e.to));
   const q = f.text.trim().toLowerCase();

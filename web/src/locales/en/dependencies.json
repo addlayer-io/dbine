@@ -102,6 +102,8 @@
     "truncated": "The database has more objects than were read, so the diagram is incomplete. Open the lineage of a schema or a kind to see it whole.",
     "hidden": "The diagram shows only the first cards: {{hidden}} objects are missing. Collapse a schema or use the filters.",
     "empty": "There are no objects to draw in this scope.",
-    "noMatch": "No object matches the filters."
+    "noMatch": "No object matches the filters.",
+    "relations": "Relations ({{count}})",
+    "relationsTip": "Foreign keys (and a model's relationships) run in parallel to the lineage: turn them on to see them along with it."
   }
 }

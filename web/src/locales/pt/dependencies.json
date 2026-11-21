@@ -102,6 +102,8 @@
     "truncated": "O banco tem mais objetos do que os que foram lidos, então o diagrama está incompleto. Abra a linhagem de um esquema ou de um tipo para vê-lo por inteiro.",
     "hidden": "O diagrama mostra apenas os primeiros cartões: faltam {{hidden}} objetos. Recolha algum esquema ou use os filtros.",
     "empty": "Não há objetos para desenhar neste escopo.",
-    "noMatch": "Nenhum objeto atende aos filtros."
+    "noMatch": "Nenhum objeto atende aos filtros.",
+    "relations": "Relações ({{count}})",
+    "relationsTip": "As chaves estrangeiras (e as relações de um modelo) correm em paralelo à linhagem: ative-as para vê-las junto com ela."
   }
 }

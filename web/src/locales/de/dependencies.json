@@ -102,6 +102,8 @@
     "truncated": "Die Datenbank hat mehr Objekte, als gelesen wurden, daher ist das Diagramm unvollständig. Öffnen Sie das Lineage eines Schemas oder eines Typs, um es vollständig zu sehen.",
     "hidden": "Das Diagramm zeigt nur die ersten Karten: {{hidden}} Objekte fehlen. Reduzieren Sie ein Schema oder verwenden Sie die Filter.",
     "empty": "Für diesen Bereich gibt es keine Objekte zum Zeichnen.",
-    "noMatch": "Kein Objekt entspricht den Filtern."
+    "noMatch": "Kein Objekt entspricht den Filtern.",
+    "relations": "Beziehungen ({{count}})",
+    "relationsTip": "Fremdschlüssel (und die Beziehungen eines Modells) verlaufen parallel zum Lineage: Aktivieren Sie sie, um sie daneben zu sehen."
   }
 }

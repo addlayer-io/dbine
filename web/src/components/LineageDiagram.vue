@@ -15,7 +15,7 @@ import type { ObjectRef } from '../api/types';
 import { tb } from '../i18n/backend';
 import { useTabsStore } from '../stores/tabs';
 import { KIND_ICONS } from '../composables/kindIcons';
-import { MAX_NODES, addUsedBy, addUses, jobNodeId, layout, newLineage, nodeId, sideCounts, type LineageNode } from '../composables/lineage';
+import { MAX_NODES, addUsedBy, addUses, jobNodeId, layout, newLineage, nodeId, sideCounts, withoutRelations, type LineageNode } from '../composables/lineage';
 import LineageCanvas from './LineageCanvas.vue';
 import LineageDetail from './LineageDetail.vue';
 
@@ -29,8 +29,12 @@ const H = 46;
 
 const graph = shallowRef(newLineage(props.root, props.rootJobId));
 const touch = () => triggerRef(graph);
-const placed = computed(() => layout(graph.value, W, H));
-const nodes = computed(() => [...graph.value.nodes.values()]);
+/** Relations (foreign keys) go along with the lineage, or are left out to see the lineage alone. */
+const relations = ref(true);
+const relationCount = computed(() => graph.value.edges.filter((e) => e.relation === 'foreign_key').length);
+const shown = computed(() => (relations.value ? graph.value : withoutRelations(graph.value)));
+const placed = computed(() => layout(shown.value, W, H));
+const nodes = computed(() => [...shown.value.nodes.values()]);
 const canvas = ref<InstanceType<typeof LineageCanvas> | null>(null);
 const selected = ref<string | null>(null);
 const search = ref('');
@@ -123,6 +127,9 @@ function recenter(n: LineageNode) {
   <div class="ln">
     <div class="ln-bar">
       <el-input v-model="search" size="small" clearable :placeholder="$t('dependencies:lineage.search')" style="width: 220px" />
+      <el-tooltip :content="$t('dependencies:database.relationsTip')" placement="bottom" :show-after="300">
+        <el-checkbox v-model="relations" size="small">{{ $t('dependencies:database.relations', { count: relationCount }) }}</el-checkbox>
+      </el-tooltip>
       <span class="ln-legend"><i class="ln-key solid" />{{ $t('dependencies:confidence.confirmed') }}</span>
       <span class="ln-legend"><i class="ln-key dashed" />{{ $t('dependencies:confidence.probable') }}</span>
       <span class="ln-hint">{{ $t('dependencies:lineage.hint') }}</span>

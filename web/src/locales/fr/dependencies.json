@@ -102,6 +102,8 @@
     "truncated": "La base contient plus d'objets que ceux qui ont été lus, le diagramme est donc incomplet. Ouvrez la traçabilité d'un schéma ou d'un type pour la voir en entier.",
     "hidden": "Le diagramme n'affiche que les premières cartes : {{hidden}} objets manquent. Réduisez un schéma ou utilisez les filtres.",
     "empty": "Aucun objet à dessiner pour cette portée.",
-    "noMatch": "Aucun objet ne correspond aux filtres."
+    "noMatch": "Aucun objet ne correspond aux filtres.",
+    "relations": "Relations ({{count}})",
+    "relationsTip": "Les clés étrangères (et les relations d’un modèle) vont en parallèle de la traçabilité : activez-les pour les voir à côté d’elle."
   }
 }
