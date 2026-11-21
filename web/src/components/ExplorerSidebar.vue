@@ -1004,7 +1004,11 @@ async function onContext(e: MouseEvent, n: TNode) {
       const connected = conns.isConnected(cid!);
       const d = conns.driverOf(cid!);
       if (connected) {
-        if (d && !d.databases_label) items.push({ label: t('explorer:menu.newQuery'), action: () => newQuery(cid!, conns.live[cid!]?.databases[0] ?? '') });
+        if (d && !d.databases_label) {
+          const first = conns.live[cid!]?.databases[0] ?? '';
+          items.push({ label: t('explorer:menu.newQuery'), action: () => newQuery(cid!, first) });
+          items.push({ label: t('menu:file.newNotebook'), action: () => tabs.newNotebook({ connectionId: cid!, database: first }) });
+        }
         items.push({ label: t('common:refresh'), action: () => retryConnect(cid!) });
         items.push({ label: t('common:disconnect'), action: () => disconnect(cid!) });
       } else {
@@ -1067,6 +1071,7 @@ async function onContext(e: MouseEvent, n: TNode) {
     }
     case 'database':
       items.push({ label: t('explorer:menu.newQuery'), action: () => newQuery(cid!, db) });
+      items.push({ label: t('menu:file.newNotebook'), action: () => tabs.newNotebook({ connectionId: cid!, database: db }) });
       items.push({ label: t('search:menu'), action: () => tabs.openSearch(cid!, db) });
       items.push({ label: t('health:menu'), action: () => tabs.openHealth(cid!, db) });
       dbItems(cid!, db, items);
@@ -1139,6 +1144,7 @@ async function onContext(e: MouseEvent, n: TNode) {
       const s = n.schema!;
       const d = conns.driverOf(cid!);
       items.push({ label: t('explorer:menu.newQuery'), action: () => newQuery(cid!, db) });
+      items.push({ label: t('menu:file.newNotebook'), action: () => tabs.newNotebook({ connectionId: cid!, database: db }) });
       if (d?.designer) items.push({ label: `${tb(d.designer.label)}…`, action: () => tabs.openDesigner(cid!, db, s) });
       for (const tpl of d?.create_templates ?? []) items.push({ label: tb(tpl.label), action: () => newFromTemplate(cid!, db, tpl, s) });
       items.push({ label: t('common:refresh'), divided: true, action: () => loadDatabase(cid!, db, true) });

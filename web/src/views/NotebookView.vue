@@ -122,7 +122,10 @@ async function load() {
     } else if (props.tab.path) {
       nb.value = raw((await notebookApi.read(props.tab.path)).notebook);
     } else {
-      nb.value = (await readDraft(props.tab.id)) ?? emptyNotebook(false);
+      // Opened from the explorer on a connection: the cells run there.
+      const from = conns.byId(props.tab.connectionId);
+      const target = from ? { connection: from.name, database: props.tab.database || null, environment: null } : null;
+      nb.value = (await readDraft(props.tab.id)) ?? emptyNotebook(false, target);
     }
     // Files from before cell names: each SQL cell gets one (saved with the file).
     assignCellNames(nb.value.cells);

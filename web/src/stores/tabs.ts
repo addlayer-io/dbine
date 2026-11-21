@@ -582,12 +582,15 @@ export const useTabsStore = defineStore('tabs', {
       this.place({ id: newId(), kind: 'notebook', connectionId: '', database: '', preview: false, ...o });
     },
 
-    /** "Archivo › Nuevo notebook": an untitled one ("Notebook N"). */
-    newNotebook() {
+    /** "Archivo › Nuevo notebook": an untitled one ("Notebook N"). From the
+     *  explorer, on a connection and database: its cells run there. */
+    newNotebook(target?: { connectionId: string; database: string }) {
       const used = new Set(this.tabs.flatMap((t) => (t.kind === 'notebook' && t.untitled ? [t.untitled] : [])));
       let n = 1;
       while (used.has(n)) n++;
-      this.place({ id: newId(), kind: 'notebook', connectionId: '', database: '', preview: false, untitled: n });
+      this.place({
+        id: newId(), kind: 'notebook', connectionId: target?.connectionId ?? '', database: target?.database ?? '', preview: false, untitled: n,
+      });
     },
 
     /** An untitled notebook was saved: it's that file from now on. */
