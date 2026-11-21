@@ -2346,19 +2346,24 @@ mod tests {
     async fn only_zohos_accounts_servers() {
         let list = accounts_servers();
         assert!(list.len() >= 12);
-        for (dc, url) in &list {
+        // A failure names the entry by its place in the list, not by its
+        // host (the messages never print what the list holds).
+        for (i, (_, url)) in list.iter().enumerate() {
             let host = url
                 .strip_prefix("https://")
-                .unwrap_or_else(|| panic!("{dc}: {url}"));
-            assert!(host.starts_with("accounts."), "{dc}: {host}");
+                .unwrap_or_else(|| panic!("entry {i} isn't HTTPS"));
+            assert!(host.starts_with("accounts."), "entry {i}: not accounts.");
             let domain = host.trim_start_matches("accounts.");
             assert!(
                 ["zoho.", "zohocloud.ca", "zohohq.in"]
                     .iter()
                     .any(|d| domain.starts_with(d)),
-                "{dc}: {domain}"
+                "entry {i}: not a Zoho domain"
             );
-            assert!(!host.contains(['/', '@', ':', '?']), "{dc}: {host}");
+            assert!(
+                !host.contains(['/', '@', ':', '?']),
+                "entry {i}: more than a host"
+            );
         }
         assert!(
             list.iter()

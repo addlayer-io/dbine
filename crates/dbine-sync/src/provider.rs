@@ -53,6 +53,60 @@ pub(crate) enum HttpOp {
     DeleteBackup,
 }
 
+/// The most of an error response read: error bodies are a few hundred bytes;
+/// a longer one is cut, and then not parsed.
+const MAX_ERROR_BODY: usize = 64 * 1024;
+
+/// What a provider's error body says, and nothing else of it: Google's
+/// `{"error": {"message": …}}` and OAuth's `{"error": …,
+/// "error_description": …}`. Other fields are skipped, not kept.
+#[derive(Deserialize)]
+struct ErrorBody {
+    #[serde(default)]
+    error: Option<ErrorField>,
+    #[serde(default)]
+    error_description: Option<ErrorField>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum ErrorField {
+    Text(String),
+    Detail {
+        #[serde(default)]
+        message: Option<String>,
+    },
+    Other(serde::de::IgnoredAny),
+}
+
+impl ErrorBody {
+    /// The message, in the order the providers put it: `error.message`,
+    /// `error_description`, then `error` as text.
+    fn message(self) -> Option<String> {
+        let text = |f: Option<ErrorField>| match f {
+            Some(ErrorField::Text(t)) => Some(t),
+            _ => None,
+        };
+        match self.error {
+            Some(ErrorField::Detail { message: Some(m) }) => Some(m),
+            error => text(self.error_description).or_else(|| text(error)),
+        }
+    }
+}
+
+/// At most `max` bytes of the response's body, as text.
+async fn capped_text(mut resp: reqwest::Response, max: usize) -> String {
+    let mut buf = Vec::new();
+    while let Ok(Some(chunk)) = resp.chunk().await {
+        let room = max - buf.len();
+        buf.extend_from_slice(&chunk[..chunk.len().min(room)]);
+        if buf.len() >= max {
+            break;
+        }
+    }
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
 /// A readable message for a failed provider response.
 pub(crate) async fn http_error(
     provider: ProviderKind,
@@ -60,19 +114,18 @@ pub(crate) async fn http_error(
     resp: reqwest::Response,
 ) -> crate::SyncError {
     let status = resp.status();
-    let body = resp.text().await.unwrap_or_default();
+    let body = capped_text(resp, MAX_ERROR_BODY).await;
     if status == reqwest::StatusCode::UNAUTHORIZED {
         return crate::SyncError::AuthRequired(provider.label().into());
     }
     // Error bodies are JSON with a message somewhere; keep it short.
-    let msg = serde_json::from_str::<serde_json::Value>(&body)
-        .ok()
-        .and_then(|v| {
-            v.pointer("/error/message")
-                .or_else(|| v.pointer("/error_description"))
-                .or_else(|| v.pointer("/error"))
-                .and_then(|m| m.as_str().map(str::to_string))
-        })
+    let parsed = if body.len() < MAX_ERROR_BODY {
+        serde_json::from_str::<ErrorBody>(&body).ok()
+    } else {
+        None
+    };
+    let msg = parsed
+        .and_then(ErrorBody::message)
         .unwrap_or_else(|| body.chars().take(200).collect());
     let (label, code) = (provider.label(), status.as_u16());
     crate::SyncError::Remote(match what {
@@ -197,6 +250,44 @@ mod tests {
         assert_eq!(
             remote(e),
             "Google Drive: no se pudo leer la cuenta (HTTP 500): "
+        );
+        // An error object without a message: the OAuth description.
+        let e = http_error(
+            ProviderKind::Onedrive,
+            HttpOp::UploadBackup,
+            response(
+                "400 Bad Request",
+                r#"{"error":{"code":"x"},"error_description":"too big","extra":[1,2,3]}"#,
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(
+            remote(e),
+            "OneDrive: no se pudo subir el backup (HTTP 400): too big"
+        );
+    }
+
+    /// A body past `MAX_ERROR_BODY` is read only up to it and not parsed:
+    /// the message is its first 200 characters.
+    #[tokio::test]
+    async fn a_huge_error_body_is_cut_and_not_parsed() {
+        let huge = format!(
+            r#"{{"error":{{"message":"never read"}},"pad":"{}"}}"#,
+            "y".repeat(2 * MAX_ERROR_BODY)
+        );
+        let resp = response("500 Internal Server Error", &huge).await;
+        let body = capped_text(response("200 OK", &huge).await, MAX_ERROR_BODY).await;
+        assert_eq!(body.len(), MAX_ERROR_BODY);
+        let m = remote(http_error(ProviderKind::GoogleDrive, HttpOp::FindBackup, resp).await);
+        // Not parsed: the raw start of the body, not its `error.message`.
+        assert_ne!(
+            m,
+            "Google Drive: no se pudo buscar el backup (HTTP 500): never read"
+        );
+        assert!(
+            m.starts_with(r#"Google Drive: no se pudo buscar el backup (HTTP 500): {"error""#),
+            "{m}"
         );
     }
 
