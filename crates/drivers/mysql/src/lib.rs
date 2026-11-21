@@ -18,6 +18,7 @@ mod functions;
 mod health;
 mod index_usage;
 mod jobs;
+mod lineage;
 mod monitor;
 mod objects_page;
 mod permissions;

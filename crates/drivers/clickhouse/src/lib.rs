@@ -13,6 +13,7 @@ mod functions;
 mod health;
 mod index_usage;
 mod jobs;
+mod lineage;
 mod monitor;
 mod objects_page;
 mod permissions;
@@ -1693,6 +1694,17 @@ impl Session for ClickHouseSession {
         scan: &dbine_driver::DependencyScan,
     ) -> Result<dbine_driver::DependencyReport> {
         self.references_of(target, scan).await
+    }
+
+    /// The whole database's lineage, from one read of `system.tables` (see
+    /// `lineage`).
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &dbine_driver::dependencies::LineageScope,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::dependencies::LineageGraph> {
+        self.lineage_of(database, scope, scan).await
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {

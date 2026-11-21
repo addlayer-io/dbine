@@ -3054,6 +3054,17 @@ impl Session for MySqlSession {
     ) -> Result<dbine_driver::DependencyReport> {
         crate::references::references(self, target, scan).await
     }
+
+    /// The whole database's lineage: the catalog's views, foreign keys and
+    /// triggers, and the code of routines (see `lineage`).
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &dbine_driver::dependencies::LineageScope,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::dependencies::LineageGraph> {
+        crate::lineage::lineage_graph(self, database, scope, scan).await
+    }
 }
 
 #[cfg(test)]
