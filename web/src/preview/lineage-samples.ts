@@ -2,9 +2,11 @@
 // lineage mode (or the list with &list=1). The view in the middle reads two
 // tables, calls a function and comes from a SQL Server table outside the
 // database; a procedure and a view use it. Every card answers both sides
-// with a few more, so levels can be opened.
+// with a few more, so levels can be opened. The procedure is run by a SQL
+// Server Agent job (&root=proc puts the procedure in the middle, &root=job
+// the job).
 
-import type { DependencyReport, Dependent } from '../api/types';
+import type { DependencyReport, Dependent, JobDependent } from '../api/types';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type DependenciesTab } from '../stores/tabs';
 
@@ -24,8 +26,14 @@ const USES: Record<string, DependencyReport> = {
   sp_reporte: report([dep('view', 'dbo', 'v_medidas_resumen'), dep('table', 'dbo', 'Clientes')]),
   fn_total: report([dep('table', 'dbo', 'Tarifas')]),
 };
+/** The job that runs the procedure. */
+const NIGHTLY: JobDependent = {
+  id: 'A1F3', name: 'Carga nocturna', kind: 'SQL Server Agent', group: null, steps: ['Cargar ventas'], confidence: 'probable',
+  mentions: [{ line: 1, text: 'EXEC dbo.sp_reporte @dia = 1;', dynamic: false }],
+};
 /** What uses each object. */
 const USED_BY: Record<string, DependencyReport> = {
+  sp_reporte: report([], { jobs: [NIGHTLY] }),
   v_medidas_resumen: report([dep('procedure', 'dbo', 'sp_reporte', 'probable', 'code', 7), dep('view', 'dbo', 'v_kpis', 'confirmed')]),
   v_kpis: report([dep('procedure', 'dbo', 'sp_tablero')]),
   medidas: report([dep('view', 'dbo', 'v_medidas_resumen', 'confirmed'), dep('procedure', 'etl', 'sp_cargar_medidas')]),
@@ -39,6 +47,11 @@ export function installLineagePreview(params: URLSearchParams) {
     id: 'lin1', kind: 'dependencies', connectionId: 'c1', database: 'ventas', preview: false,
     object: { kind: 'view', schema: 'dbo', name: 'v_medidas_resumen' }, column: null, view: params.get('list') ? 'list' : 'lineage',
   };
+  if (params.get('root') === 'proc') tab.object = { kind: 'procedure', schema: 'dbo', name: 'sp_reporte' };
+  if (params.get('root') === 'job') {
+    tab.object = { kind: 'job', schema: null, name: NIGHTLY.name };
+    tab.jobId = NIGHTLY.id;
+  }
   tabs.tabs.push(tab);
   let cb = 0;
   (window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
@@ -53,6 +66,7 @@ export function installLineagePreview(params: URLSearchParams) {
         case 'plugin:event|unlisten': return null;
         case 'get_references': await new Promise((r) => setTimeout(r, 250)); return USES[name] ?? report([]);
         case 'get_dependents': await new Promise((r) => setTimeout(r, 300)); return USED_BY[name] ?? report([]);
+        case 'get_job_references': await new Promise((r) => setTimeout(r, 250)); return report([dep('procedure', 'dbo', 'sp_reporte', 'confirmed', 'code', 1)]);
         case 'list_settings': case 'get_settings': return {};
         default: return null;
       }
