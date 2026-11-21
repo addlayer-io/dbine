@@ -437,13 +437,13 @@ pub fn collection_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
             if !skipped.is_empty() {
                 s.push_str(&format!(
                     "# Ya definidos por el configset: {}.\n",
-                    skipped.join(", ")
+                    comment_text(&skipped.join(", "))
                 ));
             }
             if !large.is_empty() {
                 s.push_str(&format!(
                     "# {}: más de {MAX_DIMS} dimensiones. Solr las toma desde la 9.5 (en la 9.4, con SchemaCodecFactory en el solrconfig.xml de la colección).\n",
-                    large.join(", ")
+                    comment_text(&large.join(", "))
                 ));
             }
             s.push_str(&format!("POST /solr/{name}/schema\n{{\n"));
@@ -869,6 +869,22 @@ pub fn sorted_browse(browse: &str, sort: &[dbine_driver::SortKey]) -> Result<Str
     ))
 }
 
+/// Text for a `#` comment line of the console script: a field's name comes
+/// from the source, and a line break in it would end the comment and start
+/// a request. Line breaks (CR, LF, NEL, U+2028/U+2029) and other control
+/// characters become `?`.
+fn comment_text(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+                '?'
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1012,6 +1028,32 @@ mod tests {
                 .collect(),
             ..Default::default()
         }
+    }
+
+    /// A field's name from the source can't add a request to the script:
+    /// a line break in it stays inside the `#` note (security scan F2).
+    #[test]
+    fn a_line_break_in_a_field_name_stays_in_the_comment() {
+        let t = TableSchema {
+            kind: kinds::COLLECTION.into(),
+            name: "docs".into(),
+            columns: vec![
+                col("id", "string", &[]),
+                col("e\nDELETE /solr/prod?", "knn_vector(1536)", &[]),
+            ],
+            ..Default::default()
+        };
+        let text = collection_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let methods: Vec<String> = reqs(&text).into_iter().map(|r| r.method).collect();
+        assert_eq!(methods, ["PUT", "POST"], "{text}");
+        assert!(!text.lines().any(|l| l.starts_with("DELETE")), "{text}");
     }
 
     #[test]

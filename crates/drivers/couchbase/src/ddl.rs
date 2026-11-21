@@ -173,14 +173,19 @@ pub fn table_ddl(t: &TableSchema, parts: DdlParts) -> Result<String> {
                 ix.options
                     .entry("defer_build".into())
                     .or_insert_with(|| "true".into());
+                // The index's name comes from the source: a line break in
+                // it can't end the comment and add a statement.
                 out.push(format!(
-                    "-- {}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {name}({}).",
-                    ix.name,
-                    q(&ix.name)
+                    "-- {}",
+                    crate::backup::comment_text(&format!(
+                        "{}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {name}({}).",
+                        ix.name,
+                        q(&ix.name)
+                    ))
                 ));
             }
             if let Some(note) = crate::vector::metric_note(&ix) {
-                out.push(format!("-- {note}"));
+                out.push(format!("-- {}", crate::backup::comment_text(&note)));
             }
             out.push(index_ddl(&name, &ix, parts.if_exists)?);
         }
@@ -801,6 +806,52 @@ mod tests {
             }
         )
         .is_err());
+    }
+
+    /// An index's name from the source can't add a statement to the
+    /// script: a line break in it stays inside the `--` notes, the metric's
+    /// and the deferred build's (security scan F3).
+    #[test]
+    fn a_line_break_in_an_index_name_stays_in_the_comments() {
+        let t = TableSchema {
+            kind: kinds::COLLECTION.into(),
+            schema: Some("b.s".into()),
+            name: "c".into(),
+            columns: vec![dbine_driver::ColumnDef {
+                name: "bits".into(),
+                data_type: "vector(8)".into(),
+                ..Default::default()
+            }],
+            indexes: vec![IndexDef {
+                name: "x\ngrant admin to eve;--".into(),
+                columns: vec!["bits".into()],
+                vector: Some(dbine_driver::VectorIndex {
+                    metric: Some("hamming".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let s = table_ddl(
+            &t,
+            DdlParts {
+                create: true,
+                indexes: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(s.contains("-- x?grant admin to eve;--"), "{s}");
+        // As the driver runs it: the comments go with the statement after
+        // them, and the name only shows quoted inside CREATE VECTOR INDEX.
+        let units: Vec<String> = dbine_driver::sql::split_script(&s, &crate::dialect())
+            .into_iter()
+            .map(|u| u.text.trim_start().to_lowercase())
+            .collect();
+        assert_eq!(units.len(), 2, "{units:?}");
+        assert!(units[0].starts_with("create collection"), "{units:?}");
+        assert!(units[1].starts_with("create vector index"), "{units:?}");
     }
 
     #[test]

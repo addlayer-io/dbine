@@ -930,7 +930,7 @@ fn mysql_ddl(v: Variant, t: &TableSchema, parts: DdlParts) -> Result<String> {
     for c in &mut t.columns {
         if let Some((ty, note)) = crate::vectors::family_type(v, &c.data_type) {
             c.data_type = ty;
-            type_notes.extend(note.map(|n| format!("-- {n}")));
+            type_notes.extend(note.map(|n| format!("-- {}", n.replace(['\n', '\r'], " "))));
         }
     }
     // MariaDB column CHECKs: written last in their column's line.

@@ -28,6 +28,8 @@
 
 ### Fixes
 
+- **A source's names could add commands to a migration script:** when a table went to MongoDB, Solr or Couchbase, the notes DBine writes about a vector index or field it had to adapt carried the source's name unchanged. Some engines, such as PostgreSQL, allow a line break inside a quoted name. A name with one could end the note and add a command, such as dropping a database, that then ran on the target with your permissions. Names in those notes are now written so they can't.
+- **Oracle vectors that claimed millions of dimensions:** copying or pasting a sparse vector whose text claimed more dimensions than Oracle allows (65,535) into a dense VECTOR column could make DBine run out of memory. Such text is no longer read as a vector.
 - **View dependencies… on SQL Server without db_owner:** a login that may not read `sys.sql_expression_dependencies` got an error. It now gets the objects whose code names the table or view, found by reading their definitions, and the tab says which permission would confirm them.
 - **OceanBase sequences missing from the explorer:** on OceanBase 4.4 a database's sequences didn't show. The catalog view DBine read names the database only by its id. They are now read by owner.
 - **Compare data out of memory on wide queries:** comparing two queries with many columns, such as 60 columns over millions of rows, could stop with DuckDB's "Out of Memory Error: failed to pin block". Without a number tolerance or **NULL equals blank**, each row now goes to DuckDB as a hash of its values as compared, as a table compare does, and the compare fits its memory. With a tolerance or **NULL equals blank**, DuckDB works on one thread with more memory for wide results.
