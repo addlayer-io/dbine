@@ -21,7 +21,7 @@ _None._
 
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
-| claude-security, release v1.6.3 | 2026-11-18 | 0e26e2f0..e8b61cec, everything 1.6.3 adds since v1.6.2 (#123 SQL Server catalog reads, #124 Compare data export, the per-day telemetry, the multi-database export of every row, the grid's keyboard scroll, the release commit); e8b61cec..031d392f, libz-sys 1.1.33 and the picomatch review; 6fa05571..f7e04ee7, lettre 0.11.24 past six SMTP advisories | 0 open | — |
+| claude-security, release v1.7.0 | 2026-11-21 | 4fc9459c..78feff49, everything 1.7.0 adds since v1.6.3 up to the CodeQL fixes (vectors, lineage in both directions, the explorer by folders and its filter, results search, compare fixes, New notebook from the explorer; 3 MEDIUM and 1 LOW, fixed in #168); 78feff49..c1b4d9a9, server jobs in the lineage and #168 (1 MEDIUM, fixed in #170); c1b4d9a9..6f336538, the lineage of a whole database, the relations switch and #170 (no findings); plus the pre-merge scan of the vectors branch at 94805104 (2 MEDIUM in the Cypher read guard, fixed before it merged) | 0 open | the release commits d079d0ae and 533fab01 (versions, Cargo.lock and the changelogs; no code) |
 | codeql | 2026-11-21 | Rust, TypeScript/Vue and workflows | 0 open | — |
 | osv | 2026-11-21 | every lockfile (Cargo, npm) at [`6f3365384`](https://github.com/addlayer-io/dbine/commit/6f3365384f70) | 0 open | — |
 | scorecard | 2026-11-21 | repository settings and workflows at [`8b3ba8e51`](https://github.com/addlayer-io/dbine/commit/8b3ba8e51012) | score 7.6/10 | — |

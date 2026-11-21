@@ -1,36 +1,6 @@
 {
   "scans": [
     {
-      "source": "claude-security",
-      "release": "v1.6.3",
-      "scan_id": "0c483ab7-5e03-4192-be7f-704d61f3a061",
-      "date": "2026-11-18",
-      "revision": "e8b61cec1067",
-      "kind": "changes",
-      "scope": "whole repository",
-      "found": 0
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.6.3",
-      "scan_id": "3ab743ea-3b51-48a0-9508-a8aa9b39103f",
-      "date": "2026-11-18",
-      "revision": "031d392f7a6e",
-      "kind": "changes",
-      "scope": "0e26e2f0..e8b61cec",
-      "found": 0
-    },
-    {
-      "source": "claude-security",
-      "release": "v1.6.3",
-      "scan_id": "8afce637-ab78-4757-8c52-77205f302645",
-      "date": "2026-11-18",
-      "revision": "f7e04ee7c876",
-      "kind": "changes",
-      "scope": "0e26e2f0..e8b61cec",
-      "found": 0
-    },
-    {
       "source": "osv",
       "date": "2026-11-21",
       "revision": "6f3365384f70",
@@ -61,6 +31,46 @@
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.6
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.7.0",
+      "scan_id": "fcfb817d-a9fe-4109-b862-f21273cd126a",
+      "date": "2026-11-20",
+      "revision": "94805104f8e9",
+      "kind": "changes",
+      "scope": "src-tauri/src/mcp, crates/drivers/neo4j/src, crates/dbine-plugin/src, vendor/tiberius",
+      "found": 2
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.7.0",
+      "scan_id": "bbb4a1cd-c26e-4f4c-8de8-2c75fd007643",
+      "date": "2026-11-21",
+      "revision": "78feff49bd3e",
+      "kind": "changes",
+      "scope": "4fc9459ce3cf..78feff49bd3e",
+      "found": 4
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.7.0",
+      "scan_id": "1b06e862-ffaf-400c-995b-b8308feabd3b",
+      "date": "2026-11-21",
+      "revision": "c1b4d9a994e8",
+      "kind": "changes",
+      "scope": "78feff49bd3e..c1b4d9a994e8",
+      "found": 1
+    },
+    {
+      "source": "claude-security",
+      "release": "v1.7.0",
+      "scan_id": "87b15a56-12d7-4bd2-bc92-257236be055f",
+      "date": "2026-11-21",
+      "revision": "6f3365384f70",
+      "kind": "changes",
+      "scope": "c1b4d9a994e8..6f3365384f70",
+      "found": 0
     }
   ],
   "findings": [
@@ -4586,8 +4596,8 @@
     }
   ],
   "claude_coverage": {
-    "release": "v1.6.3",
-    "scanned": "0e26e2f0..e8b61cec, everything 1.6.3 adds since v1.6.2 (#123 SQL Server catalog reads, #124 Compare data export, the per-day telemetry, the multi-database export of every row, the grid's keyboard scroll, the release commit); e8b61cec..031d392f, libz-sys 1.1.33 and the picomatch review; 6fa05571..f7e04ee7, lettre 0.11.24 past six SMTP advisories",
-    "not_covered": ""
+    "release": "v1.7.0",
+    "scanned": "4fc9459c..78feff49, everything 1.7.0 adds since v1.6.3 up to the CodeQL fixes (vectors, lineage in both directions, the explorer by folders and its filter, results search, compare fixes, New notebook from the explorer; 3 MEDIUM and 1 LOW, fixed in #168); 78feff49..c1b4d9a9, server jobs in the lineage and #168 (1 MEDIUM, fixed in #170); c1b4d9a9..6f336538, the lineage of a whole database, the relations switch and #170 (no findings); plus the pre-merge scan of the vectors branch at 94805104 (2 MEDIUM in the Cypher read guard, fixed before it merged)",
+    "not_covered": "the release commits d079d0ae and 533fab01 (versions, Cargo.lock and the changelogs; no code)"
   }
 }
