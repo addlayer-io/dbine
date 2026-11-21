@@ -1269,6 +1269,8 @@ mod tests {
             unreadable: vec![],
             note: None,
             external: vec![],
+            jobs: vec![],
+            job_notes: vec![],
         }
     }
 

@@ -404,6 +404,22 @@ pub enum Call {
         target: dbine_driver::DependencyTarget,
         scan: dbine_driver::DependencyScan,
     },
+    /// The server's jobs whose steps run or name an object (the lineage). A
+    /// host published before it answers `Unsupported`, and the app runs the
+    /// generic job scan through the host's jobs calls.
+    JobDependents {
+        session: u64,
+        database: String,
+        target: dbine_driver::DependencyTarget,
+        scan: dbine_driver::DependencyScan,
+    },
+    /// What a server job's steps use. Same fallback as `JobDependents`.
+    JobReferences {
+        session: u64,
+        database: String,
+        job_id: String,
+        scan: dbine_driver::DependencyScan,
+    },
     /// The server's sessions (the Monitor's "Procesos"). A host published
     /// before it answers `Unsupported`; the app only asks drivers whose
     /// capabilities say `processes`.
@@ -761,6 +777,8 @@ pub enum Reply {
     IndexUsage(Option<dbine_driver::IndexUsageReport>),
     Dependents(dbine_driver::DependencyReport),
     References(dbine_driver::DependencyReport),
+    JobDependents(dbine_driver::DependencyReport),
+    JobReferences(dbine_driver::DependencyReport),
     Processes(Vec<dbine_driver::ServerProcess>),
     Choices(Vec<dbine_driver::FieldChoices>),
     DatabaseProperties(dbine_driver::DatabaseProperties),
@@ -1394,6 +1412,7 @@ mod tests {
                         dialect: dbine_driver::ScriptDialect::generic(),
                         foreign_keys: true,
                         written_kinds: vec!["view".into()],
+                        has_schemas: true,
                     },
                 },
                 "Dependents",

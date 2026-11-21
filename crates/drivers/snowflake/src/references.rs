@@ -744,6 +744,7 @@ mod tests {
             dialect: crate::script::dialect(),
             foreign_keys: true,
             written_kinds: vec![kinds::VIEW.into()],
+            has_schemas: true,
         };
         let mut r = DependencyReport::default();
         code_refs(&mut s, &target, &scan, "SALES", "Snowflake", &mut r)

@@ -46,7 +46,8 @@
     "trigger": "트리거",
     "synonym": "시노님",
     "type": "타입",
-    "sequence": "시퀀스"
+    "sequence": "시퀀스",
+    "job": "잡"
   },
   "view": {
     "label": "보기",
@@ -65,5 +66,10 @@
     "recenter": "계보 보기",
     "uses": "사용",
     "usedBy": "사용처"
+  },
+  "jobs": {
+    "title": "이를 실행하는 서버 잡",
+    "steps": "단계: {{steps}}",
+    "open": "잡 열기"
   }
 }

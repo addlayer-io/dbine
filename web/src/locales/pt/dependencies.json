@@ -46,7 +46,8 @@
     "trigger": "Trigger",
     "synonym": "Sinônimo",
     "type": "Tipo",
-    "sequence": "Sequência"
+    "sequence": "Sequência",
+    "job": "Job"
   },
   "view": {
     "label": "Visualização",
@@ -65,5 +66,10 @@
     "recenter": "Ver sua linhagem",
     "uses": "Usa",
     "usedBy": "Usado por"
+  },
+  "jobs": {
+    "title": "Jobs do servidor que o executam",
+    "steps": "Etapas: {{steps}}",
+    "open": "Abrir o job"
   }
 }

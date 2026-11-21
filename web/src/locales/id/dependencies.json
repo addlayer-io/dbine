@@ -46,7 +46,8 @@
     "trigger": "Trigger",
     "synonym": "Sinonim",
     "type": "Tipe",
-    "sequence": "Sekuens"
+    "sequence": "Sekuens",
+    "job": "Job"
   },
   "view": {
     "label": "Tampilan",
@@ -65,5 +66,10 @@
     "recenter": "Lihat lineage-nya",
     "uses": "Menggunakan",
     "usedBy": "Digunakan oleh"
+  },
+  "jobs": {
+    "title": "Job server yang menjalankannya",
+    "steps": "Langkah: {{steps}}",
+    "open": "Buka job"
   }
 }

@@ -46,7 +46,8 @@
     "trigger": "Déclencheur",
     "synonym": "Synonyme",
     "type": "Type",
-    "sequence": "Séquence"
+    "sequence": "Séquence",
+    "job": "Job"
   },
   "view": {
     "label": "Affichage",
@@ -65,5 +66,10 @@
     "recenter": "Voir sa traçabilité",
     "uses": "Utilise",
     "usedBy": "Utilisé par"
+  },
+  "jobs": {
+    "title": "Jobs du serveur qui l'exécutent",
+    "steps": "Étapes : {{steps}}",
+    "open": "Ouvrir le job"
   }
 }

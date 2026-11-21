@@ -2608,6 +2608,56 @@ impl Session for RemoteSession {
             Ok(_) => Err(unexpected()),
         }
     }
+    async fn job_dependents(
+        &mut self,
+        database: &str,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        match self
+            .host
+            .call(Call::JobDependents {
+                session: self.id,
+                database: database.to_string(),
+                target: target.clone(),
+                scan: scan.clone(),
+            })
+            .await
+        {
+            Ok(Reply::JobDependents(r)) => Ok(r),
+            // A host built before the call: the generic job scan, through
+            // its jobs calls (empty where it has none).
+            Err(Error::Unsupported(_)) => {
+                dbine_driver::dependencies::job_dependents_scan(self, database, target, scan).await
+            }
+            Err(e) => Err(e),
+            Ok(_) => Err(unexpected()),
+        }
+    }
+    async fn job_references(
+        &mut self,
+        database: &str,
+        job_id: &str,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        match self
+            .host
+            .call(Call::JobReferences {
+                session: self.id,
+                database: database.to_string(),
+                job_id: job_id.to_string(),
+                scan: scan.clone(),
+            })
+            .await
+        {
+            Ok(Reply::JobReferences(r)) => Ok(r),
+            Err(Error::Unsupported(_)) => {
+                dbine_driver::dependencies::job_references_scan(self, database, job_id, scan).await
+            }
+            Err(e) => Err(e),
+            Ok(_) => Err(unexpected()),
+        }
+    }
     async fn list_schemas(&mut self) -> Result<Option<Vec<dbine_driver::SchemaInfo>>> {
         match self.host.call(Call::ListSchemas { session: self.id }).await {
             Ok(Reply::Schemas(v)) => Ok(v),

@@ -56,7 +56,8 @@ pub use alter::{SyncScript, TableChange};
 pub use backup::{BackupAction, BackupEntry, BackupSpec};
 pub use config::{ConnectionConfig, TLS_PIN, TUNNEL_ORIGIN_HOST, TUNNEL_ORIGIN_PORT};
 pub use dependencies::{
-    Confidence, DependencyReport, DependencyScan, DependencyTarget, Dependent, Mention, Relation,
+    Confidence, DependencyReport, DependencyScan, DependencyTarget, Dependent, JobDependent,
+    Mention, Relation,
 };
 pub use error::{ConnectFailure, ConnectFailureKind, Error, Result};
 pub use filter::{ColumnFilter, FilterOp};
@@ -1664,6 +1665,35 @@ pub trait Session: Send {
         scan: &DependencyScan,
     ) -> Result<DependencyReport> {
         dependencies::references_scan(self, target, scan).await
+    }
+
+    /// The server's jobs whose steps run or name `target`, for the lineage
+    /// ([`dependencies::DependencyReport::jobs`]): a SQL Server Agent step
+    /// that `EXEC`s a procedure, a pg_cron command, a MySQL event… `database`
+    /// is the session's (the target's). The default reads [`Session::jobs`]
+    /// and each job's steps ([`dependencies::job_dependents_scan`]); empty
+    /// where the engine has no jobs. A driver overrides it where the engine
+    /// records what a job runs, or where its jobs already show as objects.
+    async fn job_dependents(
+        &mut self,
+        database: &str,
+        target: &DependencyTarget,
+        scan: &DependencyScan,
+    ) -> Result<DependencyReport> {
+        dependencies::job_dependents_scan(self, database, target, scan).await
+    }
+
+    /// What the server job `job_id`'s steps use (see
+    /// [`dependencies::job_references_scan`]): the objects of `database`
+    /// (the session's) they name, and those of other databases as
+    /// [`dependencies::DependencyReport::external`].
+    async fn job_references(
+        &mut self,
+        database: &str,
+        job_id: &str,
+        scan: &DependencyScan,
+    ) -> Result<DependencyReport> {
+        dependencies::job_references_scan(self, database, job_id, scan).await
     }
 
     /// The engine's own "Chequeo de salud" findings for `database` (see

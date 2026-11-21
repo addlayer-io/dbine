@@ -19091,5 +19091,7 @@
   "Pulsar": "Pulsar",
   "Redpanda": "Redpanda",
   "Snowflake stage": "Snowflake stage",
-  "Timeplus": "Timeplus"
+  "Timeplus": "Timeplus",
+  "no se pudieron leer los jobs del servidor: {0}": "无法读取服务器作业：{0}",
+  "se leyeron los primeros {0} jobs del servidor, de {1}": "仅读取了服务器 {1} 个作业中的前 {0} 个"
 }

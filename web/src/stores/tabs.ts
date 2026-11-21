@@ -170,6 +170,8 @@ export interface DependenciesTab extends TabBase {
   column: string | null;
   /** The list (what uses it, and what it uses) or the lineage diagram. */
   view?: 'list' | 'lineage';
+  /** A server job's lineage (`object.kind` "job"): its id, for the jobs calls. */
+  jobId?: string | null;
 }
 
 /** "Salud · <base>": the database's health check. */
@@ -755,16 +757,17 @@ export const useTabsStore = defineStore('tabs', {
 
     /** An object's (or column's) "Dependencias" tab, one per target; `view`:
      *  the list or the lineage diagram ("Ver linaje…"). */
-    openDependencies(connectionId: string, database: string, object: ObjectRef, column: string | null = null, view: 'list' | 'lineage' = 'list') {
+    openDependencies(connectionId: string, database: string, object: ObjectRef, column: string | null = null, view: 'list' | 'lineage' = 'list', jobId: string | null = null) {
       const open = this.tabs.find(
         (t) => t.kind === 'dependencies' && t.connectionId === connectionId && t.database === database &&
-          t.object.kind === object.kind && t.object.schema === object.schema && t.object.name === object.name && t.column === column,
+          t.object.kind === object.kind && t.object.schema === object.schema && t.object.name === object.name && t.column === column &&
+          (t.jobId ?? null) === jobId,
       ) as DependenciesTab | undefined;
       if (open) {
         open.view = view;
         return this.activate(open.id);
       }
-      this.place({ id: newId(), kind: 'dependencies', connectionId, database, object, column, view, preview: false });
+      this.place({ id: newId(), kind: 'dependencies', connectionId, database, object, column, view, jobId, preview: false });
     },
 
     /** A database's "Chequeo de salud" tab, one per database. */

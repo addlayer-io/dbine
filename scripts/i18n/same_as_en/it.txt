@@ -399,3 +399,4 @@ backend:Pulsar
 backend:Redpanda
 backend:Snowflake stage
 backend:Timeplus
+dependencies.json:kind.job

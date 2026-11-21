@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { newLineage, addUses, addUsedBy, nodeId, sideCounts, layout, MAX_NODES } = await import('./lineage.ts');
+const { newLineage, addUses, addUsedBy, nodeId, jobNodeId, sideCounts, layout, MAX_NODES } = await import('./lineage.ts');
 
 const dep = (kind, schema, name, relation = 'code', confidence = 'probable', mentions = []) => ({ kind, schema, name, parent: null, relation, confidence, detail: null, mentions });
 const report = (items, extra = {}) => ({ items, scanned: 1, unreadable: [], note: null, ...extra });
@@ -61,4 +61,39 @@ test('the layout puts what is used before what uses it', () => {
   assert.equal(paths.length, 2);
   assert.ok(paths[0].d.startsWith('M '));
   assert.ok(bounds.width > 400);
+});
+
+test('jobs that run a procedure go to its right, one card per job, with nothing past them', () => {
+  const proc = { kind: 'procedure', schema: 'dbo', name: 'sp_cargar' };
+  const g = newLineage(proc);
+  const p = nodeId(proc);
+  const job = (id, name, steps, confidence = 'probable') => ({ id, name, kind: 'SQL Server Agent', group: null, steps, confidence, mentions: [{ line: 1, text: 'EXEC dbo.sp_cargar', dynamic: false }] });
+  addUsedBy(g, p, report([dep('view', 'dbo', 'v_kpis')], { jobs: [job('A1', 'Carga nocturna', ['Cargar ventas']), job('B2', 'Carga nocturna', ['Paso 1'], 'review')] }));
+  // Two jobs with the same name are two cards.
+  assert.equal(g.nodes.size, 4);
+  const a = g.nodes.get(jobNodeId('A1'));
+  assert.equal(a.kind, 'job');
+  assert.equal(a.jobId, 'A1');
+  assert.equal(a.jobKind, 'SQL Server Agent');
+  assert.equal(a.down, 'done');
+  assert.equal(a.up, 'none');
+  const e = g.edges.find((x) => x.to === jobNodeId('A1'));
+  assert.equal(e.from, p);
+  assert.equal(e.detail, 'SQL Server Agent · Cargar ventas');
+  assert.equal(e.mentions.length, 1);
+  // The same job from another object: still one card, two edges.
+  const view = nodeId({ kind: 'view', schema: 'dbo', name: 'v_kpis' });
+  addUsedBy(g, view, report([], { jobs: [job('A1', 'Carga nocturna', ['Paso 2'])] }));
+  assert.equal(g.nodes.size, 4);
+  assert.equal(g.edges.filter((x) => x.to === jobNodeId('A1')).length, 2);
+});
+
+test('a job in the middle: what its steps use to its left, nothing to its right', () => {
+  const g = newLineage({ kind: 'job', schema: null, name: 'Carga nocturna' }, 'A1');
+  const id = jobNodeId('A1');
+  assert.equal(g.nodes.get(id).root, true);
+  assert.equal(g.nodes.get(id).down, 'done');
+  addUses(g, id, report([dep('procedure', 'dbo', 'sp_cargar', 'code', 'confirmed')], { external: [{ database: 'stage', schema: 'dbo', name: 'tmp', detail: 'Archivar' }] }));
+  assert.equal(g.nodes.size, 3);
+  assert.deepEqual(sideCounts(g, id), { up: 2, down: 0 });
 });

@@ -878,6 +878,7 @@ mod tests {
                 kinds::MATERIALIZED_VIEW.into(),
                 kinds::FUNCTION.into(),
             ],
+            has_schemas: true,
         }
     }
 

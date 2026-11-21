@@ -1,11 +1,13 @@
 // The lineage diagram's graph: an object in the middle, what it uses to its
 // left (`getReferences`: the tables a view reads, the routines a procedure
 // calls, a table's foreign keys' tables, sources outside the database) and
-// what uses it to its right (`getDependents`). Each card loads the next level
-// on either side when asked. Laid out left to right with dagre.
+// what uses it to its right (`getDependents`, with the server's jobs whose
+// steps run it). Each card loads the next level on either side when asked; a
+// job's left side is what its steps use (`getJobReferences`), and nothing is
+// to its right. Laid out left to right with dagre.
 
 import dagre from '@dagrejs/dagre';
-import type { Confidence, DependencyReport, ExternalRef, Mention, ObjectRef, Relation } from '../api/types';
+import type { Confidence, DependencyReport, ExternalRef, JobDependent, Mention, ObjectRef, Relation } from '../api/types';
 
 /** Whether a side of a card was read: not yet, now, done or failed. */
 export type SideState = 'none' | 'loading' | 'done' | 'error';
@@ -19,6 +21,10 @@ export interface LineageNode {
   parent?: string | null;
   /** A source outside the database: it has no sides to read. */
   external?: ExternalRef;
+  /** A server job (`kind` "job"): its id for the jobs calls, and the
+   *  engine's word for it ("SQL Server Agent", "pg_cron"…). */
+  jobId?: string;
+  jobKind?: string;
   root?: boolean;
   /** What it uses (to the left). */
   up: SideState;
@@ -54,13 +60,19 @@ export interface Lineage {
 export const MAX_NODES = 200;
 
 export const nodeId = (o: { kind: string; schema?: string | null; name: string }) => `${o.kind}\u0000${o.schema ?? ''}\u0000${o.name}`;
+/** A job's card is its id's: two jobs may share a name. */
+export const jobNodeId = (jobId: string) => `job\u0000${jobId}`;
 export const externalId = (x: ExternalRef) =>
   `external\u0000${[x.system, x.server, x.database, x.schema, x.name, x.detail].map((p) => p ?? '').join('\u0000')}`;
 
-export function newLineage(root: ObjectRef): Lineage {
-  const id = nodeId(root);
+/** The graph with `root` in the middle; `rootJobId` when it's a server job
+ *  (nothing uses a job: its right side is done). */
+export function newLineage(root: ObjectRef, rootJobId?: string | null): Lineage {
+  const node: LineageNode = rootJobId
+    ? { id: jobNodeId(rootJobId), kind: 'job', schema: root.schema ?? null, name: root.name, jobId: rootJobId, root: true, up: 'none', down: 'done' }
+    : { id: nodeId(root), kind: root.kind, schema: root.schema ?? null, name: root.name, root: true, up: 'none', down: 'none' };
   return {
-    nodes: new Map([[id, { id, kind: root.kind, schema: root.schema ?? null, name: root.name, root: true, up: 'none', down: 'none' }]]),
+    nodes: new Map([[node.id, node]]),
     edges: [],
     capped: false,
     unreadable: [],
@@ -70,7 +82,7 @@ export function newLineage(root: ObjectRef): Lineage {
 
 function remember(g: Lineage, report: DependencyReport) {
   for (const u of report.unreadable) if (!g.unreadable.includes(u)) g.unreadable.push(u);
-  if (report.note && !g.notes.includes(report.note)) g.notes.push(report.note);
+  for (const n of [report.note, ...(report.job_notes ?? [])]) if (n && !g.notes.includes(n)) g.notes.push(n);
 }
 
 function addEdge(g: Lineage, e: LineageEdge) {
@@ -90,6 +102,23 @@ function ensure(g: Lineage, o: { kind: string; schema?: string | null; name: str
   const n: LineageNode = external
     ? { id, kind: 'external', schema: external.schema ?? null, name: external.name ?? external.database ?? external.server ?? external.system ?? '?', external, up: 'done', down: 'done' }
     : { id, kind: o.kind, schema: o.schema ?? null, name: o.name, parent: o.parent ?? null, up: 'none', down: 'none' };
+  g.nodes.set(id, n);
+  return n;
+}
+
+/** A job's card, unless the cap is reached (then null). */
+function ensureJob(g: Lineage, j: JobDependent): LineageNode | null {
+  const id = jobNodeId(j.id);
+  const have = g.nodes.get(id);
+  if (have) {
+    have.jobKind ??= j.kind;
+    return have;
+  }
+  if (g.nodes.size >= MAX_NODES) {
+    g.capped = true;
+    return null;
+  }
+  const n: LineageNode = { id, kind: 'job', schema: j.group ?? null, name: j.name, jobId: j.id, jobKind: j.kind, up: 'none', down: 'done' };
   g.nodes.set(id, n);
   return n;
 }
@@ -117,6 +146,11 @@ export function addUsedBy(g: Lineage, id: string, report: DependencyReport) {
     if (d.relation === 'index' || d.relation === 'check') continue;
     const n = ensure(g, d);
     if (n) addEdge(g, { from: id, to: n.id, relation: d.relation, confidence: d.confidence, detail: d.detail, mentions: d.mentions });
+  }
+  for (const j of report.jobs ?? []) {
+    const n = ensureJob(g, j);
+    const detail = [j.kind, ...(j.steps ?? [])].filter(Boolean).join(' · ');
+    if (n) addEdge(g, { from: id, to: n.id, relation: 'code', confidence: j.confidence, detail, mentions: j.mentions ?? [] });
   }
   const self = g.nodes.get(id);
   if (self) self.down = 'done';

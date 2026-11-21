@@ -156,6 +156,7 @@ async fn catalog_features() {
                 dialect: dbine_driver_powerbi::script_dialect(),
                 foreign_keys: true,
                 written_kinds: vec![],
+                has_schemas: false,
             },
         )
         .await

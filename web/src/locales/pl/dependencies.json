@@ -46,7 +46,8 @@
     "trigger": "Wyzwalacz",
     "synonym": "Synonim",
     "type": "Typ",
-    "sequence": "Sekwencja"
+    "sequence": "Sekwencja",
+    "job": "Zadanie"
   },
   "view": {
     "label": "Widok",
@@ -65,5 +66,10 @@
     "recenter": "Pokaż jego lineage",
     "uses": "Używa",
     "usedBy": "Używany przez"
+  },
+  "jobs": {
+    "title": "Zadania serwera, które go uruchamiają",
+    "steps": "Kroki: {{steps}}",
+    "open": "Otwórz zadanie"
   }
 }

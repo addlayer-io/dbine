@@ -15,6 +15,9 @@
 //! `Review` when the name only shows inside a string (dynamic SQL), so
 //! nobody can tell without reading it. Comments never count.
 
+mod job_scan;
+pub use job_scan::{job_dependents_scan, job_hit, job_references_scan, merge_jobs, JOBS_READ};
+
 use crate::info::DriverInfo;
 use crate::model::{DbObject, ObjectRef};
 use crate::schema::TableSchema;
@@ -46,6 +49,12 @@ pub struct DependencyScan {
     /// generated DDL): [`references_scan`] reads the target's when it's one.
     #[serde(default)]
     pub written_kinds: Vec<String>,
+    /// [`DriverInfo::has_schemas`]: in a qualified name the database comes
+    /// before the schema (`ventas.dbo.Clientes`); without schemas it's the
+    /// first part (`ventas.clientes`). The job scans ([`job_dependents_scan`])
+    /// tell a name in another database by it.
+    #[serde(default)]
+    pub has_schemas: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -66,6 +75,42 @@ pub struct DependencyReport {
     /// BI partition's source, a linked server, a foreign table's remote one.
     #[serde(default)]
     pub external: Vec<ExternalRef>,
+    /// [`crate::Session::job_dependents`]: the server's jobs whose steps run
+    /// or name the target (a SQL Server Agent step, a pg_cron command, a
+    /// MySQL event…).
+    #[serde(default)]
+    pub jobs: Vec<JobDependent>,
+    /// What the UI tells the user about the jobs read, each a whole message
+    /// (the UI translates them one by one): the engine's notes on its list
+    /// ("se ven solo los jobs a los que tiene acceso este usuario"), the
+    /// cap, a list that couldn't be read.
+    #[serde(default)]
+    pub job_notes: Vec<String>,
+}
+
+/// A server job whose steps run or name the target (see
+/// [`DependencyReport::jobs`]). Its id is the one the jobs calls take
+/// ([`crate::jobs::ServerJob::id`]): lineage reads what it uses with
+/// [`crate::Session::job_references`].
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct JobDependent {
+    pub id: String,
+    pub name: String,
+    /// The engine's word for it ("SQL Server Agent", "pg_cron",
+    /// "DBMS_SCHEDULER", "Event"…), as [`crate::jobs::ServerJob::kind`].
+    pub kind: String,
+    /// Its schema, owner, database or category, where the engine groups them.
+    #[serde(default)]
+    pub group: Option<String>,
+    /// The steps that run or name the target, by name.
+    #[serde(default)]
+    pub steps: Vec<String>,
+    /// `Confirmed` when the engine states the step runs the target (a
+    /// procedure step); otherwise as for code ([`find_mentions`]).
+    pub confidence: Confidence,
+    /// The steps' lines that name the target (numbered within each step).
+    #[serde(default)]
+    pub mentions: Vec<Mention>,
 }
 
 /// A source outside the database (see [`DependencyReport::external`]). Each
@@ -199,6 +244,7 @@ impl DependencyScan {
                 .filter(|k| k.has_definition && !k.generated_definition)
                 .map(|k| k.id.to_string())
                 .collect(),
+            has_schemas: info.has_schemas,
         }
     }
 }
@@ -1367,6 +1413,7 @@ END";
             dialect: ScriptDialect::tsql(),
             foreign_keys: true,
             written_kinds: vec!["procedure".into(), "view".into()],
+            has_schemas: true,
         }
     }
 
