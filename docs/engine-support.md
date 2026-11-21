@@ -4112,6 +4112,65 @@ The engines not listed here use the default version. A driver process
 published before answers `References` with Unsupported, and the app runs the
 default version through its other calls.
 
+#### Server jobs in the lineage
+
+On an engine with [server jobs](#server-jobs), what uses an object also lists
+**the jobs whose steps run it**: a SQL Server Agent step that `EXEC`s the
+procedure, a pg_cron command, a `DBMS_SCHEDULER` job, a MySQL event… So the
+lineage goes all the way from a table to the view that reads it, the
+procedure that reads the view and the job that runs the procedure. In the
+diagram each job is a card of its own to the right (one per job, by its id),
+with nothing further right; its **+** on the left shows what its steps use,
+and opening it shows the job in **Scheduled › On the servers**. A job's tab
+there has **View lineage…**, with the job in the middle.
+
+The contract is `Session::job_dependents` and `Session::job_references`
+(`crates/dbine-driver/src/dependencies/job_scan.rs`). `get_dependents` adds
+the first to the object's dependents (`DependencyReport::jobs`) when the
+driver has `Capabilities::jobs`, and `get_job_references` answers the second.
+The default version works for every engine whose driver lists its jobs:
+
+- It reads the job list (`Session::jobs`) and each job's steps
+  (`Session::job_detail`), at most 300 jobs; past that, a note says how many
+  were read. The list's own notes (only the jobs this user may see, a
+  scheduler that isn't installed) show with the result.
+- Each step's command is searched for the object as a view or routine's code
+  is: **Probable** when it names it as code, **Review** when only inside a
+  string (dynamic SQL); comments and variables never count.
+- A step that runs in another database (its `target`, or the job's group,
+  when either is one of the server's databases) counts only when it names
+  the object with its database (`ventas.dbo.sp_cargar`, `ventas..sp_cargar`,
+  `ventas.sp_cargar` without schemas). An unqualified name there is that
+  database's object.
+- A step the engine records as running a stored procedure by name (a
+  `DBMS_SCHEDULER` job or program of type `STORED_PROCEDURE`, a Db2
+  `ADMIN_TASK`, a HANA, Vertica or Altibase scheduled procedure) is
+  **Confirmed**.
+- What a job's steps use resolves against the database the lineage is open
+  on, as a routine's source does; names in a step that runs in another
+  database, or qualified with another of the server's databases, are listed
+  as sources outside with that database.
+- A job that is already one of the object's dependents as an object (a
+  ClickHouse refreshable materialized view) isn't listed twice.
+
+**Engines:** every engine in the [server jobs](#server-jobs) tables gets
+them, except:
+
+| Engine | What is different | Reason |
+|---|---|---|
+| Snowflake | Tasks show as objects, not as jobs | A Snowflake job is a task, which the lineage already lists as an object of its own (kind `task`, read with views and routines). A task's tab in **On the servers** still opens its lineage. |
+| Databricks | Jobs that write a table also show on its left | Unity Catalog's lineage lists the notebooks and jobs that wrote a table as sources outside (see above); the job scan adds, to the right, the jobs whose SQL tasks name it. A job that both reads and writes a table shows on both sides. |
+| Power BI | No jobs in the lineage | Its jobs are a model's refreshes, which run no code that names an object. |
+| Engines without server jobs ([list](#engines-without-server-jobs)) | No jobs in the lineage | There are no jobs to read. |
+
+Tested against real servers (ignored tests, run by hand):
+`crates/drivers/sqlserver/tests/lineage_jobs.rs` (SQL Server Agent: a step in
+the object's database, a step in `master` by the three-part name, another
+database's step not counted), `crates/drivers/postgres/tests/lineage_jobs.rs`
+(pg_cron, with `schedule_in_database` in another database not counted) and
+`crates/drivers/oracle/tests/lineage_jobs.rs` (`DBMS_SCHEDULER`: a
+`STORED_PROCEDURE` job **Confirmed**, a PL/SQL block **Probable**).
+
 ## Disable and enable indexes
 
 Right click on an index (in the explorer or in the **Indexes** tab) ›
