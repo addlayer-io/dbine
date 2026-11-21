@@ -1271,6 +1271,7 @@ mod tests {
             external: vec![],
             jobs: vec![],
             job_notes: vec![],
+            external_users: vec![],
         }
     }
 
