@@ -1195,9 +1195,15 @@ pub fn fts_ddl(keyspace: &str, ix: &IndexDef, if_not_exists: bool) -> Result<Str
     let ine = if if_not_exists { " IF NOT EXISTS" } else { "" };
     let mut s = String::new();
     if let Some(also) = ix.options.get(ALSO_MAPS) {
+        // The index's name and the collections it maps come from the
+        // source's Search definition: a line break in them can't end the
+        // comment and add a statement.
         s.push_str(&format!(
-            "-- El índice de búsqueda {} del original también indexa {also}: aquí se crea con la parte de esta colección.\n",
-            ix.name
+            "-- {}\n",
+            crate::backup::comment_text(&format!(
+                "El índice de búsqueda {} del original también indexa {also}: aquí se crea con la parte de esta colección.",
+                ix.name
+            ))
         ));
     }
     s.push_str(&format!(
@@ -1849,6 +1855,31 @@ mod tests {
             "vector_base64"
         );
         assert_eq!(field_type(&with_dims(&t("vector(2)"), &new)), "vector");
+    }
+
+    /// A Search index's name and the other collections it maps come from
+    /// the source: a line break in them can't add a statement to the
+    /// script (security scan of 78feff49..c1b4d9a9, F1).
+    #[test]
+    fn a_line_break_in_a_search_index_note_stays_in_the_comment() {
+        let (_, _, mut i) = fts_indexes(&fts_body_sample(), "b").remove(0);
+        i.name = "s\nDELETE FROM `b`;--".into();
+        i.options.insert(
+            ALSO_MAPS.into(),
+            "inv.x\nGRANT cluster_admin TO eve;\n--".into(),
+        );
+        let s = fts_ddl("`b`.`inv`.`copy`", &i, false).unwrap();
+        let units: Vec<String> = dbine_driver::sql::split_script(&s, &crate::dialect())
+            .into_iter()
+            .map(|u| u.text.trim_start().to_lowercase())
+            .collect();
+        assert_eq!(units.len(), 1, "{units:?}");
+        assert!(units[0].starts_with("create search index"), "{units:?}");
+        let comment = s.lines().next().unwrap();
+        assert!(
+            comment.contains("inv.x?GRANT cluster_admin TO eve;?--"),
+            "{s}"
+        );
     }
 
     #[test]
