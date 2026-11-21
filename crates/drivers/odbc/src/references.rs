@@ -131,7 +131,7 @@ pub(crate) fn kind_of(btype: &str, routine: Option<&str>) -> Option<&'static str
     })
 }
 
-fn cell(r: &[Option<String>], i: usize) -> Option<String> {
+pub(crate) fn cell(r: &[Option<String>], i: usize) -> Option<String> {
     r.get(i)
         .cloned()
         .flatten()

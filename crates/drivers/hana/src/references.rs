@@ -33,7 +33,7 @@ use dbine_driver::{
 };
 use std::collections::HashMap;
 
-type Rows = Vec<Vec<Option<String>>>;
+pub(crate) type Rows = Vec<Vec<Option<String>>>;
 
 /// The target's direct dependencies (`DEPENDENT_*` = the target), with
 /// whether a base table is a table type and, for a virtual table, its
@@ -94,7 +94,7 @@ pub(crate) fn kind_of(base_type: &str, table_type: bool) -> Option<&'static str>
 }
 
 /// Monitoring views and the public synonyms of every system view.
-fn system(schema: &str) -> bool {
+pub(crate) fn system(schema: &str) -> bool {
     matches!(schema, "SYS" | "PUBLIC")
 }
 
@@ -103,7 +103,7 @@ fn local_schema(schema: String, session: &str) -> Option<String> {
     (schema != session).then_some(schema)
 }
 
-fn cell(r: &[Option<String>], i: usize) -> Option<String> {
+pub(crate) fn cell(r: &[Option<String>], i: usize) -> Option<String> {
     r.get(i)
         .cloned()
         .flatten()
@@ -113,7 +113,11 @@ fn cell(r: &[Option<String>], i: usize) -> Option<String> {
 
 /// A virtual table's remote object; `None` when the row has none. A part
 /// the remote source doesn't have is `<NULL>` in the catalog.
-fn remote(r: &[Option<String>], from: usize, detail: Option<String>) -> Option<ExternalRef> {
+pub(crate) fn remote(
+    r: &[Option<String>],
+    from: usize,
+    detail: Option<String>,
+) -> Option<ExternalRef> {
     let part = |i: usize| cell(r, from + i).filter(|v| v != "<NULL>");
     Some(ExternalRef {
         system: None,
@@ -200,7 +204,7 @@ pub(crate) fn parse_foreign_keys(rows: &[Vec<Option<String>>], owner: &str) -> V
 }
 
 /// Rows of a catalog query, as text.
-async fn text_rows(s: &HanaSession, sql: &str, params: &[&str]) -> Result<Rows> {
+pub(crate) async fn text_rows(s: &HanaSession, sql: &str, params: &[&str]) -> Result<Rows> {
     Ok(s.rows(sql, params)
         .await?
         .iter()
@@ -254,7 +258,7 @@ pub(crate) async fn references(
 
 /// The remote sources' adapters as their system, when the login can read
 /// `SYS.REMOTE_SOURCES`.
-async fn name_systems(s: &HanaSession, external: &mut [ExternalRef]) {
+pub(crate) async fn name_systems(s: &HanaSession, external: &mut [ExternalRef]) {
     if external.is_empty() {
         return;
     }
