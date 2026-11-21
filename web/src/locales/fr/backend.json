@@ -18591,7 +18591,6 @@
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- L'index vectoriel n'indique pas la distance : il est créé avec la distance cosinus et DiskANN.",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- L'index vectoriel {0} n'indique pas la distance : {1}. S'il provient d'une autre base, DBine n'a pas pu lire sa configuration : il faut être propriétaire de l'index ou avoir le rôle SELECT_CATALOG_ROLE.",
   "-- El índice vectorial «": "-- L'index vectoriel « ",
-  "-- {0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "-- {0} : l'index vectoriel est entraîné avec les documents et la collection est nouvelle ; il est créé en différé, et après les avoir chargés il se construit avec BUILD INDEX ON {1}({2}).",
   "-- Índice vectorial {0} omitido: {1}.": "-- Index vectoriel {0} ignoré : {1}.",
   "-- Índice vectorial: SQL Server 2025 lo crea con ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, y mientras exista el índice, la tabla no admite INSERT, UPDATE ni DELETE.": "-- Index vectoriel : SQL Server 2025 le crée avec ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, et tant que l'index existe, la table n'accepte ni INSERT, ni UPDATE, ni DELETE.",
   "Amazon Keyspaces no tiene vectores: {0} pasa a {1}, sin la dimensión.": "Amazon Keyspaces n'a pas de vecteurs : {0} devient {1}, sans la dimension.",
@@ -19093,5 +19092,12 @@
   "Snowflake stage": "Snowflake stage",
   "Timeplus": "Timeplus",
   "no se pudieron leer los jobs del servidor: {0}": "impossible de lire les jobs du serveur : {0}",
-  "se leyeron los primeros {0} jobs del servidor, de {1}": "seuls les {0} premiers jobs du serveur, sur {1}, ont été lus"
+  "se leyeron los primeros {0} jobs del servidor, de {1}": "seuls les {0} premiers jobs du serveur, sur {1}, ont été lus",
+  "El linaje de Unity Catalog (system.access.table_lineage) no está disponible para este usuario o catálogo (hace falta SELECT sobre esa tabla del sistema y un catálogo de Unity Catalog): las líneas salen de las definiciones, sin confirmar.": "La traçabilité d'Unity Catalog (system.access.table_lineage) n'est pas disponible pour cet utilisateur ou ce catalogue (il faut SELECT sur cette table système et un catalogue Unity Catalog) : les lignes proviennent des définitions, sans confirmation.",
+  "No se pudo leer SYS.OBJECT_DEPENDENCIES ni SYS.REFERENTIAL_CONSTRAINTS: {0}": "Impossible de lire SYS.OBJECT_DEPENDENCIES ni SYS.REFERENTIAL_CONSTRAINTS : {0}",
+  "No se pudo leer el catálogo de dependencias (SYSCAT): {0}": "Impossible de lire le catalogue des dépendances (SYSCAT) : {0}",
+  "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "les {0} premières définitions ont été lues ; pour le reste, seules les dépendances enregistrées par le catalogue sont affichées",
+  "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "les {0} premières définitions ont été lues ; le reste n'ajoute aucune ligne au diagramme",
+  "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "{0} objets du schéma ne sont pas VALID : Oracle n'a peut-être enregistré leurs dépendances que partiellement",
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0} : l'index vectoriel est entraîné avec les documents et la collection est nouvelle ; il est créé en différé, puis, une fois les documents chargés, construit avec BUILD INDEX ON {1}({2})."
 }

@@ -151,7 +151,6 @@
   "-- Unity Catalog no tiene WITH GRANT OPTION: para que pueda otorgar permisos sobre el objeto, otorgale MANAGE.\n{0}": "-- У Unity Catalog немає WITH GRANT OPTION: щоб він міг надавати дозволи на об'єкт, надайте йому MANAGE.\n{0}",
   "-- Unity Catalog no tiene WITH GRANT OPTION: poder otorgar permisos sobre el esquema es MANAGE.\n{0}": "-- У Unity Catalog немає WITH GRANT OPTION: право надавати дозволи на схему — це MANAGE.\n{0}",
   "-- ksqlDB reemplaza el valor completo de la clave: las columnas que no figuran quedan en NULL.": "-- ksqlDB замінює значення ключа повністю: стовпці, яких немає в списку, стають NULL.",
-  "-- {0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "-- {0}: векторний індекс навчається на документах, а колекція нова; він створюється відкладено, а після завантаження документів будується командою BUILD INDEX ON {1}({2}).",
   "-- Índice vectorial {0} omitido: {1}.": "-- Векторний індекс {0} пропущено: {1}.",
   "-- Índice vectorial: SQL Server 2025 lo crea con ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, y mientras exista el índice, la tabla no admite INSERT, UPDATE ni DELETE.": "-- Векторний індекс: SQL Server 2025 створює його через ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, і поки індекс існує, таблиця не допускає INSERT, UPDATE і DELETE.",
   "-- {0} solo en el destino: no se borran (opción «Incluir borrados»).\n": "-- {0} лише в призначенні: не видаляються (параметр «Включати видалення»).\n",
@@ -19093,5 +19092,12 @@
   "Snowflake stage": "Snowflake stage",
   "Timeplus": "Timeplus",
   "no se pudieron leer los jobs del servidor: {0}": "не вдалося прочитати джоби сервера: {0}",
-  "se leyeron los primeros {0} jobs del servidor, de {1}": "прочитано лише перші {0} джобів сервера з {1}"
+  "se leyeron los primeros {0} jobs del servidor, de {1}": "прочитано лише перші {0} джобів сервера з {1}",
+  "El linaje de Unity Catalog (system.access.table_lineage) no está disponible para este usuario o catálogo (hace falta SELECT sobre esa tabla del sistema y un catálogo de Unity Catalog): las líneas salen de las definiciones, sin confirmar.": "Походження Unity Catalog (system.access.table_lineage) недоступне для цього користувача або каталогу (потрібні SELECT на цю системну таблицю та каталог Unity Catalog): лінії побудовано за визначеннями, без підтвердження.",
+  "No se pudo leer SYS.OBJECT_DEPENDENCIES ni SYS.REFERENTIAL_CONSTRAINTS: {0}": "Не вдалося прочитати SYS.OBJECT_DEPENDENCIES і SYS.REFERENTIAL_CONSTRAINTS: {0}",
+  "No se pudo leer el catálogo de dependencias (SYSCAT): {0}": "Не вдалося прочитати каталог залежностей (SYSCAT): {0}",
+  "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "прочитано перші визначення ({0}); для решти показано лише залежності, записані в каталозі",
+  "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "прочитано перші визначення ({0}); решта не додає ліній на діаграму",
+  "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "У схемі об’єктів не в стані VALID: {0}. Oracle міг записати їхні залежності лише частково",
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: векторний індекс навчається на документах, а колекція нова; його створюють відкладено, а після завантаження документів будують командою BUILD INDEX ON {1}({2})."
 }

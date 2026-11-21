@@ -364,17 +364,19 @@ mod tests {
             })
         }
         async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
-            let mut pedidos = TableSchema::default();
-            pedidos.schema = Some("dbo".into());
-            pedidos.name = "pedidos".into();
-            pedidos.foreign_keys = vec![ForeignKeyDef {
-                name: Some("FK_ped_cli".into()),
-                columns: vec!["cliente_id".into()],
-                ref_schema: Some("dbo".into()),
-                ref_table: "clientes".into(),
-                ref_columns: vec!["id".into()],
+            let pedidos = TableSchema {
+                schema: Some("dbo".into()),
+                name: "pedidos".into(),
+                foreign_keys: vec![ForeignKeyDef {
+                    name: Some("FK_ped_cli".into()),
+                    columns: vec!["cliente_id".into()],
+                    ref_schema: Some("dbo".into()),
+                    ref_table: "clientes".into(),
+                    ref_columns: vec!["id".into()],
+                    ..Default::default()
+                }],
                 ..Default::default()
-            }];
+            };
             Ok(vec![pedidos])
         }
         fn browse_query(&self, _: &ObjectRef, _: u32) -> String {

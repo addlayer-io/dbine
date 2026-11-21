@@ -47,7 +47,12 @@
     "synonym": "Synonym",
     "type": "Typ",
     "sequence": "Sequenz",
-    "job": "Job"
+    "job": "Job",
+    "schema": "Schema",
+    "measure": "Measure",
+    "calculation_group": "Berechnungsgruppe",
+    "role": "Rolle",
+    "expression": "Ausdruck"
   },
   "view": {
     "label": "Ansicht",
@@ -71,5 +76,32 @@
     "title": "Server-Jobs, die es ausführen",
     "steps": "Schritte: {{steps}}",
     "open": "Job öffnen"
+  },
+  "database": {
+    "tab": "Lineage",
+    "noSchema": "(kein Schema)",
+    "loading": "Abhängigkeiten werden gelesen…",
+    "error": "Das Lineage konnte nicht gelesen werden: {{error}}",
+    "retry": "Erneut versuchen",
+    "ask": {
+      "text": "Diese Engine hat in ihrem Katalog keine Abhängigkeitsabfrage: Um das Lineage zu zeichnen, müssen die Definitionen der Sichten, Routinen und Trigger der Datenbank gelesen und nach den Objekten durchsucht werden, die sie nennen. Bei einer großen Datenbank kann das dauern.",
+      "button": "Analysieren"
+    },
+    "search": "Nach Namen filtern",
+    "kinds": "Typen",
+    "onlyConfirmed": "Nur bestätigte",
+    "onlyConnected": "Nur mit Abhängigkeiten",
+    "expandAll": "Alle erweitern",
+    "collapseAll": "Alle reduzieren",
+    "expand": "Schema erweitern",
+    "collapse": "Schema reduzieren",
+    "members": "Objekte: {{count}}",
+    "weight": "Abhängigkeiten: {{count}}",
+    "summary": "{{objects}} Objekte, {{lines}} Abhängigkeiten, {{scanned}} Definitionen gelesen.",
+    "overview": "Die Datenbank hat {{objects}} Objekte in {{schemas}} Schemas: Es wird eine Übersicht pro Schema angezeigt, und die Dicke jeder Linie entspricht der Anzahl der Abhängigkeiten, die sie kreuzen. Ein Klick auf ein Schema zeigt dessen Details, ein Doppelklick erweitert es.",
+    "truncated": "Die Datenbank hat mehr Objekte, als gelesen wurden, daher ist das Diagramm unvollständig. Öffnen Sie das Lineage eines Schemas oder eines Typs, um es vollständig zu sehen.",
+    "hidden": "Das Diagramm zeigt nur die ersten Karten: {{hidden}} Objekte fehlen. Reduzieren Sie ein Schema oder verwenden Sie die Filter.",
+    "empty": "Für diesen Bereich gibt es keine Objekte zum Zeichnen.",
+    "noMatch": "Kein Objekt entspricht den Filtern."
   }
 }

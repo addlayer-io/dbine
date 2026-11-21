@@ -18591,7 +18591,6 @@
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- Векторный индекс не указывает расстояние: он создаётся с косинусным расстоянием и DiskANN.",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- Векторный индекс {0} не указывает расстояние: {1}. Если он из другой базы, DBine не смог прочитать его конфигурацию: нужно быть владельцем индекса или иметь роль SELECT_CATALOG_ROLE.",
   "-- El índice vectorial «": "-- Векторный индекс «",
-  "-- {0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "-- {0}: векторный индекс обучается на документах, а коллекция новая; он создаётся отложенно, а после загрузки документов строится командой BUILD INDEX ON {1}({2}).",
   "-- Índice vectorial {0} omitido: {1}.": "-- Векторный индекс {0} пропущен: {1}.",
   "-- Índice vectorial: SQL Server 2025 lo crea con ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, y mientras exista el índice, la tabla no admite INSERT, UPDATE ni DELETE.": "-- Векторный индекс: SQL Server 2025 создаёт его командой ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, и пока индекс существует, таблица не допускает INSERT, UPDATE и DELETE.",
   "Amazon Keyspaces no tiene vectores: {0} pasa a {1}, sin la dimensión.": "В Amazon Keyspaces нет векторов: {0} становится {1}, без размерности.",
@@ -19093,5 +19092,12 @@
   "Snowflake stage": "Snowflake stage",
   "Timeplus": "Timeplus",
   "no se pudieron leer los jobs del servidor: {0}": "не удалось прочитать задания сервера: {0}",
-  "se leyeron los primeros {0} jobs del servidor, de {1}": "прочитаны только первые {0} заданий сервера из {1}"
+  "se leyeron los primeros {0} jobs del servidor, de {1}": "прочитаны только первые {0} заданий сервера из {1}",
+  "El linaje de Unity Catalog (system.access.table_lineage) no está disponible para este usuario o catálogo (hace falta SELECT sobre esa tabla del sistema y un catálogo de Unity Catalog): las líneas salen de las definiciones, sin confirmar.": "Происхождение Unity Catalog (system.access.table_lineage) недоступно для этого пользователя или каталога (нужны SELECT на эту системную таблицу и каталог Unity Catalog): линии строятся по определениям и не подтверждены.",
+  "No se pudo leer SYS.OBJECT_DEPENDENCIES ni SYS.REFERENTIAL_CONSTRAINTS: {0}": "Не удалось прочитать SYS.OBJECT_DEPENDENCIES и SYS.REFERENTIAL_CONSTRAINTS: {0}",
+  "No se pudo leer el catálogo de dependencias (SYSCAT): {0}": "Не удалось прочитать каталог зависимостей (SYSCAT): {0}",
+  "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "прочитаны первые определения ({0}); для остальных показаны только зависимости, записанные в каталоге",
+  "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "прочитаны первые определения ({0}); остальные не добавляют линий на диаграмму",
+  "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "В схеме объектов не в состоянии VALID: {0}. Oracle мог записать их зависимости лишь частично",
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: векторный индекс обучается на документах, а коллекция новая; он создаётся отложенно, а после загрузки документов строится командой BUILD INDEX ON {1}({2})."
 }

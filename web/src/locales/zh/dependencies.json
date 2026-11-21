@@ -47,7 +47,12 @@
     "synonym": "同义词",
     "type": "类型",
     "sequence": "序列",
-    "job": "作业"
+    "job": "作业",
+    "schema": "模式",
+    "measure": "度量值",
+    "calculation_group": "计算组",
+    "role": "角色",
+    "expression": "表达式"
   },
   "view": {
     "label": "视图",
@@ -71,5 +76,32 @@
     "title": "运行它的服务器作业",
     "steps": "步骤：{{steps}}",
     "open": "打开作业"
+  },
+  "database": {
+    "tab": "沿袭",
+    "noSchema": "（无模式）",
+    "loading": "正在读取依赖关系…",
+    "error": "无法读取沿袭：{{error}}",
+    "retry": "重试",
+    "ask": {
+      "text": "此引擎的目录中没有依赖关系查询：要绘制沿袭，需要读取数据库中视图、例程和触发器的定义，并在其中查找它们引用的对象。对于大型数据库，这可能需要一些时间。",
+      "button": "分析"
+    },
+    "search": "按名称筛选",
+    "kinds": "类型",
+    "onlyConfirmed": "仅已确认",
+    "onlyConnected": "仅有依赖关系",
+    "expandAll": "全部展开",
+    "collapseAll": "全部折叠",
+    "expand": "展开模式",
+    "collapse": "折叠模式",
+    "members": "对象：{{count}}",
+    "weight": "依赖关系：{{count}}",
+    "summary": "{{objects}} 个对象，{{lines}} 条依赖关系，已读取 {{scanned}} 个定义。",
+    "overview": "数据库在 {{schemas}} 个模式中有 {{objects}} 个对象：此处显示按模式汇总的概览，每条线的粗细表示穿过它的依赖关系数量。单击模式可查看其详情，双击可展开。",
+    "truncated": "数据库中的对象比已读取的更多，因此图表不完整。请打开某个模式或某种类型的沿袭以查看完整内容。",
+    "hidden": "图表只显示前面的卡片：还有 {{hidden}} 个对象未显示。请折叠某些模式或使用筛选器。",
+    "empty": "此范围内没有可绘制的对象。",
+    "noMatch": "没有对象符合筛选条件。"
   }
 }

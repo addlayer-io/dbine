@@ -47,7 +47,12 @@
     "synonym": "Sinonim",
     "type": "Tipe",
     "sequence": "Sekuens",
-    "job": "Job"
+    "job": "Job",
+    "schema": "Skema",
+    "measure": "Ukuran",
+    "calculation_group": "Grup kalkulasi",
+    "role": "Peran",
+    "expression": "Ekspresi"
   },
   "view": {
     "label": "Tampilan",
@@ -71,5 +76,32 @@
     "title": "Job server yang menjalankannya",
     "steps": "Langkah: {{steps}}",
     "open": "Buka job"
+  },
+  "database": {
+    "tab": "Lineage",
+    "noSchema": "(tanpa skema)",
+    "loading": "Membaca dependensi…",
+    "error": "Lineage tidak dapat dibaca: {{error}}",
+    "retry": "Coba lagi",
+    "ask": {
+      "text": "Mesin ini tidak memiliki kueri dependensi di katalognya: untuk menggambar lineage, definisi view, rutin, dan trigger basis data harus dibaca lalu dicari objek yang disebutkannya. Pada basis data besar ini bisa memakan waktu.",
+      "button": "Analisis"
+    },
+    "search": "Filter berdasarkan nama",
+    "kinds": "Jenis",
+    "onlyConfirmed": "Hanya yang terkonfirmasi",
+    "onlyConnected": "Hanya yang memiliki dependensi",
+    "expandAll": "Perluas semua",
+    "collapseAll": "Ciutkan semua",
+    "expand": "Perluas skema",
+    "collapse": "Ciutkan skema",
+    "members": "Objek: {{count}}",
+    "weight": "Dependensi: {{count}}",
+    "summary": "{{objects}} objek, {{lines}} dependensi, {{scanned}} definisi dibaca.",
+    "overview": "Basis data memiliki {{objects}} objek di {{schemas}} skema: ditampilkan ringkasan per skema, dan ketebalan setiap garis adalah jumlah dependensi yang melintasinya. Klik pada skema menampilkan detailnya dan klik ganda memperluasnya.",
+    "truncated": "Basis data memiliki lebih banyak objek daripada yang dibaca, sehingga diagram tidak lengkap. Buka lineage sebuah skema atau jenis untuk melihatnya secara utuh.",
+    "hidden": "Diagram hanya menampilkan kartu pertama: {{hidden}} objek tidak ditampilkan. Ciutkan beberapa skema atau gunakan filter.",
+    "empty": "Tidak ada objek untuk digambar pada cakupan ini.",
+    "noMatch": "Tidak ada objek yang cocok dengan filter."
   }
 }

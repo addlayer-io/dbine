@@ -47,7 +47,12 @@
     "synonym": "Sinônimo",
     "type": "Tipo",
     "sequence": "Sequência",
-    "job": "Job"
+    "job": "Job",
+    "schema": "Esquema",
+    "measure": "Medida",
+    "calculation_group": "Grupo de cálculo",
+    "role": "Papel",
+    "expression": "Expressão"
   },
   "view": {
     "label": "Visualização",
@@ -71,5 +76,32 @@
     "title": "Jobs do servidor que o executam",
     "steps": "Etapas: {{steps}}",
     "open": "Abrir o job"
+  },
+  "database": {
+    "tab": "Linhagem",
+    "noSchema": "(sem esquema)",
+    "loading": "Lendo as dependências…",
+    "error": "Não foi possível ler a linhagem: {{error}}",
+    "retry": "Tentar novamente",
+    "ask": {
+      "text": "Este mecanismo não tem uma consulta de dependências em seu catálogo: para desenhar a linhagem é preciso ler as definições das views, rotinas e triggers do banco e procurar nelas os objetos que citam. Em um banco grande pode demorar.",
+      "button": "Analisar"
+    },
+    "search": "Filtrar por nome",
+    "kinds": "Tipos",
+    "onlyConfirmed": "Somente confirmadas",
+    "onlyConnected": "Somente com dependências",
+    "expandAll": "Expandir tudo",
+    "collapseAll": "Recolher tudo",
+    "expand": "Expandir o esquema",
+    "collapse": "Recolher o esquema",
+    "members": "Objetos: {{count}}",
+    "weight": "Dependências: {{count}}",
+    "summary": "{{objects}} objetos, {{lines}} dependências, {{scanned}} definições lidas.",
+    "overview": "O banco tem {{objects}} objetos em {{schemas}} esquemas: é mostrado um resumo por esquema, e a espessura de cada linha é a quantidade de dependências que a atravessam. Um clique em um esquema mostra seu detalhe e um clique duplo o expande.",
+    "truncated": "O banco tem mais objetos do que os que foram lidos, então o diagrama está incompleto. Abra a linhagem de um esquema ou de um tipo para vê-lo por inteiro.",
+    "hidden": "O diagrama mostra apenas os primeiros cartões: faltam {{hidden}} objetos. Recolha algum esquema ou use os filtros.",
+    "empty": "Não há objetos para desenhar neste escopo.",
+    "noMatch": "Nenhum objeto atende aos filtros."
   }
 }

@@ -18591,7 +18591,6 @@
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- Indeks vektor tidak menyebutkan jarak: dibuat dengan jarak kosinus dan DiskANN.",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- Indeks vektor {0} tidak menyebutkan jarak: {1}. Jika berasal dari basis data lain, DBine tidak dapat membaca konfigurasinya: Anda harus menjadi pemilik indeks atau memiliki peran SELECT_CATALOG_ROLE.",
   "-- El índice vectorial «": "-- Indeks vektor «",
-  "-- {0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "-- {0}: indeks vektor dilatih dengan dokumen dan koleksinya baru; indeks dibuat secara ditunda, dan setelah dokumen dimuat dibangun dengan BUILD INDEX ON {1}({2}).",
   "-- Índice vectorial {0} omitido: {1}.": "-- Indeks vektor {0} dilewati: {1}.",
   "-- Índice vectorial: SQL Server 2025 lo crea con ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, y mientras exista el índice, la tabla no admite INSERT, UPDATE ni DELETE.": "-- Indeks vektor: SQL Server 2025 membuatnya dengan ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, dan selama indeks ada, tabel tidak menerima INSERT, UPDATE, maupun DELETE.",
   "Amazon Keyspaces no tiene vectores: {0} pasa a {1}, sin la dimensión.": "Amazon Keyspaces tidak memiliki vektor: {0} menjadi {1}, tanpa dimensi.",
@@ -19093,5 +19092,12 @@
   "Snowflake stage": "Snowflake stage",
   "Timeplus": "Timeplus",
   "no se pudieron leer los jobs del servidor: {0}": "job server tidak dapat dibaca: {0}",
-  "se leyeron los primeros {0} jobs del servidor, de {1}": "hanya {0} job server pertama dari {1} yang dibaca"
+  "se leyeron los primeros {0} jobs del servidor, de {1}": "hanya {0} job server pertama dari {1} yang dibaca",
+  "El linaje de Unity Catalog (system.access.table_lineage) no está disponible para este usuario o catálogo (hace falta SELECT sobre esa tabla del sistema y un catálogo de Unity Catalog): las líneas salen de las definiciones, sin confirmar.": "Lineage Unity Catalog (system.access.table_lineage) tidak tersedia untuk pengguna atau katalog ini (diperlukan SELECT pada tabel sistem tersebut dan katalog Unity Catalog): garis berasal dari definisi, tanpa konfirmasi.",
+  "No se pudo leer SYS.OBJECT_DEPENDENCIES ni SYS.REFERENTIAL_CONSTRAINTS: {0}": "SYS.OBJECT_DEPENDENCIES atau SYS.REFERENTIAL_CONSTRAINTS tidak dapat dibaca: {0}",
+  "No se pudo leer el catálogo de dependencias (SYSCAT): {0}": "Katalog dependensi (SYSCAT) tidak dapat dibaca: {0}",
+  "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "{0} definisi pertama dibaca; untuk sisanya hanya dependensi yang dicatat katalog yang ditampilkan",
+  "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "{0} definisi pertama dibaca; sisanya tidak menambah garis pada diagram",
+  "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "{0} objek dalam skema tidak berstatus VALID: Oracle mungkin hanya mencatat sebagian dependensinya",
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: indeks vektor dilatih dengan dokumen dan koleksinya baru; indeks dibuat secara tertunda, lalu setelah dokumen dimuat dibangun dengan BUILD INDEX ON {1}({2})."
 }

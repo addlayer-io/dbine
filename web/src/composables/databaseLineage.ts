@@ -15,7 +15,10 @@ export const MAX_CARDS = 600;
 /** Engines whose `lineage_graph` is a catalog query: they load on open. The rest run
  *  the generic scan (every definition read), only when the user asks. */
 export const CATALOG_LINEAGE = [
-  'postgres', 'mysql', 'mariadb', 'sqlserver', 'oracle', 'powerbi', 'db2', 'hana', 'clickhouse', 'snowflake', 'databricks', 'mongodb',
+  // PostgreSQL and the engines that share its catalog (Redshift reads views and routines only).
+  'postgres', 'cockroachdb', 'redshift', 'greenplum', 'yugabytedb', 'timescaledb', 'kingbase', 'alloydb', 'edb', 'fujitsu', 'opengauss',
+  'cloudberry', 'greengage', 'risingwave', 'materialize', 'yellowbrick',
+  'mysql', 'mariadb', 'sqlserver', 'azuresql', 'fabric', 'oracle', 'oracle_adb', 'powerbi', 'db2', 'hana', 'clickhouse', 'snowflake', 'databricks', 'mongodb',
 ];
 export const hasCatalogLineage = (driverId: string | undefined) => !!driverId && CATALOG_LINEAGE.includes(driverId);
 

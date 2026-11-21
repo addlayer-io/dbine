@@ -502,3 +502,4 @@ backend:Redpanda
 backend:Snowflake stage
 backend:Timeplus
 dependencies.json:kind.job
+dependencies.json:database.tab

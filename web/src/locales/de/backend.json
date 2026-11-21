@@ -119,7 +119,6 @@
   "-- Restaurar {0} desde un backup\n": "-- {0} aus einem Backup wiederherstellen\n",
   "-- Unity Catalog no tiene WITH GRANT OPTION: para que pueda otorgar permisos sobre el objeto, otorgale MANAGE.\n{0}": "-- Unity Catalog hat kein WITH GRANT OPTION: Damit er Berechtigungen auf das Objekt erteilen kann, erteilen Sie ihm MANAGE.\n{0}",
   "-- ksqlDB reemplaza el valor completo de la clave: las columnas que no figuran quedan en NULL.": "-- ksqlDB ersetzt den gesamten Wert des Schlüssels: Spalten, die nicht aufgeführt sind, werden zu NULL.",
-  "-- {0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "-- {0}: Der Vektorindex wird mit den Dokumenten trainiert, und die Collection ist neu; er wird zurückgestellt erstellt und nach dem Laden mit BUILD INDEX ON {1}({2}) aufgebaut.",
   "-- Índice vectorial {0} omitido: {1}.": "-- Vektorindex {0} ausgelassen: {1}.",
   "-- Índice vectorial: SQL Server 2025 lo crea con ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, y mientras exista el índice, la tabla no admite INSERT, UPDATE ni DELETE.": "-- Vektorindex: SQL Server 2025 erstellt ihn mit ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, und solange der Index existiert, erlaubt die Tabelle kein INSERT, UPDATE oder DELETE.",
   "-- Índice {0} ({1}) omitido: se crea a mano.": "-- Index {0} ({1}) ausgelassen: Er wird von Hand erstellt.",
@@ -19093,5 +19092,12 @@
   "Snowflake stage": "Snowflake stage",
   "Timeplus": "Timeplus",
   "no se pudieron leer los jobs del servidor: {0}": "die Server-Jobs konnten nicht gelesen werden: {0}",
-  "se leyeron los primeros {0} jobs del servidor, de {1}": "nur die ersten {0} von {1} Server-Jobs wurden gelesen"
+  "se leyeron los primeros {0} jobs del servidor, de {1}": "nur die ersten {0} von {1} Server-Jobs wurden gelesen",
+  "El linaje de Unity Catalog (system.access.table_lineage) no está disponible para este usuario o catálogo (hace falta SELECT sobre esa tabla del sistema y un catálogo de Unity Catalog): las líneas salen de las definiciones, sin confirmar.": "Das Unity-Catalog-Lineage (system.access.table_lineage) ist für diesen Benutzer oder Katalog nicht verfügbar (erforderlich sind SELECT auf diese Systemtabelle und ein Unity-Catalog-Katalog): Die Linien stammen aus den Definitionen und sind unbestätigt.",
+  "No se pudo leer SYS.OBJECT_DEPENDENCIES ni SYS.REFERENTIAL_CONSTRAINTS: {0}": "SYS.OBJECT_DEPENDENCIES und SYS.REFERENTIAL_CONSTRAINTS konnten nicht gelesen werden: {0}",
+  "No se pudo leer el catálogo de dependencias (SYSCAT): {0}": "Der Abhängigkeitskatalog (SYSCAT) konnte nicht gelesen werden: {0}",
+  "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "die ersten {0} Definitionen wurden gelesen; für den Rest werden nur die im Katalog erfassten Abhängigkeiten angezeigt",
+  "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "die ersten {0} Definitionen wurden gelesen; der Rest fügt dem Diagramm keine Linien hinzu",
+  "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "{0} Objekte des Schemas sind nicht VALID: Oracle hat deren Abhängigkeiten möglicherweise nur teilweise erfasst",
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: Der Vektorindex wird mit den Dokumenten trainiert und die Collection ist neu; er wird verzögert erstellt und nach dem Laden der Dokumente mit BUILD INDEX ON {1}({2}) aufgebaut."
 }

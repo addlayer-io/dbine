@@ -47,7 +47,12 @@
     "synonym": "Synonyme",
     "type": "Type",
     "sequence": "Séquence",
-    "job": "Job"
+    "job": "Job",
+    "schema": "Schéma",
+    "measure": "Mesure",
+    "calculation_group": "Groupe de calcul",
+    "role": "Rôle",
+    "expression": "Expression"
   },
   "view": {
     "label": "Affichage",
@@ -71,5 +76,32 @@
     "title": "Jobs du serveur qui l'exécutent",
     "steps": "Étapes : {{steps}}",
     "open": "Ouvrir le job"
+  },
+  "database": {
+    "tab": "Traçabilité",
+    "noSchema": "(sans schéma)",
+    "loading": "Lecture des dépendances…",
+    "error": "Impossible de lire la traçabilité : {{error}}",
+    "retry": "Réessayer",
+    "ask": {
+      "text": "Ce moteur n'a pas de requête de dépendances dans son catalogue : pour dessiner la traçabilité, il faut lire les définitions des vues, routines et triggers de la base et y chercher les objets qu'elles nomment. Sur une grande base, cela peut prendre du temps.",
+      "button": "Analyser"
+    },
+    "search": "Filtrer par nom",
+    "kinds": "Types",
+    "onlyConfirmed": "Confirmées uniquement",
+    "onlyConnected": "Uniquement avec dépendances",
+    "expandAll": "Tout développer",
+    "collapseAll": "Tout réduire",
+    "expand": "Développer le schéma",
+    "collapse": "Réduire le schéma",
+    "members": "Objets : {{count}}",
+    "weight": "Dépendances : {{count}}",
+    "summary": "{{objects}} objets, {{lines}} dépendances, {{scanned}} définitions lues.",
+    "overview": "La base contient {{objects}} objets dans {{schemas}} schémas : un aperçu par schéma est affiché, et l'épaisseur de chaque ligne correspond au nombre de dépendances qui la traversent. Un clic sur un schéma affiche son détail et un double-clic le développe.",
+    "truncated": "La base contient plus d'objets que ceux qui ont été lus, le diagramme est donc incomplet. Ouvrez la traçabilité d'un schéma ou d'un type pour la voir en entier.",
+    "hidden": "Le diagramme n'affiche que les premières cartes : {{hidden}} objets manquent. Réduisez un schéma ou utilisez les filtres.",
+    "empty": "Aucun objet à dessiner pour cette portée.",
+    "noMatch": "Aucun objet ne correspond aux filtres."
   }
 }

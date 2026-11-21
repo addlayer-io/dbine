@@ -18591,7 +18591,6 @@
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- 向量索引未指定距离：将以余弦距离和 DiskANN 创建。",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- 向量索引 {0} 未指定距离：{1}。如果它来自其他数据库，说明 DBine 无法读取其配置：需要是索引所有者或拥有 SELECT_CATALOG_ROLE 角色。",
   "-- El índice vectorial «": "-- 向量索引“",
-  "-- {0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "-- {0}：向量索引需要用文档进行训练，而该集合是新建的；将延迟创建，加载文档后使用 BUILD INDEX ON {1}({2}) 构建。",
   "-- Índice vectorial {0} omitido: {1}.": "-- 已跳过向量索引 {0}：{1}。",
   "-- Índice vectorial: SQL Server 2025 lo crea con ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, y mientras exista el índice, la tabla no admite INSERT, UPDATE ni DELETE.": "-- 向量索引：SQL Server 2025 使用 ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON 创建它，且只要该索引存在，表就不支持 INSERT、UPDATE 或 DELETE。",
   "Amazon Keyspaces no tiene vectores: {0} pasa a {1}, sin la dimensión.": "Amazon Keyspaces 不支持向量：{0} 改为 {1}，不带维度。",
@@ -19093,5 +19092,12 @@
   "Snowflake stage": "Snowflake stage",
   "Timeplus": "Timeplus",
   "no se pudieron leer los jobs del servidor: {0}": "无法读取服务器作业：{0}",
-  "se leyeron los primeros {0} jobs del servidor, de {1}": "仅读取了服务器 {1} 个作业中的前 {0} 个"
+  "se leyeron los primeros {0} jobs del servidor, de {1}": "仅读取了服务器 {1} 个作业中的前 {0} 个",
+  "El linaje de Unity Catalog (system.access.table_lineage) no está disponible para este usuario o catálogo (hace falta SELECT sobre esa tabla del sistema y un catálogo de Unity Catalog): las líneas salen de las definiciones, sin confirmar.": "此用户或目录无法使用 Unity Catalog 沿袭（system.access.table_lineage）（需要该系统表的 SELECT 权限和一个 Unity Catalog 目录）：线条来自定义，未经确认。",
+  "No se pudo leer SYS.OBJECT_DEPENDENCIES ni SYS.REFERENTIAL_CONSTRAINTS: {0}": "无法读取 SYS.OBJECT_DEPENDENCIES 或 SYS.REFERENTIAL_CONSTRAINTS：{0}",
+  "No se pudo leer el catálogo de dependencias (SYSCAT): {0}": "无法读取依赖关系目录（SYSCAT）：{0}",
+  "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "已读取前 {0} 个定义；其余部分仅显示目录中记录的依赖关系",
+  "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "已读取前 {0} 个定义；其余部分不会向图表添加线条",
+  "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "模式中有 {0} 个对象不是 VALID 状态：Oracle 可能只记录了它们的部分依赖关系",
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}：向量索引需要用文档进行训练，而该集合是新建的；因此延迟创建，在加载文档后使用 BUILD INDEX ON {1}({2}) 构建。"
 }

@@ -18591,7 +18591,6 @@
   "-- El índice vectorial no indica la distancia: se crea con la distancia coseno y DiskANN.": "-- 벡터 인덱스에 거리가 지정되어 있지 않습니다. 코사인 거리와 DiskANN으로 만듭니다.",
   "-- El índice vectorial {0} no indica la distancia: {1}. Si viene de otra base, DBine no pudo leer su configuración: hace falta ser el dueño del índice o tener el rol SELECT_CATALOG_ROLE.": "-- 벡터 인덱스 {0}에 거리가 지정되어 있지 않습니다. {1}. 다른 데이터베이스에서 가져온 경우 DBine이 구성을 읽지 못한 것입니다. 인덱스 소유자이거나 SELECT_CATALOG_ROLE 역할이 필요합니다.",
   "-- El índice vectorial «": "-- 벡터 인덱스 «",
-  "-- {0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "-- {0}: 벡터 인덱스는 문서로 학습하는데 컬렉션이 새것이므로 지연 생성합니다. 문서를 로드한 뒤 BUILD INDEX ON {1}({2})로 구축하세요.",
   "-- Índice vectorial {0} omitido: {1}.": "-- 벡터 인덱스 {0} 건너뜀: {1}.",
   "-- Índice vectorial: SQL Server 2025 lo crea con ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON, y mientras exista el índice, la tabla no admite INSERT, UPDATE ni DELETE.": "-- 벡터 인덱스: SQL Server 2025는 ALTER DATABASE SCOPED CONFIGURATION SET PREVIEW_FEATURES = ON으로 만들며, 인덱스가 있는 동안 테이블은 INSERT, UPDATE, DELETE를 허용하지 않습니다.",
   "Amazon Keyspaces no tiene vectores: {0} pasa a {1}, sin la dimensión.": "Amazon Keyspaces에는 벡터가 없습니다. {0}은(는) 차원 없이 {1}(으)로 바뀝니다.",
@@ -19093,5 +19092,12 @@
   "Snowflake stage": "Snowflake stage",
   "Timeplus": "Timeplus",
   "no se pudieron leer los jobs del servidor: {0}": "서버 잡을 읽을 수 없습니다: {0}",
-  "se leyeron los primeros {0} jobs del servidor, de {1}": "서버의 잡 {1}개 중 처음 {0}개만 읽었습니다"
+  "se leyeron los primeros {0} jobs del servidor, de {1}": "서버의 잡 {1}개 중 처음 {0}개만 읽었습니다",
+  "El linaje de Unity Catalog (system.access.table_lineage) no está disponible para este usuario o catálogo (hace falta SELECT sobre esa tabla del sistema y un catálogo de Unity Catalog): las líneas salen de las definiciones, sin confirmar.": "Unity Catalog 계보(system.access.table_lineage)를 이 사용자 또는 카탈로그에서 사용할 수 없습니다(해당 시스템 테이블에 대한 SELECT 권한과 Unity Catalog 카탈로그가 필요합니다). 선은 정의에서 가져온 것이며 확인되지 않았습니다.",
+  "No se pudo leer SYS.OBJECT_DEPENDENCIES ni SYS.REFERENTIAL_CONSTRAINTS: {0}": "SYS.OBJECT_DEPENDENCIES 또는 SYS.REFERENTIAL_CONSTRAINTS를 읽을 수 없습니다: {0}",
+  "No se pudo leer el catálogo de dependencias (SYSCAT): {0}": "종속성 카탈로그(SYSCAT)를 읽을 수 없습니다: {0}",
+  "se leyeron las primeras {0} definiciones; del resto solo se muestran las dependencias que registra el catálogo": "처음 {0}개의 정의를 읽었으며, 나머지는 카탈로그에 기록된 종속성만 표시합니다",
+  "se leyeron las primeras {0} definiciones; el resto no aporta líneas al diagrama": "처음 {0}개의 정의를 읽었으며, 나머지는 다이어그램에 선을 추가하지 않습니다",
+  "{0} objetos del esquema no están VALID: Oracle puede haber registrado sus dependencias solo en parte": "스키마의 개체 {0}개가 VALID 상태가 아닙니다. Oracle이 해당 종속성을 일부만 기록했을 수 있습니다",
+  "{0}: el índice vectorial se entrena con los documentos y la colección es nueva; se crea diferido, y después de cargarlos se construye con BUILD INDEX ON {1}({2}).": "{0}: 벡터 인덱스는 문서로 학습되는데 컬렉션이 새로 만들어졌으므로 지연 생성되며, 문서를 로드한 후 BUILD INDEX ON {1}({2})로 구축합니다."
 }
