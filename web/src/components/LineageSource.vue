@@ -4,13 +4,12 @@
 // time, or "Crear conexión desde la fuente…") or a Power BI report / dashboard that reads the
 // object (its link). The diagram (or the database view) does what "follow" asks.
 import { computed, ref, watch } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
-import type { ConnectionConfig, ExternalRef, SourceCandidate, SourceMatch } from '../api/types';
+import type { ExternalRef, SourceCandidate, SourceMatch } from '../api/types';
 import { openExternalLink } from '../composables/externalLink';
 import { useConnectionsStore } from '../stores/connections';
-import { useTabsStore } from '../stores/tabs';
 import EngineIcon from './EngineIcon.vue';
 
 const props = defineProps<{
@@ -23,7 +22,6 @@ const props = defineProps<{
 const emit = defineEmits<{ follow: [candidate: SourceCandidate] }>();
 const { t } = useTranslation();
 const conns = useConnectionsStore();
-const tabs = useTabsStore();
 
 /** A report or dashboard that reads the object: it has a link, not a connection. */
 const consumer = computed(() => /^Power BI (report|dashboard)$/i.test(props.source.system ?? ''));
@@ -81,8 +79,34 @@ async function unlink() {
   }
   await resolve();
 }
-function create(prefill: ConnectionConfig) {
-  tabs.openConnectionForm({ prefill });
+/** Connect to the source without saving anything: a temporary, read-only connection made from it (the
+ *  same one the next time), the user asked once when the engine needs one, the password when it connects. */
+const connecting = ref(false);
+async function connect() {
+  connecting.value = true;
+  try {
+    let r = await api.lineageOpenSource(props.connectionId, props.source);
+    if (r.needs_user) {
+      let user: string;
+      try {
+        const where = [props.source.server, props.source.database].filter(Boolean).join(' · ');
+        user = (await ElMessageBox.prompt(t('dependencies:cross.userPrompt', { source: where }), t('common:connect'), {
+          confirmButtonText: t('common:connect'), cancelButtonText: t('common:cancel'),
+        })).value;
+      } catch {
+        return;
+      }
+      r = await api.lineageOpenSource(props.connectionId, props.source, user);
+    }
+    await conns.load();
+    // Asks the password when it needs one, and says why when it can't connect.
+    if (!(await conns.ensureConnected(r.connection_id))) return;
+    emit('follow', { connection_id: r.connection_id, name: r.name, driver: r.driver, via: 'auto' });
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  } finally {
+    connecting.value = false;
+  }
 }
 </script>
 
@@ -119,7 +143,7 @@ function create(prefill: ConnectionConfig) {
         <template v-else>
           <div class="ls-dim">{{ $t('dependencies:cross.none') }}</div>
           <div v-if="match.prefill" class="ls-actions">
-            <el-button size="small" @click="create(match.prefill)">{{ $t('dependencies:cross.create') }}</el-button>
+            <el-button size="small" type="primary" :loading="connecting || busy" @click="connect">{{ $t('dependencies:cross.create') }}</el-button>
           </div>
         </template>
       </template>

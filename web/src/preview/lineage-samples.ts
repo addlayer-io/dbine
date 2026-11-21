@@ -188,10 +188,11 @@ export function installLineagePreview(params: URLSearchParams) {
           const m: SourceMatch = own?.id
             ? { status: 'one', signature, candidates: [{ ...sqlMatch(own.id, own.id === 'c2' ? 'Ventas (réplica)' : 'Ventas'), via: 'link' }], prefill: null }
             : mode === 'many' ? { status: 'many', signature, candidates: [sqlMatch('c1', 'Ventas'), sqlMatch('c2', 'Ventas (réplica)')], prefill: null }
-            : mode === 'none' ? { status: 'none', signature, candidates: [], prefill: { driver: 'sqlserver', host: 'srv-dw01', port: 1433, database: 'indicadores', username: null, password: null, encrypt: true, trust_server_certificate: false, read_only: false, options: {} } }
+            : mode === 'none' ? { status: 'none', signature, candidates: [], prefill: { driver: 'sqlserver', host: 'srv-dw01', port: 1433, database: 'indicadores', username: null, password: null, encrypt: true, trust_server_certificate: false, read_only: true, options: {} } }
             : { status: 'one', signature, candidates: [sqlMatch('c1', 'Ventas')], prefill: null };
           return m;
         }
+        case 'lineage_open_source': await new Promise((r) => setTimeout(r, 300)); return { connection_id: 'c1', name: 'indicadores · srv-dw01', driver: 'sqlserver', needs_user: false };
         case 'lineage_link_source': {
           const i = linked.findIndex((l) => l.signature === a.signature);
           if (i >= 0) linked.splice(i, 1);

@@ -503,7 +503,11 @@ pub fn new_connection_from_source(ext: &ExternalRef) -> Option<ConnectionConfig>
         .as_deref()
         .map(|d| unquote(d).to_string())
         .unwrap_or_default();
-    let mut cfg = ConnectionConfig::default();
+    let mut cfg = ConnectionConfig {
+        // A connection made to follow a lineage only reads: never a write nobody asked for.
+        read_only: true,
+        ..ConnectionConfig::default()
+    };
     match key.family.as_str() {
         "sqlserver" => {
             cfg.driver = if key.host.ends_with(".database.windows.net") {
@@ -1198,5 +1202,21 @@ mod tests {
         }
         let s = StateStore::open(&path).unwrap();
         assert_eq!(s.lineage_link_get("x").unwrap(), None);
+    }
+
+    /// A connection made from a source only reads, whatever the engine: nothing asked for a write.
+    #[test]
+    fn a_connection_from_a_source_is_read_only() {
+        for (system, server, db) in [
+            ("SQL Server", "srv.corp.com", Some("DW")),
+            ("PostgreSQL", "pg.corp.com:5433", Some("App")),
+            ("MySQL", "my.corp.com", Some("shop")),
+            ("Oracle", "ora.corp.com:1521/ORCL", None),
+            ("Databricks", "adb-1.azuredatabricks.net", None),
+        ] {
+            let c = new_connection_from_source(&ext(system, server, db)).unwrap();
+            assert!(c.read_only, "{system}");
+            assert!(c.username.is_none() && c.password.is_none(), "{system}");
+        }
     }
 }

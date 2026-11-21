@@ -237,7 +237,14 @@ pub async fn lineage_resolve_source(
     state: State<'_, AppState>,
     args: ResolveSourceArgs,
 ) -> CommandResult<SourceMatch> {
-    find_connection(&state, &args.connection_id)?;
+    resolve_source_of(&state, args).await
+}
+
+async fn resolve_source_of(
+    state: &AppState,
+    args: ResolveSourceArgs,
+) -> CommandResult<SourceMatch> {
+    find_connection(state, &args.connection_id)?;
     let Some(key) = source_key_of_external(&args.source) else {
         return Ok(SourceMatch {
             status: "none".into(),
@@ -279,6 +286,122 @@ pub async fn lineage_resolve_source(
         signature,
         candidates,
         prefill,
+    })
+}
+
+#[derive(Deserialize)]
+pub struct OpenSourceArgs {
+    pub connection_id: String,
+    pub source: ExternalRef,
+    /// The login the source needs when nothing saved knows it (asked once; never stored).
+    #[serde(default)]
+    pub username: Option<String>,
+}
+
+/// The connection that opens a source, ready to follow the lineage there.
+#[derive(Serialize)]
+pub struct OpenedSource {
+    pub connection_id: String,
+    pub name: String,
+    pub driver: String,
+    /// The engine needs a user and none is known: ask for it and call again with `username`.
+    pub needs_user: bool,
+}
+
+/// Engines whose connection is a user and a password.
+fn needs_login(driver: &str) -> bool {
+    matches!(
+        driver,
+        "sqlserver" | "azuresql" | "postgres" | "mysql" | "oracle"
+    )
+}
+
+/// The connection for a source: the saved one it points to, else a **temporary** one (not saved, not
+/// listed in backups, sync or MCP, gone when DBine restarts) built from the source's engine, server
+/// and database, read-only, and the same one for the same source every time. The password is asked
+/// when it connects and never kept.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn lineage_open_source(
+    state: State<'_, AppState>,
+    args: OpenSourceArgs,
+) -> CommandResult<OpenedSource> {
+    let found = resolve_source_of(
+        &state,
+        ResolveSourceArgs {
+            connection_id: args.connection_id.clone(),
+            source: args.source.clone(),
+        },
+    )
+    .await?;
+    match found.status.as_str() {
+        "one" => {
+            let c = &found.candidates[0];
+            return Ok(OpenedSource {
+                connection_id: c.connection_id.clone(),
+                name: c.name.clone(),
+                driver: c.driver.clone(),
+                needs_user: false,
+            });
+        }
+        "many" => {
+            return Err(CommandError::BadRequest(
+                "hay varias conexiones que coinciden: elegí una".into(),
+            ))
+        }
+        _ => {}
+    }
+    let mut config = found.prefill.ok_or_else(|| {
+        CommandError::BadRequest("la fuente no es un servidor al que DBine pueda conectarse".into())
+    })?;
+    config.read_only = true;
+    // The same source reuses its temporary connection, with the login typed before.
+    if let Some(c) = state
+        .store
+        .list_temporary_connections()?
+        .into_iter()
+        .find(|c| source_key_of_config(&c.config).is_some_and(|k| k.signature() == found.signature))
+    {
+        return Ok(OpenedSource {
+            connection_id: c.id,
+            name: c.name,
+            driver: c.config.driver,
+            needs_user: false,
+        });
+    }
+    if let Some(u) = args.username.filter(|u| !u.trim().is_empty()) {
+        config.username = Some(u.trim().to_string());
+    }
+    if needs_login(&config.driver) && config.username.as_deref().unwrap_or("").is_empty() {
+        return Ok(OpenedSource {
+            connection_id: String::new(),
+            name: String::new(),
+            driver: config.driver,
+            needs_user: true,
+        });
+    }
+    let host = config.host.clone();
+    let name = if config.database.is_empty() {
+        host
+    } else {
+        format!("{} · {}", config.database, host)
+    };
+    let saved = state.store.add_temporary_connection(&SavedConnection {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: name.clone(),
+        color: None,
+        config: config.clone(),
+        save_password: false,
+        folder_id: None,
+        tags: Vec::new(),
+        // MCP clients never reach it: it is a temporary one, and says so.
+        mcp_level: Some("disabled".into()),
+        updated_at: String::new(),
+    })?;
+    Ok(OpenedSource {
+        connection_id: saved.id,
+        name,
+        driver: config.driver,
+        needs_user: false,
     })
 }
 
@@ -776,5 +899,16 @@ mod tests {
         assert!(n.contains("conectarse primero") && n.contains("PBI"));
         let n = unreadable_note("PBI", Some("M"), &CommandError::Internal("x".into()));
         assert!(n.contains("«M»") && n.contains(": x"));
+    }
+
+    #[test]
+    fn engines_with_a_user_and_a_password_ask_for_the_user() {
+        for d in ["sqlserver", "azuresql", "postgres", "mysql", "oracle"] {
+            assert!(needs_login(d), "{d}");
+        }
+        // A token or a service account: no user to type.
+        for d in ["databricks", "azure_databricks", "snowflake", "fabric"] {
+            assert!(!needs_login(d), "{d}");
+        }
     }
 }
