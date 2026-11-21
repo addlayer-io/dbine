@@ -795,14 +795,123 @@ impl StateStore {
     }
 
     /// Drop the temporary connections a previous run left (with their
-    /// queries and migrations). Only the app calls it, when it starts: a
-    /// scheduled task opening the store meanwhile must not.
+    /// queries and migrations), and the lineage's internal connections
+    /// that keep no password: one with a remembered password stays, it is
+    /// the user's choice ("Recordar en este equipo") and its keychain
+    /// secret would otherwise be left orphaned. Only the app calls it,
+    /// when it starts: a scheduled task opening the store meanwhile must
+    /// not.
     pub fn purge_temporary_connections(&self) -> Result<usize> {
         let n = self
             .lock()?
-            .execute("DELETE FROM connections WHERE temporary = 1", [])
+            .execute(
+                "DELETE FROM connections WHERE temporary = 1 OR (temporary = 3 AND save_password = 0)",
+                [],
+            )
             .map_err(db_err)?;
         Ok(n)
+    }
+
+    // -- the lineage's internal connections -----------------------------------
+    // Following a lineage source into another database (a Power BI table
+    // that reads SQL Server) needs a connection to it. That is the
+    // lineage's own business, not the explorer's: the connection is a row
+    // marked `temporary = 3`, found by id like any other (so connecting,
+    // metadata and sessions work on it) but never listed: not by
+    // `list_connections`, `list_temporary_connections` or the managed
+    // ones, so the sidebar, backups, sync, MCP and the phone never see it.
+    // Always read-only, MCP `disabled`. It lasts across runs only with a
+    // remembered password (`save_password`, the keychain keeps it under
+    // the connection's id); otherwise `purge_temporary_connections` drops
+    // it. "Agregar al explorador" turns it into a regular one
+    // ([`Self::promote_lineage_connection`]).
+
+    /// Add an internal connection, at the top level. `conn.save_password`
+    /// says its password is (being) kept in the keychain.
+    pub fn add_lineage_connection(&self, conn: &SavedConnection) -> Result<SavedConnection> {
+        let mut config = conn.config.clone();
+        config.password = None;
+        config.read_only = true;
+        let json = serde_json::to_string(&config)?;
+        let ts = now();
+        self.lock()?
+            .execute(
+                "INSERT INTO connections (id, name, color, config_json, save_password, created_at, updated_at, folder_id, tags_json, mcp_level, sort_order, temporary)
+                 VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?5, NULL, NULL, 'disabled', 0, 3)",
+                params![conn.id, conn.name, json, conn.save_password, ts],
+            )
+            .map_err(db_err)?;
+        self.notify(StateChange::new("lineage-connection", Some(&conn.id)));
+        Ok(SavedConnection {
+            config,
+            updated_at: ts,
+            color: None,
+            folder_id: None,
+            tags: Vec::new(),
+            mcp_level: Some("disabled".into()),
+            ..conn.clone()
+        })
+    }
+
+    pub fn list_lineage_connections(&self) -> Result<Vec<SavedConnection>> {
+        self.query_connections("WHERE temporary = 3", [])
+    }
+
+    pub fn is_lineage_connection(&self, id: &str) -> Result<bool> {
+        let n: i64 = self
+            .lock()?
+            .query_row(
+                "SELECT COUNT(*) FROM connections WHERE id = ?1 AND temporary = 3",
+                [id],
+                |r| r.get(0),
+            )
+            .map_err(db_err)?;
+        Ok(n > 0)
+    }
+
+    /// Whether the internal connection's password is kept in the keychain.
+    pub fn set_lineage_remembered(&self, id: &str, remembered: bool) -> Result<()> {
+        self.lock()?
+            .execute(
+                "UPDATE connections SET save_password = ?2 WHERE id = ?1 AND temporary = 3",
+                params![id, remembered],
+            )
+            .map_err(db_err)?;
+        Ok(())
+    }
+
+    /// Drop an internal connection (with its saved queries, which it has
+    /// none of). Only an internal one: `false` when `id` is anything else.
+    pub fn delete_lineage_connection(&self, id: &str) -> Result<bool> {
+        let n = self
+            .lock()?
+            .execute("DELETE FROM connections WHERE id = ?1 AND temporary = 3", [id])
+            .map_err(db_err)?;
+        if n > 0 {
+            self.notify(StateChange::new("lineage-connection", Some(id)));
+        }
+        Ok(n > 0)
+    }
+
+    /// "Agregar al explorador": the internal connection becomes a regular
+    /// saved one, last at the top level, with the same id (so its
+    /// remembered password follows) and as it is: read-only, MCP disabled.
+    pub fn promote_lineage_connection(&self, id: &str) -> Result<Option<SavedConnection>> {
+        let n = self
+            .lock()?
+            .execute(
+                "UPDATE connections SET temporary = 0, updated_at = ?2,
+                     sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM connections WHERE folder_id IS NULL AND temporary = 0)
+                  WHERE id = ?1 AND temporary = 3",
+                params![id, now()],
+            )
+            .map_err(db_err)?;
+        if n == 0 {
+            return Ok(None);
+        }
+        self.touch()?;
+        self.notify(StateChange::new("connection", Some(id)));
+        self.get_connection(id)
     }
 
     // -- connections managed by DBine Enterprise ----------------------------
@@ -2082,7 +2191,7 @@ impl StateStore {
             let mut stmt = c
                 .prepare(
                     "SELECT id, connection_id, database, name, body, active, updated_at FROM contexts
-                      WHERE connection_id NOT IN (SELECT id FROM connections WHERE temporary = 1) ORDER BY id",
+                      WHERE connection_id NOT IN (SELECT id FROM connections WHERE temporary IN (1, 3)) ORDER BY id",
                 )
                 .map_err(db_err)?;
             let rows = stmt.query_map([], row_to_context).map_err(db_err)?;
@@ -2596,6 +2705,76 @@ mod tests {
         s.set_managed_connections(&[]).unwrap();
         assert!(s.list_managed_connections().unwrap().is_empty());
         assert_eq!(ids(s.list_connections().unwrap()), ["saved"]);
+    }
+
+    #[test]
+    fn lineage_connections_are_found_by_id_and_listed_nowhere() {
+        let s = StateStore::open_in_memory().unwrap();
+        s.save_connection(&conn("saved")).unwrap();
+        s.add_temporary_connection(&conn("file")).unwrap();
+        let rev = s.revision().unwrap();
+        let mut c = conn("lin");
+        c.mcp_level = Some("read".into());
+        c.config.read_only = false;
+        let added = s.add_lineage_connection(&c).unwrap();
+        // Read-only and out of MCP's reach whatever it was asked for, no password in the state.
+        assert!(added.config.read_only && added.config.password.is_none());
+        assert_eq!(added.mcp_level.as_deref(), Some("disabled"));
+        // Not a change to sync.
+        assert_eq!(s.revision().unwrap(), rev);
+        let ids = |v: Vec<SavedConnection>| v.into_iter().map(|c| c.id).collect::<Vec<_>>();
+        // Listed nowhere: not saved, not temporary, not managed, not in a backup.
+        assert_eq!(ids(s.list_connections().unwrap()), ["saved"]);
+        assert_eq!(ids(s.list_temporary_connections().unwrap()), ["file"]);
+        assert!(s.list_managed_connections().unwrap().is_empty());
+        assert_eq!(ids(s.snapshot().unwrap().connections), ["saved"]);
+        // Found by id, and by its own list.
+        let got = s.get_connection("lin").unwrap().unwrap();
+        assert!(got.config.read_only && got.save_password);
+        assert_eq!(ids(s.list_lineage_connections().unwrap()), ["lin"]);
+        assert!(s.is_lineage_connection("lin").unwrap());
+        assert!(!s.is_lineage_connection("saved").unwrap());
+        assert!(!s.is_temporary_connection("lin").unwrap());
+        // Only an internal one is dropped by the lineage's "Olvidar".
+        assert!(!s.delete_lineage_connection("saved").unwrap());
+        assert!(s.get_connection("saved").unwrap().is_some());
+    }
+
+    #[test]
+    fn lineage_connections_survive_a_restart_only_with_a_remembered_password() {
+        let s = StateStore::open_in_memory().unwrap();
+        let mut kept = conn("kept");
+        kept.save_password = true;
+        let mut asked = conn("asked");
+        asked.save_password = false;
+        s.add_lineage_connection(&kept).unwrap();
+        s.add_lineage_connection(&asked).unwrap();
+        s.add_temporary_connection(&conn("file")).unwrap();
+        // The next start: the file and the one that keeps no password go.
+        assert_eq!(s.purge_temporary_connections().unwrap(), 2);
+        assert!(s.get_connection("kept").unwrap().is_some());
+        assert!(s.get_connection("asked").unwrap().is_none());
+        // Forgetting the password makes it a one-run connection again.
+        s.set_lineage_remembered("kept", false).unwrap();
+        assert_eq!(s.purge_temporary_connections().unwrap(), 1);
+        assert!(s.get_connection("kept").unwrap().is_none());
+    }
+
+    #[test]
+    fn a_lineage_connection_added_to_the_explorer_becomes_a_regular_one() {
+        let s = StateStore::open_in_memory().unwrap();
+        s.save_connection(&conn("saved")).unwrap();
+        s.add_lineage_connection(&conn("lin")).unwrap();
+        assert!(s.promote_lineage_connection("saved").unwrap().is_none());
+        let p = s.promote_lineage_connection("lin").unwrap().unwrap();
+        // Same id (the keychain's password follows), still read-only, last in the explorer.
+        assert!(p.id == "lin" && p.config.read_only && p.save_password);
+        let ids = |v: Vec<SavedConnection>| v.into_iter().map(|c| c.id).collect::<Vec<_>>();
+        assert_eq!(ids(s.list_connections().unwrap()), ["saved", "lin"]);
+        assert!(s.list_lineage_connections().unwrap().is_empty());
+        // A regular one is not purged, and not offered for "Olvidar".
+        assert_eq!(s.purge_temporary_connections().unwrap(), 0);
+        assert!(!s.delete_lineage_connection("lin").unwrap());
     }
 
     #[test]
