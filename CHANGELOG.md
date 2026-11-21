@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-21
+
 ### New
 
 - **Vectors (embeddings):** DBine reads, edits, indexes, compares, moves and searches vectors on the engines that store them, such as PostgreSQL with pgvector, MySQL, Oracle, SQL Server, Snowflake, Elasticsearch, OpenSearch, Redis and its relatives, MongoDB, Cassandra, DuckDB, libSQL and Neo4j. A vector cell shows its first numbers and a badge with its dimensions, and the cell viewer gives its element type, norm, minimum and maximum. Edits are checked against the column's dimensions and element range before they reach the server. Each engine keeps its own types, index algorithms and distances.
