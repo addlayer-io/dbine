@@ -102,6 +102,8 @@
     "truncated": "Baza ma więcej obiektów, niż odczytano, więc diagram jest niekompletny. Otwórz lineage schematu lub typu, aby zobaczyć go w całości.",
     "hidden": "Diagram pokazuje tylko pierwsze karty: brakuje obiektów — {{hidden}}. Zwiń któryś ze schematów lub użyj filtrów.",
     "empty": "W tym zakresie nie ma obiektów do narysowania.",
-    "noMatch": "Żaden obiekt nie spełnia filtrów."
+    "noMatch": "Żaden obiekt nie spełnia filtrów.",
+    "relations": "Relacje ({{count}})",
+    "relationsTip": "Klucze obce (i relacje modelu) biegną równolegle do lineage: włącz je, aby zobaczyć je obok niego."
   }
 }

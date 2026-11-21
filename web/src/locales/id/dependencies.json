@@ -102,6 +102,8 @@
     "truncated": "Basis data memiliki lebih banyak objek daripada yang dibaca, sehingga diagram tidak lengkap. Buka lineage sebuah skema atau jenis untuk melihatnya secara utuh.",
     "hidden": "Diagram hanya menampilkan kartu pertama: {{hidden}} objek tidak ditampilkan. Ciutkan beberapa skema atau gunakan filter.",
     "empty": "Tidak ada objek untuk digambar pada cakupan ini.",
-    "noMatch": "Tidak ada objek yang cocok dengan filter."
+    "noMatch": "Tidak ada objek yang cocok dengan filter.",
+    "relations": "Relasi ({{count}})",
+    "relationsTip": "Kunci asing (dan relasi sebuah model) berjalan paralel dengan lineage: aktifkan untuk melihatnya berdampingan."
   }
 }
