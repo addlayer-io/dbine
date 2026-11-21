@@ -161,6 +161,10 @@ export const api = {
    *  database (`external`). The other direction of `getDependents`. */
   getReferences: (connectionId: string, database: string, target: DependencyTarget) =>
     invoke<DependencyReport>('get_references', { args: { connection_id: connectionId, database, target } }),
+  /** What a server job's steps use: the objects of `database` they name,
+   *  and those of other databases as `external`. */
+  getJobReferences: (connectionId: string, database: string, jobId: string) =>
+    invoke<DependencyReport>('get_job_references', { args: { connection_id: connectionId, database, job_id: jobId } }),
   getDefinition: (connectionId: string, database: string, object: ObjectRef) =>
     invoke<string>('get_definition', { args: { connection_id: connectionId, database, object } }),
   browseQuery: (connectionId: string, database: string, object: ObjectRef, limit: number) =>

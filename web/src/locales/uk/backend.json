@@ -19091,5 +19091,7 @@
   "Pulsar": "Pulsar",
   "Redpanda": "Redpanda",
   "Snowflake stage": "Snowflake stage",
-  "Timeplus": "Timeplus"
+  "Timeplus": "Timeplus",
+  "no se pudieron leer los jobs del servidor: {0}": "не вдалося прочитати джоби сервера: {0}",
+  "se leyeron los primeros {0} jobs del servidor, de {1}": "прочитано лише перші {0} джобів сервера з {1}"
 }

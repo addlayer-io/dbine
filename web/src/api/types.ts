@@ -1009,6 +1009,24 @@ export interface DependencyReport {
   note: string | null;
   /** `getReferences`: what the target reads from outside the database. */
   external?: ExternalRef[];
+  /** `getDependents`: the server's jobs whose steps run or name the target. */
+  jobs?: JobDependent[];
+  /** What to tell about the jobs read, each a whole message (translate with `tb`). */
+  job_notes?: string[];
+}
+
+/** A server job whose steps run or name the target
+ *  (`dbine_driver::JobDependent`): its `id` is the jobs calls' one. */
+export interface JobDependent {
+  id: string;
+  name: string;
+  /** The engine's word for it ("SQL Server Agent", "pg_cron"…). */
+  kind: string;
+  group?: string | null;
+  /** The steps that run or name the target, by name. */
+  steps?: string[];
+  confidence: Confidence;
+  mentions?: Mention[];
 }
 
 /** A source outside the database (`dbine_driver::ExternalRef`): a Power BI

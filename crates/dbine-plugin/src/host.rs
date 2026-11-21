@@ -404,6 +404,8 @@ impl Call {
             | IndexUsage { session, .. }
             | Dependents { session, .. }
             | References { session, .. }
+            | JobDependents { session, .. }
+            | JobReferences { session, .. }
             | Processes { session }
             | CancelQuery { session, .. }
             | CreateDatabaseChoices { session }
@@ -1246,6 +1248,32 @@ impl State {
                     .lock()
                     .await
                     .references(&target, &scan)
+                    .await?,
+            ),
+            Call::JobDependents {
+                session,
+                database,
+                target,
+                scan,
+            } => Reply::JobDependents(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .job_dependents(&database, &target, &scan)
+                    .await?,
+            ),
+            Call::JobReferences {
+                session,
+                database,
+                job_id,
+                scan,
+            } => Reply::JobReferences(
+                self.slot(session)?
+                    .session
+                    .lock()
+                    .await
+                    .job_references(&database, &job_id, &scan)
                     .await?,
             ),
             Call::Processes { session } => {

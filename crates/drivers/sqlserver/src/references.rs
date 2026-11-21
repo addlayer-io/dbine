@@ -529,6 +529,7 @@ mod tests {
             dialect: ScriptDialect::tsql(),
             foreign_keys: true,
             written_kinds: Vec::new(),
+            has_schemas: true,
         }
     }
 

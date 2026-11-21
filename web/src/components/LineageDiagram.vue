@@ -5,7 +5,9 @@
 // reading the source. Sources outside the database are grey cards. Same
 // canvas as the ER diagram: drag to pan, ⌘/Ctrl + wheel to zoom, F fits.
 // A click selects a card (the lines that name the other are below); a
-// double click opens it.
+// double click opens it. The server's jobs that run an object are cards of
+// their own to its right: a job's left side is what its steps use, and a
+// double click opens it in Programadas › En los servidores.
 import { computed, nextTick, onMounted, ref, shallowRef, triggerRef, watch } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
@@ -14,9 +16,9 @@ import { tb } from '../i18n/backend';
 import { useTabsStore } from '../stores/tabs';
 import { usePanZoom } from '../composables/usePanZoom';
 import { KIND_ICONS } from '../composables/kindIcons';
-import { MAX_NODES, addUsedBy, addUses, layout, newLineage, nodeId, sideCounts, type LineageEdge, type LineageNode } from '../composables/lineage';
+import { MAX_NODES, addUsedBy, addUses, jobNodeId, layout, newLineage, nodeId, sideCounts, type LineageEdge, type LineageNode } from '../composables/lineage';
 
-const props = defineProps<{ connectionId: string; database: string; root: ObjectRef }>();
+const props = defineProps<{ connectionId: string; database: string; root: ObjectRef; rootJobId?: string | null }>();
 const tabs = useTabsStore();
 const { t } = useTranslation();
 
@@ -24,7 +26,7 @@ const { t } = useTranslation();
 const W = 214;
 const H = 46;
 
-const graph = shallowRef(newLineage(props.root));
+const graph = shallowRef(newLineage(props.root, props.rootJobId));
 const touch = () => triggerRef(graph);
 const placed = computed(() => layout(graph.value, W, H));
 const nodes = computed(() => [...graph.value.nodes.values()]);
@@ -41,9 +43,11 @@ async function load(id: string, side: 'up' | 'down') {
   touch();
   const target = { object: { kind: n.kind, schema: n.schema, name: n.name }, column: null };
   try {
-    const r = side === 'up'
-      ? await api.getReferences(props.connectionId, props.database, target)
-      : await api.getDependents(props.connectionId, props.database, target);
+    const r = n.jobId
+      ? await api.getJobReferences(props.connectionId, props.database, n.jobId)
+      : side === 'up'
+        ? await api.getReferences(props.connectionId, props.database, target)
+        : await api.getDependents(props.connectionId, props.database, target);
     if (graph.value !== g) return;
     if (side === 'up') addUses(g, id, r);
     else addUsedBy(g, id, r);
@@ -55,13 +59,13 @@ async function load(id: string, side: 'up' | 'down') {
   touch();
 }
 function start() {
-  const id = nodeId(props.root);
+  const id = props.rootJobId ? jobNodeId(props.rootJobId) : nodeId(props.root);
   void load(id, 'up');
   void load(id, 'down');
 }
 /** Read again from the start (the parent's "Actualizar"). */
 function reload() {
-  graph.value = newLineage(props.root);
+  graph.value = newLineage(props.root, props.rootJobId);
   selected.value = null;
   pz.markMoved();
   start();
@@ -90,14 +94,14 @@ function onCanvasKey(e: KeyboardEvent) {
 
 // -- cards -------------------------------------------------------------------------------------
 const kindLabel = (n: LineageNode) => (n.external ? t('dependencies:lineage.external') : t(`dependencies:kind.${n.kind}`, { defaultValue: n.kind }));
-const icon = (n: LineageNode) => (n.external ? 'connection' : KIND_ICONS[n.kind] ?? 'document');
+const icon = (n: LineageNode) => (n.external ? 'connection' : n.jobId ? 'alarm-clock' : KIND_ICONS[n.kind] ?? 'document');
 /** The second line: the kind and the schema, or where an outside source is. */
 function sub(n: LineageNode) {
   if (n.external) {
     const x = n.external;
     return [x.system, x.server, x.database].filter(Boolean).join(' · ');
   }
-  return [kindLabel(n), n.schema].filter(Boolean).join(' · ');
+  return [kindLabel(n), n.jobKind, n.schema].filter(Boolean).join(' · ');
 }
 const counts = (id: string) => sideCounts(graph.value, id);
 /** A side's button: `+` to read it, a spinner, the count, or `!`. */
@@ -133,13 +137,14 @@ const fullName = (n?: LineageNode | null) => (n ? (n.schema ? `${n.schema}.${n.n
 
 function open(n: LineageNode) {
   if (n.external) return;
+  if (n.jobId) return tabs.openServerJob(props.connectionId, n.jobId, n.name);
   const object = { kind: n.kind, schema: n.schema, name: n.name };
   tabs.openObject(props.connectionId, props.database, object, ['table', 'collection'].includes(n.kind) ? 'structure' : 'definition');
 }
 /** The lineage with this card in the middle, in its own tab. */
 function recenter(n: LineageNode) {
   if (n.external) return;
-  tabs.openDependencies(props.connectionId, props.database, { kind: n.kind, schema: n.schema, name: n.name }, null, 'lineage');
+  tabs.openDependencies(props.connectionId, props.database, { kind: n.kind, schema: n.schema, name: n.name }, null, 'lineage', n.jobId ?? null);
 }
 </script>
 
@@ -211,7 +216,7 @@ function recenter(n: LineageNode) {
               <div class="ln-sub">{{ sub(n) }}</div>
             </div>
             <button
-              v-if="!n.external"
+              v-if="!n.external && !n.jobId"
               class="ln-side right"
               :class="n.down"
               :title="sideTitle(n, 'down')"
@@ -236,7 +241,7 @@ function recenter(n: LineageNode) {
         <div v-if="sel.external" class="ln-dim">{{ [sel.external.system, sel.external.server, sel.external.database, sel.external.schema, sel.external.name].filter(Boolean).join(' · ') }}</div>
         <div v-if="sel.error" class="ln-note warn">{{ sel.error }}</div>
         <div v-if="!sel.external" class="ln-actions">
-          <el-button size="small" @click="open(sel)">{{ $t('dependencies:lineage.open') }}</el-button>
+          <el-button size="small" @click="open(sel)">{{ sel.jobId ? $t('dependencies:jobs.open') : $t('dependencies:lineage.open') }}</el-button>
           <el-button v-if="!sel.root" size="small" @click="recenter(sel)">{{ $t('dependencies:lineage.recenter') }}</el-button>
         </div>
         <template v-for="side in (['uses', 'usedBy'] as const)" :key="side">

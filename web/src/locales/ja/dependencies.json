@@ -46,7 +46,8 @@
     "trigger": "トリガー",
     "synonym": "シノニム",
     "type": "型",
-    "sequence": "シーケンス"
+    "sequence": "シーケンス",
+    "job": "ジョブ"
   },
   "view": {
     "label": "表示",
@@ -65,5 +66,10 @@
     "recenter": "リネージを表示",
     "uses": "使用",
     "usedBy": "使用元"
+  },
+  "jobs": {
+    "title": "これを実行するサーバーのジョブ",
+    "steps": "ステップ：{{steps}}",
+    "open": "ジョブを開く"
   }
 }

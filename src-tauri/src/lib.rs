@@ -430,6 +430,7 @@ pub fn run() {
             commands::explorer::get_index_usage,
             commands::explorer::get_dependents,
             commands::explorer::get_references,
+            commands::explorer::get_job_references,
             commands::explorer::index_toggle_script,
             commands::rename::rename_impact,
             commands::rename::rename_script,

@@ -409,9 +409,10 @@ pub struct DependentsArgs {
     pub target: dbine_driver::DependencyTarget,
 }
 
-/// What depends on a table, column, view or routine ("Ver dependencias…").
-/// The generic scan reads every definition one by one, so it gets longer
-/// than other catalog reads.
+/// What depends on a table, column, view or routine ("Ver dependencias…"),
+/// and on an engine with server jobs, the jobs whose steps run or name it
+/// (`DependencyReport::jobs`). The generic scan reads every definition one
+/// by one, so it gets longer than other catalog reads.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn get_dependents(
     state: State<'_, AppState>,
@@ -429,14 +430,80 @@ pub async fn get_dependents(
         driver.script_dialect(),
         driver.capabilities().foreign_keys,
     );
+    let jobs = driver.capabilities().jobs;
     let target = args.target;
+    let database = args.database.clone();
     state
         .meta_read_on(
             Lane::Long,
             &args.connection_id,
             &args.database,
             DEPENDENTS_LIMIT,
-            move |s| Box::pin(async move { s.dependents(&target, &scan).await }),
+            move |s| {
+                Box::pin(async move {
+                    let mut report = s.dependents(&target, &scan).await?;
+                    if jobs {
+                        with_jobs(
+                            &mut report,
+                            s.job_dependents(&database, &target, &scan).await,
+                        );
+                    }
+                    Ok(report)
+                })
+            },
+        )
+        .await
+}
+
+/// The jobs that run the object into its dependents; when they couldn't be
+/// read, a note that says why (the objects still show).
+fn with_jobs(
+    report: &mut dbine_driver::DependencyReport,
+    jobs: dbine_driver::Result<dbine_driver::DependencyReport>,
+) {
+    match jobs {
+        Ok(j) => dbine_driver::dependencies::merge_jobs(report, j),
+        Err(e) => report
+            .job_notes
+            .push(format!("no se pudieron leer los jobs del servidor: {e}")),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct JobReferencesArgs {
+    pub connection_id: String,
+    pub database: String,
+    pub job_id: String,
+}
+
+/// What a server job's steps use (the lineage's sources of a job card): the
+/// objects of `database` they name, and those of other databases as
+/// `external`. On the long lane, like `get_references`.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_job_references(
+    state: State<'_, AppState>,
+    args: JobReferencesArgs,
+) -> CommandResult<dbine_driver::DependencyReport> {
+    let id = state
+        .store
+        .get_connection(&args.connection_id)?
+        .map(|c| c.config.driver)
+        .unwrap_or_default();
+    let driver = dbine_drivers::find(&id)
+        .ok_or_else(|| dbine_driver::Error::Unsupported(format!("driver desconocido: {id}")))?;
+    let scan = dbine_driver::DependencyScan::new(
+        driver.info(),
+        driver.script_dialect(),
+        driver.capabilities().foreign_keys,
+    );
+    let (database, job_id) = (args.database.clone(), args.job_id);
+    state
+        .meta_read_on(
+            Lane::Long,
+            &args.connection_id,
+            &args.database,
+            DEPENDENTS_LIMIT,
+            move |s| Box::pin(async move { s.job_references(&database, &job_id, &scan).await }),
         )
         .await
 }

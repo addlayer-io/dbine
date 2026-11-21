@@ -1689,6 +1689,18 @@ impl Session for SnowflakeSession {
         self.references_of(target, scan).await
     }
 
+    /// Snowflake's jobs are its tasks, which the lineage already shows as
+    /// objects of their own (kind `task`, read with views and routines): no
+    /// second card for each as a job.
+    async fn job_dependents(
+        &mut self,
+        _database: &str,
+        _target: &dbine_driver::DependencyTarget,
+        _scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        Ok(dbine_driver::DependencyReport::default())
+    }
+
     async fn index_usage(
         &mut self,
         table: &ObjectRef,

@@ -46,7 +46,8 @@
     "trigger": "Trigger",
     "synonym": "Synonym",
     "type": "Type",
-    "sequence": "Sequence"
+    "sequence": "Sequence",
+    "job": "Job"
   },
   "view": {
     "label": "View",
@@ -65,5 +66,10 @@
     "recenter": "View its lineage",
     "uses": "Uses",
     "usedBy": "Used by"
+  },
+  "jobs": {
+    "title": "Server jobs that run it",
+    "steps": "Steps: {{steps}}",
+    "open": "Open the job"
   }
 }

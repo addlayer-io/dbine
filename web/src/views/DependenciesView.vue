@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
-import type { Confidence, Dependent, DependencyReport, Relation } from '../api/types';
+import type { Confidence, Dependent, DependencyReport, JobDependent, Relation } from '../api/types';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type DependenciesTab } from '../stores/tabs';
@@ -14,7 +14,9 @@ import LineageDiagram from '../components/LineageDiagram.vue';
 // indexes and checks come from the catalog; views, routines and triggers
 // from searching their source (probable, or "revisar" when the name only
 // shows inside dynamic SQL). "Linaje" draws both directions as a diagram
-// whose cards load further levels.
+// whose cards load further levels. On an engine with server jobs, the jobs
+// whose steps run the object show too; a job's own tab (`tab.jobId`) shows
+// what its steps use.
 
 const props = defineProps<{ tab: DependenciesTab }>();
 const conns = useConnectionsStore();
@@ -43,6 +45,17 @@ async function load() {
   loading.value = true;
   error.value = null;
   usesError.value = null;
+  if (props.tab.jobId) {
+    // Nothing uses a job: only what its steps use.
+    report.value = { items: [], scanned: 0, unreadable: [], note: null };
+    try {
+      uses.value = await api.getJobReferences(props.tab.connectionId, props.tab.database, props.tab.jobId);
+    } catch (e) {
+      usesError.value = errorMessage(e);
+    }
+    loading.value = false;
+    return;
+  }
   const target = { object: props.tab.object, column: props.tab.column };
   const own = props.tab.column
     ? Promise.resolve(null)
@@ -69,11 +82,16 @@ const groupsOf = (r: DependencyReport | null) =>
   ORDER.map((relation) => ({ relation, items: (r?.items ?? []).filter((d) => d.relation === relation) })).filter((g) => g.items.length);
 const groups = computed(() => groupsOf(report.value));
 const useGroups = computed(() => groupsOf(uses.value));
+/** The server's jobs whose steps run the object. */
+const jobs = computed(() => report.value?.jobs ?? []);
 const counts = computed(() => {
   const c: Record<Confidence, number> = { confirmed: 0, probable: 0, review: 0 };
   for (const d of report.value?.items ?? []) c[d.confidence]++;
+  for (const j of jobs.value) c[j.confidence]++;
   return c;
 });
+/** A job opens in its own tab (Programadas › En los servidores). */
+const openJob = (j: JobDependent) => tabs.openServerJob(props.tab.connectionId, j.id, j.name);
 
 const fullName = (d: Dependent) => (d.schema ? `${d.schema}.${d.name}` : d.name);
 // Views, routines and triggers open their source; a key, index or check
@@ -86,9 +104,12 @@ function open(d: Dependent) {
 async function copy() {
   const line = (dir: string, d: Dependent) =>
     [dir, t(`dependencies:relation.${d.relation}`), d.kind, fullName(d), t(`dependencies:confidence.${d.confidence}`), d.detail ?? d.mentions.map((m) => `${m.line}: ${m.text}`).join(' | ')].join('\t');
+  const jobLine = (j: JobDependent) =>
+    [t('dependencies:usedByTitle'), t('dependencies:jobs.title'), j.kind, j.name, t(`dependencies:confidence.${j.confidence}`), (j.steps ?? []).join(', ')].join('\t');
   const lines = [
     ...(uses.value?.items ?? []).map((d) => line(t('dependencies:usesTitle'), d)),
     ...(report.value?.items ?? []).map((d) => line(t('dependencies:usedByTitle'), d)),
+    ...jobs.value.map(jobLine),
   ];
   await navigator.clipboard.writeText(lines.join('\n'));
   ElMessage.success(t('dependencies:copied'));
@@ -108,19 +129,20 @@ async function copy() {
       <el-button size="small" :loading="loading && view === 'list'" @click="refresh">
         <el-icon><ei-refresh /></el-icon><span>{{ $t('dependencies:refresh') }}</span>
       </el-button>
-      <el-button v-if="view === 'list'" size="small" :disabled="!report?.items.length && !uses?.items.length" @click="copy">
+      <el-button v-if="view === 'list'" size="small" :disabled="!report?.items.length && !uses?.items.length && !jobs.length" @click="copy">
         <el-icon><ei-document-copy /></el-icon><span>{{ $t('dependencies:copy') }}</span>
       </el-button>
     </header>
-    <LineageDiagram v-if="view === 'lineage'" ref="lineage" :connection-id="tab.connectionId" :database="tab.database" :root="tab.object" />
+    <LineageDiagram v-if="view === 'lineage'" ref="lineage" :connection-id="tab.connectionId" :database="tab.database" :root="tab.object" :root-job-id="tab.jobId ?? null" />
     <template v-else>
       <div v-if="error" class="dp-error">{{ error }}</div>
       <template v-else-if="report">
-        <p class="dp-note">
+        <p v-if="!tab.jobId" class="dp-note">
           {{ $t('dependencies:summary', { confirmed: counts.confirmed, probable: counts.probable, review: counts.review, scanned: report.scanned }) }}
           <br>{{ $t('dependencies:outside') }}
         </p>
         <p v-if="report.note" class="dp-note warn">{{ tb(report.note) }}</p>
+        <p v-for="n in report.job_notes ?? []" :key="n" class="dp-note warn">{{ tb(n) }}</p>
         <p v-if="report.unreadable.length" class="dp-note warn">{{ $t('dependencies:unreadable', { names: report.unreadable.join(', ') }) }}</p>
         <div class="dp-body">
           <template v-if="!tab.column">
@@ -152,9 +174,9 @@ async function copy() {
                 </div>
               </div>
             </section>
-            <h2 class="dp-dir">{{ $t('dependencies:usedByTitle') }}</h2>
+            <h2 v-if="!tab.jobId" class="dp-dir">{{ $t('dependencies:usedByTitle') }}</h2>
           </template>
-          <p v-if="!groups.length" class="dp-dim">{{ $t('dependencies:none') }}</p>
+          <p v-if="!tab.jobId && !groups.length && !jobs.length" class="dp-dim">{{ $t('dependencies:none') }}</p>
           <section v-for="g in groups" :key="g.relation">
             <h3>{{ $t(`dependencies:relation.${g.relation}`) }} <span class="dp-dim">{{ g.items.length }}</span></h3>
             <div v-for="d in g.items" :key="`${d.kind}:${fullName(d)}:${d.detail ?? ''}`" class="dp-item">
@@ -166,6 +188,21 @@ async function copy() {
               </div>
               <div v-if="d.detail" class="dp-detail nm-selectable">{{ d.detail }}</div>
               <div v-for="m in d.mentions" :key="m.line" class="dp-mention nm-selectable">
+                <span class="dp-ln">{{ m.line }}</span><code>{{ m.text }}</code>
+                <span v-if="m.dynamic" class="dp-dyn">{{ $t('dependencies:dynamic') }}</span>
+              </div>
+            </div>
+          </section>
+          <section v-if="jobs.length">
+            <h3>{{ $t('dependencies:jobs.title') }} <span class="dp-dim">{{ jobs.length }}</span></h3>
+            <div v-for="j in jobs" :key="`job:${j.id}`" class="dp-item">
+              <div class="dp-line">
+                <span class="dp-tag">{{ j.kind }}</span>
+                <a class="dp-name" :title="$t('dependencies:jobs.open')" @click="openJob(j)">{{ j.group ? `${j.group}.${j.name}` : j.name }}</a>
+                <span class="dp-badge" :class="j.confidence" :title="$t(`dependencies:confidenceTip.${j.confidence}`)">{{ $t(`dependencies:confidence.${j.confidence}`) }}</span>
+              </div>
+              <div v-if="j.steps?.length" class="dp-detail nm-selectable">{{ $t('dependencies:jobs.steps', { steps: j.steps.join(', ') }) }}</div>
+              <div v-for="(m, i) in j.mentions ?? []" :key="i" class="dp-mention nm-selectable">
                 <span class="dp-ln">{{ m.line }}</span><code>{{ m.text }}</code>
                 <span v-if="m.dynamic" class="dp-dyn">{{ $t('dependencies:dynamic') }}</span>
               </div>

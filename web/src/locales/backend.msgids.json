@@ -34303,6 +34303,7 @@
   "crates/drivers/couchbase/src/jobs.rs"
  ],
  "Procedimiento": [
+  "crates/dbine-driver/src/dependencies/job_scan.rs",
   "crates/drivers/hana/src/jobs.rs",
   "crates/drivers/hana/src/scheduler/mod.rs",
   "crates/drivers/odbc/src/jobs/altibase.rs",
@@ -57492,6 +57493,9 @@
  "no se pudieron leer los datasets del proyecto para saber en qué otras ubicaciones buscar": [
   "crates/drivers/bigquery/src/jobs.rs"
  ],
+ "no se pudieron leer los jobs del servidor: {0}": [
+  "src-tauri/src/commands/explorer.rs"
+ ],
  "no se pudieron leer los secretos del perfil SSH «{0}» del llavero: {1}": [
   "crates/dbine-sync/src/engine.rs"
  ],
@@ -60038,6 +60042,9 @@
  ],
  "se interrumpió": [
   "crates/dbine-transfer/src/engine.rs"
+ ],
+ "se leyeron los primeros {0} jobs del servidor, de {1}": [
+  "crates/dbine-driver/src/dependencies/job_scan.rs"
  ],
  "se listan los transforms, los monitores de alertas y las políticas de snapshots; las políticas ISM y los rollups no": [
   "crates/drivers/elasticsearch/src/jobs.rs"

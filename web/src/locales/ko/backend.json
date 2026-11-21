@@ -19091,5 +19091,7 @@
   "Pulsar": "Pulsar",
   "Redpanda": "Redpanda",
   "Snowflake stage": "Snowflake stage",
-  "Timeplus": "Timeplus"
+  "Timeplus": "Timeplus",
+  "no se pudieron leer los jobs del servidor: {0}": "서버 잡을 읽을 수 없습니다: {0}",
+  "se leyeron los primeros {0} jobs del servidor, de {1}": "서버의 잡 {1}개 중 처음 {0}개만 읽었습니다"
 }

@@ -16,7 +16,7 @@ import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import { useServerJobsStore } from '../stores/serverJobs';
-import type { ServerJobTab } from '../stores/tabs';
+import { useTabsStore, type ServerJobTab } from '../stores/tabs';
 import { formatElapsed } from '../stores/tasks';
 
 // Texts the driver writes (schedules it describes, property values, its
@@ -40,6 +40,7 @@ const limit = ref(50);
 /** Runs whose steps and message are open, by index key. */
 const open = ref(new Set<string>());
 
+const tabs = useTabsStore();
 const conn = computed(() => conns.byId(props.tab.connectionId));
 const driver = computed(() => conns.driverOf(props.tab.connectionId));
 const job = computed(() => detail.value?.job ?? null);
@@ -53,6 +54,18 @@ const groups = computed(() => {
   }
   return [...by.entries()];
 });
+
+/** "Ver linaje…": what the job's steps use, in the database its steps run
+ *  in (the first that's one of the server's), else the job's, else the
+ *  connection's own. */
+function lineage() {
+  const d = detail.value;
+  if (!d) return;
+  const known = conns.live[props.tab.connectionId]?.databases ?? [];
+  const isDb = (x?: string | null) => (x ? known.find((k) => k.toLowerCase() === x.toLowerCase()) : undefined);
+  const database = d.steps.map((s) => isDb(s.target)).find(Boolean) ?? isDb(d.job.group) ?? conn.value?.config.database ?? '';
+  tabs.openDependencies(props.tab.connectionId, database, { kind: 'job', schema: d.job.group ?? null, name: d.job.name }, null, 'lineage', d.job.id);
+}
 
 async function load() {
   if (loading.value) return;
@@ -146,6 +159,7 @@ function toggleRun(key: string) {
         </el-button>
         <el-button v-if="can.script" size="small" @click="openServerJobScript(tab.connectionId, job)">{{ $t('scheduled:server.script') }}</el-button>
         <el-button v-if="can.edit" size="small" @click="editServerJob(tab.connectionId, job)">{{ $t('scheduled:server.edit') }}</el-button>
+        <el-button v-if="detail?.steps.some((s) => s.command)" size="small" @click="lineage">{{ $t('dependencies:lineageMenu') }}</el-button>
         <el-dropdown v-if="can.actions.length || can.runFrom || can.clearHistory || can.delete" trigger="click" @command="moreAction">
           <el-button size="small" :aria-label="$t('scheduled:server.more')" :title="$t('scheduled:server.more')">
             <el-icon><ei-more-filled /></el-icon>
