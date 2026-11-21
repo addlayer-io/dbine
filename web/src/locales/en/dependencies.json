@@ -97,11 +97,12 @@
     "pick": "Connection",
     "remembered": "The choice is remembered; \"Unlink\" removes it.",
     "none": "No saved connection matches this source.",
-    "create": "Create connection from the source…",
+    "create": "Connect to the source",
     "notFound": "This object was not found in {{name}}.",
     "badge": "Connection: {{name}}",
     "report": "Power BI report",
-    "dashboard": "Power BI dashboard"
+    "dashboard": "Power BI dashboard",
+    "userPrompt": "User to connect to {{source}}. The connection is temporary and read-only: it isn't saved."
   },
   "jobs": {
     "title": "Server jobs that run it",

@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import type {
-  AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, LineageGraph, LineageScope, LocatedSource, CrossUsers, SourceMatch, ExternalRef, MonitorSnapshot, ObjectPage, ObjectQuery, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
+  AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, LineageGraph, LineageScope, OpenedSource, LocatedSource, CrossUsers, SourceMatch, ExternalRef, MonitorSnapshot, ObjectPage, ObjectQuery, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
   ExecuteResponse, FilteredBrowse, QueryOutcome, ResultsStatus, RunMode, StoreArgs, StoredRunMeta, RunParams, RunningTask, SavedConnection, SavedQuery, SchemaInfo, ScriptUnit, SecretBrowseListing, SecretSource, SecretSourceApproval, SecretSourceTest, SecretSourceUnlock, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WhatsNew, WindowRole,
 } from './types';
 import type { ColumnFilter } from '../composables/gridFilter';
@@ -174,6 +174,9 @@ export const api = {
   lineageResolveSource: (connectionId: string, source: ExternalRef) =>
     invoke<SourceMatch>('lineage_resolve_source', { args: { connection_id: connectionId, source } }),
   /** Remember (or, with null, forget) which connection a source is. */
+  /** The connection for a source: the saved one, or a temporary read-only one made from it. */
+  lineageOpenSource: (connectionId: string, source: ExternalRef, username: string | null = null) =>
+    invoke<OpenedSource>('lineage_open_source', { args: { connection_id: connectionId, source, username } }),
   lineageLinkSource: (signature: string, connectionId: string | null) =>
     invoke<null>('lineage_link_source', { args: { signature, connection_id: connectionId } }),
   /** Where the source's table is in `connectionId`: its database and the object found there. */

@@ -434,6 +434,7 @@ pub fn run() {
             commands::explorer::get_lineage_graph,
             commands::cross::lineage_resolve_source,
             commands::cross::lineage_link_source,
+            commands::cross::lineage_open_source,
             commands::cross::lineage_locate_source,
             commands::cross::get_cross_users,
             commands::explorer::index_toggle_script,

@@ -1102,6 +1102,15 @@ export interface SourceCandidate {
 }
 
 /** Which connection a source outside the database belongs to. `prefill` (no credentials) only when `status` is `none`. */
+/** The connection that opens a source (`lineage_open_source`): a saved one, or a temporary one made
+ *  from the source (not saved, read-only). `needs_user`: ask for the login and call again with it. */
+export interface OpenedSource {
+  connection_id: string;
+  name: string;
+  driver: string;
+  needs_user: boolean;
+}
+
 export interface SourceMatch {
   status: 'one' | 'many' | 'none';
   /** The source's stable signature: what `lineage_link_source` remembers the choice by. */
