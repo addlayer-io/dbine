@@ -52,7 +52,8 @@
     "measure": "Measure",
     "calculation_group": "Calculation group",
     "role": "Role",
-    "expression": "Expression"
+    "expression": "Expression",
+    "model": "Semantic model"
   },
   "view": {
     "label": "View",
@@ -71,6 +72,36 @@
     "recenter": "View its lineage",
     "uses": "Uses",
     "usedBy": "Used by"
+  },
+  "cross": {
+    "switch": "Include other connections",
+    "switchTip": "Shows what reads this object from other connections: the Power BI tables fed by it and, from there, their models, reports and dashboards.",
+    "searching": "Searching the Power BI connections…",
+    "searched": "Searched in: {{names}}",
+    "searchedItem": "{{name}} (models: {{models}}{{cached}})",
+    "cached": ", cached",
+    "nobody": "No other connection reads this object.",
+    "refresh": "Search again",
+    "via": {
+      "link": "linked by you",
+      "auto": "matches by server and database",
+      "enterprise": "from DBine Enterprise"
+    },
+    "reader": "This Power BI item reads the object.",
+    "openLink": "Open in Power BI",
+    "resolving": "Looking for this source's connection…",
+    "follow": "View its lineage in {{name}}",
+    "followPicked": "View its lineage",
+    "unlink": "Unlink",
+    "many": "Several connections match this source. Pick one: the same one is used next time.",
+    "pick": "Connection",
+    "remembered": "The choice is remembered; \"Unlink\" removes it.",
+    "none": "No saved connection matches this source.",
+    "create": "Create connection from the source…",
+    "notFound": "This object was not found in {{name}}.",
+    "badge": "Connection: {{name}}",
+    "report": "Power BI report",
+    "dashboard": "Power BI dashboard"
   },
   "jobs": {
     "title": "Server jobs that run it",

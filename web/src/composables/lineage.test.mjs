@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-const { newLineage, addUses, addUsedBy, nodeId, jobNodeId, sideCounts, layout, withoutRelations, MAX_NODES } = await import('./lineage.ts');
+const { newLineage, addUses, addUsedBy, nodeId, jobNodeId, sideCounts, layout, withoutRelations, withoutCross, setCrossUsers, replaceExternal, connNodeId, MAX_NODES } = await import('./lineage.ts');
 
 const dep = (kind, schema, name, relation = 'code', confidence = 'probable', mentions = []) => ({ kind, schema, name, parent: null, relation, confidence, detail: null, mentions });
 const report = (items, extra = {}) => ({ items, scanned: 1, unreadable: [], note: null, ...extra });
@@ -111,4 +111,67 @@ test('without relations the foreign keys go, and so do the cards only they reach
   // A graph with no foreign keys comes out the same.
   const plain = newLineage(root);
   assert.equal(withoutRelations(plain).nodes.size, 1);
+});
+
+// -- cross-connection lineage -----------------------------------------------------------------------
+
+const pbi = { id: 'pbi1', name: 'Power BI', database: 'Ventas', driver: 'powerbi' };
+const user = (name, database = 'Ventas') => ({ connection_id: 'pbi1', connection_name: 'Power BI', database, object: { kind: 'table', schema: null, name }, detail: 'Partición' });
+
+test('what other connections read goes to the right, with its connection, and the switch hides it', () => {
+  const g = newLineage(root);
+  const r = nodeId(root);
+  addUses(g, r, report([dep('table', 'dbo', 'Pedidos')]));
+  setCrossUsers(g, r, [user('Pedidos pbi'), user('Pedidos pbi', 'Otro')]);
+  const cross = [...g.nodes.values()].filter((n) => n.cross);
+  assert.equal(cross.length, 2, 'the same table name in two models is two cards');
+  assert.ok(cross.every((n) => n.conn.id === 'pbi1' && n.up === 'done' && n.down === 'none'));
+  assert.equal(g.edges.filter((e) => e.from === r && e.relation === 'external').length, 2);
+  // What a user's own right side loads belongs to ITS connection and is hidden with it.
+  const u = cross[0];
+  addUsedBy(g, u.id, report([dep('model', null, 'Ventas')], { external_users: [{ system: 'Power BI report', name: 'Tablero', detail: 'https://app.powerbi.com/r/1' }] }), u.conn);
+  const model = g.nodes.get(connNodeId(u.conn, { kind: 'model', schema: null, name: 'Ventas' }));
+  assert.equal(model.conn.id, 'pbi1');
+  const rep = [...g.nodes.values()].find((n) => n.external?.system === 'Power BI report');
+  assert.ok(rep && rep.conn.id === 'pbi1');
+  assert.equal(g.edges.find((e) => e.to === rep.id).from, u.id);
+  const plain = withoutCross(g);
+  assert.deepEqual([...plain.nodes.values()].map((n) => n.name).sort(), ['Pedidos', 'v_medidas']);
+  assert.equal(plain.edges.length, 1);
+  // A refresh drops the users the new answer lacks.
+  setCrossUsers(g, r, [user('Pedidos pbi')]);
+  assert.equal([...g.nodes.values()].filter((n) => n.cross).length, 1);
+  assert.ok(!g.nodes.has(rep.id) || g.nodes.get(u.id));
+});
+
+test('the same external twice in two connections stays two cards', () => {
+  const g = newLineage(root);
+  const x = { system: 'Power BI report', name: 'R' };
+  addUsedBy(g, nodeId(root), report([], { external_users: [x] }));
+  addUsedBy(g, nodeId(root), report([], { external_users: [x] }), pbi);
+  assert.equal([...g.nodes.values()].filter((n) => n.external).length, 2);
+});
+
+test('an external card becomes the real object of the linked connection', () => {
+  const g = newLineage({ kind: 'table', schema: null, name: 'Pedidos pbi' });
+  const r = nodeId({ kind: 'table', schema: null, name: 'Pedidos pbi' });
+  addUses(g, r, report([], { external: [{ system: 'SQL Server', server: 'srv01', database: 'ventas', schema: 'dbo', name: 'Pedidos' }] }));
+  const ext = [...g.nodes.values()].find((n) => n.external);
+  const sql = { id: 'sql1', name: 'Ventas SQL', database: '', driver: 'sqlserver' };
+  const id = replaceExternal(g, ext.id, { database: 'ventas', object: { kind: 'table', schema: 'dbo', name: 'Pedidos' } }, sql);
+  assert.ok(!g.nodes.has(ext.id));
+  const real = g.nodes.get(id);
+  assert.deepEqual([real.conn.id, real.conn.database, real.name, real.up, real.down, !!real.external], ['sql1', 'ventas', 'Pedidos', 'none', 'none', false]);
+  assert.deepEqual(g.edges.map((e) => [e.from, e.to]), [[id, r]]);
+  // Its own uses are read in its connection and stay there.
+  addUses(g, id, report([dep('table', 'dbo', 'Clientes')]), real.conn);
+  const c = [...g.nodes.values()].find((n) => n.name === 'Clientes');
+  assert.equal(c.conn.id, 'sql1');
+  assert.equal(c.id, connNodeId(real.conn, { kind: 'table', schema: 'dbo', name: 'Clientes' }));
+  // Following it twice (already there) adds no second card or line.
+  const ext2 = { id: 'x', kind: 'external', schema: null, name: 'again', up: 'done', down: 'done' };
+  g.nodes.set('x', ext2);
+  g.edges.push({ from: 'x', to: r, relation: 'external', confidence: 'confirmed', mentions: [] });
+  replaceExternal(g, 'x', { database: 'ventas', object: { kind: 'table', schema: 'dbo', name: 'Pedidos' } }, sql);
+  assert.equal(g.edges.filter((e) => e.to === r).length, 1);
 });

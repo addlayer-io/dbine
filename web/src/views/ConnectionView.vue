@@ -180,6 +180,15 @@ watch(() => props.tab.editId, () => {
     folder.value = source.folder_id;
     // A copy keeps everything but the secrets, which stay with the original.
     if (!c) name.value = t('connection:copyName', { name: source.name });
+  } else if (props.tab.prefill && conns.driver(props.tab.prefill.driver)) {
+    // A source of a lineage: its engine, host, port and database; the credentials are the user's.
+    const d = conns.driver(props.tab.prefill.driver)!;
+    pick(d);
+    for (const k of ['host', 'port', 'database'] as const) {
+      const v = props.tab.prefill[k];
+      if (d.fields.some((f) => f.key === k) && v !== undefined && v !== null && v !== '' && v !== 0) values[k] = String(v);
+    }
+    folder.value = props.tab.folderId;
   } else {
     driver.value = null;
     step.value = 'pick';

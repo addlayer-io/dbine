@@ -1091,6 +1091,48 @@ export interface ExternalRef {
   mentions?: Mention[];
 }
 
+/** A saved connection a lineage source may be (`lineage_resolve_source`): `link` the one the user
+ *  chose before, `auto` the one whose host and database match, `enterprise` a managed one the
+ *  server allows this person. */
+export interface SourceCandidate {
+  connection_id: string;
+  name: string;
+  driver: string;
+  via: 'link' | 'auto' | 'enterprise';
+}
+
+/** Which connection a source outside the database belongs to. `prefill` (no credentials) only when `status` is `none`. */
+export interface SourceMatch {
+  status: 'one' | 'many' | 'none';
+  /** The source's stable signature: what `lineage_link_source` remembers the choice by. */
+  signature: string;
+  candidates: SourceCandidate[];
+  prefill: ConnectionConfig | null;
+}
+
+/** Where a source's object is in the connection that holds it (`lineage_locate_source`). */
+export interface LocatedSource {
+  database: string;
+  object: ObjectRef;
+}
+
+/** Something in another connection that reads an object (`get_cross_users`): a Power BI table. */
+export interface CrossUser {
+  connection_id: string;
+  connection_name: string;
+  database: string;
+  object: ObjectRef;
+  detail: string | null;
+}
+
+/** Who reads an object from other connections, and what was searched to know it. */
+export interface CrossUsers {
+  users: CrossUser[];
+  searched: { connection_id: string; name: string; models: number; cached: boolean }[];
+  /** Each a whole message (translate with `tb`). */
+  notes: string[];
+}
+
 /** What "Renombrar…" renames (`dbine_driver::RenameTarget`). */
 export type RenameTarget =
   | { what: 'object'; object: ObjectRef; parent?: string | null }
