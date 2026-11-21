@@ -909,6 +909,7 @@ function dbItems(cid: string, db: string, items: MenuItem[]) {
     items.push(guarded(cid, db, 'create_schema', { label: t('schemas:menuNew'), action: () => { schemaDialog.value = { connectionId: cid, database: db, mode: 'create' }; } }));
   }
   items.push({ label: t('explorer:menu.databaseDiagram'), divided: true, action: () => tabs.openDiagram(cid, db) });
+  if (d.supports_dependencies) items.push({ label: t('dependencies:lineageMenu'), action: () => tabs.openDatabaseLineage(cid, db, {}) });
   if (d.language === 'sql' || d.language === 'cql') items.push({ label: t('queryBuilder:menu'), action: () => tabs.openQueryBuilder(cid, db) });
   items.push({ label: t('dbDocs:menu'), action: () => openDbDocs(cid, db) });
   if (d.supports_profiler) items.push(guarded(cid, db, 'profiler', { label: t('explorer:menu.profiler'), action: () => tabs.openProfiler(cid, db) }));
@@ -1137,6 +1138,9 @@ async function onContext(e: MouseEvent, n: TNode) {
       for (const tpl of d?.create_templates.filter((x) => x.kind === n.kindId) ?? []) {
         items.push({ label: tb(tpl.label), action: () => newFromTemplate(cid!, db, tpl, n.schema ?? defaultSchema(cid!)) });
       }
+      if (d?.supports_dependencies && n.kindId && n.spec?.kind) {
+        items.push({ label: t('dependencies:lineageMenu'), divided: items.length > 0, action: () => tabs.openDatabaseLineage(cid!, db, { schemas: n.schema ? [n.schema] : [], kinds: [n.kindId!] }) });
+      }
       items.push({ label: t('common:refresh'), divided: items.length > 0, action: () => (n.spec ? conns.loadFolder(cid!, db, n.spec, true) : conns.refreshDatabase(cid!, db)) });
       break;
     }
@@ -1147,6 +1151,7 @@ async function onContext(e: MouseEvent, n: TNode) {
       items.push({ label: t('menu:file.newNotebook'), action: () => tabs.newNotebook({ connectionId: cid!, database: db }) });
       if (d?.designer) items.push({ label: `${tb(d.designer.label)}…`, action: () => tabs.openDesigner(cid!, db, s) });
       for (const tpl of d?.create_templates ?? []) items.push({ label: tb(tpl.label), action: () => newFromTemplate(cid!, db, tpl, s) });
+      if (d?.supports_dependencies) items.push({ label: t('dependencies:lineageMenu'), action: () => tabs.openDatabaseLineage(cid!, db, { schemas: [s] }) });
       items.push({ label: t('common:refresh'), divided: true, action: () => loadDatabase(cid!, db, true) });
       items.push({ label: t('explorer:menu.copyName'), action: () => copy(s) });
       const renameSchema = schemasEditable(cid!) && renameItem({ connectionId: cid!, database: db, target: { what: 'schema', database: db || null, schema: s } }, openRename, true);

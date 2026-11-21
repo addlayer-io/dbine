@@ -47,7 +47,12 @@
     "synonym": "Sinónimo",
     "type": "Tipo",
     "sequence": "Secuencia",
-    "job": "Job"
+    "job": "Job",
+    "schema": "Esquema",
+    "measure": "Medida",
+    "calculation_group": "Grupo de cálculo",
+    "role": "Rol",
+    "expression": "Expresión"
   },
   "view": {
     "label": "Vista",
@@ -71,5 +76,32 @@
     "title": "Jobs del servidor que lo ejecutan",
     "steps": "Pasos: {{steps}}",
     "open": "Abrir el job"
+  },
+  "database": {
+    "tab": "Linaje",
+    "noSchema": "(sin esquema)",
+    "loading": "Leyendo las dependencias…",
+    "error": "No se pudo leer el linaje: {{error}}",
+    "retry": "Reintentar",
+    "ask": {
+      "text": "Este motor no tiene una consulta de dependencias en su catálogo: para dibujar el linaje hay que leer las definiciones de las vistas, rutinas y triggers de la base y buscar en ellas los objetos que nombran. En una base grande puede tardar.",
+      "button": "Analizar"
+    },
+    "search": "Filtrar por nombre",
+    "kinds": "Tipos",
+    "onlyConfirmed": "Solo confirmadas",
+    "onlyConnected": "Solo con dependencias",
+    "expandAll": "Expandir todo",
+    "collapseAll": "Contraer todo",
+    "expand": "Expandir el esquema",
+    "collapse": "Contraer el esquema",
+    "members": "Objetos: {{count}}",
+    "weight": "Dependencias: {{count}}",
+    "summary": "{{objects}} objetos, {{lines}} dependencias, {{scanned}} definiciones leídas.",
+    "overview": "La base tiene {{objects}} objetos en {{schemas}} esquemas: se muestra un resumen por esquema, y el grosor de cada línea es la cantidad de dependencias que lo cruzan. Un clic en un esquema muestra su detalle y un doble clic lo expande.",
+    "truncated": "La base tiene más objetos de los que se leyeron, así que el diagrama está incompleto. Abrí el linaje de un esquema o de un tipo para verlo entero.",
+    "hidden": "El diagrama muestra solo las primeras tarjetas: faltan {{hidden}} objetos. Contraé algún esquema o usá los filtros.",
+    "empty": "No hay objetos para dibujar con este alcance.",
+    "noMatch": "Ningún objeto cumple los filtros."
   }
 }

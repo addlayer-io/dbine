@@ -8,6 +8,7 @@ import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore, type DependenciesTab } from '../stores/tabs';
 import LineageDiagram from '../components/LineageDiagram.vue';
+import DatabaseLineage from '../components/DatabaseLineage.vue';
 
 // "Dependencias · <objeto>": what depends on a table, column, view or
 // routine, and (an object, not a column) what it uses itself. Foreign keys,
@@ -30,6 +31,7 @@ const loading = ref(false);
 const error = ref<string | null>(null);
 const usesError = ref<string | null>(null);
 const lineage = ref<InstanceType<typeof LineageDiagram> | null>(null);
+const dbLineage = ref<InstanceType<typeof DatabaseLineage> | null>(null);
 
 /** The list, or the lineage diagram (only for an object). */
 const view = computed(() => (props.tab.column ? 'list' : props.tab.view ?? 'list'));
@@ -72,6 +74,7 @@ async function load() {
   loading.value = false;
 }
 function refresh() {
+  if (props.tab.scope) return dbLineage.value?.reload();
   if (view.value === 'lineage') lineage.value?.reload();
   else void load();
 }
@@ -117,7 +120,8 @@ async function copy() {
 </script>
 
 <template>
-  <div class="dp" v-loading="loading && !report && view === 'list'">
+  <DatabaseLineage v-if="tab.scope" ref="dbLineage" :connection-id="tab.connectionId" :database="tab.database" :scope="tab.scope" />
+  <div v-else class="dp" v-loading="loading && !report && view === 'list'">
     <header class="dp-head">
       <h2>{{ $t('dependencies:tab') }} · {{ qualified }}</h2>
       <span class="dp-dim">{{ tab.database || conns.byId(tab.connectionId)?.name }}</span>

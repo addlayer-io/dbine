@@ -57,6 +57,7 @@ export function tabTitle(t: Tab, tr: Translate = i18nT): string {
   if (t.kind === 'schedulerObject') return schedulerObjectTitle(t, tr);
   if (t.kind === 'schedulerLog') return `${tr('scheduled:log.tab')} · ${conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind === 'search') return `${tr('search:tab')} · ${t.database}`;
+  if (t.kind === 'dependencies' && t.scope) return `${tr('dependencies:database.tab')} · ${t.scope.schemas?.length === 1 ? `${t.database ? `${t.database}.` : ''}${t.scope.schemas[0]}` : t.database || conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind === 'dependencies') return `${tr('dependencies:tab')} · ${t.column ? `${t.object.name}.${t.column}` : t.object.name}`;
   if (t.kind === 'backups') return `${tr('backups:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
   if (t.kind === 'security') return `${tr('security:tab')} · ${t.database || conns.byId(t.connectionId)?.name || ''}`;
