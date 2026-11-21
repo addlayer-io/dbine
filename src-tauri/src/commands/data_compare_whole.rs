@@ -77,21 +77,36 @@ const FILE: &str = "compare.duckdb";
 /// What the scratch DuckDB may hold in memory; past it, it works on its
 /// encrypted temp files.
 pub(crate) const MEMORY_LIMIT: &str = "512MB";
+/// [`MEMORY_LIMIT`] in MB.
+const MEMORY_MB: usize = 512;
 const ALIAS: &str = "cmp";
 
-/// The scratch DuckDB's memory and threads (`None`: DuckDB's default, one
-/// per core). Without [`Layout`] columns, a table compare's or an exact
-/// query compare's, its joins carry a few hashes a row and [`MEMORY_LIMIT`]
-/// fits millions of rows on every core. With them (a query compare with a
-/// tolerance or NULL as BLANK keeps three columns per compared column) the
-/// joins carry wide rows, and DuckDB needs memory per thread for them: 60
-/// such columns over 3,000,000 rows a side ran out of 512 MB from 4 threads
-/// on (the DBA's "failed to pin block"), 200 needed 1 GB on one thread. So
-/// one thread, and memory that grows with the columns, up to 2 GB; past
-/// that DuckDB works on its temp files.
+/// Memory each of the scratch DuckDB's threads gets, at least: DuckDB
+/// splits its memory among its threads, and a share too small runs out
+/// even where the work fits.
+const MB_PER_THREAD: usize = 64;
+
+/// The scratch DuckDB's memory and threads. Without [`Layout`] columns, a
+/// table compare's or an exact query compare's, its joins carry a few
+/// hashes a row, but each thread still needs its share of the memory: over
+/// 4,000,000 rows on one side and 8,000,000 on the other, 512 MB held 16
+/// threads and ran out from 24 on. So [`MEMORY_LIMIT`] and a thread per
+/// [`MB_PER_THREAD`] (8), fewer on a machine with fewer cores. With them (a
+/// query compare with a tolerance or NULL as BLANK keeps three columns per
+/// compared column) the joins carry wide rows, and DuckDB needs memory per
+/// thread for them: 60 such columns over 3,000,000 rows a side ran out of
+/// 512 MB from 4 threads on (the DBA's "failed to pin block"), 200 needed
+/// 1 GB on one thread. So one thread, and memory that grows with the
+/// columns, up to 2 GB; past that DuckDB works on its temp files.
 fn resources(layout: Option<&Layout>) -> (String, Option<usize>) {
     match layout {
-        None => (MEMORY_LIMIT.to_string(), None),
+        None => {
+            let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+            (
+                MEMORY_LIMIT.to_string(),
+                Some((MEMORY_MB / MB_PER_THREAD).clamp(1, cores)),
+            )
+        }
         Some(l) => (
             format!("{}MB", (512 + 5 * l.values.len()).min(2048)),
             Some(1),
@@ -1898,17 +1913,40 @@ impl Scratch {
                 }
             }
         }
+        // A repeated key counts once, as its first row read. The rows that
+        // repeat one are found over narrow columns (side, order read, key's
+        // hash) and each view leaves them out: a `QUALIFY row_number() … = 1`
+        // over the view itself, DuckDB 2.0 turns into a grouping that keeps
+        // every key's whole row (`v`, the layout's columns) in memory, which
+        // ran out of 512 MB bringing back the differences over 4,000,000
+        // rows of ~2.5 KB a side (the DBA's "failed to allocate data of
+        // size 16.0 MiB").
+        let repeated: Vec<String> = (0..2)
+            .filter(|&s| per[s].0 > per[s].1)
+            .map(|s| s.to_string())
+            .collect();
+        if !repeated.is_empty() {
+            self.exec(
+                ctl,
+                &format!(
+                    "CREATE TEMP TABLE dropped AS SELECT s, n FROM {ALIAS}.main.rows WHERE s IN ({}) \
+                     QUALIFY row_number() OVER (PARTITION BY s, k1, k2 ORDER BY n) > 1",
+                    repeated.join(", ")
+                ),
+            )
+            .await?;
+        }
         for (side, view) in ["l", "r"].into_iter().enumerate() {
             let first = if per[side].0 > per[side].1 {
-                " QUALIFY row_number() OVER (PARTITION BY k1, k2 ORDER BY n) = 1"
+                format!(" ANTI JOIN (SELECT n FROM dropped WHERE s = {side}) dropped USING (n)")
             } else {
-                ""
+                String::new()
             };
             let extra = self.extra_select();
             self.exec(
                 ctl,
                 &format!(
-                    "CREATE TEMP VIEW {view} AS SELECT k1, k2, k, o, h1, h2, v{extra} FROM {ALIAS}.main.rows WHERE s = {side}{first}"
+                    "CREATE TEMP VIEW {view} AS SELECT k1, k2, k, o, h1, h2, v{extra} FROM {ALIAS}.main.rows{first} WHERE s = {side}"
                 ),
             )
             .await?;

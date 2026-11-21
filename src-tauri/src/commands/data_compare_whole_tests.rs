@@ -1249,10 +1249,11 @@ async fn long_keys_fit_the_scratch_memory() {
     }
 }
 
-/// The scratch DuckDB's memory and threads: the default with no layout
-/// columns; with them one thread and memory that grows with the columns
-/// (60 columns ran 512 MB out from 4 threads on, a DBA's "failed to pin
-/// block"), up to 2 GB.
+/// The scratch DuckDB's memory and threads: with no layout columns, a
+/// thread per 64 MB of its 512 (more ran out over 4,000,000 rows a side),
+/// fewer on a machine with fewer cores; with them one thread and memory
+/// that grows with the columns (60 columns ran 512 MB out from 4 threads
+/// on, a DBA's "failed to pin block"), up to 2 GB.
 #[test]
 fn wide_layouts_get_one_thread_and_more_memory() {
     let rules: Arc<dyn Rules> = Arc::new(
@@ -1268,7 +1269,11 @@ fn wide_layouts_get_one_thread_and_more_memory() {
         rules: rules.clone(),
         values: 1..1 + n,
     };
-    assert_eq!(resources(None), (MEMORY_LIMIT.to_string(), None));
+    let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
+    assert_eq!(
+        resources(None),
+        (MEMORY_LIMIT.to_string(), Some(8.min(cores)))
+    );
     assert_eq!(resources(Some(&layout(60))), ("812MB".to_string(), Some(1)));
     assert_eq!(
         resources(Some(&layout(400))),
@@ -1341,6 +1346,83 @@ async fn millions_of_differences_fit_the_scratch_memory() {
             lists.changed.len()
         ),
         (max / 2, max / 2, 0)
+    );
+    s.close().await;
+    assert_eq!(leftovers(&root.0), Vec::<String>::new());
+}
+
+/// The DBA's query compare of a month against two (Databricks, "Out of
+/// Memory Error: failed to allocate data of size 16.0 MiB" over 4,000,000
+/// rows): wide rows, a few repeated keys on each side and a right side
+/// twice the left, so most differences are rows only it has. Keeping each
+/// key's first row with a `QUALIFY row_number() … = 1` over the views made
+/// DuckDB hold every key's whole row while it brought the differences back,
+/// and that ran out of the scratch memory. Here at a tenth of the size, in
+/// 64 MB, where the repeated rows must be left out over narrow columns.
+#[tokio::test(flavor = "multi_thread")]
+async fn repeated_keys_in_wide_rows_fit_the_scratch_memory() {
+    const LEFT: i64 = 200_000;
+    let max = 100_000;
+    let root = temp_dir("repeated");
+    let ctl = Arc::new(Ctl::default());
+    let mut s = Scratch::open(Some(&root.0), &ctl, None, "64MB", Some(2))
+        .await
+        .expect("opens");
+    s.create(&ctl).await.unwrap();
+    // Every 1000th row repeats the key before it, with values of its own
+    // (the first one read is the one compared); the right side changes the
+    // values of the keys that are multiples of 50. ~2.4 KB a row.
+    let side = |side: u8, rows: i64| {
+        format!(
+            "INSERT INTO main.rows SELECT {side}, i - 1, (hash(id) >> 1)::BIGINT, (hash(id + 1000000000) >> 1)::BIGINT, \
+             id::VARCHAR, '0' || lpad(id::VARCHAR, 16, '0') || chr(1), (hash(val) >> 1)::BIGINT, 0, \
+             '[' || id || ',\"' || val || '\"]' \
+             FROM (SELECT i, id, CASE WHEN {side} = 1 AND id % 50 = 0 THEN 'changed ' ELSE '' END \
+                       || md5(i::VARCHAR) || repeat('x', 2400) AS val \
+                   FROM (SELECT i, CASE WHEN i % 1000 = 0 THEN i - 1 ELSE i END AS id FROM range(1, {rows} + 1) r(i)))"
+        )
+    };
+    local_duckdb::exec(s.session(), &side(0, LEFT))
+        .await
+        .unwrap();
+    local_duckdb::exec(s.session(), &side(1, 2 * LEFT))
+        .await
+        .unwrap();
+    let (counts, dups) = s.counts(&ctl).await.unwrap();
+    // 200 repeated rows on the left, 400 on the right; the multiples of 50
+    // (but not of 1000, which no row has) changed.
+    assert_eq!(dups, 600);
+    assert_eq!(
+        counts,
+        Counts {
+            left: LEFT as u64,
+            right: 2 * LEFT as u64,
+            same: 196_000,
+            changed: 3_800,
+            only_left: 0,
+            only_right: 199_800,
+        }
+    );
+    let projection = Arc::new(Projection {
+        columns: vec![("id".into(), "id".into()), ("val".into(), "val".into())],
+        nk: 1,
+        bools: [vec![false; 2], vec![false; 2]],
+        vectors: Default::default(),
+        precision: Vec::new(),
+        only_left_columns: Vec::new(),
+        only_right_columns: Vec::new(),
+    });
+    let job = Arc::new(Job::new(ctl.clone(), projection, &opts(1, max, &root.0)));
+    let lists = s.differences(&ctl, &job, 1, max).await.unwrap();
+    // The first `max` in key order: the changed keys (all up to 200,000),
+    // then the right's own.
+    assert_eq!(
+        (
+            lists.only_left.len(),
+            lists.only_right.len(),
+            lists.changed.len()
+        ),
+        (0, max - 3_800, 3_800)
     );
     s.close().await;
     assert_eq!(leftovers(&root.0), Vec::<String>::new());
