@@ -26,6 +26,7 @@ import LineageCanvas from './LineageCanvas.vue';
 import EngineIcon from './EngineIcon.vue';
 import LineageDetail from './LineageDetail.vue';
 import LineageSource from './LineageSource.vue';
+import LineageInternalNote from './LineageInternalNote.vue';
 
 const props = defineProps<{ connectionId: string; database: string; root: ObjectRef; rootJobId?: string | null }>();
 const tabs = useTabsStore();
@@ -59,6 +60,8 @@ const selected = ref<string | null>(null);
 const search = ref('');
 
 /** The connection and database a card is read in: its own, else the diagram's. */
+/** The card is in one of the lineage's internal connections (not in the explorer). */
+const isInternal = (n: LineageNode) => !!n.conn && conns.hidden.some((c) => c.id === n.conn!.id);
 const connOf = (n: LineageNode) => ({ id: n.conn?.id ?? props.connectionId, database: n.conn?.database ?? props.database });
 const driverOf = (n: LineageNode) => n.conn?.driver ?? conns.byId(n.conn?.id ?? '')?.config.driver ?? '';
 
@@ -276,8 +279,9 @@ function recenter(n: LineageNode) {
       </LineageCanvas>
       <LineageDetail v-if="sel" :graph="graph" :sel="sel" :kind-label="kindLabel" @select="selected = $event">
         <template #icon><component :is="`ei-${icon(sel)}`" /></template>
-        <template v-if="sel.external" #extra>
-          <LineageSource :connection-id="connOf(sel).id" :source="sel.external" :busy="following" @follow="follow(sel, $event)" />
+        <template v-if="sel.external || isInternal(sel)" #extra>
+          <LineageSource v-if="sel.external" :connection-id="connOf(sel).id" :source="sel.external" :busy="following" @follow="follow(sel, $event)" />
+          <LineageInternalNote v-else :connection-id="connOf(sel).id" />
         </template>
         <template #actions>
           <template v-if="!sel.external">

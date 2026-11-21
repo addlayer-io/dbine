@@ -174,9 +174,18 @@ export const api = {
   lineageResolveSource: (connectionId: string, source: ExternalRef) =>
     invoke<SourceMatch>('lineage_resolve_source', { args: { connection_id: connectionId, source } }),
   /** Remember (or, with null, forget) which connection a source is. */
-  /** The connection for a source: the saved one, or a temporary read-only one made from it. */
-  lineageOpenSource: (connectionId: string, source: ExternalRef, username: string | null = null) =>
-    invoke<OpenedSource>('lineage_open_source', { args: { connection_id: connectionId, source, username } }),
+  /** The connection for a source: the saved one, or the lineage's internal one (hidden from the explorer,
+   *  read-only), made from it with the login typed; `remember` keeps the password in the keychain. */
+  lineageOpenSource: (connectionId: string, source: ExternalRef, login: { username?: string | null; password?: string | null; remember?: boolean } = {}) =>
+    invoke<OpenedSource>('lineage_open_source', {
+      args: { connection_id: connectionId, source, username: login.username ?? null, password: login.password ?? null, remember: login.remember ?? false },
+    }),
+  /** The lineage's internal connections (Settings lists them). */
+  lineageInternalList: () => invoke<SavedConnection[]>('lineage_internal_list'),
+  /** "Olvidar": the connection and its remembered password. */
+  lineageInternalForget: (id: string) => invoke<null>('lineage_internal_forget', { args: { id } }),
+  /** "Agregar al explorador": it becomes a saved connection (same id, read-only). */
+  lineageInternalPromote: (id: string) => invoke<SavedConnection>('lineage_internal_promote', { args: { id } }),
   lineageLinkSource: (signature: string, connectionId: string | null) =>
     invoke<null>('lineage_link_source', { args: { signature, connection_id: connectionId } }),
   /** Where the source's table is in `connectionId`: its database and the object found there. */

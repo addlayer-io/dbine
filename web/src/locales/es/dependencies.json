@@ -85,7 +85,8 @@
     "via": {
       "link": "vinculada por vos",
       "auto": "coincide por servidor y base",
-      "enterprise": "de DBine Enterprise"
+      "enterprise": "de DBine Enterprise",
+      "internal": "conexión interna del linaje"
     },
     "reader": "Este elemento de Power BI lee el objeto.",
     "openLink": "Abrir en Power BI",
@@ -96,13 +97,19 @@
     "many": "Varias conexiones coinciden con esta fuente. Elegí una: la próxima vez se usa la misma.",
     "pick": "Conexión",
     "remembered": "La elección se recuerda; «Desvincular» la quita.",
-    "none": "Ninguna conexión guardada coincide con esta fuente.",
     "create": "Conectar con la fuente",
     "notFound": "No se encontró este objeto en {{name}}.",
     "badge": "Conexión: {{name}}",
     "report": "Reporte de Power BI",
     "dashboard": "Panel de Power BI",
-    "userPrompt": "Usuario para conectar con {{source}}. La conexión es temporal y de solo lectura: no se guarda."
+    "loginIntro": "Para ver su linaje hay que conectarse a {{source}}. La conexión es de solo lectura.",
+    "user": "Usuario",
+    "password": "Contraseña",
+    "remember": "Recordar en este equipo",
+    "loginNote": "La conexión es interna del linaje y no aparece en el explorador. La contraseña se guarda en el llavero del sistema solo si dejás marcada la casilla.",
+    "connecting": "Conectando con la fuente…",
+    "cantConnect": "No se pudo conectar con {{name}}.",
+    "noServer": "Esta fuente no es un servidor al que DBine pueda conectarse."
   },
   "jobs": {
     "title": "Jobs del servidor que lo ejecutan",
@@ -137,5 +144,19 @@
     "noMatch": "Ningún objeto cumple los filtros.",
     "relations": "Relaciones ({{count}})",
     "relationsTip": "Las claves foráneas (y las relaciones de un modelo) van en paralelo al linaje: activalas para verlas junto a él."
+  },
+  "sources": {
+    "nav": "Fuentes del linaje",
+    "title": "Fuentes del linaje",
+    "intro": "Conexiones que el linaje hizo por su cuenta para seguir una fuente hasta otra base (por ejemplo, la tabla de SQL Server que lee un modelo de Power BI). No aparecen en el explorador. Podés olvidarlas o agregarlas al explorador como conexiones comunes, que siguen siendo de solo lectura.",
+    "none": "Todavía no hay ninguna: se crean al seguir una fuente del linaje.",
+    "remembered": "Contraseña recordada en este equipo",
+    "notRemembered": "Sin contraseña recordada: se pide en cada sesión",
+    "addToExplorer": "Agregar al explorador",
+    "forget": "Olvidar",
+    "forgetConfirm": "Se elimina la conexión «{{name}}» y su contraseña recordada. El linaje la vuelve a pedir la próxima vez que siga esa fuente.",
+    "forgotten": "Conexión olvidada.",
+    "added": "«{{name}}» ya está en el explorador.",
+    "internalNote": "Conexión interna del linaje: «{{name}}» no está en el explorador."
   }
 }

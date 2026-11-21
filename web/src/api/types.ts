@@ -1098,7 +1098,8 @@ export interface SourceCandidate {
   connection_id: string;
   name: string;
   driver: string;
-  via: 'link' | 'auto' | 'enterprise';
+  /** `internal`: the connection the lineage made for this source (hidden from the explorer). */
+  via: 'link' | 'auto' | 'enterprise' | 'internal';
 }
 
 /** Which connection a source outside the database belongs to. `prefill` (no credentials) only when `status` is `none`. */
@@ -1109,6 +1110,8 @@ export interface OpenedSource {
   name: string;
   driver: string;
   needs_user: boolean;
+  /** Its password is kept in the keychain ("Recordar en este equipo"). */
+  remembered: boolean;
 }
 
 export interface SourceMatch {
@@ -1117,6 +1120,8 @@ export interface SourceMatch {
   signature: string;
   candidates: SourceCandidate[];
   prefill: ConnectionConfig | null;
+  /** Its engine asks for a user and a password: the panel shows the login form. */
+  needs_login: boolean;
 }
 
 /** Where a source's object is in the connection that holds it (`lineage_locate_source`). */

@@ -11,6 +11,7 @@ use dbine_core::lineage_link::{
     match_connections, new_connection_from_source, source_key_of_config, source_key_of_external,
     Match,
 };
+use dbine_core::secrets::{self, Secrets};
 use dbine_core::state::SavedConnection;
 use dbine_driver::dependencies::{ExternalRef, LineageExternal, LineageScope};
 use dbine_driver::{ConnectionConfig, DbObject, ObjectQuery, ObjectRef};
@@ -89,7 +90,7 @@ pub struct Candidate {
     pub connection_id: String,
     pub name: String,
     pub driver: String,
-    /// `link` (the user's), `auto` (matched by server) or `enterprise`.
+    /// `link` (the user's), `auto` (matched by server), `enterprise` or `internal` (the lineage's own).
     pub via: String,
 }
 
@@ -101,6 +102,8 @@ pub struct SourceMatch {
     pub candidates: Vec<Candidate>,
     /// A new connection's config (no credentials), only when `none`.
     pub prefill: Option<ConnectionConfig>,
+    /// Its engine asks for a user and a password: the panel shows the login form.
+    pub needs_login: bool,
 }
 
 /// `one`, `many` or `none` by how many candidates there are.
@@ -251,6 +254,7 @@ async fn resolve_source_of(
             signature: String::new(),
             candidates: Vec::new(),
             prefill: None,
+            needs_login: false,
         });
     };
     let signature = key.signature();
@@ -276,26 +280,27 @@ async fn resolve_source_of(
             }
         }
     }
-    let candidates = merge_candidates(lists);
+    let mut candidates = merge_candidates(lists);
+    // No saved connection knows it: the one the lineage made for it before (hidden, its login kept
+    // or typed this run) is the answer, so following needs nothing from the user.
+    if candidates.is_empty() {
+        let internals = state.store.list_lineage_connections()?;
+        if let Some(c) = internal_for(&internals, &signature) {
+            candidates.push(candidate(c, "internal"));
+        }
+    }
     let status = status_of(&candidates).to_string();
     let prefill = (status == "none")
         .then(|| new_connection_from_source(&args.source))
         .flatten();
+    let needs_login = prefill.as_ref().is_some_and(|p| needs_login(&p.driver));
     Ok(SourceMatch {
         status,
         signature,
         candidates,
         prefill,
+        needs_login,
     })
-}
-
-#[derive(Deserialize)]
-pub struct OpenSourceArgs {
-    pub connection_id: String,
-    pub source: ExternalRef,
-    /// The login the source needs when nothing saved knows it (asked once; never stored).
-    #[serde(default)]
-    pub username: Option<String>,
 }
 
 /// The connection that opens a source, ready to follow the lineage there.
@@ -306,6 +311,8 @@ pub struct OpenedSource {
     pub driver: String,
     /// The engine needs a user and none is known: ask for it and call again with `username`.
     pub needs_user: bool,
+    /// Its password is kept in the keychain ("Recordar en este equipo").
+    pub remembered: bool,
 }
 
 /// Engines whose connection is a user and a password.
@@ -316,10 +323,50 @@ fn needs_login(driver: &str) -> bool {
     )
 }
 
-/// The connection for a source: the saved one it points to, else a **temporary** one (not saved, not
-/// listed in backups, sync or MCP, gone when DBine restarts) built from the source's engine, server
-/// and database, read-only, and the same one for the same source every time. The password is asked
-/// when it connects and never kept.
+/// The lineage's internal connection already made for a source, if any.
+fn internal_for<'a>(
+    internals: &'a [SavedConnection],
+    signature: &str,
+) -> Option<&'a SavedConnection> {
+    internals
+        .iter()
+        .find(|c| source_key_of_config(&c.config).is_some_and(|k| k.signature() == signature))
+}
+
+/// Whether the typed password goes to the keychain: only when the user asked and there is one.
+fn keeps_password(remember: bool, password: Option<&str>) -> bool {
+    remember && password.is_some_and(|p| !p.is_empty())
+}
+
+/// The name an internal connection shows (in Settings), from the source's server and database.
+fn internal_name(config: &ConnectionConfig) -> String {
+    if config.database.is_empty() {
+        config.host.clone()
+    } else {
+        format!("{} · {}", config.database, config.host)
+    }
+}
+
+#[derive(Deserialize)]
+pub struct OpenSourceArgs {
+    pub connection_id: String,
+    pub source: ExternalRef,
+    /// The login the source needs when nothing saved knows it.
+    #[serde(default)]
+    pub username: Option<String>,
+    /// Typed with it. Kept for this run only (never in the state file), or in the keychain with `remember`.
+    #[serde(default)]
+    pub password: Option<String>,
+    /// "Recordar en este equipo": keep the password in the keychain, as a saved connection does.
+    #[serde(default)]
+    pub remember: bool,
+}
+
+/// The connection for a source: the saved one it points to, else the lineage's **internal** one: a
+/// hidden connection (not in the explorer, backups, sync, MCP or the phone), read-only, built from
+/// the source's engine, server and database, and the same one for the same source every time. It
+/// lasts across runs only with a remembered password (in the keychain, like a saved connection's);
+/// without, the password is this run's and the connection is gone when DBine restarts.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn lineage_open_source(
     state: State<'_, AppState>,
@@ -336,11 +383,16 @@ pub async fn lineage_open_source(
     match found.status.as_str() {
         "one" => {
             let c = &found.candidates[0];
+            let remembered = state
+                .store
+                .get_connection(&c.connection_id)?
+                .is_some_and(|c| c.save_password);
             return Ok(OpenedSource {
                 connection_id: c.connection_id.clone(),
                 name: c.name.clone(),
                 driver: c.driver.clone(),
                 needs_user: false,
+                remembered,
             });
         }
         "many" => {
@@ -354,20 +406,6 @@ pub async fn lineage_open_source(
         CommandError::BadRequest("la fuente no es un servidor al que DBine pueda conectarse".into())
     })?;
     config.read_only = true;
-    // The same source reuses its temporary connection, with the login typed before.
-    if let Some(c) = state
-        .store
-        .list_temporary_connections()?
-        .into_iter()
-        .find(|c| source_key_of_config(&c.config).is_some_and(|k| k.signature() == found.signature))
-    {
-        return Ok(OpenedSource {
-            connection_id: c.id,
-            name: c.name,
-            driver: c.config.driver,
-            needs_user: false,
-        });
-    }
     if let Some(u) = args.username.filter(|u| !u.trim().is_empty()) {
         config.username = Some(u.trim().to_string());
     }
@@ -377,23 +415,39 @@ pub async fn lineage_open_source(
             name: String::new(),
             driver: config.driver,
             needs_user: true,
+            remembered: false,
         });
     }
-    let host = config.host.clone();
-    let name = if config.database.is_empty() {
-        host
-    } else {
-        format!("{} · {}", config.database, host)
-    };
-    let saved = state.store.add_temporary_connection(&SavedConnection {
-        id: uuid::Uuid::new_v4().to_string(),
+    let id = uuid::Uuid::new_v4().to_string();
+    let password = args.password.filter(|p| !p.is_empty());
+    // In the keychain when asked; if it refuses, this run's only (the connection then asks again next time).
+    let remembered = keeps_password(args.remember, password.as_deref())
+        && match secrets::set(
+            &id,
+            &Secrets::from([("password".to_string(), password.clone().unwrap_or_default())]),
+        ) {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!(%e, "lineage source: the keychain refused the password");
+                false
+            }
+        };
+    if let Some(p) = password {
+        state
+            .typed_secrets
+            .entry(id.clone())
+            .or_default()
+            .insert("password".to_string(), p);
+    }
+    let name = internal_name(&config);
+    let saved = state.store.add_lineage_connection(&SavedConnection {
+        id,
         name: name.clone(),
         color: None,
         config: config.clone(),
-        save_password: false,
+        save_password: remembered,
         folder_id: None,
         tags: Vec::new(),
-        // MCP clients never reach it: it is a temporary one, and says so.
         mcp_level: Some("disabled".into()),
         updated_at: String::new(),
     })?;
@@ -402,7 +456,57 @@ pub async fn lineage_open_source(
         name,
         driver: config.driver,
         needs_user: false,
+        remembered,
     })
+}
+
+#[derive(Deserialize)]
+pub struct InternalIdArgs {
+    pub id: String,
+}
+
+/// The lineage's internal connections: what Settings lists to forget or add to the explorer.
+#[tauri::command]
+pub async fn lineage_internal_list(
+    state: State<'_, AppState>,
+) -> CommandResult<Vec<SavedConnection>> {
+    Ok(state.store.list_lineage_connections()?)
+}
+
+/// "Olvidar": the internal connection, its sessions and its keychain secret.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn lineage_internal_forget(
+    state: State<'_, AppState>,
+    args: InternalIdArgs,
+) -> CommandResult<()> {
+    if !state.store.is_lineage_connection(&args.id)? {
+        return Err(CommandError::NotFound(format!(
+            "no existe la conexión interna '{}'",
+            args.id
+        )));
+    }
+    state.close_connection_sessions(&args.id);
+    state.typed_secrets.remove(&args.id);
+    state.keychain_cache.remove(&args.id);
+    secrets::delete(&args.id)?;
+    state.cache_forget(&args.id);
+    state.store.delete_lineage_connection(&args.id)?;
+    Ok(())
+}
+
+/// "Agregar al explorador": the internal connection becomes a saved one (same id, so the remembered
+/// password goes with it), read-only as it was.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn lineage_internal_promote(
+    state: State<'_, AppState>,
+    args: InternalIdArgs,
+) -> CommandResult<SavedConnection> {
+    state
+        .store
+        .promote_lineage_connection(&args.id)?
+        .ok_or_else(|| {
+            CommandError::NotFound(format!("no existe la conexión interna '{}'", args.id))
+        })
 }
 
 #[derive(Deserialize)]
@@ -910,5 +1014,40 @@ mod tests {
         for d in ["databricks", "azure_databricks", "snowflake", "fabric"] {
             assert!(!needs_login(d), "{d}");
         }
+    }
+
+    #[test]
+    fn the_login_form_is_only_for_engines_that_ask_for_one() {
+        for d in ["sqlserver", "azuresql", "postgres", "mysql", "oracle"] {
+            assert!(needs_login(d), "{d}");
+        }
+        for d in ["databricks", "snowflake", "duckdb", "powerbi"] {
+            assert!(!needs_login(d), "{d}");
+        }
+    }
+
+    #[test]
+    fn a_password_goes_to_the_keychain_only_when_asked_and_typed() {
+        assert!(keeps_password(true, Some("x")));
+        assert!(!keeps_password(false, Some("x")));
+        assert!(!keeps_password(true, Some("")));
+        assert!(!keeps_password(true, None));
+    }
+
+    #[test]
+    fn the_same_source_finds_the_same_internal_connection() {
+        let e = ext("srv-dw01", "indicadores", Some("dbo"), "medidas");
+        let key = source_key_of_external(&e).unwrap();
+        let mut mine = conn("mine", "sqlserver", "srv-dw01", "indicadores");
+        mine.config.read_only = true;
+        let other = conn("other", "sqlserver", "srv-dw02", "indicadores");
+        let list = vec![other, mine];
+        assert_eq!(
+            internal_for(&list, &key.signature()).map(|c| c.id.as_str()),
+            Some("mine")
+        );
+        let none = source_key_of_external(&ext("srv-x", "d", None, "t")).unwrap();
+        assert!(internal_for(&list, &none.signature()).is_none());
+        assert_eq!(internal_name(&list[1].config), "indicadores · srv-dw01");
     }
 }

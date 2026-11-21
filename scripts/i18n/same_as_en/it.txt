@@ -402,3 +402,4 @@ backend:Timeplus
 dependencies.json:kind.job
 dependencies.json:kind.schema
 dependencies.json:database.tab
+dependencies.json:cross.password

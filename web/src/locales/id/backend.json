@@ -19110,5 +19110,8 @@
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": "Proses masuk untuk koneksi ini tidak memiliki izin untuk membaca laporan dan dasbor",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": "Proses masuk untuk koneksi ini tidak memiliki izin untuk membaca laporan dan dasbor (Report.Read.All dan Dashboard.Read.All): lineage tidak menampilkan siapa yang membaca model. Masuk kembali dengan izin tersebut atau gunakan klien Microsoft lain. Izin token: {0}.",
   "no se pudieron leer": "tidak dapat dibaca",
-  "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI tidak menerima token (HTTP 401): masuk lagi."
+  "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI tidak menerima token (HTTP 401): masuk lagi.",
+  "no existe la conexión interna '{0}'": "koneksi internal '{0}' tidak ada",
+  "hay varias conexiones que coinciden: elegí una": "beberapa koneksi cocok: pilih satu",
+  "la fuente no es un servidor al que DBine pueda conectarse": "sumber ini bukan server yang dapat dihubungi DBine"
 }

@@ -23,6 +23,7 @@ import {
 import LineageCanvas from './LineageCanvas.vue';
 import LineageDetail from './LineageDetail.vue';
 import LineageSource from './LineageSource.vue';
+import LineageInternalNote from './LineageInternalNote.vue';
 
 const props = defineProps<{ connectionId: string; database: string; scope: LineageScope }>();
 const conns = useConnectionsStore();
@@ -171,6 +172,7 @@ const filtering = computed(() => !!(filters.value.kinds.length || filters.value.
     <header class="dl-head">
       <h2>{{ $t('dependencies:database.tab') }} · {{ database || conns.byId(connectionId)?.name }}</h2>
       <span v-if="scopeText" class="dl-dim">{{ scopeText }}</span>
+      <LineageInternalNote :connection-id="connectionId" />
       <span style="flex: 1" />
       <el-button size="small" :loading="phase === 'loading'" :disabled="phase === 'ask'" @click="reload">
         <el-icon><ei-refresh /></el-icon><span>{{ $t('dependencies:refresh') }}</span>

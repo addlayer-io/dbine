@@ -4,11 +4,12 @@
 // time, or "Crear conexión desde la fuente…") or a Power BI report / dashboard that reads the
 // object (its link). The diagram (or the database view) does what "follow" asks.
 import { computed, ref, watch } from 'vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
 import type { ExternalRef, SourceCandidate, SourceMatch } from '../api/types';
 import { openExternalLink } from '../composables/externalLink';
+import { loginReady, planForSource } from '../composables/lineageSource';
 import { useConnectionsStore } from '../stores/connections';
 import EngineIcon from './EngineIcon.vue';
 
@@ -79,31 +80,84 @@ async function unlink() {
   }
   await resolve();
 }
-/** Connect to the source without saving anything: a temporary, read-only connection made from it (the
- *  same one the next time), the user asked once when the engine needs one, the password when it connects. */
+/** Following a source needs no step of its own: with one connection it is followed as the card is
+ *  selected, and with none the engine's login form is here (or it connects at once when the engine needs
+ *  no login). The connection is the lineage's own, hidden from the explorer. */
+const plan = computed(() => planForSource(match.value));
+const user = ref('');
+const password = ref('');
+const remember = ref(true);
 const connecting = ref(false);
-async function connect() {
-  connecting.value = true;
-  try {
-    let r = await api.lineageOpenSource(props.connectionId, props.source);
-    if (r.needs_user) {
-      let user: string;
-      try {
-        const where = [props.source.server, props.source.database].filter(Boolean).join(' · ');
-        user = (await ElMessageBox.prompt(t('dependencies:cross.userPrompt', { source: where }), t('common:connect'), {
-          confirmButtonText: t('common:connect'), cancelButtonText: t('common:cancel'),
-        })).value;
-      } catch {
+const failed = ref('');
+// Followed on its own once per source: a failure leaves the button for another try.
+let auto = '';
+watch(plan, (p) => {
+  const m = match.value;
+  if (!p || !m || props.busy || connecting.value || auto === m.signature + p.kind) return;
+  if (p.kind === 'follow') {
+    auto = m.signature + p.kind;
+    void go(p.candidate);
+  } else if (p.kind === 'connect') {
+    auto = m.signature + p.kind;
+    void connect();
+  }
+});
+watch(() => [props.connectionId, props.source], () => {
+  auto = '';
+  failed.value = '';
+  user.value = '';
+  password.value = '';
+});
+watch(match, (m) => { if (m?.prefill?.username && !user.value) user.value = m.prefill.username; });
+
+/** Follow a candidate. The lineage's own connection is connected here (it asks for a password when it
+ *  needs one and says why when it can't). */
+async function go(c: SourceCandidate) {
+  failed.value = '';
+  if (c.via === 'internal') {
+    connecting.value = true;
+    try {
+      await conns.loadHidden();
+      if (!(await conns.ensureConnected(c.connection_id))) {
+        failed.value = t('dependencies:cross.cantConnect', { name: c.name });
         return;
       }
-      r = await api.lineageOpenSource(props.connectionId, props.source, user);
+    } catch (e) {
+      failed.value = errorMessage(e);
+      return;
+    } finally {
+      connecting.value = false;
     }
-    await conns.load();
-    // Asks the password when it needs one, and says why when it can't connect.
-    if (!(await conns.ensureConnected(r.connection_id))) return;
-    emit('follow', { connection_id: r.connection_id, name: r.name, driver: r.driver, via: 'auto' });
+  }
+  emit('follow', c);
+}
+
+/** Connect to the source through the lineage's internal connection (read-only, not in the explorer);
+ *  `remember` keeps the password in the keychain, otherwise it is this run's. A login that fails is
+ *  forgotten, so the form is here again (and a wrong password is not kept). */
+async function connect() {
+  const p = plan.value;
+  if (p?.kind === 'login' && !loginReady(user.value)) return;
+  connecting.value = true;
+  failed.value = '';
+  let made = '';
+  try {
+    const login = p?.kind === 'login' ? { username: user.value.trim(), password: password.value, remember: remember.value } : {};
+    const r = await api.lineageOpenSource(props.connectionId, props.source, login);
+    if (r.needs_user) return;
+    made = r.connection_id;
+    await conns.loadHidden();
+    if (!(await conns.ensureConnected(r.connection_id))) {
+      failed.value = t('dependencies:cross.cantConnect', { name: r.name });
+      await conns.forgetHidden(r.connection_id).catch(() => undefined);
+      made = '';
+      return;
+    }
+    password.value = '';
+    emit('follow', { connection_id: r.connection_id, name: r.name, driver: r.driver, via: 'internal' });
   } catch (e) {
-    ElMessage.error(errorMessage(e));
+    failed.value = errorMessage(e);
+    if (made) await conns.forgetHidden(made).catch(() => undefined);
   } finally {
     connecting.value = false;
   }
@@ -124,7 +178,7 @@ async function connect() {
         <template v-if="one">
           <div class="ls-conn"><EngineIcon :id="one.driver" :name="one.driver" :size="14" /> <strong>{{ one.name }}</strong> <span class="ls-dim">· {{ via(one) }}</span></div>
           <div class="ls-actions">
-            <el-button size="small" type="primary" :loading="busy" @click="emit('follow', one)">{{ $t('dependencies:cross.follow', { name: one.name }) }}</el-button>
+            <el-button size="small" type="primary" :loading="busy || connecting" @click="go(one)">{{ $t('dependencies:cross.follow', { name: one.name }) }}</el-button>
             <el-button v-if="one.via === 'link'" size="small" @click="unlink">{{ $t('dependencies:cross.unlink') }}</el-button>
           </div>
         </template>
@@ -140,12 +194,28 @@ async function connect() {
           </div>
           <div class="ls-dim">{{ $t('dependencies:cross.remembered') }}</div>
         </template>
-        <template v-else>
-          <div class="ls-dim">{{ $t('dependencies:cross.none') }}</div>
-          <div v-if="match.prefill" class="ls-actions">
+        <template v-else-if="plan?.kind === 'login'">
+          <div class="ls-dim">{{ $t('dependencies:cross.loginIntro', { source: [source.server, source.database].filter(Boolean).join(' · ') }) }}</div>
+          <form class="ls-form" autocomplete="off" @submit.prevent="connect">
+            <el-input v-model="user" size="small" :placeholder="$t('dependencies:cross.user')" :aria-label="$t('dependencies:cross.user')" autocomplete="off" data-ls-user />
+            <el-input v-model="password" size="small" type="password" show-password :placeholder="$t('dependencies:cross.password')" :aria-label="$t('dependencies:cross.password')" autocomplete="new-password" data-ls-password />
+            <el-checkbox v-model="remember" size="small" data-ls-remember>{{ $t('dependencies:cross.remember') }}</el-checkbox>
+            <div class="ls-actions">
+              <el-button size="small" type="primary" native-type="submit" :loading="connecting || busy" :disabled="!loginReady(user)">{{ $t('common:connect') }}</el-button>
+            </div>
+          </form>
+          <div class="ls-dim">{{ $t('dependencies:cross.loginNote') }}</div>
+        </template>
+        <template v-else-if="plan?.kind === 'connect'">
+          <div class="ls-dim"><el-icon class="is-loading"><ei-loading /></el-icon> {{ $t('dependencies:cross.connecting') }}</div>
+          <div v-if="failed" class="ls-actions">
             <el-button size="small" type="primary" :loading="connecting || busy" @click="connect">{{ $t('dependencies:cross.create') }}</el-button>
           </div>
         </template>
+        <template v-else>
+          <div class="ls-dim">{{ $t('dependencies:cross.noServer') }}</div>
+        </template>
+        <div v-if="failed" class="ls-err">{{ failed }}</div>
       </template>
     </template>
   </div>
@@ -158,5 +228,7 @@ async function connect() {
 .ls-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .ls-actions :deep(.el-button) { margin: 0; }
 .ls-pick { width: 100%; }
+.ls-form { display: flex; flex-direction: column; gap: 6px; }
+.ls-err { color: var(--nm-danger, #f56c6c); }
 .ls-opt { display: inline-flex; align-items: center; gap: 6px; }
 </style>

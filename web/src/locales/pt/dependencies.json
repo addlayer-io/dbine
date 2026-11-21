@@ -119,7 +119,8 @@
     "via": {
       "link": "vinculada por você",
       "auto": "coincide por servidor e banco de dados",
-      "enterprise": "do DBine Enterprise"
+      "enterprise": "do DBine Enterprise",
+      "internal": "conexão interna da linhagem"
     },
     "reader": "Este item do Power BI lê o objeto.",
     "openLink": "Abrir no Power BI",
@@ -130,12 +131,32 @@
     "many": "Várias conexões coincidem com esta fonte. Escolha uma: da próxima vez, a mesma será usada.",
     "pick": "Conexão",
     "remembered": "A escolha fica lembrada; “Desvincular” a remove.",
-    "none": "Nenhuma conexão salva coincide com esta fonte.",
     "create": "Conectar à fonte",
-    "userPrompt": "Usuário para conectar à {{source}}. A conexão é temporária e somente leitura: não é salva.",
     "notFound": "Este objeto não foi encontrado em {{name}}.",
     "badge": "Conexão: {{name}}",
     "report": "Relatório do Power BI",
-    "dashboard": "Painel do Power BI"
+    "dashboard": "Painel do Power BI",
+    "loginIntro": "Para ver a linhagem é preciso se conectar a {{source}}. A conexão é somente leitura.",
+    "user": "Usuário",
+    "password": "Senha",
+    "remember": "Lembrar neste computador",
+    "loginNote": "A conexão é interna da linhagem e não aparece no explorador. A senha só é salva no chaveiro do sistema se a caixa ficar marcada.",
+    "connecting": "Conectando à fonte…",
+    "cantConnect": "Não foi possível conectar a {{name}}.",
+    "noServer": "Esta fonte não é um servidor ao qual o DBine possa se conectar."
+  },
+  "sources": {
+    "nav": "Fontes da linhagem",
+    "title": "Fontes da linhagem",
+    "intro": "Conexões que a linhagem fez por conta própria para seguir uma fonte até outro banco (por exemplo, a tabela do SQL Server que um modelo do Power BI lê). Elas não aparecem no explorador. Você pode esquecê-las ou adicioná-las ao explorador como conexões comuns, que continuam somente leitura.",
+    "none": "Ainda não há nenhuma: elas são criadas ao seguir uma fonte da linhagem.",
+    "remembered": "Senha lembrada neste computador",
+    "notRemembered": "Sem senha lembrada: ela é pedida a cada sessão",
+    "addToExplorer": "Adicionar ao explorador",
+    "forget": "Esquecer",
+    "forgetConfirm": "A conexão “{{name}}” e a senha lembrada serão removidas. A linhagem vai pedi-la de novo na próxima vez que seguir essa fonte.",
+    "forgotten": "Conexão esquecida.",
+    "added": "“{{name}}” já está no explorador.",
+    "internalNote": "Conexão interna da linhagem: “{{name}}” não está no explorador."
   }
 }

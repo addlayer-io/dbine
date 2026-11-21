@@ -119,7 +119,8 @@
     "via": {
       "link": "사용자가 연결함",
       "auto": "서버와 데이터베이스가 일치",
-      "enterprise": "DBine Enterprise 제공"
+      "enterprise": "DBine Enterprise 제공",
+      "internal": "계보 내부 연결"
     },
     "reader": "이 Power BI 항목이 개체를 읽습니다.",
     "openLink": "Power BI에서 열기",
@@ -130,12 +131,32 @@
     "many": "이 원본과 일치하는 연결이 여러 개 있습니다. 하나를 선택하세요. 다음에도 같은 연결을 사용합니다.",
     "pick": "연결",
     "remembered": "선택 내용은 기억되며, '연결 해제'로 제거할 수 있습니다.",
-    "none": "이 원본과 일치하는 저장된 연결이 없습니다.",
     "create": "원본에 연결",
-    "userPrompt": "{{source}}에 연결할 사용자입니다. 이 연결은 임시 읽기 전용이며 저장되지 않습니다.",
     "notFound": "{{name}}에서 이 개체를 찾을 수 없습니다.",
     "badge": "연결: {{name}}",
     "report": "Power BI 보고서",
-    "dashboard": "Power BI 대시보드"
+    "dashboard": "Power BI 대시보드",
+    "loginIntro": "계보를 보려면 {{source}}에 연결해야 합니다. 이 연결은 읽기 전용입니다.",
+    "user": "사용자",
+    "password": "비밀번호",
+    "remember": "이 컴퓨터에 기억",
+    "loginNote": "이 연결은 계보의 내부 연결이므로 탐색기에 표시되지 않습니다. 비밀번호는 확인란을 선택한 채로 둔 경우에만 시스템 키체인에 저장됩니다.",
+    "connecting": "원본에 연결하는 중…",
+    "cantConnect": "{{name}}에 연결할 수 없습니다.",
+    "noServer": "이 원본은 DBine이 연결할 수 있는 서버가 아닙니다."
+  },
+  "sources": {
+    "nav": "계보 원본",
+    "title": "계보 원본",
+    "intro": "계보가 원본을 따라 다른 데이터베이스까지 가기 위해 자동으로 만든 연결입니다(예: Power BI 모델이 읽는 SQL Server 테이블). 탐색기에는 표시되지 않습니다. 삭제하거나, 읽기 전용을 유지하는 일반 연결로 탐색기에 추가할 수 있습니다.",
+    "none": "아직 없습니다. 계보 원본을 따라가면 만들어집니다.",
+    "remembered": "이 컴퓨터에 비밀번호가 기억됨",
+    "notRemembered": "기억된 비밀번호 없음: 세션마다 요청합니다",
+    "addToExplorer": "탐색기에 추가",
+    "forget": "삭제",
+    "forgetConfirm": "연결 '{{name}}'과(와) 기억된 비밀번호가 삭제됩니다. 다음에 해당 원본을 따라갈 때 계보가 다시 요청합니다.",
+    "forgotten": "연결을 삭제했습니다.",
+    "added": "'{{name}}'이(가) 탐색기에 추가되었습니다.",
+    "internalNote": "계보 내부 연결: '{{name}}'은(는) 탐색기에 없습니다."
   }
 }

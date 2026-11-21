@@ -119,7 +119,8 @@
     "via": {
       "link": "liée par vous",
       "auto": "correspond par serveur et base de données",
-      "enterprise": "de DBine Enterprise"
+      "enterprise": "de DBine Enterprise",
+      "internal": "connexion interne de la traçabilité"
     },
     "reader": "Cet élément Power BI lit l'objet.",
     "openLink": "Ouvrir dans Power BI",
@@ -130,12 +131,32 @@
     "many": "Plusieurs connexions correspondent à cette source. Choisissez-en une : la même sera utilisée la prochaine fois.",
     "pick": "Connexion",
     "remembered": "Le choix est mémorisé ; « Dissocier » le supprime.",
-    "none": "Aucune connexion enregistrée ne correspond à cette source.",
     "create": "Se connecter à la source",
-    "userPrompt": "Utilisateur pour se connecter à {{source}}. La connexion est temporaire et en lecture seule : elle n'est pas enregistrée.",
     "notFound": "Cet objet est introuvable dans {{name}}.",
     "badge": "Connexion : {{name}}",
     "report": "Rapport Power BI",
-    "dashboard": "Tableau de bord Power BI"
+    "dashboard": "Tableau de bord Power BI",
+    "loginIntro": "Pour voir sa traçabilité, il faut se connecter à {{source}}. La connexion est en lecture seule.",
+    "user": "Utilisateur",
+    "password": "Mot de passe",
+    "remember": "Mémoriser sur cet ordinateur",
+    "loginNote": "La connexion est interne à la traçabilité et n'apparaît pas dans l'explorateur. Le mot de passe n'est enregistré dans le trousseau du système que si la case reste cochée.",
+    "connecting": "Connexion à la source…",
+    "cantConnect": "Impossible de se connecter à {{name}}.",
+    "noServer": "Cette source n'est pas un serveur auquel DBine puisse se connecter."
+  },
+  "sources": {
+    "nav": "Sources de la traçabilité",
+    "title": "Sources de la traçabilité",
+    "intro": "Connexions que la traçabilité a établies d'elle-même pour suivre une source jusqu'à une autre base (par exemple, la table SQL Server que lit un modèle Power BI). Elles n'apparaissent pas dans l'explorateur. Vous pouvez les oublier ou les ajouter à l'explorateur comme connexions ordinaires, qui restent en lecture seule.",
+    "none": "Aucune pour l'instant : elles sont créées en suivant une source de la traçabilité.",
+    "remembered": "Mot de passe mémorisé sur cet ordinateur",
+    "notRemembered": "Aucun mot de passe mémorisé : il est demandé à chaque session",
+    "addToExplorer": "Ajouter à l'explorateur",
+    "forget": "Oublier",
+    "forgetConfirm": "La connexion « {{name}} » et son mot de passe mémorisé seront supprimés. La traçabilité le redemandera la prochaine fois qu'elle suivra cette source.",
+    "forgotten": "Connexion oubliée.",
+    "added": "« {{name}} » est maintenant dans l'explorateur.",
+    "internalNote": "Connexion interne de la traçabilité : « {{name}} » n'est pas dans l'explorateur."
   }
 }
