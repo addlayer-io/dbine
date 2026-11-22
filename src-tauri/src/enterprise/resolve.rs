@@ -5,7 +5,7 @@
 //! dbine-enterprise, "Resolving a source"). The server audits each question.
 
 use super::{connection_id, Enterprise};
-use crate::error::CommandResult;
+use crate::error::{CommandError, CommandResult};
 use dbine_driver::dependencies::ExternalRef;
 use serde::Serialize;
 use serde_json::Value;
@@ -79,6 +79,23 @@ pub(crate) fn managed_ids(answer: &Value) -> Vec<String> {
     ids
 }
 
+/// Sources the batch endpoint takes in one request.
+pub(crate) const BATCH_MAX: usize = 200;
+/// Single requests in flight at once when the server has no batch endpoint.
+const FALLBACK_CONCURRENCY: usize = 4;
+
+/// The batch request body for `chunk`.
+pub(crate) fn batch_body(chunk: &[SourceRequest]) -> Value {
+    serde_json::json!({ "sources": chunk })
+}
+
+/// The ids per source of a batch answer, in the order asked; None when the
+/// answer doesn't have one entry per source (it is not the batch answer).
+pub(crate) fn batch_ids(answer: &Value, asked: usize) -> Option<Vec<Vec<String>>> {
+    let results = answer["results"].as_array()?;
+    (results.len() == asked).then(|| results.iter().map(managed_ids).collect())
+}
+
 impl Enterprise {
     /// The managed connections (`ent-<profile>`) this person may use that
     /// point at `req`: none, one, or several (the caller asks which). The
@@ -94,6 +111,57 @@ impl Enterprise {
             .await?;
         Ok(managed_ids(&answer))
     }
+}
+
+impl Enterprise {
+    /// `resolve_source` for many sources at once, one list of ids per source
+    /// in the same order. One request per 200 sources
+    /// (`POST /desktop/resolve-sources`); a server without that endpoint
+    /// (404) or with another answer is asked one source at a time. A source
+    /// whose own question fails resolves to no connection; only a lost
+    /// session fails the call.
+    pub async fn resolve_sources(&self, reqs: &[SourceRequest]) -> CommandResult<Vec<Vec<String>>> {
+        let mut out: Vec<Vec<String>> = Vec::with_capacity(reqs.len());
+        let mut batch_works = true;
+        for chunk in reqs.chunks(BATCH_MAX) {
+            if batch_works {
+                let answer = self
+                    .api(
+                        reqwest::Method::POST,
+                        "/desktop/resolve-sources",
+                        Some(&batch_body(chunk)),
+                    )
+                    .await;
+                match answer {
+                    Ok(a) => {
+                        if let Some(ids) = batch_ids(&a, chunk.len()) {
+                            out.extend(ids);
+                            continue;
+                        }
+                        batch_works = false;
+                    }
+                    Err(CommandError::NotFound(_)) => batch_works = false,
+                    Err(e) => return Err(e),
+                }
+            }
+            for group in chunk.chunks(FALLBACK_CONCURRENCY) {
+                let mut asks = Vec::with_capacity(group.len());
+                for r in group {
+                    asks.push(self.resolve_source(r));
+                }
+                for r in futures_util::future::join_all(asks).await {
+                    out.push(r.unwrap_or_default());
+                }
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// `Enterprise::resolve_sources` on the signed-in session; an error when
+/// DBine is not signed in to DBine Enterprise.
+pub async fn resolve_sources(reqs: &[SourceRequest]) -> CommandResult<Vec<Vec<String>>> {
+    super::get()?.resolve_sources(reqs).await
 }
 
 /// `Enterprise::resolve_source` on the signed-in session; an error when
@@ -159,5 +227,44 @@ mod tests {
         assert_eq!(managed_ids(&a), vec!["ent-p1", "ent-p2", "ent-p3"]);
         assert!(managed_ids(&json!({"matches": []})).is_empty());
         assert!(managed_ids(&Value::Null).is_empty());
+    }
+
+    #[test]
+    fn the_batch_body_lists_the_sources_as_the_single_one_does() {
+        let r = SourceRequest {
+            driver: "sqlserver".into(),
+            server: "dw".into(),
+            database: Some("sales".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            batch_body(std::slice::from_ref(&r)),
+            json!({"sources": [{"driver": "sqlserver", "server": "dw", "database": "sales"}]})
+        );
+    }
+
+    #[test]
+    fn the_batch_answer_is_one_list_of_ids_per_source_in_order() {
+        let a = json!({"results": [
+            {"matches": [{"connection_id": "c", "profile_ids": ["p2"]}]},
+            {"matches": []},
+            {"matches": [{"connection_id": "c", "profile_ids": ["p1", "p1"]}]},
+        ]});
+        assert_eq!(
+            batch_ids(&a, 3).unwrap(),
+            vec![
+                vec!["ent-p2".to_string()],
+                vec![],
+                vec!["ent-p1".to_string()]
+            ]
+        );
+    }
+
+    #[test]
+    fn an_answer_that_is_not_the_batch_one_is_not_taken_for_it() {
+        assert!(batch_ids(&json!({"results": []}), 2).is_none());
+        assert!(batch_ids(&json!({"matches": []}), 1).is_none());
+        assert!(batch_ids(&Value::Null, 0).is_none());
+        assert_eq!(batch_ids(&json!({"results": []}), 0).unwrap().len(), 0);
     }
 }

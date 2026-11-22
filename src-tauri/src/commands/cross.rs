@@ -66,6 +66,8 @@ struct Index {
     sources: TtlCache<(String, String), Sources>,
     /// connection -> its models.
     models: TtlCache<String, Arc<Vec<String>>>,
+    /// source signature -> the managed connections DBine Enterprise resolved it to.
+    resolved: TtlCache<String, Vec<String>>,
 }
 
 fn index() -> &'static Mutex<Index> {
@@ -74,6 +76,7 @@ fn index() -> &'static Mutex<Index> {
         Mutex::new(Index {
             sources: TtlCache::new(INDEX_TTL),
             models: TtlCache::new(INDEX_TTL),
+            resolved: TtlCache::new(INDEX_TTL),
         })
     })
 }
@@ -128,6 +131,34 @@ fn merge_candidates(lists: Vec<Vec<Candidate>>) -> Vec<Candidate> {
     out
 }
 
+/// The candidates to follow a source, by the order of the rules: the user's
+/// link, else the saved matches, then DBine Enterprise's; when nothing
+/// matched, the connection the lineage made for it (the open-source path).
+/// DBine Enterprise failing (not signed in, unreachable, an older server)
+/// is not an error: it adds no candidate.
+fn decide_candidates(
+    link: Option<Vec<Candidate>>,
+    auto: Vec<Candidate>,
+    enterprise: CommandResult<Vec<Candidate>>,
+    internal: Option<Candidate>,
+) -> Vec<Candidate> {
+    let mut lists = Vec::new();
+    let keep_link = link.as_ref().is_some_and(|l| !l.is_empty());
+    if let Some(l) = link {
+        lists.push(l);
+    }
+    // The user's choice stands: no other candidate competes with it.
+    if !keep_link {
+        lists.push(auto);
+        lists.push(enterprise.unwrap_or_default());
+    }
+    let mut out = merge_candidates(lists);
+    if out.is_empty() {
+        out.extend(internal);
+    }
+    out
+}
+
 fn candidate(c: &SavedConnection, via: &str) -> Candidate {
     Candidate {
         connection_id: c.id.clone(),
@@ -150,6 +181,50 @@ fn bare(s: &str) -> String {
         .to_lowercase()
 }
 
+/// Whether `ext` names `object`: the same name, and the same schema when
+/// both name one.
+fn names_object(ext: &ExternalRef, object: &ObjectRef) -> bool {
+    let Some(name) = ext.name.as_deref() else {
+        return false;
+    };
+    if bare(name) != bare(&object.name) {
+        return false;
+    }
+    match (
+        ext.schema.as_deref().filter(|s| !s.trim().is_empty()),
+        object.schema(),
+    ) {
+        (Some(a), Some(b)) => bare(a) == bare(b),
+        _ => true,
+    }
+}
+
+/// Whether `ext` is `object` of `database` in a managed (DBine Enterprise)
+/// connection `managed_id`: the server resolved the source (`resolved`: by
+/// signature) to that connection, the database is not another one, and the
+/// name and schema are the object's.
+fn external_reads_managed(
+    ext: &ExternalRef,
+    managed_id: &str,
+    resolved: &HashMap<String, Vec<String>>,
+    database: &str,
+    object: &ObjectRef,
+) -> bool {
+    let Some(key) = source_key_of_external(ext) else {
+        return false;
+    };
+    if !resolved
+        .get(&key.signature())
+        .is_some_and(|ids| ids.iter().any(|i| i == managed_id))
+    {
+        return false;
+    }
+    if !database.is_empty() && !key.database.is_empty() && bare(database) != key.database {
+        return false;
+    }
+    names_object(ext, object)
+}
+
 /// Whether `ext` (a source some lineage names) is `object` of `database` in
 /// `conn`: the same server and database as the connection's config, the
 /// same name, and the same schema when both name one.
@@ -162,19 +237,8 @@ fn external_reads_object(
     let Some(key) = source_key_of_external(ext) else {
         return false;
     };
-    let Some(name) = ext.name.as_deref() else {
+    if !names_object(ext, object) {
         return false;
-    };
-    if bare(name) != bare(&object.name) {
-        return false;
-    }
-    if let (Some(a), Some(b)) = (
-        ext.schema.as_deref().filter(|s| !s.trim().is_empty()),
-        object.schema(),
-    ) {
-        if bare(a) != bare(b) {
-            return false;
-        }
     }
     // The connection with the database the object is in.
     let mut at = conn.clone();
@@ -260,35 +324,35 @@ async fn resolve_source_of(
     let signature = key.signature();
     let mut conns = state.store.list_connections()?;
     let managed = state.store.list_managed_connections()?;
-    let mut lists = Vec::new();
     let linked = state.store.lineage_link_get(&signature)?;
-    if let Some(id) = &linked {
-        lists.push(candidates_of(std::slice::from_ref(id), &conns, "link"));
-    }
-    // The user's choice stands: no other candidate competes with it.
-    if linked.is_none() || lists[0].is_empty() {
-        let auto = match match_connections(&key, &conns) {
+    let link = linked
+        .as_ref()
+        .map(|id| candidates_of(std::slice::from_ref(id), &conns, "link"));
+    let keep_link = link.as_ref().is_some_and(|l| !l.is_empty());
+    let (mut auto, mut enterprise) = (Vec::new(), Ok(Vec::new()));
+    if !keep_link {
+        let ids = match match_connections(&key, &conns) {
             Match::None => Vec::new(),
             Match::One(id) => vec![id],
             Match::Many(ids) => ids,
         };
-        lists.push(candidates_of(&auto, &conns, "auto"));
+        auto = candidates_of(&ids, &conns, "auto");
         if let Some(req) = crate::enterprise::SourceRequest::from_external(&args.source) {
-            if let Ok(ids) = crate::enterprise::resolve_source(&req).await {
+            enterprise = crate::enterprise::resolve_source(&req).await.map(|ids| {
                 conns.extend(managed);
-                lists.push(candidates_of(&ids, &conns, "enterprise"));
-            }
+                candidates_of(&ids, &conns, "enterprise")
+            });
         }
     }
-    let mut candidates = merge_candidates(lists);
     // No saved connection knows it: the one the lineage made for it before (hidden, its login kept
     // or typed this run) is the answer, so following needs nothing from the user.
-    if candidates.is_empty() {
+    let internal = if keep_link {
+        None
+    } else {
         let internals = state.store.list_lineage_connections()?;
-        if let Some(c) = internal_for(&internals, &signature) {
-            candidates.push(candidate(c, "internal"));
-        }
-    }
+        internal_for(&internals, &signature).map(|c| candidate(c, "internal"))
+    };
+    let candidates = decide_candidates(link, auto, enterprise, internal);
     let status = status_of(&candidates).to_string();
     let prefill = (status == "none")
         .then(|| new_connection_from_source(&args.source))
@@ -639,9 +703,21 @@ fn users_in(
     database: &str,
     object: &ObjectRef,
 ) -> Vec<CrossUser> {
+    users_by(externals, pbi, model, |e| {
+        external_reads_object(e, source_conn, database, object)
+    })
+}
+
+/// The users `externals` of one model hold for what `reads` accepts, once per table.
+fn users_by(
+    externals: &[LineageExternal],
+    pbi: &SavedConnection,
+    model: &str,
+    reads: impl Fn(&ExternalRef) -> bool,
+) -> Vec<CrossUser> {
     let mut out: Vec<CrossUser> = Vec::new();
     for e in externals {
-        if !external_reads_object(&e.source, source_conn, database, object) {
+        if !reads(&e.source) {
             continue;
         }
         if out
@@ -682,11 +758,25 @@ pub async fn get_cross_users(
 ) -> CommandResult<CrossUsers> {
     let source_conn = find_connection(&state, &args.connection_id)?;
     let mut res = CrossUsers::default();
-    if source_conn.config.driver == "powerbi" || source_key_of_config(&source_conn.config).is_none()
+    let managed = crate::enterprise::is_managed(&source_conn.config);
+    if source_conn.config.driver == "powerbi"
+        || (!managed && source_key_of_config(&source_conn.config).is_none())
     {
-        // No server of its own to be named by a source (a managed
-        // connection, a file) or already a model.
+        // No server of its own to be named by a source (a file) or already a model.
         return Ok(res);
+    }
+    if managed {
+        // It holds no host: DBine Enterprise says which sources are it.
+        match crate::enterprise::get() {
+            Ok(e) if e.status().signed_in => {}
+            _ => {
+                res.notes.push(
+                    "esta conexión es de DBine Enterprise: iniciá sesión para buscar qué modelos de Power BI leen sus objetos"
+                        .into(),
+                );
+                return Ok(res);
+            }
+        }
     }
     let pbis: Vec<SavedConnection> = state
         .store
@@ -699,9 +789,12 @@ pub async fn get_cross_users(
         with_index(|i| {
             i.sources.drop_where(|(c, _)| ids.contains(c));
             i.models.drop_where(|c| ids.contains(c));
+            i.resolved.drop_where(|_| true);
         });
     }
-    for pbi in &pbis {
+    // (connection, model, its sources) of every model read.
+    let mut scanned: Vec<(usize, String, Sources)> = Vec::new();
+    for (pi, pbi) in pbis.iter().enumerate() {
         let models = match models_of(&state, pbi).await {
             Ok(m) => m,
             Err(e) => {
@@ -721,14 +814,7 @@ pub async fn get_cross_users(
             };
             all_cached &= cached;
             left_out += usize::from(silent_skip);
-            res.users.extend(users_in(
-                &externals,
-                pbi,
-                model,
-                &source_conn,
-                &args.database,
-                &args.object,
-            ));
+            scanned.push((pi, model.clone(), externals));
         }
         if left_out > 0 {
             res.notes.push(format!(
@@ -749,7 +835,103 @@ pub async fn get_cross_users(
             cached: all_cached,
         });
     }
+    if managed {
+        let all: Vec<&LineageExternal> = scanned.iter().flat_map(|(_, _, e)| e.iter()).collect();
+        match resolve_externals(all.iter().map(|e| &e.source), args.refresh).await {
+            Ok(resolved) => {
+                for (pi, model, externals) in &scanned {
+                    res.users
+                        .extend(users_by(externals, &pbis[*pi], model, |e| {
+                            external_reads_managed(
+                                e,
+                                &source_conn.id,
+                                &resolved,
+                                &args.database,
+                                &args.object,
+                            )
+                        }));
+                }
+            }
+            Err(e) => res.notes.push(format!(
+                "no se pudo preguntar a DBine Enterprise qué conexiones usan las fuentes de Power BI: {e}"
+            )),
+        }
+    } else {
+        for (pi, model, externals) in &scanned {
+            res.users.extend(users_in(
+                externals,
+                &pbis[*pi],
+                model,
+                &source_conn,
+                &args.database,
+                &args.object,
+            ));
+        }
+    }
     Ok(res)
+}
+
+/// What DBine Enterprise resolves each source of `sources` to (managed
+/// connection ids, by the source's signature). The sources are unique by
+/// signature, asked in one batch and kept for the index's time; `refresh`
+/// asks them all again.
+async fn resolve_externals(
+    sources: impl Iterator<Item = &ExternalRef>,
+    refresh: bool,
+) -> CommandResult<HashMap<String, Vec<String>>> {
+    let (known, missing) = with_index(|i| {
+        if refresh {
+            i.resolved.drop_where(|_| true);
+        }
+        split_cached(sources, |sig| {
+            i.resolved.get(&sig.to_string(), Instant::now())
+        })
+    });
+    let mut out = known;
+    if !missing.is_empty() {
+        let reqs: Vec<crate::enterprise::SourceRequest> =
+            missing.iter().map(|(_, r)| r.clone()).collect();
+        let answers = crate::enterprise::resolve_sources(&reqs).await?;
+        with_index(|i| {
+            for ((sig, _), ids) in missing.iter().zip(&answers) {
+                i.resolved.put(sig.clone(), ids.clone(), Instant::now());
+            }
+        });
+        for ((sig, _), ids) in missing.into_iter().zip(answers) {
+            out.insert(sig, ids);
+        }
+    }
+    Ok(out)
+}
+
+/// The sources' answers already known, and the requests for the rest, one per signature.
+type Asked = Vec<(String, crate::enterprise::SourceRequest)>;
+
+fn split_cached<'a>(
+    sources: impl Iterator<Item = &'a ExternalRef>,
+    cached: impl Fn(&str) -> Option<Vec<String>>,
+) -> (HashMap<String, Vec<String>>, Asked) {
+    let mut known = HashMap::new();
+    let mut missing: Asked = Vec::new();
+    for e in sources {
+        let Some(key) = source_key_of_external(e) else {
+            continue;
+        };
+        let Some(req) = crate::enterprise::SourceRequest::from_external(e) else {
+            continue;
+        };
+        let sig = key.signature();
+        if known.contains_key(&sig) || missing.iter().any(|(s, _)| *s == sig) {
+            continue;
+        }
+        match cached(&sig) {
+            Some(ids) => {
+                known.insert(sig, ids);
+            }
+            None => missing.push((sig, req)),
+        }
+    }
+    (known, missing)
 }
 
 async fn models_of(state: &AppState, pbi: &SavedConnection) -> CommandResult<Arc<Vec<String>>> {
@@ -1021,6 +1203,169 @@ mod tests {
             ("p", "Model1", "FactOrders")
         );
         assert_eq!(u[0].detail.as_deref(), Some("partition"));
+    }
+
+    fn managed_fixture() -> HashMap<String, Vec<String>> {
+        let sig = |s: &str, d: &str| {
+            source_key_of_external(&ext(s, d, None, "x"))
+                .unwrap()
+                .signature()
+        };
+        HashMap::from([
+            (sig("dw01", "sales"), vec!["ent-p1".to_string()]),
+            (sig("dw02", "sales"), vec!["ent-p2".to_string()]),
+        ])
+    }
+
+    #[test]
+    fn a_source_the_server_resolved_to_the_managed_connection_reads_its_object() {
+        let r = managed_fixture();
+        let o = obj(Some("dbo"), "Orders");
+        let read = |e: &ExternalRef, id: &str, db: &str| external_reads_managed(e, id, &r, db, &o);
+        let e = ext("dw01", "sales", Some("dbo"), "Orders");
+        assert!(read(&e, "ent-p1", ""));
+        assert!(read(&e, "ent-p1", "SALES"));
+        // another profile, another database of the connection, another schema or name
+        assert!(!read(&e, "ent-p2", ""));
+        assert!(!read(&e, "ent-p1", "hr"));
+        assert!(!read(
+            &ext("dw01", "sales", Some("hr"), "Orders"),
+            "ent-p1",
+            ""
+        ));
+        assert!(!read(
+            &ext("dw01", "sales", Some("dbo"), "Customers"),
+            "ent-p1",
+            ""
+        ));
+        // a source the server did not resolve
+        assert!(!read(
+            &ext("dw09", "sales", Some("dbo"), "Orders"),
+            "ent-p1",
+            ""
+        ));
+        // a schema on one side only still matches by name
+        assert!(read(&ext("dw01", "sales", None, "orders"), "ent-p1", ""));
+    }
+
+    #[test]
+    fn the_managed_users_are_the_tables_reading_it_once_each() {
+        let pbi = conn("p", "powerbi", "", "");
+        let r = managed_fixture();
+        let o = obj(Some("dbo"), "Orders");
+        let ex = |server: &str, to: &str| LineageExternal {
+            source: ext(server, "sales", Some("dbo"), "Orders"),
+            to: obj(None, to),
+        };
+        let all = vec![
+            ex("dw01", "FactOrders"),
+            ex("dw01", "FactOrders"),
+            ex("dw02", "Other"),
+        ];
+        let u = users_by(&all, &pbi, "M", |e| {
+            external_reads_managed(e, "ent-p1", &r, "", &o)
+        });
+        assert_eq!(u.len(), 1);
+        assert_eq!(u[0].object.name, "FactOrders");
+    }
+
+    #[test]
+    fn the_sources_asked_to_the_server_are_unique_and_skip_the_cached_ones() {
+        let a = ext("dw01", "sales", None, "A");
+        let b = ext("dw01", "sales", None, "B");
+        let c = ext("dw02", "sales", None, "C");
+        let files = ExternalRef {
+            system: Some("SharePoint".into()),
+            server: Some("x".into()),
+            ..Default::default()
+        };
+        let list = [a.clone(), b, c.clone(), files];
+        let (known, missing) = split_cached(list.iter(), |_| None);
+        assert!(known.is_empty());
+        assert_eq!(missing.len(), 2);
+        assert_eq!(missing[0].1.server, "dw01");
+        let sig_a = source_key_of_external(&a).unwrap().signature();
+        let (known, missing) = split_cached(list.iter(), |s| {
+            (s == sig_a).then(|| vec!["ent-p1".to_string()])
+        });
+        assert_eq!(known[&sig_a], vec!["ent-p1".to_string()]);
+        assert_eq!(missing.len(), 1);
+        assert_eq!(missing[0].1.server, "dw02");
+    }
+
+    #[test]
+    fn the_candidates_follow_link_then_saved_then_enterprise_then_internal() {
+        let ok = |l: &[(&str, &str)]| Ok(l.iter().map(|(i, v)| cand(i, v)).collect::<Vec<_>>());
+        // a link stands alone
+        let d = decide_candidates(
+            Some(vec![cand("l", "link")]),
+            vec![cand("a", "auto")],
+            ok(&[("e", "enterprise")]),
+            Some(cand("i", "internal")),
+        );
+        assert_eq!(
+            d.iter()
+                .map(|c| c.connection_id.as_str())
+                .collect::<Vec<_>>(),
+            ["l"]
+        );
+        // a link to a deleted connection lets the rest compete
+        let d = decide_candidates(
+            Some(vec![]),
+            vec![cand("a", "auto")],
+            ok(&[("a", "enterprise"), ("e", "enterprise")]),
+            Some(cand("i", "internal")),
+        );
+        assert_eq!(
+            d.iter()
+                .map(|c| c.connection_id.as_str())
+                .collect::<Vec<_>>(),
+            ["a", "e"]
+        );
+        assert_eq!(d[0].via, "auto");
+        // only Enterprise knows it
+        let d = decide_candidates(
+            None,
+            vec![],
+            ok(&[("e", "enterprise")]),
+            Some(cand("i", "internal")),
+        );
+        assert_eq!(
+            d.iter()
+                .map(|c| c.connection_id.as_str())
+                .collect::<Vec<_>>(),
+            ["e"]
+        );
+        // nobody knows it: the open-source path's connection
+        let d = decide_candidates(None, vec![], ok(&[]), Some(cand("i", "internal")));
+        assert_eq!(
+            d.iter().map(|c| c.via.as_str()).collect::<Vec<_>>(),
+            ["internal"]
+        );
+        assert!(decide_candidates(None, vec![], ok(&[]), None).is_empty());
+    }
+
+    #[test]
+    fn enterprise_failing_is_ignored_and_the_open_source_path_goes_on() {
+        for e in [
+            CommandError::AuthFailed("iniciá sesión en DBine Enterprise".into()),
+            CommandError::Connect("DBine Enterprise no responde".into()),
+            CommandError::NotFound("old server".into()),
+        ] {
+            let d = decide_candidates(None, vec![cand("a", "auto")], Err(e), None);
+            assert_eq!(d.len(), 1);
+        }
+        let d = decide_candidates(
+            None,
+            vec![],
+            Err(CommandError::Connect("x".into())),
+            Some(cand("i", "internal")),
+        );
+        assert_eq!(d[0].via, "internal");
+        assert!(
+            decide_candidates(None, vec![], Err(CommandError::Connect("x".into())), None)
+                .is_empty()
+        );
     }
 
     #[test]
