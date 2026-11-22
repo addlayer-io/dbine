@@ -78,7 +78,8 @@
     "ended": "Ihre Sitzung auf {{connection}} als {{profile}} wurde beendet, weil der Zugriff abgelaufen ist.",
     "endedRevoked": "Ihre Sitzung auf {{connection}} als {{profile}} wurde beendet, weil Ihnen der Zugriff entzogen wurde.",
     "endedOutsideHours": "Ihre Sitzung auf {{connection}} als {{profile}} wurde beendet: Sie liegt außerhalb der für diese Verbindung erlaubten Zeiten.",
-    "sessionLost": "Die DBine-Enterprise-Sitzung wurde beendet. Klicken Sie, um sich erneut anzumelden.",
+    "sessionLost": "Ihr Zugriff auf DBine Enterprise wurde beendet: Die Verbindungen des Unternehmens wurden geschlossen und ihre lokalen Daten gelöscht.",
+    "offlineTooLong": "Ihr Zugriff auf DBine Enterprise konnte in den letzten 24 Stunden nicht überprüft werden: Die Verbindungen des Unternehmens wurden geschlossen und ihre lokalen Daten gelöscht.",
     "scheduleEnding_one": "Die erlaubten Zeiten für {{connection}} enden in {{count}} Minute, und Ihre Sitzung als {{profile}} wird beendet.",
     "scheduleEnding_other": "Die erlaubten Zeiten für {{connection}} enden in {{count}} Minuten, und Ihre Sitzung als {{profile}} wird beendet.",
     "clickToRequestHours": "Klicken Sie, um Zugriff außerhalb der Zeiten anzufordern."

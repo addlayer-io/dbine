@@ -74,7 +74,8 @@
     "ended": "{{connection}} での {{profile}} としてのセッションは、アクセスの期限が切れたため終了しました。",
     "endedRevoked": "{{connection}} での {{profile}} としてのセッションは、アクセスが取り消されたため終了しました。",
     "endedOutsideHours": "{{connection}} での {{profile}} としてのセッションは終了しました。この接続で許可されている時間外です。",
-    "sessionLost": "DBine Enterprise のセッションが終了しました。クリックして再度サインインしてください。",
+    "sessionLost": "DBine Enterprise へのアクセスが終了しました。会社の接続を閉じ、ローカルデータを削除しました。",
+    "offlineTooLong": "過去 24 時間以内に DBine Enterprise へのアクセスを確認できませんでした。会社の接続を閉じ、ローカルデータを削除しました。",
     "scheduleEnding_other": "{{connection}} の許可時間帯は{{count}}分後に終了し、{{profile}} としてのセッションは切断されます。",
     "clickToRequestHours": "クリックして時間外アクセスを申請します。"
   },

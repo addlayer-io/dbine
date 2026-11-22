@@ -502,3 +502,36 @@ async fn a_compaction_cut_short_leaves_the_store_whole() {
     assert_eq!(s.runs("t").await.unwrap().len(), 1);
     let _ = s_close(s.session).await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_company_runs_go_and_the_others_stay() {
+    let dir = temp_dir("company");
+    let k = key('f');
+    let mut s = open_at(&dir, &k).await.expect("store opens");
+    // `save` of the public API refuses a company run; one that got here
+    // some other way (an older version) is what the purge is for.
+    let mut company = meta("ent-run", "tab-1", 1, false);
+    company
+        .extra
+        .insert("connection_id".into(), json!("ent-0001"));
+    s.save(company, sample(3), DEFAULT_MAX_BYTES).await.unwrap();
+    s.save(
+        meta("c1-run", "tab-1", 2, false),
+        sample(3),
+        DEFAULT_MAX_BYTES,
+    )
+    .await
+    .unwrap();
+    assert_eq!(s.purge_company().await.unwrap(), 1);
+    assert_eq!(s.purge_company().await.unwrap(), 0);
+    let ids: Vec<String> = s
+        .runs("tab-1")
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| r.id)
+        .collect();
+    assert_eq!(ids, vec!["c1-run".to_string()]);
+    assert!(s.outcome("ent-run").await.unwrap().is_none());
+    let _ = s_close(s.session).await;
+}

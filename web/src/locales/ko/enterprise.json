@@ -74,7 +74,8 @@
     "ended": "{{connection}}에서의 {{profile}} 세션이 액세스 만료로 종료되었습니다.",
     "endedRevoked": "{{connection}}에서의 {{profile}} 세션이 액세스 권한 회수로 종료되었습니다.",
     "endedOutsideHours": "{{connection}}에서 {{profile}} 프로필로 진행한 세션이 종료되었습니다. 이 연결에 허용된 시간대가 아닙니다.",
-    "sessionLost": "DBine Enterprise 세션이 종료되었습니다. 클릭하여 다시 로그인하세요.",
+    "sessionLost": "DBine Enterprise 액세스가 종료되었습니다. 회사 연결이 닫혔고 로컬 데이터가 삭제되었습니다.",
+    "offlineTooLong": "지난 24시간 동안 DBine Enterprise 액세스를 확인하지 못했습니다. 회사 연결이 닫혔고 로컬 데이터가 삭제되었습니다.",
     "scheduleEnding_other": "{{connection}}의 허용 시간대가 {{count}}분 후에 끝나며 {{profile}}(으)로의 세션이 끊어집니다.",
     "clickToRequestHours": "클릭하여 시간 외 접근을 요청합니다."
   },

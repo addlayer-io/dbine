@@ -12,6 +12,7 @@
 pub mod channel;
 mod events;
 mod gateway;
+pub mod purge;
 mod resolve;
 mod signin;
 
@@ -19,6 +20,7 @@ use crate::error::{CommandError, CommandResult};
 use chrono::{DateTime, Utc};
 use dbine_core::{SavedConnection, StateStore};
 use dbine_driver::ConnectionConfig;
+use purge::Why;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -123,6 +125,10 @@ struct Saved {
     bastion_url: String,
     #[serde(default)]
     bastion_key: String,
+    /// The last time the server confirmed this access (a sync that
+    /// answered): the offline grace counts from here (`purge::OFFLINE_GRACE`).
+    #[serde(default)]
+    validated_at: Option<DateTime<Utc>>,
 }
 
 /// This computer's key for the end-to-end channel (private, public), kept in
@@ -238,6 +244,9 @@ pub struct Enterprise {
     status: Mutex<Status>,
     /// The events stream; replaced on sign-in, stopped on sign-out.
     events: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    /// The access check (every minute with a company session open, every ten
+    /// minutes otherwise); stopped with the events stream.
+    watch: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     /// A sign-in waiting in the browser; sending cancels it.
     cancel_sign_in: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     /// Signed out here: the browser still has the identity provider's session,
@@ -268,6 +277,7 @@ pub fn init(app: AppHandle, store: Arc<StateStore>) {
         token: Mutex::new(token.clone()),
         status: Mutex::new(Status::default()),
         events: Mutex::new(None),
+        watch: Mutex::new(None),
         cancel_sign_in: Mutex::new(None),
         signed_out: std::sync::atomic::AtomicBool::new(false),
     });
@@ -275,16 +285,29 @@ pub fn init(app: AppHandle, store: Arc<StateStore>) {
     e.refresh_status_fields();
     if saved.is_some() && token.is_some() {
         tauri::async_runtime::spawn(async move {
-            let _ = e.sync().await;
+            // Validate before anything uses the company's connections: a
+            // revoked access purges here (`sync` → `end_access`); a server
+            // that can't be reached keeps the data only for the grace.
+            if e.sync().await.is_err() && e.token.lock().unwrap().is_some() {
+                e.enforce_grace().await;
+            }
             e.start_events();
         });
-    } else if e
-        .store
-        .list_managed_connections()
-        .is_ok_and(|rows| !rows.is_empty())
-    {
-        // Managed rows from a session that ended without signing out.
-        let _ = e.store.set_managed_connections(&[]);
+    } else {
+        // Company data from a session that ended without signing out (or
+        // whose token is gone): the cheap stores always, everything when
+        // there are managed rows.
+        let state = crate::state::app_state();
+        if e.store
+            .list_managed_connections()
+            .is_ok_and(|rows| !rows.is_empty())
+        {
+            tauri::async_runtime::spawn(async move {
+                e.end_access(Why::Leftovers).await;
+            });
+        } else {
+            purge::purge_stores(&e.store, state.as_ref().and_then(|s| s.cache.get()));
+        }
     }
 }
 
@@ -433,35 +456,168 @@ impl Enterprise {
                 self.keep_token(Some(fresh));
                 Ok(token)
             }
-            Ok(r) if r.status() == reqwest::StatusCode::UNAUTHORIZED => {
-                self.session_lost().await;
-                Err(CommandError::AuthFailed(
-                    "la sesión de DBine Enterprise terminó: volvé a iniciarla".into(),
-                ))
-            }
+            Ok(r) if self.refused(r.status().as_u16()).await => Err(CommandError::AuthFailed(
+                purge::Why::Revoked.message().into(),
+            )),
             // Unreachable for now: the old token still works a while.
             _ => Ok(t.token),
         }
     }
 
-    /// The server refused the token: signed out, the company's connections
-    /// gone.
-    async fn session_lost(&self) {
+    /// The access ended: disconnect everything from the company and delete
+    /// every local trace of it (`purge`), forget the token, and tell the UI
+    /// why. Runs on a task of its own, so it finishes even when the caller is
+    /// the events stream that this stops.
+    pub(crate) async fn end_access(&self, why: Why) {
+        let Ok(me) = get() else {
+            self.end_access_now(why).await;
+            return;
+        };
+        let _ = tauri::async_runtime::spawn(async move { me.end_access_now(why).await }).await;
+    }
+
+    async fn end_access_now(&self, why: Why) {
+        if let Some(h) = self.events.lock().unwrap().take() {
+            h.abort();
+        }
+        if let Some(h) = self.watch.lock().unwrap().take() {
+            h.abort();
+        }
+        // The token goes first: nothing new can be asked in its name.
         self.keep_token(None);
-        let _ = self.store.set_managed_connections(&[]);
-        gateway::forget_drivers();
+        let state = crate::state::app_state();
+        purge::purge_company_data(&self.store, state.as_ref()).await;
+        {
+            let mut saved = self.saved.lock().unwrap();
+            // Signed out: all of it goes. Otherwise the server stays, so the
+            // sign-in form still knows where to ask.
+            *saved = match (why, saved.take()) {
+                (Why::SignOut, _) | (_, None) => None,
+                (_, Some(s)) => Some(Saved {
+                    server: s.server,
+                    ..Default::default()
+                }),
+            };
+        }
+        self.persist();
         self.refresh_status_fields();
         {
             let mut st = self.status.lock().unwrap();
             st.catalog = None;
             st.online = false;
-            st.error = Some("la sesión de DBine Enterprise terminó: volvé a iniciarla".into());
+            st.organization = String::new();
+            st.error = why.tells_the_user().then(|| why.message().to_string());
+        }
+        if why.tells_the_user() {
+            let _ = self.app.emit(
+                "enterprise-event",
+                serde_json::json!({ "kind": "session.lost", "data": { "reason": why.as_str() } }),
+            );
         }
         let _ = self.app.emit(
-            "enterprise-event",
-            serde_json::json!({ "kind": "session.lost" }),
+            "enterprise-purged",
+            serde_json::json!({ "reason": why.as_str(), "message": why.message() }),
         );
         self.emit_status();
+    }
+
+    /// Whether the server confirms the token (the lightest authenticated
+    /// call there is today: the catalog's sync, which also refreshes it).
+    /// Used to tell a revocation from a refusal about one thing, and by the
+    /// periodic check.
+    async fn probe(&self) -> Probe {
+        let (Some(server), Some(t)) = (self.server(), self.token.lock().unwrap().clone()) else {
+            return Probe::Ended;
+        };
+        match self
+            .http()
+            .get(format!("{server}/api/v1/desktop/sync"))
+            .bearer_auth(&t.token)
+            .send()
+            .await
+        {
+            Ok(r) if r.status().is_success() => Probe::Valid,
+            Ok(r) => match purge::refusal(r.status().as_u16()) {
+                purge::Refusal::Not => Probe::Unreachable,
+                _ => Probe::Ended,
+            },
+            Err(_) => Probe::Unreachable,
+        }
+    }
+
+    /// A refusal (HTTP status) of the server or the gateway: a 401 ends the
+    /// session; a 403 does only when the server, asked again, refuses the
+    /// token too. Returns whether the session ended.
+    pub(crate) async fn refused(&self, status: u16) -> bool {
+        let ended = match purge::refusal(status) {
+            purge::Refusal::Ended => true,
+            purge::Refusal::Confirm => self.probe().await == Probe::Ended,
+            purge::Refusal::Not => false,
+        };
+        if ended {
+            // 401: the server refused the token. 403 that held: it refused
+            // the person.
+            let why = if status == 401 {
+                Why::SessionLost
+            } else {
+                Why::Revoked
+            };
+            self.end_access(why).await;
+        }
+        ended
+    }
+
+    /// The server couldn't be reached: the company's data stays while the
+    /// last successful validation is younger than `purge::OFFLINE_GRACE`.
+    async fn enforce_grace(&self) {
+        let last = self
+            .saved
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|s| s.validated_at);
+        if purge::grace_expired(last, Utc::now()) {
+            self.end_access(Why::OfflineTooLong).await;
+        }
+    }
+
+    /// Whether a session of a company connection is open.
+    fn company_session_open() -> bool {
+        crate::state::app_state().is_some_and(|s| {
+            s.sessions
+                .iter()
+                .any(|e| e.connection_id.starts_with("ent-"))
+        })
+    }
+
+    fn start_watch(self: &Arc<Self>) {
+        let me = self.clone();
+        let h = tauri::async_runtime::spawn(async move {
+            let mut last = std::time::Instant::now();
+            loop {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                if me.token.lock().unwrap().is_none() {
+                    return;
+                }
+                let every = if Self::company_session_open() {
+                    purge::CHECK_WITH_SESSIONS
+                } else {
+                    purge::CHECK_IDLE
+                };
+                if last.elapsed() < every {
+                    continue;
+                }
+                last = std::time::Instant::now();
+                // A revocation purges inside `sync`; a failure that isn't one
+                // is the network: keep the data, within the grace.
+                if me.sync().await.is_err() && me.token.lock().unwrap().is_some() {
+                    me.enforce_grace().await;
+                }
+            }
+        });
+        if let Some(old) = self.watch.lock().unwrap().replace(h) {
+            old.abort();
+        }
     }
 
     /// A call to DBine Enterprise's API for DBine, as JSON.
@@ -488,10 +644,9 @@ impl Enterprise {
             .map_err(|e| CommandError::Connect(format!("DBine Enterprise no responde ({e})")))?;
         let status = r.status();
         let v: Value = r.json().await.unwrap_or(Value::Null);
-        if status == reqwest::StatusCode::UNAUTHORIZED {
-            self.session_lost().await;
+        if self.refused(status.as_u16()).await {
             return Err(CommandError::AuthFailed(
-                "la sesión de DBine Enterprise terminó: volvé a iniciarla".into(),
+                purge::Why::Revoked.message().into(),
             ));
         }
         if !status.is_success() {
@@ -511,6 +666,14 @@ impl Enterprise {
     /// Gets the catalog and makes the managed connections match it.
     pub async fn sync(&self) -> CommandResult<Status> {
         let res = self.api(reqwest::Method::GET, "/desktop/sync", None).await;
+        // Signed out meanwhile: what came back belongs to nobody.
+        let res = res.and_then(|v| {
+            if self.token.lock().unwrap().is_none() {
+                Err(CommandError::AuthFailed(Why::Revoked.message().into()))
+            } else {
+                Ok(v)
+            }
+        });
         let v = match res {
             Ok(v) => v,
             Err(e) => {
@@ -582,6 +745,7 @@ impl Enterprise {
             s.organization = catalog.organization.clone();
             s.email = v["user"]["email"].as_str().unwrap_or(&s.email).to_string();
             s.name = v["user"]["name"].as_str().unwrap_or(&s.name).to_string();
+            s.validated_at = Some(Utc::now());
         }
         self.persist();
         self.refresh_status_fields();
@@ -623,9 +787,6 @@ impl Enterprise {
     pub async fn sign_out(&self) -> CommandResult<()> {
         self.signed_out
             .store(true, std::sync::atomic::Ordering::Relaxed);
-        if let Some(h) = self.events.lock().unwrap().take() {
-            h.abort();
-        }
         let token = self.token.lock().unwrap().clone();
         if let (Some(server), Some(t)) = (self.server(), token) {
             let _ = self
@@ -635,30 +796,9 @@ impl Enterprise {
                 .send()
                 .await;
         }
-        if let Some(state) = crate::state::app_state() {
-            let open: Vec<String> = state
-                .sessions
-                .iter()
-                .filter(|e| e.connection_id.starts_with("ent-"))
-                .map(|e| e.connection_id.clone())
-                .collect();
-            for id in open {
-                state.close_connection_sessions(&id);
-                state.cache_forget(&id);
-            }
-        }
-        for c in self.store.list_managed_connections()? {
-            if let Some(state) = crate::state::app_state() {
-                state.cache_forget(&c.id);
-            }
-        }
-        self.store.set_managed_connections(&[])?;
-        gateway::forget_drivers();
-        self.keep_token(None);
-        *self.saved.lock().unwrap() = None;
-        self.persist();
-        self.refresh_status_fields();
-        self.emit_status();
+        // Disconnect and delete everything of the company, as when it ends
+        // the access.
+        self.end_access(Why::SignOut).await;
         Ok(())
     }
 
@@ -668,6 +808,7 @@ impl Enterprise {
         if let Some(old) = self.events.lock().unwrap().replace(h) {
             old.abort();
         }
+        self.start_watch();
     }
 
     fn last_event(&self) -> i64 {
@@ -685,6 +826,16 @@ impl Enterprise {
         }
         self.persist();
     }
+}
+
+/// What the server says about the token.
+#[derive(Debug, PartialEq, Eq)]
+enum Probe {
+    Valid,
+    /// Refused (401/403): the access ended.
+    Ended,
+    /// No answer, or one that isn't about the token: the network.
+    Unreachable,
 }
 
 /// One managed connection per profile the user may use now.
@@ -767,8 +918,7 @@ pub async fn enterprise_sign_in(args: SignInArgs) -> CommandResult<Status> {
         .as_ref()
         .is_some_and(|s| s.server != server || s.email != signed.email)
     {
-        let _ = e.store.set_managed_connections(&[]);
-        gateway::forget_drivers();
+        e.end_access(Why::OtherAccount).await;
     }
     *e.saved.lock().unwrap() = Some(Saved {
         server,
@@ -778,6 +928,7 @@ pub async fn enterprise_sign_in(args: SignInArgs) -> CommandResult<Status> {
         last_event: 0,
         bastion_url: String::new(),
         bastion_key: String::new(),
+        validated_at: Some(Utc::now()),
     });
     e.keep_token(Some(Token {
         token: signed.token,

@@ -797,6 +797,46 @@ impl AppState {
         tokio::spawn(async move { tunnels.recheck(&id).await });
     }
 
+    /// DBine Enterprise's access ended: every session, tunnel, secret typed
+    /// or read, cached tree and kept list of the company's connections (`ent-…`
+    /// ids, plus `extra`) goes from memory and from the explorer cache.
+    /// Returns the ids it dealt with.
+    pub fn forget_company_memory(&self, extra: &[String]) -> Vec<String> {
+        let mut ids: Vec<String> = extra.to_vec();
+        ids.extend(
+            self.sessions
+                .iter()
+                .map(|e| e.connection_id.clone())
+                .filter(|c| c.starts_with("ent-")),
+        );
+        ids.extend(
+            self.typed_secrets
+                .iter()
+                .map(|e| e.key().clone())
+                .filter(|c| c.starts_with("ent-")),
+        );
+        ids.extend(
+            self.keychain_cache
+                .iter()
+                .map(|e| e.key().clone())
+                .filter(|c| c.starts_with("ent-")),
+        );
+        ids.sort();
+        ids.dedup();
+        for id in &ids {
+            self.close_connection_sessions(id);
+            self.typed_secrets.remove(id);
+            self.keychain_cache.remove(id);
+        }
+        if let Some(cache) = self.cache.get() {
+            let _ = cache.forget_prefix("ent-");
+            for id in &ids {
+                let _ = cache.forget_connection(id);
+            }
+        }
+        ids
+    }
+
     /// Drop every session of a connection (disconnect, edit, delete). Every
     /// window hears it (`state-changed`, kind `sessions-closed`): a tab of
     /// another window on that connection is now disconnected too.

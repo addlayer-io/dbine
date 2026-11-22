@@ -8,7 +8,9 @@ import {
   type EnterpriseConnection, type EnterpriseDuration, type EnterpriseEvent, type EnterpriseProfile, type EnterpriseStatus, type RunningStatement,
 } from '../api/enterprise';
 import { useConnectionsStore } from './connections';
-import { runningStatements } from './tabs';
+import { runningStatements, useTabsStore } from './tabs';
+import { useAiStore } from './ai';
+import { isCompanyId } from './companyData';
 import type { SavedConnection } from '../api/types';
 
 // Signed in to DBine Enterprise: the company's catalog (the explorer's
@@ -25,9 +27,8 @@ export interface AccessTarget {
   outsideHours?: boolean;
 }
 
-/** Off in published builds: only a build made with `VITE_DBINE_ENTERPRISE=1`
- *  shows any of this. */
-export const ENTERPRISE_ENABLED = import.meta.env.VITE_DBINE_ENTERPRISE === '1';
+/** On in every build; a build made with `VITE_DBINE_ENTERPRISE=0` hides it. */
+export const ENTERPRISE_ENABLED = import.meta.env.VITE_DBINE_ENTERPRISE !== '0';
 
 export const useEnterpriseStore = defineStore('enterprise', {
   state: () => ({
@@ -59,6 +60,28 @@ export const useEnterpriseStore = defineStore('enterprise', {
         if (JSON.stringify(e.payload.catalog?.connections ?? null) !== before) void useConnectionsStore().load();
       });
       await listen<EnterpriseEvent>('enterprise-event', (e) => this.tell(e.payload));
+      // The access ended (signed out, revoked, another account, too long
+      // offline): the backend already closed the sessions and deleted the
+      // company's data; nothing of it may stay on screen.
+      await listen('enterprise-purged', () => void this.purged());
+      // Back in front: the server confirms the access now, not at the next check.
+      let lastCheck = 0;
+      window.addEventListener('focus', () => {
+        if (!this.signedIn || Date.now() - lastCheck < 30_000) return;
+        lastCheck = Date.now();
+        void this.sync().catch(() => {});
+      });
+    },
+
+    /** After the backend's purge: the tabs on company connections close (no
+     *  asking: they can't run any more), the AI conversations that used them
+     *  go, and the explorer lists what is left. */
+    async purged() {
+      const tabs = useTabsStore();
+      const gone = new Set(tabs.tabs.map((t) => t.connectionId).filter(isCompanyId));
+      if (gone.size) tabs.forgetConnections(gone);
+      await useAiStore().forgetCompany();
+      await useConnectionsStore().load();
     },
 
     async signIn(server: string) {
@@ -202,7 +225,7 @@ export const useEnterpriseStore = defineStore('enterprise', {
           break;
         case 'session.lost':
           type = 'warning';
-          body = t('enterprise:notice.sessionLost');
+          body = t(d.reason === 'offline_too_long' ? 'enterprise:notice.offlineTooLong' : 'enterprise:notice.sessionLost');
           onClick = () => { this.signInOpen = true; };
           break;
         default:

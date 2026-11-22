@@ -4,6 +4,7 @@
 //! system notification); the ones that change what DBine may use resync the
 //! catalog. A dropped stream reconnects and catches up from the last event.
 
+use super::purge::{kind_ends_access, Why};
 use super::Enterprise;
 use futures_util::StreamExt;
 use std::sync::Arc;
@@ -72,14 +73,27 @@ async fn listen(e: &Arc<Enterprise>) -> Result<(), String> {
             .parse()
             .map_err(|_| "token inválido".to_string())?,
     );
-    let (mut ws, _) = tokio_tungstenite::connect_async_tls_with_config(
+    let connected = tokio_tungstenite::connect_async_tls_with_config(
         req,
         None,
         false,
         Some(tokio_tungstenite::Connector::Rustls(super::gateway_tls())),
     )
-    .await
-    .map_err(|x| format!("DBine Enterprise no responde ({x})"))?;
+    .await;
+    let (mut ws, _) = match connected {
+        Ok(c) => c,
+        // Refused at the door: the access may have ended (a 401 does; a 403
+        // when the server, asked again, refuses the token too).
+        Err(tokio_tungstenite::tungstenite::Error::Http(r)) => {
+            let status = r.status().as_u16();
+            return if e.refused(status).await {
+                Err(Why::Revoked.message().to_string())
+            } else {
+                Err(format!("DBine Enterprise respondió {status}"))
+            };
+        }
+        Err(x) => return Err(format!("DBine Enterprise no responde ({x})")),
+    };
     // Back online: what changed meanwhile comes as events, but resync anyway.
     let _ = e.sync().await;
     let mut resync = tokio::time::interval(Duration::from_secs(600));
@@ -93,12 +107,22 @@ async fn listen(e: &Arc<Enterprise>) -> Result<(), String> {
                     if let Some(id) = v["id"].as_i64() {
                         e.set_last_event(id);
                     }
+                    // The company ended this person's access: everything of it
+                    // goes now, not at the next resync.
+                    if kind_ends_access(&kind) {
+                        e.end_access(Why::Revoked).await;
+                        return Ok(());
+                    }
                     if changes_catalog(&kind) {
                         let _ = e.sync().await;
                     }
                     let _ = e.app.emit("enterprise-event", v);
                 }
-                Some(Ok(_)) => {}
+                Some(Ok(_)) => {
+                    if e.token.lock().unwrap().is_none() {
+                        return Ok(());
+                    }
+                }
                 Some(Err(x)) => return Err(x.to_string()),
                 None => return Ok(()),
             },

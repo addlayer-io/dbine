@@ -281,7 +281,7 @@ pub struct StateChange {
 }
 
 impl StateChange {
-    fn new(kind: &str, id: Option<&str>) -> Self {
+    pub(crate) fn new(kind: &str, id: Option<&str>) -> Self {
         Self {
             kind: kind.into(),
             id: id.map(Into::into),
