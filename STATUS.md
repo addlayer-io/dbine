@@ -9,13 +9,17 @@ _Updated 2026-11-22._
 | Source | Critical | High | Medium | Low |
 |---|---|---|---|---|
 | claude-security (source-code review) | 0 | 0 | 0 | 0 |
-| OSV-Scanner (dependency advisories) | 0 | 0 | 0 | 0 |
+| OSV-Scanner (dependency advisories) | 0 | 0 | 3 | 0 |
 | Trivy (secrets, configuration) | 0 | 0 | 0 | 0 |
 | CodeQL (static analysis) | 0 | 0 | 0 | 0 |
 
 Findings from the source-code review and CodeQL show only their kind and component while they're open.
 
-_None._
+| ID | Severity | Source | Finding | Where | Fix |
+|---|---|---|---|---|---|
+| OSV-RUSTSEC-2026-0592-url-13ee4b | MEDIUM | osv | url 2.5.8: Stack overflow in `Url::origin()` on nested `blob:` URLs | `Cargo.lock` | upgrade to 2.5.9 |
+| OSV-RUSTSEC-2026-0592-url-9761a8 | MEDIUM | osv | url 2.5.8: Stack overflow in `Url::origin()` on nested `blob:` URLs | `mobile/src-tauri/Cargo.lock` | upgrade to 2.5.9 |
+| OSV-RUSTSEC-2026-0592-url-c4afe4 | MEDIUM | osv | url 2.5.8: Stack overflow in `Url::origin()` on nested `blob:` URLs | `fuzz/Cargo.lock` | upgrade to 2.5.9 |
 
 ## What the last scans covered
 
@@ -23,9 +27,9 @@ _None._
 |---|---|---|---|---|
 | claude-security, release v1.7.0 | 2026-11-21 | 4fc9459c..78feff49, everything 1.7.0 adds since v1.6.3 up to the CodeQL fixes (vectors, lineage in both directions, the explorer by folders and its filter, results search, compare fixes, New notebook from the explorer; 3 MEDIUM and 1 LOW, fixed in #168); 78feff49..c1b4d9a9, server jobs in the lineage and #168 (1 MEDIUM, fixed in #170); c1b4d9a9..6f336538, the lineage of a whole database, the relations switch and #170 (no findings); plus the pre-merge scan of the vectors branch at 94805104 (2 MEDIUM in the Cypher read guard, fixed before it merged) | 0 open | the release commits d079d0ae and 533fab01 (versions, Cargo.lock and the changelogs; no code) |
 | codeql | 2026-11-22 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-22 | every lockfile (Cargo, npm) at [`02d282462`](https://github.com/addlayer-io/dbine/commit/02d282462a71) | 0 open | — |
+| osv | 2026-11-22 | every lockfile (Cargo, npm) at [`994091ad1`](https://github.com/addlayer-io/dbine/commit/994091ad1639) | 3 open | — |
 | scorecard | 2026-11-22 | repository settings and workflows at [`02d282462`](https://github.com/addlayer-io/dbine/commit/02d282462a71) | score 7.6/10 | — |
-| trivy | 2026-11-22 | whole repository at [`02d282462`](https://github.com/addlayer-io/dbine/commit/02d282462a71) | 0 open | — |
+| trivy | 2026-11-22 | whole repository at [`994091ad1`](https://github.com/addlayer-io/dbine/commit/994091ad1639) | 0 open | — |
 
 ## Not counted, and why
 

@@ -43,15 +43,15 @@
     {
       "source": "osv",
       "date": "2026-11-22",
-      "revision": "02d282462a71",
+      "revision": "994091ad1639",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 0
+      "found": 3
     },
     {
       "source": "trivy",
       "date": "2026-11-22",
-      "revision": "02d282462a71",
+      "revision": "994091ad1639",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -4516,6 +4516,42 @@
       "fixed_version": null,
       "found": "2026-11-17",
       "status": "notice"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0592-url-13ee4b",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "url 2.5.8: Stack overflow in `Url::origin()` on nested `blob:` URLs",
+      "component": "Cargo.lock",
+      "advisory": "RUSTSEC-2026-0592",
+      "fixed_version": "2.5.9",
+      "found": "2026-11-22",
+      "status": "open"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0592-url-9761a8",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "url 2.5.8: Stack overflow in `Url::origin()` on nested `blob:` URLs",
+      "component": "mobile/src-tauri/Cargo.lock",
+      "advisory": "RUSTSEC-2026-0592",
+      "fixed_version": "2.5.9",
+      "found": "2026-11-22",
+      "status": "open"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0592-url-c4afe4",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "url 2.5.8: Stack overflow in `Url::origin()` on nested `blob:` URLs",
+      "component": "fuzz/Cargo.lock",
+      "advisory": "RUSTSEC-2026-0592",
+      "fixed_version": "2.5.9",
+      "found": "2026-11-22",
+      "status": "open"
     },
     {
       "id": "SC-Binary-Artifacts",
