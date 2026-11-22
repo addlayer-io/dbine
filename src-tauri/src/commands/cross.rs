@@ -57,6 +57,20 @@ pub(crate) fn scan_limits(state: &AppState) -> (Duration, Duration) {
 /// Setting: models read at once per Power BI connection (the Settings page offers 1 to 16).
 pub const SCAN_PARALLEL_SETTING: &str = "lineage_scan_parallel";
 const SCAN_PARALLEL_DEFAULT: usize = 4;
+/// Setting: use Power BI's admin API (the scanner) to find which models read a source, when the user can.
+/// On by default: the token is only ever asked for silently; "off" never asks for it.
+pub const ADMIN_SCAN_SETTING: &str = "lineage_pbi_admin_scan";
+
+/// Whether the admin API may be asked (the setting, on when unset).
+pub(crate) fn admin_scan_enabled(state: &AppState) -> bool {
+    state
+        .store
+        .get_setting(ADMIN_SCAN_SETTING)
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
+}
 const SCAN_PARALLEL_MAX: usize = 16;
 
 fn parallel_setting(value: Option<&serde_json::Value>) -> usize {
@@ -225,7 +239,7 @@ fn key_is_connection(key: &SourceKey, conn: &SavedConnection, database: &str) ->
 
 /// The note a search leaves when the admin scanner API can't be used by the user.
 pub(crate) const SCANNER_UNAVAILABLE_NOTE: &str =
-    "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno";
+    "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno";
 
 /// What asking for a tenant's scan came to.
 pub(crate) enum Scan {
@@ -234,6 +248,8 @@ pub(crate) enum Scan {
     Unavailable,
     /// Any other failure: the models are read one by one, silently (the scanner is only a head start).
     Failed,
+    /// The user turned the admin API off in the settings: it isn't asked, and nothing is said.
+    Off,
 }
 
 /// The scan of a Power BI connection's tenant: memory (15 minutes), then the disk (6 hours), then the
@@ -249,6 +265,9 @@ pub(crate) async fn scan_of(state: &AppState, pbi: &SavedConnection, use_stored:
             with_index(|i| i.scans.put(pbi.id.clone(), Some(h.clone()), Instant::now()));
             return Scan::Known(h);
         }
+    }
+    if !admin_scan_enabled(state) {
+        return Scan::Off;
     }
     let Some(driver) = dbine_drivers::find(&pbi.config.driver) else {
         return Scan::Failed;
@@ -284,6 +303,40 @@ pub(crate) async fn scan_of(state: &AppState, pbi: &SavedConnection, use_stored:
             Scan::Failed
         }
     }
+}
+
+/// The remembered refusal of a connection's admin API goes (the user just authorized it): the next
+/// search asks again.
+pub(crate) fn forget_scan(connection_id: &str) {
+    with_index(|i| i.scans.drop_where(|c| c == connection_id));
+}
+
+#[derive(Deserialize)]
+pub struct AuthorizeAdminArgs {
+    pub connection_id: String,
+}
+
+/// "Autorizar la API de administración…": the user asked for it, so the browser opens once for the
+/// consent of `Tenant.Read.All` (read-only) on a Power BI connection. A refusal of Entra (the user isn't an
+/// administrator) comes back as a plain message; nothing else changes either way.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn powerbi_authorize_admin(
+    state: State<'_, AppState>,
+    args: AuthorizeAdminArgs,
+) -> CommandResult<()> {
+    let mut cfg = state.connect_config(&args.connection_id).await?;
+    if cfg.driver != "powerbi" || crate::enterprise::is_managed(&cfg) {
+        return Err(CommandError::BadRequest(
+            "la API de administración es de las conexiones de Power BI".into(),
+        ));
+    }
+    cfg.options
+        .insert("authorize_admin_api".into(), "true".into());
+    // The session is only the way in: it closes when this ends. The consent stays in Entra, and the
+    // token with the connection's other ones.
+    let _session = dbine_drivers::open_session(&cfg, None).await?;
+    forget_scan(&args.connection_id);
+    Ok(())
 }
 
 /// DBine Enterprise's access ended: what the index kept about the company's
@@ -1044,7 +1097,7 @@ pub async fn get_cross_users(
                 }
                 models.to_vec()
             }
-            Scan::Failed => models.to_vec(),
+            Scan::Failed | Scan::Off => models.to_vec(),
         };
         let mut work: Vec<(String, Option<CommandResult<ModelSources>>)> =
             futures_util::stream::iter(to_read)
@@ -1425,13 +1478,42 @@ mod tests {
         assert!(matches!(scan_of(&state, &pbi, true).await, Scan::Known(_)));
         // A refresh ignores both layers.
         assert!(matches!(scan_of(&state, &pbi, false).await, Scan::Failed));
+        // Turned off in the settings: the server isn't asked, and the models are read one by one.
+        state
+            .store
+            .set_setting(ADMIN_SCAN_SETTING, Some(&serde_json::json!(false)))
+            .unwrap();
+        assert!(!admin_scan_enabled(&state));
+        assert!(matches!(scan_of(&state, &pbi, false).await, Scan::Off));
+        state
+            .store
+            .set_setting(ADMIN_SCAN_SETTING, Some(&serde_json::json!(true)))
+            .unwrap();
+        assert!(matches!(scan_of(&state, &pbi, false).await, Scan::Failed));
         // A refusal is remembered: the admin API isn't asked again until the memory expires.
         with_index(|i| i.scans.put(pbi.id.clone(), None, Instant::now()));
         assert!(matches!(
             scan_of(&state, &pbi, true).await,
             Scan::Unavailable
         ));
+        // Authorizing the admin API forgets the refusal: it is asked again.
+        forget_scan(&pbi.id);
+        assert!(matches!(scan_of(&state, &pbi, true).await, Scan::Failed));
         with_index(|i| i.scans.drop_where(|c| c == "pbi-scan-layers"));
+    }
+
+    #[test]
+    fn the_admin_api_is_on_unless_the_user_turned_it_off() {
+        let state = state_with_cache();
+        assert!(admin_scan_enabled(&state));
+        state
+            .store
+            .set_setting(ADMIN_SCAN_SETTING, Some(&serde_json::json!(false)))
+            .unwrap();
+        assert!(!admin_scan_enabled(&state));
+        // The note says what is needed.
+        assert!(SCANNER_UNAVAILABLE_NOTE.contains("administrador de Power BI"));
+        assert!(SCANNER_UNAVAILABLE_NOTE.contains("Ajustes"));
     }
 
     #[test]

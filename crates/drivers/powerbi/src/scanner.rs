@@ -7,9 +7,12 @@
 //! read-only connections ([`crate::http`] counts it among the reads that are POSTs).
 //!
 //! It needs the tenant admin right (Power BI administrator, or a service principal allowed by the tenant
-//! setting) and a token with `Tenant.Read.All`. The sign-in asks for no new scope for it: a user without
-//! the right, or whose token lacks the scope, gets a 401 or 403, and the answer is
-//! [`Error::Unsupported`] so the caller reads the models one by one, as before.
+//! setting) and a token with `Tenant.Read.All` ([`crate::auth::Audience::PowerBiAdmin`]). The base sign-in
+//! never asks for that scope (it needs an administrator's consent, and would break the sign-in of everyone
+//! else): the token is taken silently, and when only a consent would give it nothing is sent and the
+//! answer is [`Error::Unsupported`]. The user grants it once on request ([`crate::auth::TokenProvider::authorize_admin`]).
+//! A user without the right, or whose token lacks the scope, gets a 401 or 403 and the same answer, so the
+//! caller reads the models one by one, as before.
 //!
 //! The scanner names the server and the database of each data source, not the tables a model reads, so it
 //! is a pre-filter: a model can only read an object of a connection if one of its data sources points to
@@ -36,7 +39,7 @@ const WAIT: Duration = Duration::from_secs(10 * 60);
 
 /// What the caller is told when the user can't use the admin API (and nothing else is said).
 pub const NOT_AVAILABLE: &str =
-    "la API de administración de Power BI no está disponible para este usuario";
+    "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes";
 
 /// Whether an error means "this user can't call the admin API" (a 401 or a 403) and not a failure.
 pub(crate) fn is_denied(e: &Error) -> bool {
@@ -255,6 +258,10 @@ async fn scan_wave<S: Service>(s: &S, wave: &[Vec<String>], pace: Pace) -> Resul
 ///
 /// [`LineageScope::tenant_sources`]: dbine_driver::dependencies::LineageScope::tenant_sources
 pub(crate) async fn tenant_sources<S: Service>(s: &mut S, pace: Pace) -> Result<LineageGraph> {
+    // Without the admin scope's token (and no way to get it without the user) nothing is asked.
+    if !s.admin_silent().await {
+        return Err(Error::Unsupported(NOT_AVAILABLE.into()));
+    }
     let models = s.workspace_models().await?;
     let batches = batches(&models);
     if batches.is_empty() {
@@ -462,6 +469,23 @@ mod tests {
                 "{e:?}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn without_the_admin_token_nothing_is_sent_and_it_is_unavailable() {
+        let mut f = fake_with_models();
+        f.admin_silent = false;
+        let e = tenant_sources(&mut f, fast()).await.unwrap_err();
+        assert!(
+            matches!(&e, Error::Unsupported(m) if m == NOT_AVAILABLE),
+            "{e:?}"
+        );
+        assert!(f.requests().is_empty());
+        // The note says what is needed.
+        assert!(
+            NOT_AVAILABLE.contains("administrador de Power BI")
+                && NOT_AVAILABLE.contains("Ajustes")
+        );
     }
 
     #[tokio::test]

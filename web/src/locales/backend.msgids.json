@@ -23382,6 +23382,9 @@
  "La apertura de la ventana": [
   "crates/drivers/oracle/src/scheduler/program.rs"
  ],
+ "La aplicación con la que iniciaste sesión no tiene el permiso Tenant.Read.All de Power BI en su registro: un administrador tiene que agregarlo en Microsoft Entra ID.": [
+  "crates/drivers/powerbi/src/auth/mod.rs"
+ ],
  "La aplicación de DBine todavía no tiene permiso para Power BI en este inquilino ({0}). Pedile a un administrador que la apruebe, o elegí «Cliente de Azure CLI» en Opciones avanzadas.": [
   "crates/drivers/powerbi/src/auth/browser.rs"
  ],
@@ -23412,6 +23415,9 @@
  ],
  "La autenticación integrada (Windows/Kerberos) no se importa: se usa usuario y contraseña.": [
   "crates/dbine-core/src/conn_import/dbeaver.rs"
+ ],
+ "La autorización de la API de administración es del inicio de sesión con el navegador; con otro modo de autenticación vale el permiso de la aplicación registrada.": [
+  "crates/drivers/powerbi/src/auth/mod.rs"
  ],
  "La base admite un único supertable; no se cambia después.": [
   "crates/drivers/tdengine/src/create_db.rs"
@@ -44334,6 +44340,9 @@
  "Tu aplicación no tiene los permisos delegados de Power BI aprobados en este inquilino ({0}). Pedile a un administrador que los apruebe.": [
   "crates/drivers/powerbi/src/auth/browser.rs"
  ],
+ "Tu cuenta no puede autorizar la API de administración de Power BI ({0}): hace falta que la apruebe un administrador de Power BI o de Microsoft Entra ID. Mientras tanto, DBine lee los modelos de a uno.": [
+  "crates/drivers/powerbi/src/auth/mod.rs"
+ ],
  "Tu usuario no es admin: los backups programados piden el privilegio BACKUP, los changefeeds el privilegio CHANGEFEED en sus tablas, la TTL de una tabla poder modificarla y la programación de los schedules del clúster MODIFYCLUSTERSETTING; el servidor rechaza lo que falte.": [
   "crates/drivers/postgres/src/scheduler/crdb.rs"
  ],
@@ -53811,6 +53820,9 @@
  "habla el protocolo {0} y esta versión de DBine el {1}": [
   "crates/dbine-plugin/src/remote.rs"
  ],
+ "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": [
+  "crates/drivers/powerbi/src/auth/mod.rs"
+ ],
  "hace menos de 1 h": [
   "crates/drivers/clickhouse/src/health.rs"
  ],
@@ -54315,10 +54327,13 @@
  "ksqlDB solo tiene consultas persistentes en su planificador": [
   "crates/drivers/ksqldb/src/scheduler.rs"
  ],
- "la API de administración de Power BI no está disponible para este usuario": [
+ "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": [
   "crates/drivers/powerbi/src/scanner.rs"
  ],
- "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno": [
+ "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": [
+  "src-tauri/src/commands/cross.rs"
+ ],
+ "la API de administración es de las conexiones de Power BI": [
   "src-tauri/src/commands/cross.rs"
  ],
  "la CLI de 1Password («op») no está instalada: instalala desde 1password.com/downloads/command-line": [

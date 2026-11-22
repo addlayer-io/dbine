@@ -66,6 +66,8 @@ pub struct Fake {
     pub arrow: bool,
     /// The Fabric API can be called without asking the user (a token is there).
     pub fabric_silent: bool,
+    /// The admin API (the scanner) can be called without asking the user (its token is there).
+    pub admin_silent: bool,
     pub arrow_error: Option<Error>,
     pub window: WindowUsage,
     pub meta: MetaState,
@@ -125,6 +127,7 @@ impl Fake {
             account: None,
             arrow: false,
             fabric_silent: true,
+            admin_silent: true,
             arrow_error: None,
             window: WindowUsage {
                 used: 3,
@@ -371,6 +374,9 @@ impl Service for Fake {
     }
     async fn fabric_silent(&self) -> bool {
         self.fabric_silent
+    }
+    async fn admin_silent(&self) -> bool {
+        self.admin_silent
     }
     fn window_usage(&self) -> WindowUsage {
         self.window

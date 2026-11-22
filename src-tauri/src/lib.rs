@@ -435,6 +435,7 @@ pub fn run() {
             commands::explorer::get_lineage_graph,
             commands::lineage_cache::lineage_graph_cached,
             commands::lineage_cache::lineage_cache_clear,
+            commands::cross::powerbi_authorize_admin,
             commands::cross::lineage_resolve_source,
             commands::cross::lineage_link_source,
             commands::cross::lineage_open_source,
