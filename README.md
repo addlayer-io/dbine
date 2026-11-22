@@ -489,6 +489,7 @@ No driver needs vendor libraries for the app to start:
 
 DBine is free and will stay that way. If it's useful to you, you can support it
 with whatever you like, once or every month, from
+[GitHub Sponsors](https://github.com/sponsors/addlayer-io) or
 [Buy Me a Coffee](https://buymeacoffee.com/addlayer). It is support, not
 a license: the app works the same.
 

@@ -482,7 +482,7 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <button :class="{ on: section === 'maps' }" @click="section = 'maps'"><el-icon><ei-map-location /></el-icon>{{ $t('map:settings.nav') }}</button>
         <button :class="{ on: section === 'notebooks' }" @click="section = 'notebooks'"><el-icon><ei-notebook /></el-icon>{{ $t('notebook:settings.nav') }}</button>
         <button v-if="driverPackages" :class="{ on: section === 'drivers' }" @click="section = 'drivers'"><el-icon><ei-connection /></el-icon>{{ $t('settings:nav.drivers') }}</button>
-        <!-- Voluntary support: opens Buy Me a Coffee in the browser. -->
+        <!-- Voluntary support: opens GitHub Sponsors in the browser. -->
         <button class="st-support" :title="$t('settings:nav.supportHint')" @click="openSupport">
           <span class="st-heart">♥</span>{{ $t('settings:nav.support') }}
         </button>
