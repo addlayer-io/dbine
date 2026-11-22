@@ -52241,6 +52241,9 @@
  "esta computadora no está conectada a una red": [
   "src-tauri/src/link.rs"
  ],
+ "esta conexión es de DBine Enterprise: iniciá sesión para buscar qué modelos de Power BI leen sus objetos": [
+  "src-tauri/src/commands/cross.rs"
+ ],
  "esta conexión no pasa por DBine Bastion": [
   "src-tauri/src/enterprise/mod.rs"
  ],
@@ -58418,6 +58421,9 @@
  ],
  "no se pudo pedir el token de Google: {0}": [
   "crates/drivers/bigquery/src/gcp.rs"
+ ],
+ "no se pudo preguntar a DBine Enterprise qué conexiones usan las fuentes de Power BI: {0}": [
+  "src-tauri/src/commands/cross.rs"
  ],
  "no se pudo preparar el clon {0}; no se clona": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"

@@ -19116,5 +19116,7 @@
   "la fuente no es un servidor al que DBine pueda conectarse": "sumber ini bukan server yang dapat dihubungi DBine",
   "Este modelo se lee mejor con la API de Fabric": "Model ini lebih baik dibaca dengan API Fabric",
   "Este modelo se lee mejor con la API de Fabric, que pide un permiso (SemanticModel.ReadWrite.All) que todavía no está aprobado: una búsqueda en segundo plano no lo pide. Abrí el modelo una vez desde el explorador para aprobarlo.": "Model ini lebih baik dibaca dengan API Fabric, yang meminta izin (SemanticModel.ReadWrite.All) yang belum disetujui: pencarian di latar belakang tidak memintanya. Buka model sekali dari penjelajah untuk menyetujuinya.",
-  "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "{0} model dari «{1}» dibaca tanpa API Fabric, yang meminta izin yang belum disetujui: buka satu dari penjelajah untuk menyetujuinya, lalu cari lagi"
+  "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "{0} model dari «{1}» dibaca tanpa API Fabric, yang meminta izin yang belum disetujui: buka satu dari penjelajah untuk menyetujuinya, lalu cari lagi",
+  "esta conexión es de DBine Enterprise: iniciá sesión para buscar qué modelos de Power BI leen sus objetos": "koneksi ini milik DBine Enterprise: login untuk mencari model Power BI mana yang membaca objeknya",
+  "no se pudo preguntar a DBine Enterprise qué conexiones usan las fuentes de Power BI: {0}": "tidak dapat menanyakan ke DBine Enterprise koneksi mana yang menggunakan sumber Power BI: {0}"
 }
