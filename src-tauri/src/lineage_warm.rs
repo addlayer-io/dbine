@@ -6,7 +6,7 @@
 //! Power BI connections warm each model's external sources instead (what the cross-connection search
 //! reads), four models at a time.
 
-use crate::commands::cross::{externals_of, models_of, MODELS_CAP, MODEL_LIMIT, SCAN_PARALLEL};
+use crate::commands::cross::{externals_of, models_of, MODEL_LIMIT, SCAN_PARALLEL};
 use crate::commands::lineage_cache::{
     fresh_value, is_cacheable, precompute_enabled, scope_key, user_is_reading, warm_order,
     PRECOMPUTE_SETTING, TTL,
@@ -217,7 +217,7 @@ async fn warm_power_bi(
         }
     };
     let id = pbi.id.as_str();
-    futures_util::stream::iter(models.iter().take(MODELS_CAP).cloned())
+    futures_util::stream::iter(models.iter().cloned())
         .map(|model| async move {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() || !is_live(state, id) {

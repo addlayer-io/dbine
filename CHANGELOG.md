@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixes
+
+- **Searching Power BI no longer stops at 200 models:** the lineage search and the background warm-up read every model of the workspace.
+
 ### Improvements
 
 - **The lineage opens already resolved:** DBine keeps the lineage of each database (and, for Power BI, the sources of each model) next to the explorer's cache and, once connected, reads it in the background, one database at a time, so the first time you open it there is nothing to wait for. Opening the lineage shows the saved one at once, with how long ago it was read, and refreshes it behind the scenes. The search for who reads an object across Power BI models reads only each model's sources, four at a time and with a time limit, so it no longer hangs on a workspace with many models. Settings › General has a switch to turn the precalculation off and a button to clear the saved lineage.
