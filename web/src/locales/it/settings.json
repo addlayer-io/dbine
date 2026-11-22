@@ -48,7 +48,11 @@
     "gridFontSize": "Dimensione del carattere della griglia",
     "gridFontSizeHelp": "Le celle della griglia dei risultati; le righe crescono con il carattere.",
     "gridTypes": "Tipo di dato nelle intestazioni",
-    "gridTypesHelp": "Il tipo di ogni colonna, in caratteri piccoli sotto il suo nome, nelle griglie dei risultati."
+    "gridTypesHelp": "Il tipo di ogni colonna, in caratteri piccoli sotto il suo nome, nelle griglie dei risultati.",
+    "lineagePrecompute": "Precalcola il lineage alla connessione",
+    "lineagePrecomputeHelp": "Legge il lineage dei database in background alla connessione, così si apre subito. Viene salvata solo la struttura, senza dati.",
+    "lineageCacheClear": "Svuota la cache del lineage",
+    "lineageCacheCleared": "Cache del lineage svuotata."
   },
   "sync": {
     "folderDialogTitle": "Cartella per il backup di DBine",

@@ -105,7 +105,10 @@
     "empty": "Aucun objet à dessiner pour cette portée.",
     "noMatch": "Aucun objet ne correspond aux filtres.",
     "relations": "Relations ({{count}})",
-    "relationsTip": "Les clés étrangères (et les relations d’un modèle) vont en parallèle de la traçabilité : activez-les pour les voir à côté d’elle."
+    "relationsTip": "Les clés étrangères (et les relations d’un modèle) vont en parallèle de la traçabilité : activez-les pour les voir à côté d’elle.",
+    "updated": "Mis à jour {{ago}}",
+    "updating": "mise à jour…",
+    "refreshFailed": "Impossible de mettre à jour : {{error}}. Affichage de la dernière version enregistrée."
   },
   "cross": {
     "switch": "Inclure les autres connexions",
@@ -158,5 +161,11 @@
     "forgotten": "Connexion oubliée.",
     "added": "« {{name}} » est maintenant dans l'explorateur.",
     "internalNote": "Connexion interne de la traçabilité : « {{name}} » n'est pas dans l'explorateur."
+  },
+  "age": {
+    "seconds": "il y a quelques secondes",
+    "minutes": "il y a {{n}} min",
+    "hours": "il y a {{n}} h",
+    "days": "il y a {{n}} j"
   }
 }

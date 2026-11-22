@@ -105,7 +105,10 @@
     "empty": "W tym zakresie nie ma obiektów do narysowania.",
     "noMatch": "Żaden obiekt nie spełnia filtrów.",
     "relations": "Relacje ({{count}})",
-    "relationsTip": "Klucze obce (i relacje modelu) biegną równolegle do lineage: włącz je, aby zobaczyć je obok niego."
+    "relationsTip": "Klucze obce (i relacje modelu) biegną równolegle do lineage: włącz je, aby zobaczyć je obok niego.",
+    "updated": "Zaktualizowano {{ago}}",
+    "updating": "aktualizowanie…",
+    "refreshFailed": "Nie można zaktualizować: {{error}}. Wyświetlane są ostatnio zapisane dane."
   },
   "cross": {
     "switch": "Uwzględnij inne połączenia",
@@ -158,5 +161,11 @@
     "forgotten": "Połączenie zapomniane.",
     "added": "„{{name}}” jest już w eksploratorze.",
     "internalNote": "Wewnętrzne połączenie lineage: „{{name}}” nie ma w eksploratorze."
+  },
+  "age": {
+    "seconds": "kilka sekund temu",
+    "minutes": "{{n}} min temu",
+    "hours": "{{n}} godz. temu",
+    "days": "{{n}} d. temu"
   }
 }

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Improvements
+
+- **The lineage opens already resolved:** DBine keeps the lineage of each database (and, for Power BI, the sources of each model) next to the explorer's cache and, once connected, reads it in the background, one database at a time, so the first time you open it there is nothing to wait for. Opening the lineage shows the saved one at once, with how long ago it was read, and refreshes it behind the scenes. The search for who reads an object across Power BI models reads only each model's sources, four at a time and with a time limit, so it no longer hangs on a workspace with many models. Settings › General has a switch to turn the precalculation off and a button to clear the saved lineage.
+
 ### New
 
 - **Lineage across connections:** the lineage follows a source outside the database into the connection that holds it. A Power BI table that reads a SQL Server, Databricks, PostgreSQL… table shows that source as a grey card: one click finds the saved connection it points to (or asks once, or offers to **create the connection from the source** with the server and database already filled in), and the card becomes the real table, with what it uses, level by level. The other way round, **Include other connections** shows which Power BI tables read an object, and from there the semantic model and the reports and dashboards that read it, with the connection of each card marked. In DBine Enterprise the company's server resolves the sources to the connections each person may use, all of a lineage's sources in one request, and **Include other connections** also works from an Enterprise connection.

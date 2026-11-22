@@ -9,7 +9,6 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
-import { lineageCacheApi } from '../api/lineageCache';
 import { ElMessage } from 'element-plus';
 import type { LineageScope, SourceCandidate } from '../api/types';
 import { tb } from '../i18n/backend';
@@ -83,7 +82,7 @@ async function load(force = false) {
   const scope = { ...props.scope, jobs: true };
   await openLineage(
     {
-      cached: () => lineageCacheApi.lineageGraphCached(props.connectionId, props.database, props.scope),
+      cached: () => api.lineageGraphCached(props.connectionId, props.database, props.scope),
       fetch: () => api.getLineageGraph(props.connectionId, props.database, scope),
     },
     {

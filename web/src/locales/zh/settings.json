@@ -48,7 +48,11 @@
     "gridFontSize": "网格字号",
     "gridFontSizeHelp": "结果网格的单元格；行高会随文本增长。",
     "gridTypes": "表头显示数据类型",
-    "gridTypesHelp": "在结果网格中，每列的类型以小字显示在列名下方。"
+    "gridTypesHelp": "在结果网格中，每列的类型以小字显示在列名下方。",
+    "lineagePrecompute": "连接时预先计算沿袭",
+    "lineagePrecomputeHelp": "连接时在后台读取各数据库的沿袭，以便立即打开。只保存结构，不保存数据。",
+    "lineageCacheClear": "清除沿袭缓存",
+    "lineageCacheCleared": "沿袭缓存已清除。"
   },
   "sync": {
     "folderDialogTitle": "DBine 备份文件夹",

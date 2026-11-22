@@ -48,7 +48,11 @@
     "gridFontSize": "Schriftgröße im Raster",
     "gridFontSizeHelp": "Die Zellen des Ergebnisrasters; Zeilen wachsen mit dem Text.",
     "gridTypes": "Datentyp in den Spaltenköpfen",
-    "gridTypesHelp": "Der Typ jeder Spalte, in kleiner Schrift unter ihrem Namen, in den Ergebnisrastern."
+    "gridTypesHelp": "Der Typ jeder Spalte, in kleiner Schrift unter ihrem Namen, in den Ergebnisrastern.",
+    "lineagePrecompute": "Lineage beim Verbinden vorberechnen",
+    "lineagePrecomputeHelp": "Liest das Lineage der Datenbanken beim Verbinden im Hintergrund, damit es sofort geöffnet wird. Es wird nur die Struktur gespeichert, keine Daten.",
+    "lineageCacheClear": "Lineage-Cache leeren",
+    "lineageCacheCleared": "Lineage-Cache geleert."
   },
   "sync": {
     "folderDialogTitle": "Ordner für die DBine-Sicherung",

@@ -48,7 +48,11 @@
     "gridFontSize": "グリッドの文字サイズ",
     "gridFontSizeHelp": "結果グリッドのセルです。行は文字サイズに合わせて大きくなります。",
     "gridTypes": "ヘッダーにデータ型を表示",
-    "gridTypesHelp": "結果グリッドで、各列の型を列名の下に小さな文字で表示します。"
+    "gridTypesHelp": "結果グリッドで、各列の型を列名の下に小さな文字で表示します。",
+    "lineagePrecompute": "接続時にリネージを事前計算",
+    "lineagePrecomputeHelp": "接続時にバックグラウンドでデータベースのリネージを読み取り、すぐに開けるようにします。保存されるのは構造のみで、データは含まれません。",
+    "lineageCacheClear": "リネージのキャッシュを消去",
+    "lineageCacheCleared": "リネージのキャッシュを消去しました。"
   },
   "sync": {
     "folderDialogTitle": "DBine のバックアップ用フォルダー",

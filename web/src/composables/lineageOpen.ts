@@ -1,7 +1,7 @@
 // How a lineage view opens when the explorer cache may hold its graph: the cached graph is
 // drawn at once, the server is always asked in the same opening, and its answer replaces the
 // cache's. A failed refresh keeps what is on screen. With no cache it is the plain load.
-import type { CachedLineage } from '../api/lineageCache';
+import type { CachedLineage } from '../api/types';
 import type { LineageGraph } from '../api/types';
 
 export interface OpenDeps {
@@ -39,3 +39,6 @@ export async function openLineage(deps: OpenDeps, on: OpenEvents, opts: { useCac
   if ('graph' in r) on.fresh(r.graph);
   else on.failed(r.error, kept);
 }
+
+/** App setting: precompute the lineage after connecting (default on; Rust reads the same key). */
+export const LINEAGE_PRECOMPUTE_SETTING = 'lineage_precompute';

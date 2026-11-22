@@ -20,7 +20,7 @@ import { syncApi, type LocalBackup, type ProviderKind, type RemoteInfo, type Syn
 import { COPY_FORMATS, type CopyFormat } from '../composables/copyFormats';
 import { TELEMETRY_CONSENT, trackAppStarted } from '../composables/telemetry';
 import { useSettingsStore } from '../stores/settings';
-import { LINEAGE_PRECOMPUTE_SETTING, lineageCacheApi } from '../api/lineageCache';
+import { LINEAGE_PRECOMPUTE_SETTING } from '../composables/lineageOpen';
 import { useTranslation } from 'i18next-vue';
 import { LANGUAGES, SETTING_KEY, language, locale, setLanguage, type Lang } from '../i18n';
 import { tb } from '../i18n/backend';
@@ -187,7 +187,7 @@ const lineagePrecompute = computed({
 });
 async function clearLineageCache() {
   try {
-    await lineageCacheApi.lineageCacheClear(null);
+    await api.lineageCacheClear(null);
     ElMessage.success(t('settings:general.lineageCacheCleared'));
   } catch (e) {
     ElMessage.error(errorMessage(e));
