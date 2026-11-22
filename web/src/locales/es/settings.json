@@ -31,6 +31,10 @@
     "runLensHelp": "Con dos o más sentencias en un editor de consultas, una línea tenue sobre cada una la ejecuta sola, o muestra su plan en los motores que lo tienen. Un comentario en la línea de arriba le pone nombre a su resultado.",
     "groupBySchema": "Agrupar por esquema",
     "groupBySchemaHelp": "En el explorador, cada esquema es una carpeta con sus objetos. Apagado, los objetos van en una sola lista con el esquema antes del nombre.",
+    "lineagePrecompute": "Precalcular el linaje al conectar",
+    "lineagePrecomputeHelp": "Lee el linaje de las bases en segundo plano al conectar, así se abre al instante. Se guarda solo la estructura, sin datos.",
+    "lineageCacheClear": "Borrar caché del linaje",
+    "lineageCacheCleared": "Caché del linaje borrada.",
     "theme": "Tema",
     "themeHelp": "Los colores de DBine. «Igual que el sistema» cambia solo cuando cambia el del sistema operativo.",
     "themes": {

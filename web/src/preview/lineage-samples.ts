@@ -7,7 +7,9 @@
 // the job). &scope=db opens the whole database's lineage ("Linaje", ~40 objects, views,
 // procedures, a job and an outside source); &big=1 makes it 300 objects in 8 schemas (opens
 // as an overview by schema); &ask=1 uses an engine without a catalog query ("Analizar");
-// &schema=rep scopes it to a schema.
+// &schema=rep scopes it to a schema. &cache=1 (with &scope=db): the lineage cache answers at once with a graph
+// 3 hours old and the server takes ~2 s, so "Actualizado hace 3 h · actualizando…" and the replacement show
+// (&cache=fail makes the server read fail: the cached graph stays); &cache=0 or no flag: no cache.
 // Across connections (&cross=1, mocked lineage_resolve_source / lineage_link_source /
 // lineage_locate_source / get_cross_users): the SQL view in the middle, with "Incluir otras
 // conexiones" turned on, shows the Power BI table that reads it, its model, and the model's report
@@ -168,6 +170,7 @@ export function installLineagePreview(params: URLSearchParams) {
     tab.object = PBI_TABLE;
   }
   if (params.get('scope') !== 'db') tabs.tabs.push(tab);
+  const cacheMode = ['1', 'fail'].includes(params.get('cache') ?? '');
   const linked: { signature: string; id: string | null }[] = [];
   const SOURCE_SIG = 'sqlserver|srv-dw01|1433||indicadores';
   const sourceConfig = { driver: 'sqlserver', host: 'srv-dw01', port: 1433, database: 'indicadores', username: 'lector', password: null, encrypt: true, trust_server_certificate: false, read_only: true, options: {} };
@@ -191,7 +194,13 @@ export function installLineagePreview(params: URLSearchParams) {
       switch (cmd) {
         case 'plugin:event|listen': return ++cb;
         case 'plugin:event|unlisten': return null;
-        case 'get_lineage_graph': await new Promise((r) => setTimeout(r, 400)); return params.get('big') ? bigGraph() : smallGraph();
+        case 'lineage_graph_cached':
+          return cacheMode ? { graph: params.get('big') ? bigGraph() : smallGraph(), updated_at: new Date(Date.now() - 3 * 3600 * 1000).toISOString() } : { graph: null, updated_at: null };
+        case 'lineage_cache_clear': return null;
+        case 'get_lineage_graph':
+          await new Promise((r) => setTimeout(r, cacheMode ? 2000 : 400));
+          if (params.get('cache') === 'fail') throw new Error('connection timed out');
+          return params.get('big') ? bigGraph() : smallGraph();
         case 'get_references': await new Promise((r) => setTimeout(r, 250)); return (onPbi ? PBI_USES : USES)[name] ?? report([]);
         case 'get_dependents': await new Promise((r) => setTimeout(r, 300)); return (onPbi ? PBI_USED_BY : USED_BY)[name] ?? report([]);
         case 'get_cross_users': await new Promise((r) => setTimeout(r, 900)); return CROSS_USERS;

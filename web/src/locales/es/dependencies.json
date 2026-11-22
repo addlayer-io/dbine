@@ -143,7 +143,10 @@
     "empty": "No hay objetos para dibujar con este alcance.",
     "noMatch": "Ningún objeto cumple los filtros.",
     "relations": "Relaciones ({{count}})",
-    "relationsTip": "Las claves foráneas (y las relaciones de un modelo) van en paralelo al linaje: activalas para verlas junto a él."
+    "relationsTip": "Las claves foráneas (y las relaciones de un modelo) van en paralelo al linaje: activalas para verlas junto a él.",
+    "updated": "Actualizado {{ago}}",
+    "updating": "actualizando…",
+    "refreshFailed": "No se pudo actualizar: {{error}}. Se muestra lo último guardado."
   },
   "sources": {
     "nav": "Fuentes del linaje",
@@ -158,5 +161,11 @@
     "forgotten": "Conexión olvidada.",
     "added": "«{{name}}» ya está en el explorador.",
     "internalNote": "Conexión interna del linaje: «{{name}}» no está en el explorador."
+  },
+  "age": {
+    "seconds": "hace unos segundos",
+    "minutes": "hace {{n}} min",
+    "hours": "hace {{n}} h",
+    "days": "hace {{n}} d"
   }
 }

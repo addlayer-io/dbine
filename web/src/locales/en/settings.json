@@ -31,6 +31,10 @@
     "runLensHelp": "With two or more statements in a query editor, a faint line above each one runs it on its own, or shows its plan on engines that have one. A comment on the line above names its result.",
     "groupBySchema": "Group by schema",
     "groupBySchemaHelp": "In the explorer, each schema is a folder with its objects. When off, objects go in a single list with the schema before the name.",
+    "lineagePrecompute": "Precompute lineage when connecting",
+    "lineagePrecomputeHelp": "Reads each database's lineage in the background after connecting, so it opens at once. Only structure is saved, no data.",
+    "lineageCacheClear": "Clear lineage cache",
+    "lineageCacheCleared": "Lineage cache cleared.",
     "theme": "Theme",
     "themeHelp": "DBine's colors. \"Same as system\" switches when the operating system's does.",
     "themes": {

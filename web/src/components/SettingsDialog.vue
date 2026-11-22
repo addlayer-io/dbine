@@ -20,6 +20,7 @@ import { syncApi, type LocalBackup, type ProviderKind, type RemoteInfo, type Syn
 import { COPY_FORMATS, type CopyFormat } from '../composables/copyFormats';
 import { TELEMETRY_CONSENT, trackAppStarted } from '../composables/telemetry';
 import { useSettingsStore } from '../stores/settings';
+import { LINEAGE_PRECOMPUTE_SETTING, lineageCacheApi } from '../api/lineageCache';
 import { useTranslation } from 'i18next-vue';
 import { LANGUAGES, SETTING_KEY, language, locale, setLanguage, type Lang } from '../i18n';
 import { tb } from '../i18n/backend';
@@ -180,6 +181,18 @@ const gridFont = computed({ get: () => gridFontSize.value, set: (v: number) => s
 const zoomPct = computed(() => `${Math.round(zoom.value * 100)} %`);
 const zoomMod = isMac ? '⌘' : 'Ctrl';
 /** Explorer: schemas as a tree level (ExplorerSidebar) or one qualified list. */
+const lineagePrecompute = computed({
+  get: () => settings.get<boolean>(LINEAGE_PRECOMPUTE_SETTING, true),
+  set: (v: boolean) => settings.set(LINEAGE_PRECOMPUTE_SETTING, v),
+});
+async function clearLineageCache() {
+  try {
+    await lineageCacheApi.lineageCacheClear(null);
+    ElMessage.success(t('settings:general.lineageCacheCleared'));
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  }
+}
 const groupBySchema = computed({
   get: () => settings.get<boolean>('explorer.groupBySchema', true),
   set: (v) => settings.set('explorer.groupBySchema', v),
@@ -578,6 +591,13 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <div class="st-row">
           <div><strong>{{ $t('settings:general.groupBySchema') }}</strong><span>{{ $t('settings:general.groupBySchemaHelp') }}</span></div>
           <el-switch v-model="groupBySchema" />
+        </div>
+        <div class="st-row">
+          <div><strong>{{ $t('settings:general.lineagePrecompute') }}</strong><span>{{ $t('settings:general.lineagePrecomputeHelp') }}</span></div>
+          <div class="st-inline">
+            <el-button @click="clearLineageCache()">{{ $t('settings:general.lineageCacheClear') }}</el-button>
+            <el-switch v-model="lineagePrecompute" />
+          </div>
         </div>
         <div class="st-row">
           <div><strong>{{ $t('telemetry:settings.label') }}</strong><span>{{ $t('telemetry:settings.help') }}</span></div>

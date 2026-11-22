@@ -143,7 +143,10 @@
     "empty": "There are no objects to draw in this scope.",
     "noMatch": "No object matches the filters.",
     "relations": "Relations ({{count}})",
-    "relationsTip": "Foreign keys (and a model's relationships) run in parallel to the lineage: turn them on to see them along with it."
+    "relationsTip": "Foreign keys (and a model's relationships) run in parallel to the lineage: turn them on to see them along with it.",
+    "updated": "Updated {{ago}}",
+    "updating": "updating…",
+    "refreshFailed": "Couldn't refresh: {{error}}. Showing what was last saved."
   },
   "sources": {
     "nav": "Lineage sources",
@@ -158,5 +161,11 @@
     "forgotten": "Connection forgotten.",
     "added": "\"{{name}}\" is now in the explorer.",
     "internalNote": "The lineage's own connection: \"{{name}}\" is not in the explorer."
+  },
+  "age": {
+    "seconds": "a few seconds ago",
+    "minutes": "{{n}} min ago",
+    "hours": "{{n}} h ago",
+    "days": "{{n}} d ago"
   }
 }
