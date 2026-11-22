@@ -20,6 +20,8 @@ import { syncApi, type LocalBackup, type ProviderKind, type RemoteInfo, type Syn
 import { COPY_FORMATS, type CopyFormat } from '../composables/copyFormats';
 import { TELEMETRY_CONSENT, trackAppStarted } from '../composables/telemetry';
 import { useSettingsStore } from '../stores/settings';
+import { useConnectionsStore } from '../stores/connections';
+import { powerbiAdminApi } from '../api/powerbiAdmin';
 import { LINEAGE_PRECOMPUTE_SETTING } from '../composables/lineageOpen';
 import { useTranslation } from 'i18next-vue';
 import { LANGUAGES, SETTING_KEY, language, locale, setLanguage, type Lang } from '../i18n';
@@ -197,6 +199,26 @@ const lineagePrecompute = computed({
   get: () => settings.get<boolean>(LINEAGE_PRECOMPUTE_SETTING, true),
   set: (v: boolean) => settings.set(LINEAGE_PRECOMPUTE_SETTING, v),
 });
+// Power BI's admin API: on unless turned off; the consent is asked on request, per connection.
+const lineagePbiAdminScan = computed({
+  get: () => settings.get<boolean>('lineage_pbi_admin_scan', true),
+  set: (v: boolean) => settings.set('lineage_pbi_admin_scan', v),
+});
+const connectionsStore = useConnectionsStore();
+const powerBiConnections = computed(() => connectionsStore.list.filter((c) => c.config.driver === 'powerbi'));
+const authorizing = ref<string | null>(null);
+async function authorizePbiAdmin(id: string) {
+  authorizing.value = id;
+  try {
+    await powerbiAdminApi.authorize(id);
+    ElMessage.success(t('settings:general.lineagePbiAdminAuthorized'));
+  } catch (e) {
+    // Entra's refusal (not an administrator) in plain words: nothing else is affected.
+    ElMessage.warning(errorMessage(e));
+  } finally {
+    authorizing.value = null;
+  }
+}
 async function clearLineageCache() {
   try {
     await api.lineageCacheClear(null);
@@ -622,6 +644,14 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <div class="st-row">
           <div><strong>{{ $t('settings:general.lineageSearchBudget') }}</strong><span>{{ $t('settings:general.lineageSearchBudgetHelp') }}</span></div>
           <el-input-number v-model="lineageSearchBudget" :min="10" :max="3600" :step="60" />
+        </div>
+        <div class="st-row">
+          <div><strong>{{ $t('settings:general.lineagePbiAdminScan') }}</strong><span>{{ $t('settings:general.lineagePbiAdminScanHelp') }}</span></div>
+          <el-switch v-model="lineagePbiAdminScan" />
+        </div>
+        <div v-for="c in powerBiConnections" :key="c.id" class="st-row">
+          <div><strong>{{ $t('settings:general.lineagePbiAdminConnection', { name: c.name }) }}</strong></div>
+          <el-button :loading="authorizing === c.id" :disabled="!lineagePbiAdminScan" @click="authorizePbiAdmin(c.id)">{{ $t('settings:general.lineagePbiAdminAuthorize') }}</el-button>
         </div>
         <div class="st-row">
           <div><strong>{{ $t('telemetry:settings.label') }}</strong><span>{{ $t('telemetry:settings.help') }}</span></div>

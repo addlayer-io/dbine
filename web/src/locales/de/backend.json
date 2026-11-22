@@ -19125,6 +19125,11 @@
   "Power BI no devolvió el id del escaneo": "Power BI hat die Scan-ID nicht zurückgegeben",
   "el escaneo de Power BI falló": "der Power-BI-Scan ist fehlgeschlagen",
   "el escaneo de Power BI tardó demasiado": "der Power-BI-Scan hat zu lange gedauert",
-  "la API de administración de Power BI no está disponible para este usuario": "die Power-BI-Administrations-API ist für diesen Benutzer nicht verfügbar",
-  "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno": "die Power-BI-Administrations-API ist für diesen Benutzer nicht verfügbar: Modelle werden einzeln gelesen"
+  "La aplicación con la que iniciaste sesión no tiene el permiso Tenant.Read.All de Power BI en su registro: un administrador tiene que agregarlo en Microsoft Entra ID.": "Die App, mit der Sie sich angemeldet haben, hat in ihrer Registrierung nicht die Power-BI-Berechtigung Tenant.Read.All: Ein Administrator muss sie in Microsoft Entra ID hinzufügen.",
+  "La autorización de la API de administración es del inicio de sesión con el navegador; con otro modo de autenticación vale el permiso de la aplicación registrada.": "Die Autorisierung der Admin-API gehört zur Anmeldung im Browser; bei einem anderen Authentifizierungsmodus gilt die Berechtigung der registrierten App.",
+  "Tu cuenta no puede autorizar la API de administración de Power BI ({0}): hace falta que la apruebe un administrador de Power BI o de Microsoft Entra ID. Mientras tanto, DBine lee los modelos de a uno.": "Ihr Konto kann die Power-BI-Admin-API nicht autorisieren ({0}): Ein Administrator von Power BI oder Microsoft Entra ID muss sie genehmigen. Bis dahin liest DBine die Modelle einzeln.",
+  "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "sie müssen Power-BI-Administrator sein und die Admin-API in den Einstellungen autorisieren",
+  "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "die Power-BI-Admin-API ist für diesen Benutzer nicht verfügbar: Sie müssen Power-BI-Administrator sein und die Admin-API in den Einstellungen autorisieren",
+  "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "die Power-BI-Admin-API ist nicht verfügbar: Sie müssen Power-BI-Administrator sein und die Admin-API in den Einstellungen autorisieren; die Modelle werden einzeln gelesen",
+  "la API de administración es de las conexiones de Power BI": "die Admin-API gilt für Power-BI-Verbindungen"
 }

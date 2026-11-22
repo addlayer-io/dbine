@@ -19125,6 +19125,11 @@
   "Power BI no devolvió el id del escaneo": "Power BI не вернул идентификатор сканирования",
   "el escaneo de Power BI falló": "сканирование Power BI не удалось",
   "el escaneo de Power BI tardó demasiado": "сканирование Power BI заняло слишком много времени",
-  "la API de administración de Power BI no está disponible para este usuario": "API администрирования Power BI недоступен для этого пользователя",
-  "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno": "API администрирования Power BI недоступен для этого пользователя: модели читаются по одной"
+  "La aplicación con la que iniciaste sesión no tiene el permiso Tenant.Read.All de Power BI en su registro: un administrador tiene que agregarlo en Microsoft Entra ID.": "У приложения, с которым вы вошли, в регистрации нет разрешения Power BI Tenant.Read.All: администратор должен добавить его в Microsoft Entra ID.",
+  "La autorización de la API de administración es del inicio de sesión con el navegador; con otro modo de autenticación vale el permiso de la aplicación registrada.": "Авторизация API администрирования относится ко входу через браузер; при другом способе аутентификации действует разрешение зарегистрированного приложения.",
+  "Tu cuenta no puede autorizar la API de administración de Power BI ({0}): hace falta que la apruebe un administrador de Power BI o de Microsoft Entra ID. Mientras tanto, DBine lee los modelos de a uno.": "Ваша учётная запись не может авторизовать API администрирования Power BI ({0}): его должен одобрить администратор Power BI или Microsoft Entra ID. Пока DBine читает модели по одной.",
+  "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "нужно быть администратором Power BI и авторизовать API администрирования в настройках",
+  "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "API администрирования Power BI недоступен для этого пользователя: нужно быть администратором Power BI и авторизовать API администрирования в настройках",
+  "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "API администрирования Power BI недоступен: нужно быть администратором Power BI и авторизовать API администрирования в настройках; модели читаются по одной",
+  "la API de administración es de las conexiones de Power BI": "API администрирования относится к подключениям Power BI"
 }

@@ -58,7 +58,12 @@
     "lineageCacheClear": "Limpar cache da linhagem",
     "lineageCacheCleared": "Cache da linhagem limpo.",
     "lineageScanParallel": "Linhagem: modelos lidos ao mesmo tempo (1 a 16)",
-    "lineageScanParallelHelp": "Quantos modelos do Power BI são lidos em paralelo na busca entre conexões e ao pré-calcular. Aumente se o seu tenant tiver muitos modelos; se o Power BI limitar as chamadas, diminua."
+    "lineageScanParallelHelp": "Quantos modelos do Power BI são lidos em paralelo na busca entre conexões e ao pré-calcular. Aumente se o seu tenant tiver muitos modelos; se o Power BI limitar as chamadas, diminua.",
+    "lineagePbiAdminScan": "Linhagem: usar a API de administração do Power BI",
+    "lineagePbiAdminScanHelp": "Com ela, a busca sabe quais modelos leem uma fonte sem abri-los um por um. É preciso ser administrador do Power BI e autorizá-la uma vez por conexão (permissão somente leitura). Se não for possível, ou se estiver desativada, os modelos são lidos um a um.",
+    "lineagePbiAdminConnection": "API de administração: {{name}}",
+    "lineagePbiAdminAuthorize": "Autorizar a API de administração…",
+    "lineagePbiAdminAuthorized": "API de administração do Power BI autorizada."
   },
   "sync": {
     "folderDialogTitle": "Pasta para o backup do DBine",

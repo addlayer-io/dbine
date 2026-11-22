@@ -58,7 +58,12 @@
     "lineageCacheClear": "Hapus cache lineage",
     "lineageCacheCleared": "Cache lineage dihapus.",
     "lineageScanParallel": "Lineage: model dibaca bersamaan (1 sampai 16)",
-    "lineageScanParallelHelp": "Jumlah model Power BI yang dibaca secara paralel saat pencarian antarkoneksi dan saat prakomputasi. Naikkan jika tenant memiliki banyak model; jika Power BI membatasi panggilan, turunkan."
+    "lineageScanParallelHelp": "Jumlah model Power BI yang dibaca secara paralel saat pencarian antarkoneksi dan saat prakomputasi. Naikkan jika tenant memiliki banyak model; jika Power BI membatasi panggilan, turunkan.",
+    "lineagePbiAdminScan": "Lineage: gunakan API admin Power BI",
+    "lineagePbiAdminScanHelp": "Dengan ini, pencarian tahu model mana yang membaca suatu sumber tanpa membukanya satu per satu. Diperlukan peran administrator Power BI dan otorisasi sekali per koneksi (izin hanya-baca). Jika tidak memungkinkan, atau dinonaktifkan, model dibaca satu per satu.",
+    "lineagePbiAdminConnection": "API admin: {{name}}",
+    "lineagePbiAdminAuthorize": "Otorisasi API admin…",
+    "lineagePbiAdminAuthorized": "API admin Power BI telah diotorisasi."
   },
   "sync": {
     "folderDialogTitle": "Folder untuk cadangan DBine",

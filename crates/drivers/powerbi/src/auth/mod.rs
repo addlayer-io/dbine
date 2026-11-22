@@ -52,7 +52,16 @@ pub enum Audience {
     PowerBi,
     /// The Fabric REST API ([`cloud::FABRIC_RESOURCE`]).
     Fabric,
+    /// The Power BI REST API's admin calls (the scanner): the same resource as [`Audience::PowerBi`] with
+    /// the delegated scope `Tenant.Read.All`, which needs an admin's consent in Entra. It is never part
+    /// of the base sign-in and never opens a browser by itself: only [`TokenProvider::authorize_admin`]
+    /// does, when the user asks for it.
+    PowerBiAdmin,
 }
+
+/// What the user is told when the admin API's token can't be had without asking them.
+pub const ADMIN_NEEDS_CONSENT: &str =
+    "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes";
 
 /// A bearer token and when it stops working.
 #[derive(Debug, Clone)]
@@ -150,7 +159,7 @@ pub(crate) fn number(v: Option<&Value>) -> Option<u64> {
 /// The resource a token is for.
 pub(crate) fn resource(cloud: Cloud, audience: Audience) -> &'static str {
     match audience {
-        Audience::PowerBi => cloud.resource(),
+        Audience::PowerBi | Audience::PowerBiAdmin => cloud.resource(),
         Audience::Fabric => FABRIC_RESOURCE,
     }
 }
@@ -517,6 +526,11 @@ impl TokenProvider {
                         }
                     }
                 }
+                // The admin API's consent is asked for on request only ([`Self::authorize_admin`]): a
+                // background read never opens the browser for it.
+                if audience == Audience::PowerBiAdmin {
+                    return Err(auth(ADMIN_NEEDS_CONSENT));
+                }
                 browser::sign_in_at(s, &self.endpoints, audience, self.account()).await?
             }
             AuthMode::EntraSp => {
@@ -614,6 +628,36 @@ impl TokenProvider {
         *lock(&self.bound) = None;
     }
 
+    /// The user asked to authorize the admin API: the browser opens once for the `Tenant.Read.All`
+    /// consent (Entra asks an administrator, or says it needs one) and the token is kept for this
+    /// connection's account. Only the browser sign-in has a consent to give: the other modes use what
+    /// their app registration has. An Entra refusal comes back as a plain message ([`admin_consent_error`]).
+    pub async fn authorize_admin(&self) -> Result<()> {
+        if self.settings.auth != AuthMode::EntraMfa {
+            return Err(Error::Unsupported(
+                "La autorización de la API de administración es del inicio de sesión con el navegador; con otro modo de autenticación vale el permiso de la aplicación registrada.".into(),
+            ));
+        }
+        let gate = {
+            let mut locks = lock(&SIGN_INS);
+            locks
+                .entry(format!("{}|{:?}", self.fingerprint, Audience::PowerBiAdmin))
+                .or_default()
+                .clone()
+        };
+        let _one = gate.lock().await;
+        let set = browser::sign_in_at(
+            &self.settings,
+            &self.endpoints,
+            Audience::PowerBiAdmin,
+            self.account(),
+        )
+        .await
+        .map_err(admin_consent_error)?;
+        self.store(Audience::PowerBiAdmin, set, Origin::SignIn)
+            .map(|_| ())
+    }
+
     /// After a 401: forget the cached token for `audience` and get a new
     /// one (refresh token first, sign-in again only when it fails).
     pub async fn renew(&self, audience: Audience) -> Result<AccessToken> {
@@ -674,6 +718,8 @@ pub fn scopes(settings: &Settings, audience: Audience) -> Vec<String> {
             return vec![format!("{res}/.default"), "offline_access".into()]
         }
         (_, Audience::Fabric) => vec![format!("{res}/SemanticModel.ReadWrite.All")],
+        // Read only, whatever the connection: `Tenant.ReadWrite.All` is never asked for.
+        (_, Audience::PowerBiAdmin) => vec![format!("{res}/Tenant.Read.All")],
         (_, Audience::PowerBi) => {
             let mut v = vec![
                 format!("{res}/Dataset.Read.All"),
@@ -688,6 +734,29 @@ pub fn scopes(settings: &Settings, audience: Audience) -> Vec<String> {
     };
     out.extend(["offline_access", "openid", "profile"].map(String::from));
     out
+}
+
+/// What an Entra refusal of the admin API's consent means for the user, in plain words: a consent that
+/// only an administrator can give (or that the tenant blocks) is said as such; anything else keeps
+/// Entra's own text.
+pub(crate) fn admin_consent_error(e: Error) -> Error {
+    let Error::AuthFailed(m) = &e else {
+        return e;
+    };
+    let needs_admin = ["AADSTS650057", "AADSTS65001", "AADSTS90094", "AADSTS65004"]
+        .into_iter()
+        .find(|c| m.contains(c));
+    if let Some(code) = needs_admin {
+        return auth(format!(
+            "Tu cuenta no puede autorizar la API de administración de Power BI ({code}): hace falta que la apruebe un administrador de Power BI o de Microsoft Entra ID. Mientras tanto, DBine lee los modelos de a uno."
+        ));
+    }
+    if m.contains("AADSTS70011") || m.contains("AADSTS500011") {
+        return auth(
+            "La aplicación con la que iniciaste sesión no tiene el permiso Tenant.Read.All de Power BI en su registro: un administrador tiene que agregarlo en Microsoft Entra ID.",
+        );
+    }
+    e
 }
 
 /// The claims of a JWT (its payload, base64url-decoded, not verified): for
@@ -990,6 +1059,168 @@ pub(crate) mod tests {
             t.token.expose()
         );
         assert_eq!(issued.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn the_admin_scope_is_read_only_and_apart_from_the_base_sign_in() {
+        for read_only in [true, false] {
+            let admin = scopes(&settings(&[], read_only), Audience::PowerBiAdmin);
+            assert_eq!(
+                admin[0],
+                "https://analysis.windows.net/powerbi/api/Tenant.Read.All"
+            );
+            assert!(
+                admin.iter().all(|x| !x.contains("ReadWrite")),
+                "a write scope is asked: {admin:?}"
+            );
+            // The base sign-in never asks for it.
+            let base = scopes(&settings(&[], read_only), Audience::PowerBi);
+            assert!(base.iter().all(|x| !x.contains("Tenant.")), "{base:?}");
+        }
+        // The admin token is a token of its own in the cache.
+        let tid = "77777777-7777-7777-7777-777777777701";
+        let p = TokenProvider::new(&settings(&[("tenant", tid)], true)).unwrap();
+        let acc = Account {
+            tenant_id: tid.into(),
+            object_id: "k".into(),
+            upn: None,
+            scopes: vec![],
+        };
+        assert_ne!(
+            p.key(&acc, Audience::PowerBi),
+            p.key(&acc, Audience::PowerBiAdmin)
+        );
+    }
+
+    /// A browser sign-in provider that already has an account and a refresh token (the base sign-in).
+    fn signed_in(tid: &str, oid: &str, ep: Endpoints) -> TokenProvider {
+        let p = TokenProvider::with_endpoints(&settings(&[("tenant", tid)], true), ep);
+        let mut set = set_for(tid, oid);
+        set.refresh = Some(Secret::new("rt-base"));
+        p.store(Audience::PowerBi, set, Origin::SignIn).unwrap();
+        p
+    }
+
+    #[tokio::test]
+    async fn the_admin_token_is_taken_silently_and_a_missing_consent_opens_nothing() {
+        use crate::http::testing::{serve, Reply};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let tid = "77777777-7777-7777-7777-777777777702";
+        let asked = Arc::new(AtomicUsize::new(0));
+        let n = asked.clone();
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let log = seen.clone();
+        let base = serve(Arc::new(move |req| {
+            n.fetch_add(1, Ordering::SeqCst);
+            log.lock().unwrap().push(req.body.clone());
+            Reply::json(
+                400,
+                r#"{"error":"invalid_grant","error_description":"AADSTS65001: The user or administrator has not consented to use the application."}"#,
+            )
+        }))
+        .await;
+        let p = signed_in(tid, "silent-no", Endpoints::test(&base));
+        // The consent is missing: no token, no error, and only the token endpoint was asked (the
+        // sign-in would have needed a browser, which a test endpoint could not open).
+        assert!(p
+            .token_silent(Audience::PowerBiAdmin)
+            .await
+            .unwrap()
+            .is_none());
+        assert_eq!(asked.load(Ordering::SeqCst), 1);
+        assert!(seen.lock().unwrap()[0].contains("Tenant.Read.All"));
+        // `token` is the same: the answer says what is needed, and no sign-in follows the refusal.
+        let e = p.token(Audience::PowerBiAdmin).await.unwrap_err();
+        assert!(
+            matches!(&e, Error::AuthFailed(m) if m.as_str() == ADMIN_NEEDS_CONSENT),
+            "{e:?}"
+        );
+        assert_eq!(asked.load(Ordering::SeqCst), 2);
+        // Nothing to renew with: nothing is asked at all.
+        let tid2 = "77777777-7777-7777-7777-777777777703";
+        let q = TokenProvider::with_endpoints(
+            &settings(&[("tenant", tid2)], true),
+            Endpoints::test(&base),
+        );
+        assert!(q
+            .token_silent(Audience::PowerBiAdmin)
+            .await
+            .unwrap()
+            .is_none());
+        assert_eq!(asked.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn a_consented_account_gets_the_admin_token_from_its_refresh_token() {
+        use crate::http::testing::{serve, Reply};
+        let tid = "77777777-7777-7777-7777-777777777704";
+        let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+        let log = seen.clone();
+        let base = serve(Arc::new(move |req| {
+            log.lock().unwrap().push(req.body.clone());
+            let tok = jwt(&json!({"tid": "77777777-7777-7777-7777-777777777704", "oid": "silent-yes", "scp": "Tenant.Read.All"}));
+            Reply::json(200, &format!(r#"{{"access_token":"{tok}","expires_in":3599}}"#))
+        }))
+        .await;
+        let p = signed_in(tid, "silent-yes", Endpoints::test(&base));
+        let t = p
+            .token_silent(Audience::PowerBiAdmin)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!t.token.expose().is_empty());
+        {
+            let seen = seen.lock().unwrap();
+            assert!(seen[0].contains("grant_type=refresh_token"));
+            assert!(seen[0].contains("Tenant.Read.All") && !seen[0].contains("ReadWrite"));
+        }
+        // Kept: the next one asks nothing.
+        p.token(Audience::PowerBiAdmin).await.unwrap();
+        assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_consent_refusals_are_told_in_plain_words() {
+        for code in ["AADSTS65001", "AADSTS90094", "AADSTS650057", "AADSTS65004"] {
+            let e = admin_consent_error(auth(format!(
+                "Entra dijo no ({code}). Pedile a un administrador"
+            )));
+            let m = e.to_string();
+            assert!(
+                m.contains("administrador de Power BI") && m.contains(code),
+                "{m}"
+            );
+        }
+        let e = admin_consent_error(auth(
+            "Microsoft Entra ID rechazó el inicio de sesión: AADSTS70011: invalid scope",
+        ));
+        assert!(e.to_string().contains("Tenant.Read.All"), "{e}");
+        // Anything else keeps its own words, and other kinds of error pass through.
+        let e = admin_consent_error(auth("pasaron 5 minutos sin completar el inicio de sesión"));
+        assert!(e.to_string().contains("5 minutos"));
+        assert!(matches!(
+            admin_consent_error(Error::Cancelled),
+            Error::Cancelled
+        ));
+    }
+
+    #[tokio::test]
+    async fn only_the_browser_sign_in_has_a_consent_to_give() {
+        let sp = settings(
+            &[
+                ("auth_mode", "entra_sp"),
+                ("tenant", "t"),
+                ("client_id", "c"),
+                ("client_secret", "s"),
+            ],
+            true,
+        );
+        let e = TokenProvider::new(&sp)
+            .unwrap()
+            .authorize_admin()
+            .await
+            .unwrap_err();
+        assert!(matches!(e, Error::Unsupported(_)), "{e:?}");
     }
 
     #[test]

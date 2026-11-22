@@ -25,6 +25,9 @@ pub trait Service: Send + Sync {
     /// The Fabric API can be called without asking the user anything (a token in the cache, or one
     /// the account's refresh token renews): the background reads use the definition API only then.
     async fn fabric_silent(&self) -> bool;
+    /// The admin API (the scanner) can be called without asking the user anything: a token with its scope
+    /// in the cache, or one the account's refresh token renews. `false` when only a consent would give it.
+    async fn admin_silent(&self) -> bool;
     fn window_usage(&self) -> WindowUsage;
     fn api_in_use(&self) -> Option<ApiKind>;
     fn meta_state(&mut self) -> &mut MetaState;
@@ -75,6 +78,11 @@ impl Service for Ctx {
     async fn fabric_silent(&self) -> bool {
         self.api
             .token_ready_silent(crate::auth::Audience::Fabric)
+            .await
+    }
+    async fn admin_silent(&self) -> bool {
+        self.api
+            .token_ready_silent(crate::auth::Audience::PowerBiAdmin)
             .await
     }
     fn window_usage(&self) -> WindowUsage {

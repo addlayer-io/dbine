@@ -58,7 +58,12 @@
     "lineageCacheClear": "계보 캐시 삭제",
     "lineageCacheCleared": "계보 캐시를 삭제했습니다.",
     "lineageScanParallel": "리니지: 동시에 읽는 모델 수(1~16)",
-    "lineageScanParallelHelp": "연결 간 검색과 사전 계산 시 병렬로 읽는 Power BI 모델의 수입니다. 테넌트에 모델이 많으면 값을 높이고, Power BI가 호출을 제한하면 낮추십시오."
+    "lineageScanParallelHelp": "연결 간 검색과 사전 계산 시 병렬로 읽는 Power BI 모델의 수입니다. 테넌트에 모델이 많으면 값을 높이고, Power BI가 호출을 제한하면 낮추십시오.",
+    "lineagePbiAdminScan": "계보: Power BI 관리 API 사용",
+    "lineagePbiAdminScanHelp": "이를 사용하면 모델을 하나씩 열지 않고도 어떤 모델이 원본을 읽는지 검색에서 알 수 있습니다. Power BI 관리자여야 하며 연결마다 한 번 승인해야 합니다(읽기 전용 권한). 승인할 수 없거나 꺼져 있으면 모델을 하나씩 읽습니다.",
+    "lineagePbiAdminConnection": "관리 API: {{name}}",
+    "lineagePbiAdminAuthorize": "관리 API 승인…",
+    "lineagePbiAdminAuthorized": "Power BI 관리 API를 승인했습니다."
   },
   "sync": {
     "folderDialogTitle": "DBine 백업 폴더",

@@ -107,6 +107,15 @@ enum Kind {
     Write,
 }
 
+/// The token a path of the Power BI API takes: the admin calls (the scanner) have the admin scope.
+fn audience_of(path: &str) -> Audience {
+    if path.starts_with("/admin/") {
+        Audience::PowerBiAdmin
+    } else {
+        Audience::PowerBi
+    }
+}
+
 fn kind_of(method: Method, path: &str) -> Kind {
     let path = path.split('?').next().unwrap_or("");
     match method {
@@ -667,7 +676,7 @@ impl Api {
     ) -> Result<RestResponse> {
         let _ = priority;
         let url = url_for(&self.endpoints.api, path)?;
-        self.rest(Audience::PowerBi, method, url, body, kind_of(method, path))
+        self.rest(audience_of(path), method, url, body, kind_of(method, path))
             .await
     }
 
@@ -1017,6 +1026,20 @@ pub(crate) mod testing {
 mod tests {
     use super::testing::*;
     use super::*;
+
+    #[test]
+    fn only_the_admin_calls_take_the_admin_scope() {
+        assert_eq!(
+            audience_of("/admin/workspaces/getInfo?datasourceDetails=true"),
+            Audience::PowerBiAdmin
+        );
+        assert_eq!(
+            audience_of("/admin/workspaces/scanStatus/s1"),
+            Audience::PowerBiAdmin
+        );
+        assert_eq!(audience_of("/groups/g/datasets"), Audience::PowerBi);
+        assert_eq!(audience_of("/datasets/d/executeQueries"), Audience::PowerBi);
+    }
     use serde_json::json;
     use std::sync::atomic::AtomicUsize;
 

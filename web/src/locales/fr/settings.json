@@ -58,7 +58,12 @@
     "lineageCacheClear": "Vider le cache de traçabilité",
     "lineageCacheCleared": "Cache de traçabilité vidé.",
     "lineageScanParallel": "Lignage : modèles lus simultanément (1 à 16)",
-    "lineageScanParallelHelp": "Nombre de modèles Power BI lus en parallèle lors de la recherche entre connexions et du précalcul. Augmentez-le si votre tenant compte beaucoup de modèles ; si Power BI limite les appels, diminuez-le."
+    "lineageScanParallelHelp": "Nombre de modèles Power BI lus en parallèle lors de la recherche entre connexions et du précalcul. Augmentez-le si votre tenant compte beaucoup de modèles ; si Power BI limite les appels, diminuez-le.",
+    "lineagePbiAdminScan": "Lignage : utiliser l'API d'administration de Power BI",
+    "lineagePbiAdminScanHelp": "Grâce à elle, la recherche sait quels modèles lisent une source sans les ouvrir un par un. Il faut être administrateur Power BI et l'autoriser une fois par connexion (autorisation en lecture seule). Si ce n'est pas possible, ou si elle est désactivée, les modèles sont lus un par un.",
+    "lineagePbiAdminConnection": "API d'administration : {{name}}",
+    "lineagePbiAdminAuthorize": "Autoriser l'API d'administration…",
+    "lineagePbiAdminAuthorized": "API d'administration de Power BI autorisée."
   },
   "sync": {
     "folderDialogTitle": "Dossier pour la sauvegarde de DBine",

@@ -440,8 +440,18 @@ fn refresh_later(cx: &Ctx) {
 pub async fn connect(cfg: &ConnectionConfig, database: Option<&str>) -> Result<Ctx> {
     let settings = Settings::from_config(cfg)?;
     let api = http::Api::new(&settings)?;
+    // "Autorizar la API de administración…": a connection the app opens only for the consent (never
+    // saved). The sign-in comes first, then the consent for the admin scope, once.
+    let authorize = cfg.option(AUTHORIZE_ADMIN_OPTION) == Some("true");
+    if authorize {
+        api.tokens.token(Audience::PowerBi).await?;
+        api.tokens.authorize_admin().await?;
+    }
     open(settings, api, database).await
 }
+
+/// The option of a connection the app opens to ask the admin API's consent ([`TokenProvider::authorize_admin`]).
+pub const AUTHORIZE_ADMIN_OPTION: &str = "authorize_admin_api";
 
 pub(crate) async fn open(
     settings: Settings,

@@ -19125,6 +19125,11 @@
   "Power BI no devolvió el id del escaneo": "Power BI가 스캔 ID를 반환하지 않았습니다",
   "el escaneo de Power BI falló": "Power BI 스캔에 실패했습니다",
   "el escaneo de Power BI tardó demasiado": "Power BI 스캔 시간이 너무 오래 걸렸습니다",
-  "la API de administración de Power BI no está disponible para este usuario": "이 사용자는 Power BI 관리 API를 사용할 수 없습니다",
-  "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno": "이 사용자는 Power BI 관리 API를 사용할 수 없습니다: 모델을 하나씩 읽습니다"
+  "La aplicación con la que iniciaste sesión no tiene el permiso Tenant.Read.All de Power BI en su registro: un administrador tiene que agregarlo en Microsoft Entra ID.": "로그인에 사용한 앱의 등록에 Power BI Tenant.Read.All 권한이 없습니다. 관리자가 Microsoft Entra ID에서 추가해야 합니다.",
+  "La autorización de la API de administración es del inicio de sesión con el navegador; con otro modo de autenticación vale el permiso de la aplicación registrada.": "관리 API 승인은 브라우저 로그인에 속합니다. 다른 인증 방식에서는 등록된 앱의 권한이 적용됩니다.",
+  "Tu cuenta no puede autorizar la API de administración de Power BI ({0}): hace falta que la apruebe un administrador de Power BI o de Microsoft Entra ID. Mientras tanto, DBine lee los modelos de a uno.": "계정으로 Power BI 관리 API를 승인할 수 없습니다({0}). Power BI 또는 Microsoft Entra ID 관리자의 승인이 필요합니다. 그동안 DBine은 모델을 하나씩 읽습니다.",
+  "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "Power BI 관리자여야 하며 설정에서 관리 API를 승인해야 합니다",
+  "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "이 사용자는 Power BI 관리 API를 사용할 수 없습니다. Power BI 관리자여야 하며 설정에서 관리 API를 승인해야 합니다",
+  "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "Power BI 관리 API를 사용할 수 없습니다. Power BI 관리자여야 하며 설정에서 관리 API를 승인해야 합니다. 모델을 하나씩 읽습니다",
+  "la API de administración es de las conexiones de Power BI": "관리 API는 Power BI 연결용입니다"
 }
