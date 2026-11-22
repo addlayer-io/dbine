@@ -7,6 +7,7 @@ pub mod export;
 pub mod file_grants;
 pub mod import;
 pub mod lineage_link;
+pub mod purge;
 pub mod secret_accounts;
 pub mod secret_sources;
 pub mod secrets;

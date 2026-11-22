@@ -166,6 +166,27 @@ impl ExplorerCache {
             .map(|_| ())
             .map_err(db_err)
     }
+
+    /// Forget every connection whose id starts with `prefix`, whatever the
+    /// kind (databases, objects, columns, lineage…): the company's data when
+    /// its access ends, including entries of connections already gone.
+    pub fn forget_prefix(&self, prefix: &str) -> Result<usize> {
+        let like = format!(
+            "{}%",
+            prefix
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        );
+        self.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "DELETE FROM explorer WHERE connection_id LIKE ?1 ESCAPE '\\'",
+                params![like],
+            )
+            .map_err(db_err)
+    }
 }
 
 #[cfg(test)]
@@ -207,5 +228,26 @@ mod tests {
         got.sort();
         assert_eq!(got, ["[1]", "[2]", "[3]"]);
         assert!(c.payloads("c2", "a", &["page"]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn forgetting_a_prefix_takes_every_kind_of_the_company_and_only_it() {
+        let c = ExplorerCache::open_in_memory().unwrap();
+        for conn in ["c1", "ent-x", "ent-y", "entx"] {
+            for kind in [
+                kinds::DATABASES,
+                kinds::OBJECTS,
+                kinds::COLUMNS,
+                "lineage",
+                "lineage_sources",
+            ] {
+                c.put(conn, "db", kind, "i", "{}").unwrap();
+            }
+        }
+        assert_eq!(c.forget_prefix("ent-").unwrap(), 10);
+        assert_eq!(c.forget_prefix("ent-").unwrap(), 0);
+        assert!(c.get("ent-x", "db", "lineage", "i").unwrap().is_none());
+        assert!(c.get("c1", "db", "lineage_sources", "i").unwrap().is_some());
+        assert!(c.get("entx", "db", kinds::OBJECTS, "i").unwrap().is_some());
     }
 }
