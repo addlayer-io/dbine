@@ -4287,7 +4287,7 @@ connection. Signed out, it says to sign in.
 | Reports and dashboards with a browser sign-in | The sign-in asks `Dataset.Read.All`, `Workspace.Read.All` and `Capacity.Read.All`, not `Report.Read.All` / `Dashboard.Read.All`: Power BI answers 401 on them, and the lineage shows a note (and draws everything else) instead of failing. A client with `.default` (Azure CLI) reads them |
 | Sources that are files, SharePoint, web or ODBC | Have no server: nothing to follow |
 | Short host and its FQDN (`srv` / `srv.corp.local`) | Not matched automatically (it would need DNS): link it once by hand |
-| Who reads an object from other connections | Only Power BI connections are scanned in this version; the first read of many models can be slow (sequential, then cached) |
+| Who reads an object from other connections | Only Power BI connections are scanned in this version. The search reads each model's sources only (not its reports and dashboards), four models at a time, at most 60 s per model and 120 s in all: what isn't read by then is left out with a note, and the models already read are kept (15 minutes), so searching again goes on from there |
 | A Power BI connection that needs its password | Noted as "necesita conectarse primero": it has to be opened before |
 | DBine Enterprise resolution | Single and batch endpoints tested against the real Enterprise server (PostgreSQL); the desktop's HTTP calls and the 404 fallback have no automated test (they need a signed-in session) |
 | Who reads an Enterprise connection's objects | Works when the server has the batch endpoint, or falls back one by one; needs the person signed in |

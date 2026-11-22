@@ -15,6 +15,7 @@ use dbine_core::secrets::{self, Secrets};
 use dbine_core::state::SavedConnection;
 use dbine_driver::dependencies::{ExternalRef, LineageExternal, LineageScope};
 use dbine_driver::{ConnectionConfig, DbObject, ObjectQuery, ObjectRef};
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -28,6 +29,13 @@ const INDEX_TTL: Duration = Duration::from_secs(15 * 60);
 const SCAN_LIMIT: Duration = Duration::from_secs(300);
 /// Models read per Power BI connection at most.
 const MODELS_CAP: usize = 200;
+/// The longest one model's sources are waited for.
+const MODEL_LIMIT: Duration = Duration::from_secs(60);
+/// The longest a whole search runs: what isn't read by then is left out, and a note says how many (the
+/// models already read are kept, so searching again goes on from there).
+const SCAN_BUDGET: Duration = Duration::from_secs(120);
+/// Models read at once per Power BI connection.
+const SCAN_PARALLEL: usize = 4;
 
 // -- the in-memory index ------------------------------------------------------
 
@@ -794,6 +802,7 @@ pub async fn get_cross_users(
     }
     // (connection, model, its sources) of every model read.
     let mut scanned: Vec<(usize, String, Sources)> = Vec::new();
+    let deadline = Instant::now() + SCAN_BUDGET;
     for (pi, pbi) in pbis.iter().enumerate() {
         let models = match models_of(&state, pbi).await {
             Ok(m) => m,
@@ -804,17 +813,40 @@ pub async fn get_cross_users(
         };
         let mut all_cached = true;
         let mut left_out = 0usize;
-        for model in models.iter().take(MODELS_CAP) {
-            let (externals, cached, silent_skip) = match externals_of(&state, pbi, model).await {
-                Ok(r) => r,
-                Err(e) => {
-                    res.notes.push(unreadable_note(&pbi.name, Some(model), &e));
-                    continue;
+        let mut out_of_time = 0usize;
+        let st = &*state;
+        let mut work: Vec<(String, Option<CommandResult<ModelSources>>)> =
+            futures_util::stream::iter(models.iter().take(MODELS_CAP).cloned().collect::<Vec<_>>())
+                .map(|model| async move {
+                    let left = deadline.saturating_duration_since(Instant::now());
+                    if left.is_zero() {
+                        return (model, None);
+                    }
+                    let r =
+                        tokio::time::timeout(left.min(MODEL_LIMIT), externals_of(st, pbi, &model))
+                            .await;
+                    (model, r.ok())
+                })
+                .buffer_unordered(SCAN_PARALLEL)
+                .collect()
+                .await;
+        work.sort_by(|a, b| a.0.cmp(&b.0));
+        for (model, r) in work {
+            match r {
+                None => out_of_time += 1,
+                Some(Ok((externals, cached, silent_skip))) => {
+                    all_cached &= cached;
+                    left_out += usize::from(silent_skip);
+                    scanned.push((pi, model, externals));
                 }
-            };
-            all_cached &= cached;
-            left_out += usize::from(silent_skip);
-            scanned.push((pi, model.clone(), externals));
+                Some(Err(e)) => res.notes.push(unreadable_note(&pbi.name, Some(&model), &e)),
+            }
+        }
+        if out_of_time > 0 {
+            res.notes.push(format!(
+                "La búsqueda llegó al límite de tiempo: {out_of_time} modelos de «{}» no se leyeron. Los que ya se leyeron quedan guardados: buscá de nuevo para seguir",
+                pbi.name
+            ));
         }
         if left_out > 0 {
             res.notes.push(format!(
@@ -948,6 +980,9 @@ async fn models_of(state: &AppState, pbi: &SavedConnection) -> CommandResult<Arc
     Ok(list)
 }
 
+/// A model's external sources, whether they came from the index, and whether the Fabric API was left out.
+type ModelSources = (Sources, bool, bool);
+
 /// The start of the note a Power BI read leaves when the Fabric definition API was left out of a
 /// background read (`LineageScope::silent`): its permission isn't granted yet.
 const FABRIC_SILENT_PREFIX: &str = "Este modelo se lee mejor con la API de Fabric";
@@ -958,7 +993,7 @@ async fn externals_of(
     state: &AppState,
     pbi: &SavedConnection,
     model: &str,
-) -> CommandResult<(Sources, bool, bool)> {
+) -> CommandResult<ModelSources> {
     let key = (pbi.id.clone(), model.to_string());
     if let Some(s) = with_index(|i| i.sources.get(&key, Instant::now())) {
         return Ok((s, true, false));
@@ -976,11 +1011,12 @@ async fn externals_of(
     );
     let db = model.to_string();
     let graph = state
-        .meta_read_on(Lane::Long, &pbi.id, model, SCAN_LIMIT, move |s| {
+        .meta_read_on(Lane::Long, &pbi.id, model, MODEL_LIMIT, move |s| {
             Box::pin(async move {
                 // A search across models the user didn't open never asks for a sign-in or a consent.
                 let scope = LineageScope {
                     silent: true,
+                    sources_only: true,
                     ..Default::default()
                 };
                 s.lineage_graph(&db, &scope, &scan).await

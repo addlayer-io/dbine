@@ -23492,6 +23492,9 @@
  "La biblioteca (esquema) que se respalda.": [
   "crates/drivers/odbc/src/backup.rs"
  ],
+ "La búsqueda llegó al límite de tiempo: {0} modelos de «{1}» no se leyeron. Los que ya se leyeron quedan guardados: buscá de nuevo para seguir": [
+  "src-tauri/src/commands/cross.rs"
+ ],
  "La búsqueda superó el tiempo límite": [
   "crates/drivers/elasticsearch/src/plan.rs"
  ],

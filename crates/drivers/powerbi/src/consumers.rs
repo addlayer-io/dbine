@@ -436,6 +436,37 @@ mod tests {
         assert!(r.note.as_deref().is_some_and(|n| n.starts_with(NO_SCOPE)));
     }
 
+    /// A search across many models only wants the sources: it must not read the reports, the dashboards and
+    /// their tiles of every model (a request each, per model), which made a search over a whole workspace
+    /// run for minutes. Reading the lineage as usual still does.
+    #[tokio::test]
+    async fn a_sources_only_read_leaves_the_reports_and_dashboards_alone() {
+        let mut f = Fake::writer();
+        f.definition(LINEAGE);
+        let id = f.model.as_ref().unwrap().id.clone();
+        f.consumers(
+            &[json!({"id": "r1", "name": "Ventas", "datasetId": id})],
+            &[json!({"id": "d1", "displayName": "Dirección"})],
+            &[("d1", vec![json!({"reportId": "r1"})])],
+        );
+        let scope = LineageScope {
+            sources_only: true,
+            ..Default::default()
+        };
+        let g = lineage_in(&mut f, &scope).await.unwrap();
+        assert!(g.consumers.is_empty());
+        let asked: Vec<String> = f.requests().iter().map(|r| r.path.clone()).collect();
+        assert!(
+            !asked
+                .iter()
+                .any(|p| p.contains("/reports") || p.contains("/dashboards")),
+            "{asked:?}"
+        );
+        // The same read, not only for the sources, asks for them.
+        let g = lineage_in(&mut f, &LineageScope::default()).await.unwrap();
+        assert!(!g.consumers.is_empty());
+    }
+
     #[tokio::test]
     async fn my_workspace_uses_the_calls_without_a_group() {
         let mut f = Fake::new();

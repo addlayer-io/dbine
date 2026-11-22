@@ -19118,5 +19118,6 @@
   "Este modelo se lee mejor con la API de Fabric, que pide un permiso (SemanticModel.ReadWrite.All) que todavía no está aprobado: una búsqueda en segundo plano no lo pide. Abrí el modelo una vez desde el explorador para aprobarlo.": "此模型使用 Fabric API 读取效果更好，但它需要一项尚未获批的权限（SemanticModel.ReadWrite.All），后台搜索不会请求该权限。请在资源管理器中打开一次该模型以批准。",
   "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "「{1}」中有 {0} 个模型未通过 Fabric API 读取，因为它需要一项尚未获批的权限：请在资源管理器中打开其中一个以批准，然后重新搜索",
   "esta conexión es de DBine Enterprise: iniciá sesión para buscar qué modelos de Power BI leen sus objetos": "此连接属于 DBine Enterprise：请登录以查找哪些 Power BI 模型读取其对象",
-  "no se pudo preguntar a DBine Enterprise qué conexiones usan las fuentes de Power BI: {0}": "无法向 DBine Enterprise 查询哪些连接使用了 Power BI 数据源：{0}"
+  "no se pudo preguntar a DBine Enterprise qué conexiones usan las fuentes de Power BI: {0}": "无法向 DBine Enterprise 查询哪些连接使用了 Power BI 数据源：{0}",
+  "La búsqueda llegó al límite de tiempo: {0} modelos de «{1}» no se leyeron. Los que ya se leyeron quedan guardados: buscá de nuevo para seguir": "搜索已达到时间限制：「{1}」中有 {0} 个模型未读取。已读取的模型会被保存：请再次搜索以继续"
 }
