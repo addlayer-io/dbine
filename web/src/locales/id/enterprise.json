@@ -74,7 +74,8 @@
     "ended": "Sesi Anda di {{connection}} sebagai {{profile}} berakhir karena akses kedaluwarsa.",
     "endedRevoked": "Sesi Anda di {{connection}} sebagai {{profile}} berakhir karena akses Anda dicabut.",
     "endedOutsideHours": "Sesi Anda di {{connection}} sebagai {{profile}} berakhir: berada di luar jam yang diizinkan untuk koneksi ini.",
-    "sessionLost": "Sesi DBine Enterprise berakhir. Klik untuk masuk lagi.",
+    "sessionLost": "Akses Anda ke DBine Enterprise telah berakhir: koneksi perusahaan ditutup dan data lokalnya dihapus.",
+    "offlineTooLong": "Akses Anda ke DBine Enterprise tidak dapat diverifikasi dalam 24 jam terakhir: koneksi perusahaan ditutup dan data lokalnya dihapus.",
     "scheduleEnding_other": "Jam akses yang diizinkan untuk {{connection}} berakhir dalam {{count}} menit dan sesi Anda sebagai {{profile}} akan diputus.",
     "clickToRequestHours": "Klik untuk meminta akses di luar jam."
   },

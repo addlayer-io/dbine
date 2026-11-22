@@ -18,6 +18,10 @@
 
 - **Following a lineage needs no connection in the explorer:** clicking a source card that has one connection goes there at once. With none, the panel asks for a user and password right there (read-only, with **Remember on this computer** to keep the password in the system keychain) and the lineage connects by itself, without adding anything to the sidebar. **Settings › Lineage sources** lists those connections to forget them (with their remembered password) or **add them to the explorer** as regular connections.
 
+### Fixes
+
+- **DBine Enterprise: when the company ends your access, nothing of it stays:** if your access is revoked, DBine disconnects from the company, closes its sessions and deletes the local data tied to it (connections, saved queries, history, explorer cache, lineage, results and the AI conversations that used it), and tells you why. It happens at once on a revocation, on a refused sign-in, when another person signs in on the computer, and after 24 hours without being able to verify your access.
+
 ## [1.7.0] - 2026-11-21
 
 ### New

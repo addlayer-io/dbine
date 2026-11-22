@@ -74,7 +74,8 @@
     "ended": "您以 {{profile}} 身份在 {{connection}} 上的会话已结束，因为访问已到期。",
     "endedRevoked": "您以 {{profile}} 身份在 {{connection}} 上的会话已结束，因为您的访问权限已被收回。",
     "endedOutsideHours": "您在 {{connection}} 上以 {{profile}} 身份的会话已结束：当前不在该连接允许的时间范围内。",
-    "sessionLost": "DBine Enterprise 会话已结束。点击以重新登录。",
+    "sessionLost": "您对 DBine Enterprise 的访问已结束：公司连接已关闭，其本地数据已删除。",
+    "offlineTooLong": "过去 24 小时内无法验证您对 DBine Enterprise 的访问：公司连接已关闭，其本地数据已删除。",
     "scheduleEnding_other": "{{connection}} 的允许访问时段将在 {{count}} 分钟后结束，您以 {{profile}} 身份的会话将被中断。",
     "clickToRequestHours": "点击申请非允许时段访问。"
   },

@@ -10767,6 +10767,9 @@
  "DBine Bastion no tiene el driver «{0}»": [
   "src-tauri/src/enterprise/gateway.rs"
  ],
+ "DBine Bastion respondió {0}": [
+  "src-tauri/src/enterprise/gateway.rs"
+ ],
  "DBine Bastion se presentó con otra clave: si la empresa la cambió, volvé a iniciar sesión": [
   "src-tauri/src/enterprise/mod.rs"
  ],
@@ -10785,6 +10788,7 @@
   "src-tauri/src/enterprise/signin.rs"
  ],
  "DBine Enterprise respondió {0}": [
+  "src-tauri/src/enterprise/events.rs",
   "src-tauri/src/enterprise/mod.rs"
  ],
  "DBine Enterprise se usa por https": [
@@ -55715,8 +55719,7 @@
   "crates/dbine-sync/src/lib.rs"
  ],
  "la sesión de DBine Enterprise terminó: volvé a iniciarla": [
-  "src-tauri/src/enterprise/gateway.rs",
-  "src-tauri/src/enterprise/mod.rs"
+  "src-tauri/src/enterprise/gateway.rs"
  ],
  "la sesión en el servidor venció en medio de la carga y se perdió la transacción abierta": [
   "crates/drivers/libsql/src/transfer.rs"
@@ -58517,6 +58520,9 @@
  "no se pudo verificar el certificado de Neptune ({0}): activá sslSkipCertValidation para no verificarlo": [
   "crates/drivers/neo4j/src/neptune.rs"
  ],
+ "no se pudo verificar tu acceso a DBine Enterprise en las últimas 24 horas: se cerraron las conexiones de la empresa y se borraron sus datos locales": [
+  "src-tauri/src/enterprise/purge.rs"
+ ],
  "no se pudo volver a poner la restricción {0} en el clon: {1}": [
   "crates/dbine-transfer/src/clone_table/analytics.rs"
  ],
@@ -61051,6 +61057,9 @@
  ],
  "ttl_pause: el job corre pero no borra filas.": [
   "crates/drivers/postgres/src/scheduler/crdb.rs"
+ ],
+ "tu acceso a DBine Enterprise terminó: se cerraron las conexiones de la empresa y se borraron sus datos locales": [
+  "src-tauri/src/enterprise/purge.rs"
  ],
  "tu acceso a esta conexión terminó o fue revocado": [
   "src-tauri/src/enterprise/mod.rs"

@@ -9,6 +9,7 @@ import { readJson } from './storage';
 import { useSettingsStore } from './settings';
 import { ownsSavedState, useTabsStore } from './tabs';
 import { trackFeature } from '../composables/telemetry';
+import { isCompanyId, usedCompany, withoutCompanyChats } from './companyData';
 
 // The AI assistant's state: detected providers, the chosen one, and the
 // conversation. The assistant never runs anything: its code goes into the
@@ -44,6 +45,8 @@ export interface UiMessage extends ChatMessage {
   thinking?: string;
   /** What went as context with this question. */
   context?: string;
+  /** It was asked about a DBine Enterprise connection: it goes with the company's access. */
+  company?: boolean;
   error?: string;
   pending?: boolean;
   provider?: string;
@@ -358,6 +361,19 @@ export const useAiStore = defineStore('ai', {
       this.kept = await writeArchive(change(await readArchive()));
       await this.loadHistory();
     },
+    /** The company's access ended: the conversations that used its connections
+     *  (current and archived) go, with everything they quote. */
+    async forgetCompany() {
+      await this.ready();
+      if (usedCompany(this.messages)) {
+        this.stop();
+        this.messages = [];
+        this.chatId = newId();
+        this.approveReads = false;
+        this.persist();
+      }
+      await this.changeArchive(withoutCompanyChats);
+    },
     /** "Nueva conversación": the current one goes to the history. */
     async clear() {
       await this.ready();
@@ -411,6 +427,7 @@ export const useAiStore = defineStore('ai', {
       const tab = tabs.active;
       const b = this.activeBridge;
       const user: UiMessage = { id: newId(), role: 'user', content: text.trim() };
+      if (isCompanyId(this.target?.connectionId)) user.company = true;
       const answer: UiMessage = { id: newId(), role: 'assistant', content: '', pending: true, provider: p.label };
       this.messages.push(user, answer);
       const history: ChatMessage[] = this.messages

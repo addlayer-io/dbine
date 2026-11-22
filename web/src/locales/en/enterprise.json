@@ -78,7 +78,8 @@
     "ended": "Your session on {{connection}} as {{profile}} ended because the access expired.",
     "endedRevoked": "Your session on {{connection}} as {{profile}} ended because your access was removed.",
     "endedOutsideHours": "Your session on {{connection}} as {{profile}} ended: it is outside the hours allowed for that connection.",
-    "sessionLost": "The DBine Enterprise session ended. Click to sign in again.",
+    "sessionLost": "Your DBine Enterprise access ended: the company connections were closed and their local data was deleted.",
+    "offlineTooLong": "Your DBine Enterprise access could not be verified in the last 24 hours: the company connections were closed and their local data was deleted.",
     "scheduleEnding_one": "The allowed hours for {{connection}} end in {{count}} minute and your session as {{profile}} will be cut off.",
     "scheduleEnding_other": "The allowed hours for {{connection}} end in {{count}} minutes and your session as {{profile}} will be cut off.",
     "clickToRequestHours": "Click to request out-of-hours access."
