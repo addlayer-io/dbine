@@ -27,7 +27,7 @@ use tauri::{AppHandle, Emitter};
 
 pub use gateway::open_session;
 #[allow(unused_imports)] // wired by get_cross_lineage
-pub use resolve::{driver_of_system, resolve_source, SourceRequest};
+pub use resolve::{driver_of_system, resolve_source, resolve_sources, SourceRequest};
 
 fn gateway_tls() -> Arc<rustls::ClientConfig> {
     gateway::tls()

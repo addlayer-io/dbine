@@ -4262,9 +4262,22 @@ carries them as `LineageGraph::consumers` and `DependencyReport::external_users`
 (**what outside the database reads an object**, the other direction of `external`).
 
 DBine Enterprise: its connections hold no server, so the client asks the
-Enterprise server (`POST /api/v1/desktop/resolve-source`: engine, server,
-database -> the connections this person may use, with permissions applied, no
-host or credential in the answer; audited as `source_resolve`).
+Enterprise server which connections this person may use for a source (engine,
+server, database). The answer comes with permissions applied, and holds no host
+or credential.
+- **One request per lineage.** `POST /api/v1/desktop/resolve-sources` resolves
+  up to 200 sources at once, audited as one `source_resolve` event.
+- **Older servers.** A server without it answers 404. The client then asks
+  `POST /api/v1/desktop/resolve-source`, one source per request, four at a time.
+- **Which candidate wins.** The user's link comes first, then the saved
+  connections, then Enterprise's. When nothing matches, the connection the
+  lineage makes for the source is used. An Enterprise failure (signed out,
+  unreachable, an older server) adds no candidate and is not an error.
+
+**Incluir otras conexiones** also works from an Enterprise connection, which
+has no server of its own to match. It resolves the sources of the Power BI
+models in one batch and shows the tables whose source resolves to this managed
+connection. Signed out, it says to sign in.
 
 | What | State |
 |---|---|
@@ -4276,7 +4289,8 @@ host or credential in the answer; audited as `source_resolve`).
 | Short host and its FQDN (`srv` / `srv.corp.local`) | Not matched automatically (it would need DNS): link it once by hand |
 | Who reads an object from other connections | Only Power BI connections are scanned in this version; the first read of many models can be slow (sequential, then cached) |
 | A Power BI connection that needs its password | Noted as "necesita conectarse primero": it has to be opened before |
-| DBine Enterprise resolution | Tested against the real Enterprise server (PostgreSQL); the desktop's HTTP call has no automated test (it needs a signed-in session) |
+| DBine Enterprise resolution | Single and batch endpoints tested against the real Enterprise server (PostgreSQL); the desktop's HTTP calls and the 404 fallback have no automated test (they need a signed-in session) |
+| Who reads an Enterprise connection's objects | Works when the server has the batch endpoint, or falls back one by one; needs the person signed in |
 
 ## Disable and enable indexes
 

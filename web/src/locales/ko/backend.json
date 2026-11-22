@@ -19116,5 +19116,7 @@
   "la fuente no es un servidor al que DBine pueda conectarse": "이 원본은 DBine이 연결할 수 있는 서버가 아닙니다",
   "Este modelo se lee mejor con la API de Fabric": "이 모델은 Fabric API로 읽는 것이 더 좋습니다",
   "Este modelo se lee mejor con la API de Fabric, que pide un permiso (SemanticModel.ReadWrite.All) que todavía no está aprobado: una búsqueda en segundo plano no lo pide. Abrí el modelo una vez desde el explorador para aprobarlo.": "이 모델은 Fabric API로 읽는 것이 더 좋지만, 아직 승인되지 않은 권한(SemanticModel.ReadWrite.All)이 필요합니다. 백그라운드 검색은 이 권한을 요청하지 않습니다. 탐색기에서 모델을 한 번 열어 승인하십시오.",
-  "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "「{1}」의 모델 {0}개를 Fabric API 없이 읽었습니다. 이 API에는 아직 승인되지 않은 권한이 필요합니다. 탐색기에서 하나를 열어 승인한 후 다시 검색하십시오"
+  "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "「{1}」의 모델 {0}개를 Fabric API 없이 읽었습니다. 이 API에는 아직 승인되지 않은 권한이 필요합니다. 탐색기에서 하나를 열어 승인한 후 다시 검색하십시오",
+  "esta conexión es de DBine Enterprise: iniciá sesión para buscar qué modelos de Power BI leen sus objetos": "이 연결은 DBine Enterprise 연결입니다. 로그인하여 어떤 Power BI 모델이 이 연결의 개체를 읽는지 검색하세요",
+  "no se pudo preguntar a DBine Enterprise qué conexiones usan las fuentes de Power BI: {0}": "Power BI 원본을 사용하는 연결을 DBine Enterprise에 문의하지 못했습니다: {0}"
 }

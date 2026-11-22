@@ -19116,5 +19116,7 @@
   "la fuente no es un servidor al que DBine pueda conectarse": "a fonte não é um servidor ao qual o DBine possa se conectar",
   "Este modelo se lee mejor con la API de Fabric": "Este modelo é lido melhor com a API do Fabric",
   "Este modelo se lee mejor con la API de Fabric, que pide un permiso (SemanticModel.ReadWrite.All) que todavía no está aprobado: una búsqueda en segundo plano no lo pide. Abrí el modelo una vez desde el explorador para aprobarlo.": "Este modelo é lido melhor com a API do Fabric, que pede uma permissão (SemanticModel.ReadWrite.All) que ainda não foi aprovada: uma busca em segundo plano não a pede. Abra o modelo uma vez pelo explorador para aprová-la.",
-  "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "{0} modelos de «{1}» foram lidos sem a API do Fabric, que pede uma permissão que ainda não foi aprovada: abra um pelo explorador para aprová-la e busque novamente"
+  "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "{0} modelos de «{1}» foram lidos sem a API do Fabric, que pede uma permissão que ainda não foi aprovada: abra um pelo explorador para aprová-la e busque novamente",
+  "esta conexión es de DBine Enterprise: iniciá sesión para buscar qué modelos de Power BI leen sus objetos": "esta conexão é do DBine Enterprise: entre para buscar quais modelos do Power BI leem seus objetos",
+  "no se pudo preguntar a DBine Enterprise qué conexiones usan las fuentes de Power BI: {0}": "não foi possível perguntar ao DBine Enterprise quais conexões usam as fontes do Power BI: {0}"
 }
