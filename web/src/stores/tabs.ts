@@ -670,6 +670,18 @@ export const useTabsStore = defineStore('tabs', {
       this.persist();
     },
 
+    /** Part of the company's access ended: the tabs on `lost(connection, database)`
+     *  close (project files stay open without a base, as in `forgetConnections`);
+     *  every other tab stays. */
+    forgetWhere(lost: (connectionId: string, database: string) => boolean) {
+      const mine = (t: Tab) => t.connectionId.startsWith('ent-') && lost(t.connectionId, t.database ?? '');
+      for (const t of this.tabs) {
+        if ((t.kind === 'file' || t.kind === 'notebook') && mine(t)) { t.connectionId = ''; t.database = ''; }
+      }
+      this.closeWhere((t) => t.kind !== 'file' && t.kind !== 'fileDiff' && t.kind !== 'notebook' && mine(t));
+      this.persist();
+    },
+
     openObject(connectionId: string, database: string, object: ObjectRef, view: ObjectView, preview = true) {
       const open = this.tabs.find(
         (t) => t.kind === 'object' && t.connectionId === connectionId && t.database === database &&

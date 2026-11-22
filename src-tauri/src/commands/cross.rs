@@ -298,6 +298,17 @@ pub fn forget_company() {
     });
 }
 
+/// One company connection lost (or some of its databases): what the index
+/// kept about it goes, and so does what any source resolved to (it can name it).
+pub fn forget_connection(id: &str) {
+    with_index(|i| {
+        i.sources.drop_where(|(c, _)| c == id);
+        i.models.drop_where(|c| c == id);
+        i.resolved.drop_where(|_| true);
+        i.scans.drop_where(|c| c == id);
+    });
+}
+
 // -- pure helpers -------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

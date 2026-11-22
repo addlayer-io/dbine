@@ -5993,6 +5993,35 @@ company connections; the gateway's drivers and streams; the token; the open
 tabs on those connections, and the AI conversations that used them. The data of
 every other connection is left as it is.
 
+### When only part of the access ends
+
+The company can take away less than everything: one grant, a profile, a
+connection, or a group the person was in. Then the person keeps the rest, and
+DBine forgets **exactly what was lost and nothing else**. Revocation matches
+reality: lose database X or connection X, lose X; lose the user, lose
+everything.
+
+| What the person loses | What DBine deletes | What stays |
+|---|---|---|
+| A whole connection (`ent-<profile>`: its last grant, the profile or its connection deleted, a group that gave it) | that connection as in the full purge: sessions, tunnels, secrets, its row, saved queries, history, migrations, contexts, backups' rows, lineage links, scheduled tasks naming it, explorer and lineage cache, kept lists, index entries, stored results, tabs and AI conversations about it | every other company connection and everything of the person's own |
+| Some databases of a connection (the person keeps others on it) | the sessions on them, their explorer and lineage cache (and the connection's list of databases, which can name them), saved queries, history, migrations, contexts and backups' rows of those databases, scheduled tasks naming them, kept object lists, tabs and AI conversations about them | the connection, its other databases, every other connection |
+| Everything (user disabled or deleted, token refused, sign-out, another account) | the full purge above | nothing of the company |
+
+How DBine finds out: the server sends `access.narrowed` on the events stream
+(wire format in the server's docs/events.md): it lists each profile that lost
+something, whole or by database, and DBine purges exactly that, within about
+2 seconds of the revocation. The **catalog sync is the safety net**: each sync
+compares the connections and databases it now gets with the ones DBine had
+(kept in the managed rows, also across restarts, in the
+`dbine.enterprise.databases` option) and purges what disappeared, so an event
+that was missed or arrived while offline ends in the same purge at the next
+sync: at most 60 seconds with a company session open, 10 minutes with none
+(nothing is live then; only stored data waits), and at once when the window
+comes back in front. Data of company connections that no catalog lists any
+more (leftovers) goes in the same sync. Not covered by databases: lineage
+links (a link from a source to a connection has no database); a scheduled task
+is deleted with a database only when it names it explicitly.
+
 **Validation.** The access is validated when the app starts, when its window
 comes back in front, every minute while a company session is open and every ten
 minutes otherwise (the catalog's sync is the call). A network failure is not a
