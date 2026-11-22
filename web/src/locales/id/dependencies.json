@@ -105,7 +105,10 @@
     "empty": "Tidak ada objek untuk digambar pada cakupan ini.",
     "noMatch": "Tidak ada objek yang cocok dengan filter.",
     "relations": "Relasi ({{count}})",
-    "relationsTip": "Kunci asing (dan relasi sebuah model) berjalan paralel dengan lineage: aktifkan untuk melihatnya berdampingan."
+    "relationsTip": "Kunci asing (dan relasi sebuah model) berjalan paralel dengan lineage: aktifkan untuk melihatnya berdampingan.",
+    "updated": "Diperbarui {{ago}}",
+    "updating": "memperbarui…",
+    "refreshFailed": "Tidak dapat memperbarui: {{error}}. Menampilkan data yang terakhir disimpan."
   },
   "cross": {
     "switch": "Sertakan koneksi lain",
@@ -158,5 +161,11 @@
     "forgotten": "Koneksi dilupakan.",
     "added": "\"{{name}}\" sudah ada di penjelajah.",
     "internalNote": "Koneksi internal lineage: \"{{name}}\" tidak ada di penjelajah."
+  },
+  "age": {
+    "seconds": "beberapa detik lalu",
+    "minutes": "{{n}} mnt lalu",
+    "hours": "{{n}} j lalu",
+    "days": "{{n}} h lalu"
   }
 }

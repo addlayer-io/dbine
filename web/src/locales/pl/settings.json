@@ -48,7 +48,11 @@
     "gridFontSize": "Rozmiar czcionki siatki",
     "gridFontSizeHelp": "Komórki siatki wyników; wiersze rosną wraz z czcionką.",
     "gridTypes": "Typ danych w nagłówkach",
-    "gridTypesHelp": "Typ każdej kolumny, małą czcionką pod jej nazwą, w siatkach wyników."
+    "gridTypesHelp": "Typ każdej kolumny, małą czcionką pod jej nazwą, w siatkach wyników.",
+    "lineagePrecompute": "Wstępnie obliczaj lineage po połączeniu",
+    "lineagePrecomputeHelp": "Odczytuje lineage baz danych w tle po połączeniu, dzięki czemu otwiera się od razu. Zapisywana jest tylko struktura, bez danych.",
+    "lineageCacheClear": "Wyczyść pamięć podręczną lineage",
+    "lineageCacheCleared": "Pamięć podręczna lineage została wyczyszczona."
   },
   "sync": {
     "folderDialogTitle": "Folder na kopię zapasową DBine",

@@ -105,7 +105,10 @@
     "empty": "Für diesen Bereich gibt es keine Objekte zum Zeichnen.",
     "noMatch": "Kein Objekt entspricht den Filtern.",
     "relations": "Beziehungen ({{count}})",
-    "relationsTip": "Fremdschlüssel (und die Beziehungen eines Modells) verlaufen parallel zum Lineage: Aktivieren Sie sie, um sie daneben zu sehen."
+    "relationsTip": "Fremdschlüssel (und die Beziehungen eines Modells) verlaufen parallel zum Lineage: Aktivieren Sie sie, um sie daneben zu sehen.",
+    "updated": "Aktualisiert {{ago}}",
+    "updating": "wird aktualisiert…",
+    "refreshFailed": "Aktualisierung fehlgeschlagen: {{error}}. Es wird der zuletzt gespeicherte Stand angezeigt."
   },
   "cross": {
     "switch": "Andere Verbindungen einbeziehen",
@@ -158,5 +161,11 @@
     "forgotten": "Verbindung vergessen.",
     "added": "„{{name}}“ ist jetzt im Explorer.",
     "internalNote": "Interne Lineage-Verbindung: „{{name}}“ ist nicht im Explorer."
+  },
+  "age": {
+    "seconds": "vor einigen Sekunden",
+    "minutes": "vor {{n}} Min.",
+    "hours": "vor {{n}} Std.",
+    "days": "vor {{n}} T."
   }
 }

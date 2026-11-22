@@ -48,7 +48,11 @@
     "gridFontSize": "Taille de police de la grille",
     "gridFontSizeHelp": "Les cellules de la grille de résultats ; les lignes grandissent avec la police.",
     "gridTypes": "Type de données dans les en-têtes",
-    "gridTypesHelp": "Le type de chaque colonne, en petits caractères sous son nom, dans les grilles de résultats."
+    "gridTypesHelp": "Le type de chaque colonne, en petits caractères sous son nom, dans les grilles de résultats.",
+    "lineagePrecompute": "Précalculer la traçabilité à la connexion",
+    "lineagePrecomputeHelp": "Lit la traçabilité des bases en arrière-plan à la connexion, pour qu’elle s’ouvre instantanément. Seule la structure est enregistrée, sans données.",
+    "lineageCacheClear": "Vider le cache de traçabilité",
+    "lineageCacheCleared": "Cache de traçabilité vidé."
   },
   "sync": {
     "folderDialogTitle": "Dossier pour la sauvegarde de DBine",

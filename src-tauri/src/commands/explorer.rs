@@ -1,3 +1,4 @@
+use crate::commands::lineage_cache;
 use crate::error::{CommandError, CommandResult};
 use crate::state::{driver_info, meta_key, AppState, Lane, SessionEntry};
 use dbine_core::cache::kinds as cache_kinds;
@@ -230,6 +231,10 @@ pub async fn object_page(state: &AppState, args: ObjectPageArgs) -> CommandResul
             move |s| Box::pin(async move { page_on(s, &q, &lists, key, fresh, asked).await }),
         )
         .await?;
+    if fresh {
+        // A refresh or a structure change: the database's cached lineage may be out of date.
+        state.cache_forget_lineage(Some(&args.connection_id), Some(&args.database));
+    }
     let q = &args.query;
     if q.after.is_none() && q.pattern.is_none() && q.name.is_none() {
         state.cache_put(
@@ -537,10 +542,13 @@ pub async fn get_lineage_graph(
         driver.script_dialect(),
         driver.capabilities().foreign_keys,
     );
-    let mut scope = args.scope;
-    scope.jobs = scope.jobs && driver.capabilities().jobs;
+    let scope = lineage_cache::effective_scope(args.scope, driver.capabilities().jobs);
     let database = args.database.clone();
-    state
+    // The precompute lets this read go first.
+    let _reading = lineage_cache::UserRead::begin();
+    let cacheable = lineage_cache::is_cacheable(&scope);
+    let key = lineage_cache::scope_key(&scope);
+    let graph = state
         .meta_read_on(
             Lane::Long,
             &args.connection_id,
@@ -548,7 +556,18 @@ pub async fn get_lineage_graph(
             DEPENDENTS_LIMIT,
             move |s| Box::pin(async move { s.lineage_graph(&database, &scope, &scan).await }),
         )
-        .await
+        .await?;
+    // The server's answer replaces what the cache held for this scope.
+    if cacheable {
+        state.cache_put(
+            &args.connection_id,
+            &args.database,
+            cache_kinds::LINEAGE,
+            &key,
+            &graph,
+        );
+    }
+    Ok(graph)
 }
 
 const DEPENDENTS_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);

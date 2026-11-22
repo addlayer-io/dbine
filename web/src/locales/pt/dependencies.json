@@ -105,7 +105,10 @@
     "empty": "Não há objetos para desenhar neste escopo.",
     "noMatch": "Nenhum objeto atende aos filtros.",
     "relations": "Relações ({{count}})",
-    "relationsTip": "As chaves estrangeiras (e as relações de um modelo) correm em paralelo à linhagem: ative-as para vê-las junto com ela."
+    "relationsTip": "As chaves estrangeiras (e as relações de um modelo) correm em paralelo à linhagem: ative-as para vê-las junto com ela.",
+    "updated": "Atualizado {{ago}}",
+    "updating": "atualizando…",
+    "refreshFailed": "Não foi possível atualizar: {{error}}. Mostrando o último salvo."
   },
   "cross": {
     "switch": "Incluir outras conexões",
@@ -158,5 +161,11 @@
     "forgotten": "Conexão esquecida.",
     "added": "“{{name}}” já está no explorador.",
     "internalNote": "Conexão interna da linhagem: “{{name}}” não está no explorador."
+  },
+  "age": {
+    "seconds": "há alguns segundos",
+    "minutes": "há {{n}} min",
+    "hours": "há {{n}} h",
+    "days": "há {{n}} d"
   }
 }
