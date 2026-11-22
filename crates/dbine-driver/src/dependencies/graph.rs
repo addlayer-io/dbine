@@ -46,6 +46,11 @@ pub struct LineageScope {
     /// granted yet is left out, and a note says so.
     #[serde(default)]
     pub silent: bool,
+    /// Only the sources outside the database matter (a search across many databases for who reads an
+    /// object): what costs requests and isn't a source, like the reports and dashboards that read a Power
+    /// BI model or its engine dependencies, is left out.
+    #[serde(default)]
+    pub sources_only: bool,
 }
 
 /// A dependency between two objects of the database.

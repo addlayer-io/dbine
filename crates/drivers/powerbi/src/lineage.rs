@@ -390,16 +390,20 @@ async fn lineage_read<S: Service>(s: &mut S, scope: &LineageScope) -> Result<Lin
                 });
             }
         }
-        let c = crate::consumers::read(s, &model).await?;
-        g.consumers = c
-            .items
-            .into_iter()
-            .map(|consumer| LineageConsumer {
-                consumer,
-                from: model_node.clone(),
-            })
-            .collect();
-        g.notes.extend(c.notes);
+        // The reports and dashboards cost a request each (and one per dashboard for its tiles): a search
+        // that only wants the sources doesn't read them.
+        if !scope.sources_only {
+            let c = crate::consumers::read(s, &model).await?;
+            g.consumers = c
+                .items
+                .into_iter()
+                .map(|consumer| LineageConsumer {
+                    consumer,
+                    from: model_node.clone(),
+                })
+                .collect();
+            g.notes.extend(c.notes);
+        }
     }
 
     if meta.tier == Tier::Stats {
@@ -456,7 +460,7 @@ async fn lineage_read<S: Service>(s: &mut S, scope: &LineageScope) -> Result<Lin
 
     // DAX: the engine's dependencies, the whole model in one call.
     let mut confirmed = false;
-    if meta.tier == Tier::Info && model.write_permission {
+    if meta.tier == Tier::Info && model.write_permission && !scope.sources_only {
         match calc_dependencies_of(s, &model).await {
             Ok(rows) => {
                 confirmed = true;

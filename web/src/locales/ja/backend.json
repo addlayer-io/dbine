@@ -19118,5 +19118,6 @@
   "Este modelo se lee mejor con la API de Fabric, que pide un permiso (SemanticModel.ReadWrite.All) que todavía no está aprobado: una búsqueda en segundo plano no lo pide. Abrí el modelo una vez desde el explorador para aprobarlo.": "このモデルは Fabric API で読み取るほうが適していますが、まだ承認されていない権限（SemanticModel.ReadWrite.All）が必要です。バックグラウンド検索ではこの権限を要求しません。エクスプローラーでモデルを一度開いて承認してください。",
   "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "「{1}」の {0} 個のモデルは Fabric API を使わずに読み取られました。この API にはまだ承認されていない権限が必要です。エクスプローラーでいずれか1つを開いて承認し、もう一度検索してください",
   "esta conexión es de DBine Enterprise: iniciá sesión para buscar qué modelos de Power BI leen sus objetos": "この接続は DBine Enterprise のものです。サインインして、どの Power BI モデルがそのオブジェクトを読み取っているかを検索してください",
-  "no se pudo preguntar a DBine Enterprise qué conexiones usan las fuentes de Power BI: {0}": "Power BI のソースを使用している接続を DBine Enterprise に問い合わせられませんでした: {0}"
+  "no se pudo preguntar a DBine Enterprise qué conexiones usan las fuentes de Power BI: {0}": "Power BI のソースを使用している接続を DBine Enterprise に問い合わせられませんでした: {0}",
+  "La búsqueda llegó al límite de tiempo: {0} modelos de «{1}» no se leyeron. Los que ya se leyeron quedan guardados: buscá de nuevo para seguir": "検索が制限時間に達しました。「{1}」の {0} 個のモデルは読み取られませんでした。読み取り済みのモデルは保存されています。続行するには、もう一度検索してください"
 }
