@@ -11,11 +11,11 @@ use crate::state::{AppState, Lane};
 use dbine_core::cache::kinds as cache_kinds;
 use dbine_core::lineage_link::{
     match_connections, new_connection_from_source, source_key_of_config, source_key_of_external,
-    Match,
+    Match, SourceKey,
 };
 use dbine_core::secrets::{self, Secrets};
 use dbine_core::state::SavedConnection;
-use dbine_driver::dependencies::{ExternalRef, LineageExternal, LineageScope};
+use dbine_driver::dependencies::{ExternalRef, LineageExternal, LineageGraph, LineageScope};
 use dbine_driver::{ConnectionConfig, DbObject, ObjectQuery, ObjectRef};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -117,6 +117,8 @@ struct Index {
     models: TtlCache<String, Arc<Vec<String>>>,
     /// source signature -> the managed connections DBine Enterprise resolved it to.
     resolved: TtlCache<String, Vec<String>>,
+    /// connection -> what the admin scanner said about its tenant (`None`: it can't be used by this user).
+    scans: TtlCache<String, Option<Arc<ScanHint>>>,
 }
 
 fn index() -> &'static Mutex<Index> {
@@ -126,6 +128,7 @@ fn index() -> &'static Mutex<Index> {
             sources: TtlCache::new(INDEX_TTL),
             models: TtlCache::new(INDEX_TTL),
             resolved: TtlCache::new(INDEX_TTL),
+            scans: TtlCache::new(INDEX_TTL),
         })
     })
 }
@@ -133,6 +136,154 @@ fn index() -> &'static Mutex<Index> {
 fn with_index<T>(f: impl FnOnce(&mut Index) -> T) -> T {
     let mut g = index().lock().unwrap_or_else(|e| e.into_inner());
     f(&mut g)
+}
+
+// -- the admin scanner's pre-filter --------------------------------------------
+
+/// What Power BI's admin scanner API says about a tenant: for each model it covers, the data sources it
+/// names (server and database, no tables; none at all for a model whose sources it doesn't list). It
+/// says nothing about the models it doesn't cover.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub(crate) struct ScanHint {
+    pub models: HashMap<String, Vec<ExternalRef>>,
+}
+
+impl ScanHint {
+    pub(crate) fn of(graph: &LineageGraph) -> ScanHint {
+        let mut models: HashMap<String, Vec<ExternalRef>> = graph
+            .objects
+            .iter()
+            .map(|o| (o.name.clone(), Vec::new()))
+            .collect();
+        for e in &graph.external {
+            models
+                .entry(e.to.name.clone())
+                .or_default()
+                .push(e.source.clone());
+        }
+        ScanHint { models }
+    }
+
+    fn sources(&self) -> impl Iterator<Item = &ExternalRef> {
+        self.models.values().flatten()
+    }
+}
+
+/// The engines whose data source the scanner names the way a Power Query source does, so that the same
+/// canonical key can be trusted to tell "not this server" from "a spelling I don't know". A source of any
+/// other engine (Oracle, files, analysis services, extensions…) is never used to leave a model out.
+const DECIDABLE_FAMILIES: [&str; 5] = ["sqlserver", "postgres", "mysql", "snowflake", "databricks"];
+
+/// Whether a model with these data sources may read what `reaches` accepts. It may when it lists none (the
+/// scanner can't say), when a source can't be decided on (no server, a file, an engine the key doesn't
+/// cover) or when one points to a server and database `reaches` accepts. Only a model whose every source
+/// is decided and none of them is the connection's is left out.
+pub(crate) fn model_may_read(
+    sources: &[ExternalRef],
+    reaches: &dyn Fn(&SourceKey) -> bool,
+) -> bool {
+    sources.is_empty()
+        || sources.iter().any(|e| {
+            match source_key_of_external(e)
+                .filter(|k| DECIDABLE_FAMILIES.contains(&k.family.as_str()))
+            {
+                Some(k) => reaches(&k),
+                None => true,
+            }
+        })
+}
+
+/// The models that have to be read one by one: those the scan doesn't cover, those that may read what
+/// `reaches` accepts and those whose sources are already stored (`stored`: reading them costs nothing).
+pub(crate) fn models_to_read(
+    models: &[String],
+    hint: &ScanHint,
+    reaches: &dyn Fn(&SourceKey) -> bool,
+    stored: &dyn Fn(&str) -> bool,
+) -> Vec<String> {
+    models
+        .iter()
+        .filter(|m| match hint.models.get(*m) {
+            Some(sources) => model_may_read(sources, reaches) || stored(m),
+            None => true,
+        })
+        .cloned()
+        .collect()
+}
+
+/// Whether `key` is the server (and database) of `conn`, the object's database taken as `database`.
+fn key_is_connection(key: &SourceKey, conn: &SavedConnection, database: &str) -> bool {
+    let mut at = conn.clone();
+    if !database.is_empty() {
+        at.config.database = database.to_string();
+    }
+    !matches!(
+        match_connections(key, std::slice::from_ref(&at)),
+        Match::None
+    )
+}
+
+/// The note a search leaves when the admin scanner API can't be used by the user.
+pub(crate) const SCANNER_UNAVAILABLE_NOTE: &str =
+    "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno";
+
+/// What asking for a tenant's scan came to.
+pub(crate) enum Scan {
+    Known(Arc<ScanHint>),
+    /// The user has no right for it, or the driver can't: the models are read one by one, with one note.
+    Unavailable,
+    /// Any other failure: the models are read one by one, silently (the scanner is only a head start).
+    Failed,
+}
+
+/// The scan of a Power BI connection's tenant: memory (15 minutes), then the disk (6 hours), then the
+/// server. A refusal is remembered in memory only, so the admin API isn't asked again for every search.
+pub(crate) async fn scan_of(state: &AppState, pbi: &SavedConnection, use_stored: bool) -> Scan {
+    if use_stored {
+        if let Some(h) = with_index(|i| i.scans.get(&pbi.id, Instant::now())) {
+            return h.map_or(Scan::Unavailable, Scan::Known);
+        }
+        let entry = state.cache_get::<ScanHint>(&pbi.id, "", cache_kinds::LINEAGE_SCAN, "tenant");
+        if let Some(h) = lineage_cache::fresh_value(entry, chrono::Utc::now(), lineage_cache::TTL) {
+            let h = Arc::new(h);
+            with_index(|i| i.scans.put(pbi.id.clone(), Some(h.clone()), Instant::now()));
+            return Scan::Known(h);
+        }
+    }
+    let Some(driver) = dbine_drivers::find(&pbi.config.driver) else {
+        return Scan::Failed;
+    };
+    let scan = dbine_driver::DependencyScan::new(
+        driver.info(),
+        driver.script_dialect(),
+        driver.capabilities().foreign_keys,
+    );
+    let scope = LineageScope {
+        silent: true,
+        tenant_sources: true,
+        ..Default::default()
+    };
+    let read = state
+        .meta_read(&pbi.id, "", SCAN_LIMIT, move |s| {
+            Box::pin(async move { s.lineage_graph("", &scope, &scan).await })
+        })
+        .await;
+    match read {
+        Ok(graph) => {
+            let h = Arc::new(ScanHint::of(&graph));
+            with_index(|i| i.scans.put(pbi.id.clone(), Some(h.clone()), Instant::now()));
+            state.cache_put(&pbi.id, "", cache_kinds::LINEAGE_SCAN, "tenant", &*h);
+            Scan::Known(h)
+        }
+        Err(CommandError::BadRequest(_)) => {
+            with_index(|i| i.scans.put(pbi.id.clone(), None, Instant::now()));
+            Scan::Unavailable
+        }
+        Err(e) => {
+            tracing::debug!("lineage scan of {}: {e}", pbi.id);
+            Scan::Failed
+        }
+    }
 }
 
 // -- pure helpers -------------------------------------------------------------
@@ -858,8 +1009,33 @@ pub async fn get_cross_users(
         let mut left_out = 0usize;
         let mut out_of_time = 0usize;
         let st = &*state;
+        // The admin scanner API says, without opening a model, which servers each one reads from: the
+        // models that can't read this connection's are not opened.
+        let to_read = match scan_of(st, pbi, !args.refresh).await {
+            Scan::Known(hint) => {
+                prefilter(
+                    st,
+                    pbi,
+                    &models,
+                    &hint,
+                    &source_conn,
+                    &args.database,
+                    managed,
+                    args.refresh,
+                )
+                .await
+            }
+            Scan::Unavailable => {
+                let note = SCANNER_UNAVAILABLE_NOTE.to_string();
+                if !res.notes.contains(&note) {
+                    res.notes.push(note);
+                }
+                models.to_vec()
+            }
+            Scan::Failed => models.to_vec(),
+        };
         let mut work: Vec<(String, Option<CommandResult<ModelSources>>)> =
-            futures_util::stream::iter(models.iter().cloned().collect::<Vec<_>>())
+            futures_util::stream::iter(to_read)
                 .map(|model| async move {
                     let left = deadline.saturating_duration_since(Instant::now());
                     if left.is_zero() {
@@ -940,6 +1116,46 @@ pub async fn get_cross_users(
         }
     }
     Ok(res)
+}
+
+/// The models of `pbi` that have to be opened to know whether they read the object: the scan's pre-filter.
+/// For a managed (DBine Enterprise) connection the sources the scan names are resolved by the server first;
+/// when that fails every model stays.
+#[allow(clippy::too_many_arguments)]
+async fn prefilter(
+    state: &AppState,
+    pbi: &SavedConnection,
+    models: &[String],
+    hint: &ScanHint,
+    source_conn: &SavedConnection,
+    database: &str,
+    managed: bool,
+    refresh: bool,
+) -> Vec<String> {
+    let stored = |m: &str| {
+        !refresh
+            && (with_index(|i| {
+                i.sources
+                    .get(&(pbi.id.clone(), m.to_string()), Instant::now())
+            })
+            .is_some()
+                || sources_on_disk(state, &pbi.id, m).is_some())
+    };
+    if managed {
+        let Ok(resolved) = resolve_externals(hint.sources(), refresh).await else {
+            return models.to_vec();
+        };
+        let reaches = |k: &SourceKey| {
+            resolved
+                .get(&k.signature())
+                .is_some_and(|ids| ids.contains(&source_conn.id))
+                && (database.is_empty() || k.database.is_empty() || bare(database) == k.database)
+        };
+        models_to_read(models, hint, &reaches, &stored)
+    } else {
+        let reaches = |k: &SourceKey| key_is_connection(k, source_conn, database);
+        models_to_read(models, hint, &reaches, &stored)
+    }
 }
 
 /// What DBine Enterprise resolves each source of `sources` to (managed
@@ -1180,6 +1396,32 @@ mod tests {
         with_index(|i| i.sources.drop_where(|(c, _)| c == "pbi-layers"));
     }
 
+    #[tokio::test]
+    async fn the_scan_comes_from_memory_then_disk_then_the_server_and_a_refusal_is_remembered() {
+        let state = state_with_cache();
+        let pbi = offline_pbi("pbi-scan-layers");
+        // Nothing anywhere: the server is asked (and fails here), silently.
+        assert!(matches!(scan_of(&state, &pbi, true).await, Scan::Failed));
+        // On disk: served, and in memory now.
+        let h = hint(&[("m", vec![sql_source("srv1", "dwh")])]);
+        state.cache_put(&pbi.id, "", cache_kinds::LINEAGE_SCAN, "tenant", &h);
+        let Scan::Known(got) = scan_of(&state, &pbi, true).await else {
+            panic!("the disk entry is not used");
+        };
+        assert_eq!(*got, h);
+        state.cache_forget(&pbi.id);
+        assert!(matches!(scan_of(&state, &pbi, true).await, Scan::Known(_)));
+        // A refresh ignores both layers.
+        assert!(matches!(scan_of(&state, &pbi, false).await, Scan::Failed));
+        // A refusal is remembered: the admin API isn't asked again until the memory expires.
+        with_index(|i| i.scans.put(pbi.id.clone(), None, Instant::now()));
+        assert!(matches!(
+            scan_of(&state, &pbi, true).await,
+            Scan::Unavailable
+        ));
+        with_index(|i| i.scans.drop_where(|c| c == "pbi-scan-layers"));
+    }
+
     #[test]
     fn the_disk_layer_of_the_sources_is_per_connection_and_model() {
         let state = state_with_cache();
@@ -1234,6 +1476,113 @@ mod tests {
             schema: schema.map(Into::into),
             name: name.into(),
         }
+    }
+
+    fn sql_source(server: &str, db: &str) -> ExternalRef {
+        ExternalRef {
+            name: None,
+            ..ext(server, db, None, "")
+        }
+    }
+
+    fn hint(models: &[(&str, Vec<ExternalRef>)]) -> ScanHint {
+        ScanHint {
+            models: models
+                .iter()
+                .map(|(m, s)| (m.to_string(), s.clone()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn a_model_is_left_out_only_when_every_source_is_decided_and_none_is_the_connections() {
+        let c = conn("c1", "sqlserver", "srv1", "dwh");
+        let reaches = |k: &SourceKey| key_is_connection(k, &c, "");
+        // Its server and database.
+        assert!(model_may_read(&[sql_source("srv1", "dwh")], &reaches));
+        // Another database, another server.
+        assert!(!model_may_read(&[sql_source("srv1", "other")], &reaches));
+        assert!(!model_may_read(&[sql_source("srv2", "dwh")], &reaches));
+        // One of several is enough.
+        assert!(model_may_read(
+            &[sql_source("srv2", "x"), sql_source("SRV1", "DWH")],
+            &reaches
+        ));
+        // A source that names no database may hold it.
+        assert!(model_may_read(&[sql_source("srv1", "")], &reaches));
+        // The scanner lists none: it can't say.
+        assert!(model_may_read(&[], &reaches));
+        // A file, an engine the key doesn't cover, or no server at all are never a reason to leave out.
+        let file = ExternalRef {
+            system: Some("Excel".into()),
+            detail: Some("C:\\x.xlsx".into()),
+            ..Default::default()
+        };
+        let other = ExternalRef {
+            system: Some("SapHana".into()),
+            server: Some("hana1".into()),
+            ..Default::default()
+        };
+        let noserver = ExternalRef {
+            system: Some("SQL Server".into()),
+            ..Default::default()
+        };
+        for undecided in [file, other, noserver] {
+            assert!(model_may_read(
+                &[sql_source("srv2", "x"), undecided],
+                &reaches
+            ));
+        }
+    }
+
+    #[test]
+    fn the_object_s_database_decides_when_the_connection_names_none() {
+        let c = conn("c1", "sqlserver", "srv1", "");
+        let k = source_key_of_external(&sql_source("srv1", "sales")).unwrap();
+        assert!(key_is_connection(&k, &c, ""));
+        assert!(key_is_connection(&k, &c, "sales"));
+        assert!(!key_is_connection(&k, &c, "other"));
+    }
+
+    #[test]
+    fn only_the_models_that_may_read_the_connection_or_are_not_covered_are_opened() {
+        let c = conn("c1", "sqlserver", "srv1", "dwh");
+        let reaches = |k: &SourceKey| key_is_connection(k, &c, "");
+        let h = hint(&[
+            ("yes", vec![sql_source("srv1", "dwh")]),
+            ("no", vec![sql_source("srv9", "dwh")]),
+            ("stored", vec![sql_source("srv9", "dwh")]),
+            ("empty", vec![]),
+        ]);
+        let models: Vec<String> = ["yes", "no", "stored", "empty", "unknown"]
+            .map(String::from)
+            .to_vec();
+        let got = models_to_read(&models, &h, &reaches, &|m| m == "stored");
+        assert_eq!(got, ["yes", "stored", "empty", "unknown"]);
+        // Nothing is stored: the model that reads elsewhere is the only one left out.
+        let got = models_to_read(&models, &h, &reaches, &|_| false);
+        assert_eq!(got, ["yes", "empty", "unknown"]);
+    }
+
+    #[test]
+    fn the_scan_hint_keeps_the_covered_models_even_without_sources() {
+        use dbine_driver::dependencies::LineageGraph;
+        let node = |n: &str| obj(None, n);
+        let g = LineageGraph {
+            objects: vec![node("a"), node("b")],
+            external: vec![LineageExternal {
+                source: sql_source("srv1", "dwh"),
+                to: node("a"),
+            }],
+            ..Default::default()
+        };
+        let h = ScanHint::of(&g);
+        assert_eq!(h.models["a"], [sql_source("srv1", "dwh")]);
+        assert!(h.models["b"].is_empty());
+        assert!(!h.models.contains_key("c"));
+        // It survives the disk cache.
+        let again: ScanHint = serde_json::from_str(&serde_json::to_string(&h).unwrap()).unwrap();
+        assert_eq!(again, h);
     }
 
     fn cand(id: &str, via: &str) -> Candidate {

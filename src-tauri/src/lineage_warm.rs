@@ -6,7 +6,7 @@
 //! Power BI connections warm each model's external sources instead (what the cross-connection search
 //! reads), as many models at a time as the setting says.
 
-use crate::commands::cross::{externals_of, models_of, scan_limits, scan_parallel};
+use crate::commands::cross::{externals_of, models_of, scan_limits, scan_of, scan_parallel};
 use crate::commands::lineage_cache::{
     fresh_value, is_cacheable, precompute_enabled, scope_key, user_is_reading, warm_order,
     PRECOMPUTE_SETTING, TTL,
@@ -220,6 +220,9 @@ async fn warm_power_bi(
         }
     };
     let id = pbi.id.as_str();
+    // One call to the admin scanner API, when the user may use it, keeps what a search needs to leave out
+    // the models that read from other servers.
+    let _ = scan_of(state, pbi, true).await;
     let (model_limit, _) = scan_limits(state);
     let parallel = scan_parallel(state);
     futures_util::stream::iter(models.iter().cloned())

@@ -42,7 +42,7 @@ pub const NOT_AVAILABLE: &str =
 pub(crate) fn is_denied(e: &Error) -> bool {
     match e {
         Error::AuthFailed(_) => true,
-        Error::Query(m) => m.contains("HTTP 403") || m.contains("respondió 403"),
+        Error::Query(m) => m.contains(" 403"),
         _ => false,
     }
 }
