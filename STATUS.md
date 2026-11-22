@@ -27,9 +27,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.7.0 | 2026-11-21 | 4fc9459c..78feff49, everything 1.7.0 adds since v1.6.3 up to the CodeQL fixes (vectors, lineage in both directions, the explorer by folders and its filter, results search, compare fixes, New notebook from the explorer; 3 MEDIUM and 1 LOW, fixed in #168); 78feff49..c1b4d9a9, server jobs in the lineage and #168 (1 MEDIUM, fixed in #170); c1b4d9a9..6f336538, the lineage of a whole database, the relations switch and #170 (no findings); plus the pre-merge scan of the vectors branch at 94805104 (2 MEDIUM in the Cypher read guard, fixed before it merged) | 0 open | the release commits d079d0ae and 533fab01 (versions, Cargo.lock and the changelogs; no code) |
 | codeql | 2026-11-22 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-22 | every lockfile (Cargo, npm) at [`c9996fdf2`](https://github.com/addlayer-io/dbine/commit/c9996fdf2175) | 3 open | — |
+| osv | 2026-11-22 | every lockfile (Cargo, npm) at [`95ddc68d0`](https://github.com/addlayer-io/dbine/commit/95ddc68d02f4) | 3 open | — |
 | scorecard | 2026-11-22 | repository settings and workflows at [`c9996fdf2`](https://github.com/addlayer-io/dbine/commit/c9996fdf2175) | score 7.5/10 | — |
-| trivy | 2026-11-22 | whole repository at [`c9996fdf2`](https://github.com/addlayer-io/dbine/commit/c9996fdf2175) | 0 open | — |
+| trivy | 2026-11-22 | whole repository at [`95ddc68d0`](https://github.com/addlayer-io/dbine/commit/95ddc68d02f4) | 0 open | — |
 
 ## Not counted, and why
 
