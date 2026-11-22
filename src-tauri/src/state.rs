@@ -228,6 +228,12 @@ pub fn extract_secrets(cfg: &mut ConnectionConfig, info: &DriverInfo) -> Secrets
     out
 }
 
+/// The Enterprise rule of the disk cache: only the company's `ent-`
+/// connections are subject to it, and `allows` is asked just for them.
+pub fn cache_allowed_for(connection_id: &str, allows: impl FnOnce() -> bool) -> bool {
+    !connection_id.starts_with("ent-") || allows()
+}
+
 impl AppState {
     pub fn new(store: StateStore) -> Self {
         Self {
@@ -258,10 +264,7 @@ impl AppState {
         let Some(cache) = self.cache.get() else {
             return;
         };
-        // The company's connections stay off the disk unless it allows it.
-        if connection_id.starts_with("ent-")
-            && !crate::enterprise::get().is_ok_and(|e| e.allows("explorer_cache"))
-        {
+        if !self.cache_allowed(connection_id) {
             return;
         }
         match serde_json::to_string(value) {
@@ -271,6 +274,57 @@ impl AppState {
                 }
             }
             Err(e) => tracing::warn!("explorer cache encode failed: {e}"),
+        }
+    }
+
+    /// Whether this connection may reach the disk cache: the company's
+    /// connections stay off it unless it allows it (`explorer_cache`).
+    pub fn cache_allowed(&self, connection_id: &str) -> bool {
+        cache_allowed_for(connection_id, || {
+            crate::enterprise::get().is_ok_and(|e| e.allows("explorer_cache"))
+        })
+    }
+
+    /// The counterpart of [`Self::cache_put`]: the stored answer and when it
+    /// was stored (RFC 3339). Same Enterprise rule; `None` when there is
+    /// nothing, it can't be read or the connection may not use the cache.
+    pub fn cache_get<T: serde::de::DeserializeOwned>(
+        &self,
+        connection_id: &str,
+        database: &str,
+        kind: &str,
+        item: &str,
+    ) -> Option<(T, String)> {
+        let cache = self.cache.get()?;
+        if !self.cache_allowed(connection_id) {
+            return None;
+        }
+        let (json, at) = cache
+            .get_with_time(connection_id, database, kind, item)
+            .ok()??;
+        match serde_json::from_str(&json) {
+            Ok(v) => Some((v, at)),
+            Err(e) => {
+                // An entry from another version's shape: it refills.
+                tracing::debug!("explorer cache entry unreadable: {e}");
+                None
+            }
+        }
+    }
+
+    /// Forget the cached lineage (graphs and Power BI sources) of one
+    /// connection (`None`: all), or of one of its databases. The explorer's
+    /// own entries stay.
+    pub fn cache_forget_lineage(&self, connection_id: Option<&str>, database: Option<&str>) {
+        if let Some(cache) = self.cache.get() {
+            use dbine_core::cache::kinds;
+            if let Err(e) = cache.remove_kinds(
+                connection_id,
+                database,
+                &[kinds::LINEAGE, kinds::LINEAGE_SOURCES],
+            ) {
+                tracing::warn!("lineage cache clear failed: {e}");
+            }
         }
     }
 
@@ -831,6 +885,14 @@ fn pin_server(c: &ConnectionConfig) -> PinServer {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_company_rule_only_binds_enterprise_connections() {
+        use super::cache_allowed_for;
+        assert!(cache_allowed_for("abc", || panic!("not asked")));
+        assert!(cache_allowed_for("ent-1", || true));
+        assert!(!cache_allowed_for("ent-1", || false));
+    }
+
     use super::*;
     use dbine_driver::{Field, FieldKind};
 

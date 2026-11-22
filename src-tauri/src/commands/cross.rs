@@ -5,8 +5,10 @@
 //! Matching rules and the links the user made: `dbine_core::lineage_link`.
 
 use crate::commands::explorer::{object_page, ObjectPageArgs};
+use crate::commands::lineage_cache;
 use crate::error::{CommandError, CommandResult};
 use crate::state::{AppState, Lane};
+use dbine_core::cache::kinds as cache_kinds;
 use dbine_core::lineage_link::{
     match_connections, new_connection_from_source, source_key_of_config, source_key_of_external,
     Match,
@@ -28,14 +30,14 @@ const INDEX_TTL: Duration = Duration::from_secs(15 * 60);
 /// A model's lineage reads its whole definition: the long lane's ceiling.
 const SCAN_LIMIT: Duration = Duration::from_secs(300);
 /// Models read per Power BI connection at most.
-const MODELS_CAP: usize = 200;
+pub(crate) const MODELS_CAP: usize = 200;
 /// The longest one model's sources are waited for.
-const MODEL_LIMIT: Duration = Duration::from_secs(60);
+pub(crate) const MODEL_LIMIT: Duration = Duration::from_secs(60);
 /// The longest a whole search runs: what isn't read by then is left out, and a note says how many (the
 /// models already read are kept, so searching again goes on from there).
 const SCAN_BUDGET: Duration = Duration::from_secs(120);
 /// Models read at once per Power BI connection.
-const SCAN_PARALLEL: usize = 4;
+pub(crate) const SCAN_PARALLEL: usize = 4;
 
 // -- the in-memory index ------------------------------------------------------
 
@@ -822,9 +824,11 @@ pub async fn get_cross_users(
                     if left.is_zero() {
                         return (model, None);
                     }
-                    let r =
-                        tokio::time::timeout(left.min(MODEL_LIMIT), externals_of(st, pbi, &model))
-                            .await;
+                    let r = tokio::time::timeout(
+                        left.min(MODEL_LIMIT),
+                        externals_of(st, pbi, &model, !args.refresh),
+                    )
+                    .await;
                     (model, r.ok())
                 })
                 .buffer_unordered(SCAN_PARALLEL)
@@ -966,7 +970,10 @@ fn split_cached<'a>(
     (known, missing)
 }
 
-async fn models_of(state: &AppState, pbi: &SavedConnection) -> CommandResult<Arc<Vec<String>>> {
+pub(crate) async fn models_of(
+    state: &AppState,
+    pbi: &SavedConnection,
+) -> CommandResult<Arc<Vec<String>>> {
     if let Some(m) = with_index(|i| i.models.get(&pbi.id, Instant::now())) {
         return Ok(m);
     }
@@ -989,14 +996,24 @@ const FABRIC_SILENT_PREFIX: &str = "Este modelo se lee mejor con la API de Fabri
 
 /// A model's external sources, whether they came from the index, and whether the read left the
 /// Fabric API out for want of its permission (then nothing is kept: approving it must show more).
-async fn externals_of(
+///
+/// Three layers, nearest first: the in-memory index (15 minutes), the disk cache (6 hours) and the
+/// server. Every server read writes both; `use_stored` false (a refresh) skips the two reads.
+pub(crate) async fn externals_of(
     state: &AppState,
     pbi: &SavedConnection,
     model: &str,
+    use_stored: bool,
 ) -> CommandResult<ModelSources> {
     let key = (pbi.id.clone(), model.to_string());
-    if let Some(s) = with_index(|i| i.sources.get(&key, Instant::now())) {
-        return Ok((s, true, false));
+    if use_stored {
+        if let Some(s) = with_index(|i| i.sources.get(&key, Instant::now())) {
+            return Ok((s, true, false));
+        }
+        if let Some(s) = sources_on_disk(state, &pbi.id, model) {
+            with_index(|i| i.sources.put(key, s.clone(), Instant::now()));
+            return Ok((s, true, false));
+        }
     }
     let driver = dbine_drivers::find(&pbi.config.driver).ok_or_else(|| {
         CommandError::BadRequest(format!(
@@ -1030,12 +1047,88 @@ async fn externals_of(
     let s = Arc::new(graph.external);
     if !skipped {
         with_index(|i| i.sources.put(key, s.clone(), Instant::now()));
+        state.cache_put(&pbi.id, "", cache_kinds::LINEAGE_SOURCES, model, &*s);
     }
     Ok((s, false, skipped))
 }
 
+/// A model's sources kept on disk, if younger than the lineage cache's TTL.
+fn sources_on_disk(state: &AppState, connection_id: &str, model: &str) -> Option<Sources> {
+    let entry = state.cache_get::<Vec<LineageExternal>>(
+        connection_id,
+        "",
+        cache_kinds::LINEAGE_SOURCES,
+        model,
+    );
+    lineage_cache::fresh_value(entry, chrono::Utc::now(), lineage_cache::TTL).map(Arc::new)
+}
+
 #[cfg(test)]
 mod tests {
+    fn state_with_cache() -> AppState {
+        let state = AppState::new(dbine_core::state::StateStore::open_in_memory().unwrap());
+        let _ = state
+            .cache
+            .set(dbine_core::ExplorerCache::open_in_memory().unwrap());
+        state
+    }
+
+    fn source(name: &str) -> LineageExternal {
+        LineageExternal {
+            source: ext("srv", "db", Some("dbo"), name),
+            to: obj(Some("dbo"), "t"),
+        }
+    }
+
+    // The connection's driver doesn't exist: a read that reaches for the server fails at once, so
+    // a success proves the answer came from a layer in front of it.
+    fn offline_pbi(id: &str) -> SavedConnection {
+        let mut c = conn(id, "no-such-driver", "", "");
+        c.config.driver = "no-such-driver".into();
+        c
+    }
+
+    #[tokio::test]
+    async fn sources_come_from_memory_then_disk_then_the_server() {
+        let state = state_with_cache();
+        let pbi = offline_pbi("pbi-layers");
+        // Nothing anywhere: the server is asked (and fails here).
+        assert!(externals_of(&state, &pbi, "m", true).await.is_err());
+        // On disk only: served, flagged as cached, and now in memory too.
+        state.cache_put(
+            &pbi.id,
+            "",
+            cache_kinds::LINEAGE_SOURCES,
+            "m",
+            &vec![source("disk")],
+        );
+        let (got, cached, skipped) = externals_of(&state, &pbi, "m", true).await.unwrap();
+        assert!(cached && !skipped);
+        assert_eq!(got.len(), 1);
+        // Memory is first: the disk entry can vanish and the answer stays.
+        state.cache_forget(&pbi.id);
+        assert!(externals_of(&state, &pbi, "m", true).await.is_ok());
+        // A refresh ignores both layers.
+        assert!(externals_of(&state, &pbi, "m", false).await.is_err());
+        with_index(|i| i.sources.drop_where(|(c, _)| c == "pbi-layers"));
+    }
+
+    #[test]
+    fn the_disk_layer_of_the_sources_is_per_connection_and_model() {
+        let state = state_with_cache();
+        assert!(sources_on_disk(&state, "p1", "m").is_none());
+        state.cache_put(
+            "p1",
+            "",
+            cache_kinds::LINEAGE_SOURCES,
+            "m",
+            &vec![source("a")],
+        );
+        assert_eq!(sources_on_disk(&state, "p1", "m").unwrap().len(), 1);
+        assert!(sources_on_disk(&state, "p1", "other").is_none());
+        assert!(sources_on_disk(&state, "p2", "m").is_none());
+    }
+
     use super::*;
 
     fn conn(id: &str, driver: &str, host: &str, db: &str) -> SavedConnection {
