@@ -447,6 +447,56 @@ impl TokenProvider {
         self.store(audience, set, origin)
     }
 
+    /// A token for `audience` that needs no user: from the cache, or renewed with the refresh token
+    /// the account already has. `None` when only a sign-in (the browser, a consent) could give it:
+    /// nothing is opened. Modes that never ask the user behave as [`Self::token`].
+    pub async fn token_silent(&self, audience: Audience) -> Result<Option<AccessToken>> {
+        if self.settings.auth != AuthMode::EntraMfa {
+            return match self.token(audience).await {
+                Ok(t) => Ok(Some(t)),
+                Err(Error::AuthFailed(_) | Error::Unsupported(_)) => Ok(None),
+                Err(e) => Err(e),
+            };
+        }
+        let Some(account) = self.account() else {
+            return Ok(None);
+        };
+        let gate = {
+            let mut locks = lock(&SIGN_INS);
+            locks
+                .entry(format!("{}|{audience:?}", self.fingerprint))
+                .or_default()
+                .clone()
+        };
+        let _one = gate.lock().await;
+        let refresh = match lookup(&self.key(&account, audience), now()) {
+            Lookup::Fresh(token, expires_on) => {
+                return Ok(Some(AccessToken {
+                    token,
+                    expires_at: Some(UNIX_EPOCH + Duration::from_secs(expires_on)),
+                }))
+            }
+            Lookup::Refresh(r) => Some(r),
+            Lookup::Miss => any_refresh(
+                self.settings.cloud,
+                &client_id(&self.settings),
+                &account.tenant_id,
+                &account.object_id,
+            ),
+        };
+        let Some(r) = refresh else {
+            return Ok(None);
+        };
+        match browser::refresh_at(&self.settings, &self.endpoints, audience, &r).await {
+            Ok(mut t) => {
+                t.refresh.get_or_insert(r);
+                self.store(audience, t, Origin::Renewal).map(Some)
+            }
+            // Not consented yet (or revoked): only a sign-in would do, and none is opened here.
+            Err(_) => Ok(None),
+        }
+    }
+
     async fn acquire(
         &self,
         audience: Audience,

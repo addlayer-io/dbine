@@ -19113,5 +19113,8 @@
   "Power BI no aceptó el token (HTTP 401): volvé a iniciar sesión.": "Power BI nie zaakceptował tokenu (HTTP 401): zaloguj się ponownie.",
   "no existe la conexión interna '{0}'": "wewnętrzne połączenie '{0}' nie istnieje",
   "hay varias conexiones que coinciden: elegí una": "pasuje kilka połączeń: wybierz jedno",
-  "la fuente no es un servidor al que DBine pueda conectarse": "źródło nie jest serwerem, z którym DBine może się połączyć"
+  "la fuente no es un servidor al que DBine pueda conectarse": "źródło nie jest serwerem, z którym DBine może się połączyć",
+  "Este modelo se lee mejor con la API de Fabric": "Ten model lepiej odczytywać przez API Fabric",
+  "Este modelo se lee mejor con la API de Fabric, que pide un permiso (SemanticModel.ReadWrite.All) que todavía no está aprobado: una búsqueda en segundo plano no lo pide. Abrí el modelo una vez desde el explorador para aprobarlo.": "Ten model lepiej odczytywać przez API Fabric, które wymaga uprawnienia (SemanticModel.ReadWrite.All), jeszcze niezatwierdzonego: wyszukiwanie w tle go nie żąda. Otwórz model raz w eksploratorze, aby je zatwierdzić.",
+  "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "{0} modeli z „{1}” odczytano bez API Fabric, które wymaga jeszcze niezatwierdzonego uprawnienia: otwórz jeden w eksploratorze, aby je zatwierdzić, i wyszukaj ponownie"
 }

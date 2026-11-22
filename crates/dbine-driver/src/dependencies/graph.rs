@@ -41,6 +41,11 @@ pub struct LineageScope {
     /// Add the server's jobs, with what their steps use.
     #[serde(default)]
     pub jobs: bool,
+    /// A read in the background (a search across models the user didn't open): it never asks the
+    /// user for anything, no sign-in and no consent. What can only be read with a permission not
+    /// granted yet is left out, and a note says so.
+    #[serde(default)]
+    pub silent: bool,
 }
 
 /// A dependency between two objects of the database.

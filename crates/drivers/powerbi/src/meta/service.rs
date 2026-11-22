@@ -22,6 +22,9 @@ pub trait Service: Send + Sync {
     /// The session's model, when it has one.
     fn session_model(&self) -> Option<&Model>;
     fn account(&self) -> Option<Account>;
+    /// The Fabric API can be called without asking the user anything (a token in the cache, or one
+    /// the account's refresh token renews): the background reads use the definition API only then.
+    async fn fabric_silent(&self) -> bool;
     fn window_usage(&self) -> WindowUsage;
     fn api_in_use(&self) -> Option<ApiKind>;
     fn meta_state(&mut self) -> &mut MetaState;
@@ -68,6 +71,11 @@ impl Service for Ctx {
     }
     fn account(&self) -> Option<Account> {
         self.api.account()
+    }
+    async fn fabric_silent(&self) -> bool {
+        self.api
+            .token_ready_silent(crate::auth::Audience::Fabric)
+            .await
     }
     fn window_usage(&self) -> WindowUsage {
         self.api.window_usage()

@@ -626,7 +626,13 @@ pub struct MetaState {
     /// The reports and dashboards that read the model, and when they were
     /// read ([`crate::consumers`]).
     pub consumers: Option<(String, Instant, Arc<crate::consumers::Consumers>)>,
+    /// A background read (`LineageScope::silent`) is going on: nothing asks the user for a sign-in or
+    /// a consent, and what it reads this way is not kept for the reads that do.
+    pub silent: bool,
 }
+
+/// Said when a background read leaves the definition API out because its permission isn't granted yet.
+pub const FABRIC_SILENT: &str = "Este modelo se lee mejor con la API de Fabric, que pide un permiso (SemanticModel.ReadWrite.All) que todavía no está aprobado: una búsqueda en segundo plano no lo pide. Abrí el modelo una vez desde el explorador para aprobarlo.";
 
 /// How long a model's metadata is kept (spec §4.3).
 pub const TTL: Duration = Duration::from_secs(60);
@@ -706,6 +712,10 @@ pub(crate) async fn model_for<S: Service>(s: &mut S, m: &Model) -> Result<Arc<Mo
         }
     }
     let meta = Arc::new(read(s, m).await?);
+    // What a silent read could reach is not for the reads that can ask: it isn't kept.
+    if s.meta_state().silent {
+        return Ok(meta);
+    }
     if let Some(k) = key {
         if let Ok(mut host) = HOST.lock() {
             host.retain(|_, c| c.at.elapsed() < TTL);
@@ -793,21 +803,29 @@ async fn read<S: Service>(s: &mut S, m: &Model) -> Result<ModelMeta> {
             )),
         }
     }
-    match definition_unavailable(s, m) {
-        None => match crate::definition::read_model(s, m).await {
-            Ok(mut meta) => {
-                notes.append(&mut meta.notes);
-                meta.notes = notes;
-                return Ok(meta);
-            }
-            Err(e) if is_fatal(&e) => return Err(e),
-            Err(e) => notes.push(format!(
-                "No se pudo leer la definición del modelo con la API de Fabric ({}).",
-                short(&e)
-            )),
-        },
-        Some(why) if !arrow => notes.push(why.to_string()),
-        Some(_) => {}
+    // A background read never opens a consent: the definition API (a Fabric permission that may need
+    // the tenant's approval) is used only when its token is already there.
+    let unavailable = definition_unavailable(s, m);
+    let skip_fabric = unavailable.is_none() && s.meta_state().silent && !s.fabric_silent().await;
+    if skip_fabric {
+        notes.push(FABRIC_SILENT.to_string());
+    } else {
+        match unavailable {
+            None => match crate::definition::read_model(s, m).await {
+                Ok(mut meta) => {
+                    notes.append(&mut meta.notes);
+                    meta.notes = notes;
+                    return Ok(meta);
+                }
+                Err(e) if is_fatal(&e) => return Err(e),
+                Err(e) => notes.push(format!(
+                    "No se pudo leer la definición del modelo con la API de Fabric ({}).",
+                    short(&e)
+                )),
+            },
+            Some(why) if !arrow => notes.push(why.to_string()),
+            Some(_) => {}
+        }
     }
     let mut meta = stats::read_model(s, m).await?;
     notes.append(&mut meta.notes);
@@ -958,6 +976,62 @@ mod tests {
         assert_eq!(meta.tier, Tier::Definition);
         assert!(!meta.measures.is_empty());
         assert_eq!(f.dax_calls(), 0);
+    }
+
+    /// A background read (a search across models the user didn't open) never opens the Fabric consent:
+    /// without its token it leaves the definition API out and says so, and what it read is not kept for
+    /// the reads that can ask. With the token there, it uses the API like any other read.
+    #[tokio::test]
+    async fn a_silent_read_leaves_out_the_definition_api_until_its_permission_is_there() {
+        let mut f = Fake::new();
+        f.model.as_mut().unwrap().write_permission = true;
+        f.definition(crate::definition::tmsl::tests::SAMPLE);
+        f.dax_answer(
+            "COLUMNSTATISTICS",
+            vec![rowset(
+                &[
+                    "[Table Name]",
+                    "[Column Name]",
+                    "[Min]",
+                    "[Max]",
+                    "[Cardinality]",
+                    "[Max Length]",
+                ],
+                vec![json!(["Sales", "Amount", 1, 99, 50, null])],
+            )],
+        );
+        f.fabric_silent = false;
+        f.meta_state().silent = true;
+        let m = f.model.clone().unwrap();
+        let meta = model_for(&mut f, &m).await.unwrap();
+        assert_ne!(meta.tier, Tier::Definition);
+        assert!(
+            meta.notes.iter().any(|n| n == FABRIC_SILENT),
+            "{:?}",
+            meta.notes
+        );
+        assert!(
+            !f.requests.lock().unwrap().iter().any(|r| r.fabric),
+            "no Fabric request in a silent read"
+        );
+        // Not kept: the next read, that may ask, reaches the definition API.
+        f.meta_state().silent = false;
+        f.fabric_silent = true;
+        let meta = model_for(&mut f, &m).await.unwrap();
+        assert_eq!(meta.tier, Tier::Definition);
+        // With the token already there, a silent read uses it.
+        let mut g = Fake::new();
+        g.model.as_mut().unwrap().write_permission = true;
+        g.definition(crate::definition::tmsl::tests::SAMPLE);
+        g.meta_state().silent = true;
+        let m = g.model.clone().unwrap();
+        assert_eq!(model_for(&mut g, &m).await.unwrap().tier, Tier::Definition);
+    }
+
+    /// The app recognizes the note by its start (`commands/cross.rs`): the two must not drift apart.
+    #[test]
+    fn the_silent_note_keeps_the_start_the_app_looks_for() {
+        assert!(FABRIC_SILENT.starts_with("Este modelo se lee mejor con la API de Fabric"));
     }
 
     #[tokio::test]

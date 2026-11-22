@@ -64,6 +64,8 @@ pub struct Fake {
     pub models: Vec<Model>,
     pub account: Option<Account>,
     pub arrow: bool,
+    /// The Fabric API can be called without asking the user (a token is there).
+    pub fabric_silent: bool,
     pub arrow_error: Option<Error>,
     pub window: WindowUsage,
     pub meta: MetaState,
@@ -122,6 +124,7 @@ impl Fake {
             models: vec![model],
             account: None,
             arrow: false,
+            fabric_silent: true,
             arrow_error: None,
             window: WindowUsage {
                 used: 3,
@@ -365,6 +368,9 @@ impl Service for Fake {
     }
     fn account(&self) -> Option<Account> {
         self.account.clone()
+    }
+    async fn fabric_silent(&self) -> bool {
+        self.fabric_silent
     }
     fn window_usage(&self) -> WindowUsage {
         self.window
