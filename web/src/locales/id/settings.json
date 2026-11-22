@@ -56,7 +56,9 @@
     "lineageSearchBudgetHelp": "Durasi terlama pencarian di koneksi lain. Yang sudah dibaca tetap tersimpan dan pencarian berikutnya melanjutkan dari sana.",
     "lineagePrecomputeHelp": "Membaca lineage basis data di latar belakang saat terhubung, sehingga langsung terbuka. Hanya struktur yang disimpan, tanpa data.",
     "lineageCacheClear": "Hapus cache lineage",
-    "lineageCacheCleared": "Cache lineage dihapus."
+    "lineageCacheCleared": "Cache lineage dihapus.",
+    "lineageScanParallel": "Lineage: model dibaca bersamaan (1 sampai 16)",
+    "lineageScanParallelHelp": "Jumlah model Power BI yang dibaca secara paralel saat pencarian antarkoneksi dan saat prakomputasi. Naikkan jika tenant memiliki banyak model; jika Power BI membatasi panggilan, turunkan."
   },
   "sync": {
     "folderDialogTitle": "Folder untuk cadangan DBine",

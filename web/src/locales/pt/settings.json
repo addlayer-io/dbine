@@ -56,7 +56,9 @@
     "lineageSearchBudgetHelp": "Quanto tempo, no máximo, a busca em outras conexões pode durar. O que já foi lido fica salvo e a próxima busca continua a partir daí.",
     "lineagePrecomputeHelp": "Lê a linhagem dos bancos em segundo plano ao conectar, para que abra na hora. Só a estrutura é salva, sem dados.",
     "lineageCacheClear": "Limpar cache da linhagem",
-    "lineageCacheCleared": "Cache da linhagem limpo."
+    "lineageCacheCleared": "Cache da linhagem limpo.",
+    "lineageScanParallel": "Linhagem: modelos lidos ao mesmo tempo (1 a 16)",
+    "lineageScanParallelHelp": "Quantos modelos do Power BI são lidos em paralelo na busca entre conexões e ao pré-calcular. Aumente se o seu tenant tiver muitos modelos; se o Power BI limitar as chamadas, diminua."
   },
   "sync": {
     "folderDialogTitle": "Pasta para o backup do DBine",

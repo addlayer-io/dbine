@@ -19106,7 +19106,6 @@
   "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "подключение «{0}» сначала нужно подключить (откройте его и повторите попытку)",
   "no se pudo abrir la conexión «{0}»: {1}": "не удалось открыть подключение «{0}»: {1}",
   "no se pudo leer el modelo «{0}» de «{1}»: {2}": "не удалось прочитать модель «{0}» из «{1}»: {2}",
-  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "в «{0}» более {1} моделей: прочитаны первые {2}",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": "У входа этого подключения нет разрешения на чтение отчётов и дашбордов",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": "У входа этого подключения нет разрешения на чтение отчётов и дашбордов (Report.Read.All и Dashboard.Read.All): lineage не показывает, кто читает модель. Войдите снова с этими разрешениями или используйте другой клиент Microsoft. Разрешения токена: {0}.",
   "no se pudieron leer": "не удалось прочитать",
@@ -19119,5 +19118,10 @@
   "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "{0} моделей из «{1}» прочитаны без API Fabric, которому нужно ещё не одобренное разрешение: откройте любую в проводнике, чтобы одобрить его, и повторите поиск",
   "esta conexión es de DBine Enterprise: iniciá sesión para buscar qué modelos de Power BI leen sus objetos": "это подключение DBine Enterprise: войдите, чтобы найти, какие модели Power BI читают его объекты",
   "no se pudo preguntar a DBine Enterprise qué conexiones usan las fuentes de Power BI: {0}": "не удалось запросить у DBine Enterprise, какие подключения используют источники Power BI: {0}",
-  "La búsqueda llegó al límite de tiempo: {0} modelos de «{1}» no se leyeron. Los que ya se leyeron quedan guardados: buscá de nuevo para seguir": "Поиск достиг лимита времени: {0} моделей из «{1}» не прочитаны. Уже прочитанные сохранены: повторите поиск, чтобы продолжить"
+  "La búsqueda llegó al límite de tiempo: {0} modelos de «{1}» no se leyeron. Los que ya se leyeron quedan guardados: buscá de nuevo para seguir": "Поиск достиг лимита времени: {0} моделей из «{1}» не прочитаны. Уже прочитанные сохранены: повторите поиск, чтобы продолжить",
+  "Power BI no devolvió el id del escaneo": "Power BI не вернул идентификатор сканирования",
+  "el escaneo de Power BI falló": "сканирование Power BI не удалось",
+  "el escaneo de Power BI tardó demasiado": "сканирование Power BI заняло слишком много времени",
+  "la API de administración de Power BI no está disponible para este usuario": "API администрирования Power BI недоступен для этого пользователя",
+  "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno": "API администрирования Power BI недоступен для этого пользователя: модели читаются по одной"
 }

@@ -19106,7 +19106,6 @@
   "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "연결 '{0}'을(를) 먼저 연결해야 합니다(연결을 연 후 다시 시도하세요)",
   "no se pudo abrir la conexión «{0}»: {1}": "연결 '{0}'을(를) 열 수 없습니다: {1}",
   "no se pudo leer el modelo «{0}» de «{1}»: {2}": "'{1}'의 모델 '{0}'을(를) 읽을 수 없습니다: {2}",
-  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "'{0}'에 모델이 {1}개를 넘습니다. 처음 {2}개를 읽었습니다",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": "이 연결의 로그인에는 보고서와 대시보드를 읽을 권한이 없습니다",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": "이 연결의 로그인에는 보고서와 대시보드를 읽을 권한이 없습니다 (Report.Read.All 및 Dashboard.Read.All): 계보에 모델을 읽는 사용자가 표시되지 않습니다. 해당 권한으로 다시 로그인하거나 다른 Microsoft 클라이언트를 사용하세요. 토큰 권한: {0}.",
   "no se pudieron leer": "읽을 수 없음",
@@ -19119,5 +19118,10 @@
   "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "「{1}」의 모델 {0}개를 Fabric API 없이 읽었습니다. 이 API에는 아직 승인되지 않은 권한이 필요합니다. 탐색기에서 하나를 열어 승인한 후 다시 검색하십시오",
   "esta conexión es de DBine Enterprise: iniciá sesión para buscar qué modelos de Power BI leen sus objetos": "이 연결은 DBine Enterprise 연결입니다. 로그인하여 어떤 Power BI 모델이 이 연결의 개체를 읽는지 검색하세요",
   "no se pudo preguntar a DBine Enterprise qué conexiones usan las fuentes de Power BI: {0}": "Power BI 원본을 사용하는 연결을 DBine Enterprise에 문의하지 못했습니다: {0}",
-  "La búsqueda llegó al límite de tiempo: {0} modelos de «{1}» no se leyeron. Los que ya se leyeron quedan guardados: buscá de nuevo para seguir": "검색이 시간 제한에 도달했습니다. 「{1}」의 모델 {0}개를 읽지 못했습니다. 이미 읽은 모델은 저장되어 있으니 다시 검색하여 계속하십시오"
+  "La búsqueda llegó al límite de tiempo: {0} modelos de «{1}» no se leyeron. Los que ya se leyeron quedan guardados: buscá de nuevo para seguir": "검색이 시간 제한에 도달했습니다. 「{1}」의 모델 {0}개를 읽지 못했습니다. 이미 읽은 모델은 저장되어 있으니 다시 검색하여 계속하십시오",
+  "Power BI no devolvió el id del escaneo": "Power BI가 스캔 ID를 반환하지 않았습니다",
+  "el escaneo de Power BI falló": "Power BI 스캔에 실패했습니다",
+  "el escaneo de Power BI tardó demasiado": "Power BI 스캔 시간이 너무 오래 걸렸습니다",
+  "la API de administración de Power BI no está disponible para este usuario": "이 사용자는 Power BI 관리 API를 사용할 수 없습니다",
+  "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno": "이 사용자는 Power BI 관리 API를 사용할 수 없습니다: 모델을 하나씩 읽습니다"
 }

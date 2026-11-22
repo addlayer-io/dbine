@@ -56,7 +56,9 @@
     "lineageSearchBudgetHelp": "Najdłuższy czas wyszukiwania w innych połączeniach. To, co już odczytano, zostaje zapisane, a kolejne wyszukiwanie kontynuuje od tego miejsca.",
     "lineagePrecomputeHelp": "Odczytuje lineage baz danych w tle po połączeniu, dzięki czemu otwiera się od razu. Zapisywana jest tylko struktura, bez danych.",
     "lineageCacheClear": "Wyczyść pamięć podręczną lineage",
-    "lineageCacheCleared": "Pamięć podręczna lineage została wyczyszczona."
+    "lineageCacheCleared": "Pamięć podręczna lineage została wyczyszczona.",
+    "lineageScanParallel": "Lineage: liczba jednocześnie odczytywanych modeli (od 1 do 16)",
+    "lineageScanParallelHelp": "Ile modeli Power BI jest odczytywanych równolegle podczas wyszukiwania między połączeniami i wstępnego obliczania. Zwiększ wartość, jeśli dzierżawa ma wiele modeli; jeśli Power BI ogranicza wywołania, zmniejsz ją."
   },
   "sync": {
     "folderDialogTitle": "Folder na kopię zapasową DBine",

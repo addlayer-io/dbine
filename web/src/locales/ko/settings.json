@@ -56,7 +56,9 @@
     "lineageSearchBudgetHelp": "다른 연결에서 검색을 수행하는 최대 시간입니다. 이미 읽은 내용은 저장되며 다음 검색은 거기서부터 이어집니다.",
     "lineagePrecomputeHelp": "연결할 때 백그라운드에서 데이터베이스의 계보를 읽어 즉시 열리도록 합니다. 구조만 저장되며 데이터는 저장되지 않습니다.",
     "lineageCacheClear": "계보 캐시 삭제",
-    "lineageCacheCleared": "계보 캐시를 삭제했습니다."
+    "lineageCacheCleared": "계보 캐시를 삭제했습니다.",
+    "lineageScanParallel": "리니지: 동시에 읽는 모델 수(1~16)",
+    "lineageScanParallelHelp": "연결 간 검색과 사전 계산 시 병렬로 읽는 Power BI 모델의 수입니다. 테넌트에 모델이 많으면 값을 높이고, Power BI가 호출을 제한하면 낮추십시오."
   },
   "sync": {
     "folderDialogTitle": "DBine 백업 폴더",

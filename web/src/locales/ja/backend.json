@@ -19106,7 +19106,6 @@
   "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "接続「{0}」は先に接続する必要があります (開いてからやり直してください)",
   "no se pudo abrir la conexión «{0}»: {1}": "接続「{0}」を開けませんでした: {1}",
   "no se pudo leer el modelo «{0}» de «{1}»: {2}": "「{1}」のモデル「{0}」を読み取れませんでした: {2}",
-  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "「{0}」にはモデルが {1} 件を超えています。先頭の {2} 件を読み取りました",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": "この接続のサインインには、レポートとダッシュボードを読み取る権限がありません",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": "この接続のサインインには、レポートとダッシュボードを読み取る権限がありません（Report.Read.All と Dashboard.Read.All）。リネージには、誰がモデルを読み取っているかが表示されません。これらの権限で再度サインインするか、別の Microsoft クライアントを使用してください。トークンの権限：{0}。",
   "no se pudieron leer": "読み取れませんでした",
@@ -19119,5 +19118,10 @@
   "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "「{1}」の {0} 個のモデルは Fabric API を使わずに読み取られました。この API にはまだ承認されていない権限が必要です。エクスプローラーでいずれか1つを開いて承認し、もう一度検索してください",
   "esta conexión es de DBine Enterprise: iniciá sesión para buscar qué modelos de Power BI leen sus objetos": "この接続は DBine Enterprise のものです。サインインして、どの Power BI モデルがそのオブジェクトを読み取っているかを検索してください",
   "no se pudo preguntar a DBine Enterprise qué conexiones usan las fuentes de Power BI: {0}": "Power BI のソースを使用している接続を DBine Enterprise に問い合わせられませんでした: {0}",
-  "La búsqueda llegó al límite de tiempo: {0} modelos de «{1}» no se leyeron. Los que ya se leyeron quedan guardados: buscá de nuevo para seguir": "検索が制限時間に達しました。「{1}」の {0} 個のモデルは読み取られませんでした。読み取り済みのモデルは保存されています。続行するには、もう一度検索してください"
+  "La búsqueda llegó al límite de tiempo: {0} modelos de «{1}» no se leyeron. Los que ya se leyeron quedan guardados: buscá de nuevo para seguir": "検索が制限時間に達しました。「{1}」の {0} 個のモデルは読み取られませんでした。読み取り済みのモデルは保存されています。続行するには、もう一度検索してください",
+  "Power BI no devolvió el id del escaneo": "Power BI がスキャン ID を返しませんでした",
+  "el escaneo de Power BI falló": "Power BI のスキャンに失敗しました",
+  "el escaneo de Power BI tardó demasiado": "Power BI のスキャンに時間がかかりすぎました",
+  "la API de administración de Power BI no está disponible para este usuario": "このユーザーは Power BI の管理 API を利用できません",
+  "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno": "このユーザーは Power BI の管理 API を利用できません：モデルを 1 つずつ読み取ります"
 }

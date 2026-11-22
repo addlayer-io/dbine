@@ -19106,7 +19106,6 @@
   "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "Die Verbindung „{0}“ muss sich zuerst verbinden (öffnen Sie sie und versuchen Sie es erneut)",
   "no se pudo abrir la conexión «{0}»: {1}": "Verbindung „{0}“ konnte nicht geöffnet werden: {1}",
   "no se pudo leer el modelo «{0}» de «{1}»: {2}": "Modell „{0}“ von „{1}“ konnte nicht gelesen werden: {2}",
-  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "„{0}“ hat mehr als {1} Modelle: Die ersten {2} wurden gelesen",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": "Die Anmeldung dieser Verbindung hat keine Berechtigung zum Lesen von Berichten und Dashboards",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": "Die Anmeldung dieser Verbindung hat keine Berechtigung zum Lesen von Berichten und Dashboards (Report.Read.All und Dashboard.Read.All): Die Lineage zeigt nicht, wer das Modell liest. Melden Sie sich erneut mit diesen Berechtigungen an oder verwenden Sie einen anderen Microsoft-Client. Berechtigungen des Tokens: {0}.",
   "no se pudieron leer": "konnten nicht gelesen werden",
@@ -19119,5 +19118,10 @@
   "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "{0} Modelle aus „{1}“ wurden ohne die Fabric-API gelesen, die eine noch nicht genehmigte Berechtigung verlangt: Öffnen Sie eines im Explorer, um sie zu genehmigen, und suchen Sie erneut",
   "esta conexión es de DBine Enterprise: iniciá sesión para buscar qué modelos de Power BI leen sus objetos": "Diese Verbindung gehört zu DBine Enterprise: Melden Sie sich an, um zu suchen, welche Power-BI-Modelle ihre Objekte lesen",
   "no se pudo preguntar a DBine Enterprise qué conexiones usan las fuentes de Power BI: {0}": "DBine Enterprise konnte nicht gefragt werden, welche Verbindungen die Power-BI-Quellen verwenden: {0}",
-  "La búsqueda llegó al límite de tiempo: {0} modelos de «{1}» no se leyeron. Los que ya se leyeron quedan guardados: buscá de nuevo para seguir": "Die Suche hat das Zeitlimit erreicht: {0} Modelle aus „{1}“ wurden nicht gelesen. Bereits gelesene bleiben gespeichert: Suchen Sie erneut, um fortzufahren"
+  "La búsqueda llegó al límite de tiempo: {0} modelos de «{1}» no se leyeron. Los que ya se leyeron quedan guardados: buscá de nuevo para seguir": "Die Suche hat das Zeitlimit erreicht: {0} Modelle aus „{1}“ wurden nicht gelesen. Bereits gelesene bleiben gespeichert: Suchen Sie erneut, um fortzufahren",
+  "Power BI no devolvió el id del escaneo": "Power BI hat die Scan-ID nicht zurückgegeben",
+  "el escaneo de Power BI falló": "der Power-BI-Scan ist fehlgeschlagen",
+  "el escaneo de Power BI tardó demasiado": "der Power-BI-Scan hat zu lange gedauert",
+  "la API de administración de Power BI no está disponible para este usuario": "die Power-BI-Administrations-API ist für diesen Benutzer nicht verfügbar",
+  "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno": "die Power-BI-Administrations-API ist für diesen Benutzer nicht verfügbar: Modelle werden einzeln gelesen"
 }
