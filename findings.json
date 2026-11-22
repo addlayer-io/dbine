@@ -43,7 +43,7 @@
     {
       "source": "osv",
       "date": "2026-11-22",
-      "revision": "994091ad1639",
+      "revision": "11dda121e9fd",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 3
@@ -51,7 +51,7 @@
     {
       "source": "trivy",
       "date": "2026-11-22",
-      "revision": "994091ad1639",
+      "revision": "11dda121e9fd",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -67,10 +67,10 @@
     {
       "source": "scorecard",
       "date": "2026-11-22",
-      "revision": "02d282462a71",
+      "revision": "994091ad1639",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 7.6
+      "score": 7.4
     }
   ],
   "findings": [
@@ -4576,6 +4576,17 @@
       "status": "open"
     },
     {
+      "id": "SC-CI-Tests",
+      "source": "scorecard",
+      "severity": "LOW",
+      "kind": "Repository practice",
+      "title": "CI-Tests: 5/10 — 4 out of 7 merged PRs checked by a CI test -- score normalized to 5",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
+      "found": "2026-11-22",
+      "status": "open"
+    },
+    {
       "id": "SC-CII-Best-Practices",
       "source": "scorecard",
       "severity": "LOW",
@@ -4591,7 +4602,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/6 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/7 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",
@@ -4624,7 +4635,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Vulnerabilities: 9/10 — 1 existing vulnerabilities detected",
+      "title": "Vulnerabilities: 8/10 — 2 existing vulnerabilities detected",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-11-17",
