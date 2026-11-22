@@ -9,12 +9,16 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
+import { lineageCacheApi } from '../api/lineageCache';
 import { ElMessage } from 'element-plus';
 import type { LineageScope, SourceCandidate } from '../api/types';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore } from '../stores/tabs';
 import { KIND_ICONS } from '../composables/kindIcons';
+import { ageParts } from '../composables/relativeAge';
+import { openLineage } from '../composables/lineageOpen';
+import type { LineageGraph } from '../api/types';
 import { readerKind, type LineageNode } from '../composables/lineage';
 import {
   OVERVIEW_ABOVE, applyFilters, buildModel, buildView, groupOf, hasCatalogLineage, isRelation, kindsOf, layoutDb, noFilters, objectCount, schemaId, schemasOf,
@@ -44,32 +48,66 @@ const expanded = ref<Set<string>>(new Set());
 const selected = ref<string | null>(null);
 const canvas = ref<InstanceType<typeof LineageCanvas> | null>(null);
 
+function show(g: LineageGraph) {
+  const m = buildModel(g);
+  model.value = m;
+  // A big database opens as an overview; a small one with everything expanded.
+  expanded.value = new Set(objectCount(m) > OVERVIEW_ABOVE ? [] : schemasOf(m.nodes.values()));
+  selected.value = null;
+  filters.value = noFilters();
+  text.value = '';
+  phase.value = 'ready';
+}
+// The cache's age ("Actualizado hace X · actualizando…") while the server is asked again.
+const updatedAt = ref<string | null>(null);
+const refreshing = ref(false);
+const refreshError = ref<string | null>(null);
+const now = ref(Date.now());
+const ticker = setInterval(() => { now.value = Date.now(); }, 30000);
+onBeforeUnmount(() => clearInterval(ticker));
+const updatedText = computed(() => {
+  if (!updatedAt.value) return '';
+  const { unit, n } = ageParts(updatedAt.value, now.value);
+  return t('dependencies:database.updated', { ago: t(`dependencies:age.${unit}`, { n }) });
+});
+
 let run = 0;
-async function load() {
+/** `force` (the "Actualizar" button) skips the cache and keeps the drawn graph while the server answers. */
+async function load(force = false) {
   const mine = ++run;
-  phase.value = 'loading';
+  const shown = force && !!model.value;
+  if (!shown) phase.value = 'loading';
+  refreshing.value = true;
   error.value = null;
-  try {
-    const g = await api.getLineageGraph(props.connectionId, props.database, { ...props.scope, jobs: true });
-    if (mine !== run) return;
-    const m = buildModel(g);
-    model.value = m;
-    // A big database opens as an overview; a small one with everything expanded.
-    expanded.value = new Set(objectCount(m) > OVERVIEW_ABOVE ? [] : schemasOf(m.nodes.values()));
-    selected.value = null;
-    filters.value = noFilters();
-    text.value = '';
-    phase.value = 'ready';
-  } catch (e) {
-    if (mine !== run) return;
-    error.value = errorMessage(e);
-    phase.value = 'error';
-  }
+  refreshError.value = null;
+  const scope = { ...props.scope, jobs: true };
+  await openLineage(
+    {
+      cached: () => lineageCacheApi.lineageGraphCached(props.connectionId, props.database, props.scope),
+      fetch: () => api.getLineageGraph(props.connectionId, props.database, scope),
+    },
+    {
+      cached: (g, at) => { if (mine === run) { show(g); updatedAt.value = at; } },
+      fresh: (g) => {
+        if (mine !== run) return;
+        show(g);
+        updatedAt.value = new Date().toISOString();
+        now.value = Date.now();
+      },
+      failed: (e, kept) => {
+        if (mine !== run) return;
+        if (kept) refreshError.value = errorMessage(e);
+        else { error.value = errorMessage(e); phase.value = 'error'; }
+      },
+    },
+    { useCache: !force, shown },
+  );
+  if (mine === run) refreshing.value = false;
 }
 /** The parent's "Actualizar": read again (a scan that waits for "Analizar" keeps waiting). */
 function reload() {
   if (phase.value === 'ask') return;
-  void load();
+  void load(true);
 }
 defineExpose({ reload });
 onMounted(() => {
@@ -174,19 +212,19 @@ const filtering = computed(() => !!(filters.value.kinds.length || filters.value.
       <span v-if="scopeText" class="dl-dim">{{ scopeText }}</span>
       <LineageInternalNote :connection-id="connectionId" />
       <span style="flex: 1" />
-      <el-button size="small" :loading="phase === 'loading'" :disabled="phase === 'ask'" @click="reload">
+      <el-button size="small" :loading="phase === 'loading' || refreshing" :disabled="phase === 'ask'" @click="reload">
         <el-icon><ei-refresh /></el-icon><span>{{ $t('dependencies:refresh') }}</span>
       </el-button>
     </header>
 
     <div v-if="phase === 'ask'" class="dl-center">
       <p>{{ $t('dependencies:database.ask.text') }}</p>
-      <el-button type="primary" @click="load">{{ $t('dependencies:database.ask.button') }}</el-button>
+      <el-button type="primary" @click="load()">{{ $t('dependencies:database.ask.button') }}</el-button>
     </div>
     <div v-else-if="phase === 'loading'" v-loading="true" class="dl-center dl-wait">{{ $t('dependencies:database.loading') }}</div>
     <div v-else-if="phase === 'error'" class="dl-center">
       <p class="dl-error">{{ $t('dependencies:database.error', { error }) }}</p>
-      <el-button size="small" @click="load">{{ $t('dependencies:database.retry') }}</el-button>
+      <el-button size="small" @click="load()">{{ $t('dependencies:database.retry') }}</el-button>
     </div>
 
     <template v-else-if="model">
@@ -204,7 +242,8 @@ const filtering = computed(() => !!(filters.value.kinds.length || filters.value.
         <span class="dl-legend"><i class="dl-key solid" />{{ $t('dependencies:confidence.confirmed') }}</span>
         <span class="dl-legend"><i class="dl-key dashed" />{{ $t('dependencies:confidence.probable') }}</span>
       </div>
-      <p class="dl-note">{{ summary }}</p>
+      <p class="dl-note">{{ summary }}<template v-if="updatedText"> · {{ updatedText }}<template v-if="refreshing"> · {{ $t('dependencies:database.updating') }}</template></template></p>
+      <p v-if="refreshError" class="dl-note dl-error">{{ $t('dependencies:database.refreshFailed', { error: refreshError }) }}</p>
       <p v-if="overview && !expanded.size" class="dl-note">{{ $t('dependencies:database.overview', { objects, schemas: schemas.length }) }}</p>
       <p v-if="model.truncated" class="dl-note warn">{{ $t('dependencies:database.truncated') }}</p>
       <p v-if="view.hidden" class="dl-note warn">{{ $t('dependencies:database.hidden', { hidden: view.hidden }) }}</p>
