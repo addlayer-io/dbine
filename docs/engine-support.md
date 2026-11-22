@@ -5911,3 +5911,48 @@ Vectors (embeddings) are described in [`vectors.md`](vectors.md). The driver mar
 | Spanner | Marking the dimension of result columns | Results carry no `vector_length`. |
 | Neo4j | Vectors from other engines as the native `VECTOR` type; marking a vector inside a browsed node | They load as `LIST<FLOAT>`, which indexes take; table browsing shows whole nodes. |
 | Redis, Valkey, Dragonfly | Applying schema sync of search indexes from downloaded drivers | **Explicit pending item**: downloaded Redis drivers get it once republished. |
+
+## DBine Enterprise: when the company's access ends
+
+A person whose access DBine Enterprise revokes (they leave the company) must
+not keep anything of it on their machine. The client disconnects from the
+company and deletes its local data, for every engine alike (the connections
+are managed rows, ids `ent-…`, whatever driver they use).
+
+**What ends the access, and what DBine does:**
+
+| It happens | How DBine finds out | Result |
+|---|---|---|
+| The person signs out | the button | everything below, and the sign-in is forgotten |
+| The server refuses the token | a 401 on any Enterprise call, the token renewal, the events stream or the gateway handshake | everything below |
+| The server refuses the person | a 403 on the same calls, **confirmed** by asking the server again (a 403 can be about one thing only) | everything below |
+| The company revokes the access | the notification `session.revoked` or `access.revoked` on the events stream | everything below, at once |
+| Another person or server signs in on this machine | the sign-in | everything below, then the new sign-in |
+| Company data from a session that ended without signing out | app start | everything below |
+| The server cannot be reached for too long | see the grace below | everything below |
+
+**What is deleted:** the managed connections and their saved queries,
+migrations, contexts, query history, backup rows, lineage links and scheduled
+tasks; the explorer cache of every kind (databases, objects, columns, lineage);
+the stored results of those connections (they are never stored: this is a
+second lock); the open sessions, tunnels, typed and cached secrets, function
+catalogs and kept object lists; the cross-lineage index and what it resolved to
+company connections; the gateway's drivers and streams; the token; the open
+tabs on those connections, and the AI conversations that used them. The data of
+every other connection is left as it is.
+
+**Validation.** The access is validated when the app starts, when its window
+comes back in front, every minute while a company session is open and every ten
+minutes otherwise (the catalog's sync is the call). A network failure is not a
+revocation: the data stays and the connection shows as offline.
+
+**Offline grace.** If the server cannot be reached, the company's data stays
+only while the last *successful* validation is younger than 24 hours
+(`OFFLINE_GRACE` in `src-tauri/src/enterprise/purge.rs`, a constant that can
+become a company setting). Past that, everything is deleted the same way, and
+the person is told. An installation that never validated (an older version)
+has no grace.
+
+After a purge the app shows the signed-out state and a notice: «Tu acceso a
+DBine Enterprise terminó: se cerraron las conexiones de la empresa y se
+borraron sus datos locales.»

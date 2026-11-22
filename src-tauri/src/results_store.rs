@@ -520,6 +520,17 @@ impl Store {
         Ok(())
     }
 
+    /// Drops the runs of the company's connections (`ent-…`). They are never
+    /// stored (see [`kept_out`]); this is the belt to that braces when the
+    /// company's access ends. Returns how many went.
+    async fn purge_company(&mut self) -> CommandResult<usize> {
+        let ids = self
+            .ids("SELECT id FROM runs WHERE meta LIKE '%\"connection_id\":\"ent-%'")
+            .await?;
+        self.remove(&ids).await?;
+        Ok(ids.len())
+    }
+
     /// Space the results take (blocks in use plus the WAL).
     async fn bytes(&mut self) -> CommandResult<u64> {
         let out = exec(
@@ -955,6 +966,19 @@ async fn keep_or_drop(drop: Option<String>, keep: Vec<String>) -> CommandResult<
         Ok(())
     }
     .await;
+    let r = after(&mut slot, r).await;
+    drop_if_empty(&mut slot).await;
+    r
+}
+
+/// Delete the stored runs of the company's connections (DBine Enterprise's
+/// access ended); every other run stays.
+pub async fn purge_company() -> CommandResult<usize> {
+    let mut slot = lock_existing().await;
+    let Slot::Open(s) = &mut *slot else {
+        return Ok(0);
+    };
+    let r = s.purge_company().await;
     let r = after(&mut slot, r).await;
     drop_if_empty(&mut slot).await;
     r

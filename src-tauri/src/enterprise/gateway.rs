@@ -139,19 +139,45 @@ impl Dialer for BastionDialer {
                 .parse()
                 .map_err(|_| Error::Connect("token inválido".into()))?,
         );
-        let (mut ws, _) = tokio_tungstenite::connect_async_tls_with_config(
+        let connected = tokio_tungstenite::connect_async_tls_with_config(
             req,
             None,
             false,
             Some(tokio_tungstenite::Connector::Rustls(tls())),
         )
-        .await
-        .map_err(|e| match e {
-            tokio_tungstenite::tungstenite::Error::Http(r) if r.status() == 401 => {
-                Error::AuthFailed("la sesión de DBine Enterprise terminó: volvé a iniciarla".into())
+        .await;
+        let (mut ws, _) = match connected {
+            Ok(c) => c,
+            // Bastion refuses the token: the access may have ended (a 401
+            // does; a 403 when DBine Enterprise, asked again, refuses it too).
+            Err(tokio_tungstenite::tungstenite::Error::Http(r))
+                if t.token.is_none()
+                    && !matches!(
+                        super::purge::refusal(r.status().as_u16()),
+                        super::purge::Refusal::Not
+                    ) =>
+            {
+                let ended = match get() {
+                    Ok(e) => e.refused(r.status().as_u16()).await,
+                    Err(_) => r.status() == 401,
+                };
+                return Err(if ended {
+                    Error::AuthFailed(super::purge::Why::Revoked.message().into())
+                } else {
+                    Error::Connect(format!("DBine Bastion respondió {}", r.status()))
+                });
             }
-            other => Error::Connect(format!("no se pudo llegar a DBine Bastion: {other}")),
-        })?;
+            Err(tokio_tungstenite::tungstenite::Error::Http(r)) if r.status() == 401 => {
+                return Err(Error::AuthFailed(
+                    "la sesión de DBine Enterprise terminó: volvé a iniciarla".into(),
+                ))
+            }
+            Err(other) => {
+                return Err(Error::Connect(format!(
+                    "no se pudo llegar a DBine Bastion: {other}"
+                )))
+            }
+        };
         // The end-to-end channel, before anything of the protocol.
         let refused = || {
             Error::AuthFailed(

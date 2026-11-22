@@ -94,6 +94,17 @@ fn with_index<T>(f: impl FnOnce(&mut Index) -> T) -> T {
     f(&mut g)
 }
 
+/// DBine Enterprise's access ended: what the index kept about the company's
+/// connections goes (the managed connections a source resolved to, and the
+/// models read through a managed connection).
+pub fn forget_company() {
+    with_index(|i| {
+        i.sources.drop_where(|(c, _)| c.starts_with("ent-"));
+        i.models.drop_where(|c| c.starts_with("ent-"));
+        i.resolved.drop_where(|_| true);
+    });
+}
+
 // -- pure helpers -------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1202,6 +1213,37 @@ mod tests {
         assert_eq!(c.get(&"other".into(), t0), None);
         c.drop_where(|k| k == "k");
         assert_eq!(c.get(&"k".into(), t0), None);
+    }
+
+    #[test]
+    fn forgetting_the_company_empties_what_it_resolved_and_keeps_the_rest() {
+        let now = Instant::now();
+        with_index(|i| {
+            i.resolved
+                .put("purge-sig".into(), vec!["ent-p1".into()], now);
+            i.models
+                .put("ent-purge".into(), Arc::new(vec!["m".into()]), now);
+            i.models
+                .put("c1-purge".into(), Arc::new(vec!["m".into()]), now);
+            i.sources
+                .put(("ent-purge".into(), "m".into()), Arc::new(Vec::new()), now);
+            i.sources
+                .put(("c1-purge".into(), "m".into()), Arc::new(Vec::new()), now);
+        });
+        forget_company();
+        with_index(|i| {
+            assert!(i.resolved.get(&"purge-sig".to_string(), now).is_none());
+            assert!(i.models.get(&"ent-purge".to_string(), now).is_none());
+            assert!(i.models.get(&"c1-purge".to_string(), now).is_some());
+            assert!(i
+                .sources
+                .get(&("ent-purge".to_string(), "m".to_string()), now)
+                .is_none());
+            assert!(i
+                .sources
+                .get(&("c1-purge".to_string(), "m".to_string()), now)
+                .is_some());
+        });
     }
 
     #[test]
