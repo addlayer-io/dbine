@@ -50,6 +50,10 @@
     "gridTypes": "Typ danych w nagłówkach",
     "gridTypesHelp": "Typ każdej kolumny, małą czcionką pod jej nazwą, w siatkach wyników.",
     "lineagePrecompute": "Wstępnie obliczaj lineage po połączeniu",
+    "lineageModelTimeout": "Lineage: maksymalny czas oczekiwania na model (sekundy)",
+    "lineageModelTimeoutHelp": "Jak długo czekać na odczyt modelu Power BI, zanim zostanie uznany za nieodczytany. Zwiększ wartość, jeśli masz bardzo duże modele.",
+    "lineageSearchBudget": "Lineage: maksymalny czas trwania wyszukiwania (sekundy)",
+    "lineageSearchBudgetHelp": "Najdłuższy czas wyszukiwania w innych połączeniach. To, co już odczytano, zostaje zapisane, a kolejne wyszukiwanie kontynuuje od tego miejsca.",
     "lineagePrecomputeHelp": "Odczytuje lineage baz danych w tle po połączeniu, dzięki czemu otwiera się od razu. Zapisywana jest tylko struktura, bez danych.",
     "lineageCacheClear": "Wyczyść pamięć podręczną lineage",
     "lineageCacheCleared": "Pamięć podręczna lineage została wyczyszczona."

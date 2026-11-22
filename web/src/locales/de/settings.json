@@ -50,6 +50,10 @@
     "gridTypes": "Datentyp in den Spaltenköpfen",
     "gridTypesHelp": "Der Typ jeder Spalte, in kleiner Schrift unter ihrem Namen, in den Ergebnisrastern.",
     "lineagePrecompute": "Lineage beim Verbinden vorberechnen",
+    "lineageModelTimeout": "Lineage: maximale Wartezeit pro Modell (Sekunden)",
+    "lineageModelTimeoutHelp": "Wie lange auf das Lesen eines Power-BI-Modells gewartet wird, bevor es als nicht gelesen gilt. Erhöhen Sie den Wert bei sehr großen Modellen.",
+    "lineageSearchBudget": "Lineage: maximale Dauer einer Suche (Sekunden)",
+    "lineageSearchBudgetHelp": "Wie lange die Suche in anderen Verbindungen höchstens dauert. Bereits Gelesenes bleibt gespeichert, und die nächste Suche setzt dort fort.",
     "lineagePrecomputeHelp": "Liest das Lineage der Datenbanken beim Verbinden im Hintergrund, damit es sofort geöffnet wird. Es wird nur die Struktur gespeichert, keine Daten.",
     "lineageCacheClear": "Lineage-Cache leeren",
     "lineageCacheCleared": "Lineage-Cache geleert."

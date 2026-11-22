@@ -181,6 +181,14 @@ const gridFont = computed({ get: () => gridFontSize.value, set: (v: number) => s
 const zoomPct = computed(() => `${Math.round(zoom.value * 100)} %`);
 const zoomMod = isMac ? '⌘' : 'Ctrl';
 /** Explorer: schemas as a tree level (ExplorerSidebar) or one qualified list. */
+const lineageModelTimeout = computed({
+  get: () => settings.get<number>('lineage_model_timeout_secs', 180),
+  set: (v: number | null) => settings.set('lineage_model_timeout_secs', v ?? 180),
+});
+const lineageSearchBudget = computed({
+  get: () => settings.get<number>('lineage_search_budget_secs', 900),
+  set: (v: number | null) => settings.set('lineage_search_budget_secs', v ?? 900),
+});
 const lineagePrecompute = computed({
   get: () => settings.get<boolean>(LINEAGE_PRECOMPUTE_SETTING, true),
   set: (v: boolean) => settings.set(LINEAGE_PRECOMPUTE_SETTING, v),
@@ -598,6 +606,14 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
             <el-button @click="clearLineageCache()">{{ $t('settings:general.lineageCacheClear') }}</el-button>
             <el-switch v-model="lineagePrecompute" />
           </div>
+        </div>
+        <div class="st-row">
+          <div><strong>{{ $t('settings:general.lineageModelTimeout') }}</strong><span>{{ $t('settings:general.lineageModelTimeoutHelp') }}</span></div>
+          <el-input-number v-model="lineageModelTimeout" :min="10" :max="3600" :step="30" />
+        </div>
+        <div class="st-row">
+          <div><strong>{{ $t('settings:general.lineageSearchBudget') }}</strong><span>{{ $t('settings:general.lineageSearchBudgetHelp') }}</span></div>
+          <el-input-number v-model="lineageSearchBudget" :min="10" :max="3600" :step="60" />
         </div>
         <div class="st-row">
           <div><strong>{{ $t('telemetry:settings.label') }}</strong><span>{{ $t('telemetry:settings.help') }}</span></div>

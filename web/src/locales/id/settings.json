@@ -50,6 +50,10 @@
     "gridTypes": "Tipe data di header",
     "gridTypesHelp": "Tipe setiap kolom, dengan huruf kecil di bawah namanya, pada grid hasil.",
     "lineagePrecompute": "Prakomputasi lineage saat terhubung",
+    "lineageModelTimeout": "Lineage: waktu tunggu maksimum per model (detik)",
+    "lineageModelTimeoutHelp": "Berapa lama menunggu pembacaan model Power BI sebelum dianggap belum terbaca. Naikkan jika Anda memiliki model yang sangat besar.",
+    "lineageSearchBudget": "Lineage: durasi maksimum satu pencarian (detik)",
+    "lineageSearchBudgetHelp": "Durasi terlama pencarian di koneksi lain. Yang sudah dibaca tetap tersimpan dan pencarian berikutnya melanjutkan dari sana.",
     "lineagePrecomputeHelp": "Membaca lineage basis data di latar belakang saat terhubung, sehingga langsung terbuka. Hanya struktur yang disimpan, tanpa data.",
     "lineageCacheClear": "Hapus cache lineage",
     "lineageCacheCleared": "Cache lineage dihapus."

@@ -50,6 +50,10 @@
     "gridTypes": "表头显示数据类型",
     "gridTypesHelp": "在结果网格中，每列的类型以小字显示在列名下方。",
     "lineagePrecompute": "连接时预先计算沿袭",
+    "lineageModelTimeout": "血缘：每个模型的最长等待时间（秒）",
+    "lineageModelTimeoutHelp": "读取 Power BI 模型时最多等待多久，超时则视为未读取。如果模型非常大，请调大该值。",
+    "lineageSearchBudget": "血缘：单次搜索的最长时长（秒）",
+    "lineageSearchBudgetHelp": "在其他连接中搜索的最长持续时间。已读取的内容会保留，下次搜索将从中断处继续。",
     "lineagePrecomputeHelp": "连接时在后台读取各数据库的沿袭，以便立即打开。只保存结构，不保存数据。",
     "lineageCacheClear": "清除沿袭缓存",
     "lineageCacheCleared": "沿袭缓存已清除。"
