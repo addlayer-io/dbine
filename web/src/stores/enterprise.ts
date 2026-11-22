@@ -25,9 +25,8 @@ export interface AccessTarget {
   outsideHours?: boolean;
 }
 
-/** Off in published builds: only a build made with `VITE_DBINE_ENTERPRISE=1`
- *  shows any of this. */
-export const ENTERPRISE_ENABLED = import.meta.env.VITE_DBINE_ENTERPRISE === '1';
+/** On in every build; a build made with `VITE_DBINE_ENTERPRISE=0` hides it. */
+export const ENTERPRISE_ENABLED = import.meta.env.VITE_DBINE_ENTERPRISE !== '0';
 
 export const useEnterpriseStore = defineStore('enterprise', {
   state: () => ({
