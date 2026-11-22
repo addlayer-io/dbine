@@ -6,7 +6,7 @@
 //! Power BI connections warm each model's external sources instead (what the cross-connection search
 //! reads), four models at a time.
 
-use crate::commands::cross::{externals_of, models_of, MODELS_CAP, MODEL_LIMIT, SCAN_PARALLEL};
+use crate::commands::cross::{externals_of, models_of, scan_limits, SCAN_PARALLEL};
 use crate::commands::lineage_cache::{
     fresh_value, is_cacheable, precompute_enabled, scope_key, user_is_reading, warm_order,
     PRECOMPUTE_SETTING, TTL,
@@ -24,6 +24,9 @@ use std::time::{Duration, Instant};
 const PER_DATABASE: Duration = Duration::from_secs(5 * 60);
 /// The longest a whole warm-up runs: what isn't read by then waits for the next connection or the user.
 const TOTAL: Duration = Duration::from_secs(15 * 60);
+/// A Power BI workspace has hundreds of models and runs unattended: it gets an hour, and what it reads is kept
+/// for the next connection to continue from.
+const TOTAL_POWER_BI: Duration = Duration::from_secs(60 * 60);
 
 /// What a connection's warm-up does.
 #[derive(Debug, PartialEq, Eq)]
@@ -128,7 +131,7 @@ pub async fn warm_after_connect(
     };
     let deadline = Instant::now() + TOTAL;
     match what {
-        Plan::PowerBi => warm_power_bi(&state, &conn, deadline).await,
+        Plan::PowerBi => warm_power_bi(&state, &conn, Instant::now() + TOTAL_POWER_BI).await,
         Plan::Databases => {
             let scope = LineageScope {
                 jobs: driver.capabilities().jobs,
@@ -217,7 +220,8 @@ async fn warm_power_bi(
         }
     };
     let id = pbi.id.as_str();
-    futures_util::stream::iter(models.iter().take(MODELS_CAP).cloned())
+    let (model_limit, _) = scan_limits(state);
+    futures_util::stream::iter(models.iter().cloned())
         .map(|model| async move {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() || !is_live(state, id) {
@@ -225,7 +229,7 @@ async fn warm_power_bi(
             }
             // Reads the disk and memory first: a model already warm costs nothing.
             let r = tokio::time::timeout(
-                left.min(MODEL_LIMIT),
+                left.min(model_limit),
                 externals_of(state, pbi, &model, true),
             )
             .await;

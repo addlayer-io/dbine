@@ -50,6 +50,10 @@
     "gridTypes": "ヘッダーにデータ型を表示",
     "gridTypesHelp": "結果グリッドで、各列の型を列名の下に小さな文字で表示します。",
     "lineagePrecompute": "接続時にリネージを事前計算",
+    "lineageModelTimeout": "リネージ：モデルごとの最大待機時間（秒）",
+    "lineageModelTimeoutHelp": "Power BI モデルの読み取りを待つ時間の上限です。超えると未読み取りとして扱います。非常に大きなモデルがある場合は値を大きくしてください。",
+    "lineageSearchBudget": "リネージ：検索の最大所要時間（秒）",
+    "lineageSearchBudgetHelp": "他の接続での検索にかかる時間の上限です。読み取り済みの内容は保存され、次回の検索はそこから続行されます。",
     "lineagePrecomputeHelp": "接続時にバックグラウンドでデータベースのリネージを読み取り、すぐに開けるようにします。保存されるのは構造のみで、データは含まれません。",
     "lineageCacheClear": "リネージのキャッシュを消去",
     "lineageCacheCleared": "リネージのキャッシュを消去しました。"

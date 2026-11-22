@@ -29,13 +29,31 @@ use tauri::State;
 const INDEX_TTL: Duration = Duration::from_secs(15 * 60);
 /// A model's lineage reads its whole definition: the long lane's ceiling.
 const SCAN_LIMIT: Duration = Duration::from_secs(300);
-/// Models read per Power BI connection at most.
-pub(crate) const MODELS_CAP: usize = 200;
-/// The longest one model's sources are waited for.
-pub(crate) const MODEL_LIMIT: Duration = Duration::from_secs(60);
-/// The longest a whole search runs: what isn't read by then is left out, and a note says how many (the
-/// models already read are kept, so searching again goes on from there).
-const SCAN_BUDGET: Duration = Duration::from_secs(120);
+/// Settings (seconds): the longest one model's sources are waited for, and the longest a whole search runs
+/// (what isn't read by then is left out, and a note says how many: the models already read are kept, so
+/// searching again goes on from there). The user raises them for very large models.
+pub const MODEL_LIMIT_SETTING: &str = "lineage_model_timeout_secs";
+pub const SCAN_BUDGET_SETTING: &str = "lineage_search_budget_secs";
+const MODEL_LIMIT_DEFAULT: u64 = 180;
+const SCAN_BUDGET_DEFAULT: u64 = 900;
+/// Nobody waits more than an hour for one read.
+const LIMIT_MAX: u64 = 3600;
+
+fn secs_setting(value: Option<&serde_json::Value>, default: u64) -> Duration {
+    let n = value
+        .and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)))
+        .filter(|n| *n >= 10)
+        .unwrap_or(default);
+    Duration::from_secs(n.min(LIMIT_MAX))
+}
+
+/// (per model, whole search) from the settings. The search is never shorter than one model.
+pub(crate) fn scan_limits(state: &AppState) -> (Duration, Duration) {
+    let get = |k: &str| state.store.get_setting(k).ok().flatten();
+    let model = secs_setting(get(MODEL_LIMIT_SETTING).as_ref(), MODEL_LIMIT_DEFAULT);
+    let budget = secs_setting(get(SCAN_BUDGET_SETTING).as_ref(), SCAN_BUDGET_DEFAULT);
+    (model, budget.max(model))
+}
 /// Models read at once per Power BI connection.
 pub(crate) const SCAN_PARALLEL: usize = 4;
 
@@ -804,7 +822,8 @@ pub async fn get_cross_users(
     }
     // (connection, model, its sources) of every model read.
     let mut scanned: Vec<(usize, String, Sources)> = Vec::new();
-    let deadline = Instant::now() + SCAN_BUDGET;
+    let (model_limit, scan_budget) = scan_limits(&state);
+    let deadline = Instant::now() + scan_budget;
     for (pi, pbi) in pbis.iter().enumerate() {
         let models = match models_of(&state, pbi).await {
             Ok(m) => m,
@@ -818,14 +837,14 @@ pub async fn get_cross_users(
         let mut out_of_time = 0usize;
         let st = &*state;
         let mut work: Vec<(String, Option<CommandResult<ModelSources>>)> =
-            futures_util::stream::iter(models.iter().take(MODELS_CAP).cloned().collect::<Vec<_>>())
+            futures_util::stream::iter(models.iter().cloned().collect::<Vec<_>>())
                 .map(|model| async move {
                     let left = deadline.saturating_duration_since(Instant::now());
                     if left.is_zero() {
                         return (model, None);
                     }
                     let r = tokio::time::timeout(
-                        left.min(MODEL_LIMIT),
+                        left.min(model_limit),
                         externals_of(st, pbi, &model, !args.refresh),
                     )
                     .await;
@@ -858,16 +877,10 @@ pub async fn get_cross_users(
                 pbi.name
             ));
         }
-        if models.len() > MODELS_CAP {
-            res.notes.push(format!(
-                "«{}» tiene más de {MODELS_CAP} modelos: se leyeron los primeros {MODELS_CAP}",
-                pbi.name
-            ));
-        }
         res.searched.push(Searched {
             connection_id: pbi.id.clone(),
             name: pbi.name.clone(),
-            models: models.len().min(MODELS_CAP),
+            models: models.len(),
             cached: all_cached,
         });
     }
@@ -1027,8 +1040,9 @@ pub(crate) async fn externals_of(
         driver.capabilities().foreign_keys,
     );
     let db = model.to_string();
+    let (model_limit, _) = scan_limits(state);
     let graph = state
-        .meta_read_on(Lane::Long, &pbi.id, model, MODEL_LIMIT, move |s| {
+        .meta_read_on(Lane::Long, &pbi.id, model, model_limit, move |s| {
             Box::pin(async move {
                 // A search across models the user didn't open never asks for a sign-in or a consent.
                 let scope = LineageScope {
@@ -1065,6 +1079,25 @@ fn sources_on_disk(state: &AppState, connection_id: &str, model: &str) -> Option
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scan_limits_follow_the_settings_with_floor_and_ceiling() {
+        use serde_json::json;
+        assert_eq!(secs_setting(None, 180), Duration::from_secs(180));
+        assert_eq!(
+            secs_setting(Some(&json!(300)), 180),
+            Duration::from_secs(300)
+        );
+        assert_eq!(secs_setting(Some(&json!(2)), 180), Duration::from_secs(180));
+        assert_eq!(
+            secs_setting(Some(&json!(999999)), 180),
+            Duration::from_secs(3600)
+        );
+        assert_eq!(
+            secs_setting(Some(&json!("x")), 180),
+            Duration::from_secs(180)
+        );
+    }
+
     fn state_with_cache() -> AppState {
         let state = AppState::new(dbine_core::state::StateStore::open_in_memory().unwrap());
         let _ = state

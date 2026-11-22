@@ -50,6 +50,10 @@
     "gridTypes": "Tipo de dado nos cabeçalhos",
     "gridTypesHelp": "O tipo de cada coluna, em letra pequena abaixo do nome, nas grades de resultados.",
     "lineagePrecompute": "Pré-calcular a linhagem ao conectar",
+    "lineageModelTimeout": "Linhagem: espera máxima por modelo (segundos)",
+    "lineageModelTimeoutHelp": "Quanto tempo esperar a leitura de um modelo do Power BI antes de considerá-lo não lido. Aumente se você tiver modelos enormes.",
+    "lineageSearchBudget": "Linhagem: duração máxima de uma busca (segundos)",
+    "lineageSearchBudgetHelp": "Quanto tempo, no máximo, a busca em outras conexões pode durar. O que já foi lido fica salvo e a próxima busca continua a partir daí.",
     "lineagePrecomputeHelp": "Lê a linhagem dos bancos em segundo plano ao conectar, para que abra na hora. Só a estrutura é salva, sem dados.",
     "lineageCacheClear": "Limpar cache da linhagem",
     "lineageCacheCleared": "Cache da linhagem limpo."

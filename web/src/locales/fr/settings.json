@@ -50,6 +50,10 @@
     "gridTypes": "Type de données dans les en-têtes",
     "gridTypesHelp": "Le type de chaque colonne, en petits caractères sous son nom, dans les grilles de résultats.",
     "lineagePrecompute": "Précalculer la traçabilité à la connexion",
+    "lineageModelTimeout": "Lignage : attente maximale par modèle (secondes)",
+    "lineageModelTimeoutHelp": "Durée d'attente de la lecture d'un modèle Power BI avant de le considérer comme non lu. Augmentez-la si vous avez des modèles très volumineux.",
+    "lineageSearchBudget": "Lignage : durée maximale d'une recherche (secondes)",
+    "lineageSearchBudgetHelp": "Durée maximale de la recherche dans les autres connexions. Ce qui a déjà été lu est conservé et la recherche suivante reprend à partir de là.",
     "lineagePrecomputeHelp": "Lit la traçabilité des bases en arrière-plan à la connexion, pour qu’elle s’ouvre instantanément. Seule la structure est enregistrée, sans données.",
     "lineageCacheClear": "Vider le cache de traçabilité",
     "lineageCacheCleared": "Cache de traçabilité vidé."
