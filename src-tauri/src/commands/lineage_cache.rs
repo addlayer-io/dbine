@@ -21,7 +21,7 @@ pub const TTL: Duration = Duration::from_secs(6 * 60 * 60);
 pub const PRECOMPUTE_SETTING: &str = "lineage_precompute";
 
 /// What `scope` is stored under: a canonical, deterministic string. The lists are sorted and without
-/// repeats, so the order the UI picked schemas in doesn't matter. `silent` and `sources_only` are never
+/// repeats, so the order the UI picked schemas in doesn't matter. `silent`, `sources_only` and `tenant_sources` are never
 /// part of it: they change how a read is done, not what it is of.
 pub fn scope_key(scope: &LineageScope) -> String {
     #[derive(Serialize)]
@@ -56,7 +56,7 @@ pub fn effective_scope(mut scope: LineageScope, driver_has_jobs: bool) -> Lineag
 /// A graph read for a partial purpose (a background search of sources, no consents asked) isn't the
 /// database's lineage: it is never stored under the scope's key.
 pub fn is_cacheable(scope: &LineageScope) -> bool {
-    !scope.silent && !scope.sources_only
+    !scope.silent && !scope.sources_only && !scope.tenant_sources
 }
 
 /// Whether an entry stored at `updated_at` (RFC 3339) is younger than `ttl` at `now`. An entry from the
@@ -232,6 +232,9 @@ mod tests {
         assert_eq!(scope_key(&plain), scope_key(&partial));
         assert!(is_cacheable(&plain));
         assert!(!is_cacheable(&partial));
+        let mut tenant = plain.clone();
+        tenant.tenant_sources = true;
+        assert!(!is_cacheable(&tenant));
         let mut only_silent = plain;
         only_silent.silent = true;
         assert!(!is_cacheable(&only_silent));

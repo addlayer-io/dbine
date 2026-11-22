@@ -321,7 +321,7 @@ impl AppState {
             if let Err(e) = cache.remove_kinds(
                 connection_id,
                 database,
-                &[kinds::LINEAGE, kinds::LINEAGE_SOURCES],
+                &[kinds::LINEAGE, kinds::LINEAGE_SOURCES, kinds::LINEAGE_SCAN],
             ) {
                 tracing::warn!("lineage cache clear failed: {e}");
             }

@@ -19,7 +19,8 @@
 //! - 401: renew the token once and retry; then `Error::AuthFailed`.
 //! - Read-only connections: every non-GET request is refused before it's
 //!   sent, except the reads that are POSTs (`executeQueries`,
-//!   `executeDaxQueries`, Fabric `getDefinition` and its operation).
+//!   `executeDaxQueries`, Fabric `getDefinition` and its operation, the admin
+//!   scanner's `getInfo`).
 //! - Error bodies: at most 64 KB read; logs get only the status, the error
 //!   code and the request id, never a body, a token or model data.
 
@@ -97,8 +98,8 @@ pub struct WindowUsage {
 enum Kind {
     /// GET.
     Read,
-    /// `executeQueries`, `executeDaxQueries`, Fabric `getDefinition`: reads
-    /// that are POSTs.
+    /// `executeQueries`, `executeDaxQueries`, Fabric `getDefinition` and the
+    /// admin scanner's `getInfo`: reads that are POSTs.
     Query,
     /// `POST …/refreshes`: never retried (a 429 is the daily quota).
     Refresh,
@@ -113,7 +114,8 @@ fn kind_of(method: Method, path: &str) -> Kind {
         Method::Post
             if path.ends_with("/executeQueries")
                 || path.ends_with("/executeDaxQueries")
-                || path.ends_with("/getDefinition") =>
+                || path.ends_with("/getDefinition")
+                || path == "/admin/workspaces/getInfo" =>
         {
             Kind::Query
         }
@@ -1078,6 +1080,14 @@ mod tests {
             kind_of(
                 Method::Post,
                 "/workspaces/g/semanticModels/d/getDefinition?format=TMSL"
+            ),
+            Kind::Query
+        );
+        // The admin scanner's scan request only asks for a result to read.
+        assert_eq!(
+            kind_of(
+                Method::Post,
+                "/admin/workspaces/getInfo?datasourceDetails=true"
             ),
             Kind::Query
         );
