@@ -48,7 +48,11 @@
     "gridFontSize": "그리드 글꼴 크기",
     "gridFontSizeHelp": "결과 그리드의 셀입니다. 글꼴이 커지면 행도 커집니다.",
     "gridTypes": "헤더에 데이터 형식 표시",
-    "gridTypesHelp": "결과 그리드에서 각 열의 형식을 열 이름 아래에 작은 글씨로 표시합니다."
+    "gridTypesHelp": "결과 그리드에서 각 열의 형식을 열 이름 아래에 작은 글씨로 표시합니다.",
+    "lineagePrecompute": "연결 시 계보 미리 계산",
+    "lineagePrecomputeHelp": "연결할 때 백그라운드에서 데이터베이스의 계보를 읽어 즉시 열리도록 합니다. 구조만 저장되며 데이터는 저장되지 않습니다.",
+    "lineageCacheClear": "계보 캐시 삭제",
+    "lineageCacheCleared": "계보 캐시를 삭제했습니다."
   },
   "sync": {
     "folderDialogTitle": "DBine 백업 폴더",

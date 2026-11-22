@@ -105,7 +105,10 @@
     "empty": "Non ci sono oggetti da disegnare con questo ambito.",
     "noMatch": "Nessun oggetto soddisfa i filtri.",
     "relations": "Relazioni ({{count}})",
-    "relationsTip": "Le chiavi esterne (e le relazioni di un modello) corrono in parallelo al lineage: attivale per vederle accanto ad esso."
+    "relationsTip": "Le chiavi esterne (e le relazioni di un modello) corrono in parallelo al lineage: attivale per vederle accanto ad esso.",
+    "updated": "Aggiornato {{ago}}",
+    "updating": "aggiornamento…",
+    "refreshFailed": "Impossibile aggiornare: {{error}}. Viene mostrato l'ultimo salvataggio."
   },
   "cross": {
     "switch": "Includi altre connessioni",
@@ -158,5 +161,11 @@
     "forgotten": "Connessione dimenticata.",
     "added": "«{{name}}» è ora nell'esplora risorse.",
     "internalNote": "Connessione interna del lineage: «{{name}}» non è nell'esplora risorse."
+  },
+  "age": {
+    "seconds": "pochi secondi fa",
+    "minutes": "{{n}} min fa",
+    "hours": "{{n}} h fa",
+    "days": "{{n}} g fa"
   }
 }

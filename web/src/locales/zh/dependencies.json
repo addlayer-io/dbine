@@ -105,7 +105,10 @@
     "empty": "此范围内没有可绘制的对象。",
     "noMatch": "没有对象符合筛选条件。",
     "relations": "关系（{{count}}）",
-    "relationsTip": "外键（以及模型的关系）与沿袭并行：启用后可在沿袭旁查看。"
+    "relationsTip": "外键（以及模型的关系）与沿袭并行：启用后可在沿袭旁查看。",
+    "updated": "更新于{{ago}}",
+    "updating": "正在更新…",
+    "refreshFailed": "无法更新：{{error}}。显示的是上次保存的内容。"
   },
   "cross": {
     "switch": "包含其他连接",
@@ -158,5 +161,11 @@
     "forgotten": "连接已忘记。",
     "added": "“{{name}}”已在资源管理器中。",
     "internalNote": "沿袭的内部连接：“{{name}}”不在资源管理器中。"
+  },
+  "age": {
+    "seconds": "几秒前",
+    "minutes": "{{n}} 分钟前",
+    "hours": "{{n}} 小时前",
+    "days": "{{n}} 天前"
   }
 }

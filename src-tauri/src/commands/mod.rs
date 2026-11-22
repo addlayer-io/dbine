@@ -31,6 +31,7 @@ pub mod imports;
 pub mod jobs;
 pub mod library;
 pub mod library_git;
+pub mod lineage_cache;
 pub mod lint;
 pub mod mail;
 pub mod migration;

@@ -701,6 +701,13 @@ pub async fn connect(
             "",
             &databases,
         );
+        // The lineage is read ahead in the background: connecting never waits for it.
+        crate::lineage_warm::spawn(
+            &state,
+            &args.connection_id,
+            databases.clone(),
+            cfg.database.clone(),
+        );
         Ok::<_, CommandError>(ConnectResult {
             server_version,
             databases,

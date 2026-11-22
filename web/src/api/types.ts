@@ -1049,6 +1049,13 @@ export interface LineageJob {
   external: ExternalRef[];
 }
 
+/** What the lineage cache holds for a database and scope (`lineage_graph_cached`): both `null` when
+ *  nothing was stored yet. `updated_at` is RFC 3339. */
+export interface CachedLineage {
+  graph: LineageGraph | null;
+  updated_at: string | null;
+}
+
 /** The lineage of a whole database (`dbine_driver::dependencies::LineageGraph`). */
 export interface LineageGraph {
   objects: ObjectRef[];

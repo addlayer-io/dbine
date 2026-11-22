@@ -4230,6 +4230,21 @@ real server: SAP HANA, Snowflake, Databricks, Power BI, Materialize, RisingWave,
 Redshift, Yellowbrick, Greenplum, EDB and the other PostgreSQL forks, Azure SQL,
 Fabric and Babelfish (unit tests of the queries and the row mapping only).
 
+### Lineage cache
+
+Reading a database's lineage can take long (every definition, every catalog), so it follows the explorer's
+cache architecture: the graph of each database and scope is saved in `cache.db` (kind `lineage`; names,
+structure and the lines of code that name an object, no rows or secrets), and for Power BI each model's
+external sources (kind `lineage_sources`). Opening the lineage draws the saved graph at once with its age and
+reads the server again, which always replaces it. After a successful connect, a low-priority task precalculates
+the lineage of each database (the default one first, one at a time, skipping what is younger than 6 hours, 5
+minutes per database and 15 in all, stopped when the connection drops) and, on a Power BI connection, the sources
+of each model (four at a time). The explorer's refresh of a database drops its saved lineage; editing or deleting
+a connection drops all of it. Settings › General switches the precalculation off and clears the saved lineage.
+Connections of DBine Enterprise (`ent-`) are saved and precalculated only when the company allows the explorer
+cache (`explorer_cache` in the server's settings). The diagram of a single object and a refresh after DDL run
+from DBine are not served from it yet: the 6-hour limit and the explorer's refresh cover those.
+
 ### Lineage across connections
 
 A source outside the database can be followed into the connection that holds

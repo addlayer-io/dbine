@@ -48,7 +48,11 @@
     "gridFontSize": "Ukuran huruf grid",
     "gridFontSizeHelp": "Sel grid hasil; baris membesar mengikuti huruf.",
     "gridTypes": "Tipe data di header",
-    "gridTypesHelp": "Tipe setiap kolom, dengan huruf kecil di bawah namanya, pada grid hasil."
+    "gridTypesHelp": "Tipe setiap kolom, dengan huruf kecil di bawah namanya, pada grid hasil.",
+    "lineagePrecompute": "Prakomputasi lineage saat terhubung",
+    "lineagePrecomputeHelp": "Membaca lineage basis data di latar belakang saat terhubung, sehingga langsung terbuka. Hanya struktur yang disimpan, tanpa data.",
+    "lineageCacheClear": "Hapus cache lineage",
+    "lineageCacheCleared": "Cache lineage dihapus."
   },
   "sync": {
     "folderDialogTitle": "Folder untuk cadangan DBine",

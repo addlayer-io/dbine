@@ -17,6 +17,10 @@ pub mod kinds {
     pub const OBJECTS: &str = "objects";
     /// One object's columns (`item` names the object).
     pub const COLUMNS: &str = "columns";
+    /// A database's lineage graph for a scope (`item` is the scope's canonical key).
+    pub const LINEAGE: &str = "lineage";
+    /// A Power BI model's external sources (`database` is "", `item` names the model).
+    pub const LINEAGE_SOURCES: &str = "lineage_sources";
 }
 
 pub struct ExplorerCache {
@@ -71,6 +75,26 @@ impl ExplorerCache {
                 "SELECT payload FROM explorer WHERE connection_id = ?1 AND database = ?2 AND kind = ?3 AND item = ?4",
                 params![connection_id, database, kind, item],
                 |r| r.get(0),
+            )
+            .optional()
+            .map_err(db_err)
+    }
+
+    /// The last answer stored for this entry (JSON) with the moment it was stored (RFC 3339).
+    pub fn get_with_time(
+        &self,
+        connection_id: &str,
+        database: &str,
+        kind: &str,
+        item: &str,
+    ) -> Result<Option<(String, String)>> {
+        self.conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT payload, updated_at FROM explorer WHERE connection_id = ?1 AND database = ?2 AND kind = ?3 AND item = ?4",
+                params![connection_id, database, kind, item],
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()
             .map_err(db_err)
@@ -154,6 +178,26 @@ impl ExplorerCache {
             .map_err(db_err)
     }
 
+    /// Forget the entries of these kinds only (the explorer's own entries stay): of one connection
+    /// (`None`: every connection) and, when given, of one database.
+    pub fn remove_kinds(
+        &self,
+        connection_id: Option<&str>,
+        database: Option<&str>,
+        kinds: &[&str],
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        for kind in kinds {
+            conn.execute(
+                "DELETE FROM explorer WHERE kind = ?1
+                 AND (?2 IS NULL OR connection_id = ?2) AND (?3 IS NULL OR database = ?3)",
+                params![kind, connection_id, database],
+            )
+            .map_err(db_err)?;
+        }
+        Ok(())
+    }
+
     /// Forget everything about a connection (deleted, or pointed elsewhere).
     pub fn forget_connection(&self, connection_id: &str) -> Result<()> {
         self.conn
@@ -214,6 +258,50 @@ mod tests {
             c.get("c2", "", kinds::DATABASES, "").unwrap().as_deref(),
             Some(r#"["x"]"#)
         );
+    }
+
+    #[test]
+    fn reads_an_entry_with_its_time() {
+        let c = ExplorerCache::open_in_memory().unwrap();
+        assert_eq!(
+            c.get_with_time("c1", "a", kinds::LINEAGE, "k").unwrap(),
+            None
+        );
+        c.put("c1", "a", kinds::LINEAGE, "k", "{}").unwrap();
+        let (payload, at) = c
+            .get_with_time("c1", "a", kinds::LINEAGE, "k")
+            .unwrap()
+            .unwrap();
+        assert_eq!(payload, "{}");
+        assert!(chrono::DateTime::parse_from_rfc3339(&at).is_ok());
+    }
+
+    #[test]
+    fn clears_lineage_kinds_without_touching_the_explorer() {
+        let c = ExplorerCache::open_in_memory().unwrap();
+        for conn in ["c1", "c2"] {
+            c.put(conn, "a", kinds::OBJECTS, "", "[1]").unwrap();
+            c.put(conn, "a", kinds::LINEAGE, "k", "{}").unwrap();
+            c.put(conn, "b", kinds::LINEAGE, "k", "{}").unwrap();
+            c.put(conn, "", kinds::LINEAGE_SOURCES, "m", "[]").unwrap();
+        }
+        let both = [kinds::LINEAGE, kinds::LINEAGE_SOURCES];
+        // One database of one connection.
+        c.remove_kinds(Some("c1"), Some("a"), &[kinds::LINEAGE])
+            .unwrap();
+        assert_eq!(c.get("c1", "a", kinds::LINEAGE, "k").unwrap(), None);
+        assert!(c.get("c1", "b", kinds::LINEAGE, "k").unwrap().is_some());
+        // One connection.
+        c.remove_kinds(Some("c1"), None, &both).unwrap();
+        assert_eq!(c.get("c1", "b", kinds::LINEAGE, "k").unwrap(), None);
+        assert_eq!(c.get("c1", "", kinds::LINEAGE_SOURCES, "m").unwrap(), None);
+        assert!(c.get("c2", "a", kinds::LINEAGE, "k").unwrap().is_some());
+        // Every connection.
+        c.remove_kinds(None, None, &both).unwrap();
+        assert_eq!(c.get("c2", "a", kinds::LINEAGE, "k").unwrap(), None);
+        // The explorer's own entries survive all of it.
+        assert!(c.get("c1", "a", kinds::OBJECTS, "").unwrap().is_some());
+        assert!(c.get("c2", "a", kinds::OBJECTS, "").unwrap().is_some());
     }
 
     #[test]
