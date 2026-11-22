@@ -4,9 +4,9 @@
 //! failure only costs the user the head start: it is logged at debug level and nothing else.
 //!
 //! Power BI connections warm each model's external sources instead (what the cross-connection search
-//! reads), four models at a time.
+//! reads), as many models at a time as the setting says.
 
-use crate::commands::cross::{externals_of, models_of, scan_limits, SCAN_PARALLEL};
+use crate::commands::cross::{externals_of, models_of, scan_limits, scan_parallel};
 use crate::commands::lineage_cache::{
     fresh_value, is_cacheable, precompute_enabled, scope_key, user_is_reading, warm_order,
     PRECOMPUTE_SETTING, TTL,
@@ -221,6 +221,7 @@ async fn warm_power_bi(
     };
     let id = pbi.id.as_str();
     let (model_limit, _) = scan_limits(state);
+    let parallel = scan_parallel(state);
     futures_util::stream::iter(models.iter().cloned())
         .map(|model| async move {
             let left = deadline.saturating_duration_since(Instant::now());
@@ -237,7 +238,7 @@ async fn warm_power_bi(
                 tracing::debug!("lineage warm-up of {id}/{model}: not read");
             }
         })
-        .buffer_unordered(SCAN_PARALLEL)
+        .buffer_unordered(parallel)
         .collect::<Vec<()>>()
         .await;
 }

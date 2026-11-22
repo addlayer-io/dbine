@@ -54,8 +54,29 @@ pub(crate) fn scan_limits(state: &AppState) -> (Duration, Duration) {
     let budget = secs_setting(get(SCAN_BUDGET_SETTING).as_ref(), SCAN_BUDGET_DEFAULT);
     (model, budget.max(model))
 }
-/// Models read at once per Power BI connection.
-pub(crate) const SCAN_PARALLEL: usize = 4;
+/// Setting: models read at once per Power BI connection (the Settings page offers 1 to 16).
+pub const SCAN_PARALLEL_SETTING: &str = "lineage_scan_parallel";
+const SCAN_PARALLEL_DEFAULT: usize = 4;
+const SCAN_PARALLEL_MAX: usize = 16;
+
+fn parallel_setting(value: Option<&serde_json::Value>) -> usize {
+    value
+        .and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|f| f.max(0.0) as u64)))
+        .map(|n| (n as usize).clamp(1, SCAN_PARALLEL_MAX))
+        .unwrap_or(SCAN_PARALLEL_DEFAULT)
+}
+
+/// Models read at once per Power BI connection, from the settings (1 to 16, 4 when unset).
+pub(crate) fn scan_parallel(state: &AppState) -> usize {
+    parallel_setting(
+        state
+            .store
+            .get_setting(SCAN_PARALLEL_SETTING)
+            .ok()
+            .flatten()
+            .as_ref(),
+    )
+}
 
 // -- the in-memory index ------------------------------------------------------
 
@@ -823,6 +844,7 @@ pub async fn get_cross_users(
     // (connection, model, its sources) of every model read.
     let mut scanned: Vec<(usize, String, Sources)> = Vec::new();
     let (model_limit, scan_budget) = scan_limits(&state);
+    let parallel = scan_parallel(&state);
     let deadline = Instant::now() + scan_budget;
     for (pi, pbi) in pbis.iter().enumerate() {
         let models = match models_of(&state, pbi).await {
@@ -850,7 +872,7 @@ pub async fn get_cross_users(
                     .await;
                     (model, r.ok())
                 })
-                .buffer_unordered(SCAN_PARALLEL)
+                .buffer_unordered(parallel)
                 .collect()
                 .await;
         work.sort_by(|a, b| a.0.cmp(&b.0));
@@ -1079,6 +1101,18 @@ fn sources_on_disk(state: &AppState, connection_id: &str, model: &str) -> Option
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_parallelism_setting_is_clamped_between_one_and_sixteen() {
+        use serde_json::json;
+        assert_eq!(parallel_setting(None), 4);
+        assert_eq!(parallel_setting(Some(&json!(8))), 8);
+        assert_eq!(parallel_setting(Some(&json!(0))), 1);
+        assert_eq!(parallel_setting(Some(&json!(-3))), 1);
+        assert_eq!(parallel_setting(Some(&json!(500))), 16);
+        assert_eq!(parallel_setting(Some(&json!(6.0))), 6);
+        assert_eq!(parallel_setting(Some(&json!("x"))), 4);
+    }
+
     #[test]
     fn scan_limits_follow_the_settings_with_floor_and_ceiling() {
         use serde_json::json;
