@@ -90,7 +90,7 @@ It never uses the owner's app or keychain. It has its own identifier, window
 and keychain service:
 
 ```
-cd /Users/mpanichella/TeamProjects/addlayer/DBine
+cd /Users/mpanichella/TeamProjects/addlayer/DBine/dbine
 DBINE_KEYCHAIN_SERVICE=io.addlayer.dbine.e2etest DBINE_DEV_PORT=18001 \
   cargo tauri dev --no-watch --config <scratch>/test-config.json
 ```
