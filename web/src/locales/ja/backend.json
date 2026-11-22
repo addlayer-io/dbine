@@ -19125,6 +19125,11 @@
   "Power BI no devolvió el id del escaneo": "Power BI がスキャン ID を返しませんでした",
   "el escaneo de Power BI falló": "Power BI のスキャンに失敗しました",
   "el escaneo de Power BI tardó demasiado": "Power BI のスキャンに時間がかかりすぎました",
-  "la API de administración de Power BI no está disponible para este usuario": "このユーザーは Power BI の管理 API を利用できません",
-  "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno": "このユーザーは Power BI の管理 API を利用できません：モデルを 1 つずつ読み取ります"
+  "La aplicación con la que iniciaste sesión no tiene el permiso Tenant.Read.All de Power BI en su registro: un administrador tiene que agregarlo en Microsoft Entra ID.": "サインインに使用したアプリの登録に、Power BI の Tenant.Read.All 権限がありません。管理者が Microsoft Entra ID で追加する必要があります。",
+  "La autorización de la API de administración es del inicio de sesión con el navegador; con otro modo de autenticación vale el permiso de la aplicación registrada.": "管理 API の承認はブラウザーでのサインインに属します。他の認証モードでは、登録済みアプリの権限が適用されます。",
+  "Tu cuenta no puede autorizar la API de administración de Power BI ({0}): hace falta que la apruebe un administrador de Power BI o de Microsoft Entra ID. Mientras tanto, DBine lee los modelos de a uno.": "お使いのアカウントでは Power BI 管理 API を承認できません（{0}）。Power BI または Microsoft Entra ID の管理者による承認が必要です。それまでの間、DBine はモデルを1つずつ読み取ります。",
+  "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "Power BI の管理者であること、および設定で管理 API を承認することが必要です",
+  "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "このユーザーは Power BI 管理 API を利用できません。Power BI の管理者であること、および設定で管理 API を承認することが必要です",
+  "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "Power BI 管理 API は利用できません。Power BI の管理者であること、および設定で管理 API を承認することが必要です。モデルは1つずつ読み取ります",
+  "la API de administración es de las conexiones de Power BI": "管理 API は Power BI 接続用です"
 }

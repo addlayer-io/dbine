@@ -19125,6 +19125,11 @@
   "Power BI no devolvió el id del escaneo": "Power BI tidak mengembalikan id pemindaian",
   "el escaneo de Power BI falló": "pemindaian Power BI gagal",
   "el escaneo de Power BI tardó demasiado": "pemindaian Power BI terlalu lama",
-  "la API de administración de Power BI no está disponible para este usuario": "API administrasi Power BI tidak tersedia untuk pengguna ini",
-  "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno": "API administrasi Power BI tidak tersedia untuk pengguna ini: model dibaca satu per satu"
+  "La aplicación con la que iniciaste sesión no tiene el permiso Tenant.Read.All de Power BI en su registro: un administrador tiene que agregarlo en Microsoft Entra ID.": "Aplikasi yang Anda gunakan untuk masuk tidak memiliki izin Power BI Tenant.Read.All di registrasinya: administrator harus menambahkannya di Microsoft Entra ID.",
+  "La autorización de la API de administración es del inicio de sesión con el navegador; con otro modo de autenticación vale el permiso de la aplicación registrada.": "Otorisasi API admin berasal dari login lewat browser; dengan mode autentikasi lain berlaku izin aplikasi yang terdaftar.",
+  "Tu cuenta no puede autorizar la API de administración de Power BI ({0}): hace falta que la apruebe un administrador de Power BI o de Microsoft Entra ID. Mientras tanto, DBine lee los modelos de a uno.": "Akun Anda tidak dapat mengotorisasi API admin Power BI ({0}): harus disetujui oleh administrator Power BI atau Microsoft Entra ID. Sementara itu, DBine membaca model satu per satu.",
+  "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "diperlukan peran administrator Power BI dan otorisasi API admin di Pengaturan",
+  "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "API admin Power BI tidak tersedia untuk pengguna ini: diperlukan peran administrator Power BI dan otorisasi API admin di Pengaturan",
+  "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "API admin Power BI tidak tersedia: diperlukan peran administrator Power BI dan otorisasi API admin di Pengaturan; model dibaca satu per satu",
+  "la API de administración es de las conexiones de Power BI": "API admin hanya untuk koneksi Power BI"
 }

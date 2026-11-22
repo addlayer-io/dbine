@@ -58,7 +58,12 @@
     "lineageCacheClear": "Lineage-Cache leeren",
     "lineageCacheCleared": "Lineage-Cache geleert.",
     "lineageScanParallel": "Lineage: gleichzeitig gelesene Modelle (1 bis 16)",
-    "lineageScanParallelHelp": "Wie viele Power-BI-Modelle bei der verbindungsübergreifenden Suche und beim Vorberechnen parallel gelesen werden. Erhöhen Sie den Wert, wenn Ihr Tenant viele Modelle hat; drosselt Power BI die Aufrufe, verringern Sie ihn."
+    "lineageScanParallelHelp": "Wie viele Power-BI-Modelle bei der verbindungsübergreifenden Suche und beim Vorberechnen parallel gelesen werden. Erhöhen Sie den Wert, wenn Ihr Tenant viele Modelle hat; drosselt Power BI die Aufrufe, verringern Sie ihn.",
+    "lineagePbiAdminScan": "Lineage: Admin-API von Power BI verwenden",
+    "lineagePbiAdminScanHelp": "Damit weiß die Suche, welche Modelle eine Quelle lesen, ohne sie einzeln zu öffnen. Sie müssen Power-BI-Administrator sein und die API einmal pro Verbindung autorisieren (schreibgeschützte Berechtigung). Ist das nicht möglich oder ist sie deaktiviert, werden die Modelle einzeln gelesen.",
+    "lineagePbiAdminConnection": "Admin-API: {{name}}",
+    "lineagePbiAdminAuthorize": "Admin-API autorisieren…",
+    "lineagePbiAdminAuthorized": "Power-BI-Admin-API autorisiert."
   },
   "sync": {
     "folderDialogTitle": "Ordner für die DBine-Sicherung",

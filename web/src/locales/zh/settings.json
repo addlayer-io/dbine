@@ -58,7 +58,12 @@
     "lineageCacheClear": "清除沿袭缓存",
     "lineageCacheCleared": "沿袭缓存已清除。",
     "lineageScanParallel": "数据血缘：同时读取的模型数（1 到 16）",
-    "lineageScanParallelHelp": "在跨连接搜索和预计算时，并行读取的 Power BI 模型数量。如果租户的模型很多，可调高；如果 Power BI 限制调用频率，请调低。"
+    "lineageScanParallelHelp": "在跨连接搜索和预计算时，并行读取的 Power BI 模型数量。如果租户的模型很多，可调高；如果 Power BI 限制调用频率，请调低。",
+    "lineagePbiAdminScan": "谱系：使用 Power BI 管理 API",
+    "lineagePbiAdminScanHelp": "借助它，搜索无需逐个打开模型，就能知道哪些模型读取了某个数据源。需要是 Power BI 管理员，并为每个连接授权一次（只读权限）。如果无法授权或已关闭，则逐个读取模型。",
+    "lineagePbiAdminConnection": "管理 API：{{name}}",
+    "lineagePbiAdminAuthorize": "授权管理 API…",
+    "lineagePbiAdminAuthorized": "Power BI 管理 API 已授权。"
   },
   "sync": {
     "folderDialogTitle": "DBine 备份文件夹",

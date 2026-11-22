@@ -19125,6 +19125,11 @@
   "Power BI no devolvió el id del escaneo": "Power BI 未返回扫描 ID",
   "el escaneo de Power BI falló": "Power BI 扫描失败",
   "el escaneo de Power BI tardó demasiado": "Power BI 扫描耗时过长",
-  "la API de administración de Power BI no está disponible para este usuario": "此用户无法使用 Power BI 管理 API",
-  "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno": "此用户无法使用 Power BI 管理 API：将逐个读取模型"
+  "La aplicación con la que iniciaste sesión no tiene el permiso Tenant.Read.All de Power BI en su registro: un administrador tiene que agregarlo en Microsoft Entra ID.": "您登录所用的应用在其注册中没有 Power BI 的 Tenant.Read.All 权限：需要管理员在 Microsoft Entra ID 中添加。",
+  "La autorización de la API de administración es del inicio de sesión con el navegador; con otro modo de autenticación vale el permiso de la aplicación registrada.": "管理 API 的授权属于浏览器登录；使用其他身份验证方式时，以已注册应用的权限为准。",
+  "Tu cuenta no puede autorizar la API de administración de Power BI ({0}): hace falta que la apruebe un administrador de Power BI o de Microsoft Entra ID. Mientras tanto, DBine lee los modelos de a uno.": "您的账户无法授权 Power BI 管理 API（{0}）：需要 Power BI 或 Microsoft Entra ID 管理员批准。在此期间，DBine 会逐个读取模型。",
+  "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "需要是 Power BI 管理员，并在设置中授权管理 API",
+  "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "此用户无法使用 Power BI 管理 API：需要是 Power BI 管理员，并在设置中授权管理 API",
+  "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "Power BI 管理 API 不可用：需要是 Power BI 管理员，并在设置中授权管理 API；将逐个读取模型",
+  "la API de administración es de las conexiones de Power BI": "管理 API 仅适用于 Power BI 连接"
 }

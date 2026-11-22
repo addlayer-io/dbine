@@ -58,7 +58,12 @@
     "lineageCacheClear": "Wyczyść pamięć podręczną lineage",
     "lineageCacheCleared": "Pamięć podręczna lineage została wyczyszczona.",
     "lineageScanParallel": "Lineage: liczba jednocześnie odczytywanych modeli (od 1 do 16)",
-    "lineageScanParallelHelp": "Ile modeli Power BI jest odczytywanych równolegle podczas wyszukiwania między połączeniami i wstępnego obliczania. Zwiększ wartość, jeśli dzierżawa ma wiele modeli; jeśli Power BI ogranicza wywołania, zmniejsz ją."
+    "lineageScanParallelHelp": "Ile modeli Power BI jest odczytywanych równolegle podczas wyszukiwania między połączeniami i wstępnego obliczania. Zwiększ wartość, jeśli dzierżawa ma wiele modeli; jeśli Power BI ogranicza wywołania, zmniejsz ją.",
+    "lineagePbiAdminScan": "Lineage: używaj API administracyjnego Power BI",
+    "lineagePbiAdminScanHelp": "Dzięki niemu wyszukiwanie wie, które modele odczytują źródło, bez otwierania ich po kolei. Trzeba być administratorem Power BI i autoryzować je raz dla każdego połączenia (uprawnienie tylko do odczytu). Jeśli to niemożliwe lub opcja jest wyłączona, modele są odczytywane pojedynczo.",
+    "lineagePbiAdminConnection": "API administracyjne: {{name}}",
+    "lineagePbiAdminAuthorize": "Autoryzuj API administracyjne…",
+    "lineagePbiAdminAuthorized": "API administracyjne Power BI zostało autoryzowane."
   },
   "sync": {
     "folderDialogTitle": "Folder na kopię zapasową DBine",

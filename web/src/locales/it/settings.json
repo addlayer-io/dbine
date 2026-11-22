@@ -58,7 +58,12 @@
     "lineageCacheClear": "Svuota la cache del lineage",
     "lineageCacheCleared": "Cache del lineage svuotata.",
     "lineageScanParallel": "Lineage: modelli letti contemporaneamente (da 1 a 16)",
-    "lineageScanParallelHelp": "Quanti modelli Power BI vengono letti in parallelo nella ricerca tra connessioni e nel precalcolo. Aumentalo se il tuo tenant ha molti modelli; se Power BI limita le chiamate, diminuiscilo."
+    "lineageScanParallelHelp": "Quanti modelli Power BI vengono letti in parallelo nella ricerca tra connessioni e nel precalcolo. Aumentalo se il tuo tenant ha molti modelli; se Power BI limita le chiamate, diminuiscilo.",
+    "lineagePbiAdminScan": "Lineage: usa l'API di amministrazione di Power BI",
+    "lineagePbiAdminScanHelp": "Con essa, la ricerca sa quali modelli leggono un'origine senza aprirli uno per uno. Serve essere amministratore di Power BI e autorizzarla una volta per connessione (permesso di sola lettura). Se non è possibile, o è disattivata, i modelli vengono letti uno alla volta.",
+    "lineagePbiAdminConnection": "API di amministrazione: {{name}}",
+    "lineagePbiAdminAuthorize": "Autorizza l'API di amministrazione…",
+    "lineagePbiAdminAuthorized": "API di amministrazione di Power BI autorizzata."
   },
   "sync": {
     "folderDialogTitle": "Cartella per il backup di DBine",
