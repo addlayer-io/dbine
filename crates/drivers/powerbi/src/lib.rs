@@ -45,6 +45,7 @@ pub mod properties;
 pub mod query;
 pub mod references;
 pub mod refresh;
+pub mod scanner;
 pub mod search;
 pub mod security;
 pub mod transfer;
@@ -630,6 +631,9 @@ impl Session for PowerBiSession {
         scan: &dbine_driver::DependencyScan,
     ) -> Result<dbine_driver::dependencies::LineageGraph> {
         let _ = (database, scan);
+        if scope.tenant_sources {
+            return scanner::tenant_sources(&mut self.cx, scanner::Pace::default()).await;
+        }
         lineage::lineage_graph(&mut self.cx, scope).await
     }
 

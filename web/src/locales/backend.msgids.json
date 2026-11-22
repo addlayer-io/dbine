@@ -11127,7 +11127,8 @@
   "crates/dbine-schema/src/dialect/spark.rs",
   "crates/drivers/databricks/src/lineage.rs",
   "crates/drivers/databricks/src/references.rs",
-  "crates/drivers/powerbi/src/references/m.rs"
+  "crates/drivers/powerbi/src/references/m.rs",
+  "crates/drivers/powerbi/src/scanner.rs"
  ],
  "Databricks Jobs API: la solicitud que DBine envía al ejecutar el job.": [
   "crates/drivers/databricks/src/scheduler/run.rs"
@@ -18970,7 +18971,8 @@
   "crates/drivers/powerbi/src/definition/mod.rs",
   "crates/drivers/powerbi/src/health.rs",
   "crates/drivers/powerbi/src/monitor.rs",
-  "crates/drivers/powerbi/src/refresh/mod.rs"
+  "crates/drivers/powerbi/src/refresh/mod.rs",
+  "crates/drivers/powerbi/src/scanner.rs"
  ],
  "Falla de una región (REGION)": [
   "crates/drivers/postgres/src/create_db.rs",
@@ -32319,7 +32321,8 @@
   "crates/drivers/oracle/src/lib.rs",
   "crates/drivers/oracle/src/lineage.rs",
   "crates/drivers/oracle/src/references.rs",
-  "crates/drivers/powerbi/src/references/m.rs"
+  "crates/drivers/powerbi/src/references/m.rs",
+  "crates/drivers/powerbi/src/scanner.rs"
  ],
  "Oracle Autonomous Database no ejecuta jobs de tipo {0}.": [
   "crates/drivers/oracle/src/scheduler/job.rs"
@@ -34133,6 +34136,9 @@
  ],
  "Power BI no crea usuarios, roles ni contraseñas desde DBine: las identidades son de Microsoft Entra ID y los roles de seguridad (RLS) son parte del modelo.": [
   "crates/drivers/powerbi/src/admin/mod.rs"
+ ],
+ "Power BI no devolvió el id del escaneo": [
+  "crates/drivers/powerbi/src/scanner.rs"
  ],
  "Power BI no pudo responder ahora ({0}){1}; volvé a intentar en unos minutos.": [
   "crates/drivers/powerbi/src/http.rs"
@@ -40255,6 +40261,7 @@
  "Snowflake": [
   "crates/dbine-schema/src/dialect/snowflake.rs",
   "crates/drivers/powerbi/src/references/m.rs",
+  "crates/drivers/powerbi/src/scanner.rs",
   "crates/drivers/snowflake/src/lib.rs",
   "crates/drivers/snowflake/src/lineage.rs",
   "crates/drivers/snowflake/src/references.rs"
@@ -41493,7 +41500,8 @@
  "Succeeded": [
   "crates/drivers/drill/src/profiler.rs",
   "crates/drivers/powerbi/src/definition/mod.rs",
-  "crates/drivers/powerbi/src/meta/fake.rs"
+  "crates/drivers/powerbi/src/meta/fake.rs",
+  "crates/drivers/powerbi/src/scanner.rs"
  ],
  "Success": [
   "crates/drivers/duckdb/src/lib.rs",
@@ -50291,6 +50299,12 @@
  "el entorno «{0}» no está definido en .dbine.json": [
   "src-tauri/src/commands/projects.rs"
  ],
+ "el escaneo de Power BI falló": [
+  "crates/drivers/powerbi/src/scanner.rs"
+ ],
+ "el escaneo de Power BI tardó demasiado": [
+  "crates/drivers/powerbi/src/scanner.rs"
+ ],
  "el espacio de nombres de Vault no es válido": [
   "crates/dbine-core/src/secret_accounts.rs",
   "crates/dbine-core/src/secret_sources.rs"
@@ -54300,6 +54314,12 @@
  ],
  "ksqlDB solo tiene consultas persistentes en su planificador": [
   "crates/drivers/ksqldb/src/scheduler.rs"
+ ],
+ "la API de administración de Power BI no está disponible para este usuario": [
+  "crates/drivers/powerbi/src/scanner.rs"
+ ],
+ "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno": [
+  "src-tauri/src/commands/cross.rs"
  ],
  "la CLI de 1Password («op») no está instalada: instalala desde 1password.com/downloads/command-line": [
   "src-tauri/src/secret_sources/onepassword.rs"
@@ -66294,9 +66314,6 @@
  ],
  "«{0}» tiene más de {1} filas: se tomaron las primeras {2}.": [
   "src-tauri/src/commands/subset/mod.rs"
- ],
- "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": [
-  "src-tauri/src/commands/cross.rs"
  ],
  "«{0}» tiene más decimales de los que admite DECIMAL({1},{2}); se perderían dígitos": [
   "crates/drivers/hana/src/transfer.rs"

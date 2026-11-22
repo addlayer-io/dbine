@@ -185,6 +185,10 @@ const lineageModelTimeout = computed({
   get: () => settings.get<number>('lineage_model_timeout_secs', 180),
   set: (v: number | null) => settings.set('lineage_model_timeout_secs', v ?? 180),
 });
+const lineageScanParallel = computed({
+  get: () => settings.get<number>('lineage_scan_parallel', 4),
+  set: (v: number | null) => settings.set('lineage_scan_parallel', v ?? 4),
+})
 const lineageSearchBudget = computed({
   get: () => settings.get<number>('lineage_search_budget_secs', 900),
   set: (v: number | null) => settings.set('lineage_search_budget_secs', v ?? 900),
@@ -610,6 +614,10 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
         <div class="st-row">
           <div><strong>{{ $t('settings:general.lineageModelTimeout') }}</strong><span>{{ $t('settings:general.lineageModelTimeoutHelp') }}</span></div>
           <el-input-number v-model="lineageModelTimeout" :min="10" :max="3600" :step="30" />
+        </div>
+        <div class="st-row">
+          <div><strong>{{ $t('settings:general.lineageScanParallel') }}</strong><span>{{ $t('settings:general.lineageScanParallelHelp') }}</span></div>
+          <el-input-number v-model="lineageScanParallel" :min="1" :max="16" :step="1" />
         </div>
         <div class="st-row">
           <div><strong>{{ $t('settings:general.lineageSearchBudget') }}</strong><span>{{ $t('settings:general.lineageSearchBudgetHelp') }}</span></div>

@@ -51,6 +51,12 @@ pub struct LineageScope {
     /// BI model or its engine dependencies, is left out.
     #[serde(default)]
     pub sources_only: bool,
+    /// Not one database's graph: what a whole tenant says about where its databases read from, in one
+    /// read that opens no model (Power BI's admin scanner API). The graph's `objects` are the models the
+    /// answer covers and its `external` the data sources each one names (server and database, no table).
+    /// A driver without such a read, or a user without the right for it, answers `Error::Unsupported`.
+    #[serde(default)]
+    pub tenant_sources: bool,
 }
 
 /// A dependency between two objects of the database.

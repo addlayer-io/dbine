@@ -4270,6 +4270,42 @@ dashboards that read it. The result of each model is kept 15 minutes
 (**Buscar de nuevo** reads it again); a connection that isn't connected says so
 instead of failing.
 
+**Faster over a large tenant: the admin scanner API.** Reading a model's sources
+opens the model (its definition), which is slow when a tenant has hundreds of
+them. Before the search reads any model, DBine asks Power BI's admin scanner API
+where every model reads from, with no model opened:
+`POST /v1.0/myorg/admin/workspaces/getInfo?datasourceDetails=true` (up to 100
+workspaces per scan, taken from the models the connection lists; "My workspace"
+models are not covered), `GET …/scanStatus/{id}` until it succeeds and
+`GET …/scanResult/{id}`. It is read-only and asks for no new scope. The
+contract carries it as `LineageScope::tenant_sources` on `lineage_graph` (the
+graph's `objects` are the models the scan covers, its `external` their data
+sources), so no new `Session` call exists; a driver or a host that doesn't know
+the flag answers as before and the search reads every model.
+
+The scanner names each data source's **server and database, not the tables**,
+so it is a pre-filter, not the answer: a model can only read an object of a
+connection if one of its sources points to that connection's server and
+database, so a model whose every source is decided and none is the connection's
+(canonical `SourceKey`, same matching as the grey cards) is not opened. Only
+what survives is read one by one, through the usual per-model path. A model is
+always read when the scan doesn't cover it, lists no source, has a source with
+no server, a file, or an engine whose key isn't trusted for this (anything but
+SQL Server, PostgreSQL, MySQL, Snowflake and Databricks), or when its sources
+are already stored. For an Enterprise connection the scan's sources are
+resolved by the server first (one batch); if that fails, nothing is left out.
+The scan is kept 15 minutes in memory and 6 hours on disk (`lineage_scan`,
+cleared with the lineage); the warm-up after connecting asks it once.
+
+It needs the Power BI tenant admin right and a token with `Tenant.Read.All` (or
+a service principal the tenant setting allows). The browser sign-in does not ask
+that scope, so for most users Power BI answers 401 or 403: the search then
+reads the models one by one, as before, and adds one note ("la API de
+administración de Power BI no está disponible para este usuario: se leen los
+modelos de a uno"). The refusal is remembered for 15 minutes in memory, so the
+admin API is not asked again on every search. The scanner never makes a search
+fail.
+
 Reports and dashboards come from the Power BI REST API (reports and dashboards
 of the model's workspace, and a dashboard's tiles): a dashboard shows once per
 path to the model, through a report or straight from a tile. The contract
@@ -4302,7 +4338,8 @@ connection. Signed out, it says to sign in.
 | Reports and dashboards with a browser sign-in | The sign-in asks `Dataset.Read.All`, `Workspace.Read.All` and `Capacity.Read.All`, not `Report.Read.All` / `Dashboard.Read.All`: Power BI answers 401 on them, and the lineage shows a note (and draws everything else) instead of failing. A client with `.default` (Azure CLI) reads them |
 | Sources that are files, SharePoint, web or ODBC | Have no server: nothing to follow |
 | Short host and its FQDN (`srv` / `srv.corp.local`) | Not matched automatically (it would need DNS): link it once by hand |
-| Who reads an object from other connections | Only Power BI connections are scanned in this version. The search reads each model's sources only (not its reports and dashboards), four models at a time, at most 60 s per model and 120 s in all: what isn't read by then is left out with a note, and the models already read are kept (15 minutes), so searching again goes on from there |
+| Who reads an object from other connections | Only Power BI connections are scanned in this version. The search reads each model's sources only (not its reports and dashboards), as many models at a time as **Settings › General** says (`lineage_scan_parallel`, 4 by default, 1 to 16; the background warm-up uses it too), at most 3 minutes per model and 15 in all by default (`lineage_model_timeout_secs`, `lineage_search_budget_secs`): what isn't read by then is left out with a note, and the models already read are kept (15 minutes in memory, 6 hours on disk), so searching again goes on from there |
+| Power BI admin scanner API (pre-filter) | Implemented; unit-tested against a fake service, **not against a real tenant** (see below) |
 | A Power BI connection that needs its password | Noted as "necesita conectarse primero": it has to be opened before |
 | DBine Enterprise resolution | Single and batch endpoints tested against the real Enterprise server (PostgreSQL); the desktop's HTTP calls and the 404 fallback have no automated test (they need a signed-in session) |
 | Who reads an Enterprise connection's objects | Works when the server has the batch endpoint, or falls back one by one; needs the person signed in |

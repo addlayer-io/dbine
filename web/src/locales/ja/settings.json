@@ -56,7 +56,9 @@
     "lineageSearchBudgetHelp": "他の接続での検索にかかる時間の上限です。読み取り済みの内容は保存され、次回の検索はそこから続行されます。",
     "lineagePrecomputeHelp": "接続時にバックグラウンドでデータベースのリネージを読み取り、すぐに開けるようにします。保存されるのは構造のみで、データは含まれません。",
     "lineageCacheClear": "リネージのキャッシュを消去",
-    "lineageCacheCleared": "リネージのキャッシュを消去しました。"
+    "lineageCacheCleared": "リネージのキャッシュを消去しました。",
+    "lineageScanParallel": "リネージ：同時に読み取るモデル数（1～16）",
+    "lineageScanParallelHelp": "接続をまたぐ検索や事前計算の際に、並列で読み取る Power BI モデルの数です。テナントのモデルが多い場合は増やし、Power BI が呼び出しを制限する場合は減らしてください。"
   },
   "sync": {
     "folderDialogTitle": "DBine のバックアップ用フォルダー",

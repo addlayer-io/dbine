@@ -56,7 +56,9 @@
     "lineageSearchBudgetHelp": "在其他连接中搜索的最长持续时间。已读取的内容会保留，下次搜索将从中断处继续。",
     "lineagePrecomputeHelp": "连接时在后台读取各数据库的沿袭，以便立即打开。只保存结构，不保存数据。",
     "lineageCacheClear": "清除沿袭缓存",
-    "lineageCacheCleared": "沿袭缓存已清除。"
+    "lineageCacheCleared": "沿袭缓存已清除。",
+    "lineageScanParallel": "数据血缘：同时读取的模型数（1 到 16）",
+    "lineageScanParallelHelp": "在跨连接搜索和预计算时，并行读取的 Power BI 模型数量。如果租户的模型很多，可调高；如果 Power BI 限制调用频率，请调低。"
   },
   "sync": {
     "folderDialogTitle": "DBine 备份文件夹",

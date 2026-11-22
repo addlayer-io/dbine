@@ -19109,7 +19109,6 @@
   "la conexión «{0}» necesita conectarse primero (abrila y volvé a intentar)": "koneksi \"{0}\" harus terhubung terlebih dahulu (buka lalu coba lagi)",
   "no se pudo abrir la conexión «{0}»: {1}": "tidak dapat membuka koneksi \"{0}\": {1}",
   "no se pudo leer el modelo «{0}» de «{1}»: {2}": "tidak dapat membaca model \"{0}\" dari \"{1}\": {2}",
-  "«{0}» tiene más de {1} modelos: se leyeron los primeros {2}": "\"{0}\" memiliki lebih dari {1} model: {2} pertama telah dibaca",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros": "Proses masuk untuk koneksi ini tidak memiliki izin untuk membaca laporan dan dasbor",
   "El inicio de sesión de esta conexión no tiene permiso para leer los reportes y tableros (Report.Read.All y Dashboard.Read.All): el linaje no muestra quién lee el modelo. Volvé a iniciar sesión con esos permisos o usá otro cliente de Microsoft. Permisos del token: {0}.": "Proses masuk untuk koneksi ini tidak memiliki izin untuk membaca laporan dan dasbor (Report.Read.All dan Dashboard.Read.All): lineage tidak menampilkan siapa yang membaca model. Masuk kembali dengan izin tersebut atau gunakan klien Microsoft lain. Izin token: {0}.",
   "no se pudieron leer": "tidak dapat dibaca",
@@ -19122,5 +19121,10 @@
   "{0} modelos de «{1}» se leyeron sin la API de Fabric, que pide un permiso que todavía no está aprobado: abrí uno desde el explorador para aprobarlo y volvé a buscar": "{0} model dari «{1}» dibaca tanpa API Fabric, yang meminta izin yang belum disetujui: buka satu dari penjelajah untuk menyetujuinya, lalu cari lagi",
   "esta conexión es de DBine Enterprise: iniciá sesión para buscar qué modelos de Power BI leen sus objetos": "koneksi ini milik DBine Enterprise: login untuk mencari model Power BI mana yang membaca objeknya",
   "no se pudo preguntar a DBine Enterprise qué conexiones usan las fuentes de Power BI: {0}": "tidak dapat menanyakan ke DBine Enterprise koneksi mana yang menggunakan sumber Power BI: {0}",
-  "La búsqueda llegó al límite de tiempo: {0} modelos de «{1}» no se leyeron. Los que ya se leyeron quedan guardados: buscá de nuevo para seguir": "Pencarian mencapai batas waktu: {0} model dari «{1}» belum dibaca. Yang sudah dibaca tersimpan: cari lagi untuk melanjutkan"
+  "La búsqueda llegó al límite de tiempo: {0} modelos de «{1}» no se leyeron. Los que ya se leyeron quedan guardados: buscá de nuevo para seguir": "Pencarian mencapai batas waktu: {0} model dari «{1}» belum dibaca. Yang sudah dibaca tersimpan: cari lagi untuk melanjutkan",
+  "Power BI no devolvió el id del escaneo": "Power BI tidak mengembalikan id pemindaian",
+  "el escaneo de Power BI falló": "pemindaian Power BI gagal",
+  "el escaneo de Power BI tardó demasiado": "pemindaian Power BI terlalu lama",
+  "la API de administración de Power BI no está disponible para este usuario": "API administrasi Power BI tidak tersedia untuk pengguna ini",
+  "la API de administración de Power BI no está disponible para este usuario: se leen los modelos de a uno": "API administrasi Power BI tidak tersedia untuk pengguna ini: model dibaca satu per satu"
 }

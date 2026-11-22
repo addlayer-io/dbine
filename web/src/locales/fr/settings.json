@@ -56,7 +56,9 @@
     "lineageSearchBudgetHelp": "Durée maximale de la recherche dans les autres connexions. Ce qui a déjà été lu est conservé et la recherche suivante reprend à partir de là.",
     "lineagePrecomputeHelp": "Lit la traçabilité des bases en arrière-plan à la connexion, pour qu’elle s’ouvre instantanément. Seule la structure est enregistrée, sans données.",
     "lineageCacheClear": "Vider le cache de traçabilité",
-    "lineageCacheCleared": "Cache de traçabilité vidé."
+    "lineageCacheCleared": "Cache de traçabilité vidé.",
+    "lineageScanParallel": "Lignage : modèles lus simultanément (1 à 16)",
+    "lineageScanParallelHelp": "Nombre de modèles Power BI lus en parallèle lors de la recherche entre connexions et du précalcul. Augmentez-le si votre tenant compte beaucoup de modèles ; si Power BI limite les appels, diminuez-le."
   },
   "sync": {
     "folderDialogTitle": "Dossier pour la sauvegarde de DBine",

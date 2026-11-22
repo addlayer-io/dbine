@@ -39,6 +39,8 @@
     "lineagePrecomputeHelp": "Reads each database's lineage in the background after connecting, so it opens at once. Only structure is saved, no data.",
     "lineageCacheClear": "Clear lineage cache",
     "lineageCacheCleared": "Lineage cache cleared.",
+    "lineageScanParallel": "Lineage: models read at once (1 to 16)",
+    "lineageScanParallelHelp": "How many Power BI models are read in parallel during the cross-connection search and when precomputing. Raise it if your tenant has many models; if Power BI throttles calls, lower it.",
     "theme": "Theme",
     "themeHelp": "DBine's colors. \"Same as system\" switches when the operating system's does.",
     "themes": {

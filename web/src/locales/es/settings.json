@@ -34,6 +34,8 @@
     "lineagePrecompute": "Precalcular el linaje al conectar",
     "lineageModelTimeout": "Linaje: espera máxima por modelo (segundos)",
     "lineageModelTimeoutHelp": "Cuánto se espera la lectura de un modelo de Power BI antes de darlo por no leído. Subilo si tenés modelos enormes.",
+    "lineageScanParallel": "Linaje: modelos leídos a la vez (1 a 16)",
+    "lineageScanParallelHelp": "Cuántos modelos de Power BI se leen en paralelo en la búsqueda entre conexiones y al precalcular. Subilo si tu tenant tiene muchos modelos; si Power BI limita las llamadas, bajalo.",
     "lineageSearchBudget": "Linaje: duración máxima de una búsqueda (segundos)",
     "lineageSearchBudgetHelp": "Cuánto dura como mucho la búsqueda en otras conexiones. Lo ya leído queda guardado y la siguiente búsqueda sigue desde ahí.",
     "lineagePrecomputeHelp": "Lee el linaje de las bases en segundo plano al conectar, así se abre al instante. Se guarda solo la estructura, sin datos.",

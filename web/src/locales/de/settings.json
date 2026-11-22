@@ -56,7 +56,9 @@
     "lineageSearchBudgetHelp": "Wie lange die Suche in anderen Verbindungen höchstens dauert. Bereits Gelesenes bleibt gespeichert, und die nächste Suche setzt dort fort.",
     "lineagePrecomputeHelp": "Liest das Lineage der Datenbanken beim Verbinden im Hintergrund, damit es sofort geöffnet wird. Es wird nur die Struktur gespeichert, keine Daten.",
     "lineageCacheClear": "Lineage-Cache leeren",
-    "lineageCacheCleared": "Lineage-Cache geleert."
+    "lineageCacheCleared": "Lineage-Cache geleert.",
+    "lineageScanParallel": "Lineage: gleichzeitig gelesene Modelle (1 bis 16)",
+    "lineageScanParallelHelp": "Wie viele Power-BI-Modelle bei der verbindungsübergreifenden Suche und beim Vorberechnen parallel gelesen werden. Erhöhen Sie den Wert, wenn Ihr Tenant viele Modelle hat; drosselt Power BI die Aufrufe, verringern Sie ihn."
   },
   "sync": {
     "folderDialogTitle": "Ordner für die DBine-Sicherung",

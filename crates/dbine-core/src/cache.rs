@@ -21,6 +21,9 @@ pub mod kinds {
     pub const LINEAGE: &str = "lineage";
     /// A Power BI model's external sources (`database` is "", `item` names the model).
     pub const LINEAGE_SOURCES: &str = "lineage_sources";
+    /// What a Power BI tenant's admin scan says about where each model reads from: server and database,
+    /// no tables (`database` is "", `item` is "tenant"). It narrows which models are read one by one.
+    pub const LINEAGE_SCAN: &str = "lineage_scan";
 }
 
 pub struct ExplorerCache {
@@ -284,8 +287,10 @@ mod tests {
             c.put(conn, "a", kinds::LINEAGE, "k", "{}").unwrap();
             c.put(conn, "b", kinds::LINEAGE, "k", "{}").unwrap();
             c.put(conn, "", kinds::LINEAGE_SOURCES, "m", "[]").unwrap();
+            c.put(conn, "", kinds::LINEAGE_SCAN, "tenant", "{}")
+                .unwrap();
         }
-        let both = [kinds::LINEAGE, kinds::LINEAGE_SOURCES];
+        let both = [kinds::LINEAGE, kinds::LINEAGE_SOURCES, kinds::LINEAGE_SCAN];
         // One database of one connection.
         c.remove_kinds(Some("c1"), Some("a"), &[kinds::LINEAGE])
             .unwrap();
@@ -295,6 +300,10 @@ mod tests {
         c.remove_kinds(Some("c1"), None, &both).unwrap();
         assert_eq!(c.get("c1", "b", kinds::LINEAGE, "k").unwrap(), None);
         assert_eq!(c.get("c1", "", kinds::LINEAGE_SOURCES, "m").unwrap(), None);
+        assert_eq!(
+            c.get("c1", "", kinds::LINEAGE_SCAN, "tenant").unwrap(),
+            None
+        );
         assert!(c.get("c2", "a", kinds::LINEAGE, "k").unwrap().is_some());
         // Every connection.
         c.remove_kinds(None, None, &both).unwrap();
