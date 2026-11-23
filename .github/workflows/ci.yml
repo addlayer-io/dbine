@@ -102,6 +102,8 @@ jobs:
       DBINE_TEST_MYSQL_URL: mysql://root:pw@localhost:25011
       DBINE_TEST_MARIADB_URL: mysql://root:pw@localhost:25012
       DBINE_TEST_SQLSERVER_URL: mssql://sa:Pw_12345!@localhost:25013
+      # The same server: its SQL Server Agent is on, for the lineage's jobs.
+      DBINE_TEST_SQLSERVER_AGENT_URL: mssql://sa:Pw_12345!@localhost:25013
     services:
       clickhouse22:
         image: clickhouse/clickhouse-server:22.8
@@ -127,7 +129,7 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 30
       sqlserver:
         image: mcr.microsoft.com/mssql/server:2022-latest
-        env: { ACCEPT_EULA: 'Y', MSSQL_SA_PASSWORD: 'Pw_12345!' }
+        env: { ACCEPT_EULA: 'Y', MSSQL_SA_PASSWORD: 'Pw_12345!', MSSQL_AGENT_ENABLED: 'true' }
         ports: ['25013:1433']
         options: >-
           --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'Pw_12345!' -Q 'SELECT 1' || exit 1"
@@ -165,3 +167,6 @@ jobs:
           cargo test -p dbine-driver-clickhouse --test objects_page -- --ignored
           cargo test -p dbine-driver-mysql --test objects_page -- --ignored
           cargo test -p dbine-driver-sqlserver --test objects_page -- --ignored
+          # The lineage of a whole database (catalog, other databases, bodies)
+          # and the Agent's jobs in it, as a real server answers them.
+          cargo test -p dbine-driver-sqlserver --test lineage_graph --test lineage_jobs -- --ignored --test-threads=1
