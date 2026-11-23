@@ -8,8 +8,8 @@
 
 use crate::commands::cross::{externals_of, models_of, scan_limits, scan_of, scan_parallel};
 use crate::commands::lineage_cache::{
-    fresh_value, is_cacheable, precompute_enabled, scope_key, user_is_reading, warm_order,
-    PRECOMPUTE_SETTING, TTL,
+    fresh_value, is_cacheable, keyed_scope, panel_scope, precompute_enabled, scope_key,
+    user_is_reading, warm_order, PRECOMPUTE_SETTING, TTL,
 };
 use crate::state::{meta_key, AppState, Lane};
 use dbine_core::cache::kinds;
@@ -133,10 +133,8 @@ pub async fn warm_after_connect(
     match what {
         Plan::PowerBi => warm_power_bi(&state, &conn, Instant::now() + TOTAL_POWER_BI).await,
         Plan::Databases => {
-            let scope = LineageScope {
-                jobs: driver.capabilities().jobs,
-                ..Default::default()
-            };
+            // What the panel opens: the panel then finds it in the cache.
+            let (scope, _) = keyed_scope(panel_scope(), driver.capabilities().jobs);
             let scan = dbine_driver::DependencyScan::new(
                 driver.info(),
                 driver.script_dialect(),
