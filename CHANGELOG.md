@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- **The wait when opening a lineage is a setting:** opening the lineage, dependents or references of a very large model or database no longer gives up at 5 minutes. The limit is now 15 minutes by default and **Settings** lets you raise it.
 - **Searching Power BI no longer stops at 200 models:** the lineage search and the background warm-up read every model of the workspace. The wait per model (3 minutes by default) and the length of a search (15 minutes) are now **Settings** you can raise for very large models.
 
 ### Improvements
