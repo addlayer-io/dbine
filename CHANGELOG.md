@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- **DBine Enterprise: "Ver datos" and the connection no longer hang in "Conectando…":** opening a table's data on a company connection could freeze that connection's channel to DBine Bastion, so every later action on it (connecting, listing databases, running a query) waited for ever. The channel now keeps answering, a connect that Bastion doesn't answer in 30 seconds fails with a message and the next try opens a new channel, and the explorer no longer forgets that a company connection is connected every minute, nor hides its loaded databases and tables behind "Conectando…" while it connects again.
+
 - **Searching Power BI no longer stops at 200 models:** the lineage search and the background warm-up read every model of the workspace. The wait per model (3 minutes by default) and the length of a search (15 minutes) are now **Settings** you can raise for very large models.
 
 ### Improvements
