@@ -37,9 +37,9 @@ pub const SCAN_BUDGET_SETTING: &str = "lineage_search_budget_secs";
 const MODEL_LIMIT_DEFAULT: u64 = 180;
 const SCAN_BUDGET_DEFAULT: u64 = 900;
 /// Nobody waits more than an hour for one read.
-const LIMIT_MAX: u64 = 3600;
+pub(crate) const LIMIT_MAX: u64 = 3600;
 
-fn secs_setting(value: Option<&serde_json::Value>, default: u64) -> Duration {
+pub(crate) fn secs_setting(value: Option<&serde_json::Value>, default: u64) -> Duration {
     let n = value
         .and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)))
         .filter(|n| *n >= 10)
