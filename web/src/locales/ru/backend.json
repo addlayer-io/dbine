@@ -5144,6 +5144,7 @@
   "este motor todavía no ordena en el servidor": "этот движок пока не сортирует на стороне сервера",
   "ningún certificado del archivo corresponde a su clave privada": "ни один сертификат в файле не соответствует его закрытому ключу",
   "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET (o AZURE_CLIENT_CERTIFICATE_PATH)": "не заданы AZURE_TENANT_ID, AZURE_CLIENT_ID и AZURE_CLIENT_SECRET (или AZURE_CLIENT_CERTIFICATE_PATH)",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "нет частично прочитанного происхождения данных для продолжения: откройте его снова",
   "no se pudo abrir el certificado: la contraseña no es la correcta, o el archivo no es un PEM ni un PFX": "не удалось открыть сертификат: неверный пароль или файл не является ни PEM, ни PFX",
   "no se pudo abrir el certificado: si es un PFX con contraseña, escribila; si no, el archivo no es un PEM ni un PFX": "не удалось открыть сертификат: если это PFX с паролем, введите пароль; иначе файл не является ни PEM, ни PFX",
   "no se pudo agregar el orden a la consulta de este objeto": "не удалось добавить сортировку в запрос этого объекта",

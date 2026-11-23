@@ -6162,6 +6162,7 @@
   "este motor todavía no ordena en el servidor": "este motor ainda não ordena no servidor",
   "ningún certificado del archivo corresponde a su clave privada": "nenhum certificado do arquivo corresponde à sua chave privada",
   "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET (o AZURE_CLIENT_CERTIFICATE_PATH)": "AZURE_TENANT_ID, AZURE_CLIENT_ID e AZURE_CLIENT_SECRET (ou AZURE_CLIENT_CERTIFICATE_PATH) não estão definidas",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "não há uma linhagem parcialmente lida para continuar: abra-a novamente",
   "no se pudo abrir el certificado: la contraseña no es la correcta, o el archivo no es un PEM ni un PFX": "não foi possível abrir o certificado: a senha está incorreta, ou o arquivo não é um PEM nem um PFX",
   "no se pudo abrir el certificado: si es un PFX con contraseña, escribila; si no, el archivo no es un PEM ni un PFX": "não foi possível abrir o certificado: se for um PFX com senha, digite-a; se não, o arquivo não é um PEM nem um PFX",
   "no se pudo agregar el orden a la consulta de este objeto": "não foi possível adicionar a ordenação à consulta deste objeto",

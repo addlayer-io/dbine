@@ -108,7 +108,18 @@
     "relationsTip": "Le chiavi esterne (e le relazioni di un modello) corrono in parallelo al lineage: attivale per vederle accanto ad esso.",
     "updated": "Aggiornato {{ago}}",
     "updating": "aggiornamento…",
-    "refreshFailed": "Impossibile aggiornare: {{error}}. Viene mostrato l'ultimo salvataggio."
+    "refreshFailed": "Impossibile aggiornare: {{error}}. Viene mostrato l'ultimo salvataggio.",
+    "partial": {
+      "title": "Lineage parziale:",
+      "stage": {
+        "structure": "lettura di tabelle e origini…",
+        "dependencies": "lettura delle dipendenze di misure e colonne {{done}}/{{total}}",
+        "consumers": "lettura di report e dashboard…"
+      },
+      "failed": "impossibile leggere {{count}} oggetti.",
+      "complete": "Completa",
+      "retry": "Riprova {{from}}–{{to}}"
+    }
   },
   "cross": {
     "switch": "Includi altre connessioni",

@@ -9704,6 +9704,7 @@
   "no hay un código de vinculación abierto": "brak otwartego kodu parowania",
   "no hay un dataset seleccionado": "nie wybrano datasetu",
   "no hay un driver descargable '{0}'": "nie ma pobieralnego sterownika '{0}'",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "brak częściowo odczytanego lineage do kontynuacji: otwórz go ponownie",
   "no hay un ticket de Kerberos vigente": "brak aktualnego biletu Kerberos",
   "no hay un token de Vault: escribilo en el formulario, definí VAULT_TOKEN o iniciá sesión con «vault login» (~/.vault-token)": "brak tokenu Vault: wpisz go w formularzu, zdefiniuj VAULT_TOKEN lub zaloguj się przez „vault login” (~/.vault-token)",
   "no hay un usuario ni un rol «{0}» en «{1}»": "nie ma użytkownika ani roli „{0}” w „{1}”",

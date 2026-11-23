@@ -6022,6 +6022,7 @@
   "este motor todavía no ordena en el servidor": "ce moteur ne trie pas encore sur le serveur",
   "ningún certificado del archivo corresponde a su clave privada": "aucun certificat du fichier ne correspond à sa clé privée",
   "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET (o AZURE_CLIENT_CERTIFICATE_PATH)": "AZURE_TENANT_ID, AZURE_CLIENT_ID et AZURE_CLIENT_SECRET (ou AZURE_CLIENT_CERTIFICATE_PATH) ne sont pas définis",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "il n'y a aucun lignage partiellement lu à poursuivre : rouvrez-le",
   "no se pudo abrir el certificado: la contraseña no es la correcta, o el archivo no es un PEM ni un PFX": "impossible d'ouvrir le certificat : le mot de passe est incorrect, ou le fichier n'est ni un PEM ni un PFX",
   "no se pudo abrir el certificado: si es un PFX con contraseña, escribila; si no, el archivo no es un PEM ni un PFX": "impossible d'ouvrir le certificat : s'il s'agit d'un PFX avec mot de passe, saisissez-le ; sinon, le fichier n'est ni un PEM ni un PFX",
   "no se pudo agregar el orden a la consulta de este objeto": "impossible d'ajouter le tri à la requête de cet objet",

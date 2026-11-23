@@ -5965,6 +5965,7 @@
   "este motor no filtra en el servidor": "此引擎不在服务器上过滤",
   "este motor no ordena en el servidor": "此引擎不在服务器上排序",
   "este motor todavía no ordena en el servidor": "此引擎暂时不在服务器上排序",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "没有可继续的未读完血缘：请重新打开",
   "no se pudo agregar el orden a la consulta de este objeto": "无法将排序添加到此对象的查询中",
   "este motor no filtra la lectura por lotes": "此引擎不过滤分批读取",
   "este motor no genera DDL de tablas": "此引擎不生成表 DDL",

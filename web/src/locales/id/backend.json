@@ -5307,6 +5307,7 @@
   "este motor no filtra en el servidor": "mesin ini tidak memfilter di server",
   "este motor no ordena en el servidor": "mesin ini tidak mengurutkan di server",
   "este motor todavía no ordena en el servidor": "mesin ini belum mengurutkan di server",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "tidak ada lineage yang setengah terbaca untuk dilanjutkan: buka kembali",
   "no se pudo agregar el orden a la consulta de este objeto": "pengurutan tidak dapat ditambahkan ke kueri objek ini",
   "este motor no filtra la lectura por lotes": "mesin ini tidak memfilter pembacaan per batch",
   "este motor no genera DDL de tablas": "mesin ini tidak membuat DDL tabel",

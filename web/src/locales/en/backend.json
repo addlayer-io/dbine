@@ -6162,6 +6162,7 @@
   "este motor todavía no ordena en el servidor": "this engine doesn't sort on the server yet",
   "ningún certificado del archivo corresponde a su clave privada": "no certificate in the file matches its private key",
   "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET (o AZURE_CLIENT_CERTIFICATE_PATH)": "AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET (or AZURE_CLIENT_CERTIFICATE_PATH) are not defined",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "there is no half-read lineage to continue: open it again",
   "no se pudo abrir el certificado: la contraseña no es la correcta, o el archivo no es un PEM ni un PFX": "couldn't open the certificate: the password is wrong, or the file is not a PEM or a PFX",
   "no se pudo abrir el certificado: si es un PFX con contraseña, escribila; si no, el archivo no es un PEM ni un PFX": "couldn't open the certificate: if it is a PFX with a password, enter it; otherwise, the file is not a PEM or a PFX",
   "no se pudo agregar el orden a la consulta de este objeto": "couldn't add the sort to this object's query",

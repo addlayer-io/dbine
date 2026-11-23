@@ -108,7 +108,18 @@
     "relationsTip": "外键（以及模型的关系）与沿袭并行：启用后可在沿袭旁查看。",
     "updated": "更新于{{ago}}",
     "updating": "正在更新…",
-    "refreshFailed": "无法更新：{{error}}。显示的是上次保存的内容。"
+    "refreshFailed": "无法更新：{{error}}。显示的是上次保存的内容。",
+    "partial": {
+      "title": "部分血缘：",
+      "stage": {
+        "structure": "正在读取表和来源…",
+        "dependencies": "正在读取度量值和列的依赖 {{done}}/{{total}}",
+        "consumers": "正在读取报表和仪表板…"
+      },
+      "failed": "无法读取 {{count}} 个对象。",
+      "complete": "完成读取",
+      "retry": "重试 {{from}}–{{to}}"
+    }
   },
   "cross": {
     "switch": "包含其他连接",
