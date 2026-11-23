@@ -184,6 +184,55 @@ pub fn merge_chunk(
     Ok(g)
 }
 
+/// The stage whose chunks are ranges of objects (`len` of them from `offset`, of `total`): the chunks
+/// that follow one can be named before it is read.
+const RANGED_STAGE: &str = "dependencies";
+
+/// The chunks read together from `at`: it and, in a ranged stage, up to `n - 1` that follow it in that
+/// stage. A chunk given up is never read, so it goes alone.
+pub fn batch_from(at: &LineageStep, n: usize) -> Vec<LineageStep> {
+    let mut steps = vec![at.clone()];
+    if at.skip || at.stage != RANGED_STAGE || at.len == 0 {
+        return steps;
+    }
+    let mut offset = at.offset.saturating_add(at.len);
+    while steps.len() < n && offset < at.total {
+        steps.push(LineageStep {
+            stage: at.stage.clone(),
+            offset,
+            len: at.len.min(at.total - offset),
+            total: at.total,
+            skip: false,
+        });
+        offset = offset.saturating_add(at.len);
+    }
+    steps
+}
+
+/// The chunks read after the one asked for (`steps`, with what each read answered), merged in order
+/// as reading them one after the other would: up to the first that failed (the next call starts from
+/// it) or that isn't the one the graph says is next (a driver that cuts its chunks otherwise goes on
+/// from its own `next`).
+pub fn merge_following<E: std::fmt::Display>(
+    mut graph: LineageGraph,
+    steps: &[LineageStep],
+    reads: impl IntoIterator<Item = Result<LineageGraph, E>>,
+) -> Result<LineageGraph, String> {
+    for (step, read) in steps.iter().zip(reads) {
+        if graph.next.as_ref() != Some(step) {
+            break;
+        }
+        match read {
+            Ok(chunk) => graph = merge_chunk(Some(graph), chunk, Some(step), false)?,
+            Err(e) => {
+                tracing::debug!("lineage chunk {step:?}: {e}");
+                break;
+            }
+        }
+    }
+    Ok(graph)
+}
+
 #[derive(Deserialize)]
 pub struct LineageChunkArgs {
     pub connection_id: String,
@@ -204,7 +253,8 @@ pub struct LineageChunkArgs {
 /// One chunk of a database's lineage: the graph so far plus what that chunk read, with `next` saying
 /// which chunk to ask for to go on (`null`: it is all there). Every chunk is written to the cache, so a
 /// lineage left half way continues from there at the next opening. A driver that doesn't read in
-/// chunks answers the whole graph at the start, with nothing next.
+/// chunks answers the whole graph at the start, with nothing next. The chunks of a ranged stage are read
+/// several at once ([`batch_from`]), so one call may answer more than the chunk asked for.
 #[tauri::command(rename_all = "camelCase")]
 pub async fn get_lineage_chunk(
     state: State<'_, AppState>,
@@ -222,14 +272,13 @@ pub async fn get_lineage_chunk(
         driver.script_dialect(),
         driver.capabilities().foreign_keys,
     );
-    let mut scope = effective_scope(args.scope, driver.capabilities().jobs);
+    let scope = effective_scope(args.scope, driver.capabilities().jobs);
     let key = scope_key(&scope);
     let cacheable = is_cacheable(&scope);
     let mem_key = chunk_key(&args.connection_id, &args.database, &key);
     let _reading = UserRead::begin();
     let mut ask = args.step.clone().unwrap_or_else(LineageStep::start);
     ask.skip = args.give_up;
-    scope.step = Some(ask);
     let limit = chunk_limit(
         state
             .store
@@ -238,16 +287,29 @@ pub async fn get_lineage_chunk(
             .flatten()
             .as_ref(),
     );
-    let database = args.database.clone();
-    let chunk = state
-        .meta_read_on(
+    // The chunk asked for and, when its stage's chunks are known ahead, the ones after it: read at
+    // once, each on a session of the long lane of its own.
+    let steps = if args.step.is_some() && !args.retry && !args.give_up {
+        batch_from(&ask, crate::state::LONG_SESSIONS)
+    } else {
+        vec![ask]
+    };
+    let reads = futures_util::future::join_all(steps.iter().map(|step| {
+        let mut scope = scope.clone();
+        scope.step = Some(step.clone());
+        let (database, scan) = (args.database.clone(), scan.clone());
+        state.meta_read_on(
             crate::state::Lane::Long,
             &args.connection_id,
             &args.database,
             limit,
             move |s| Box::pin(async move { s.lineage_graph(&database, &scope, &scan).await }),
         )
-        .await?;
+    }))
+    .await;
+    let mut reads = reads.into_iter();
+    // The chunk asked for: its failure is the call's (the UI asks it again, then gives it up).
+    let chunk = reads.next().expect("one read per step")?;
     let so_far = if args.step.is_some() {
         CHUNKED
             .lock()
@@ -267,6 +329,7 @@ pub async fn get_lineage_chunk(
         None
     };
     let graph = merge_chunk(so_far, chunk, args.step.as_ref(), args.retry)
+        .and_then(|g| merge_following(g, &steps[1..], reads))
         .map_err(dbine_driver::Error::Query)?;
     if let Ok(mut m) = CHUNKED.lock() {
         let m = m.get_or_insert_with(HashMap::new);
@@ -615,6 +678,83 @@ mod tests {
         assert!(g.failed.is_empty());
         assert_eq!(g.next.as_ref().unwrap().offset, 4);
         assert_eq!(g.notes, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn the_dependencies_after_a_chunk_are_read_with_it() {
+        // 6 objects, 2 a chunk: from the first, the three of the stage.
+        let from = step("dependencies", 0);
+        assert_eq!(
+            batch_from(&from, 3),
+            [
+                from.clone(),
+                step("dependencies", 2),
+                step("dependencies", 4)
+            ]
+        );
+        assert_eq!(batch_from(&from, 2).len(), 2, "never more than asked");
+        // The stage's end: the last chunk is shorter, and nothing follows it.
+        let odd = LineageStep {
+            total: 5,
+            ..step("dependencies", 2)
+        };
+        let batch = batch_from(&odd, 3);
+        assert_eq!(batch.len(), 2);
+        assert_eq!((batch[1].offset, batch[1].len), (4, 1));
+        // Other stages, and a chunk given up, go alone.
+        assert_eq!(batch_from(&LineageStep::start(), 3).len(), 1);
+        assert_eq!(batch_from(&step("consumers", 0), 3).len(), 1);
+        let lost = LineageStep { skip: true, ..from };
+        assert_eq!(batch_from(&lost, 3), [lost]);
+    }
+
+    #[test]
+    fn chunks_read_together_merge_as_one_after_the_other() {
+        let (b, c) = (step("dependencies", 2), step("dependencies", 4));
+        let last = Some(step("consumers", 0));
+        let reads = || {
+            vec![
+                Ok::<_, String>(chunk(Some(c.clone()), "b")),
+                Ok(chunk(last.clone(), "c")),
+            ]
+        };
+        // One after the other.
+        let mut one = chunk(Some(b.clone()), "a");
+        for (s, r) in [b.clone(), c.clone()].iter().zip(reads()) {
+            one = merge_chunk(Some(one), r.unwrap(), Some(s), false).unwrap();
+        }
+        // Together.
+        let together = merge_following(
+            chunk(Some(b.clone()), "a"),
+            &[b.clone(), c.clone()],
+            reads(),
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(&together).unwrap(),
+            serde_json::to_value(&one).unwrap()
+        );
+        assert_eq!(together.notes, ["a", "b", "c"]);
+        assert_eq!(together.next, last);
+        // A chunk that failed ends the merge there: the next call reads it again, and what was read
+        // after it is not taken (it would leave a hole).
+        let failed = merge_following(
+            chunk(Some(b.clone()), "a"),
+            &[b.clone(), c.clone()],
+            vec![Err("timeout".to_string()), Ok(chunk(last.clone(), "c"))],
+        )
+        .unwrap();
+        assert_eq!(failed.notes, ["a"]);
+        assert_eq!(failed.next, Some(b.clone()));
+        // A driver whose next chunk isn't the one guessed: only what follows its own `next` is taken.
+        let other = LineageStep {
+            len: 3,
+            ..b.clone()
+        };
+        let kept =
+            merge_following(chunk(Some(other.clone()), "a"), &[b, c.clone()], reads()).unwrap();
+        assert_eq!(kept.notes, ["a"]);
+        assert_eq!(kept.next, Some(other));
     }
 
     #[test]
