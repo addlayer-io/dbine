@@ -42,23 +42,23 @@
     },
     {
       "source": "osv",
-      "date": "2026-11-22",
-      "revision": "83f44cb5510c",
+      "date": "2026-11-23",
+      "revision": "6187ce059ad8",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 3
+      "found": 5
     },
     {
       "source": "trivy",
-      "date": "2026-11-22",
-      "revision": "83f44cb5510c",
+      "date": "2026-11-23",
+      "revision": "6187ce059ad8",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
     },
     {
       "source": "codeql",
-      "date": "2026-11-22",
+      "date": "2026-11-23",
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
@@ -67,7 +67,7 @@
     {
       "source": "scorecard",
       "date": "2026-11-22",
-      "revision": "95ddc68d02f4",
+      "revision": "83f44cb5510c",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.5
@@ -4551,6 +4551,30 @@
       "advisory": "RUSTSEC-2026-0592",
       "fixed_version": "2.5.9",
       "found": "2026-11-22",
+      "status": "open"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0594-cookie-13ee4b",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "cookie 0.18.2: Private cookie nonces can repeat in processes that fork",
+      "component": "Cargo.lock",
+      "advisory": "RUSTSEC-2026-0594",
+      "fixed_version": "0.12.0, 0.18.3",
+      "found": "2026-11-23",
+      "status": "open"
+    },
+    {
+      "id": "OSV-RUSTSEC-2026-0594-cookie-9761a8",
+      "source": "osv",
+      "severity": "MEDIUM",
+      "kind": "Vulnerable dependency",
+      "title": "cookie 0.18.2: Private cookie nonces can repeat in processes that fork",
+      "component": "mobile/src-tauri/Cargo.lock",
+      "advisory": "RUSTSEC-2026-0594",
+      "fixed_version": "0.12.0, 0.18.3",
+      "found": "2026-11-23",
       "status": "open"
     },
     {
