@@ -146,7 +146,18 @@
     "relationsTip": "Las claves foráneas (y las relaciones de un modelo) van en paralelo al linaje: activalas para verlas junto a él.",
     "updated": "Actualizado {{ago}}",
     "updating": "actualizando…",
-    "refreshFailed": "No se pudo actualizar: {{error}}. Se muestra lo último guardado."
+    "refreshFailed": "No se pudo actualizar: {{error}}. Se muestra lo último guardado.",
+    "partial": {
+      "title": "Linaje parcial:",
+      "stage": {
+        "structure": "leyendo tablas y orígenes…",
+        "dependencies": "leyendo dependencias de medidas y columnas {{done}}/{{total}}",
+        "consumers": "leyendo reportes y tableros…"
+      },
+      "failed": "no se pudieron leer {{count}} objetos.",
+      "complete": "Completar",
+      "retry": "Reintentar {{from}}–{{to}}"
+    }
   },
   "sources": {
     "nav": "Fuentes del linaje",

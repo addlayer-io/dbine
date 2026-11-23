@@ -108,7 +108,18 @@
     "relationsTip": "As chaves estrangeiras (e as relações de um modelo) correm em paralelo à linhagem: ative-as para vê-las junto com ela.",
     "updated": "Atualizado {{ago}}",
     "updating": "atualizando…",
-    "refreshFailed": "Não foi possível atualizar: {{error}}. Mostrando o último salvo."
+    "refreshFailed": "Não foi possível atualizar: {{error}}. Mostrando o último salvo.",
+    "partial": {
+      "title": "Linhagem parcial:",
+      "stage": {
+        "structure": "lendo tabelas e origens…",
+        "dependencies": "lendo dependências de medidas e colunas {{done}}/{{total}}",
+        "consumers": "lendo relatórios e painéis…"
+      },
+      "failed": "não foi possível ler {{count}} objetos.",
+      "complete": "Concluir",
+      "retry": "Tentar novamente {{from}}–{{to}}"
+    }
   },
   "cross": {
     "switch": "Incluir outras conexões",

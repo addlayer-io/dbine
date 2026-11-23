@@ -108,7 +108,18 @@
     "relationsTip": "外部キー（およびモデルのリレーション）はリネージと並行しています。オンにすると、リネージと並べて表示できます。",
     "updated": "{{ago}}に更新",
     "updating": "更新中…",
-    "refreshFailed": "更新できませんでした: {{error}}。最後に保存された内容を表示しています。"
+    "refreshFailed": "更新できませんでした: {{error}}。最後に保存された内容を表示しています。",
+    "partial": {
+      "title": "部分的なリネージ:",
+      "stage": {
+        "structure": "テーブルとソースを読み取り中…",
+        "dependencies": "メジャーと列の依存関係を読み取り中 {{done}}/{{total}}",
+        "consumers": "レポートとダッシュボードを読み取り中…"
+      },
+      "failed": "{{count}} 個のオブジェクトを読み取れませんでした。",
+      "complete": "完了",
+      "retry": "再試行 {{from}}–{{to}}"
+    }
   },
   "cross": {
     "switch": "他の接続を含める",

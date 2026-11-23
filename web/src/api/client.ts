@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import type {
-  AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, CachedLineage, LineageGraph, LineageScope, OpenedSource, LocatedSource, CrossUsers, SourceMatch, ExternalRef, MonitorSnapshot, ObjectPage, ObjectQuery, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
+  AzureFirewallPlan, AzureFirewallRuleAdded, ColumnInfo, ConnectDetail, ConnectResult, ConnectionConfig, ConnectionFolder, DatabaseObjects, DbObject, DependencyReport, DependencyTarget, DriverInfo, IndexUsageReport, KeyPage, KeyScan, CachedLineage, LineageGraph, LineageScope, LineageStep, OpenedSource, LocatedSource, CrossUsers, SourceMatch, ExternalRef, MonitorSnapshot, ObjectPage, ObjectQuery, ObjectRef, Permissions, ProfiledStatement, ProfilerStarted,
   ExecuteResponse, FilteredBrowse, QueryOutcome, ResultsStatus, RunMode, StoreArgs, StoredRunMeta, RunParams, RunningTask, SavedConnection, SavedQuery, SchemaInfo, ScriptUnit, SecretBrowseListing, SecretSource, SecretSourceApproval, SecretSourceTest, SecretSourceUnlock, SortKey, TaskSummary, TestResult, TxState, UpdateInfo, WhatsNew, WindowRole,
 } from './types';
 import type { ColumnFilter } from '../composables/gridFilter';
@@ -169,6 +169,9 @@ export const api = {
    *  node, every dependency as an edge, plus the server's jobs when asked. */
   getLineageGraph: (connectionId: string, database: string, scope: LineageScope = {}) =>
     invoke<LineageGraph>('get_lineage_graph', { args: { connection_id: connectionId, database, scope } }),
+  /** One chunk of a database's lineage (see `lineageChunks.ts`): the graph so far, `next` says what to ask for. */
+  getLineageChunk: (connectionId: string, database: string, scope: LineageScope, req: { step: LineageStep | null; retry?: boolean; giveUp?: boolean }) =>
+    invoke<LineageGraph>('get_lineage_chunk', { args: { connection_id: connectionId, database, scope, step: req.step, retry: !!req.retry, give_up: !!req.giveUp } }),
   /** The lineage the disk cache holds for a database and scope, at once (no server call). */
   lineageGraphCached: (connectionId: string, database: string, scope: LineageScope = {}) =>
     invoke<CachedLineage>('lineage_graph_cached', { args: { connection_id: connectionId, database, scope } }),

@@ -108,7 +108,18 @@
     "relationsTip": "Fremdschlüssel (und die Beziehungen eines Modells) verlaufen parallel zum Lineage: Aktivieren Sie sie, um sie daneben zu sehen.",
     "updated": "Aktualisiert {{ago}}",
     "updating": "wird aktualisiert…",
-    "refreshFailed": "Aktualisierung fehlgeschlagen: {{error}}. Es wird der zuletzt gespeicherte Stand angezeigt."
+    "refreshFailed": "Aktualisierung fehlgeschlagen: {{error}}. Es wird der zuletzt gespeicherte Stand angezeigt.",
+    "partial": {
+      "title": "Teilweises Lineage:",
+      "stage": {
+        "structure": "Tabellen und Quellen werden gelesen…",
+        "dependencies": "Abhängigkeiten von Measures und Spalten werden gelesen {{done}}/{{total}}",
+        "consumers": "Berichte und Dashboards werden gelesen…"
+      },
+      "failed": "{{count}} Objekte konnten nicht gelesen werden.",
+      "complete": "Vervollständigen",
+      "retry": "Erneut versuchen {{from}}–{{to}}"
+    }
   },
   "cross": {
     "switch": "Andere Verbindungen einbeziehen",

@@ -57334,6 +57334,9 @@
  "no hay un driver descargable '{0}'": [
   "src-tauri/src/commands/drivers.rs"
  ],
+ "no hay un linaje a medio leer para continuar: abrilo de nuevo": [
+  "src-tauri/src/commands/lineage_cache.rs"
+ ],
  "no hay un ticket de Kerberos vigente": [
   "crates/drivers/sqlserver/src/lib.rs"
  ],

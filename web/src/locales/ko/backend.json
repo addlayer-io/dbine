@@ -6153,6 +6153,7 @@
   "este motor no filtra en el servidor": "이 엔진은 서버에서 필터링하지 않습니다",
   "este motor no ordena en el servidor": "이 엔진은 서버에서 정렬하지 않습니다",
   "este motor todavía no ordena en el servidor": "이 엔진은 아직 서버에서 정렬하지 않습니다",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "이어갈 수 있는 부분적으로 읽은 리니지가 없습니다. 다시 여십시오",
   "no se pudo agregar el orden a la consulta de este objeto": "이 개체의 쿼리에 정렬을 추가하지 못했습니다",
   "este motor no filtra la lectura por lotes": "이 엔진은 배치 읽기를 필터링하지 않습니다",
   "este motor no genera DDL de tablas": "이 엔진은 테이블 DDL을 생성하지 않습니다",

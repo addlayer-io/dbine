@@ -146,7 +146,18 @@
     "relationsTip": "Foreign keys (and a model's relationships) run in parallel to the lineage: turn them on to see them along with it.",
     "updated": "Updated {{ago}}",
     "updating": "updating…",
-    "refreshFailed": "Couldn't refresh: {{error}}. Showing what was last saved."
+    "refreshFailed": "Couldn't refresh: {{error}}. Showing what was last saved.",
+    "partial": {
+      "title": "Partial lineage:",
+      "stage": {
+        "structure": "reading tables and sources…",
+        "dependencies": "reading measure and column dependencies {{done}}/{{total}}",
+        "consumers": "reading reports and dashboards…"
+      },
+      "failed": "{{count}} objects could not be read.",
+      "complete": "Complete",
+      "retry": "Retry {{from}}–{{to}}"
+    }
   },
   "sources": {
     "nav": "Lineage sources",

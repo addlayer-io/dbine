@@ -5283,6 +5283,7 @@
   "este motor todavía no ordena en el servidor": "Diese Engine sortiert noch nicht auf dem Server",
   "ningún certificado del archivo corresponde a su clave privada": "kein Zertifikat in der Datei passt zu ihrem privaten Schlüssel",
   "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET (o AZURE_CLIENT_CERTIFICATE_PATH)": "AZURE_TENANT_ID, AZURE_CLIENT_ID und AZURE_CLIENT_SECRET (oder AZURE_CLIENT_CERTIFICATE_PATH) sind nicht definiert",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "Es gibt kein halb gelesenes Lineage zum Fortsetzen: Öffnen Sie es erneut",
   "no se pudo abrir el certificado: la contraseña no es la correcta, o el archivo no es un PEM ni un PFX": "das Zertifikat konnte nicht geöffnet werden: Das Passwort ist falsch, oder die Datei ist weder eine PEM- noch eine PFX-Datei",
   "no se pudo abrir el certificado: si es un PFX con contraseña, escribila; si no, el archivo no es un PEM ni un PFX": "das Zertifikat konnte nicht geöffnet werden: Geben Sie bei einer PFX-Datei mit Passwort das Passwort ein; andernfalls ist die Datei weder eine PEM- noch eine PFX-Datei",
   "no se pudo agregar el orden a la consulta de este objeto": "Die Sortierung konnte der Abfrage dieses Objekts nicht hinzugefügt werden",

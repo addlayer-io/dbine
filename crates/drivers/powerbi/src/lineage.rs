@@ -32,8 +32,8 @@ use crate::meta::{relationship_name, same, ModelMeta, TableKind, Tier};
 use crate::references::{self, m, Use};
 use crate::{Ctx, CALCULATION_GROUP, EXPRESSION, FUNCTION, MEASURE, MODEL, ROLE, TABLE};
 use dbine_driver::dependencies::{
-    LineageConsumer, LineageEdge, LineageExternal, LineageGraph, LineageScope, GRAPH_OBJECTS,
-    MAX_MENTIONS,
+    merge_edge, LineageConsumer, LineageEdge, LineageExternal, LineageGraph, LineageScope,
+    LineageStep, GRAPH_OBJECTS, MAX_MENTIONS,
 };
 use dbine_driver::{Confidence, Mention, ObjectRef, Relation, Result};
 
@@ -73,6 +73,8 @@ struct Unit {
     text: Option<String>,
     /// How `unreadable` names it.
     label: String,
+    /// The `[OBJECT]` of its `INFO.CALCDEPENDENCY()` rows (DAX units).
+    object: String,
 }
 
 fn units(meta: &ModelMeta) -> Vec<Unit> {
@@ -83,7 +85,8 @@ fn units(meta: &ModelMeta) -> Vec<Unit> {
                    lang: Lang,
                    home: Option<&str>,
                    text: Option<&String>,
-                   label: String| {
+                   label: String,
+                   object: &str| {
         out.push(Unit {
             owner,
             detail,
@@ -91,6 +94,7 @@ fn units(meta: &ModelMeta) -> Vec<Unit> {
             home: home.map(str::to_string),
             text: text.cloned(),
             label,
+            object: object.to_string(),
         });
     };
     for m in &meta.measures {
@@ -101,6 +105,7 @@ fn units(meta: &ModelMeta) -> Vec<Unit> {
             None,
             m.expression.as_ref(),
             column_ref(&m.table, &m.name),
+            &m.name,
         );
     }
     for t in &meta.tables {
@@ -113,6 +118,7 @@ fn units(meta: &ModelMeta) -> Vec<Unit> {
                 None,
                 Some(e),
                 quote_table(&t.name),
+                &t.name,
             );
         }
         for c in t.columns.iter().filter(|c| c.expression.is_some()) {
@@ -126,6 +132,7 @@ fn units(meta: &ModelMeta) -> Vec<Unit> {
                 Some(&t.name),
                 c.expression.as_ref(),
                 column_ref(&t.name, &c.name),
+                &c.name,
             );
         }
         if t.kind == TableKind::Data {
@@ -142,6 +149,7 @@ fn units(meta: &ModelMeta) -> Vec<Unit> {
                     None,
                     p.expression.as_ref(),
                     p.name.clone(),
+                    "",
                 );
             }
         }
@@ -155,6 +163,7 @@ fn units(meta: &ModelMeta) -> Vec<Unit> {
                 None,
                 i.expression.as_ref(),
                 column_ref(&g.table, &i.name),
+                &i.name,
             );
         }
     }
@@ -167,6 +176,7 @@ fn units(meta: &ModelMeta) -> Vec<Unit> {
                 Some(t),
                 Some(f),
                 format!("{} ({})", r.name, quote_table(t)),
+                &r.name,
             );
         }
     }
@@ -178,6 +188,7 @@ fn units(meta: &ModelMeta) -> Vec<Unit> {
             None,
             f.expression.as_ref(),
             f.name.clone(),
+            &f.name,
         );
     }
     for e in &meta.expressions {
@@ -188,6 +199,7 @@ fn units(meta: &ModelMeta) -> Vec<Unit> {
             None,
             e.expression.as_ref(),
             e.name.clone(),
+            "",
         );
     }
     out
@@ -268,46 +280,18 @@ impl Builder {
         if same_node(&from, &to) {
             return;
         }
-        let found = self
-            .edges
-            .iter_mut()
-            .find(|e| e.relation == relation && same_node(&e.from, &from) && same_node(&e.to, &to));
-        match found {
-            Some(e) => {
-                // Any source that confirms it makes it confirmed.
-                e.confidence = e.confidence.min(confidence);
-                if let Some(d) = detail {
-                    let mut parts: Vec<String> = e
-                        .detail
-                        .as_deref()
-                        .map(|x| x.split("; ").map(str::to_string).collect())
-                        .unwrap_or_default();
-                    // "filtro de T" is part of "filtro de T: 'T'[c]".
-                    let at = parts
-                        .iter()
-                        .position(|p| *p == d || d.starts_with(&format!("{p}: ")));
-                    match at {
-                        Some(k) => parts[k] = d,
-                        None if parts.iter().any(|p| p.starts_with(&format!("{d}: "))) => {}
-                        None => parts.push(d),
-                    }
-                    e.detail = Some(parts.join("; "));
-                }
-                for m in mentions {
-                    if !e.mentions.contains(&m) && e.mentions.len() < MAX_MENTIONS {
-                        e.mentions.push(m);
-                    }
-                }
-            }
-            None => self.edges.push(LineageEdge {
+        merge_edge(
+            &mut self.edges,
+            LineageEdge {
                 from,
                 to,
                 relation,
                 confidence,
                 detail,
                 mentions,
-            }),
-        }
+            },
+            same_node,
+        );
     }
 }
 
@@ -337,18 +321,66 @@ pub(crate) async fn lineage_in<S: Service>(
     scope: &LineageScope,
 ) -> Result<LineageGraph> {
     s.meta_state().silent = scope.silent;
-    let g = lineage_read(s, scope).await;
+    let g = match &scope.step {
+        Some(step) => lineage_chunk(s, scope, step).await,
+        None => lineage_read(s, scope).await,
+    };
     s.meta_state().silent = false;
     g
 }
 
-async fn lineage_read<S: Service>(s: &mut S, scope: &LineageScope) -> Result<LineageGraph> {
+/// What every read of the graph starts from: the model, its metadata and the nodes in the scope.
+struct Frame {
+    model: crate::catalog::Model,
+    meta: std::sync::Arc<ModelMeta>,
+    /// The nodes, as the explorer lists them. The model comes first, so a cap leaves it: what reads the
+    /// model hangs from it.
+    all: Vec<ObjectRef>,
+    truncated: bool,
+    model_node: ObjectRef,
+}
+
+impl Frame {
+    fn has(&self, o: &ObjectRef) -> bool {
+        self.all.iter().any(|n| same_node(n, o))
+    }
+
+    /// The model reads its tables.
+    fn model_edges(&self) -> Vec<LineageEdge> {
+        let mut out = Vec::new();
+        if self.has(&self.model_node) {
+            for o in &self.all {
+                if o.kind == TABLE || o.kind == CALCULATION_GROUP {
+                    out.push(LineageEdge {
+                        from: o.clone(),
+                        to: self.model_node.clone(),
+                        relation: Relation::Code,
+                        confidence: Confidence::Confirmed,
+                        detail: None,
+                        mentions: Vec::new(),
+                    });
+                }
+            }
+        }
+        out
+    }
+
+    /// What outside the model reads it (the reports and dashboards, over REST: no metadata permission
+    /// needed) is read, unless the search only wants the sources: it costs a request each (and one per
+    /// dashboard for its tiles).
+    fn wants_consumers(&self, scope: &LineageScope) -> bool {
+        self.has(&self.model_node) && !scope.sources_only
+    }
+
+    /// The engine's dependencies are asked (else the DAX is read as tokens).
+    fn wants_engine(&self, scope: &LineageScope) -> bool {
+        self.meta.tier == Tier::Info && self.model.write_permission && !scope.sources_only
+    }
+}
+
+async fn frame<S: Service>(s: &mut S, scope: &LineageScope) -> Result<Frame> {
     let model = session_model(s)?;
     let meta = crate::meta::model_for(s, &model).await?;
-    let mut g = LineageGraph::default();
-
-    // The nodes, as the explorer lists them. The model comes first, so a
-    // cap leaves it: what reads the model hangs from it.
     let mut all: Vec<ObjectRef> = vec![node(MODEL, &model.listed_as)];
     all.extend(meta.plain_tables().map(|t| node(TABLE, &t.name)));
     all.extend(
@@ -367,63 +399,28 @@ async fn lineage_read<S: Service>(s: &mut S, scope: &LineageScope) -> Result<Lin
     } else {
         scope.limit
     } as usize;
-    if all.len() > limit {
-        all.truncate(limit);
-        g.truncated = true;
-    }
-    let has = |o: &ObjectRef| all.iter().any(|n| same_node(n, o));
-
-    // The model reads its tables, and what outside it reads the model (the
-    // reports and dashboards, over REST: no metadata permission needed).
+    let truncated = all.len() > limit;
+    all.truncate(limit);
     let model_node = node(MODEL, &model.listed_as);
-    let mut model_edges: Vec<LineageEdge> = Vec::new();
-    if has(&model_node) {
-        for o in &all {
-            if o.kind == TABLE || o.kind == CALCULATION_GROUP {
-                model_edges.push(LineageEdge {
-                    from: o.clone(),
-                    to: model_node.clone(),
-                    relation: Relation::Code,
-                    confidence: Confidence::Confirmed,
-                    detail: None,
-                    mentions: Vec::new(),
-                });
-            }
-        }
-        // The reports and dashboards cost a request each (and one per dashboard for its tiles): a search
-        // that only wants the sources doesn't read them.
-        if !scope.sources_only {
-            let c = crate::consumers::read(s, &model).await?;
-            g.consumers = c
-                .items
-                .into_iter()
-                .map(|consumer| LineageConsumer {
-                    consumer,
-                    from: model_node.clone(),
-                })
-                .collect();
-            g.notes.extend(c.notes);
-        }
-    }
+    Ok(Frame {
+        model,
+        meta,
+        all,
+        truncated,
+        model_node,
+    })
+}
 
-    if meta.tier == Tier::Stats {
-        g.notes.push(NO_METADATA.into());
-        g.edges = model_edges;
-        g.objects = all;
-        return Ok(g);
-    }
-
-    let units = units(&meta);
-    g.scanned = units.iter().filter(|u| u.text.is_some()).count() as u32;
-    let mut b = Builder { edges: Vec::new() };
-
-    // Relationships: the one side is what the many side uses.
+/// Relationships (the one side is what the many side uses) and roles (a role applies to the tables it
+/// filters): the model's own structure, all in the metadata already read.
+fn structure_edges(f: &Frame, b: &mut Builder) {
+    let meta = &f.meta;
     for r in meta.model_relationships() {
         let (from, to) = (
-            node(references::table_kind(&meta, &r.to_table), &r.to_table),
-            node(references::table_kind(&meta, &r.from_table), &r.from_table),
+            node(references::table_kind(meta, &r.to_table), &r.to_table),
+            node(references::table_kind(meta, &r.from_table), &r.from_table),
         );
-        if !has(&from) || !has(&to) {
+        if !f.has(&from) || !f.has(&to) {
             continue;
         }
         let mut detail = relationship_name(r);
@@ -439,13 +436,11 @@ async fn lineage_read<S: Service>(s: &mut S, scope: &LineageScope) -> Result<Lin
             Vec::new(),
         );
     }
-
-    // A role applies to the tables it filters.
     for r in &meta.roles {
         for (t, _) in &r.table_filters {
-            let from = node(references::table_kind(&meta, t), t);
+            let from = node(references::table_kind(meta, t), t);
             let to = node(ROLE, &r.name);
-            if has(&from) && has(&to) {
+            if f.has(&from) && f.has(&to) {
                 b.edge(
                     from,
                     to,
@@ -457,56 +452,114 @@ async fn lineage_read<S: Service>(s: &mut S, scope: &LineageScope) -> Result<Lin
             }
         }
     }
+}
 
-    // DAX: the engine's dependencies, the whole model in one call.
-    let mut confirmed = false;
-    if meta.tier == Tier::Info && model.write_permission && !scope.sources_only {
-        match calc_dependencies_of(s, &model).await {
-            Ok(rows) => {
-                confirmed = true;
-                for r in &rows {
-                    let Some((owner, detail)) = row_owner(&meta, r) else {
-                        continue;
-                    };
-                    let Some(u) = references::calc_use(r) else {
-                        continue;
-                    };
-                    let used = used_node(&meta, &u);
-                    if !has(&owner) || !has(&used) {
-                        continue;
-                    }
-                    let home =
-                        (detail.is_some() && owner.kind == TABLE).then(|| owner.name.clone());
-                    let at: Vec<usize> = r
-                        .expression
-                        .as_deref()
-                        .map(|e| references::dax_uses(e, home.as_deref(), &meta))
-                        .unwrap_or_default()
-                        .into_iter()
-                        .filter(|(x, _)| x.object() == u.object())
-                        .map(|(_, at)| at)
-                        .collect();
-                    let mentions = r
-                        .expression
-                        .as_deref()
-                        .map(|e| references::at_lines(e, &at))
-                        .unwrap_or_default();
-                    let d = combine(detail.as_deref(), details(&[&u], &meta));
-                    b.edge(
-                        used,
-                        owner,
-                        Relation::Code,
-                        Confidence::Confirmed,
-                        d,
-                        mentions,
-                    );
-                }
+/// The edges the engine's `INFO.CALCDEPENDENCY()` rows give (`Confirmed`). `only`: just the rows of
+/// these (owner, part) pairs, for a chunk that asked for some of the objects.
+fn engine_edges(
+    f: &Frame,
+    rows: &[CalcDependency],
+    only: Option<&[(&ObjectRef, &Option<String>)]>,
+    b: &mut Builder,
+) {
+    let meta = &f.meta;
+    for r in rows {
+        let Some((owner, detail)) = row_owner(meta, r) else {
+            continue;
+        };
+        if let Some(only) = only {
+            if !only
+                .iter()
+                .any(|(o, d)| same_node(o, &owner) && **d == detail)
+            {
+                continue;
             }
-            Err(e) if crate::meta::is_fatal(&e) => return Err(e),
-            Err(_) => {}
+        }
+        let Some(u) = references::calc_use(r) else {
+            continue;
+        };
+        let used = used_node(meta, &u);
+        if !f.has(&owner) || !f.has(&used) {
+            continue;
+        }
+        let home = (detail.is_some() && owner.kind == TABLE).then(|| owner.name.clone());
+        let at: Vec<usize> = r
+            .expression
+            .as_deref()
+            .map(|e| references::dax_uses(e, home.as_deref(), meta))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(x, _)| x.object() == u.object())
+            .map(|(_, at)| at)
+            .collect();
+        let mentions = r
+            .expression
+            .as_deref()
+            .map(|e| references::at_lines(e, &at))
+            .unwrap_or_default();
+        let d = combine(detail.as_deref(), details(&[&u], meta));
+        b.edge(
+            used,
+            owner,
+            Relation::Code,
+            Confidence::Confirmed,
+            d,
+            mentions,
+        );
+    }
+}
+
+/// A DAX expression read as tokens (`Probable`): what the engine's dependencies would say, when they
+/// can't be asked. An expression the user can't see is said in `g`.
+fn dax_token_edges(f: &Frame, u: &Unit, b: &mut Builder, g: &mut LineageGraph, hidden: &mut bool) {
+    let meta = &f.meta;
+    let Some(text) = u.text.as_deref() else {
+        *hidden = true;
+        g.unreadable.push(u.label.clone());
+        return;
+    };
+    if !f.has(&u.owner) {
+        return;
+    }
+    let found = references::dax_uses(text, u.home.as_deref(), meta);
+    let mut seen: Vec<Use> = Vec::new();
+    for (x, _) in &found {
+        if !seen.contains(x) {
+            seen.push(x.clone());
         }
     }
-    let mut hidden_dax = false;
+    let mut objects: Vec<(&str, String)> = Vec::new();
+    for x in &seen {
+        if !objects.contains(&x.object()) {
+            objects.push(x.object());
+        }
+    }
+    for o in objects {
+        let of: Vec<&Use> = seen.iter().filter(|x| x.object() == o).collect();
+        let at: Vec<usize> = found
+            .iter()
+            .filter(|(x, _)| x.object() == o)
+            .map(|&(_, at)| at)
+            .collect();
+        let used = used_node(meta, of[0]);
+        if !f.has(&used) {
+            continue;
+        }
+        b.edge(
+            used,
+            u.owner.clone(),
+            Relation::Code,
+            Confidence::Probable,
+            combine(u.detail.as_deref(), details(&of, meta)),
+            references::at_lines(text, &at),
+        );
+    }
+}
+
+/// Power Query (M) of the partitions and the shared expressions: what they name inside the model and the
+/// sources outside it. `INFO.CALCDEPENDENCY` doesn't cover M.
+fn m_edges(f: &Frame, units: &[Unit], b: &mut Builder, g: &mut LineageGraph) {
+    let meta = &f.meta;
     let mut hidden_m = false;
     let m_names: Vec<(String, String)> = meta
         .expressions
@@ -544,58 +597,13 @@ async fn lineage_read<S: Service>(s: &mut S, scope: &LineageScope) -> Result<Lin
                 });
             }
         };
-    for u in &units {
+    for u in units.iter().filter(|u| u.lang != Lang::Dax) {
         let Some(text) = u.text.as_deref() else {
-            match u.lang {
-                Lang::Dax => {
-                    if !confirmed {
-                        hidden_dax = true;
-                        g.unreadable.push(u.label.clone());
-                    }
-                }
-                Lang::M | Lang::Sql => hidden_m = true,
-            }
+            hidden_m = true;
             continue;
         };
         match u.lang {
-            Lang::Dax => {
-                if confirmed || !has(&u.owner) {
-                    continue;
-                }
-                let found = references::dax_uses(text, u.home.as_deref(), &meta);
-                let mut seen: Vec<Use> = Vec::new();
-                for (x, _) in &found {
-                    if !seen.contains(x) {
-                        seen.push(x.clone());
-                    }
-                }
-                let mut objects: Vec<(&str, String)> = Vec::new();
-                for x in &seen {
-                    if !objects.contains(&x.object()) {
-                        objects.push(x.object());
-                    }
-                }
-                for o in objects {
-                    let of: Vec<&Use> = seen.iter().filter(|x| x.object() == o).collect();
-                    let at: Vec<usize> = found
-                        .iter()
-                        .filter(|(x, _)| x.object() == o)
-                        .map(|&(_, at)| at)
-                        .collect();
-                    let used = used_node(&meta, of[0]);
-                    if !has(&used) {
-                        continue;
-                    }
-                    b.edge(
-                        used,
-                        u.owner.clone(),
-                        Relation::Code,
-                        Confidence::Probable,
-                        combine(u.detail.as_deref(), details(&of, &meta)),
-                        references::at_lines(text, &at),
-                    );
-                }
-            }
+            Lang::Dax => {}
             Lang::Sql => add_external(&u.owner, m::native_source(text), Vec::new()),
             Lang::M => {
                 for src in m::sources(text, &env) {
@@ -605,10 +613,10 @@ async fn lineage_read<S: Service>(s: &mut S, scope: &LineageScope) -> Result<Lin
                     let kind = if meta.expressions.iter().any(|e| e.name == name) {
                         EXPRESSION
                     } else {
-                        references::table_kind(&meta, &name)
+                        references::table_kind(meta, &name)
                     };
                     let from = node(kind, &name);
-                    if has(&from) && has(&u.owner) {
+                    if f.has(&from) && f.has(&u.owner) {
                         b.edge(
                             from,
                             u.owner.clone(),
@@ -622,17 +630,244 @@ async fn lineage_read<S: Service>(s: &mut S, scope: &LineageScope) -> Result<Lin
             }
         }
     }
-    if hidden_dax {
-        g.notes.push(NO_EXPRESSIONS.into());
-    }
     if hidden_m {
         g.notes.push(crate::references::NO_PARTITIONS.into());
     }
-    external.retain(|e| has(&e.to));
+    external.retain(|e| f.has(&e.to));
     g.external = external;
+}
+
+async fn lineage_read<S: Service>(s: &mut S, scope: &LineageScope) -> Result<LineageGraph> {
+    let f = frame(s, scope).await?;
+    let mut g = LineageGraph {
+        truncated: f.truncated,
+        ..Default::default()
+    };
+    let model_edges = f.model_edges();
+    if f.wants_consumers(scope) {
+        let c = crate::consumers::read(s, &f.model).await?;
+        g.consumers = c
+            .items
+            .into_iter()
+            .map(|consumer| LineageConsumer {
+                consumer,
+                from: f.model_node.clone(),
+            })
+            .collect();
+        g.notes.extend(c.notes);
+    }
+
+    if f.meta.tier == Tier::Stats {
+        g.notes.push(NO_METADATA.into());
+        g.edges = model_edges;
+        g.objects = f.all;
+        return Ok(g);
+    }
+
+    let units = units(&f.meta);
+    g.scanned = units.iter().filter(|u| u.text.is_some()).count() as u32;
+    let mut b = Builder { edges: Vec::new() };
+    structure_edges(&f, &mut b);
+
+    // DAX: the engine's dependencies, the whole model in one call.
+    let mut confirmed = false;
+    if f.wants_engine(scope) {
+        match calc_dependencies_of(s, &f.model).await {
+            Ok(rows) => {
+                confirmed = true;
+                engine_edges(&f, &rows, None, &mut b);
+            }
+            Err(e) if crate::meta::is_fatal(&e) => return Err(e),
+            Err(_) => {}
+        }
+    }
+    if !confirmed {
+        let mut hidden_dax = false;
+        for u in units.iter().filter(|u| u.lang == Lang::Dax) {
+            dax_token_edges(&f, u, &mut b, &mut g, &mut hidden_dax);
+        }
+        if hidden_dax {
+            g.notes.push(NO_EXPRESSIONS.into());
+        }
+    }
+    m_edges(&f, &units, &mut b, &mut g);
     g.edges = b.edges;
     g.edges.extend(model_edges);
-    g.objects = all;
+    g.objects = f.all;
+    Ok(g)
+}
+
+// -- the graph in chunks ---------------------------------------------------------------------------
+
+/// The stages of a chunked read, in the order they are read: the objects and the model's own structure
+/// (all in the metadata), the dependencies of the DAX (`CHUNK_OBJECTS` expressions a call), and the
+/// reports and dashboards that read the model.
+pub const STAGE_STRUCTURE: &str = "structure";
+pub const STAGE_DEPENDENCIES: &str = "dependencies";
+pub const STAGE_CONSUMERS: &str = "consumers";
+/// Expressions whose dependencies one call asks the engine for.
+pub const CHUNK_OBJECTS: usize = 50;
+
+#[cfg(test)]
+static TEST_CHUNK: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(CHUNK_OBJECTS);
+
+fn chunk_objects() -> usize {
+    #[cfg(test)]
+    {
+        TEST_CHUNK.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    #[cfg(not(test))]
+    {
+        CHUNK_OBJECTS
+    }
+}
+
+fn step(stage: &str, offset: usize, len: usize, total: usize) -> LineageStep {
+    LineageStep {
+        stage: stage.into(),
+        offset: offset as u32,
+        len: len as u32,
+        total: total as u32,
+        skip: false,
+    }
+}
+
+/// The chunk that follows the structure (`after`: `None`) or the dependencies that start at `after`.
+fn next_step(
+    f: &Frame,
+    scope: &LineageScope,
+    dax_units: usize,
+    after: Option<usize>,
+) -> Option<LineageStep> {
+    if f.meta.tier != Tier::Stats && f.wants_engine(scope) {
+        let from = after.map_or(0, |o| o + chunk_objects());
+        if from < dax_units {
+            return Some(step(
+                STAGE_DEPENDENCIES,
+                from,
+                chunk_objects().min(dax_units - from),
+                dax_units,
+            ));
+        }
+    }
+    f.wants_consumers(scope)
+        .then(|| step(STAGE_CONSUMERS, 0, 0, 0))
+}
+
+fn dax_units(units: Vec<Unit>) -> Vec<Unit> {
+    units.into_iter().filter(|u| u.lang == Lang::Dax).collect()
+}
+
+/// One chunk of the graph (`LineageScope::step`): what that stage reads, and `next`, the chunk that
+/// follows. The chunks, merged with [`LineageGraph::absorb`], are the graph [`lineage_read`] answers
+/// whole. Each is a call of its own, so no single one waits on the whole model.
+async fn lineage_chunk<S: Service>(
+    s: &mut S,
+    scope: &LineageScope,
+    at: &LineageStep,
+) -> Result<LineageGraph> {
+    let f = frame(s, scope).await?;
+    let mut g = LineageGraph::default();
+    let n_dax = if f.meta.tier == Tier::Stats {
+        0
+    } else {
+        dax_units(units(&f.meta)).len()
+    };
+    let following = match at.stage.as_str() {
+        STAGE_DEPENDENCIES => next_step(&f, scope, n_dax, Some(at.offset as usize)),
+        STAGE_CONSUMERS => None,
+        _ => next_step(&f, scope, n_dax, None),
+    };
+    if at.skip {
+        g.next = following;
+        return Ok(g);
+    }
+    match at.stage.as_str() {
+        STAGE_CONSUMERS => {
+            if f.wants_consumers(scope) {
+                let c = crate::consumers::read(s, &f.model).await?;
+                g.consumers = c
+                    .items
+                    .into_iter()
+                    .map(|consumer| LineageConsumer {
+                        consumer,
+                        from: f.model_node.clone(),
+                    })
+                    .collect();
+                g.notes.extend(c.notes);
+            }
+        }
+        STAGE_DEPENDENCIES => {
+            let units = dax_units(units(&f.meta));
+            let from = (at.offset as usize).min(units.len());
+            let batch = &units[from..(from + at.len.max(1) as usize).min(units.len())];
+            let mut b = Builder { edges: Vec::new() };
+            let mut confirmed = false;
+            if f.wants_engine(scope) && !batch.is_empty() {
+                let mut names: Vec<String> = Vec::new();
+                for u in batch {
+                    let n = crate::dax::quote::string(&u.object);
+                    if !names.contains(&n) {
+                        names.push(n);
+                    }
+                }
+                let q = format!(
+                    "EVALUATE FILTER(INFO.CALCDEPENDENCY(), [OBJECT] IN {{{}}})",
+                    names.join(", ")
+                );
+                match crate::meta::info::calc_dependencies_query(s, &f.model, &q).await {
+                    Ok(rows) => {
+                        confirmed = true;
+                        let only: Vec<(&ObjectRef, &Option<String>)> =
+                            batch.iter().map(|u| (&u.owner, &u.detail)).collect();
+                        engine_edges(&f, &rows, Some(&only), &mut b);
+                    }
+                    Err(e) if crate::meta::is_fatal(&e) => return Err(e),
+                    Err(_) => {}
+                }
+            }
+            if !confirmed {
+                let mut hidden = false;
+                for u in batch {
+                    dax_token_edges(&f, u, &mut b, &mut g, &mut hidden);
+                }
+                if hidden {
+                    g.notes.push(NO_EXPRESSIONS.into());
+                }
+            }
+            g.edges = b.edges;
+        }
+        _ => {
+            g.truncated = f.truncated;
+            g.edges = f.model_edges();
+            if f.meta.tier == Tier::Stats {
+                g.notes.push(NO_METADATA.into());
+            } else {
+                let units = units(&f.meta);
+                g.scanned = units.iter().filter(|u| u.text.is_some()).count() as u32;
+                let mut b = Builder { edges: Vec::new() };
+                structure_edges(&f, &mut b);
+                // Without the engine's dependencies asked, the DAX is read as tokens right here.
+                if !f.wants_engine(scope) {
+                    let mut hidden = false;
+                    for u in units.iter().filter(|u| u.lang == Lang::Dax) {
+                        dax_token_edges(&f, u, &mut b, &mut g, &mut hidden);
+                    }
+                    if hidden {
+                        g.notes.push(NO_EXPRESSIONS.into());
+                    }
+                }
+                m_edges(&f, &units, &mut b, &mut g);
+                for e in b.edges {
+                    merge_edge(&mut g.edges, e, same_node);
+                }
+            }
+            g.objects = f.all.clone();
+        }
+    }
+    g.next = following;
+    crate::meta::touch(s, &f.model);
     Ok(g)
 }
 
@@ -1047,5 +1282,214 @@ mod tests {
         .unwrap();
         assert_eq!(g.objects.len(), 3);
         assert!(g.truncated);
+    }
+
+    /// Every chunk, from the structure to the end, merged: the stages read and the graph.
+    async fn chunked(f: &mut Fake, scope: &LineageScope) -> (LineageGraph, Vec<String>) {
+        TEST_CHUNK.store(2, std::sync::atomic::Ordering::Relaxed);
+        let mut step = Some(LineageStep {
+            stage: STAGE_STRUCTURE.into(),
+            ..Default::default()
+        });
+        let mut stages = Vec::new();
+        let mut acc: Option<LineageGraph> = None;
+        while let Some(st) = step {
+            stages.push(format!("{}@{}", st.stage, st.offset));
+            let chunk = lineage_in(
+                f,
+                &LineageScope {
+                    step: Some(st),
+                    ..scope.clone()
+                },
+            )
+            .await
+            .unwrap();
+            step = chunk.next.clone();
+            match &mut acc {
+                None => acc = Some(chunk),
+                Some(a) => a.absorb(chunk),
+            }
+        }
+        let mut g = acc.unwrap();
+        g.next = None;
+        (g, stages)
+    }
+
+    /// What two graphs say, whatever the order they say it in.
+    fn said(g: &LineageGraph) -> serde_json::Value {
+        let mut objects: Vec<String> = g
+            .objects
+            .iter()
+            .map(|o| format!("{}:{}", o.kind, o.name))
+            .collect();
+        objects.sort();
+        let mut edges: Vec<String> = g
+            .edges
+            .iter()
+            .map(|e| {
+                let mut d: Vec<&str> = e.detail.as_deref().unwrap_or("").split("; ").collect();
+                d.sort();
+                format!(
+                    "{}:{} > {}:{} {:?} {:?} {} {}",
+                    e.from.kind,
+                    e.from.name,
+                    e.to.kind,
+                    e.to.name,
+                    e.relation,
+                    e.confidence,
+                    d.join("; "),
+                    e.mentions.len()
+                )
+            })
+            .collect();
+        edges.sort();
+        let mut ext: Vec<String> = g.external.iter().map(|e| format!("{e:?}")).collect();
+        ext.sort();
+        let mut consumers: Vec<String> = g.consumers.iter().map(|e| format!("{e:?}")).collect();
+        consumers.sort();
+        let mut notes = g.notes.clone();
+        notes.sort();
+        let mut unreadable = g.unreadable.clone();
+        unreadable.sort();
+        json!({ "objects": objects, "edges": edges, "external": ext, "consumers": consumers,
+            "notes": notes, "unreadable": unreadable, "scanned": g.scanned, "truncated": g.truncated })
+    }
+
+    /// The chunks are the whole graph: tokens (the definition tier), the engine's dependencies in
+    /// batches of a few objects, and the engine refusing them.
+    #[tokio::test]
+    async fn the_chunks_add_up_to_the_whole_graph() {
+        let scope = LineageScope::default();
+        let mut f = Fake::writer();
+        f.definition(LINEAGE);
+        let whole = graph(&mut f).await;
+        let (parts, stages) = chunked(&mut f, &scope).await;
+        assert_eq!(said(&parts), said(&whole));
+        // The definition tier reads the DAX as tokens in the structure: nothing for the engine.
+        assert_eq!(stages, ["structure@0", "consumers@0"]);
+
+        let rows = |f: &mut Fake| {
+            f.dax_answer(
+                "INFO.CALCDEPENDENCY()",
+                vec![calc_rows(vec![
+                    json!([
+                        "db",
+                        "MEASURE",
+                        "Sales",
+                        "Total Sales",
+                        "SUM(Sales[Amount])",
+                        "COLUMN",
+                        "Sales",
+                        "Amount"
+                    ]),
+                    json!([
+                        "db",
+                        "MEASURE",
+                        "Sales",
+                        "Total Sales",
+                        "SUM(Sales[Amount])",
+                        "TABLE",
+                        "Customer",
+                        "Customer"
+                    ]),
+                    json!([
+                        "db",
+                        "CALC_COLUMN",
+                        "Sales",
+                        "Margin",
+                        "[Amount] - 1",
+                        "COLUMN",
+                        "Sales",
+                        "Amount"
+                    ]),
+                ])],
+            );
+        };
+        let mut f = info_writer();
+        rows(&mut f);
+        let whole = graph(&mut f).await;
+        let mut f = info_writer();
+        rows(&mut f);
+        let (parts, stages) = chunked(&mut f, &scope).await;
+        assert_eq!(said(&parts), said(&whole), "{stages:?}");
+        let deps = stages
+            .iter()
+            .filter(|s| s.starts_with("dependencies"))
+            .count();
+        assert!(deps >= 2, "batches of a few objects: {stages:?}");
+        assert_eq!(stages.first().map(String::as_str), Some("structure@0"));
+        assert_eq!(stages.last().map(String::as_str), Some("consumers@0"));
+        // No call reads the whole model: each asks for its own objects.
+        assert!(
+            f.dax_log
+                .iter()
+                .filter(|q| q.contains("CALCDEPENDENCY"))
+                .all(|q| q.contains("FILTER(INFO.CALCDEPENDENCY()")),
+            "{:?}",
+            f.dax_log
+        );
+
+        // The engine refusing them: every batch falls back to the tokens, as the whole read does.
+        let mut f = info_writer();
+        f.dax_refuse("INFO.CALCDEPENDENCY()");
+        let whole = graph(&mut f).await;
+        let mut f = info_writer();
+        f.dax_refuse("INFO.CALCDEPENDENCY()");
+        let (parts, _) = chunked(&mut f, &scope).await;
+        assert_eq!(said(&parts), said(&whole));
+        assert!(parts.notes.contains(&NO_EXPRESSIONS.to_string()));
+    }
+
+    /// A chunk the host gives up on is skipped without a read, and the next one is still said.
+    #[tokio::test]
+    async fn a_skipped_chunk_says_the_next_without_reading() {
+        TEST_CHUNK.store(2, std::sync::atomic::Ordering::Relaxed);
+        let mut f = info_writer();
+        let g = lineage_in(
+            &mut f,
+            &LineageScope {
+                step: Some(LineageStep {
+                    stage: STAGE_DEPENDENCIES.into(),
+                    offset: 0,
+                    len: 2,
+                    total: 3,
+                    skip: true,
+                }),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert!(
+            !f.dax_log.iter().any(|q| q.contains("CALCDEPENDENCY")),
+            "nothing was asked"
+        );
+        let next = g.next.unwrap();
+        assert_eq!((next.stage.as_str(), next.offset), (STAGE_DEPENDENCIES, 2));
+        assert!(g.edges.is_empty() && g.objects.is_empty());
+    }
+
+    /// The statistics tier has no dependencies to chunk: the structure, then the reports.
+    #[tokio::test]
+    async fn the_statistics_tier_has_no_dependency_chunks() {
+        let mut f = Fake::new();
+        f.dax_answer(
+            "COLUMNSTATISTICS()",
+            vec![rowset(
+                &[
+                    "[Table Name]",
+                    "[Column Name]",
+                    "[Min]",
+                    "[Max]",
+                    "[Cardinality]",
+                    "[Max Length]",
+                ],
+                vec![json!(["Sales", "Amount", null, null, 3, 8])],
+            )],
+        );
+        let whole = graph(&mut f).await;
+        let (parts, stages) = chunked(&mut f, &LineageScope::default()).await;
+        assert_eq!(said(&parts), said(&whole));
+        assert_eq!(stages, ["structure@0", "consumers@0"]);
     }
 }
