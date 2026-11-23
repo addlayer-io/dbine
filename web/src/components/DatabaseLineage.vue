@@ -21,7 +21,7 @@ import { failedObjects, isPartial, retryChunk, runChunks } from '../composables/
 import type { LineageGraph } from '../api/types';
 import { readerKind, type LineageNode } from '../composables/lineage';
 import {
-  OVERVIEW_ABOVE, applyFilters, buildModel, buildView, groupOf, hasCatalogLineage, isRelation, kindsOf, layoutDb, noFilters, objectCount, schemaId, schemasOf,
+  OVERVIEW_ABOVE, applyFilters, buildModel, buildView, groupOf, hasCatalogLineage, isRelation, typesOf, layoutDb, noFilters, objectCount, schemaId, schemasOf,
   type DbModel, type Filters,
 } from '../composables/databaseLineage';
 import LineageCanvas from './LineageCanvas.vue';
@@ -202,7 +202,19 @@ watch(text, (v) => {
 });
 onBeforeUnmount(() => clearTimeout(timer));
 
-const kinds = computed(() => (model.value ? kindsOf(model.value.nodes.values()) : []));
+/** The types on the cards and how many of each (the "Tipos" list). */
+const types = computed(() => (model.value ? typesOf(model.value.nodes.values()) : []));
+const shownTypes = computed(() => types.value.map((x) => x.type).filter((x) => !filters.value.hidden.includes(x)));
+/** The checked types: the others are hidden. At least one stays checked. */
+function showTypes(list: string[]) {
+  if (!list.length) return;
+  filters.value = { ...filters.value, hidden: types.value.map((x) => x.type).filter((x) => !list.includes(x)) };
+}
+const showAllTypes = () => { filters.value = { ...filters.value, hidden: [] }; };
+const typesLabel = computed(() => {
+  const hidden = types.value.filter((x) => filters.value.hidden.includes(x.type)).length;
+  return hidden ? t('dependencies:database.typesCount', { shown: types.value.length - hidden, total: types.value.length }) : t('dependencies:database.kinds');
+});
 const schemas = computed(() => (model.value ? schemasOf(model.value.nodes.values()) : []));
 const filtered = computed(() => (model.value ? applyFilters(model.value, filters.value) : { nodes: [], edges: [] }));
 const view = computed(() => buildView(filtered.value.nodes, filtered.value.edges, expanded.value));
@@ -281,7 +293,7 @@ const summary = computed(() => t('dependencies:database.summary', {
   objects: objects.value, lines: model.value?.edges.length ?? 0, scanned: model.value?.scanned ?? 0,
 }));
 const relationCount = computed(() => (model.value?.edges ?? []).filter(isRelation).length);
-const filtering = computed(() => !!(filters.value.kinds.length || filters.value.text || filters.value.onlyConfirmed || filters.value.onlyConnected));
+const filtering = computed(() => !!(filters.value.hidden.length || filters.value.text || filters.value.onlyConfirmed || filters.value.onlyConnected));
 </script>
 
 <template>
@@ -309,9 +321,21 @@ const filtering = computed(() => !!(filters.value.kinds.length || filters.value.
     <template v-else-if="model">
       <div class="dl-bar">
         <el-input v-model="text" size="small" clearable :placeholder="$t('dependencies:database.search')" style="width: 200px" />
-        <el-select v-model="filters.kinds" size="small" multiple collapse-tags collapse-tags-tooltip clearable :placeholder="$t('dependencies:database.kinds')" style="width: 190px">
-          <el-option v-for="k in kinds" :key="k" :value="k" :label="kindText(k)" />
-        </el-select>
+        <el-popover v-if="types.length > 1" placement="bottom-start" trigger="click" :width="250">
+          <template #reference>
+            <el-button size="small" :type="filters.hidden.length ? 'primary' : undefined" :plain="!!filters.hidden.length" data-test="lineage-types">
+              {{ typesLabel }}<el-icon class="el-icon--right"><ei-arrow-down /></el-icon>
+            </el-button>
+          </template>
+          <div class="dl-types">
+            <el-checkbox :model-value="!filters.hidden.length" :indeterminate="!!filters.hidden.length" @change="showAllTypes">{{ $t('dependencies:database.allTypes') }}</el-checkbox>
+            <el-checkbox-group :model-value="shownTypes" @update:model-value="(v: unknown) => showTypes(v as string[])">
+              <el-checkbox v-for="x in types" :key="x.type" :value="x.type" :disabled="shownTypes.length === 1 && shownTypes[0] === x.type">
+                {{ kindText(x.type) }}<span class="dl-type-count">{{ x.count }}</span>
+              </el-checkbox>
+            </el-checkbox-group>
+          </div>
+        </el-popover>
         <el-checkbox v-model="filters.onlyConfirmed" size="small">{{ $t('dependencies:database.onlyConfirmed') }}</el-checkbox>
         <el-checkbox v-model="filters.onlyConnected" size="small">{{ $t('dependencies:database.onlyConnected') }}</el-checkbox>
         <el-tooltip :content="$t('dependencies:database.relationsTip')" placement="bottom" :show-after="300">
@@ -380,6 +404,13 @@ const filtering = computed(() => !!(filters.value.kinds.length || filters.value.
 .dl-head h2 { margin: 0; font-size: 15px; color: var(--nm-text-strong); }
 .dl-dim { color: var(--nm-text-dim); font-size: 12px; }
 .dl-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 6px 0; font-size: 12px; color: var(--nm-text-dim); }
+.dl-types { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; }
+.dl-types :deep(.el-checkbox-group) { display: flex; flex-direction: column; border-top: 1px solid var(--el-border-color-lighter); margin-top: 2px; padding-top: 2px; }
+.dl-types :deep(.el-checkbox) { margin-right: 0; height: 26px; }
+.dl-types :deep(.el-checkbox__label) { display: flex; flex: 1; gap: 8px; }
+.dl-types :deep(.el-checkbox) { width: 100%; }
+.dl-type-count { margin-left: auto; color: var(--nm-text-dim); font-variant-numeric: tabular-nums; }
+.dl-types :deep(.el-checkbox__input.is-checked + .el-checkbox__label) { color: var(--el-text-color-regular); }
 .dl-legend { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
 .dl-legend + .dl-legend { margin-left: 0; }
 .dl-key { display: inline-block; width: 22px; border-top: 2px solid var(--nm-text-dim); }

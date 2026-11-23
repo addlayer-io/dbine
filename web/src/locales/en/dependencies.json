@@ -53,7 +53,13 @@
     "calculation_group": "Calculation group",
     "role": "Role",
     "expression": "Expression",
-    "model": "Semantic model"
+    "model": "Semantic model",
+    "notebook": "Notebook",
+    "pipeline": "Pipeline",
+    "query": "Query",
+    "report": "Report",
+    "dashboard": "Dashboard",
+    "file": "File"
   },
   "view": {
     "label": "View",
@@ -127,7 +133,9 @@
       "button": "Analyze"
     },
     "search": "Filter by name",
-    "kinds": "Kinds",
+    "kinds": "Types",
+    "allTypes": "All",
+    "typesCount": "Types: {{shown}} of {{total}}",
     "onlyConfirmed": "Only confirmed",
     "onlyConnected": "Only with dependencies",
     "expandAll": "Expand all",

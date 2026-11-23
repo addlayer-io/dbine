@@ -53,7 +53,13 @@
     "calculation_group": "Grup kalkulasi",
     "role": "Peran",
     "expression": "Ekspresi",
-    "model": "Model semantik"
+    "model": "Model semantik",
+    "notebook": "Notebook",
+    "pipeline": "Pipeline",
+    "query": "Kueri",
+    "report": "Laporan",
+    "dashboard": "Dasbor",
+    "file": "File"
   },
   "view": {
     "label": "Tampilan",
@@ -90,6 +96,8 @@
     },
     "search": "Filter berdasarkan nama",
     "kinds": "Jenis",
+    "allTypes": "Semua",
+    "typesCount": "Jenis: {{shown}} dari {{total}}",
     "onlyConfirmed": "Hanya yang terkonfirmasi",
     "onlyConnected": "Hanya yang memiliki dependensi",
     "expandAll": "Perluas semua",

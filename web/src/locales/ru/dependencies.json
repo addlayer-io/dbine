@@ -53,7 +53,13 @@
     "calculation_group": "Группа вычислений",
     "role": "Роль",
     "expression": "Выражение",
-    "model": "Семантическая модель"
+    "model": "Семантическая модель",
+    "notebook": "Блокнот",
+    "pipeline": "Конвейер",
+    "query": "Запрос",
+    "report": "Отчёт",
+    "dashboard": "Панель",
+    "file": "Файл"
   },
   "view": {
     "label": "Вид",
@@ -90,6 +96,8 @@
     },
     "search": "Фильтр по имени",
     "kinds": "Типы",
+    "allTypes": "Все",
+    "typesCount": "Типы: {{shown}} из {{total}}",
     "onlyConfirmed": "Только подтверждённые",
     "onlyConnected": "Только с зависимостями",
     "expandAll": "Развернуть всё",

@@ -53,7 +53,13 @@
     "calculation_group": "Grupa obliczeń",
     "role": "Rola",
     "expression": "Wyrażenie",
-    "model": "Model semantyczny"
+    "model": "Model semantyczny",
+    "notebook": "Notebook",
+    "pipeline": "Pipeline",
+    "query": "Zapytanie",
+    "report": "Raport",
+    "dashboard": "Pulpit",
+    "file": "Plik"
   },
   "view": {
     "label": "Widok",
@@ -90,6 +96,8 @@
     },
     "search": "Filtruj według nazwy",
     "kinds": "Typy",
+    "allTypes": "Wszystkie",
+    "typesCount": "Typy: {{shown}} z {{total}}",
     "onlyConfirmed": "Tylko potwierdzone",
     "onlyConnected": "Tylko z zależnościami",
     "expandAll": "Rozwiń wszystko",

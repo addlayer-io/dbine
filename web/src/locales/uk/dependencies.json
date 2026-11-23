@@ -53,7 +53,13 @@
     "calculation_group": "Група обчислень",
     "role": "Роль",
     "expression": "Вираз",
-    "model": "Семантична модель"
+    "model": "Семантична модель",
+    "notebook": "Ноутбук",
+    "pipeline": "Конвеєр",
+    "query": "Запит",
+    "report": "Звіт",
+    "dashboard": "Панель",
+    "file": "Файл"
   },
   "view": {
     "label": "Вигляд",
@@ -90,6 +96,8 @@
     },
     "search": "Фільтр за назвою",
     "kinds": "Типи",
+    "allTypes": "Усі",
+    "typesCount": "Типи: {{shown}} з {{total}}",
     "onlyConfirmed": "Лише підтверджені",
     "onlyConnected": "Лише із залежностями",
     "expandAll": "Розгорнути все",

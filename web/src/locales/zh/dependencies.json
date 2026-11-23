@@ -53,7 +53,13 @@
     "calculation_group": "计算组",
     "role": "角色",
     "expression": "表达式",
-    "model": "语义模型"
+    "model": "语义模型",
+    "notebook": "笔记本",
+    "pipeline": "管道",
+    "query": "查询",
+    "report": "报表",
+    "dashboard": "仪表板",
+    "file": "文件"
   },
   "view": {
     "label": "视图",
@@ -90,6 +96,8 @@
     },
     "search": "按名称筛选",
     "kinds": "类型",
+    "allTypes": "全部",
+    "typesCount": "类型：{{shown}} / {{total}}",
     "onlyConfirmed": "仅已确认",
     "onlyConnected": "仅有依赖关系",
     "expandAll": "全部展开",

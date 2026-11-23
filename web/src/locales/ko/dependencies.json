@@ -53,7 +53,13 @@
     "calculation_group": "계산 그룹",
     "role": "역할",
     "expression": "식",
-    "model": "의미 체계 모델"
+    "model": "의미 체계 모델",
+    "notebook": "노트북",
+    "pipeline": "파이프라인",
+    "query": "쿼리",
+    "report": "보고서",
+    "dashboard": "대시보드",
+    "file": "파일"
   },
   "view": {
     "label": "보기",
@@ -90,6 +96,8 @@
     },
     "search": "이름으로 필터링",
     "kinds": "유형",
+    "allTypes": "전체",
+    "typesCount": "유형: {{shown}}/{{total}}",
     "onlyConfirmed": "확인된 항목만",
     "onlyConnected": "종속성이 있는 항목만",
     "expandAll": "모두 펼치기",

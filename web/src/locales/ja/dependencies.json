@@ -53,7 +53,13 @@
     "calculation_group": "計算グループ",
     "role": "ロール",
     "expression": "式",
-    "model": "セマンティック モデル"
+    "model": "セマンティック モデル",
+    "notebook": "ノートブック",
+    "pipeline": "パイプライン",
+    "query": "クエリ",
+    "report": "レポート",
+    "dashboard": "ダッシュボード",
+    "file": "ファイル"
   },
   "view": {
     "label": "表示",
@@ -90,6 +96,8 @@
     },
     "search": "名前で絞り込み",
     "kinds": "種類",
+    "allTypes": "すべて",
+    "typesCount": "種類: {{shown}} / {{total}}",
     "onlyConfirmed": "確認済みのみ",
     "onlyConnected": "依存関係があるもののみ",
     "expandAll": "すべて展開",
