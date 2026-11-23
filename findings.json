@@ -43,7 +43,7 @@
     {
       "source": "osv",
       "date": "2026-11-23",
-      "revision": "6187ce059ad8",
+      "revision": "ca8472e77177",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 5
@@ -51,7 +51,7 @@
     {
       "source": "trivy",
       "date": "2026-11-23",
-      "revision": "6187ce059ad8",
+      "revision": "ca8472e77177",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -66,11 +66,11 @@
     },
     {
       "source": "scorecard",
-      "date": "2026-11-22",
-      "revision": "83f44cb5510c",
+      "date": "2026-11-23",
+      "revision": "ca8472e77177",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 7.5
+      "score": 7.2
     }
   ],
   "findings": [
@@ -4600,6 +4600,17 @@
       "status": "open"
     },
     {
+      "id": "SC-CI-Tests",
+      "source": "scorecard",
+      "severity": "LOW",
+      "kind": "Repository practice",
+      "title": "CI-Tests: 2/10 — 2 out of 9 merged PRs checked by a CI test -- score normalized to 2",
+      "component": "repository",
+      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
+      "found": "2026-11-23",
+      "status": "open"
+    },
+    {
       "id": "SC-CII-Best-Practices",
       "source": "scorecard",
       "severity": "LOW",
@@ -4648,7 +4659,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Vulnerabilities: 8/10 — 2 existing vulnerabilities detected",
+      "title": "Vulnerabilities: 7/10 — 3 existing vulnerabilities detected",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
       "found": "2026-11-17",
