@@ -54,5 +54,12 @@
     "runTip": "Jalankan hanya pernyataan ini",
     "plan": "Rencana",
     "planTip": "Perkiraan rencana eksekusi pernyataan ini, tanpa menjalankannya"
+  },
+  "proposal": {
+    "title": "Perubahan yang diusulkan AI: tidak diterapkan sampai Anda menerimanya",
+    "accept": "Terima",
+    "reject": "Tolak",
+    "acceptAll": "Terima semua",
+    "rejectAll": "Tolak semua"
   }
 }

@@ -19132,5 +19132,9 @@
   "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "Power BI 관리자여야 하며 설정에서 관리 API를 승인해야 합니다",
   "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "이 사용자는 Power BI 관리 API를 사용할 수 없습니다. Power BI 관리자여야 하며 설정에서 관리 API를 승인해야 합니다",
   "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "Power BI 관리 API를 사용할 수 없습니다. Power BI 관리자여야 하며 설정에서 관리 API를 승인해야 합니다. 모델을 하나씩 읽습니다",
-  "la API de administración es de las conexiones de Power BI": "관리 API는 Power BI 연결용입니다"
+  "la API de administración es de las conexiones de Power BI": "관리 API는 Power BI 연결용입니다",
+  "DBine Bastion no respondió en {0} s": "DBine Bastion이 {0}초 안에 응답하지 않았습니다",
+  "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastion이 {0}초 안에 응답하지 않았습니다: 다시 시도하세요",
+  "no se pudo abrir el canal con DBine Bastion: {0}": "DBine Bastion과 채널을 열 수 없습니다: {0}",
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "DBine Bastion에 연결할 수 없습니다: HTTP error: {0}"
 }

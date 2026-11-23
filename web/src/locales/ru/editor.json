@@ -57,5 +57,12 @@
     "planTip": "Оценочный план выполнения этой инструкции без её выполнения"
   },
   "functionOverloads_few": "+{{count}} перегрузки",
-  "functionOverloads_many": "+{{count}} перегрузок"
+  "functionOverloads_many": "+{{count}} перегрузок",
+  "proposal": {
+    "title": "Изменения, предложенные ИИ: они не применяются, пока вы их не примете",
+    "accept": "Принять",
+    "reject": "Отклонить",
+    "acceptAll": "Принять все",
+    "rejectAll": "Отклонить все"
+  }
 }

@@ -55,5 +55,12 @@
     "runTip": "Nur diese Anweisung ausführen",
     "plan": "Plan",
     "planTip": "Geschätzter Ausführungsplan dieser Anweisung, ohne sie auszuführen"
+  },
+  "proposal": {
+    "title": "Von der KI vorgeschlagene Änderungen: Sie werden erst nach Annahme angewendet",
+    "accept": "Annehmen",
+    "reject": "Ablehnen",
+    "acceptAll": "Alle annehmen",
+    "rejectAll": "Alle ablehnen"
   }
 }

@@ -54,5 +54,12 @@
     "runTip": "仅运行此语句",
     "plan": "计划",
     "planTip": "此语句的预估执行计划，不会运行它"
+  },
+  "proposal": {
+    "title": "AI 建议的修改：接受后才会应用",
+    "accept": "接受",
+    "reject": "拒绝",
+    "acceptAll": "全部接受",
+    "rejectAll": "全部拒绝"
   }
 }

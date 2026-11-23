@@ -10764,6 +10764,12 @@
  "DBine Bastion no permite «{0}»": [
   "src-tauri/src/enterprise/mod.rs"
  ],
+ "DBine Bastion no respondió en {0} s": [
+  "src-tauri/src/enterprise/gateway.rs"
+ ],
+ "DBine Bastion no respondió en {0} s: volvé a intentar": [
+  "src-tauri/src/enterprise/gateway.rs"
+ ],
  "DBine Bastion no tiene el driver «{0}»": [
   "src-tauri/src/enterprise/gateway.rs"
  ],
@@ -57619,6 +57625,9 @@
  "no se pudo abrir el archivo PKCS#12 (¿la frase de contraseña es la correcta?)": [
   "src-tauri/src/secret_sources/https.rs"
  ],
+ "no se pudo abrir el canal con DBine Bastion: {0}": [
+  "src-tauri/src/enterprise/gateway.rs"
+ ],
  "no se pudo abrir el catálogo «{0}»: {1}": [
   "crates/drivers/flightsql/src/lib.rs"
  ],
@@ -58412,6 +58421,9 @@
  ],
  "no se pudo llegar a DBine ({0}). Revisá que DBine esté abierto, con «Permitir celulares» activo, y que el celular esté en la misma red.": [
   "mobile/src-tauri/src/lib.rs"
+ ],
+ "no se pudo llegar a DBine Bastion: HTTP error: {0}": [
+  "src-tauri/src/enterprise/gateway.rs"
  ],
  "no se pudo llegar a DBine Bastion: {0}": [
   "src-tauri/src/enterprise/gateway.rs"

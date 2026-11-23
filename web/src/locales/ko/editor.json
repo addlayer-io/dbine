@@ -54,5 +54,12 @@
     "runTip": "이 문만 실행",
     "plan": "계획",
     "planTip": "이 문의 예상 실행 계획(실행하지 않음)"
+  },
+  "proposal": {
+    "title": "AI가 제안한 변경: 수락하기 전에는 적용되지 않습니다",
+    "accept": "수락",
+    "reject": "거부",
+    "acceptAll": "모두 수락",
+    "rejectAll": "모두 거부"
   }
 }
