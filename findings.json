@@ -43,7 +43,7 @@
     {
       "source": "osv",
       "date": "2026-11-23",
-      "revision": "ca8472e77177",
+      "revision": "119794836a45",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 5
@@ -51,7 +51,7 @@
     {
       "source": "trivy",
       "date": "2026-11-23",
-      "revision": "ca8472e77177",
+      "revision": "119794836a45",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -70,7 +70,7 @@
       "revision": "ca8472e77177",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 7.2
+      "score": 7.3
     }
   ],
   "findings": [
@@ -4575,17 +4575,6 @@
       "advisory": "RUSTSEC-2026-0594",
       "fixed_version": "0.12.0, 0.18.3",
       "found": "2026-11-23",
-      "status": "open"
-    },
-    {
-      "id": "SC-Binary-Artifacts",
-      "source": "scorecard",
-      "severity": "HIGH",
-      "kind": "Repository practice",
-      "title": "Binary-Artifacts: 9/10 — binaries present in source code",
-      "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts",
-      "found": "2026-11-16",
       "status": "open"
     },
     {
