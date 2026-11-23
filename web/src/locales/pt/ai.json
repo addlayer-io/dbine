@@ -150,5 +150,23 @@
     "settingsNav": "Assistente de IA",
     "globalHelp": "Estas instruções valem em todas as conversas do assistente, em qualquer conexão. Para o que vale em uma conexão ou em um banco, use o nó Contextos no explorador.",
     "globalPlaceholder": "Por exemplo: responda em markdown e informe o intervalo de datas de cada análise."
+  },
+  "fix": {
+    "button": "Analisar com IA",
+    "tip": "Pergunta à IA por que falhou. Envia a consulta, o erro e a estrutura do banco; nunca linhas. Só roda se você clicar.",
+    "running": "{{model}} está analisando… {{seconds}} s",
+    "remote": "Enviado para {{provider}}: a consulta, o erro e a estrutura do banco. Nunca linhas.",
+    "cancel": "Cancelar",
+    "noProvider": "Ainda não há uma IA configurada. Escolha um modelo no painel do assistente.",
+    "openSetup": "Configurar IA",
+    "proposed": "Alteração proposta no editor: aceite ou rejeite cada alteração. Nada foi executado.",
+    "stale": "O texto do editor mudou desde que a consulta foi executada, então a alteração não é proposta.",
+    "noChange": "A IA não propõe alterações na consulta.",
+    "noCode": "A resposta não traz uma consulta corrigida.",
+    "dropped": "A proposta foi descartada porque você editou o texto.",
+    "resolved": "Proposta resolvida.",
+    "cancelled": "Cancelado: nada foi alterado.",
+    "again": "Analisar novamente",
+    "failed": "Não foi possível analisar: {{error}}"
   }
 }

@@ -19132,5 +19132,9 @@
   "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "Power BI の管理者であること、および設定で管理 API を承認することが必要です",
   "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "このユーザーは Power BI 管理 API を利用できません。Power BI の管理者であること、および設定で管理 API を承認することが必要です",
   "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "Power BI 管理 API は利用できません。Power BI の管理者であること、および設定で管理 API を承認することが必要です。モデルは1つずつ読み取ります",
-  "la API de administración es de las conexiones de Power BI": "管理 API は Power BI 接続用です"
+  "la API de administración es de las conexiones de Power BI": "管理 API は Power BI 接続用です",
+  "DBine Bastion no respondió en {0} s": "DBine Bastionが{0}秒以内に応答しませんでした",
+  "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastionが{0}秒以内に応答しませんでした：もう一度お試しください",
+  "no se pudo abrir el canal con DBine Bastion: {0}": "DBine Bastionとのチャネルを開けませんでした：{0}",
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "DBine Bastionに接続できませんでした：HTTP error: {0}"
 }

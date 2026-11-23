@@ -60,6 +60,9 @@ export const aiApi = {
   /** `uiLanguage`: the instructions to the model go in it. */
   chat: (chatId: string, provider: AiProviderKind, model: string | null, messages: ChatMessage[], context: ChatContext, uiLanguage: string) =>
     invoke<{ text: string; context: ChatContextItem[] }>('ai_chat', { args: { chat_id: chatId, provider, model, messages, context, ui_language: uiLanguage } }),
+  /** "Analizar con IA" on a failed query: one answer without tools, streamed as `ai-delta` events under `chatId`. */
+  fixError: (chatId: string, provider: AiProviderKind, model: string | null, messages: ChatMessage[], context: ChatContext, uiLanguage: string) =>
+    invoke<{ text: string; context: ChatContextItem[] }>('ai_fix_error', { args: { chat_id: chatId, provider, model, messages, context, ui_language: uiLanguage, with_structure: true } }),
   cancel: (id: string) => invoke<void>('ai_cancel', { args: { id } }),
   /** The user's answer to a read the assistant asked for. */
   approve: (requestId: string, decision: 'approve' | 'approve_all' | 'reject') =>

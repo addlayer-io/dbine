@@ -143,5 +143,23 @@
     "settingsNav": "KI-Assistent",
     "globalHelp": "Diese Anweisungen gelten in allen Unterhaltungen des Assistenten, bei jeder Verbindung. Für das, was nur für eine Verbindung oder Datenbank gilt, verwenden Sie den Knoten Kontexte im Explorer.",
     "globalPlaceholder": "Zum Beispiel: Antworte in Markdown und nenne den Datumsbereich jeder Analyse."
+  },
+  "fix": {
+    "button": "Mit KI analysieren",
+    "tip": "Fragt die KI, warum die Abfrage fehlgeschlagen ist. Gesendet werden die Abfrage, der Fehler und die Datenbankstruktur, niemals Zeilen. Läuft nur, wenn Sie klicken.",
+    "running": "{{model}} analysiert… {{seconds}} s",
+    "remote": "Wird an {{provider}} gesendet: die Abfrage, der Fehler und die Datenbankstruktur. Niemals Zeilen.",
+    "cancel": "Abbrechen",
+    "noProvider": "Es ist noch keine KI eingerichtet. Wählen Sie ein Modell im Assistentenbereich.",
+    "openSetup": "KI einrichten",
+    "proposed": "Änderung im Editor vorgeschlagen: Nehmen Sie jede Änderung an oder lehnen Sie sie ab. Es wurde nichts ausgeführt.",
+    "stale": "Der Editortext hat sich seit der Ausführung der Abfrage geändert, daher wird keine Änderung vorgeschlagen.",
+    "noChange": "Die KI schlägt keine Änderungen an der Abfrage vor.",
+    "noCode": "Die Antwort enthält keine korrigierte Abfrage.",
+    "dropped": "Der Vorschlag wurde verworfen, weil Sie den Text bearbeitet haben.",
+    "resolved": "Vorschlag erledigt.",
+    "cancelled": "Abgebrochen: Es wurde nichts geändert.",
+    "again": "Erneut analysieren",
+    "failed": "Analyse nicht möglich: {{error}}"
   }
 }

@@ -19132,5 +19132,9 @@
   "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "you must be a Power BI admin and authorize the admin API in Settings",
   "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "the Power BI admin API isn't available for this user: you must be a Power BI admin and authorize the admin API in Settings",
   "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "the Power BI admin API isn't available: you must be a Power BI admin and authorize the admin API in Settings; models are read one at a time",
-  "la API de administración es de las conexiones de Power BI": "the admin API is only for Power BI connections"
+  "la API de administración es de las conexiones de Power BI": "the admin API is only for Power BI connections",
+  "DBine Bastion no respondió en {0} s": "DBine Bastion didn't respond in {0} s",
+  "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastion didn't respond in {0} s: try again",
+  "no se pudo abrir el canal con DBine Bastion: {0}": "couldn't open the channel with DBine Bastion: {0}",
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "couldn't reach DBine Bastion: HTTP error: {0}"
 }

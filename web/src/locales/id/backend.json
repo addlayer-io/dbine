@@ -19132,5 +19132,9 @@
   "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "diperlukan peran administrator Power BI dan otorisasi API admin di Pengaturan",
   "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "API admin Power BI tidak tersedia untuk pengguna ini: diperlukan peran administrator Power BI dan otorisasi API admin di Pengaturan",
   "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "API admin Power BI tidak tersedia: diperlukan peran administrator Power BI dan otorisasi API admin di Pengaturan; model dibaca satu per satu",
-  "la API de administración es de las conexiones de Power BI": "API admin hanya untuk koneksi Power BI"
+  "la API de administración es de las conexiones de Power BI": "API admin hanya untuk koneksi Power BI",
+  "DBine Bastion no respondió en {0} s": "DBine Bastion tidak merespons dalam {0} dtk",
+  "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastion tidak merespons dalam {0} dtk: coba lagi",
+  "no se pudo abrir el canal con DBine Bastion: {0}": "tidak dapat membuka kanal dengan DBine Bastion: {0}",
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "tidak dapat menjangkau DBine Bastion: HTTP error: {0}"
 }
