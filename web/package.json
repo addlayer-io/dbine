@@ -23,7 +23,7 @@
     "@dagrejs/dagre": "^3.1.3",
     "@element-plus/icons-vue": "^2.3.0",
     "@replit/codemirror-vim": "6.4.0",
-    "@tauri-apps/api": "~2.12.4",
+    "@tauri-apps/api": "~2.12.5",
     "@tauri-apps/plugin-dialog": "^2.8.4",
     "codemirror": "^6.0.2",
     "echarts": "^6.1.0",
@@ -33,8 +33,8 @@
     "js-beautify": "^2.0.3",
     "leaflet": "1.9.4",
     "pinia": "^2.3.0",
-    "sql-formatter": "^15.9.0",
-    "vue": "^3.5.45"
+    "sql-formatter": "^15.10.0",
+    "vue": "^3.5.46"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
@@ -46,7 +46,7 @@
     "html-to-image": "^1.11.13",
     "sass": "^1.108.2",
     "typescript": "^5.5.0",
-    "typescript-eslint": "^8.72.2",
+    "typescript-eslint": "^8.73.0",
     "vite": "^6.4.6",
     "vue-eslint-parser": "^10.4.2",
     "vue-tsc": "^2.1.0"
