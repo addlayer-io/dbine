@@ -55,6 +55,45 @@ pub fn effective_scope(mut scope: LineageScope, driver_has_jobs: bool) -> Lineag
     scope
 }
 
+/// The scope a database's lineage is read and kept with, and the key it is kept under: the one asked
+/// for, without the jobs where the engine has none. Every read that stores a lineage and the panel's
+/// lookup go through here, so a lookup with the scope a read was asked with finds what it stored.
+pub fn keyed_scope(scope: LineageScope, driver_has_jobs: bool) -> (LineageScope, String) {
+    let scope = effective_scope(scope, driver_has_jobs);
+    let key = scope_key(&scope);
+    (scope, key)
+}
+
+/// The scope the lineage panel opens a whole database with (the web's `panelScope({})`): every schema
+/// and kind, and the server's jobs. The precompute reads this one, so the panel finds it.
+pub fn panel_scope() -> LineageScope {
+    LineageScope {
+        jobs: true,
+        ..Default::default()
+    }
+}
+
+/// The cached lineage of a database for the scope the panel asks with (`lineage_graph_cached`).
+pub fn cached_lineage(
+    state: &AppState,
+    connection_id: &str,
+    database: &str,
+    scope: LineageScope,
+    driver_has_jobs: bool,
+) -> CachedLineage {
+    let (_, key) = keyed_scope(scope, driver_has_jobs);
+    match state.cache_get::<LineageGraph>(connection_id, database, kinds::LINEAGE, &key) {
+        Some((graph, at)) => CachedLineage {
+            graph: Some(graph),
+            updated_at: Some(at),
+        },
+        None => CachedLineage {
+            graph: None,
+            updated_at: None,
+        },
+    }
+}
+
 /// A graph read for a partial purpose (a background search of sources, no consents asked) isn't the
 /// database's lineage: it is never stored under the scope's key.
 pub fn is_cacheable(scope: &LineageScope) -> bool {
@@ -272,8 +311,7 @@ pub async fn get_lineage_chunk(
         driver.script_dialect(),
         driver.capabilities().foreign_keys,
     );
-    let scope = effective_scope(args.scope, driver.capabilities().jobs);
-    let key = scope_key(&scope);
+    let (scope, key) = keyed_scope(args.scope, driver.capabilities().jobs);
     let cacheable = is_cacheable(&scope);
     let mem_key = chunk_key(&args.connection_id, &args.database, &key);
     let _reading = UserRead::begin();
@@ -377,24 +415,13 @@ pub async fn lineage_graph_cached(
         .get_connection(&args.connection_id)?
         .and_then(|c| dbine_drivers::find(&c.config.driver))
         .is_some_and(|d| d.capabilities().jobs);
-    let key = scope_key(&effective_scope(args.scope, jobs));
-    Ok(
-        match state.cache_get::<LineageGraph>(
-            &args.connection_id,
-            &args.database,
-            kinds::LINEAGE,
-            &key,
-        ) {
-            Some((graph, at)) => CachedLineage {
-                graph: Some(graph),
-                updated_at: Some(at),
-            },
-            None => CachedLineage {
-                graph: None,
-                updated_at: None,
-            },
-        },
-    )
+    Ok(cached_lineage(
+        &state,
+        &args.connection_id,
+        &args.database,
+        args.scope,
+        jobs,
+    ))
 }
 
 #[derive(Deserialize)]
@@ -531,6 +558,62 @@ mod tests {
         let state = AppState::new(StateStore::open_in_memory().unwrap());
         let _ = state.cache.set(ExplorerCache::open_in_memory().unwrap());
         state
+    }
+
+    /// The scope the web panel sends (`panelScope` in lineageOpen.ts adds `jobs: true`), as JSON.
+    fn from_panel(json: &str) -> LineageScope {
+        serde_json::from_str(json).unwrap()
+    }
+
+    fn notes(c: CachedLineage) -> Option<Vec<String>> {
+        c.graph.map(|g| g.notes)
+    }
+
+    /// Regression: the panel looked the cache up without the jobs it reads with, so on every engine
+    /// that has jobs (Power BI, SQL Server, Oracle…) each opening read the whole lineage again, a
+    /// half-read one started over, and the precompute was never shown.
+    #[test]
+    fn the_panel_finds_what_the_precompute_stored() {
+        let state = state_with_cache();
+        for (db, jobs) in [("with-jobs", true), ("without-jobs", false)] {
+            let (_, key) = keyed_scope(panel_scope(), jobs);
+            state.cache_put("c1", db, kinds::LINEAGE, &key, &chunk(None, "warm"));
+            assert_eq!(
+                notes(cached_lineage(
+                    &state,
+                    "c1",
+                    db,
+                    from_panel(r#"{"jobs":true}"#),
+                    jobs
+                )),
+                Some(vec!["warm".to_string()]),
+                "{db}"
+            );
+        }
+        // Without the jobs it is another lineage where the engine has them: the panel must look up
+        // with the scope it reads with.
+        assert!(
+            cached_lineage(&state, "c1", "with-jobs", from_panel("{}"), true)
+                .graph
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn the_panel_finds_what_its_own_read_stored() {
+        let state = state_with_cache();
+        let asked = r#"{"schemas":["dbo"],"kinds":["view"],"limit":50,"jobs":true}"#;
+        for (db, jobs) in [("with-jobs", true), ("without-jobs", false)] {
+            // What get_lineage_graph and get_lineage_chunk store for the scope they were asked with.
+            let (read, key) = keyed_scope(from_panel(asked), jobs);
+            assert_eq!(read.jobs, jobs, "the jobs only where the engine has them");
+            state.cache_put("c1", db, kinds::LINEAGE, &key, &chunk(None, "opened"));
+            assert_eq!(
+                notes(cached_lineage(&state, "c1", db, from_panel(asked), jobs)),
+                Some(vec!["opened".to_string()]),
+                "{db}"
+            );
+        }
     }
 
     #[test]

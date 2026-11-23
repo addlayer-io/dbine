@@ -542,12 +542,11 @@ pub async fn get_lineage_graph(
         driver.script_dialect(),
         driver.capabilities().foreign_keys,
     );
-    let scope = lineage_cache::effective_scope(args.scope, driver.capabilities().jobs);
+    let (scope, key) = lineage_cache::keyed_scope(args.scope, driver.capabilities().jobs);
     let database = args.database.clone();
     // The precompute lets this read go first.
     let _reading = lineage_cache::UserRead::begin();
     let cacheable = lineage_cache::is_cacheable(&scope);
-    let key = lineage_cache::scope_key(&scope);
     let graph = state
         .meta_read_on(
             Lane::Long,

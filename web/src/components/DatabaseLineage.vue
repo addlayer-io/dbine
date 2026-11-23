@@ -16,7 +16,7 @@ import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore } from '../stores/tabs';
 import { KIND_ICONS } from '../composables/kindIcons';
 import { ageParts } from '../composables/relativeAge';
-import { openLineage } from '../composables/lineageOpen';
+import { openLineage, panelCalls } from '../composables/lineageOpen';
 import { failedObjects, isPartial, retryChunk, runChunks } from '../composables/lineageChunks';
 import type { LineageGraph } from '../api/types';
 import { readerKind, type LineageNode } from '../composables/lineage';
@@ -110,12 +110,9 @@ async function loadChunked(force: boolean) {
   refreshing.value = true;
   error.value = null;
   refreshError.value = null;
-  const scope = { ...props.scope, jobs: true };
+  const calls = panelCalls(api, props.connectionId, props.database, props.scope);
   await runChunks(
-    {
-      cached: () => api.lineageGraphCached(props.connectionId, props.database, props.scope),
-      chunk: (req) => api.getLineageChunk(props.connectionId, props.database, scope, req),
-    },
+    { cached: calls.cached, chunk: calls.chunk },
     {
       cached: (g, at) => { show(g); track(g); updatedAt.value = at; },
       progress: (g) => track(g),
@@ -144,7 +141,8 @@ async function retryOne(step: LineageStep) {
   if (retrying.value) return;
   retrying.value = true;
   try {
-    const g = await retryChunk({ cached: async () => ({ graph: null, updated_at: null }), chunk: (req) => api.getLineageChunk(props.connectionId, props.database, { ...props.scope, jobs: true }, req) }, step);
+    const { chunk } = panelCalls(api, props.connectionId, props.database, props.scope);
+    const g = await retryChunk({ cached: async () => ({ graph: null, updated_at: null }), chunk }, step);
     track(g);
     refresh(g);
   } catch (e) {
@@ -164,12 +162,9 @@ async function load(force = false) {
   refreshing.value = true;
   error.value = null;
   refreshError.value = null;
-  const scope = { ...props.scope, jobs: true };
+  const calls = panelCalls(api, props.connectionId, props.database, props.scope);
   await openLineage(
-    {
-      cached: () => api.lineageGraphCached(props.connectionId, props.database, props.scope),
-      fetch: () => api.getLineageGraph(props.connectionId, props.database, scope),
-    },
+    { cached: calls.cached, fetch: calls.fetch },
     {
       cached: (g, at) => { if (mine === run) { show(g); updatedAt.value = at; } },
       fresh: (g) => {
