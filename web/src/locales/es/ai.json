@@ -150,5 +150,23 @@
     "settingsNav": "Asistente de IA",
     "globalHelp": "Estas instrucciones van en todas las conversaciones del asistente, en cualquier conexión. Para lo que vale en una conexión o una base, usá el nodo Contextos en el explorador.",
     "globalPlaceholder": "Por ejemplo: respondé en markdown y aclará el rango de fechas de cada análisis."
+  },
+  "fix": {
+    "button": "Analizar con IA",
+    "tip": "Le pregunta a la IA por qué falló. Manda la query, el error y la estructura de la base; nunca filas. Solo corre si la tocás.",
+    "running": "{{model}} está analizando… {{seconds}} s",
+    "remote": "Se envía a {{provider}}: la query, el error y la estructura de la base. Nunca filas.",
+    "cancel": "Cancelar",
+    "noProvider": "Todavía no hay una IA configurada. Elegí un modelo en el panel del asistente.",
+    "openSetup": "Configurar IA",
+    "proposed": "Cambio propuesto en el editor: aceptá o rechazá cada cambio. No se ejecutó nada.",
+    "stale": "El texto del editor cambió desde que se ejecutó la query, así que no se propone el cambio.",
+    "noChange": "La IA no propone cambios en la query.",
+    "noCode": "La respuesta no trae una query corregida.",
+    "dropped": "La propuesta se descartó porque editaste el texto.",
+    "resolved": "Propuesta resuelta.",
+    "cancelled": "Se canceló: no se cambió nada.",
+    "again": "Analizar de nuevo",
+    "failed": "No se pudo analizar: {{error}}"
   }
 }
