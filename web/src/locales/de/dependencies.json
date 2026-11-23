@@ -53,7 +53,13 @@
     "calculation_group": "Berechnungsgruppe",
     "role": "Rolle",
     "expression": "Ausdruck",
-    "model": "Semantikmodell"
+    "model": "Semantikmodell",
+    "notebook": "Notebook",
+    "pipeline": "Pipeline",
+    "query": "Abfrage",
+    "report": "Bericht",
+    "dashboard": "Dashboard",
+    "file": "Datei"
   },
   "view": {
     "label": "Ansicht",
@@ -90,6 +96,8 @@
     },
     "search": "Nach Namen filtern",
     "kinds": "Typen",
+    "allTypes": "Alle",
+    "typesCount": "Typen: {{shown}} von {{total}}",
     "onlyConfirmed": "Nur bestätigte",
     "onlyConnected": "Nur mit Abhängigkeiten",
     "expandAll": "Alle erweitern",

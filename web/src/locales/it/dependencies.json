@@ -53,7 +53,13 @@
     "calculation_group": "Gruppo di calcolo",
     "role": "Ruolo",
     "expression": "Espressione",
-    "model": "Modello semantico"
+    "model": "Modello semantico",
+    "notebook": "Notebook",
+    "pipeline": "Pipeline",
+    "query": "Query",
+    "report": "Report",
+    "dashboard": "Dashboard",
+    "file": "File"
   },
   "view": {
     "label": "Vista",
@@ -90,6 +96,8 @@
     },
     "search": "Filtra per nome",
     "kinds": "Tipi",
+    "allTypes": "Tutti",
+    "typesCount": "Tipi: {{shown}} di {{total}}",
     "onlyConfirmed": "Solo confermate",
     "onlyConnected": "Solo con dipendenze",
     "expandAll": "Espandi tutto",

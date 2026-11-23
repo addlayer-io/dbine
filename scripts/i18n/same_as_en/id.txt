@@ -503,3 +503,6 @@ backend:Snowflake stage
 backend:Timeplus
 dependencies.json:kind.job
 dependencies.json:database.tab
+dependencies.json:kind.notebook
+dependencies.json:kind.pipeline
+dependencies.json:kind.file

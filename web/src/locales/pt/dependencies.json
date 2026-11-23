@@ -53,7 +53,13 @@
     "calculation_group": "Grupo de cálculo",
     "role": "Papel",
     "expression": "Expressão",
-    "model": "Modelo semântico"
+    "model": "Modelo semântico",
+    "notebook": "Notebook",
+    "pipeline": "Pipeline",
+    "query": "Consulta",
+    "report": "Relatório",
+    "dashboard": "Painel",
+    "file": "Arquivo"
   },
   "view": {
     "label": "Visualização",
@@ -90,6 +96,8 @@
     },
     "search": "Filtrar por nome",
     "kinds": "Tipos",
+    "allTypes": "Todos",
+    "typesCount": "Tipos: {{shown}} de {{total}}",
     "onlyConfirmed": "Somente confirmadas",
     "onlyConnected": "Somente com dependências",
     "expandAll": "Expandir tudo",
