@@ -946,7 +946,13 @@ impl StateStore {
     /// ones are added, the rest updated, and those no longer there dropped
     /// (with their saved queries). A saved connection with one of their ids
     /// is left alone.
+    ///
+    /// Every sync calls this, once a minute while a company session is open:
+    /// a connection that is the same as it was keeps its `updated_at` (the
+    /// explorer takes a new one for an edit and forgets that it was
+    /// connected), and nothing is announced when nothing changed.
     pub fn set_managed_connections(&self, conns: &[SavedConnection]) -> Result<()> {
+        let mut changed = false;
         {
             let mut c = self.lock()?;
             let tx = c.transaction().map_err(db_err)?;
@@ -954,14 +960,40 @@ impl StateStore {
             for (i, conn) in conns.iter().enumerate() {
                 let mut config = conn.config.clone();
                 config.password = None;
+                let json = serde_json::to_string(&config)?;
+                let have: Option<(i64, String, Option<String>, String, i64)> = tx
+                    .query_row(
+                        "SELECT temporary, name, color, config_json, sort_order FROM connections WHERE id = ?1",
+                        [&conn.id],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                    )
+                    .optional()
+                    .map_err(db_err)?;
+                match have {
+                    // A saved connection with this id: left alone.
+                    Some((t, ..)) if t != 2 => continue,
+                    // The same as it was (its options may come in another
+                    // order in the JSON: compare the values).
+                    Some((_, name, color, old, order))
+                        if name == conn.name
+                            && color == conn.color
+                            && order == i as i64
+                            && serde_json::from_str::<serde_json::Value>(&old).ok()
+                                == serde_json::from_str::<serde_json::Value>(&json).ok() =>
+                    {
+                        continue
+                    }
+                    _ => {}
+                }
                 tx.execute(
                     "INSERT INTO connections (id, name, color, config_json, save_password, created_at, updated_at, folder_id, tags_json, mcp_level, sort_order, temporary)
                      VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5, NULL, NULL, NULL, ?6, 2)
                      ON CONFLICT(id) DO UPDATE SET name = ?2, color = ?3, config_json = ?4, updated_at = ?5, sort_order = ?6
                      WHERE temporary = 2",
-                    params![conn.id, conn.name, conn.color, serde_json::to_string(&config)?, ts, i as i64],
+                    params![conn.id, conn.name, conn.color, json, ts, i as i64],
                 )
                 .map_err(db_err)?;
+                changed = true;
             }
             let keep: Vec<&str> = conns.iter().map(|c| c.id.as_str()).collect();
             let stale: Vec<String> = {
@@ -986,9 +1018,12 @@ impl StateStore {
                 )
                 .map_err(db_err)?;
             }
+            changed |= !stale.is_empty();
             tx.commit().map_err(db_err)?;
         }
-        self.notify(StateChange::new("connection", None));
+        if changed {
+            self.notify(StateChange::new("connection", None));
+        }
         Ok(())
     }
 
@@ -2708,6 +2743,64 @@ mod tests {
         s.set_managed_connections(&[]).unwrap();
         assert!(s.list_managed_connections().unwrap().is_empty());
         assert_eq!(ids(s.list_connections().unwrap()), ["saved"]);
+    }
+
+    /// DBine Enterprise syncs every minute while a company session is open.
+    /// A sync that changes nothing must not move `updated_at` or announce a
+    /// change: the explorer takes a moved `updated_at` for an edited
+    /// connection and forgets that it was connected (its tree, its tabs).
+    #[test]
+    fn a_sync_that_changes_nothing_touches_nothing() {
+        let s = StateStore::open_in_memory().unwrap();
+        let seen = recording(&s);
+        let managed = |id: &str| {
+            let mut c = conn(id);
+            // Several options: their order in the stored JSON must not matter.
+            for k in ["profile", "b", "c", "d", "e", "f"] {
+                c.config.options.insert(k.into(), format!("{id}-{k}"));
+            }
+            c
+        };
+        let stamps = |s: &StateStore| {
+            s.list_managed_connections()
+                .unwrap()
+                .into_iter()
+                .map(|c| (c.id, c.updated_at))
+                .collect::<Vec<_>>()
+        };
+        s.set_managed_connections(&[managed("ent-a"), managed("ent-b")])
+            .unwrap();
+        assert_eq!(kinds(&seen), ["connection"]);
+        let first = stamps(&s);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        // The same catalog again: nothing moves and nobody hears of it.
+        s.set_managed_connections(&[managed("ent-a"), managed("ent-b")])
+            .unwrap();
+        assert_eq!(stamps(&s), first);
+        assert!(kinds(&seen).is_empty());
+
+        // A rename moves that connection only, and is announced once.
+        let mut renamed = managed("ent-a");
+        renamed.name = "Ventas".into();
+        s.set_managed_connections(&[renamed.clone(), managed("ent-b")])
+            .unwrap();
+        let after = stamps(&s);
+        assert_ne!(after[0].1, first[0].1);
+        assert_eq!(after[1], first[1]);
+        assert_eq!(kinds(&seen), ["connection"]);
+
+        // A new order, a new connection and a gone one are changes too.
+        s.set_managed_connections(&[managed("ent-b"), renamed.clone()])
+            .unwrap();
+        assert_eq!(kinds(&seen), ["connection"]);
+        s.set_managed_connections(&[managed("ent-b"), renamed.clone(), managed("ent-c")])
+            .unwrap();
+        assert_eq!(kinds(&seen), ["connection"]);
+        s.set_managed_connections(&[managed("ent-b"), managed("ent-c")])
+            .unwrap();
+        assert_eq!(kinds(&seen), ["connection"]);
+        assert_eq!(stamps(&s).len(), 2);
     }
 
     #[test]

@@ -837,6 +837,52 @@ impl AppState {
         ids
     }
 
+    /// One company connection lost as a whole (its access was taken away,
+    /// the person keeps the rest): its sessions, tunnels, typed and
+    /// keychain-read secrets and cached tree go from memory; every other
+    /// connection stays.
+    pub fn forget_connection_memory(&self, id: &str) {
+        self.close_connection_sessions(id);
+        self.typed_secrets.remove(id);
+        self.keychain_cache.remove(id);
+        if let Some(cache) = self.cache.get() {
+            let _ = cache.forget_connection(id);
+        }
+    }
+
+    /// Some databases of a company connection lost (`named`, and every one
+    /// not in `keep` when given): the sessions on them close (and the ones
+    /// whose database isn't known), and their kept object lists go. The
+    /// connection and its other databases stay.
+    pub fn forget_database_memory(&self, id: &str, named: &[String], keep: Option<&[String]>) {
+        use crate::enterprise::purge::database_goes;
+        self.functions.forget_connection(id);
+        self.sessions.retain(|_, e| {
+            if e.connection_id != id {
+                return true;
+            }
+            let switched = e.switched_to.lock().ok().and_then(|s| s.clone());
+            let goes = database_goes(&e.database, named, keep)
+                || switched.is_some_and(|d| database_goes(&d, named, keep));
+            if goes {
+                e.cancel.notify_waiters();
+            }
+            !goes
+        });
+        let prefix = meta_key(id, "");
+        self.object_lists.retain(|k, _| {
+            k.strip_prefix(&prefix)
+                .is_none_or(|db| !database_goes(db, named, keep))
+        });
+        if let Some(app) = APP.get() {
+            use tauri::Emitter;
+            let _ = app.emit(
+                "state-changed",
+                serde_json::json!({ "kind": "sessions-closed", "id": null, "connection_id": id, "database": null }),
+            );
+        }
+    }
+
     /// Drop every session of a connection (disconnect, edit, delete). Every
     /// window hears it (`state-changed`, kind `sessions-closed`): a tab of
     /// another window on that connection is now disconnected too.

@@ -214,6 +214,41 @@ impl ExplorerCache {
             .map_err(db_err)
     }
 
+    /// Forget what is cached about some databases of one connection, and its
+    /// own entries (the list of databases and the rest not tied to one: they
+    /// can name what is gone). `keep`: forget every named database *except*
+    /// these (access went from "all" to a list); otherwise exactly `named`.
+    pub fn forget_databases(
+        &self,
+        connection_id: &str,
+        named: &[String],
+        keep: Option<&[String]>,
+    ) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        let rows: Vec<String> = {
+            let mut st = conn
+                .prepare("SELECT DISTINCT database FROM explorer WHERE connection_id = ?1")
+                .map_err(db_err)?;
+            let rows = st
+                .query_map(params![connection_id], |r| r.get::<_, String>(0))
+                .map_err(db_err)?;
+            rows.collect::<rusqlite::Result<_>>().map_err(db_err)?
+        };
+        let mut n = 0;
+        for d in rows {
+            let gone = d.is_empty() || named.contains(&d) || keep.is_some_and(|k| !k.contains(&d));
+            if gone {
+                n += conn
+                    .execute(
+                        "DELETE FROM explorer WHERE connection_id = ?1 AND database = ?2",
+                        params![connection_id, d],
+                    )
+                    .map_err(db_err)?;
+            }
+        }
+        Ok(n)
+    }
+
     /// Forget every connection whose id starts with `prefix`, whatever the
     /// kind (databases, objects, columns, lineage…): the company's data when
     /// its access ends, including entries of connections already gone.
@@ -346,5 +381,32 @@ mod tests {
         assert!(c.get("ent-x", "db", "lineage", "i").unwrap().is_none());
         assert!(c.get("c1", "db", "lineage_sources", "i").unwrap().is_some());
         assert!(c.get("entx", "db", kinds::OBJECTS, "i").unwrap().is_some());
+    }
+
+    #[test]
+    fn forgetting_databases_leaves_the_others_and_other_connections() {
+        let c = ExplorerCache::open_in_memory().unwrap();
+        for conn in ["ent-a", "ent-b"] {
+            c.put(conn, "", kinds::DATABASES, "", r#"["d1","d2"]"#)
+                .unwrap();
+            for d in ["d1", "d2", "d3"] {
+                c.put(conn, d, kinds::OBJECTS, "", "[]").unwrap();
+            }
+        }
+        let d1 = vec!["d1".to_string()];
+        c.forget_databases("ent-a", &d1, None).unwrap();
+        assert_eq!(c.get("ent-a", "d1", kinds::OBJECTS, "").unwrap(), None);
+        assert_eq!(c.get("ent-a", "", kinds::DATABASES, "").unwrap(), None);
+        assert!(c.get("ent-a", "d2", kinds::OBJECTS, "").unwrap().is_some());
+        for d in ["d1", "d2", "d3"] {
+            assert!(c.get("ent-b", d, kinds::OBJECTS, "").unwrap().is_some());
+        }
+        assert!(c.get("ent-b", "", kinds::DATABASES, "").unwrap().is_some());
+        // Access went to [d2]: everything else of ent-b goes.
+        c.forget_databases("ent-b", &[], Some(&["d2".to_string()]))
+            .unwrap();
+        assert!(c.get("ent-b", "d2", kinds::OBJECTS, "").unwrap().is_some());
+        assert_eq!(c.get("ent-b", "d3", kinds::OBJECTS, "").unwrap(), None);
+        assert_eq!(c.get("ent-b", "d1", kinds::OBJECTS, "").unwrap(), None);
     }
 }

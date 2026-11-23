@@ -5,6 +5,8 @@
 ### Fixes
 
 - **The wait when opening a lineage is a setting:** opening the lineage, dependents or references of a very large model or database no longer gives up at 5 minutes. The limit is now 15 minutes by default and **Settings** lets you raise it.
+- **DBine Enterprise: "Ver datos" and the connection no longer hang in "Conectando…":** opening a table's data on a company connection could freeze that connection's channel to DBine Bastion, so every later action on it (connecting, listing databases, running a query) waited for ever. The channel now keeps answering, a connect that Bastion doesn't answer in 30 seconds fails with a message and the next try opens a new channel, and the explorer no longer forgets that a company connection is connected every minute, nor hides its loaded databases and tables behind "Conectando…" while it connects again.
+
 - **Searching Power BI no longer stops at 200 models:** the lineage search and the background warm-up read every model of the workspace. The wait per model (3 minutes by default) and the length of a search (15 minutes) are now **Settings** you can raise for very large models.
 
 ### Improvements
@@ -24,6 +26,8 @@
 ### Fixes
 
 - **DBine Enterprise: when the company ends your access, nothing of it stays:** if your access is revoked, DBine disconnects from the company, closes its sessions and deletes the local data tied to it (connections, saved queries, history, explorer cache, lineage, results and the AI conversations that used it), and tells you why. It happens at once on a revocation, on a refused sign-in, when another person signs in on the computer, and after 24 hours without being able to verify your access.
+
+- **DBine Enterprise: losing part of your access removes only that part:** if the company takes away a database, a connection or a group's access but you keep the rest, DBine closes the sessions on what you lost and deletes only its local data (explorer cache, lineage, saved queries, history, tabs and the AI conversations about it), leaving your other connections and databases untouched. It happens within seconds, and the next sync corrects it if DBine missed the notice. Losing your whole access still deletes everything.
 
 ## [1.7.0] - 2026-11-21
 
