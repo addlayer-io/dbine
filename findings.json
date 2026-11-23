@@ -67,7 +67,7 @@
     {
       "source": "scorecard",
       "date": "2026-11-23",
-      "revision": "119794836a45",
+      "revision": "52a2a48b512d",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.3
@@ -4604,7 +4604,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "CI-Tests: 3/10 — 3 out of 9 merged PRs checked by a CI test -- score normalized to 3",
+      "title": "CI-Tests: 4/10 — 4 out of 10 merged PRs checked by a CI test -- score normalized to 4",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
       "found": "2026-11-23",
@@ -4626,7 +4626,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/9 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/10 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
       "found": "2026-10-21",
