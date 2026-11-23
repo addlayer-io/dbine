@@ -26,6 +26,8 @@
 
 - **DBine Enterprise: when the company ends your access, nothing of it stays:** if your access is revoked, DBine disconnects from the company, closes its sessions and deletes the local data tied to it (connections, saved queries, history, explorer cache, lineage, results and the AI conversations that used it), and tells you why. It happens at once on a revocation, on a refused sign-in, when another person signs in on the computer, and after 24 hours without being able to verify your access.
 
+- **DBine Enterprise: losing part of your access removes only that part:** if the company takes away a database, a connection or a group's access but you keep the rest, DBine closes the sessions on what you lost and deletes only its local data (explorer cache, lineage, saved queries, history, tabs and the AI conversations about it), leaving your other connections and databases untouched. It happens within seconds, and the next sync corrects it if DBine missed the notice. Losing your whole access still deletes everything.
+
 ## [1.7.0] - 2026-11-21
 
 ### New
