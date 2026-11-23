@@ -10,13 +10,14 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vu
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
 import { ElMessage } from 'element-plus';
-import type { LineageScope, SourceCandidate } from '../api/types';
+import type { LineageScope, LineageStep, SourceCandidate } from '../api/types';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore } from '../stores/tabs';
 import { KIND_ICONS } from '../composables/kindIcons';
 import { ageParts } from '../composables/relativeAge';
 import { openLineage } from '../composables/lineageOpen';
+import { failedObjects, isPartial, retryChunk, runChunks } from '../composables/lineageChunks';
 import type { LineageGraph } from '../api/types';
 import { readerKind, type LineageNode } from '../composables/lineage';
 import {
@@ -70,9 +71,93 @@ const updatedText = computed(() => {
   return t('dependencies:database.updated', { ago: t(`dependencies:age.${unit}`, { n }) });
 });
 
+// A big model (Power BI) is read in chunks, each its own short call, and the diagram fills in as they
+// come (laid out again at each stage, not at each chunk); the cache holds what was read so far.
+const CHUNKED = new Set(['powerbi']);
+const chunked = computed(() => CHUNKED.has(driver.value?.id ?? ''));
+/** A complete cached graph younger than this is shown as it is, not read again. */
+const FRESH_MS = 6 * 60 * 60 * 1000;
+const next = ref<LineageStep | null>(null);
+const failed = ref<LineageStep[]>([]);
+const retrying = ref(false);
+const partial = computed(() => isPartial({ next: next.value, failed: failed.value } as LineageGraph));
+const failedCount = computed(() => failedObjects({ failed: failed.value } as LineageGraph));
+const progressText = computed(() => {
+  const n = next.value;
+  if (!n) return '';
+  return t(`dependencies:database.partial.stage.${n.stage}`, { done: n.offset, total: n.total, defaultValue: n.stage });
+});
+const percent = computed(() => {
+  const n = next.value;
+  if (!n || n.stage === 'structure') return 0;
+  if (n.stage === 'consumers') return 95;
+  return Math.min(90, Math.round((n.offset / Math.max(n.total, 1)) * 90));
+});
+function track(g: LineageGraph) {
+  next.value = g.next ?? null;
+  failed.value = g.failed ?? [];
+}
+/** The graph so far drawn again, keeping what the user opened, selected or typed. */
+function refresh(g: LineageGraph) {
+  if (!model.value) return show(g);
+  model.value = buildModel(g);
+  phase.value = 'ready';
+}
+async function loadChunked(force: boolean) {
+  const mine = ++run;
+  const shown = force && !!model.value;
+  if (!shown) phase.value = 'loading';
+  refreshing.value = true;
+  error.value = null;
+  refreshError.value = null;
+  const scope = { ...props.scope, jobs: true };
+  await runChunks(
+    {
+      cached: () => api.lineageGraphCached(props.connectionId, props.database, props.scope),
+      chunk: (req) => api.getLineageChunk(props.connectionId, props.database, scope, req),
+    },
+    {
+      cached: (g, at) => { show(g); track(g); updatedAt.value = at; },
+      progress: (g) => track(g),
+      stage: (g) => refresh(g),
+      done: (g) => {
+        track(g);
+        refresh(g);
+        if (!isPartial(g)) updatedAt.value = new Date().toISOString();
+        now.value = Date.now();
+      },
+      failed: (e, kept) => {
+        if (kept || model.value) refreshError.value = errorMessage(e);
+        else { error.value = errorMessage(e); phase.value = 'error'; }
+      },
+    },
+    {
+      useCache: !force,
+      reuseComplete: (at) => !!at && Date.now() - Date.parse(at) < FRESH_MS,
+      cancelled: () => mine !== run,
+    },
+  );
+  if (mine === run) refreshing.value = false;
+}
+/** "Reintentar": just one chunk that was given up. */
+async function retryOne(step: LineageStep) {
+  if (retrying.value) return;
+  retrying.value = true;
+  try {
+    const g = await retryChunk({ cached: async () => ({ graph: null, updated_at: null }), chunk: (req) => api.getLineageChunk(props.connectionId, props.database, { ...props.scope, jobs: true }, req) }, step);
+    track(g);
+    refresh(g);
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  } finally {
+    retrying.value = false;
+  }
+}
+
 let run = 0;
 /** `force` (the "Actualizar" button) skips the cache and keeps the drawn graph while the server answers. */
 async function load(force = false) {
+  if (chunked.value) return loadChunked(force);
   const mine = ++run;
   const shown = force && !!model.value;
   if (!shown) phase.value = 'loading';
@@ -242,6 +327,16 @@ const filtering = computed(() => !!(filters.value.kinds.length || filters.value.
         <span class="dl-legend"><i class="dl-key dashed" />{{ $t('dependencies:confidence.probable') }}</span>
       </div>
       <p class="dl-note">{{ summary }}<template v-if="updatedText"> · {{ updatedText }}<template v-if="refreshing"> · {{ $t('dependencies:database.updating') }}</template></template></p>
+      <div v-if="partial" class="dl-note warn dl-partial">
+        <strong>{{ $t('dependencies:database.partial.title') }}</strong>
+        <span v-if="next">{{ progressText }}</span>
+        <span v-if="failedCount">{{ $t('dependencies:database.partial.failed', { count: failedCount }) }}</span>
+        <el-progress v-if="refreshing && next" :percentage="percent" :stroke-width="6" style="width: 160px" />
+        <el-button v-if="!refreshing" size="small" type="primary" @click="load()">{{ $t('dependencies:database.partial.complete') }}</el-button>
+        <el-button v-for="f in failed" :key="`${f.stage}@${f.offset}`" size="small" :loading="retrying" @click="retryOne(f)">
+          {{ $t('dependencies:database.partial.retry', { from: f.offset + 1, to: f.offset + f.len }) }}
+        </el-button>
+      </div>
       <p v-if="refreshError" class="dl-note dl-error">{{ $t('dependencies:database.refreshFailed', { error: refreshError }) }}</p>
       <p v-if="overview && !expanded.size" class="dl-note">{{ $t('dependencies:database.overview', { objects, schemas: schemas.length }) }}</p>
       <p v-if="model.truncated" class="dl-note warn">{{ $t('dependencies:database.truncated') }}</p>
@@ -301,4 +396,5 @@ const filtering = computed(() => !!(filters.value.kinds.length || filters.value.
 .dl-center p { max-width: 520px; margin: 0; }
 .dl-wait { min-height: 160px; }
 .dl-error { color: var(--nm-danger); }
+.dl-partial { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 </style>

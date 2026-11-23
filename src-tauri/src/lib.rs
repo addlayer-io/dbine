@@ -434,6 +434,7 @@ pub fn run() {
             commands::explorer::get_job_references,
             commands::explorer::get_lineage_graph,
             commands::lineage_cache::lineage_graph_cached,
+            commands::lineage_cache::get_lineage_chunk,
             commands::lineage_cache::lineage_cache_clear,
             commands::cross::powerbi_authorize_admin,
             commands::cross::lineage_resolve_source,

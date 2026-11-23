@@ -18,8 +18,8 @@
 mod graph;
 mod job_scan;
 pub use graph::{
-    graph_scan, LineageConsumer, LineageEdge, LineageExternal, LineageGraph, LineageJob,
-    LineageScope, GRAPH_DEFINITIONS, GRAPH_OBJECTS,
+    graph_scan, merge_edge, LineageConsumer, LineageEdge, LineageExternal, LineageGraph,
+    LineageJob, LineageScope, LineageStep, GRAPH_DEFINITIONS, GRAPH_OBJECTS,
 };
 pub use job_scan::{job_dependents_scan, job_hit, job_references_scan, merge_jobs, JOBS_READ};
 

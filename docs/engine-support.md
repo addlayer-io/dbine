@@ -4230,6 +4230,35 @@ real server: SAP HANA, Snowflake, Databricks, Power BI, Materialize, RisingWave,
 Redshift, Yellowbrick, Greenplum, EDB and the other PostgreSQL forks, Azure SQL,
 Fabric and Babelfish (unit tests of the queries and the row mapping only).
 
+### Lineage in chunks (Power BI)
+
+A semantic model with thousands of objects can't be read in one call: the dependencies of every measure and
+column in one `INFO.CALCDEPENDENCY()` is what ran past the limit and showed nothing. The lineage of a Power BI
+model is therefore read as a loop of short calls (`get_lineage_chunk`), each with its own limit (the
+`lineage_open_timeout_secs` setting, never more than 180 s, 90 s by default), and the diagram fills in:
+
+| Chunk | What it reads | Cost |
+|---|---|---|
+| `structure` | the nodes, relationships, roles, Power Query sources and names; DAX as tokens when the engine's dependencies aren't asked | the model's metadata (cached 60 s, kept alive while the loop runs); no DAX call |
+| `dependencies` (50 expressions each) | `INFO.CALCDEPENDENCY()` filtered on those expressions' names (`Confirmed`); the tokens (`Probable`) if the engine refuses that batch | one DAX query per batch |
+| `consumers` | the reports and dashboards that read the model | one request per report list and per dashboard (cached 60 s) |
+
+After each chunk the host merges it into the graph so far (`LineageGraph::absorb`) and saves it in the explorer
+cache (`lineage`, same key as the whole graph). `LineageGraph.next` says which chunk follows, so a graph left
+half way resumes there at the next opening; `failed` lists the chunks that failed twice (the loop goes on, the
+banner says how many objects are missing and offers to read just that chunk again). A graph with `next` or
+`failed` is never shown as complete ("Linaje parcial: ..."). Merged, the chunks are the graph the single call
+(`get_lineage_graph`, still used by the search and the precompute) answers: a test checks it with the fake service.
+A complete saved graph younger than 6 h is shown as it is; "Actualizar" reads everything again.
+
+Contract: `LineageScope.step`, `LineageGraph.next` and `LineageGraph.failed` are new fields with
+`#[serde(default)]`; no new `Call` (Bastion's `classify` is unchanged). A driver that doesn't read in chunks
+ignores `step` and answers the whole graph with nothing `next`. Only Power BI reads in chunks so far.
+
+Not covered: against a real tenant the per-batch cost, whether the filtered `INFO.CALCDEPENDENCY()` is cheaper
+than the whole-model query on a model with thousands of expressions, and the 50-expression batch size are
+inferences; nothing here was run on the DBA's 1,700-model tenant.
+
 ### Lineage cache
 
 Reading a database's lineage can take long (every definition, every catalog), so it follows the explorer's

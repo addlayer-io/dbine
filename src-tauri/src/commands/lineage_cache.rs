@@ -8,9 +8,11 @@ use crate::error::CommandResult;
 use crate::state::AppState;
 use chrono::{DateTime, Utc};
 use dbine_core::cache::kinds;
-use dbine_driver::dependencies::{LineageGraph, LineageScope};
+use dbine_driver::dependencies::{LineageGraph, LineageScope, LineageStep};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 use std::time::Duration;
 use tauri::State;
 
@@ -118,6 +120,172 @@ impl Drop for UserRead {
 /// Whether a read the user asked for is running.
 pub fn user_is_reading() -> bool {
     USER_READS.load(Ordering::SeqCst) > 0
+}
+
+// -- the graph read in chunks ----------------------------------------------------------------------
+
+/// A chunk of a graph is its own call with its own limit (the setting that bounds opening a lineage,
+/// at least this and at most [`CHUNK_LIMIT_MAX`]): no single call waits on a whole huge model.
+pub const CHUNK_LIMIT_DEFAULT: u64 = 90;
+pub const CHUNK_LIMIT_MIN: u64 = 10;
+pub const CHUNK_LIMIT_MAX: u64 = 180;
+/// The setting `get_lineage_graph` also uses for its single call.
+pub const OPEN_LIMIT_SETTING: &str = "lineage_open_timeout_secs";
+
+pub fn chunk_limit(setting: Option<&serde_json::Value>) -> Duration {
+    let secs = setting
+        .and_then(|v| v.as_u64().or_else(|| v.as_f64().map(|f| f as u64)))
+        .map_or(CHUNK_LIMIT_DEFAULT, |n| {
+            n.clamp(CHUNK_LIMIT_MIN, CHUNK_LIMIT_MAX)
+        });
+    Duration::from_secs(secs)
+}
+
+/// The graphs being read in chunks, by connection, database and scope: what the chunks so far add up to
+/// (the disk cache has the same, when the company allows it).
+static CHUNKED: Mutex<Option<HashMap<String, LineageGraph>>> = Mutex::new(None);
+
+fn chunk_key(connection_id: &str, database: &str, scope_key: &str) -> String {
+    format!("{connection_id}\u{0}{database}\u{0}{scope_key}")
+}
+
+/// What a chunk adds to the graph so far, or the graph itself when `at` starts the read.
+///
+/// - the start: the chunk is the graph;
+/// - a step: absorbed, and `next` is the chunk's (what the driver says follows);
+/// - a retry of a chunk that had failed: absorbed and no longer failed, `next` stays where it was;
+/// - a chunk given up on (read with `skip`): it is added to `failed`, `next` is the one after it.
+pub fn merge_chunk(
+    so_far: Option<LineageGraph>,
+    chunk: LineageGraph,
+    at: Option<&LineageStep>,
+    retry: bool,
+) -> Result<LineageGraph, String> {
+    let Some(at) = at else {
+        return Ok(chunk);
+    };
+    let Some(mut g) = so_far else {
+        return Err("no hay un linaje a medio leer para continuar: abrilo de nuevo".into());
+    };
+    let next = chunk.next.clone();
+    g.absorb(chunk);
+    if at.skip {
+        let lost = at.as_failed();
+        if !g.failed.contains(&lost) {
+            g.failed.push(lost);
+        }
+        g.next = next;
+    } else if retry {
+        let done = at.as_failed();
+        g.failed.retain(|f| *f != done);
+    } else {
+        g.next = next;
+    }
+    Ok(g)
+}
+
+#[derive(Deserialize)]
+pub struct LineageChunkArgs {
+    pub connection_id: String,
+    pub database: String,
+    #[serde(default)]
+    pub scope: LineageScope,
+    /// The chunk to read (`LineageGraph::next` of what the last call answered); `None`: start over.
+    #[serde(default)]
+    pub step: Option<LineageStep>,
+    /// Read again a chunk that is in `LineageGraph::failed`.
+    #[serde(default)]
+    pub retry: bool,
+    /// Give `step` up (it failed again): it isn't read, it is left in `failed` and the next one is said.
+    #[serde(default)]
+    pub give_up: bool,
+}
+
+/// One chunk of a database's lineage: the graph so far plus what that chunk read, with `next` saying
+/// which chunk to ask for to go on (`null`: it is all there). Every chunk is written to the cache, so a
+/// lineage left half way continues from there at the next opening. A driver that doesn't read in
+/// chunks answers the whole graph at the start, with nothing next.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn get_lineage_chunk(
+    state: State<'_, AppState>,
+    args: LineageChunkArgs,
+) -> CommandResult<LineageGraph> {
+    let id = state
+        .store
+        .get_connection(&args.connection_id)?
+        .map(|c| c.config.driver)
+        .unwrap_or_default();
+    let driver = dbine_drivers::find(&id)
+        .ok_or_else(|| dbine_driver::Error::Unsupported(format!("driver desconocido: {id}")))?;
+    let scan = dbine_driver::DependencyScan::new(
+        driver.info(),
+        driver.script_dialect(),
+        driver.capabilities().foreign_keys,
+    );
+    let mut scope = effective_scope(args.scope, driver.capabilities().jobs);
+    let key = scope_key(&scope);
+    let cacheable = is_cacheable(&scope);
+    let mem_key = chunk_key(&args.connection_id, &args.database, &key);
+    let _reading = UserRead::begin();
+    let mut ask = args.step.clone().unwrap_or_else(LineageStep::start);
+    ask.skip = args.give_up;
+    scope.step = Some(ask);
+    let limit = chunk_limit(
+        state
+            .store
+            .get_setting(OPEN_LIMIT_SETTING)
+            .ok()
+            .flatten()
+            .as_ref(),
+    );
+    let database = args.database.clone();
+    let chunk = state
+        .meta_read_on(
+            crate::state::Lane::Long,
+            &args.connection_id,
+            &args.database,
+            limit,
+            move |s| Box::pin(async move { s.lineage_graph(&database, &scope, &scan).await }),
+        )
+        .await?;
+    let so_far = if args.step.is_some() {
+        CHUNKED
+            .lock()
+            .ok()
+            .and_then(|m| m.as_ref().and_then(|m| m.get(&mem_key).cloned()))
+            .or_else(|| {
+                state
+                    .cache_get::<LineageGraph>(
+                        &args.connection_id,
+                        &args.database,
+                        kinds::LINEAGE,
+                        &key,
+                    )
+                    .map(|(g, _)| g)
+            })
+    } else {
+        None
+    };
+    let graph = merge_chunk(so_far, chunk, args.step.as_ref(), args.retry)
+        .map_err(dbine_driver::Error::Query)?;
+    if let Ok(mut m) = CHUNKED.lock() {
+        let m = m.get_or_insert_with(HashMap::new);
+        if graph.next.is_none() && graph.failed.is_empty() {
+            m.remove(&mem_key);
+        } else {
+            m.insert(mem_key, graph.clone());
+        }
+    }
+    if cacheable {
+        state.cache_put(
+            &args.connection_id,
+            &args.database,
+            kinds::LINEAGE,
+            &key,
+            &graph,
+        );
+    }
+    Ok(graph)
 }
 
 /// The cache's answer: the graph and when it was stored, both `None` when there is nothing (yet).
@@ -372,5 +540,107 @@ mod tests {
         assert!(state
             .cache_get::<LineageGraph>("c1", "db", kinds::LINEAGE, "k")
             .is_none());
+    }
+
+    fn step(stage: &str, offset: u32) -> LineageStep {
+        LineageStep {
+            stage: stage.into(),
+            offset,
+            len: 2,
+            total: 6,
+            skip: false,
+        }
+    }
+
+    fn chunk(next: Option<LineageStep>, note: &str) -> LineageGraph {
+        LineageGraph {
+            notes: vec![note.into()],
+            next,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn chunks_add_up_and_say_what_is_next() {
+        // The start is the graph; a step is added to what there is.
+        let g = merge_chunk(None, chunk(Some(step("dependencies", 0)), "a"), None, false).unwrap();
+        assert_eq!(g.next.as_ref().unwrap().stage, "dependencies");
+        let g = merge_chunk(
+            Some(g),
+            chunk(Some(step("dependencies", 2)), "b"),
+            Some(&step("dependencies", 0)),
+            false,
+        )
+        .unwrap();
+        assert_eq!(g.notes, ["a", "b"]);
+        assert_eq!(g.next.as_ref().unwrap().offset, 2);
+        // A step with nothing to continue from asks to open it again.
+        assert!(merge_chunk(
+            None,
+            chunk(None, "x"),
+            Some(&step("dependencies", 2)),
+            false
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn a_chunk_given_up_is_kept_as_failed_and_a_retry_clears_it() {
+        let g = chunk(Some(step("dependencies", 2)), "a");
+        let lost = LineageStep {
+            skip: true,
+            ..step("dependencies", 2)
+        };
+        let g = merge_chunk(
+            Some(g),
+            chunk(Some(step("dependencies", 4)), "b"),
+            Some(&lost),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            g.failed,
+            [step("dependencies", 2)],
+            "no skip flag on the record"
+        );
+        assert_eq!(g.next.as_ref().unwrap().offset, 4, "goes on after it");
+        // Reading it again later: no longer failed, and the read goes on where it was.
+        let g = merge_chunk(
+            Some(g),
+            chunk(Some(step("dependencies", 4)), "c"),
+            Some(&step("dependencies", 2)),
+            true,
+        )
+        .unwrap();
+        assert!(g.failed.is_empty());
+        assert_eq!(g.next.as_ref().unwrap().offset, 4);
+        assert_eq!(g.notes, ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn a_chunk_has_its_own_short_limit() {
+        use serde_json::json;
+        assert_eq!(chunk_limit(None), Duration::from_secs(90));
+        assert_eq!(chunk_limit(Some(&json!(30))), Duration::from_secs(30));
+        // The setting bounds the whole opening (up to an hour): a chunk never waits that long.
+        assert_eq!(chunk_limit(Some(&json!(3600))), Duration::from_secs(180));
+        assert_eq!(chunk_limit(Some(&json!(1))), Duration::from_secs(10));
+    }
+
+    #[test]
+    fn a_partial_graph_round_trips_through_the_cache() {
+        let state = state_with_cache();
+        let key = scope_key(&LineageScope::default());
+        let mut g = chunk(Some(step("dependencies", 2)), "a");
+        g.failed.push(step("dependencies", 0));
+        state.cache_put("c1", "db", kinds::LINEAGE, &key, &g);
+        let (got, _) = state
+            .cache_get::<LineageGraph>("c1", "db", kinds::LINEAGE, &key)
+            .unwrap();
+        assert_eq!(got.next, g.next);
+        assert_eq!(got.failed, g.failed);
+        // A graph cached before chunks existed has neither: it is complete.
+        let old: LineageGraph = serde_json::from_str(r#"{"objects":[],"edges":[]}"#).unwrap();
+        assert!(old.next.is_none() && old.failed.is_empty());
     }
 }
