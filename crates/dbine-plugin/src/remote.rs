@@ -164,10 +164,6 @@ impl Host {
     ) -> std::result::Result<Arc<Host>, SpawnError> {
         let mut cmd = Command::new(exe);
         cmd.args(args);
-        // The lineage's diagnostic log, when on: the host writes to the same file.
-        if let Some((k, v)) = dbine_driver::diag::host_env() {
-            cmd.env(k, v);
-        }
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

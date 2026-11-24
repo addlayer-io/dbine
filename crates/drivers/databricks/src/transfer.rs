@@ -3145,7 +3145,6 @@ pub(crate) mod tests {
                 http: reqwest::Client::new(),
                 base,
                 auth: crate::Auth::Pat("t".into()),
-                diag_op: Default::default(),
             },
             warehouse: "w".into(),
             catalog: None,

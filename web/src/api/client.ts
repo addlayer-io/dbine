@@ -271,9 +271,6 @@ export const api = {
   deleteQuery: (id: string) => invoke<void>('delete_query', { args: { id } }),
 
   getLogDir: () => invoke<string | null>('get_log_dir'),
-  /** The lineage's diagnostic log: whether it is on, whether that is the build's default, and its file. */
-  getLineageDiag: () => invoke<{ enabled: boolean; default_on: boolean; path: string | null }>('get_lineage_diag'),
-  openLineageDiagFolder: () => invoke<void>('open_lineage_diag_folder'),
 
   monitorSnapshot: (connectionId: string) =>
     invoke<MonitorSnapshot>('monitor_snapshot', { args: { connection_id: connectionId } }),

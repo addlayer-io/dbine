@@ -18,7 +18,6 @@ pub mod backup;
 pub mod config;
 pub mod ddl;
 pub mod dependencies;
-pub mod diag;
 pub mod error;
 pub mod filter;
 pub mod functions;

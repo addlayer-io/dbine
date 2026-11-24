@@ -62,10 +62,6 @@ pub struct LineageScope {
     /// (with `next` empty), so the loop that follows `next` ends after the first call.
     #[serde(default)]
     pub step: Option<LineageStep>,
-    /// The id of the diagnostic log's operation this read belongs to (see [`crate::diag`]), so the
-    /// driver's stages are tied to the app's. Never part of the cache key; empty when the log is off.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub diag_op: Option<String>,
 }
 
 /// One chunk of a graph read in pieces, each its own short call: the stage ("structure": the objects and
@@ -337,15 +333,7 @@ pub async fn graph_scan<S: Session + ?Sized>(
     ctx: &DependencyScan,
 ) -> Result<LineageGraph> {
     let mut g = LineageGraph::default();
-    let op = scope.diag_op.clone().unwrap_or_else(|| "-".into());
-    let mut t_list = crate::diag::DiagTimer::start(&op, "graph_scan.list_objects");
-    let all = s.list_objects().await;
-    t_list.finish(&all);
-    if let Ok(a) = &all {
-        t_list.field("objects", a.len());
-    }
-    drop(t_list);
-    let all = all?;
+    let all = s.list_objects().await?;
     let limit = if scope.limit == 0 {
         GRAPH_OBJECTS
     } else {
@@ -365,14 +353,7 @@ pub async fn graph_scan<S: Session + ?Sized>(
 
     // Foreign keys: the tables a table points at (confirmed).
     if ctx.foreign_keys {
-        let mut t_fk = crate::diag::DiagTimer::start(&op, "graph_scan.foreign_keys");
-        let tables = s.database_schema().await;
-        t_fk.finish(&tables);
-        if let Ok(t) = &tables {
-            t_fk.field("tables", t.len());
-        }
-        drop(t_fk);
-        let tables = tables?;
+        let tables = s.database_schema().await?;
         for t in &tables {
             let me = ObjectRef {
                 kind: kinds::TABLE.to_string(),
@@ -407,9 +388,6 @@ pub async fn graph_scan<S: Session + ?Sized>(
 
     // Code: the names each definition uses, resolved against the list.
     let mut read = 0usize;
-    let mut t_defs = crate::diag::DiagTimer::start(&op, "graph_scan.definitions");
-    t_defs.field("nodes", nodes.len());
-    let mut slowest = 0u128;
     for n in nodes.clone() {
         if !ctx.written_kinds.contains(&n.kind) {
             continue;
@@ -421,12 +399,7 @@ pub async fn graph_scan<S: Session + ?Sized>(
             break;
         }
         read += 1;
-        let began = std::time::Instant::now();
-        let def = s.definition(&n).await;
-        if crate::diag::enabled() {
-            slowest = slowest.max(began.elapsed().as_millis());
-        }
-        match def {
+        match s.definition(&n).await {
             Ok(Some(body)) => {
                 g.scanned += 1;
                 let used = used_names(&body, &ctx.dialect);
@@ -456,17 +429,8 @@ pub async fn graph_scan<S: Session + ?Sized>(
         }
     }
 
-    t_defs.field("read", read).field("slowest_ms", slowest);
-    t_defs
-        .field("unreadable", g.unreadable.len())
-        .field("limit", GRAPH_DEFINITIONS);
-    t_defs.ok();
-    drop(t_defs);
-
     if scope.jobs {
-        let mut t_jobs = crate::diag::DiagTimer::start(&op, "graph_scan.jobs");
         graph_jobs(s, database, ctx, &nodes, &mut g).await;
-        t_jobs.field("job_notes", g.job_notes.len()).ok();
     }
     g.objects = nodes;
     Ok(g)

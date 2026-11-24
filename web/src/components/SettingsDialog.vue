@@ -223,35 +223,6 @@ async function authorizePbiAdmin(id: string) {
     authorizing.value = null;
   }
 }
-// The lineage's diagnostic log: on by default only in test builds; the switch forces it either way.
-const diagInfo = ref<{ enabled: boolean; default_on: boolean; path: string | null }>({ enabled: false, default_on: false, path: null });
-void api.getLineageDiag().then((i) => { diagInfo.value = i; }).catch(() => undefined);
-const lineageDiag = computed({
-  get: () => settings.get<boolean>('lineage_diag', diagInfo.value.default_on),
-  set: (v: boolean) => {
-    void settings.set('lineage_diag', v).then(() => api.getLineageDiag().then((i) => { diagInfo.value = i; }));
-  },
-});
-const lineageDiagHideNames = computed({
-  get: () => settings.get<boolean>('lineage_diag_hide_names', false),
-  set: (v: boolean) => settings.set('lineage_diag_hide_names', v),
-});
-async function openLineageDiagFolder() {
-  try {
-    await api.openLineageDiagFolder();
-  } catch (e) {
-    ElMessage.error(errorMessage(e));
-  }
-}
-async function copyLineageDiagPath() {
-  if (!diagInfo.value.path) return;
-  try {
-    await navigator.clipboard.writeText(diagInfo.value.path);
-    ElMessage.success(t('settings:general.lineageDiagPathCopied'));
-  } catch (e) {
-    ElMessage.error(errorMessage(e));
-  }
-}
 async function clearLineageCache() {
   try {
     await api.lineageCacheClear(null);
@@ -665,18 +636,6 @@ const PROVIDER_HINT: Record<ProviderKind, string> = {
             <el-button @click="clearLineageCache()">{{ $t('settings:general.lineageCacheClear') }}</el-button>
             <el-switch v-model="lineagePrecompute" />
           </div>
-        </div>
-        <div class="st-row">
-          <div><strong>{{ $t('settings:general.lineageDiag') }}</strong><span>{{ $t('settings:general.lineageDiagHelp', { file: 'lineage-diagnostic.log' }) }}</span></div>
-          <div class="st-inline">
-            <el-button @click="openLineageDiagFolder()">{{ $t('settings:general.lineageDiagOpen') }}</el-button>
-            <el-button :disabled="!diagInfo.path" @click="copyLineageDiagPath()">{{ $t('settings:general.lineageDiagCopy') }}</el-button>
-            <el-switch v-model="lineageDiag" />
-          </div>
-        </div>
-        <div class="st-row">
-          <div><strong>{{ $t('settings:general.lineageDiagHideNames') }}</strong><span>{{ $t('settings:general.lineageDiagHideNamesHelp') }}</span></div>
-          <el-switch v-model="lineageDiagHideNames" :disabled="!lineageDiag" />
         </div>
         <div class="st-row">
           <div><strong>{{ $t('settings:general.lineageModelTimeout') }}</strong><span>{{ $t('settings:general.lineageModelTimeoutHelp') }}</span></div>

@@ -11,7 +11,6 @@ mod error;
 mod identifier;
 #[cfg(windows)]
 mod jumplist_windows;
-mod lineage_diag;
 mod lineage_warm;
 mod link;
 mod lint;
@@ -278,7 +277,6 @@ pub fn run() {
                 let state = state.clone();
                 std::thread::spawn(move || commands::scheduled::resync_all(&state));
             }
-            lineage_diag::apply(&state);
             let store = state.store.clone();
             app.manage(state);
             state::set_app_handle(app.handle().clone());
@@ -338,8 +336,6 @@ pub fn run() {
             devtools::dev_report,
             commands::health::health,
             commands::health::get_log_dir,
-            lineage_diag::get_lineage_diag,
-            lineage_diag::open_lineage_diag_folder,
             commands::health::log_ui_error,
             commands::health::save_text_file,
             commands::health::save_binary_file,

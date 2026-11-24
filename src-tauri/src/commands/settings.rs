@@ -33,18 +33,9 @@ pub async fn set_setting(state: State<'_, AppState>, args: SetSettingArgs) -> Co
             std::sync::atomic::Ordering::Relaxed,
         );
     }
-    let done = state
+    Ok(state
         .store
-        .set_setting(&args.key, args.value.as_ref().filter(|v| !v.is_null()));
-    if [
-        crate::lineage_diag::DIAG_SETTING,
-        crate::lineage_diag::HIDE_NAMES_SETTING,
-    ]
-    .contains(&args.key.as_str())
-    {
-        crate::lineage_diag::apply(&state);
-    }
-    Ok(done?)
+        .set_setting(&args.key, args.value.as_ref().filter(|v| !v.is_null()))?)
 }
 
 /// Where "Apoyar el proyecto" goes (Buy Me a Coffee, while GitHub Sponsors
