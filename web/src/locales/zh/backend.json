@@ -19136,5 +19136,8 @@
   "DBine Bastion no respondió en {0} s": "DBine Bastion 在 {0} 秒内未响应",
   "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastion 在 {0} 秒内未响应：请重试",
   "no se pudo abrir el canal con DBine Bastion: {0}": "无法与 DBine Bastion 建立通道：{0}",
-  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "无法连接到 DBine Bastion：HTTP error: {0}"
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "无法连接到 DBine Bastion：HTTP error: {0}",
+  "No se pudo leer el catálogo de dependencias (RDB$DEPENDENCIES): {0}": "无法读取依赖关系目录（RDB$DEPENDENCIES）：{0}",
+  "No se pudo leer el catálogo de dependencias de system.tables: se buscó en las definiciones que se pueden leer.": "无法读取 system.tables 的依赖关系目录：已改为在可读取的定义中搜索。",
+  "no more {0} sessions for {1}/{2}: {3}": "no more {0} sessions for {1}/{2}: {3}"
 }

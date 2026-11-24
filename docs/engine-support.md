@@ -3776,12 +3776,45 @@ routines, triggers, packages, synonyms, aliases, streams, tasks and sinks
   `INFO.CALCDEPENDENCY()` (**Confirmed**) when the account has write
   permission on a model on capacity, else from a DAX-aware scan of the
   definitions (**Probable** / **Review**); the default scan can't read DAX.
-  A model read with only `COLUMNSTATISTICS()` has nothing readable but its
-  tables and columns, and the report says so.
+  The `INFO.CALCDEPENDENCY()` query is filtered on what references the
+  object, so only those rows travel. A model read with only
+  `COLUMNSTATISTICS()` has nothing readable but its tables and columns, and
+  the report says so. Native.
+- **MySQL and MariaDB** (native): the keys that point at the table
+  (`KEY_COLUMN_USAGE`, **Confirmed**); the views from `VIEW_TABLE_USAGE` /
+  `VIEW_ROUTINE_USAGE` on MySQL 8.0.13+ (**Confirmed**, the same query
+  brings the definition for the lines), else the `VIEWS` definitions that
+  contain the name (`LIKE`, in the server) confirmed by the code
+  (**Probable**); routines and triggers the same way (`ROUTINES`,
+  `TRIGGERS`; the engines do not record them); a column's indexes
+  (`STATISTICS`) and checks. Schema, index and constraint targets, other
+  engines of the family (TiDB, OceanBase…) and a refused catalog use the
+  default version, with a note.
+- **ClickHouse**: one `system.tables` read filtered by the object:
+  `dependencies_*` of the target (materialized views, **Confirmed**),
+  `loading_dependencies_*` (dictionaries and defaults, **Confirmed**), and
+  the rows whose `create_table_query` or `engine_full` contain the name,
+  read as `references` reads them (views: **Probable**; Buffer, Dictionary,
+  Distributed on a cluster that has the server). Merge tables show only when
+  their pattern names the table literally. A column also looks at the
+  sorting, partition, primary and sampling keys and the skipping indexes.
+  Native.
+- **Db2 LUW** (ODBC preset): `SYSCAT.VIEWDEP`, `ROUTINEDEP` (and the
+  package's `PACKAGEDEP`), `TRIGDEP`, the triggers on the table, aliases
+  and `SYSCAT.REFERENCES`, filtered by the object and with each source
+  (**Confirmed**); dynamic SQL is found by one `LIKE` over routine and
+  trigger text (**Probable** / **Review**); a column's indexes and checks
+  from `INDEXCOLUSE` and `COLCHECKS`. Native. The other ODBC presets use the
+  default version.
+- **Firebird**: `RDB$DEPENDENCIES WHERE RDB$DEPENDED_ON_NAME = object`
+  (**Confirmed**, per column too: views, routines, packages, triggers,
+  CHECK constraints, expression indexes, computed columns), the foreign
+  keys, and one query for the source that contains the name (lines, and
+  `EXECUTE STATEMENT` text as **Probable** / **Review**). Native.
 - **The other engines**: the default version. In a database with thousands
   of routines it is slow, because it reads each definition separately. The
-  versions with the PostgreSQL catalog (`pg_depend`), Oracle
-  (`ALL_DEPENDENCIES`) and MySQL (`VIEW_TABLE_USAGE`) are pending.
+  PostgreSQL (`pg_depend`) and Oracle (`ALL_DEPENDENCIES`) versions are
+  pending here.
 
 Drivers that run in their own process (those downloaded on demand) answer
 `Dependents` through the protocol; a process published earlier answers that
@@ -4208,7 +4241,7 @@ does and an **Analizar** button, because reading every definition can take long.
 | Snowflake | `ACCOUNT_USAGE.OBJECT_DEPENDENCIES` (**Confirmed**, with its latency), external tables' files; tasks stay nodes |
 | Databricks | `system.access.table_lineage` (**Confirmed**, last 365 days, up to 200,000 rows): jobs, notebooks, pipelines, queries and dashboards as external sources; definitions and foreign keys from the default scan |
 | MongoDB | the views' `viewOn` and pipelines (`$lookup`, `$graphLookup`, `$unionWith`) (**Confirmed**) |
-| Power BI | `INFO.CALCDEPENDENCY()` for the whole model (**Confirmed** with write permission on a model on capacity; else the DAX is resolved against the model: **Probable**), relationships, roles' table filters, and each partition's Power Query sources as external sources |
+| Power BI | `INFO.CALCDEPENDENCY()` for the whole model in the lineage (and filtered by the object in dependents) (**Confirmed** with write permission on a model on capacity; else the DAX is resolved against the model: **Probable**), relationships, roles' table filters, and each partition's Power Query sources as external sources |
 
 Every other engine with **View dependencies…** uses the default version. What
 is left out, and why:

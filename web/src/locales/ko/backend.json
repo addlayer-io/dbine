@@ -19136,5 +19136,8 @@
   "DBine Bastion no respondió en {0} s": "DBine Bastion이 {0}초 안에 응답하지 않았습니다",
   "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastion이 {0}초 안에 응답하지 않았습니다: 다시 시도하세요",
   "no se pudo abrir el canal con DBine Bastion: {0}": "DBine Bastion과 채널을 열 수 없습니다: {0}",
-  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "DBine Bastion에 연결할 수 없습니다: HTTP error: {0}"
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "DBine Bastion에 연결할 수 없습니다: HTTP error: {0}",
+  "No se pudo leer el catálogo de dependencias (RDB$DEPENDENCIES): {0}": "종속성 카탈로그(RDB$DEPENDENCIES)를 읽을 수 없습니다: {0}",
+  "No se pudo leer el catálogo de dependencias de system.tables: se buscó en las definiciones que se pueden leer.": "system.tables의 종속성 카탈로그를 읽을 수 없습니다. 읽을 수 있는 정의에서 검색했습니다.",
+  "no more {0} sessions for {1}/{2}: {3}": "no more {0} sessions for {1}/{2}: {3}"
 }

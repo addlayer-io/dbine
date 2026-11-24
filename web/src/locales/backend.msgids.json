@@ -29674,11 +29674,18 @@
  "No se pudo leer el archivo «{0}»: {1}.": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
+ "No se pudo leer el catálogo de dependencias (RDB$DEPENDENCIES): {0}": [
+  "crates/drivers/firebird/src/dependents.rs"
+ ],
  "No se pudo leer el catálogo de dependencias (SYSCAT): {0}": [
+  "crates/drivers/odbc/src/dependents.rs",
   "crates/drivers/odbc/src/lineage.rs"
  ],
  "No se pudo leer el catálogo de dependencias ({0}): se muestran solo sus claves foráneas y los nombres que usa su definición.": [
   "crates/drivers/postgres/src/pg_references.rs"
+ ],
+ "No se pudo leer el catálogo de dependencias de system.tables: se buscó en las definiciones que se pueden leer.": [
+  "crates/drivers/clickhouse/src/dependents.rs"
  ],
  "No se pudo leer el cluster manager ({0}): faltan CPU, memoria, disco y buckets (hace falta el rol de lectura del cluster).": [
   "crates/drivers/couchbase/src/lib.rs"
@@ -57383,6 +57390,9 @@
  ],
  "no legacy backend": [
   "crates/drivers/sqlserver/src/legacy_tls_live.rs"
+ ],
+ "no more {0} sessions for {1}/{2}: {3}": [
+  "src-tauri/src/state.rs"
  ],
  "no parece una URL ni una cadena de conexión": [
   "crates/dbine-core/src/conn_import/urls.rs"
