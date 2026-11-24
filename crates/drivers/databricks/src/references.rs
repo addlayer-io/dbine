@@ -138,6 +138,7 @@ fn entities(entry: &Json) -> Vec<Entity> {
     out
 }
 
+#[cfg(test)]
 pub(crate) fn parse_lineage(resp: &Json) -> Lineage {
     parse_side(resp, "upstreams")
 }
