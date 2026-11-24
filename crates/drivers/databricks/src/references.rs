@@ -29,11 +29,19 @@ use dbine_driver::dependencies::{
     MAX_MENTIONS,
 };
 use dbine_driver::{kinds, DbObject, Error, ObjectQuery, Result, Session};
-use serde_json::Value as Json;
+use serde_json::{json, Value as Json};
 
 pub(crate) const LINEAGE_PATH: &str = "/api/2.0/lineage-tracking/table-lineage";
-/// Names of jobs and pipelines looked up for one report, at most.
-const NAME_LOOKUPS: usize = 10;
+/// Names looked up for one report, at most.
+const NAME_LOOKUPS: usize = 100;
+/// Name lookups in flight at once.
+const NAME_PARALLEL: usize = 8;
+/// How long a name found stays valid in memory.
+const NAME_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
+/// Pages of one lineage answer followed, at most.
+const LINEAGE_PAGES: usize = 20;
+/// The lineage API's cap on what one level of a table returns is paged by `next_page_token`.
+const PAGE_TOKEN: &str = "page_token";
 
 /// Lineage couldn't be read.
 pub(crate) const NO_LINEAGE: &str = "El linaje de Unity Catalog no está disponible para este objeto (hace falta BROWSE o SELECT sobre la tabla y un catálogo de Unity Catalog): lo que usa sale de su definición, sin confirmar.";
@@ -131,9 +139,14 @@ fn entities(entry: &Json) -> Vec<Entity> {
 }
 
 pub(crate) fn parse_lineage(resp: &Json) -> Lineage {
+    parse_side(resp, "upstreams")
+}
+
+/// One side of a lineage answer: `upstreams` (what the table reads) or `downstreams` (what reads it).
+pub(crate) fn parse_side(resp: &Json, side: &str) -> Lineage {
     let mut l = Lineage::default();
     for entry in resp
-        .get("upstreams")
+        .get(side)
         .and_then(Json::as_array)
         .into_iter()
         .flatten()
@@ -318,9 +331,10 @@ impl DatabricksSession {
             code_refs(self, target, scan, &catalog, "Databricks", &mut r).await?;
             r
         } else {
-            // A table: its foreign keys (on the warehouse). Lineage doesn't
-            // need it: a failure only leaves the keys out.
-            match references_scan(self, target, scan).await {
+            // A table: its own foreign keys (one query on the warehouse, never
+            // the whole catalog's). Lineage doesn't need it: a failure only
+            // leaves the keys out.
+            match self.own_foreign_keys(&t, scan).await {
                 Ok(r) => r,
                 Err(e) => {
                     tracing::debug!("databricks foreign keys of {}: {e}", t.name);
@@ -346,9 +360,7 @@ impl DatabricksSession {
             let lineage = if catalog.eq_ignore_ascii_case(HIVE_METASTORE) {
                 Err(Error::Unsupported(HIVE_METASTORE.into()))
             } else {
-                self.api
-                    .get_query(LINEAGE_PATH, &lineage_query(&catalog, &schema, &t.name))
-                    .await
+                self.table_lineage(&catalog, &schema, &t.name).await
             };
             match lineage {
                 Ok(resp) => {
@@ -367,33 +379,395 @@ impl DatabricksSession {
         Ok(report)
     }
 
-    /// Jobs' and pipelines' names (`jobs/get`, `pipelines/{id}`), at most
-    /// [`NAME_LOOKUPS`]; one that can't be read keeps its id.
-    pub(crate) async fn entity_names(&self, entities: &[Entity]) -> Vec<(String, String)> {
+    /// The lineage of one table from the API, every page of it: `upstreams` and `downstreams`.
+    pub(crate) async fn table_lineage(
+        &self,
+        catalog: &str,
+        schema: &str,
+        table: &str,
+    ) -> Result<Json> {
+        let mut ups: Vec<Json> = Vec::new();
+        let mut downs: Vec<Json> = Vec::new();
+        let mut token: Option<String> = None;
+        for _ in 0..LINEAGE_PAGES {
+            let mut q = lineage_query(catalog, schema, table);
+            if let Some(t) = token.take() {
+                q.push((PAGE_TOKEN, t));
+            }
+            let r = self.api.get_query(LINEAGE_PATH, &q).await?;
+            for (side, out) in [("upstreams", &mut ups), ("downstreams", &mut downs)] {
+                if let Some(a) = r.get(side).and_then(Json::as_array) {
+                    out.extend(a.iter().cloned());
+                }
+            }
+            token = r
+                .get("next_page_token")
+                .and_then(Json::as_str)
+                .filter(|t| !t.is_empty())
+                .map(str::to_string);
+            if token.is_none() {
+                break;
+            }
+        }
+        Ok(json!({ "upstreams": ups, "downstreams": downs }))
+    }
+
+    /// A table's own foreign keys, as what it uses (one query).
+    async fn own_foreign_keys(
+        &mut self,
+        t: &dbine_driver::ObjectRef,
+        scan: &DependencyScan,
+    ) -> Result<DependencyReport> {
+        let mut report = DependencyReport::default();
+        if scan.foreign_keys && t.kind == kinds::TABLE {
+            let schema = t
+                .schema()
+                .or(self.schema.as_deref())
+                .unwrap_or("default")
+                .to_string();
+            let sql = crate::index_usage::foreign_keys_sql(self.catalog()?);
+            let rows = self.text_rows(&sql, &[&schema, &t.name]).await?;
+            report
+                .items
+                .extend(dbine_driver::dependencies::foreign_key_parents(
+                    &crate::index_usage::foreign_keys(&rows),
+                    t,
+                ));
+        }
+        Ok(report)
+    }
+
+    /// What reads one table or view (`Session::dependents`), the native way: the lineage API's
+    /// `downstreams` (confirmed, with the jobs and notebooks that carried each line), the views
+    /// whose definition names it (one query over the catalog's `information_schema.views`,
+    /// probable) and the tables whose foreign keys point at it. Never every definition of the
+    /// catalog. Without lineage (no access, no Unity Catalog, `hive_metastore`) or for anything
+    /// else (a function, a column) it is the contract's scan, as before.
+    pub(crate) async fn dependents_of(
+        &mut self,
+        target: &DependencyTarget,
+        scan: &DependencyScan,
+    ) -> Result<DependencyReport> {
+        let t = target.object.clone();
+        let catalog = self.catalog().map(str::to_string).ok();
+        let object = matches!(
+            t.kind.as_str(),
+            kinds::TABLE | kinds::VIEW | kinds::MATERIALIZED_VIEW
+        ) && target.column.is_none();
+        let Some(catalog) = catalog.filter(|c| object && !c.eq_ignore_ascii_case(HIVE_METASTORE))
+        else {
+            return dbine_driver::dependencies::scan(self, target, scan).await;
+        };
+        let schema = t
+            .schema()
+            .or(self.schema.as_deref())
+            .unwrap_or("default")
+            .to_string();
+        let resp = match self.table_lineage(&catalog, &schema, &t.name).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::debug!("databricks lineage of {catalog}.{schema}.{}: {e}", t.name);
+                let mut r = dbine_driver::dependencies::scan(self, target, scan).await?;
+                r.note = Some(NO_LINEAGE.into());
+                return Ok(r);
+            }
+        };
+        let l = parse_side(&resp, "downstreams");
+        let names = self.entity_names(&l.entities).await;
+        let base = self.api.base.clone();
+        let mut report = DependencyReport::default();
+        merge_downstream(&mut report, &l, &catalog, &t, &base, &names);
+        // What lineage hasn't seen: the views that name it, and the foreign keys that point at it.
+        match self.view_mentions(&catalog, &t, target, scan).await {
+            Ok(items) => {
+                for d in items {
+                    add(&mut report.items, d);
+                }
+            }
+            Err(e) => tracing::debug!("databricks views naming {}: {e}", t.name),
+        }
+        if scan.foreign_keys && t.kind == kinds::TABLE {
+            match self.foreign_key_children(&catalog, &schema, &t.name).await {
+                Ok(items) => {
+                    for d in items {
+                        add(&mut report.items, d);
+                    }
+                }
+                Err(e) => {
+                    tracing::debug!("databricks foreign keys to {}: {e}", t.name);
+                    report.unreadable.push(format!("{schema}.{}", t.name));
+                }
+            }
+        }
+        sort(&mut report.items);
+        Ok(report)
+    }
+
+    /// The views of the catalog whose definition contains the table's name: one filtered query,
+    /// then the contract's own check of each body.
+    async fn view_mentions(
+        &mut self,
+        catalog: &str,
+        t: &dbine_driver::ObjectRef,
+        target: &DependencyTarget,
+        scan: &DependencyScan,
+    ) -> Result<Vec<Dependent>> {
+        let sql = views_naming_sql(catalog);
+        let like = format!("%{}%", t.name.to_ascii_lowercase());
+        let rows = self.text_rows(&sql, &[&like]).await?;
         let mut out = Vec::new();
+        for r in rows {
+            let c = |i: usize| r.get(i).cloned().flatten();
+            let (Some(schema), Some(name), Some(body)) = (c(0), c(1), c(2)) else {
+                continue;
+            };
+            if name.eq_ignore_ascii_case(&t.name)
+                && t.schema().is_some_and(|s| s.eq_ignore_ascii_case(&schema))
+            {
+                continue;
+            }
+            if let Some((confidence, mentions)) =
+                dbine_driver::dependencies::find_mentions(&body, &scan.dialect, target)
+            {
+                out.push(Dependent {
+                    kind: kinds::VIEW.to_string(),
+                    schema: Some(schema),
+                    name,
+                    parent: None,
+                    relation: Relation::Code,
+                    confidence,
+                    detail: None,
+                    mentions,
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// The tables whose foreign keys point at `schema.table` (confirmed).
+    async fn foreign_key_children(
+        &mut self,
+        catalog: &str,
+        schema: &str,
+        table: &str,
+    ) -> Result<Vec<Dependent>> {
+        let rows = self
+            .text_rows(&foreign_key_children_sql(catalog), &[schema, table])
+            .await?;
+        let mut out: Vec<Dependent> = Vec::new();
+        for r in rows {
+            let c = |i: usize| r.get(i).cloned().flatten();
+            let (Some(name), Some(sch), Some(tab)) = (c(0), c(1), c(2)) else {
+                continue;
+            };
+            let d = Dependent {
+                kind: kinds::TABLE.to_string(),
+                schema: Some(sch),
+                name: tab,
+                parent: None,
+                relation: Relation::ForeignKey,
+                confidence: Confidence::Confirmed,
+                detail: Some(name),
+                mentions: Vec::new(),
+            };
+            add(&mut out, d);
+        }
+        Ok(out)
+    }
+
+    /// The names of jobs, pipelines, queries and dashboards by id, at most [`NAME_LOOKUPS`] and
+    /// [`NAME_PARALLEL`] at a time; a name found is kept for [`NAME_TTL`]. One that can't be read
+    /// keeps its id (the notebooks too: Databricks has no call that gives a notebook's path from
+    /// its object id).
+    pub(crate) async fn entity_names(&self, entities: &[Entity]) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
+        let mut todo: Vec<Entity> = Vec::new();
         for e in entities
             .iter()
-            .filter(|e| matches!(e.kind.as_str(), "job" | "pipeline"))
-            .take(NAME_LOOKUPS)
+            .filter(|e| matches!(e.kind.as_str(), "job" | "pipeline" | "query" | "dashboard"))
         {
-            let name = if e.kind == "job" {
-                self.api
-                    .get_query("/api/2.1/jobs/get", &[("job_id", e.id.clone())])
-                    .await
-                    .ok()
-                    .and_then(|j| j.pointer("/settings/name")?.as_str().map(str::to_string))
-            } else {
-                self.api
-                    .get(&format!("/api/2.0/pipelines/{}", escape(&e.id)))
-                    .await
-                    .ok()
-                    .and_then(|p| p.get("name")?.as_str().map(str::to_string))
-            };
-            if let Some(n) = name {
-                out.push((e.id.clone(), n));
+            if out.iter().any(|(id, _)| *id == e.id) || todo.iter().any(|t| t.id == e.id) {
+                continue;
+            }
+            match cached_name(&self.api.base, e) {
+                Some(n) => out.push((e.id.clone(), n)),
+                None => todo.push(e.clone()),
+            }
+        }
+        todo.truncate(NAME_LOOKUPS);
+        let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(NAME_PARALLEL));
+        let mut set = tokio::task::JoinSet::new();
+        for e in todo {
+            let (api, gate) = (self.api.clone(), gate.clone());
+            set.spawn(async move {
+                let _slot = gate.acquire().await.ok();
+                let name = lookup_name(&api, &e).await;
+                (api.base.clone(), e, name)
+            });
+        }
+        while let Some(done) = set.join_next().await {
+            if let Ok((base, e, Some(n))) = done {
+                keep_name(&base, &e, &n);
+                out.push((e.id, n));
             }
         }
         out
+    }
+}
+
+type NameKey = (String, String, String);
+type NameCache = std::collections::HashMap<NameKey, (std::time::Instant, String)>;
+static NAMES: std::sync::Mutex<Option<NameCache>> = std::sync::Mutex::new(None);
+
+fn name_key(base: &str, e: &Entity) -> NameKey {
+    (base.to_string(), e.kind.clone(), e.id.clone())
+}
+
+fn cached_name(base: &str, e: &Entity) -> Option<String> {
+    let g = NAMES.lock().ok()?;
+    let (at, n) = g.as_ref()?.get(&name_key(base, e))?;
+    (at.elapsed() < NAME_TTL).then(|| n.clone())
+}
+
+fn keep_name(base: &str, e: &Entity, n: &str) {
+    if let Ok(mut g) = NAMES.lock() {
+        g.get_or_insert_with(Default::default).insert(
+            name_key(base, e),
+            (std::time::Instant::now(), n.to_string()),
+        );
+    }
+}
+
+/// What names `e` in the workspace: the field of the answer that holds the name.
+async fn lookup_name(api: &crate::Api, e: &Entity) -> Option<String> {
+    let id = escape(&e.id);
+    let text = |j: &Json, p: &str| j.pointer(p)?.as_str().map(str::to_string);
+    match (e.kind.as_str(), e.v3) {
+        ("job", _) => text(
+            &api.get_query("/api/2.1/jobs/get", &[("job_id", e.id.clone())])
+                .await
+                .ok()?,
+            "/settings/name",
+        ),
+        ("pipeline", _) => text(
+            &api.get(&format!("/api/2.0/pipelines/{id}")).await.ok()?,
+            "/name",
+        ),
+        ("query", _) => {
+            if let Ok(q) = api.get(&format!("/api/2.0/sql/queries/{id}")).await {
+                if let Some(n) = text(&q, "/display_name") {
+                    return Some(n);
+                }
+            }
+            text(
+                &api.get(&format!("/api/2.0/preview/sql/queries/{id}"))
+                    .await
+                    .ok()?,
+                "/name",
+            )
+        }
+        ("dashboard", true) => text(
+            &api.get(&format!("/api/2.0/lakeview/dashboards/{id}"))
+                .await
+                .ok()?,
+            "/display_name",
+        ),
+        ("dashboard", false) => text(
+            &api.get(&format!("/api/2.0/preview/sql/dashboards/{id}"))
+                .await
+                .ok()?,
+            "/name",
+        ),
+        _ => None,
+    }
+}
+
+/// The views of the catalog whose lower-cased definition contains `:p0` (a `LIKE` pattern).
+fn views_naming_sql(catalog: &str) -> String {
+    format!(
+        "SELECT table_schema, table_name, view_definition FROM {}.information_schema.views \
+         WHERE table_schema <> 'information_schema' AND lower(view_definition) LIKE :p0",
+        dbine_driver::sql::quote_ident(dbine_driver::sql::Quote::Backtick, catalog)
+    )
+}
+
+/// The foreign keys that reference table `:p1` of schema `:p0`: constraint, schema, table.
+fn foreign_key_children_sql(catalog: &str) -> String {
+    let is = format!(
+        "{}.information_schema",
+        dbine_driver::sql::quote_ident(dbine_driver::sql::Quote::Backtick, catalog)
+    );
+    format!(
+        "SELECT DISTINCT k.constraint_name, k.table_schema, k.table_name \
+         FROM {is}.referential_constraints r \
+         JOIN {is}.key_column_usage k ON k.constraint_schema = r.constraint_schema AND k.constraint_name = r.constraint_name \
+         JOIN {is}.key_column_usage u ON u.constraint_schema = r.unique_constraint_schema AND u.constraint_name = r.unique_constraint_name \
+         WHERE u.table_schema = :p0 AND u.table_name = :p1"
+    )
+}
+
+/// Adds what reads the table, from lineage's `downstreams`: this catalog's tables as confirmed
+/// items; the notebooks, jobs, pipelines, queries and dashboards that read it, and the tables
+/// of other catalogs, as readers outside (`external_users`).
+pub(crate) fn merge_downstream(
+    report: &mut DependencyReport,
+    l: &Lineage,
+    catalog: &str,
+    target: &dbine_driver::ObjectRef,
+    base: &str,
+    names: &[(String, String)],
+) {
+    for t in &l.tables {
+        let same = t.catalog.eq_ignore_ascii_case(catalog)
+            && t.name.eq_ignore_ascii_case(&target.name)
+            && target
+                .schema()
+                .is_some_and(|s| s.eq_ignore_ascii_case(&t.schema));
+        if same {
+            continue;
+        }
+        if t.catalog.eq_ignore_ascii_case(catalog) {
+            add(
+                &mut report.items,
+                Dependent {
+                    kind: crate::stats::kind_of(&t.table_type).to_string(),
+                    schema: Some(t.schema.clone()),
+                    name: t.name.clone(),
+                    parent: None,
+                    relation: Relation::Code,
+                    confidence: Confidence::Confirmed,
+                    detail: via_detail(&t.via),
+                    mentions: Vec::new(),
+                },
+            );
+        } else {
+            add_external(
+                &mut report.external_users,
+                ExternalRef {
+                    system: Some("Databricks".into()),
+                    database: Some(t.catalog.clone()),
+                    schema: Some(t.schema.clone()),
+                    name: Some(t.name.clone()),
+                    detail: Some(t.table_type.clone()).filter(|x| !x.is_empty()),
+                    ..Default::default()
+                },
+            );
+        }
+    }
+    for e in &l.entities {
+        let name = names
+            .iter()
+            .find(|(id, _)| *id == e.id)
+            .map_or_else(|| e.id.clone(), |(_, n)| n.clone());
+        add_external(
+            &mut report.external_users,
+            ExternalRef {
+                system: Some(format!("Databricks {}", e.kind)),
+                name: Some(name),
+                detail: entity_url(base, e),
+                ..Default::default()
+            },
+        );
     }
 }
 
@@ -936,5 +1310,234 @@ mod tests {
         let r = s.references_of(&t, &scan()).await.unwrap();
         assert_eq!(r.note.as_deref(), Some(NO_LINEAGE));
         assert!(!seen.lock().unwrap().iter().any(|a| a.contains("lineage")));
+    }
+
+    // --- What reads a table: the lineage API, not the catalog's definitions.
+
+    const VIEW_BODY: &str = "CREATE VIEW sales.v_dinner AS SELECT * FROM sales.dinner";
+
+    /// A workspace for `dependents_of`: the table-lineage API (`pages` of it), the names of what
+    /// ran, and the two catalog queries it may ask (views naming the table, foreign keys to it).
+    /// Gives the base URL and what was asked (`METHOD path?query`, statements by their text).
+    async fn readers_workspace(status: u16, pages: bool) -> (String, Arc<Mutex<Vec<String>>>) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let base = serve(Arc::new(move |m, p, body| {
+            let (path, query) = p.split_once('?').unwrap_or((p, ""));
+            log.lock().unwrap().push(format!("{m} {p}"));
+            let rows = |r: Json| {
+                json!({ "statement_id": "s", "status": { "state": "SUCCEEDED" }, "result": { "data_array": r } })
+                    .to_string()
+            };
+            match (m, path) {
+                ("GET", LINEAGE_PATH) if status != 200 => (
+                    status,
+                    json!({ "error_code": "PERMISSION_DENIED", "message": "no" }).to_string(),
+                ),
+                ("GET", LINEAGE_PATH) if pages && !query.contains("page_token") => (
+                    200,
+                    json!({
+                        "downstreams": [{ "tableInfo": { "name": "page_one", "catalog_name": "main", "schema_name": "sales", "table_type": "TABLE" } }],
+                        "next_page_token": "t2"
+                    })
+                    .to_string(),
+                ),
+                ("GET", LINEAGE_PATH) if pages => (
+                    200,
+                    json!({ "downstreams": [{ "tableInfo": { "name": "page_two", "catalog_name": "main", "schema_name": "sales", "table_type": "TABLE" } }] })
+                        .to_string(),
+                ),
+                ("GET", LINEAGE_PATH) => (200, FIXTURE.to_string()),
+                ("GET", "/api/2.1/jobs/get") => (
+                    200,
+                    json!({ "job_id": 774, "settings": { "name": "nightly load" } }).to_string(),
+                ),
+                // The catalog's listing, for the contract's scan the fallback runs.
+                ("GET", "/api/2.1/unity-catalog/catalogs/main") => (200, r#"{"name":"main"}"#.into()),
+                ("GET", "/api/2.1/unity-catalog/table-summaries") => (
+                    200,
+                    r#"{"tables":[{"full_name":"main.sales.dinner","table_type":"MANAGED"},{"full_name":"main.sales.v_dinner","table_type":"VIEW"}]}"#.into(),
+                ),
+                ("GET", "/api/2.1/unity-catalog/schemas") => (200, r#"{"schemas":[{"name":"sales"}]}"#.into()),
+                ("POST", "/api/2.0/sql/statements") => {
+                    let st: Json = serde_json::from_str(body).unwrap();
+                    let text = st["statement"].as_str().unwrap_or("");
+                    if text.contains("information_schema.views") {
+                        (200, rows(json!([["sales", "v_dinner", VIEW_BODY], ["sales", "other", "SELECT 1"]])))
+                    } else if text.contains("referential_constraints") {
+                        (200, rows(json!([["fk_side", "sales", "side"]])))
+                    } else {
+                        (200, rows(json!([])))
+                    }
+                }
+                _ => (404, json!({ "error_code": "NOT_FOUND", "message": "no" }).to_string()),
+            }
+        }))
+        .await;
+        (base, seen)
+    }
+
+    fn dinner() -> DependencyTarget {
+        DependencyTarget {
+            object: target(kinds::TABLE, "sales", "dinner"),
+            column: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn what_reads_a_table_comes_from_its_lineage_not_from_the_catalog() {
+        let (base, seen) = readers_workspace(200, false).await;
+        let mut s = session(base.clone());
+        s.catalog = Some("main".into());
+        let r = s.dependents_of(&dinner(), &scan()).await.unwrap();
+        assert_eq!(r.items.len(), 3, "{:?}", r.items);
+        let by = |n: &str| {
+            r.items
+                .iter()
+                .find(|d| d.name == n)
+                .unwrap_or_else(|| panic!("{n} in {:?}", r.items))
+        };
+        assert_eq!(by("dinner_price").confidence, Confidence::Confirmed);
+        assert_eq!(by("dinner_price").detail.as_deref(), Some("notebook 3333"));
+        assert_eq!(by("v_dinner").relation, Relation::Code);
+        assert_eq!(by("side").relation, Relation::ForeignKey);
+        assert_eq!(by("side").confidence, Confidence::Confirmed);
+        // The notebook that read it is a reader outside, with its link.
+        let nb = r
+            .external_users
+            .iter()
+            .find(|x| x.system.as_deref() == Some("Databricks notebook"))
+            .expect("the notebook");
+        assert_eq!(
+            nb.detail.as_deref(),
+            Some(format!("{base}/#notebook/3333").as_str())
+        );
+        // One lineage call and two filtered catalog queries: no listing, no definition reads.
+        let asked = seen.lock().unwrap().clone();
+        assert_eq!(
+            asked.iter().filter(|a| a.contains("table-lineage")).count(),
+            1
+        );
+        assert_eq!(asked.iter().filter(|a| a.starts_with("POST")).count(), 2);
+        assert!(
+            !asked
+                .iter()
+                .any(|a| a.contains("table-summaries") || a.contains("/schemas")),
+            "{asked:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_lineage_pages_are_followed() {
+        let (base, seen) = readers_workspace(200, true).await;
+        let mut s = session(base);
+        s.catalog = Some("main".into());
+        let r = s.dependents_of(&dinner(), &scan()).await.unwrap();
+        for n in ["page_one", "page_two"] {
+            assert!(r.items.iter().any(|d| d.name == n), "{n}: {:?}", r.items);
+        }
+        let asked = seen.lock().unwrap().clone();
+        assert!(
+            asked.iter().any(|a| a.contains("page_token=t2")),
+            "{asked:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn without_lineage_access_the_contracts_scan_runs_with_the_note() {
+        let (base, seen) = readers_workspace(403, false).await;
+        let mut s = session(base);
+        s.catalog = Some("main".into());
+        let r = s.dependents_of(&dinner(), &scan()).await.unwrap();
+        assert_eq!(r.note.as_deref(), Some(NO_LINEAGE));
+        let asked = seen.lock().unwrap().clone();
+        assert!(asked.iter().any(|a| a.contains("table-lineage")));
+        // The contract's scan listed the catalog.
+        assert!(
+            asked.iter().any(|a| a.contains("table-summaries")),
+            "{asked:?}"
+        );
+        // hive_metastore has no lineage: not even asked.
+        let (base, seen) = readers_workspace(200, false).await;
+        let mut s = session(base);
+        s.catalog = Some(HIVE_METASTORE.into());
+        let _ = s.dependents_of(&dinner(), &scan()).await;
+        assert!(!seen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|a| a.contains("table-lineage")));
+    }
+
+    #[tokio::test]
+    async fn names_are_looked_up_once_and_dashboards_and_queries_get_theirs() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let base = serve(Arc::new(move |m, p, _| {
+            log.lock().unwrap().push(format!("{m} {p}"));
+            let (path, _) = p.split_once('?').unwrap_or((p, ""));
+            match path {
+                "/api/2.1/jobs/get" => (
+                    200,
+                    json!({ "settings": { "name": "nightly load" } }).to_string(),
+                ),
+                "/api/2.0/sql/queries/q1" => {
+                    (200, json!({ "display_name": "Top orders" }).to_string())
+                }
+                "/api/2.0/preview/sql/queries/q2" => {
+                    (200, json!({ "name": "Legacy query" }).to_string())
+                }
+                "/api/2.0/lakeview/dashboards/d3" => {
+                    (200, json!({ "display_name": "Sales board" }).to_string())
+                }
+                "/api/2.0/preview/sql/dashboards/d1" => {
+                    (200, json!({ "name": "Old board" }).to_string())
+                }
+                _ => (404, json!({ "message": "no" }).to_string()),
+            }
+        }))
+        .await;
+        let s = session(base);
+        let e = |kind: &str, id: &str, v3: bool| Entity {
+            kind: kind.into(),
+            id: id.into(),
+            v3,
+        };
+        let mut list = vec![
+            e("job", "774", false),
+            e("query", "q1", false),
+            e("query", "q2", false),
+            e("dashboard", "d3", true),
+            e("dashboard", "d1", false),
+            e("notebook", "3271915304643002", false),
+            e("job", "774", false),
+        ];
+        // More jobs than the parallelism: all are named.
+        list.extend((0..20).map(|i| e("job", &format!("9{i}"), false)));
+        let mut names = s.entity_names(&list).await;
+        names.sort();
+        let find = |id: &str| names.iter().find(|(i, _)| i == id).map(|(_, n)| n.as_str());
+        assert_eq!(find("774"), Some("nightly load"));
+        assert_eq!(find("q1"), Some("Top orders"));
+        assert_eq!(find("q2"), Some("Legacy query"));
+        assert_eq!(find("d3"), Some("Sales board"));
+        assert_eq!(find("d1"), Some("Old board"));
+        assert_eq!(find("90"), Some("nightly load"));
+        assert_eq!(
+            find("3271915304643002"),
+            None,
+            "no call names a notebook by its id"
+        );
+        // The unrepeated ones were asked once: 21 jobs, 2 queries (+1 legacy), 1 + 1 dashboards.
+        let first = seen.lock().unwrap().len();
+        assert!(!seen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|a| a.contains("3271915304643002")));
+        // Asked again: from memory, no new calls.
+        let again = s.entity_names(&list).await;
+        assert_eq!(again.len(), names.len());
+        assert_eq!(seen.lock().unwrap().len(), first);
     }
 }

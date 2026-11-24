@@ -1194,6 +1194,16 @@ impl Session for DatabricksSession {
         self.references_of(target, scan).await
     }
 
+    /// What reads a table or view: Unity Catalog's lineage API for that one object (see
+    /// `references::dependents_of`), never a scan of the catalog's definitions.
+    async fn dependents(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        self.dependents_of(target, scan).await
+    }
+
     /// The whole catalog's lineage: Unity Catalog's `table_lineage` in one
     /// query, and the definitions' code (see `lineage`).
     async fn lineage_graph(

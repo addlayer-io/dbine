@@ -21,16 +21,34 @@ use dbine_driver::dependencies::{
 };
 use dbine_driver::{kinds, ObjectRef, Result};
 
-/// `:p0` the catalog. One row per source, target and notebook, job…
-/// that carried it; the last year, at most 200,000 rows.
-pub(crate) const LINEAGE_SQL: &str =
-    "SELECT source_table_catalog, source_table_schema, source_table_name, source_path,
+/// How far back the catalog's lineage reads (days). The lineage table keeps a year; the
+/// diagram of a database draws what ran lately, and a line that hasn't run for longer still
+/// comes from the definitions (as Probable). Narrower than a year because the table is read
+/// for the whole catalog on a warehouse.
+pub(crate) const LINEAGE_DAYS: u32 = 90;
+/// Rows the lineage query returns at most.
+pub(crate) const LINEAGE_ROWS: u32 = 200_000;
+
+/// The catalog's lineage (`:p0` the catalog, `:p1…` the schemas asked for, when there are):
+/// one row per source, target and notebook, job… that carried it in the last
+/// [`LINEAGE_DAYS`] days, at most [`LINEAGE_ROWS`] rows.
+pub(crate) fn lineage_sql(schemas: usize) -> String {
+    let in_schemas = if schemas == 0 {
+        String::new()
+    } else {
+        let list: Vec<String> = (1..=schemas).map(|i| format!(":p{i}")).collect();
+        format!(" AND target_table_schema IN ({})", list.join(", "))
+    };
+    format!(
+        "SELECT source_table_catalog, source_table_schema, source_table_name, source_path,
        target_table_schema, target_table_name, entity_type, entity_id
   FROM system.access.table_lineage
- WHERE target_table_catalog = :p0 AND target_table_name IS NOT NULL
-   AND event_date >= date_sub(current_date(), 365)
+ WHERE target_table_catalog = :p0 AND target_table_name IS NOT NULL{in_schemas}
+   AND event_date >= date_sub(current_date(), {LINEAGE_DAYS})
  GROUP BY ALL
- LIMIT 200000";
+ LIMIT {LINEAGE_ROWS}"
+    )
+}
 
 /// Lineage couldn't be read.
 pub(crate) const NO_SYSTEM_LINEAGE: &str = "El linaje de Unity Catalog (system.access.table_lineage) no está disponible para este usuario o catálogo (hace falta SELECT sobre esa tabla del sistema y un catálogo de Unity Catalog): las líneas salen de las definiciones, sin confirmar.";
@@ -60,6 +78,12 @@ fn entity_kind(entity_type: &str) -> String {
         "LAKEVIEW_DASHBOARD" | "DASHBOARD_V3" => "dashboard".into(),
         other => other.to_ascii_lowercase(),
     }
+}
+
+/// A Lakeview dashboard (its page and its API are not the legacy dashboards').
+fn is_v3(entity_type: &str) -> bool {
+    let t = entity_type.to_ascii_uppercase();
+    t.contains("LAKEVIEW") || t == "DASHBOARD_V3"
 }
 
 fn outside(g: &mut LineageGraph, source: ExternalRef, to: &ObjectRef) {
@@ -103,7 +127,7 @@ pub(crate) fn add_lineage(
         let entity = s(6).zip(s(7)).map(|(t, id)| Entity {
             kind: entity_kind(&t),
             id,
-            v3: t.to_ascii_uppercase().contains("LAKEVIEW"),
+            v3: is_v3(&t),
         });
         let source = match (s(0), s(1), s(2), s(3)) {
             (Some(c), Some(sc), Some(n), _) if eq(&c, catalog) => node(g, &sc, &n),
@@ -219,16 +243,21 @@ impl DatabricksSession {
             g.notes.push(NO_SYSTEM_LINEAGE.into());
             return Ok(g);
         }
-        match self.text_rows(LINEAGE_SQL, &[&catalog]).await {
+        let mut args: Vec<&str> = vec![catalog.as_str()];
+        args.extend(scope.schemas.iter().map(String::as_str));
+        match self
+            .text_rows(&lineage_sql(scope.schemas.len()), &args)
+            .await
+        {
             Ok(raw) => {
                 let entities: Vec<Entity> = raw
                     .iter()
                     .filter_map(|r| {
                         let t = r.get(6).cloned().flatten()?;
                         Some(Entity {
+                            v3: is_v3(&t),
                             kind: entity_kind(&t),
                             id: r.get(7).cloned().flatten()?,
-                            v3: false,
                         })
                     })
                     .collect();
@@ -367,8 +396,17 @@ mod tests {
 
     #[test]
     fn the_sql_reads_the_catalogs_lineage() {
-        assert!(LINEAGE_SQL.contains("FROM system.access.table_lineage"));
-        assert!(LINEAGE_SQL.contains("target_table_catalog = :p0"));
+        let sql = lineage_sql(0);
+        assert!(sql.contains("FROM system.access.table_lineage"));
+        assert!(sql.contains("target_table_catalog = :p0"));
+        // The window is the constant's, not a year; no schema filter without schemas.
+        assert!(sql.contains(&format!("date_sub(current_date(), {LINEAGE_DAYS})")));
+        assert!(LINEAGE_DAYS < 365 && !sql.contains("365"));
+        assert!(!sql.contains("target_table_schema IN"));
+        // With schemas: one parameter each, after the catalog's.
+        let sql = lineage_sql(2);
+        assert!(sql.contains("target_table_schema IN (:p1, :p2)"));
+        assert!(sql.ends_with("LIMIT 200000"));
     }
 
     // -- the pieces of a row --------------------------------------------------------------------
@@ -668,7 +706,35 @@ mod tests {
         let q = lineage_asked(&asked);
         assert_eq!(q.len(), 1);
         assert_eq!(q[0]["parameters"][0]["value"], "main");
-        assert!(LINEAGE_SQL.contains("365") && LINEAGE_SQL.contains("LIMIT 200000"));
+        assert!(q[0]["statement"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("{LINEAGE_DAYS})")));
+        assert!(q[0]["statement"].as_str().unwrap().contains("LIMIT 200000"));
+        assert_eq!(q[0]["parameters"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_scope_with_schemas_narrows_the_lineage_query() {
+        let (base, asked) = workspace(Some(ROWS), false).await;
+        let mut s = session(base);
+        s.catalog = Some("main".into());
+        let scope = LineageScope {
+            schemas: vec!["gold".into(), "silver".into()],
+            ..Default::default()
+        };
+        s.lineage_of("main", &scope, &scan()).await.unwrap();
+        let q = lineage_asked(&asked);
+        assert_eq!(q.len(), 1);
+        let st = q[0]["statement"].as_str().unwrap();
+        assert!(st.contains("target_table_schema IN (:p1, :p2)"), "{st}");
+        let values: Vec<_> = q[0]["parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| p["value"].as_str().unwrap())
+            .collect();
+        assert_eq!(values, ["main", "gold", "silver"]);
     }
 
     #[tokio::test]
