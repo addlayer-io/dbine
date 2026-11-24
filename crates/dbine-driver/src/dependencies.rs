@@ -21,7 +21,9 @@ pub use graph::{
     graph_scan, merge_edge, LineageConsumer, LineageEdge, LineageExternal, LineageGraph,
     LineageJob, LineageScope, LineageStep, GRAPH_DEFINITIONS, GRAPH_OBJECTS,
 };
-pub use job_scan::{job_dependents_scan, job_hit, job_references_scan, merge_jobs, JOBS_READ};
+pub use job_scan::{
+    job_dependents_scan, job_hit, job_references_scan, merge_jobs, with_databases, JOBS_READ,
+};
 
 use crate::info::DriverInfo;
 use crate::model::{DbObject, ObjectRef};
@@ -60,6 +62,11 @@ pub struct DependencyScan {
     /// tell a name in another database by it.
     #[serde(default)]
     pub has_schemas: bool,
+    /// The server's databases, read once for a whole report (a lineage graph
+    /// reads each job: [`job_references_scan`] would list them again each
+    /// time). Never sent to a plugin; `None` reads them on demand.
+    #[serde(skip)]
+    pub databases: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -255,6 +262,7 @@ impl DependencyScan {
                 .map(|k| k.id.to_string())
                 .collect(),
             has_schemas: info.has_schemas,
+            databases: None,
         }
     }
 }
@@ -641,8 +649,10 @@ pub async fn references_scan<S: Session + ?Sized>(
     let mut report = DependencyReport::default();
     if ctx.foreign_keys && t.kind == kinds::TABLE {
         let fks = match s.index_usage(t).await {
-            Ok(Some(u)) if !u.foreign_keys.is_empty() => u.foreign_keys,
-            _ => s
+            // An empty list is an answer too: the table has no foreign keys.
+            Ok(Some(u)) => u.foreign_keys,
+            // The engine can't say (or failed): read the whole schema.
+            Ok(None) | Err(_) => s
                 .database_schema()
                 .await?
                 .into_iter()
@@ -1424,6 +1434,7 @@ END";
             foreign_keys: true,
             written_kinds: vec!["procedure".into(), "view".into()],
             has_schemas: true,
+            databases: None,
         }
     }
 
@@ -1733,5 +1744,90 @@ END";
                 ("Pedidos".into(), Relation::ForeignKey)
             ]
         );
+    }
+
+    /// A catalog that answers `index_usage` as told and counts the reads of
+    /// the whole schema.
+    struct Catalog {
+        usage: Result<Option<crate::IndexUsageReport>>,
+        schema_reads: u32,
+    }
+
+    #[async_trait::async_trait]
+    impl Session for Catalog {
+        async fn server_version(&mut self) -> Result<String> {
+            Ok(String::new())
+        }
+        async fn list_databases(&mut self) -> Result<Vec<String>> {
+            Ok(vec![])
+        }
+        async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
+            Ok(vec![])
+        }
+        async fn columns(&mut self, _: &ObjectRef) -> Result<Vec<crate::ColumnInfo>> {
+            Ok(vec![])
+        }
+        async fn definition(&mut self, _: &ObjectRef) -> Result<Option<String>> {
+            Ok(None)
+        }
+        async fn index_usage(&mut self, _: &ObjectRef) -> Result<Option<crate::IndexUsageReport>> {
+            match &self.usage {
+                Ok(u) => Ok(u.clone()),
+                Err(_) => Err(crate::Error::Query("denied".into())),
+            }
+        }
+        async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
+            self.schema_reads += 1;
+            Ok(schema())
+        }
+        fn browse_query(&self, _: &ObjectRef, _: u32) -> String {
+            String::new()
+        }
+        async fn execute(&mut self, _: &str, _: usize, _: &mut crate::QueryOutcome) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    fn catalog(usage: Result<Option<crate::IndexUsageReport>>) -> Catalog {
+        Catalog {
+            usage,
+            schema_reads: 0,
+        }
+    }
+
+    #[test]
+    fn a_table_without_foreign_keys_does_not_read_the_whole_schema() {
+        // The engine answered: the table points at nothing. That is an answer.
+        let mut s = catalog(Ok(Some(Default::default())));
+        let r = ready(references_scan(&mut s, &table("dbo", "Clientes"), &ctx())).unwrap();
+        assert!(r.items.is_empty());
+        assert_eq!(s.schema_reads, 0);
+    }
+
+    #[test]
+    fn foreign_keys_from_the_engine_are_used_as_they_come() {
+        let fks = schema()
+            .into_iter()
+            .find(|t| t.name == "Pedidos")
+            .unwrap()
+            .foreign_keys;
+        let usage = crate::IndexUsageReport {
+            foreign_keys: fks,
+            ..Default::default()
+        };
+        let mut s = catalog(Ok(Some(usage)));
+        let r = ready(references_scan(&mut s, &table("dbo", "Pedidos"), &ctx())).unwrap();
+        assert_eq!(r.items.len(), 1);
+        assert_eq!(s.schema_reads, 0);
+    }
+
+    #[test]
+    fn an_engine_that_cannot_answer_falls_back_to_the_whole_schema() {
+        for usage in [Ok(None), Err(crate::Error::Query("denied".into()))] {
+            let mut s = catalog(usage);
+            let r = ready(references_scan(&mut s, &table("dbo", "Pedidos"), &ctx())).unwrap();
+            assert_eq!(r.items.len(), 1);
+            assert_eq!(s.schema_reads, 1);
+        }
     }
 }

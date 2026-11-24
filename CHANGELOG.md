@@ -11,6 +11,8 @@
 
 - **Searching Power BI no longer stops at 200 models:** the lineage search and the background warm-up read every model of the workspace. The wait per model (3 minutes by default) and the length of a search (15 minutes) are now **Settings** you can raise for very large models.
 
+- **Dependencies and lineage read less of the server:** the references of a table with no foreign keys no longer read the structure of the whole database to say so, and the lineage of a database with scheduled jobs lists the server's databases once instead of once per job.
+
 ### Improvements
 
 - **"View dependencies…" is fast on PostgreSQL, Oracle and SAP HANA:** what depends on a table, view, routine, sequence or column is now asked of the engine's own dependency catalog (`pg_depend`, `ALL_DEPENDENCIES`, `SYS.OBJECT_DEPENDENCIES`) and its foreign keys, filtered by that object, instead of reading the definition of every view, routine and trigger of the database one by one. The result no longer grows with the number of routines; only the code the catalog cannot see (dynamic SQL, PL/pgSQL bodies) is read, and only when its text holds the name.

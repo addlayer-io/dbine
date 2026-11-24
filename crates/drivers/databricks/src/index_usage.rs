@@ -63,26 +63,35 @@ pub fn foreign_keys(rows: &[Vec<Option<String>>]) -> Vec<ForeignKeyDef> {
     out
 }
 
-pub(crate) async fn report(
+/// `table`'s foreign keys from the catalog's `information_schema`. A failed
+/// read is an error, not "no keys" (a warehouse that is off, a missing
+/// right); the Hive metastore has no constraints at all: none.
+pub(crate) async fn foreign_keys_read(
     s: &mut DatabricksSession,
     table: &ObjectRef,
-) -> Result<IndexUsageReport> {
+) -> Result<Vec<ForeignKeyDef>> {
     let schema = table
         .schema()
         .or(s.schema.as_deref())
         .unwrap_or("default")
         .to_string();
-    let foreign_keys = match s.catalog().map(foreign_keys_sql) {
-        Ok(sql) => match s.text_rows(&sql, &[&schema, &table.name]).await {
-            Ok(rows) => foreign_keys(&rows),
-            // Hive metastore: no information_schema, no constraints.
-            Err(e) => {
-                tracing::debug!("databricks: foreign keys not read: {e}");
-                Vec::new()
-            }
-        },
-        Err(_) => Vec::new(),
+    let catalog = match s.catalog() {
+        Ok(c) if c != crate::catalog_api::HIVE_METASTORE => c.to_string(),
+        _ => return Ok(Vec::new()),
     };
+    let sql = foreign_keys_sql(&catalog);
+    let rows = s.text_rows(&sql, &[&schema, &table.name]).await?;
+    Ok(foreign_keys(&rows))
+}
+
+pub(crate) async fn report(
+    s: &mut DatabricksSession,
+    table: &ObjectRef,
+) -> Result<IndexUsageReport> {
+    let foreign_keys = foreign_keys_read(s, table).await.unwrap_or_else(|e| {
+        tracing::debug!("databricks: foreign keys not read: {e}");
+        Vec::new()
+    });
     Ok(IndexUsageReport {
         note: Some(NOTE.into()),
         foreign_keys,

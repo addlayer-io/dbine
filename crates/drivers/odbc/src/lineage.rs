@@ -304,6 +304,7 @@ async fn jobs(s: &mut OdbcSession, database: &str, scan: &DependencyScan, g: &mu
     };
     g.job_notes.extend(list.notes);
     let total = list.jobs.len();
+    let scan = &dbine_driver::dependencies::with_databases(s, scan).await;
     for job in list.jobs.into_iter().take(JOBS_READ) {
         let r = match s.job_references(database, &job.id, scan).await {
             Ok(r) => r,

@@ -597,6 +597,7 @@ mod tests {
                 kinds::FUNCTION.into(),
             ],
             has_schemas: true,
+            databases: None,
         }
     }
 
