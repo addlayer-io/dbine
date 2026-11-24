@@ -302,15 +302,20 @@ impl SnowflakeSession {
         scan: &DependencyScan,
     ) -> Result<DependencyReport> {
         let t = &target.object;
-        let db = self.database().ok();
-        let Some(db) = db.filter(|_| target.column.is_none() && object_lineage::supported(&t.kind))
-        else {
+        let Some(db) = self.database().ok().filter(|_| target.column.is_none()) else {
             return dbine_driver::dependencies::scan(self, target, scan).await;
         };
-        let native = object_lineage::dependents(&*self, &db, t, scan.foreign_keys).await;
-        if native.lineage {
-            return Ok(native.report);
+        let lineage = object_lineage::supported(&t.kind);
+        let native = object_lineage::dependents(&*self, &db, t, scan.foreign_keys, lineage).await;
+        // Either read answers: no definition is read.
+        if native.lineage || native.structural {
+            let mut report = native.report;
+            if lineage && !native.lineage {
+                report.note = Some(object_lineage::NO_LINEAGE.into());
+            }
+            return Ok(report);
         }
+        // Neither: the contract's scan, with the note.
         let mut report = dbine_driver::dependencies::scan(self, target, scan).await?;
         object_lineage::merge_fallback(&mut report, native);
         Ok(report)

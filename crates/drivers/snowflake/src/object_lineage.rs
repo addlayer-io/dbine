@@ -43,6 +43,9 @@ pub(crate) trait Catalog: Sync {
 /// The call isn't available for the object.
 pub(crate) const NO_LINEAGE: &str = "El linaje de datos de Snowflake (SNOWFLAKE.CORE.GET_LINEAGE) no está disponible para este objeto: hace falta Enterprise Edition o superior y el privilegio VIEW LINEAGE. Se muestran las dependencias estructurales y las definiciones, sin el movimiento de datos (CREATE TABLE AS SELECT, INSERT, MERGE…).";
 
+/// Neither the lineage nor the structural catalog could be read.
+pub(crate) const NO_CATALOG: &str = "Lo que usa este objeto sale de las definiciones, sin confirmar: confirmarlo necesita acceso a SNOWFLAKE.ACCOUNT_USAGE (IMPORTED PRIVILEGES sobre la base SNOWFLAKE) o al linaje de datos de Snowflake (Enterprise Edition y el privilegio VIEW LINEAGE).";
+
 /// Which way the lineage is read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Direction {
@@ -276,6 +279,8 @@ pub(crate) struct Native {
     /// `GET_LINEAGE` answered (even with no rows). Otherwise the caller
     /// falls back to the contract's scan, with [`NO_LINEAGE`].
     pub lineage: bool,
+    /// The structural catalog answered.
+    pub structural: bool,
 }
 
 /// What reads the table or view `t` of `database`: three reads, all for this
@@ -285,28 +290,33 @@ pub(crate) async fn dependents<C: Catalog + ?Sized>(
     database: &str,
     t: &ObjectRef,
     foreign_keys: bool,
+    ask_lineage: bool,
 ) -> Native {
     let schema = t.schema().unwrap_or("PUBLIC");
     let mut report = DependencyReport::default();
     let sql = lineage_sql(database, schema, &t.name, Direction::Downstream);
-    let lineage = match c.rows(&sql, &[]).await {
-        Ok(raw) => {
-            let (items, external) =
-                neighbors(&parse_edges(&raw), Direction::Downstream, database, t);
-            for d in items {
-                add(&mut report.items, d);
+    let lineage = if !ask_lineage {
+        false
+    } else {
+        match c.rows(&sql, &[]).await {
+            Ok(raw) => {
+                let (items, external) =
+                    neighbors(&parse_edges(&raw), Direction::Downstream, database, t);
+                for d in items {
+                    add(&mut report.items, d);
+                }
+                for x in external {
+                    add_external(&mut report.external, x);
+                }
+                true
             }
-            for x in external {
-                add_external(&mut report.external, x);
+            Err(e) => {
+                tracing::debug!("snowflake GET_LINEAGE of {schema}.{}: {e}", t.name);
+                false
             }
-            true
-        }
-        Err(e) => {
-            tracing::debug!("snowflake GET_LINEAGE of {schema}.{}: {e}", t.name);
-            false
         }
     };
-    match c
+    let structural = match c
         .rows(STRUCTURAL_DEPENDENTS_SQL, &[database, schema, &t.name])
         .await
     {
@@ -318,9 +328,13 @@ pub(crate) async fn dependents<C: Catalog + ?Sized>(
             for x in external {
                 add_external(&mut report.external, x);
             }
+            true
         }
-        Err(e) => tracing::debug!("snowflake OBJECT_DEPENDENCIES of {schema}.{}: {e}", t.name),
-    }
+        Err(e) => {
+            tracing::debug!("snowflake OBJECT_DEPENDENCIES of {schema}.{}: {e}", t.name);
+            false
+        }
+    };
     if foreign_keys && t.kind == kinds::TABLE {
         match c
             .rows(&foreign_key_children_sql(database), &[schema, &t.name])
@@ -354,7 +368,11 @@ pub(crate) async fn dependents<C: Catalog + ?Sized>(
         }
     }
     sort(&mut report.items);
-    Native { report, lineage }
+    Native {
+        report,
+        lineage,
+        structural,
+    }
 }
 
 /// What the table or view `t` reads, one level: `None` when the call isn't
@@ -384,7 +402,8 @@ pub(crate) async fn upstream<C: Catalog + ?Sized>(
     }
 }
 
-/// `native` merged into the contract's scan `scanned` (the fallback): the
+/// `native` merged into the contract's scan `scanned` (the fallback when
+/// neither read answers): the
 /// structural rows and foreign keys read for the object stay **Confirmed**,
 /// and the note says what is missing.
 pub(crate) fn merge_fallback(scanned: &mut DependencyReport, native: Native) {
@@ -394,7 +413,7 @@ pub(crate) fn merge_fallback(scanned: &mut DependencyReport, native: Native) {
     for x in native.report.external {
         add_external(&mut scanned.external, x);
     }
-    scanned.note = Some(NO_LINEAGE.into());
+    scanned.note = Some(NO_CATALOG.into());
     sort(&mut scanned.items);
 }
 
@@ -623,7 +642,7 @@ mod tests {
                 raw(&[&["FK_LINES_ORDERS", "PUBLIC", "LINES"]]),
             ),
         ]);
-        let n = dependents(&f, "SALES", &orders(), true).await;
+        let n = dependents(&f, "SALES", &orders(), true, true).await;
         assert!(n.lineage);
         let got: Vec<_> = n
             .report
@@ -656,8 +675,8 @@ mod tests {
             "OBJECT_DEPENDENCIES",
             raw(&[&["SALES", "PUBLIC", "V_ORDERS", "VIEW", "TABLE"]]),
         )]);
-        let n = dependents(&f, "SALES", &orders(), false).await;
-        assert!(!n.lineage);
+        let n = dependents(&f, "SALES", &orders(), false, true).await;
+        assert!(!n.lineage && n.structural);
         assert_eq!(n.report.items.len(), 1);
         // The contract's scan found a Probable view and a procedure.
         let mut scanned = DependencyReport {
@@ -686,16 +705,35 @@ mod tests {
                 ("LOAD", Confidence::Probable)
             ]
         );
-        assert_eq!(scanned.note.as_deref(), Some(NO_LINEAGE));
+        assert_eq!(scanned.note.as_deref(), Some(NO_CATALOG));
     }
 
     #[tokio::test]
     async fn with_nothing_readable_the_report_is_empty_and_not_confirmed() {
         let f = fake(vec![]);
-        let n = dependents(&f, "SALES", &orders(), true).await;
-        assert!(!n.lineage);
+        let n = dependents(&f, "SALES", &orders(), true, true).await;
+        assert!(!n.lineage && !n.structural);
         assert!(n.report.items.is_empty());
         assert_eq!(n.report.unreadable, ["PUBLIC.ORDERS"]);
+    }
+
+    #[tokio::test]
+    async fn a_routine_asks_only_the_structural_catalog() {
+        let f = fake(vec![(
+            "OBJECT_DEPENDENCIES",
+            raw(&[&["SALES", "PUBLIC", "V_TAX", "VIEW", "FUNCTION"]]),
+        )]);
+        let tax = ObjectRef {
+            kind: kinds::FUNCTION.into(),
+            schema: Some("PUBLIC".into()),
+            name: "TAX".into(),
+        };
+        let n = dependents(&f, "SALES", &tax, true, false).await;
+        assert!(!n.lineage && n.structural);
+        assert_eq!(n.report.items.len(), 1);
+        let seen = f.seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert!(seen[0].0.contains("OBJECT_DEPENDENCIES"));
     }
 
     #[tokio::test]

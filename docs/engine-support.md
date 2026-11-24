@@ -4100,8 +4100,10 @@ Drivers whose engine records dependencies answer from their catalog instead:
   account) and the tables whose foreign keys point at it
   (`INFORMATION_SCHEMA`); no definition is read. The call needs Enterprise
   Edition or higher and the `VIEW LINEAGE` privilege (PUBLIC has it by
-  default); without it the contract's scan of definitions runs, merged with
-  the catalog's rows, and a note says so. It has no lineage for shared
+  default); without it only the structural catalog and foreign keys answer,
+  with a note. Any other object (a function, a view's column…) asks the
+  structural catalog alone. Only when neither can be read does the
+  contract's scan of definitions run, with a note. It has no lineage for shared
   databases, the `SNOWFLAKE` database or `INFORMATION_SCHEMA`, keeps one
   year, and doesn't know data movement before November 2024. A procedure
   that only names the table isn't in it (a note-less gap when the call
