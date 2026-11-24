@@ -15,7 +15,7 @@
 use crate::ddl::{self, Row};
 use crate::SnowflakeSession;
 use dbine_driver::sql::{qualified_name, Quote};
-use dbine_driver::{IndexUsage, IndexUsageReport, ObjectRef, Result};
+use dbine_driver::{ForeignKeyDef, IndexUsage, IndexUsageReport, ObjectRef, Result};
 
 pub const NO_INDEXES: &str = "Las tablas estándar de Snowflake no tienen índices (sus claves primarias, únicas y foráneas son informativas); solo las tablas híbridas los tienen.";
 pub const NO_COUNTERS: &str = "Snowflake no lleva contadores de uso ni tamaño por índice: se listan los índices de la tabla híbrida sin lecturas ni escrituras.";
@@ -69,6 +69,35 @@ pub fn indexes(rows: &[Row]) -> Vec<IndexUsage> {
     out
 }
 
+/// `table`'s foreign keys (`SHOW IMPORTED KEYS`). A failed read is an
+/// error, not "no keys".
+pub(crate) async fn foreign_keys_read(
+    s: &mut SnowflakeSession,
+    table: &ObjectRef,
+) -> Result<Vec<ForeignKeyDef>> {
+    let db = s.database()?;
+    let schema = table.schema().unwrap_or("PUBLIC");
+    let fq = format!(
+        "{}.{}",
+        qualified_name(Quote::Double, None, &db),
+        qualified_name(Quote::Double, Some(schema), &table.name)
+    );
+    let fks = s
+        .named_rows(&format!("SHOW IMPORTED KEYS IN TABLE {fq}"))
+        .await?;
+    let this: Row = [
+        ("table_schema", schema),
+        ("table_name", table.name.as_str()),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+    Ok(ddl::assemble(&[this], &[], &[], &[], &fks)
+        .pop()
+        .map(|t| t.foreign_keys)
+        .unwrap_or_default())
+}
+
 pub(crate) async fn report(
     s: &mut SnowflakeSession,
     table: &ObjectRef,
@@ -88,21 +117,10 @@ pub(crate) async fn report(
             Vec::new()
         }
     };
-    let fks = s
-        .named_rows(&format!("SHOW IMPORTED KEYS IN TABLE {fq}"))
-        .await
-        .unwrap_or_default();
-    let this: Row = [
-        ("table_schema", schema),
-        ("table_name", table.name.as_str()),
-    ]
-    .iter()
-    .map(|(k, v)| (k.to_string(), v.to_string()))
-    .collect();
-    let foreign_keys = ddl::assemble(&[this], &[], &[], &[], &fks)
-        .pop()
-        .map(|t| t.foreign_keys)
-        .unwrap_or_default();
+    let foreign_keys = foreign_keys_read(s, table).await.unwrap_or_else(|e| {
+        tracing::debug!("snowflake: foreign keys of {fq} not read: {e}");
+        Vec::new()
+    });
     Ok(IndexUsageReport {
         note: Some(
             if ixs.is_empty() {

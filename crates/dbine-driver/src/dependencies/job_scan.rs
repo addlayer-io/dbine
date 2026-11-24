@@ -51,6 +51,20 @@ impl Places {
     }
 }
 
+/// `ctx` with the server's databases read (once): a loop over the server's
+/// jobs ([`Session::job_references`] each) passes the result, so
+/// [`job_references_scan`] doesn't list the databases again for every job.
+pub async fn with_databases<S: Session + ?Sized>(
+    s: &mut S,
+    ctx: &DependencyScan,
+) -> DependencyScan {
+    let mut ctx = ctx.clone();
+    if ctx.databases.is_none() {
+        ctx.databases = Some(Places::read(s).await.databases);
+    }
+    ctx
+}
+
 /// Where a step runs: its own database, else the job's, when either is one
 /// of the server's databases.
 fn step_database<'a>(places: &Places, job: &'a JobDetail, step: &'a JobStep) -> Option<&'a str> {
@@ -303,7 +317,12 @@ pub async fn job_references_scan<S: Session + ?Sized>(
     ctx: &DependencyScan,
 ) -> Result<DependencyReport> {
     let detail = s.job_detail(job_id).await?;
-    let places = Places::read(s).await;
+    let places = match &ctx.databases {
+        Some(databases) => Places {
+            databases: databases.clone(),
+        },
+        None => Places::read(s).await,
+    };
     let me = ObjectRef {
         kind: "job".into(),
         schema: detail.job.group.clone(),
@@ -433,6 +452,7 @@ mod tests {
         objects: Vec<DbObject>,
         details_read: u32,
         unsupported: bool,
+        databases_listed: u32,
     }
 
     #[async_trait::async_trait]
@@ -441,6 +461,7 @@ mod tests {
             Ok(String::new())
         }
         async fn list_databases(&mut self) -> Result<Vec<String>> {
+            self.databases_listed += 1;
             Ok(vec!["ventas".into(), "stage".into(), "master".into()])
         }
         async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
@@ -531,6 +552,7 @@ mod tests {
             foreign_keys: true,
             written_kinds: vec!["procedure".into()],
             has_schemas: true,
+            databases: None,
         }
     }
 
@@ -643,6 +665,7 @@ mod tests {
             ],
             details_read: 0,
             unsupported: false,
+            databases_listed: 0,
         }
     }
 
@@ -884,5 +907,34 @@ mod tests {
         );
         assert_eq!(called("p(args)"), Some((vec![], "p".into())));
         assert_eq!(called("'texto'"), None);
+    }
+
+    #[test]
+    fn the_databases_are_listed_once_for_a_loop_over_the_jobs() {
+        let mut s = server();
+        for id in ["a", "b", "c"] {
+            s.jobs.push(job(
+                id,
+                id,
+                None,
+                &[("Paso", Some("T-SQL"), None, "SELECT * FROM dbo.v_ventas")],
+            ));
+        }
+        // Each call alone lists them.
+        for id in ["a", "b", "c"] {
+            ready(job_references_scan(&mut s, "ventas", id, &ctx())).unwrap();
+        }
+        assert_eq!(s.databases_listed, 3);
+        // A loop reads them once and hands them to every call.
+        s.databases_listed = 0;
+        let scoped = ready(with_databases(&mut s, &ctx()));
+        let mut alone = Vec::new();
+        for id in ["a", "b", "c"] {
+            alone.push(ready(job_references_scan(&mut s, "ventas", id, &scoped)).unwrap());
+        }
+        assert_eq!(s.databases_listed, 1);
+        // Same answer as without the shared list.
+        let again = ready(job_references_scan(&mut s, "ventas", "a", &ctx())).unwrap();
+        assert_eq!(alone[0], again);
     }
 }

@@ -11,6 +11,8 @@
 
 - **Searching Power BI no longer stops at 200 models:** the lineage search and the background warm-up read every model of the workspace. The wait per model (3 minutes by default) and the length of a search (15 minutes) are now **Settings** you can raise for very large models.
 
+- **Dependencies and lineage read less of the server:** the references of a table with no foreign keys no longer read the structure of the whole database to say so, and the lineage of a database with scheduled jobs lists the server's databases once instead of once per job.
+
 ### Improvements
 
 - **Links in the lineage open in the browser:** the web addresses in the lineage's detail panel (a Databricks job, notebook, pipeline, query or dashboard, a Power BI report) are links now: a click opens them in the browser. A Databricks job or notebook that DBine can't connect to shows its page's link too.
