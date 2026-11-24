@@ -85,7 +85,7 @@ fn user_and_used(r: &SimpleQueryRow) -> Option<(ObjectRef, Dependent)> {
 }
 
 /// What a table's `pg_attrdef` row says, as the object lineage reads it.
-fn default_text(c: Catalog) -> String {
+pub(crate) fn default_text(c: Catalog) -> String {
     let expr = "pg_get_expr(d.adbin, d.adrelid)";
     if c.generated() {
         format!(

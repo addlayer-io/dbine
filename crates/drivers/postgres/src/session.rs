@@ -2028,6 +2028,17 @@ impl Session for PgSession {
         self.object_comments_impl().await
     }
 
+    /// What depends on the object, from `pg_depend` and `pg_constraint`
+    /// filtered by it instead of reading every definition (see
+    /// `pg_dependents`).
+    async fn dependents(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        self.dependents_impl(target, scan).await
+    }
+
     /// What the object uses, from the dependency catalog of each variant
     /// (see `references`).
     async fn references(
