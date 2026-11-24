@@ -99,7 +99,10 @@ impl EsSession {
             let msg = es_error_message(status, &body);
             let lower = msg.to_lowercase();
             return Err(match api {
-                Api::Elastic if lower.contains("xpack.security.enabled") || lower.contains("security must be explicitly enabled") || lower.contains("security is not enabled") => {
+                Api::Elastic
+                    if lower.contains("xpack.security.enabled")
+                        || crate::permissions::security_off(status, &body) =>
+                {
                     Error::Unsupported("la seguridad de Elasticsearch está deshabilitada (xpack.security.enabled=false): no hay usuarios ni roles que administrar".into())
                 }
                 Api::Plugin(_) if lower.contains("no handler found") => Error::Unsupported(

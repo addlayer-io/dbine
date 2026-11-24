@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixes
+
+- **Elasticsearch 8 without security:** the Security tab of an Elasticsearch 8 server with security turned off (`xpack.security.enabled=false`) showed the server's raw "Incorrect HTTP method" error; it now says that security is turned off on that server.
+
 ## [1.7.1] - 2026-11-25
 
 ### New

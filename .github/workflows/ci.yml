@@ -170,3 +170,37 @@ jobs:
           # The lineage of a whole database (catalog, other databases, bodies)
           # and the Agent's jobs in it, as a real server answers them.
           cargo test -p dbine-driver-sqlserver --test lineage_graph --test lineage_jobs -- --ignored --test-threads=1
+
+  # Every test of a driver against its own servers (scripts/ci/live-engine.sh starts them in Docker),
+  # one engine per job, side by side: a change to the driver contract or to a driver that breaks an
+  # engine fails here, not on a user's computer. Engines that need a cloud account (Snowflake,
+  # BigQuery, Databricks, Power BI, Athena, DSQL) can't run here.
+  live-engines:
+    name: live (${{ matrix.engine }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [postgres, mysql, sqlserver, mongodb, redis, oracle, elasticsearch]
+    env:
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev libkrb5-dev
+
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: live-${{ matrix.engine }}
+
+      - name: Live tests
+        run: scripts/ci/live-engine.sh ${{ matrix.engine }}

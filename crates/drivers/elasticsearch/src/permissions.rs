@@ -64,9 +64,12 @@ pub(crate) fn decide(c: &Checks) -> Permissions {
     }
 }
 
-/// A server without the security feature says so instead of answering.
+/// A server without the security feature says so instead of answering. Elasticsearch 8 with
+/// `xpack.security.enabled=false` has no handler for a security API's GET: 405 "Incorrect HTTP method
+/// for uri [/_security/…]".
 pub(crate) fn security_off(status: u16, body: &str) -> bool {
     (status == 400 && body.contains("no handler found"))
+        || (status == 405 && body.contains("Incorrect HTTP method for uri [/_security"))
         || body.contains("Security must be explicitly enabled")
         || body.contains("security is not enabled")
 }
@@ -246,6 +249,16 @@ mod tests {
         assert!(security_off(
             500,
             r#"{"error":{"reason":"Security must be explicitly enabled when using a [basic] license."}}"#
+        ));
+        // Elasticsearch 8.15 with xpack.security.enabled=false (the answer a real server gave).
+        assert!(security_off(
+            405,
+            r#"{"error":"Incorrect HTTP method for uri [/_security/user] and method [GET], allowed: [POST]","status":405}"#
+        ));
+        // A 405 elsewhere is not about security.
+        assert!(!security_off(
+            405,
+            r#"{"error":"Incorrect HTTP method for uri [/_cat/indices] and method [POST], allowed: [GET]","status":405}"#
         ));
         assert!(!security_off(
             403,
