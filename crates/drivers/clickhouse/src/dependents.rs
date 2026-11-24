@@ -406,6 +406,7 @@ mod tests {
                 kinds::MATERIALIZED_VIEW.to_string(),
             ],
             has_schemas: false,
+            databases: None,
         };
         let mut scanned = 0;
         let u = users(rows, t, "d", "d", &scan, Flavor::ClickHouse, &mut scanned);
