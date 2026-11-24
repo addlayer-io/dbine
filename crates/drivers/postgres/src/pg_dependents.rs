@@ -360,9 +360,9 @@ pub(crate) fn add_bodies(
 /// The note when the generic scan answers instead of the catalog: the
 /// server's first line.
 fn unread_note(e: &Error) -> String {
-    let msg = e.to_string();
+    let (view, msg) = ("pg_depend", e.to_string());
     format!(
-        "No se pudo leer el catálogo de dependencias ({}): se buscó en las definiciones que se pueden leer.",
+        "No se pudo leer {view}: {}",
         msg.lines().next().unwrap_or_default().trim()
     )
 }
@@ -627,8 +627,7 @@ mod tests {
         let e = Error::Query("ERROR: permission denied for table pg_depend\nDetalle: x".into());
         assert_eq!(
             unread_note(&e),
-            "No se pudo leer el catálogo de dependencias (ERROR: permission denied for table pg_depend): \
-             se buscó en las definiciones que se pueden leer."
+            "No se pudo leer pg_depend: ERROR: permission denied for table pg_depend"
         );
     }
 

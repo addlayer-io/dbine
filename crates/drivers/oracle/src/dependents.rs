@@ -39,9 +39,9 @@ pub(crate) const READ_CAP: usize = 300;
 /// The note when the generic scan answers instead of the dictionary: the
 /// server's first line.
 fn unread_note(e: &dbine_driver::Error) -> String {
-    let msg = e.to_string();
+    let (view, msg) = ("ALL_DEPENDENCIES", e.to_string());
     format!(
-        "No se pudo leer el catálogo de dependencias ({}): se buscó en las definiciones que se pueden leer.",
+        "No se pudo leer {view}: {}",
         msg.lines().next().unwrap_or_default().trim()
     )
 }
@@ -723,7 +723,7 @@ mod tests {
         let e = dbine_driver::Error::Query("ORA-00942: table or view does not exist\nmore".into());
         assert_eq!(
             unread_note(&e),
-            "No se pudo leer el catálogo de dependencias (ORA-00942: table or view does not exist): se buscó en las definiciones que se pueden leer."
+            "No se pudo leer ALL_DEPENDENCIES: ORA-00942: table or view does not exist"
         );
     }
 }

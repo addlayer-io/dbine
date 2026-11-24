@@ -99,7 +99,7 @@ pub(crate) fn system(schema: &str) -> bool {
 }
 
 /// A schema as the explorer writes it: none for the session's.
-fn local_schema(schema: String, session: &str) -> Option<String> {
+pub(crate) fn local_schema(schema: String, session: &str) -> Option<String> {
     (schema != session).then_some(schema)
 }
 
@@ -312,7 +312,7 @@ pub(crate) fn confirmed(kind: &str, schema: Option<String>, name: String) -> Dep
     }
 }
 
-fn eq(a: &str, b: &str) -> bool {
+pub(crate) fn eq(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b) || a.to_lowercase() == b.to_lowercase()
 }
 
