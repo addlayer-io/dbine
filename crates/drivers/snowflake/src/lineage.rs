@@ -28,6 +28,16 @@ pub(crate) const DATABASE_SQL: &str = "SELECT referenced_database, referenced_sc
   FROM SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES
  WHERE referencing_database = ?";
 
+/// [`DATABASE_SQL`] narrowed to the objects of these schemas (`?` each after
+/// the database); no schemas, the whole database.
+pub(crate) fn database_sql(schemas: &[String]) -> String {
+    if schemas.is_empty() {
+        return DATABASE_SQL.to_string();
+    }
+    let marks = vec!["?"; schemas.len()].join(", ");
+    format!("{DATABASE_SQL}\n   AND referencing_schema IN ({marks})")
+}
+
 /// The files every external table of the database reads.
 pub(crate) fn external_tables_sql(database: &str) -> String {
     format!(
@@ -173,7 +183,10 @@ impl SnowflakeSession {
         } else {
             database.to_string()
         };
-        let raw = self.text_rows(DATABASE_SQL, &[&db]).await;
+        // Only the schemas asked for, when it asks for some.
+        let mut args: Vec<&str> = vec![&db];
+        args.extend(scope.schemas.iter().map(String::as_str));
+        let raw = self.text_rows(&database_sql(&scope.schemas), &args).await;
         let deps = raw.as_ref().map(|r| dependencies(r)).unwrap_or_default();
         // Procedures and tasks are not tracked; with no catalog, nothing is.
         let mut ctx = scan.clone();
@@ -319,6 +332,13 @@ mod tests {
     #[test]
     fn the_sql_sent() {
         assert!(DATABASE_SQL.contains("WHERE referencing_database = ?"));
+        assert_eq!(database_sql(&[]), DATABASE_SQL);
+        let narrowed = database_sql(&["SALES".into(), "REF".into()]);
+        assert!(narrowed.starts_with(DATABASE_SQL));
+        assert!(
+            narrowed.ends_with("AND referencing_schema IN (?, ?)"),
+            "{narrowed}"
+        );
         assert!(
             external_tables_sql("Sales \"DB\"").contains("\"Sales \"\"DB\"\"\".INFORMATION_SCHEMA")
         );

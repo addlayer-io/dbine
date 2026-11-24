@@ -4091,8 +4091,31 @@ Drivers whose engine records dependencies answer from their catalog instead:
   (`INFORMATION_SCHEMA.EXTERNAL_TABLES`) are listed as sources outside the
   database. A table's foreign keys are **Confirmed**. Without access to
   ACCOUNT_USAGE (IMPORTED PRIVILEGES on the SNOWFLAKE database), the
-  definition is used and a note says so. Not yet tested against a real
-  account.
+  definition is used and a note says so. For a table or view, what it was
+  made from also comes from `SNOWFLAKE.CORE.GET_LINEAGE` (upstream, one
+  level; **Confirmed**), which covers data movement too (`CREATE TABLE AS
+  SELECT`, `INSERT … SELECT`, `MERGE`, `COPY INTO`, clones). What reads a
+  table or view is the same call downstream, completed for that one object
+  with `OBJECT_DEPENDENCIES` (`WHERE referenced_* = ?`, never the whole
+  account) and the tables whose foreign keys point at it
+  (`INFORMATION_SCHEMA`); no definition is read. The call needs Enterprise
+  Edition or higher and the `VIEW LINEAGE` privilege (PUBLIC has it by
+  default); without it the contract's scan of definitions runs, merged with
+  the catalog's rows, and a note says so. It has no lineage for shared
+  databases, the `SNOWFLAKE` database or `INFORMATION_SCHEMA`, keeps one
+  year, and doesn't know data movement before November 2024. A procedure
+  that only names the table isn't in it (a note-less gap when the call
+  answers). Not yet tested against a real account.
+
+  **Native vs generic (Snowflake lineage):** the lineage of one table or
+  view is native (`GET_LINEAGE` one level, expanded by asking again about
+  the neighbor; the structural catalog and foreign keys for that object
+  only); the generic scan of definitions is only the fallback. The lineage
+  of a whole database stays the catalog read (`OBJECT_DEPENDENCIES`,
+  narrowed to the schemas asked for) plus the generic scan for what the
+  catalog doesn't track; `GET_LINEAGE` isn't added there because it answers
+  for one object at a time (one call per object would be the whole database
+  again).
 - **Databricks:** For tables, views and materialized views, what they use
   comes from Unity Catalog's lineage API
   (`/api/2.0/lineage-tracking/table-lineage`): upstream tables of the same
@@ -4205,7 +4228,7 @@ does and an **Analizar** button, because reading every definition can take long.
 | SAP HANA | `SYS.OBJECT_DEPENDENCIES`, `SYS.REFERENTIAL_CONSTRAINTS`, virtual tables as external sources |
 | MySQL, MariaDB | `VIEW_TABLE_USAGE` and `VIEW_ROUTINE_USAGE` (MySQL 8: **Confirmed**; MariaDB and older MySQL read each view's definition: **Probable**), `KEY_COLUMN_USAGE`, `TRIGGERS`; routines parsed; events as jobs |
 | ClickHouse | `system.tables` (`dependencies_*`, materialized views' targets, Distributed, Buffer and Dictionary sources), views' queries (**Probable**); dictionaries are nodes |
-| Snowflake | `ACCOUNT_USAGE.OBJECT_DEPENDENCIES` (**Confirmed**, with its latency), external tables' files; tasks stay nodes |
+| Snowflake | `ACCOUNT_USAGE.OBJECT_DEPENDENCIES` (**Confirmed**, with its latency, narrowed to the schemas asked for), external tables' files; tasks stay nodes; one table or view: `SNOWFLAKE.CORE.GET_LINEAGE` (Enterprise Edition) |
 | Databricks | `system.access.table_lineage` (**Confirmed**, last 365 days, up to 200,000 rows): jobs, notebooks, pipelines, queries and dashboards as external sources; definitions and foreign keys from the default scan |
 | MongoDB | the views' `viewOn` and pipelines (`$lookup`, `$graphLookup`, `$unionWith`) (**Confirmed**) |
 | Power BI | `INFO.CALCDEPENDENCY()` for the whole model (**Confirmed** with write permission on a model on capacity; else the DAX is resolved against the model: **Probable**), relationships, roles' table filters, and each partition's Power Query sources as external sources |
