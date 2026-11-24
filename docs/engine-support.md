@@ -4108,24 +4108,31 @@ Drivers whose engine records dependencies answer from their catalog instead:
   definition and the keys are used and a note says so. Not yet tested against
   a real workspace.
 
-  **What reads a table or view** is also native: the lineage API's
-  `downstreams` (**Confirmed**, with the notebooks, jobs, pipelines, queries
-  and dashboards that read it as readers outside), the views whose definition
-  names it (one query over `information_schema.views`, **Probable**) and the
-  tables whose foreign keys point at it. It never reads the catalog's
-  definitions one by one; each card of the diagram that is expanded asks the
-  same call for its own level. Without lineage access (or for a function, a
-  column or `hive_metastore`) the default version runs with the note.
+  **Per table or view (the Dependencias panel), native first:** one statement
+  over `system.access.table_lineage` for that table only, in both directions
+  (`target_table_full_name = t` is what feeds it, `source_table_full_name = t`
+  is what reads it), with an `event_date` window of the last 90 days so the
+  partitions are pruned, `GROUP BY ALL` and a limit of 5,000 rows. The same
+  rows carry the notebook, job, pipeline, query or dashboard of each line.
+  Expanding a card in the diagram asks the same statement for that neighbor.
+  Only when that system table can't be read (no SELECT on it, no `system`
+  schema) is the lineage API (`/api/2.0/lineage-tracking/table-lineage`, every
+  page of it) asked instead, and only when neither answers (or for
+  `hive_metastore`, a function or a column) does the generic scan of
+  definitions run, with the note. What reads a table is completed with the
+  views whose definition names it (one query over `information_schema.views`,
+  **Probable**) and the tables whose foreign keys point at it. Nothing reads
+  the catalog's definitions one by one.
 
-  **Native vs generic (Databricks lineage):** the object's lineage (what it
-  uses, what reads it) is native, from the lineage API and one-table catalog
-  queries. The lineage of a whole database is native too (one query over
-  `system.access.table_lineage`, the last 90 days, narrowed to the schemas
-  asked for) plus the generic scan of definitions for what hasn't run. The
-  names of jobs, pipelines, queries and Lakeview or legacy dashboards are
-  looked up in parallel (eight at a time) and kept for an hour; Databricks has
-  no call that gives a notebook's name from its id, so a notebook shows its id
-  with a link to it.
+  **Native vs generic (Databricks lineage):** the lineage of one object is
+  native (system table, then REST). The lineage of a whole database is native
+  too (one query over `system.access.table_lineage`, the last 90 days,
+  narrowed to the schemas asked for) plus the generic scan of definitions for
+  what hasn't run. The names of jobs, pipelines, queries and Lakeview or
+  legacy dashboards are looked up in parallel (eight at a time) and kept for an
+  hour; Databricks has no call that gives a notebook's name from its id, so a
+  notebook shows its id with a link to it. Column lineage
+  (`system.access.column_lineage`) isn't read.
 
 The engines not listed here use the default version. A driver process
 published before answers `References` with Unsupported, and the app runs the

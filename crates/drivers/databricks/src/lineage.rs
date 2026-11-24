@@ -71,7 +71,7 @@ fn node(g: &LineageGraph, schema: &str, name: &str) -> Option<ObjectRef> {
 }
 
 /// The kind of what ran, as the workspace's links name it.
-fn entity_kind(entity_type: &str) -> String {
+pub(crate) fn entity_kind(entity_type: &str) -> String {
     match entity_type.to_ascii_uppercase().as_str() {
         "DBSQL_QUERY" => "query".into(),
         "DBSQL_DASHBOARD" => "dashboard".into(),
@@ -81,7 +81,7 @@ fn entity_kind(entity_type: &str) -> String {
 }
 
 /// A Lakeview dashboard (its page and its API are not the legacy dashboards').
-fn is_v3(entity_type: &str) -> bool {
+pub(crate) fn is_v3(entity_type: &str) -> bool {
     let t = entity_type.to_ascii_uppercase();
     t.contains("LAKEVIEW") || t == "DASHBOARD_V3"
 }

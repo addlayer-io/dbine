@@ -360,11 +360,10 @@ impl DatabricksSession {
             let lineage = if catalog.eq_ignore_ascii_case(HIVE_METASTORE) {
                 Err(Error::Unsupported(HIVE_METASTORE.into()))
             } else {
-                self.table_lineage(&catalog, &schema, &t.name).await
+                self.lineage_pair(&catalog, &schema, &t.name).await
             };
             match lineage {
-                Ok(resp) => {
-                    let l = parse_lineage(&resp);
+                Ok((l, _)) => {
                     let names = self.entity_names(&l.entities).await;
                     let base = self.api.base.clone();
                     merge_lineage(&mut report, &l, &catalog, &t, &base, &names);
@@ -377,6 +376,26 @@ impl DatabricksSession {
         }
         sort(&mut report.items);
         Ok(report)
+    }
+
+    /// What feeds one table and what reads it, from `system.access.table_lineage` (one statement,
+    /// this table only, both directions); when that table can't be read (no SELECT on it, no
+    /// `system` schema), from the lineage API. An error is that neither answered.
+    pub(crate) async fn lineage_pair(
+        &mut self,
+        catalog: &str,
+        schema: &str,
+        table: &str,
+    ) -> Result<(Lineage, Lineage)> {
+        let full = format!("{catalog}.{schema}.{table}").to_lowercase();
+        match self.text_rows(&table_lineage_sql(), &[&full]).await {
+            Ok(rows) => Ok(lineage_from_rows(&rows, &full)),
+            Err(e) => {
+                tracing::debug!("databricks system.access.table_lineage of {full}: {e}");
+                let r = self.table_lineage(catalog, schema, table).await?;
+                Ok((parse_side(&r, "upstreams"), parse_side(&r, "downstreams")))
+            }
+        }
     }
 
     /// The lineage of one table from the API, every page of it: `upstreams` and `downstreams`.
@@ -463,8 +482,8 @@ impl DatabricksSession {
             .or(self.schema.as_deref())
             .unwrap_or("default")
             .to_string();
-        let resp = match self.table_lineage(&catalog, &schema, &t.name).await {
-            Ok(r) => r,
+        let l = match self.lineage_pair(&catalog, &schema, &t.name).await {
+            Ok((_, down)) => down,
             Err(e) => {
                 tracing::debug!("databricks lineage of {catalog}.{schema}.{}: {e}", t.name);
                 let mut r = dbine_driver::dependencies::scan(self, target, scan).await?;
@@ -472,7 +491,6 @@ impl DatabricksSession {
                 return Ok(r);
             }
         };
-        let l = parse_side(&resp, "downstreams");
         let names = self.entity_names(&l.entities).await;
         let base = self.api.base.clone();
         let mut report = DependencyReport::default();
@@ -680,6 +698,90 @@ async fn lookup_name(api: &crate::Api, e: &Entity) -> Option<String> {
         ),
         _ => None,
     }
+}
+
+/// Rows the one-table lineage query returns at most.
+const TABLE_LINEAGE_ROWS: u32 = 5000;
+
+/// One table's lineage in both directions (`:p0` its lower-cased full name): the rows where it
+/// is the target (what feeds it) and where it is the source (what reads it), over the last
+/// [`crate::lineage::LINEAGE_DAYS`] days so the table's `event_date` partitions are pruned, with
+/// the notebook, job, pipeline, query or dashboard of each row.
+pub(crate) fn table_lineage_sql() -> String {
+    format!(
+        "SELECT source_table_full_name, source_table_catalog, source_table_schema, source_table_name, source_type, source_path,
+       target_table_full_name, target_table_catalog, target_table_schema, target_table_name, target_type, target_path,
+       entity_type, entity_id
+  FROM system.access.table_lineage
+ WHERE (target_table_full_name = :p0 OR source_table_full_name = :p0)
+   AND event_date >= date_sub(current_date(), {})
+ GROUP BY ALL
+ LIMIT {TABLE_LINEAGE_ROWS}",
+        crate::lineage::LINEAGE_DAYS
+    )
+}
+
+/// `table_lineage_sql`'s rows as the two sides: what feeds `full` and what reads it.
+pub(crate) fn lineage_from_rows(rows: &[Vec<Option<String>>], full: &str) -> (Lineage, Lineage) {
+    let mut up = Lineage::default();
+    let mut down = Lineage::default();
+    for r in rows {
+        let c = |i: usize| r.get(i).cloned().flatten().filter(|v| !v.is_empty());
+        let me_target = c(6).is_some_and(|n| n.eq_ignore_ascii_case(full));
+        let me_source = c(0).is_some_and(|n| n.eq_ignore_ascii_case(full));
+        if me_target == me_source {
+            continue;
+        }
+        let entity = c(12).zip(c(13)).map(|(t, id)| Entity {
+            kind: crate::lineage::entity_kind(&t),
+            id,
+            v3: crate::lineage::is_v3(&t),
+        });
+        let (side, cols, kind_col) = if me_target {
+            (&mut up, (1, 2, 3), 4)
+        } else {
+            (&mut down, (7, 8, 9), 10)
+        };
+        if let Some(e) = &entity {
+            if !side.entities.contains(e) {
+                side.entities.push(e.clone());
+            }
+        }
+        let via: Vec<Entity> = entity.into_iter().collect();
+        match (c(cols.0), c(cols.1), c(cols.2)) {
+            (Some(catalog), Some(schema), Some(name)) => {
+                match side.tables.iter_mut().find(|t| {
+                    t.catalog.eq_ignore_ascii_case(&catalog)
+                        && t.schema.eq_ignore_ascii_case(&schema)
+                        && t.name.eq_ignore_ascii_case(&name)
+                }) {
+                    Some(t) => {
+                        for e in via {
+                            if !t.via.contains(&e) {
+                                t.via.push(e);
+                            }
+                        }
+                    }
+                    None => side.tables.push(UpTable {
+                        catalog,
+                        schema,
+                        name,
+                        table_type: c(kind_col).unwrap_or_default(),
+                        via,
+                    }),
+                }
+            }
+            _ if me_target => {
+                if let Some(path) = c(5) {
+                    if !side.files.iter().any(|(p, _)| *p == path) {
+                        side.files.push((path, None));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    (up, down)
 }
 
 /// The views of the catalog whose lower-cased definition contains `:p0` (a `LIKE` pattern).
@@ -1319,7 +1421,11 @@ mod tests {
     /// A workspace for `dependents_of`: the table-lineage API (`pages` of it), the names of what
     /// ran, and the two catalog queries it may ask (views naming the table, foreign keys to it).
     /// Gives the base URL and what was asked (`METHOD path?query`, statements by their text).
-    async fn readers_workspace(status: u16, pages: bool) -> (String, Arc<Mutex<Vec<String>>>) {
+    async fn readers_workspace(
+        status: u16,
+        pages: bool,
+        system: bool,
+    ) -> (String, Arc<Mutex<Vec<String>>>) {
         let seen = Arc::new(Mutex::new(Vec::new()));
         let log = seen.clone();
         let base = serve(Arc::new(move |m, p, body| {
@@ -1362,7 +1468,18 @@ mod tests {
                 ("POST", "/api/2.0/sql/statements") => {
                     let st: Json = serde_json::from_str(body).unwrap();
                     let text = st["statement"].as_str().unwrap_or("");
-                    if text.contains("information_schema.views") {
+                    if text.contains("system.access.table_lineage") {
+                        if system {
+                            (200, rows(json!([
+                                ["main.sales.menu", "main", "sales", "menu", "TABLE", null, "main.sales.dinner", "main", "sales", "dinner", "TABLE", null, "JOB", "774"],
+                                ["main.sales.dinner", "main", "sales", "dinner", "TABLE", null, "main.sales.dinner_price", "main", "sales", "dinner_price", "TABLE", null, "NOTEBOOK", "3333"],
+                                ["main.sales.dinner", "main", "sales", "dinner", "TABLE", null, "ref.fx.rates_copy", "ref", "fx", "rates_copy", "TABLE", null, null, null],
+                                [null, null, null, null, "PATH", "s3://landing/orders/", "main.sales.dinner", "main", "sales", "dinner", "TABLE", null, null, null]
+                            ])))
+                        } else {
+                            (200, json!({ "statement_id": "s", "status": { "state": "FAILED", "error": { "message": "no SELECT on system.access.table_lineage" } } }).to_string())
+                        }
+                    } else if text.contains("information_schema.views") {
                         (200, rows(json!([["sales", "v_dinner", VIEW_BODY], ["sales", "other", "SELECT 1"]])))
                     } else if text.contains("referential_constraints") {
                         (200, rows(json!([["fk_side", "sales", "side"]])))
@@ -1386,7 +1503,7 @@ mod tests {
 
     #[tokio::test]
     async fn what_reads_a_table_comes_from_its_lineage_not_from_the_catalog() {
-        let (base, seen) = readers_workspace(200, false).await;
+        let (base, seen) = readers_workspace(200, false, true).await;
         let mut s = session(base.clone());
         s.catalog = Some("main".into());
         let r = s.dependents_of(&dinner(), &scan()).await.unwrap();
@@ -1412,13 +1529,18 @@ mod tests {
             nb.detail.as_deref(),
             Some(format!("{base}/#notebook/3333").as_str())
         );
-        // One lineage call and two filtered catalog queries: no listing, no definition reads.
+        // A reader in another catalog is outside.
+        assert!(r.external_users.iter().any(
+            |x| x.database.as_deref() == Some("ref") && x.name.as_deref() == Some("rates_copy")
+        ));
+        // The system table (this table only, both directions, the window) and the two filtered
+        // catalog queries; the API is not asked, nothing is listed or read definition by definition.
         let asked = seen.lock().unwrap().clone();
-        assert_eq!(
-            asked.iter().filter(|a| a.contains("table-lineage")).count(),
-            1
+        assert!(
+            !asked.iter().any(|a| a.contains("table-lineage")),
+            "{asked:?}"
         );
-        assert_eq!(asked.iter().filter(|a| a.starts_with("POST")).count(), 2);
+        assert_eq!(asked.iter().filter(|a| a.starts_with("POST")).count(), 3);
         assert!(
             !asked
                 .iter()
@@ -1428,8 +1550,35 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_system_table_is_asked_for_one_table_in_both_directions() {
+        let (base, _) = readers_workspace(200, false, true).await;
+        let sql = table_lineage_sql();
+        assert!(sql.contains("target_table_full_name = :p0 OR source_table_full_name = :p0"));
+        assert!(sql.contains(&format!(
+            "date_sub(current_date(), {})",
+            crate::lineage::LINEAGE_DAYS
+        )));
+        assert!(sql.contains("GROUP BY ALL") && sql.contains("LIMIT 5000"));
+        // What feeds it, from the same rows.
+        let mut s = session(base);
+        s.catalog = Some("main".into());
+        let r = s.references_of(&dinner(), &scan()).await.unwrap();
+        assert_eq!(r.note, None);
+        let menu = r.items.iter().find(|d| d.name == "menu").expect("menu");
+        assert_eq!(menu.confidence, Confidence::Confirmed);
+        assert_eq!(menu.detail.as_deref(), Some("job 774"));
+        let names: Vec<_> = r
+            .external
+            .iter()
+            .filter_map(|x| x.name.as_deref())
+            .collect();
+        assert!(names.contains(&"nightly load"), "{names:?}");
+        assert!(names.contains(&"s3://landing/orders/"), "{names:?}");
+    }
+
+    #[tokio::test]
     async fn the_lineage_pages_are_followed() {
-        let (base, seen) = readers_workspace(200, true).await;
+        let (base, seen) = readers_workspace(200, true, false).await;
         let mut s = session(base);
         s.catalog = Some("main".into());
         let r = s.dependents_of(&dinner(), &scan()).await.unwrap();
@@ -1445,7 +1594,7 @@ mod tests {
 
     #[tokio::test]
     async fn without_lineage_access_the_contracts_scan_runs_with_the_note() {
-        let (base, seen) = readers_workspace(403, false).await;
+        let (base, seen) = readers_workspace(403, false, false).await;
         let mut s = session(base);
         s.catalog = Some("main".into());
         let r = s.dependents_of(&dinner(), &scan()).await.unwrap();
@@ -1458,7 +1607,7 @@ mod tests {
             "{asked:?}"
         );
         // hive_metastore has no lineage: not even asked.
-        let (base, seen) = readers_workspace(200, false).await;
+        let (base, seen) = readers_workspace(200, false, true).await;
         let mut s = session(base);
         s.catalog = Some(HIVE_METASTORE.into());
         let _ = s.dependents_of(&dinner(), &scan()).await;
