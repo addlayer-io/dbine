@@ -49,6 +49,38 @@ To comply:
 4. It is tested against real servers (`dbine-test-*` containers) on the
    engines that have a Docker image or an emulator.
 
+## Each engine's own way first, the generic one only as the fallback
+
+For every feature the priority is **the most efficient way for each engine**, not
+the most convenient way for us. Before implementing (or reusing) the generic
+path, look for what the engine itself offers for that exact question, and use it:
+
+- **The engine has a native, better way** (a catalog or system view, a REST API,
+  a service that already holds the answer, a server-side filter, a bulk
+  endpoint): use it in that driver. Example: Databricks answers "what feeds and
+  what reads this table" with its own lineage-tracking API in about a second,
+  so the Databricks driver must not read the whole catalog's definitions to draw
+  one table.
+- **The engine has nothing better:** only then use the generic path (the shared
+  scan in `crates/dbine-driver`). It is a fallback, not the default.
+- **The generic path is right when the question needs it** (for example a
+  database-wide view, or "who reads this" on an engine with no dependency
+  catalog). Say so in the code comment and in `docs/engine-support.md`.
+
+How to apply:
+
+1. A driver overrides the contract method with its native path whenever one
+   exists. The generic implementation stays as the default for engines without
+   one.
+2. Ask what the **scope of the question** is. If the user asks about one object,
+   do not read the whole database, catalog or model to answer: read that object
+   and expand level by level when the engine allows it.
+3. `docs/engine-support.md` says, per engine, which path it uses (native or
+   generic) and why, so a slow generic path on an engine that has a native one
+   shows up as a gap to fix.
+4. Time every stage of a slow feature (the lineage diagnostic log is the model)
+   before optimizing, and check the native option first.
+
 ## Conventions
 
 - UI texts in the thirteen languages: Spanish `es` (the source of the UI

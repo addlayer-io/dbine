@@ -21,7 +21,7 @@ import { failedObjects, isPartial, retryChunk, runChunks } from '../composables/
 import type { LineageGraph } from '../api/types';
 import { readerKind, type LineageNode } from '../composables/lineage';
 import {
-  OVERVIEW_ABOVE, applyFilters, buildModel, buildView, groupOf, hasCatalogLineage, isRelation, typesOf, layoutDb, noFilters, objectCount, schemaId, schemasOf,
+  OVERVIEW_ABOVE, applyFilters, buildModel, buildView, groupOf, hasCatalogLineage, isRelation, typesOf, checkedTypes, hiddenFor, isLastChecked, typesCount, layoutDb, noFilters, objectCount, schemaId, schemasOf,
   type DbModel, type Filters,
 } from '../composables/databaseLineage';
 import LineageCanvas from './LineageCanvas.vue';
@@ -204,16 +204,16 @@ onBeforeUnmount(() => clearTimeout(timer));
 
 /** The types on the cards and how many of each (the "Tipos" list). */
 const types = computed(() => (model.value ? typesOf(model.value.nodes.values()) : []));
-const shownTypes = computed(() => types.value.map((x) => x.type).filter((x) => !filters.value.hidden.includes(x)));
+const shownTypes = computed(() => checkedTypes(types.value, filters.value.hidden));
 /** The checked types: the others are hidden. At least one stays checked. */
 function showTypes(list: string[]) {
-  if (!list.length) return;
-  filters.value = { ...filters.value, hidden: types.value.map((x) => x.type).filter((x) => !list.includes(x)) };
+  const hidden = hiddenFor(types.value, list);
+  if (hidden) filters.value = { ...filters.value, hidden };
 }
 const showAllTypes = () => { filters.value = { ...filters.value, hidden: [] }; };
 const typesLabel = computed(() => {
-  const hidden = types.value.filter((x) => filters.value.hidden.includes(x.type)).length;
-  return hidden ? t('dependencies:database.typesCount', { shown: types.value.length - hidden, total: types.value.length }) : t('dependencies:database.kinds');
+  const n = typesCount(types.value, filters.value.hidden);
+  return n ? t('dependencies:database.typesCount', n) : t('dependencies:database.kinds');
 });
 const schemas = computed(() => (model.value ? schemasOf(model.value.nodes.values()) : []));
 const filtered = computed(() => (model.value ? applyFilters(model.value, filters.value) : { nodes: [], edges: [] }));
@@ -330,7 +330,7 @@ const filtering = computed(() => !!(filters.value.hidden.length || filters.value
           <div class="dl-types">
             <el-checkbox :model-value="!filters.hidden.length" :indeterminate="!!filters.hidden.length" @change="showAllTypes">{{ $t('dependencies:database.allTypes') }}</el-checkbox>
             <el-checkbox-group :model-value="shownTypes" @update:model-value="(v: unknown) => showTypes(v as string[])">
-              <el-checkbox v-for="x in types" :key="x.type" :value="x.type" :disabled="shownTypes.length === 1 && shownTypes[0] === x.type">
+              <el-checkbox v-for="x in types" :key="x.type" :value="x.type" :disabled="isLastChecked(shownTypes, x.type)">
                 {{ kindText(x.type) }}<span class="dl-type-count">{{ x.count }}</span>
               </el-checkbox>
             </el-checkbox-group>
