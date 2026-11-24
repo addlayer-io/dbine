@@ -13,6 +13,7 @@ mod health;
 mod index_usage;
 mod indexes;
 mod jobs;
+mod lineage;
 mod monitor;
 mod paging;
 mod permissions;
@@ -458,6 +459,24 @@ impl Driver for BigQueryDriver {
 }
 
 impl BigQuerySession {
+    /// A session over the same project that runs its queries in `location` (a region-qualified
+    /// `INFORMATION_SCHEMA` view must run where its region is).
+    fn located(&self, location: Option<&str>) -> BigQuerySession {
+        let mut api = self.api.clone();
+        if let Some(l) = location {
+            api.location = Some(l.to_string());
+        }
+        BigQuerySession {
+            api,
+            dataset: self.dataset.clone(),
+            session_id: None,
+            job: Arc::new(Mutex::new(None)),
+            storage: Default::default(),
+            profiler: None,
+            no_catalog_pages: true,
+        }
+    }
+
     fn set_job(&self, job: Option<JobRef>) {
         if let Ok(mut j) = self.job.lock() {
             *j = job;
@@ -1363,6 +1382,28 @@ impl Session for BigQuerySession {
         scan: &dbine_driver::DependencyScan,
     ) -> Result<dbine_driver::DependencyReport> {
         self.references_of(target, scan).await
+    }
+
+    /// What reads a table, view or routine: Data Lineage, then the jobs, then the dataset's
+    /// definitions in one query (see [`lineage`]); the contract's scan only as the last
+    /// fallback.
+    async fn dependents(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        self.dependents_of(target, scan).await
+    }
+
+    /// The dataset's lineage: its definitions in one query, Data Lineage for each table or
+    /// the jobs in one query (see [`lineage`]).
+    async fn lineage_graph(
+        &mut self,
+        database: &str,
+        scope: &dbine_driver::dependencies::LineageScope,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::dependencies::LineageGraph> {
+        self.lineage_of(database, scope, scan).await
     }
 
     async fn principals(&mut self) -> Result<Vec<dbine_driver::Principal>> {

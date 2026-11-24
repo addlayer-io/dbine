@@ -23,6 +23,9 @@
 //!   (`tableConstraints.foreignKeys`, Confirmed), the table a snapshot or
 //!   clone was made from (Confirmed), and an external table's files
 //!   (`externalDataConfiguration.sourceUris`) as `external`.
+//! - A table's, view's or materialized view's sources that Data Lineage saw
+//!   (`searchLinks`, `target` side, Confirmed; see `lineage`): the API isn't a query job,
+//!   so it's free, and it says nothing when the API is off or not allowed.
 //! - A JavaScript function's libraries (`importedLibraries`) and a remote
 //!   function's endpoint: `external`.
 //!
@@ -367,6 +370,17 @@ impl BigQuerySession {
         target: &DependencyTarget,
         scan: &DependencyScan,
     ) -> Result<DependencyReport> {
+        self.references_with(crate::lineage::API, target, scan)
+            .await
+    }
+
+    /// As [`Self::references_of`], with the Data Lineage service at `lineage`.
+    pub(crate) async fn references_with(
+        &mut self,
+        lineage: &str,
+        target: &DependencyTarget,
+        scan: &DependencyScan,
+    ) -> Result<DependencyReport> {
         let t = &target.object;
         let mut report = DependencyReport::default();
         let ds = self.dataset(t)?;
@@ -423,6 +437,14 @@ impl BigQuerySession {
                     ..Default::default()
                 });
             }
+            // What Data Lineage saw feed it (free: no query job); nothing when it can't answer.
+            if !self.api.emulator && target.column.is_none() {
+                let (items, outside) = self.lineage_sources(lineage, t, &ds).await;
+                for d in items {
+                    self.place(d, &project, &mut report);
+                }
+                report.external.extend(outside);
+            }
             m.body
         };
         if let Some(body) = body {
@@ -449,7 +471,7 @@ impl BigQuerySession {
     }
 
     /// An item in this project: no schema in the connection's dataset.
-    fn place(&self, mut d: Dependent, project: &str, report: &mut DependencyReport) {
+    pub(crate) fn place(&self, mut d: Dependent, project: &str, report: &mut DependencyReport) {
         // `foreign_keys` writes another project's dataset as `project.dataset`.
         if let Some((p, ds)) = d.schema.as_deref().and_then(|s| s.split_once('.')) {
             if p != project {
@@ -472,7 +494,11 @@ impl BigQuerySession {
 
     /// The kinds of the names in this project that exist: (dataset, name,
     /// call) → kind. A dataset with many names is listed once.
-    async fn look_up(&self, names: &[Name], project: &str) -> Vec<(String, String, bool, String)> {
+    pub(crate) async fn look_up(
+        &self,
+        names: &[Name],
+        project: &str,
+    ) -> Vec<(String, String, bool, String)> {
         let mine: Vec<&Name> = names.iter().filter(|n| n.project == project).collect();
         let mut out = Vec::new();
         let mut datasets: Vec<&str> = mine.iter().map(|n| n.dataset.as_str()).collect();
@@ -609,7 +635,7 @@ pub(crate) fn mentions_at(body: &str, at: &[usize]) -> Vec<Mention> {
 }
 
 /// Adds `d`, or merges it into the same object already there.
-fn add(items: &mut Vec<Dependent>, d: Dependent) {
+pub(crate) fn add(items: &mut Vec<Dependent>, d: Dependent) {
     match items
         .iter_mut()
         .find(|x| x.relation == d.relation && x.schema == d.schema && x.name == d.name)
@@ -631,7 +657,7 @@ fn add(items: &mut Vec<Dependent>, d: Dependent) {
 }
 
 /// Confirmed first, then by relation and name (as the contract sorts).
-fn sort(items: &mut [Dependent]) {
+pub(crate) fn sort(items: &mut [Dependent]) {
     items.sort_by(|a, b| {
         (
             a.confidence,
