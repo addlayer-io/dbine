@@ -3815,6 +3815,46 @@ routines, triggers, packages, synonyms, aliases, streams, tasks and sinks
   of routines it is slow, because it reads each definition separately. The
   PostgreSQL (`pg_depend`) and Oracle (`ALL_DEPENDENCIES`) versions are
   pending here.
+  A model read with only `COLUMNSTATISTICS()` has nothing readable but its
+  tables and columns, and the report says so.
+- **PostgreSQL and the forks that keep its catalog** (TimescaleDB, AlloyDB,
+  Cloud SQL, Aurora, EDB, Fujitsu, YugabyteDB, Greenplum, Cloudberry,
+  Greengage, KingbaseES, openGauss): native, two queries filtered by the
+  object. `pg_depend` rows whose referenced object is the table, view,
+  materialized view, sequence or routine (or its column) give the views, rules,
+  routines, triggers, defaults, generated columns, checks, unique and
+  exclusion constraints, indexes and policies that use it; `pg_constraint`
+  gives the foreign keys and `pg_inherits` the inheriting tables (**Confirmed**).
+  A routine that takes a table's row type is followed through the type. A
+  routine whose body the catalog does not track (PL/pgSQL, any body before
+  PostgreSQL 14) is searched by text: the server keeps only the bodies that
+  hold the name and DBine parses those (**Probable** / **Review**). Other
+  variants (Redshift, Yellowbrick, CockroachDB, Materialize, RisingWave,
+  Denodo, CrateDB, H2) and the kinds the catalog does not answer for (a schema,
+  an index, a constraint, a type) use the default version; so does a login
+  that cannot read the catalog, and the tab says why.
+- **Oracle and Oracle Autonomous Database**: native. `ALL_DEPENDENCIES` filtered
+  by the referenced object gives the views, materialized views, routines,
+  packages, triggers, types, synonyms (public ones too) and tables that use
+  it, and `ALL_CONSTRAINTS` the foreign keys (**Confirmed**). It records no
+  columns: for a column, only the dependents of its table are read and kept
+  when their source names it (**Probable**), plus the column's own indexes and
+  checks. What the dictionary cannot resolve (dynamic SQL, an invalid unit) is
+  found by one `ALL_SOURCE` query that keeps, on the server, the PL/SQL whose text
+  holds the name; only those are read (**Probable** / **Review**). Views have
+  no source in `ALL_SOURCE`, so an invalid view is not searched. At most 300
+  definitions are read; the rest are listed as unreadable.
+- **SAP HANA**: native. `SYS.OBJECT_DEPENDENCIES` filtered by the base object
+  gives the views, procedures, functions, triggers, synonyms and sequences
+  that use it, and `SYS.REFERENTIAL_CONSTRAINTS` the foreign keys
+  (**Confirmed**). A column is handled as in Oracle (the table's dependents
+  whose source names it, plus its indexes and primary key), and dynamic SQL
+  is searched in the definitions of the object's schema and the session's with
+  one server-side `LIKE`. Verified with unit tests only: there is no HANA
+  container to run it against.
+- **The other engines**: the default version. In a database with thousands
+  of routines it is slow, because it reads each definition separately. The
+  version with MySQL's `VIEW_TABLE_USAGE` is pending.
 
 Drivers that run in their own process (those downloaded on demand) answer
 `Dependents` through the protocol; a process published earlier answers that

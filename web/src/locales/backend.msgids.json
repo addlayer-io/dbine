@@ -29940,10 +29940,13 @@
   "crates/drivers/duckdb/src/monitor.rs",
   "crates/drivers/firebird/src/monitor.rs",
   "crates/drivers/firebird/src/references.rs",
+  "crates/drivers/hana/src/dependents.rs",
   "crates/drivers/hana/src/references.rs",
   "crates/drivers/iotdb/src/lib.rs",
   "crates/drivers/odbc/src/references.rs",
+  "crates/drivers/oracle/src/dependents.rs",
   "crates/drivers/oracle/src/monitor.rs",
+  "crates/drivers/postgres/src/pg_dependents.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
  "No se pudo leer «{0}»: no se revisaron sus índices ni su validador.": [
