@@ -4080,7 +4080,53 @@ Drivers whose engine records dependencies answer from their catalog instead:
   and the base table of a snapshot or clone are **Confirmed**. Tables of
   another project, an external table's files, `EXTERNAL_QUERY` connections
   (with the tables their query names), JavaScript libraries and remote
-  function endpoints are listed as sources outside the database.
+  function endpoints are listed as sources outside the database. What
+  **Data Lineage** saw feed a table, view or materialized view (a
+  `searchLinks` call on the `target` side, **Confirmed**, with the day it last
+  ran and the process that carried it) is added; the API is not a query job,
+  so this stays free, and it adds nothing when the API is off or not allowed.
+
+  **What reads a table (the Dependencias panel), native first:** one
+  `searchLinks` call on the `source` side of the Data Lineage API
+  (`datalineage.googleapis.com`, `bigquery:project.dataset.table`, in the
+  dataset's location) is the source: the tables and views that were written
+  from it, **Confirmed**, each with the day it last ran and its process
+  (`batchSearchLinkProcesses` and `processes.get`: the process's name and
+  system, such as BigQuery, Composer or Dataflow); a target in another project
+  or a non-BigQuery asset is listed outside the database. It needs the API
+  enabled in the project and `roles/datalineage.viewer`, and it only knows jobs
+  that ran after the API was enabled, for 30 days. When the API is off,
+  forbidden or has nothing, the query jobs of the last 14 days are read from
+  `INFORMATION_SCHEMA.JOBS_BY_PROJECT` of the dataset's region
+  (`referenced_tables` and `destination_table` of jobs that finished OK:
+  **Confirmed**; needs `bigquery.jobs.listAll`): it is billed by the bytes it
+  scans, so it never selects the query text, it filters on `creation_time` (the
+  partition) and it is dry-run first and skipped, with a note, past 1 GiB. The
+  views, materialized views and routines that name the table come from one
+  query on the dataset (`INFORMATION_SCHEMA.TABLES.ddl` and `ROUTINES.ddl`, the
+  name filtered by the server, **Probable**, with the lines), and the tables
+  whose foreign keys point at it from one query on `TABLE_CONSTRAINTS` and
+  `CONSTRAINT_COLUMN_USAGE` (**Confirmed**); both are metadata views, billed
+  the 10 MB minimum. Only when those can't be read does the generic scan run
+  (one billed job per object), with a note. A reader in another dataset shows
+  only if Data Lineage or the jobs saw it: definitions are searched in the
+  table's own dataset.
+
+  **Native vs generic (BigQuery lineage):** one table's lineage is native
+  (Data Lineage, then the jobs history, then the dataset's definitions in one
+  query). The lineage of a dataset is native too: its definitions in one query
+  (views and routines, **Probable**), the foreign keys in one query, and for the
+  tables one `searchLinks` call each (up to 150 tables, eight at a time; the
+  first alone, so an API that is off isn't asked 150 times). When the API
+  can't answer, or has no links at all, the jobs history gives every pair of the
+  dataset in one query (same filters and dry run). The generic scan runs only if
+  the definitions query can't be read. Column lineage isn't read. Not tested
+  against a real project (no account was available): the requests and the
+  answers are checked against Google's documentation and a fake service in
+  unit tests; what is unverified is listed in the tests' report (the lineage
+  location of a multi-region dataset, the exact shape of a BigQuery process, and
+  that `CONSTRAINT_COLUMN_USAGE` names the referenced table of a foreign key,
+  which the existing schema read already assumes).
 - **Snowflake:** What an object uses comes from
   `SNOWFLAKE.ACCOUNT_USAGE.OBJECT_DEPENDENCIES` (**Confirmed**), merged with
   its own definition read as in the default version (**Probable**).
@@ -4207,6 +4253,7 @@ does and an **Analizar** button, because reading every definition can take long.
 | ClickHouse | `system.tables` (`dependencies_*`, materialized views' targets, Distributed, Buffer and Dictionary sources), views' queries (**Probable**); dictionaries are nodes |
 | Snowflake | `ACCOUNT_USAGE.OBJECT_DEPENDENCIES` (**Confirmed**, with its latency), external tables' files; tasks stay nodes |
 | Databricks | `system.access.table_lineage` (**Confirmed**, last 365 days, up to 200,000 rows): jobs, notebooks, pipelines, queries and dashboards as external sources; definitions and foreign keys from the default scan |
+| BigQuery | the dataset's views, materialized views and routines in one `INFORMATION_SCHEMA` query (**Probable**), foreign keys in one query, and Data Lineage's `searchLinks` per table (**Confirmed**, last 30 days of what ran since the API was enabled), or the last 14 days of `JOBS_BY_PROJECT` in one dry-run-guarded query when the API is off; other datasets, projects and Cloud Storage as external sources; scheduled queries as jobs |
 | MongoDB | the views' `viewOn` and pipelines (`$lookup`, `$graphLookup`, `$unionWith`) (**Confirmed**) |
 | Power BI | `INFO.CALCDEPENDENCY()` for the whole model (**Confirmed** with write permission on a model on capacity; else the DAX is resolved against the model: **Probable**), relationships, roles' table filters, and each partition's Power Query sources as external sources |
 
@@ -4226,7 +4273,7 @@ is left out, and why:
 Tested against real servers: SQL Server (with the Agent), PostgreSQL,
 CockroachDB, pg_cron, Oracle, Db2, MySQL, MariaDB, ClickHouse and MongoDB, and
 the PostgreSQL test also against YugabyteDB and TimescaleDB. Not against a
-real server: SAP HANA, Snowflake, Databricks, Power BI, Materialize, RisingWave,
+real server: SAP HANA, Snowflake, Databricks, BigQuery, Power BI, Materialize, RisingWave,
 Redshift, Yellowbrick, Greenplum, EDB and the other PostgreSQL forks, Azure SQL,
 Fabric and Babelfish (unit tests of the queries and the row mapping only).
 
