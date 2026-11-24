@@ -248,6 +248,9 @@ struct Api {
     http: reqwest::Client,
     base: String,
     auth: Auth,
+    /// The diagnostic log's operation this session is working for (empty: none), so its HTTP calls
+    /// and statements are tied to the app's command (`dbine_driver::diag`).
+    diag_op: Arc<std::sync::Mutex<String>>,
 }
 
 /// `https://host` from a host name or URL.
@@ -267,6 +270,21 @@ fn warehouse_id(v: &str) -> String {
 }
 
 impl Api {
+    fn op(&self) -> String {
+        self.diag_op
+            .lock()
+            .map(|o| o.clone())
+            .ok()
+            .filter(|o| !o.is_empty())
+            .unwrap_or_else(|| "-".into())
+    }
+
+    fn set_op(&self, op: Option<&str>) {
+        if let Ok(mut o) = self.diag_op.lock() {
+            *o = op.unwrap_or_default().to_string();
+        }
+    }
+
     async fn bearer(&self) -> Result<String> {
         let (req, cache) = match &self.auth {
             Auth::Pat(t) => return Ok(format!("Bearer {t}")),
@@ -318,6 +336,24 @@ impl Api {
     }
 
     async fn send(&self, req: reqwest::RequestBuilder) -> Result<Json> {
+        let mut t = dbine_driver::diag::DiagTimer::start(&self.op(), "http");
+        if dbine_driver::diag::enabled() {
+            if let Some(r) = req.try_clone().and_then(|r| r.build().ok()) {
+                t.field("method", r.method())
+                    .field("path", r.url().path())
+                    .field("query", r.url().query().is_some());
+            }
+        }
+        let r = self.send_inner(req, &mut t).await;
+        t.finish(&r);
+        r
+    }
+
+    async fn send_inner(
+        &self,
+        req: reqwest::RequestBuilder,
+        t: &mut dbine_driver::diag::DiagTimer,
+    ) -> Result<Json> {
         // A browser sign-in token the workspace refuses (revoked, or the
         // clock was off) is renewed and the request sent once more.
         let retry = match self.auth {
@@ -328,7 +364,9 @@ impl Api {
         if let (401, Some(req)) = (status, retry) {
             u2m::expire(&self.base, bearer.trim_start_matches("Bearer "));
             (_, status, body) = self.send_once(req).await?;
+            t.field("renewed_token", true);
         }
+        t.field("status", status);
         match status {
             200..=299 => Ok(body),
             401 | 403 => Err(Error::AuthFailed(api_message(&body, status))),
@@ -704,6 +742,7 @@ impl Driver for DatabricksDriver {
                 http,
                 base: base_url(&cfg.host),
                 auth,
+                diag_op: Default::default(),
             },
             warehouse,
             catalog: database
@@ -770,7 +809,21 @@ impl DatabricksSession {
         if let Some(n) = results::row_limit(sql, max_rows) {
             body["row_limit"] = json!(n);
         }
+        let mut t = dbine_driver::diag::DiagTimer::start(&self.api.op(), "statement");
+        if dbine_driver::diag::enabled() {
+            let head: String = sql.split_whitespace().collect::<Vec<_>>().join(" ");
+            let head: String = head.chars().take(60).collect();
+            t.field("sql", dbine_driver::diag::name(&head))
+                .field("sql_chars", sql.len())
+                .field("max_rows", max_rows);
+        }
         let mut resp = self.api.post("/api/2.0/sql/statements", &body).await?;
+        t.field("submit_ms", t.elapsed_ms()).field(
+            "first_state",
+            resp.pointer("/status/state")
+                .and_then(Json::as_str)
+                .unwrap_or("?"),
+        );
         let id = resp
             .get("statement_id")
             .and_then(Json::as_str)
@@ -779,6 +832,12 @@ impl DatabricksSession {
         self.set_running(Some(id.clone()));
         let result = self.finish(&id, &mut resp, max_rows).await;
         self.set_running(None);
+        t.finish(&result);
+        if let Ok(st) = &result {
+            t.field("rows", st.rows.len())
+                .field("total_rows", st.total)
+                .field("truncated", st.more);
+        }
         result.map(|st| (id, st))
     }
 
@@ -854,18 +913,29 @@ impl DatabricksSession {
 
     async fn finish(&self, id: &str, resp: &mut Json, max_rows: usize) -> Result<Statement> {
         let mut delay = Duration::from_millis(250);
+        let mut polls = 0u32;
+        let mut wait = dbine_driver::diag::DiagTimer::start(&self.api.op(), "statement.wait");
         loop {
             match resp.pointer("/status/state").and_then(Json::as_str) {
-                Some("SUCCEEDED") => break,
+                Some("SUCCEEDED") => {
+                    wait.field("polls", polls).ok();
+                    break;
+                }
                 Some("FAILED") => {
                     let msg = resp
                         .pointer("/status/error/message")
                         .and_then(Json::as_str)
                         .unwrap_or("la sentencia falló");
+                    wait.field("polls", polls).fail("statement_failed", msg);
                     return Err(Error::Query(msg.to_string()));
                 }
-                Some("CANCELED") | Some("CLOSED") => return Err(Error::Cancelled),
+                Some("CANCELED") | Some("CLOSED") => {
+                    wait.field("polls", polls)
+                        .fail("canceled", "statement canceled or closed");
+                    return Err(Error::Cancelled);
+                }
                 _ => {
+                    polls += 1;
                     tokio::time::sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(2));
                     *resp = self

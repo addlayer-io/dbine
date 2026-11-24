@@ -127,6 +127,7 @@ pub async fn warm_after_connect(
         return;
     }
     let Some(_guard) = Guard::acquire(&connection_id) else {
+        dbine_driver::diag!("-", "lineage_warm.skipped", reason = "already warming");
         return;
     };
     let deadline = Instant::now() + TOTAL;
@@ -172,9 +173,22 @@ async fn warm_databases(
         }
         let stored = state.cache_get::<IgnoredAny>(connection_id, &database, kinds::LINEAGE, &key);
         if fresh_value(stored, chrono::Utc::now(), TTL).is_some() {
+            dbine_driver::diag!(
+                "-",
+                "lineage_warm.database",
+                database = dbine_driver::diag::name(&database),
+                res = "fresh in cache"
+            );
             continue;
         }
-        let (db, sc, sn) = (database.clone(), scope.clone(), scan.clone());
+        let op =
+            crate::lineage_diag::begin(state, "lineage_warm.database", connection_id, &database)
+                .unwrap_or_else(|| "-".into());
+        let mut timer = dbine_driver::diag::DiagTimer::start(&op, "lineage_warm.read");
+        timer.field("limit_secs", PER_DATABASE.min(left).as_secs());
+        let mut sc_op = scope.clone();
+        sc_op.diag_op = Some(op.clone());
+        let (db, sc, sn) = (database.clone(), sc_op, scan.clone());
         let read = tokio::time::timeout(
             PER_DATABASE.min(left),
             state.meta_read_on(
@@ -186,6 +200,17 @@ async fn warm_databases(
             ),
         )
         .await;
+        match &read {
+            Ok(Ok(g)) => {
+                timer
+                    .field("objects", g.objects.len())
+                    .field("edges", g.edges.len())
+                    .ok();
+            }
+            Ok(Err(e)) => timer.fail("error", &e.to_string()),
+            Err(_) => timer.fail("timeout", "per-database limit"),
+        }
+        drop(timer);
         match read {
             Ok(Ok(graph)) => {
                 // The user may have disconnected while this was reading.
@@ -230,11 +255,19 @@ async fn warm_power_bi(
                 return;
             }
             // Reads the disk and memory first: a model already warm costs nothing.
+            let mut t = dbine_driver::diag::DiagTimer::start("-", "lineage_warm.model");
+            t.object("model", &model)
+                .field("limit_secs", left.min(model_limit).as_secs());
             let r = tokio::time::timeout(
                 left.min(model_limit),
                 externals_of(state, pbi, &model, true),
             )
             .await;
+            match &r {
+                Ok(Ok(_)) => t.ok(),
+                Ok(Err(e)) => t.fail("error", &e.to_string()),
+                Err(_) => t.fail("timeout", "model limit"),
+            }
             if !matches!(r, Ok(Ok(_))) {
                 tracing::debug!("lineage warm-up of {id}/{model}: not read");
             }

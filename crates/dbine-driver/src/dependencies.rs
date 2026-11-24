@@ -267,12 +267,26 @@ pub async fn scan<S: Session + ?Sized>(
     ctx: &DependencyScan,
 ) -> Result<DependencyReport> {
     let mut report = DependencyReport::default();
+    let target_name = crate::diag::name(&target.object.name);
     if ctx.foreign_keys {
-        report
-            .items
-            .extend(schema_dependents(&s.database_schema().await?, target));
+        let mut t = crate::diag::DiagTimer::start("-", "dependents_scan.database_schema");
+        t.field("target", &target_name);
+        let schema = s.database_schema().await;
+        t.finish(&schema);
+        drop(t);
+        report.items.extend(schema_dependents(&schema?, target));
     }
-    for o in s.list_objects().await? {
+    let mut t_list = crate::diag::DiagTimer::start("-", "dependents_scan.list_objects");
+    let listed = s.list_objects().await;
+    t_list.finish(&listed);
+    if let Ok(l) = &listed {
+        t_list.field("objects", l.len());
+    }
+    drop(t_list);
+    let mut t_defs = crate::diag::DiagTimer::start("-", "dependents_scan.definitions");
+    t_defs.field("target", &target_name);
+    let mut slowest = 0u128;
+    for o in listed? {
         if !ctx.source_kinds.contains(&o.kind) {
             continue;
         }
@@ -284,7 +298,12 @@ pub async fn scan<S: Session + ?Sized>(
         if same_object(&obj, &target.object) {
             continue;
         }
-        let body = match s.definition(&obj).await {
+        let began = std::time::Instant::now();
+        let def = s.definition(&obj).await;
+        if crate::diag::enabled() {
+            slowest = slowest.max(began.elapsed().as_millis());
+        }
+        let body = match def {
             Ok(Some(b)) => b,
             Ok(None) => continue,
             Err(_) => {
@@ -308,6 +327,11 @@ pub async fn scan<S: Session + ?Sized>(
             });
         }
     }
+    t_defs
+        .field("read", report.scanned)
+        .field("unreadable", report.unreadable.len())
+        .field("slowest_ms", slowest)
+        .ok();
     sort(&mut report.items);
     Ok(report)
 }
@@ -640,16 +664,24 @@ pub async fn references_scan<S: Session + ?Sized>(
     let t = &target.object;
     let mut report = DependencyReport::default();
     if ctx.foreign_keys && t.kind == kinds::TABLE {
+        let mut t_fk = crate::diag::DiagTimer::start("-", "references_scan.foreign_keys");
+        t_fk.object("target", &t.name);
         let fks = match s.index_usage(t).await {
-            Ok(Some(u)) if !u.foreign_keys.is_empty() => u.foreign_keys,
-            _ => s
-                .database_schema()
-                .await?
-                .into_iter()
-                .find(|x| names_table(x.schema.as_deref(), &x.name, t))
-                .map(|x| x.foreign_keys)
-                .unwrap_or_default(),
+            Ok(Some(u)) if !u.foreign_keys.is_empty() => {
+                t_fk.field("via", "index_usage").ok();
+                u.foreign_keys
+            }
+            _ => {
+                t_fk.field("via", "database_schema");
+                let all = s.database_schema().await;
+                t_fk.finish(&all);
+                all?.into_iter()
+                    .find(|x| names_table(x.schema.as_deref(), &x.name, t))
+                    .map(|x| x.foreign_keys)
+                    .unwrap_or_default()
+            }
         };
+        drop(t_fk);
         report.items.extend(foreign_key_parents(&fks, t));
     }
     if ctx.written_kinds.contains(&t.kind) {

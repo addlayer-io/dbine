@@ -333,17 +333,45 @@ pub async fn get_lineage_chunk(
     } else {
         vec![ask]
     };
+    let op = crate::lineage_diag::begin(
+        &state,
+        "get_lineage_chunk",
+        &args.connection_id,
+        &args.database,
+    );
+    let log_op = op.clone().unwrap_or_else(|| "-".into());
+    let mut total = dbine_driver::diag::DiagTimer::start(&log_op, "get_lineage_chunk.total");
+    total
+        .field("steps", steps.len())
+        .field("retry", args.retry)
+        .field("give_up", args.give_up)
+        .field("limit_secs", limit.as_secs());
     let reads = futures_util::future::join_all(steps.iter().map(|step| {
         let mut scope = scope.clone();
         scope.step = Some(step.clone());
+        scope.diag_op = op.clone();
         let (database, scan) = (args.database.clone(), scan.clone());
-        state.meta_read_on(
+        let mut t = dbine_driver::diag::DiagTimer::start(&log_op, "chunk");
+        t.field("stage", &step.stage)
+            .field("offset", step.offset)
+            .field("len", step.len)
+            .field("of", step.total);
+        let read = state.meta_read_on(
             crate::state::Lane::Long,
             &args.connection_id,
             &args.database,
             limit,
             move |s| Box::pin(async move { s.lineage_graph(&database, &scope, &scan).await }),
-        )
+        );
+        async move {
+            let r = read.await;
+            t.finish(&r);
+            if let Ok(g) = &r {
+                t.field("objects", g.objects.len())
+                    .field("edges", g.edges.len());
+            }
+            r
+        }
     }))
     .await;
     let mut reads = reads.into_iter();
@@ -416,13 +444,36 @@ pub async fn lineage_graph_cached(
         .get_connection(&args.connection_id)?
         .and_then(|c| dbine_drivers::find(&c.config.driver))
         .is_some_and(|d| d.capabilities().jobs);
-    Ok(cached_lineage(
+    let cached = cached_lineage(
         &state,
         &args.connection_id,
         &args.database,
         args.scope,
         jobs,
-    ))
+    );
+    if dbine_driver::diag::enabled() {
+        if let Some(op) = crate::lineage_diag::begin(
+            &state,
+            "lineage_graph_cached",
+            &args.connection_id,
+            &args.database,
+        ) {
+            let age = cached.updated_at.as_deref().and_then(|at| {
+                DateTime::parse_from_rfc3339(at)
+                    .ok()
+                    .map(|t| (Utc::now() - t.with_timezone(&Utc)).num_seconds())
+            });
+            dbine_driver::diag!(
+                &op,
+                "lineage_graph_cached.result",
+                hit = cached.graph.is_some(),
+                age_secs = age.map_or("-".into(), |a| a.to_string()),
+                objects = cached.graph.as_ref().map_or(0, |g| g.objects.len()),
+                edges = cached.graph.as_ref().map_or(0, |g| g.edges.len())
+            );
+        }
+    }
+    Ok(cached)
 }
 
 #[derive(Deserialize)]

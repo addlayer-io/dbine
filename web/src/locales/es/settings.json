@@ -48,6 +48,13 @@
     "lineagePbiAdminAuthorized": "API de administración de Power BI autorizada.",
     "lineageCacheClear": "Borrar caché del linaje",
     "lineageCacheCleared": "Caché del linaje borrada.",
+    "lineageDiag": "Registro de diagnóstico del linaje",
+    "lineageDiagHelp": "Anota en {{file}} cuánto tarda cada etapa al abrir un linaje o sus dependencias, sin contraseñas, tokens ni datos de las tablas, para poder medir un linaje lento. Viene activado solo en las versiones de prueba.",
+    "lineageDiagOpen": "Abrir carpeta del registro",
+    "lineageDiagCopy": "Copiar ruta",
+    "lineageDiagPathCopied": "Ruta del registro copiada.",
+    "lineageDiagHideNames": "Ocultar nombres en el registro del linaje",
+    "lineageDiagHideNamesHelp": "Reemplaza los nombres de catálogos, tablas y modelos por un código en el registro de diagnóstico.",
     "theme": "Tema",
     "themeHelp": "Los colores de DBine. «Igual que el sistema» cambia solo cuando cambia el del sistema operativo.",
     "themes": {

@@ -438,7 +438,20 @@ pub async fn get_dependents(
     let jobs = driver.capabilities().jobs;
     let target = args.target;
     let database = args.database.clone();
-    state
+    let op = crate::lineage_diag::begin(
+        &state,
+        "get_dependents",
+        &args.connection_id,
+        &args.database,
+    )
+    .unwrap_or_else(|| "-".into());
+    let mut timer = dbine_driver::diag::DiagTimer::start(&op, "get_dependents.total");
+    timer
+        .object("target", &target.object.name)
+        .field("kind", &target.object.kind)
+        .field("limit_secs", dependents_limit(&state).as_secs());
+    let inner_op = op.clone();
+    let report = state
         .meta_read_on(
             Lane::Long,
             &args.connection_id,
@@ -446,18 +459,32 @@ pub async fn get_dependents(
             dependents_limit(&state),
             move |s| {
                 Box::pin(async move {
-                    let mut report = s.dependents(&target, &scan).await?;
+                    let mut t = dbine_driver::diag::DiagTimer::start(&inner_op, "dependents");
+                    let r = s.dependents(&target, &scan).await;
+                    t.finish(&r);
+                    drop(t);
+                    let mut report = r?;
                     if jobs {
-                        with_jobs(
-                            &mut report,
-                            s.job_dependents(&database, &target, &scan).await,
-                        );
+                        let mut t =
+                            dbine_driver::diag::DiagTimer::start(&inner_op, "job_dependents");
+                        let j = s.job_dependents(&database, &target, &scan).await;
+                        t.finish(&j);
+                        drop(t);
+                        with_jobs(&mut report, j);
                     }
                     Ok(report)
                 })
             },
         )
-        .await
+        .await;
+    timer.finish(&report);
+    if let Ok(r) = &report {
+        timer
+            .field("items", r.items.len())
+            .field("external", r.external.len())
+            .field("scanned", r.scanned);
+    }
+    report
 }
 
 /// The jobs that run the object into its dependents; when they couldn't be
@@ -542,8 +569,25 @@ pub async fn get_lineage_graph(
         driver.script_dialect(),
         driver.capabilities().foreign_keys,
     );
-    let (scope, key) = lineage_cache::keyed_scope(args.scope, driver.capabilities().jobs);
+    let (mut scope, key) = lineage_cache::keyed_scope(args.scope, driver.capabilities().jobs);
     let database = args.database.clone();
+    // The diagnostic log: the operation's id travels with the scope (never part of the cache key).
+    let op = crate::lineage_diag::begin(
+        &state,
+        "get_lineage_graph",
+        &args.connection_id,
+        &args.database,
+    );
+    scope.diag_op = op.clone();
+    let mut timer = dbine_driver::diag::DiagTimer::start(
+        op.as_deref().unwrap_or("-"),
+        "get_lineage_graph.total",
+    );
+    timer
+        .field("schemas", scope.schemas.len())
+        .field("kinds", scope.kinds.len())
+        .field("jobs", scope.jobs)
+        .field("limit_secs", dependents_limit(&state).as_secs());
     // The precompute lets this read go first.
     let _reading = lineage_cache::UserRead::begin();
     let cacheable = lineage_cache::is_cacheable(&scope);
@@ -555,7 +599,14 @@ pub async fn get_lineage_graph(
             dependents_limit(&state),
             move |s| Box::pin(async move { s.lineage_graph(&database, &scope, &scan).await }),
         )
-        .await?;
+        .await;
+    timer.finish(&graph);
+    let graph = graph?;
+    timer
+        .field("objects", graph.objects.len())
+        .field("edges", graph.edges.len())
+        .field("external", graph.external.len())
+        .field("notes", graph.notes.len());
     // The server's answer replaces what the cache held for this scope.
     if cacheable {
         state.cache_put(
@@ -600,7 +651,18 @@ pub async fn get_references(
         driver.capabilities().foreign_keys,
     );
     let target = args.target;
-    state
+    let op = crate::lineage_diag::begin(
+        &state,
+        "get_references",
+        &args.connection_id,
+        &args.database,
+    )
+    .unwrap_or_else(|| "-".into());
+    let mut timer = dbine_driver::diag::DiagTimer::start(&op, "get_references.total");
+    timer
+        .object("target", &target.object.name)
+        .field("kind", &target.object.kind);
+    let report = state
         .meta_read_on(
             Lane::Long,
             &args.connection_id,
@@ -608,7 +670,14 @@ pub async fn get_references(
             dependents_limit(&state),
             move |s| Box::pin(async move { s.references(&target, &scan).await }),
         )
-        .await
+        .await;
+    timer.finish(&report);
+    if let Ok(r) = &report {
+        timer
+            .field("items", r.items.len())
+            .field("external", r.external.len());
+    }
+    report
 }
 
 #[derive(Deserialize)]

@@ -282,11 +282,14 @@ pub(crate) async fn scan_of(state: &AppState, pbi: &SavedConnection, use_stored:
         tenant_sources: true,
         ..Default::default()
     };
+    let mut timer = dbine_driver::diag::DiagTimer::start("-", "cross.tenant_scan");
     let read = state
         .meta_read(&pbi.id, "", SCAN_LIMIT, move |s| {
             Box::pin(async move { s.lineage_graph("", &scope, &scan).await })
         })
         .await;
+    timer.finish(&read);
+    drop(timer);
     match read {
         Ok(graph) => {
             let h = Arc::new(ScanHint::of(&graph));
@@ -1110,6 +1113,15 @@ pub async fn get_cross_users(
             }
             Scan::Failed | Scan::Off => models.to_vec(),
         };
+        dbine_driver::diag!(
+            "-",
+            "get_cross_users.models",
+            pbi = dbine_driver::diag::short_id(&pbi.id),
+            to_read = to_read.len(),
+            parallel = parallel,
+            model_limit_secs = model_limit.as_secs(),
+            refresh = args.refresh
+        );
         let mut work: Vec<(String, Option<CommandResult<ModelSources>>)> =
             futures_util::stream::iter(to_read)
                 .map(|model| async move {
@@ -1335,13 +1347,29 @@ pub(crate) async fn externals_of(
     let key = (pbi.id.clone(), model.to_string());
     if use_stored {
         if let Some(s) = with_index(|i| i.sources.get(&key, Instant::now())) {
+            dbine_driver::diag!(
+                "-",
+                "cross.model_sources",
+                model = dbine_driver::diag::name(model),
+                res = "ok",
+                source = "memory"
+            );
             return Ok((s, true, false));
         }
         if let Some(s) = sources_on_disk(state, &pbi.id, model) {
             with_index(|i| i.sources.put(key, s.clone(), Instant::now()));
+            dbine_driver::diag!(
+                "-",
+                "cross.model_sources",
+                model = dbine_driver::diag::name(model),
+                res = "ok",
+                source = "disk"
+            );
             return Ok((s, true, false));
         }
     }
+    let mut timer = dbine_driver::diag::DiagTimer::start("-", "cross.model_sources");
+    timer.object("model", model).field("source", "server");
     let driver = dbine_drivers::find(&pbi.config.driver).ok_or_else(|| {
         CommandError::BadRequest(format!(
             "esta versión no incluye el driver '{}'",
@@ -1367,7 +1395,10 @@ pub(crate) async fn externals_of(
                 s.lineage_graph(&db, &scope, &scan).await
             })
         })
-        .await?;
+        .await;
+    timer.finish(&graph);
+    let graph = graph?;
+    timer.field("external", graph.external.len());
     let skipped = graph
         .notes
         .iter()

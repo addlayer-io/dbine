@@ -204,6 +204,13 @@ impl DatabricksSession {
         } else {
             database.to_string()
         };
+        self.api.set_op(scope.diag_op.as_deref());
+        let op = self.api.op();
+        let mut total = dbine_driver::diag::DiagTimer::start(&op, "databricks.lineage_of");
+        total
+            .object("catalog", &catalog)
+            .field("schemas", scope.schemas.len())
+            .field("lineage_sql_limit", 200_000);
         // Foreign keys run on the warehouse: if they can't be read the graph
         // still has the rest.
         let mut g = match graph_scan(self, &catalog, scope, scan).await {
@@ -217,9 +224,17 @@ impl DatabricksSession {
         };
         if eq(&catalog, HIVE_METASTORE) {
             g.notes.push(NO_SYSTEM_LINEAGE.into());
+            total.field("hive_metastore", true).ok();
             return Ok(g);
         }
-        match self.text_rows(LINEAGE_SQL, &[&catalog]).await {
+        let mut t_sql = dbine_driver::diag::DiagTimer::start(&op, "databricks.lineage_sql");
+        let read = self.text_rows(LINEAGE_SQL, &[&catalog]).await;
+        t_sql.finish(&read);
+        if let Ok(raw) = &read {
+            t_sql.field("rows", raw.len());
+        }
+        drop(t_sql);
+        match read {
             Ok(raw) => {
                 let entities: Vec<Entity> = raw
                     .iter()
@@ -232,8 +247,14 @@ impl DatabricksSession {
                         })
                     })
                     .collect();
+                let mut t_names =
+                    dbine_driver::diag::DiagTimer::start(&op, "databricks.entity_names");
+                t_names.field("entities", entities.len());
                 let names = self.entity_names(&entities).await;
+                t_names.field("resolved", names.len()).ok();
+                drop(t_names);
                 let base = self.api.base.clone();
+                let _t_add = dbine_driver::diag::DiagTimer::start(&op, "databricks.add_lineage");
                 add_lineage(&mut g, &catalog, &raw, &base, &names);
             }
             Err(e) => {
@@ -241,6 +262,10 @@ impl DatabricksSession {
                 g.notes.push(NO_SYSTEM_LINEAGE.into());
             }
         }
+        total
+            .field("objects", g.objects.len())
+            .field("edges", g.edges.len())
+            .ok();
         Ok(g)
     }
 }
