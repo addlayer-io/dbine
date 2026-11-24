@@ -16,6 +16,7 @@
 //!   files (`INFORMATION_SCHEMA.EXTERNAL_TABLES.LOCATION`) as `external`.
 //! - Without access to ACCOUNT_USAGE: the definition alone, and a note.
 
+use crate::object_lineage;
 use crate::SnowflakeSession;
 use dbine_driver::dependencies::{
     references_scan, used_names, used_objects, Confidence, DependencyReport, DependencyScan,
@@ -66,7 +67,7 @@ pub(crate) fn domain_kind(domain: &str) -> Option<&'static str> {
 
 /// Whether a referencing domain is the target's kind (a function and a
 /// view may share a name).
-fn domain_fits(domain: &str, kind: &str) -> bool {
+pub(crate) fn domain_fits(domain: &str, kind: &str) -> bool {
     domain_kind(domain) == Some(kind)
 }
 
@@ -284,7 +285,37 @@ async fn resolve_names<S: Session + ?Sized>(s: &mut S, used: &[UsedName]) -> Res
     Ok(found)
 }
 
+#[dbine_driver::async_trait]
+impl crate::object_lineage::Catalog for SnowflakeSession {
+    async fn rows(&self, sql: &str, args: &[&str]) -> Result<Vec<Vec<Option<String>>>> {
+        self.text_rows(sql, args).await
+    }
+}
+
 impl SnowflakeSession {
+    /// What reads the object: for a table or view, its own lineage
+    /// (`GET_LINEAGE`, the structural catalog and the foreign keys, all for
+    /// this object); anything else, or without the call, the contract's scan.
+    pub(crate) async fn dependents_of(
+        &mut self,
+        target: &DependencyTarget,
+        scan: &DependencyScan,
+    ) -> Result<DependencyReport> {
+        let t = &target.object;
+        let db = self.database().ok();
+        let Some(db) = db.filter(|_| target.column.is_none() && object_lineage::supported(&t.kind))
+        else {
+            return dbine_driver::dependencies::scan(self, target, scan).await;
+        };
+        let native = object_lineage::dependents(&*self, &db, t, scan.foreign_keys).await;
+        if native.lineage {
+            return Ok(native.report);
+        }
+        let mut report = dbine_driver::dependencies::scan(self, target, scan).await?;
+        object_lineage::merge_fallback(&mut report, native);
+        Ok(report)
+    }
+
     pub(crate) async fn references_of(
         &mut self,
         target: &DependencyTarget,
@@ -304,13 +335,32 @@ impl SnowflakeSession {
             references_scan(self, target, scan).await?
         };
         let from_code = report.items.len() + report.external.len();
+        // The lineage of this object, one level: what it was made from, data
+        // movement included (Enterprise Edition); the structural catalog and
+        // the definition complete it.
+        let mut from_lineage = 0;
+        let mut lineage_off = false;
+        if target.column.is_none() && object_lineage::supported(&t.kind) {
+            match object_lineage::upstream(&*self, &db, t).await {
+                Some((items, external)) => {
+                    from_lineage = items.len() + external.len();
+                    for d in items {
+                        add(&mut report.items, d);
+                    }
+                    for x in external {
+                        add_external(&mut report.external, x);
+                    }
+                }
+                None => lineage_off = true,
+            }
+        }
         match self
             .text_rows(DEPENDENCIES_SQL, &[&db, &schema, &t.name])
             .await
         {
             Ok(raw) => {
                 let catalog = rows(&raw);
-                if catalog.is_empty() && from_code > 0 {
+                if catalog.is_empty() && from_code > 0 && from_lineage == 0 {
                     report.note = Some(LATENCY.into());
                 }
                 merge_catalog(&mut report, &catalog, &t.kind, &db);
@@ -319,6 +369,9 @@ impl SnowflakeSession {
                 tracing::debug!("snowflake OBJECT_DEPENDENCIES: {e}");
                 report.note = Some(NO_ACCOUNT_USAGE.into());
             }
+        }
+        if lineage_off && report.note.is_none() {
+            report.note = Some(object_lineage::NO_LINEAGE.into());
         }
         if t.kind == kinds::TABLE {
             if let Ok(raw) = self

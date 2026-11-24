@@ -18,6 +18,7 @@ mod index_usage;
 mod jobs;
 mod lineage;
 mod monitor;
+mod object_lineage;
 mod paging;
 mod permissions;
 mod plan;
@@ -1688,6 +1689,17 @@ impl Session for SnowflakeSession {
         scan: &dbine_driver::DependencyScan,
     ) -> Result<dbine_driver::DependencyReport> {
         self.references_of(target, scan).await
+    }
+
+    /// What reads a table or view: `SNOWFLAKE.CORE.GET_LINEAGE` for that one
+    /// object, never a scan of the database's definitions (see
+    /// `object_lineage`).
+    async fn dependents(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        self.dependents_of(target, scan).await
     }
 
     /// The whole database's lineage: `OBJECT_DEPENDENCIES` in one read, and
