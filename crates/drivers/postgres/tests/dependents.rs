@@ -352,7 +352,13 @@ async fn checks(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, sch: &str) {
     // What the generic scan finds, the catalog finds too.
     let t = target("table", sch, "clientes", None);
     let scan = DependencyScan::new(d.info(), d.script_dialect(), d.capabilities().foreign_keys);
-    let native = deps(d, s, &t).await;
+    let started = std::time::Instant::now();
+    let native = s.dependents(&t, &scan).await.unwrap();
+    eprintln!(
+        "native: {} definitions read in {:?}",
+        native.scanned,
+        started.elapsed()
+    );
     let started = std::time::Instant::now();
     let generic = dbine_driver::dependencies::scan(&mut **s, &t, &scan)
         .await
