@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
+import { readFileSync } from 'node:fs';
 
 // The module imports its sibling without an extension (as Vite does): add it for Node.
 register('data:text/javascript,' + encodeURIComponent(
@@ -257,4 +258,32 @@ test('the filter applies to cards that arrive in a later chunk', () => {
   const shown = m.applyFilters(later, f).nodes.map((n) => n.name);
   assert.ok(!shown.includes('origen'), 'what was unchecked stays hidden in every chunk');
   assert.ok(shown.includes('Ventas'), 'a type that arrives later was never unchecked: it shows');
+});
+
+test('the Tipos list: what is checked, what hiding leaves, the last one stays, the count', () => {
+  const types = [{ type: 'table', count: 3 }, { type: 'view', count: 1 }, { type: 'job', count: 1 }, { type: 'notebook', count: 2 }];
+  // Nothing hidden: every type checked, the button says just "Tipos".
+  assert.deepEqual(m.checkedTypes(types, []), ['table', 'view', 'job', 'notebook']);
+  assert.equal(m.typesCount(types, []), null);
+  // Unchecking notebooks and jobs.
+  const hidden = m.hiddenFor(types, ['table', 'view']);
+  assert.deepEqual(hidden, ['job', 'notebook']);
+  assert.deepEqual(m.checkedTypes(types, hidden), ['table', 'view']);
+  assert.deepEqual(m.typesCount(types, hidden), { shown: 2, total: 4 });
+  // Unchecking the last one changes nothing: at least one type shows, and its box is disabled.
+  assert.equal(m.hiddenFor(types, []), null);
+  assert.equal(m.isLastChecked(['view'], 'view'), true);
+  assert.equal(m.isLastChecked(['view'], 'table'), false);
+  assert.equal(m.isLastChecked(['view', 'table'], 'view'), false);
+  // A hidden type that is no longer on the cards (after a refresh) doesn't count.
+  assert.deepEqual(m.typesCount(types, ['job', 'pipeline']), { shown: 3, total: 4 });
+  assert.equal(m.typesCount(types, ['pipeline']), null);
+  // Checking every type again empties hidden.
+  assert.deepEqual(m.hiddenFor(types, ['table', 'view', 'job', 'notebook']), []);
+});
+
+test('the lineage panel uses these functions for the Tipos list', () => {
+  // Regression guard: the list's rules live here, tested, not inline in the component.
+  const vue = readFileSync(new URL('../components/DatabaseLineage.vue', import.meta.url), 'utf8');
+  for (const fn of ['checkedTypes(', 'hiddenFor(', 'typesCount(', 'isLastChecked(']) assert.ok(vue.includes(fn), fn);
 });

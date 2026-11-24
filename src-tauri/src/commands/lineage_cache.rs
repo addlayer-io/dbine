@@ -312,12 +312,8 @@ pub async fn get_lineage_chunk(
         driver.script_dialect(),
         driver.capabilities().foreign_keys,
     );
-    let (scope, key) = keyed_scope(args.scope, driver.capabilities().jobs);
-    let cacheable = is_cacheable(&scope);
-    let mem_key = chunk_key(&args.connection_id, &args.database, &key);
+    let (scope, key) = keyed_scope(args.scope.clone(), driver.capabilities().jobs);
     let _reading = UserRead::begin();
-    let mut ask = args.step.clone().unwrap_or_else(LineageStep::start);
-    ask.skip = args.give_up;
     let limit = chunk_limit(
         state
             .store
@@ -326,16 +322,9 @@ pub async fn get_lineage_chunk(
             .flatten()
             .as_ref(),
     );
-    // The chunk asked for and, when its stage's chunks are known ahead, the ones after it: read at
-    // once, each on a session of the long lane of its own.
-    let steps = if args.step.is_some() && !args.retry && !args.give_up {
-        batch_from(&ask, crate::state::LONG_SESSIONS)
-    } else {
-        vec![ask]
-    };
-    let reads = futures_util::future::join_all(steps.iter().map(|step| {
+    let read = |step: LineageStep| {
         let mut scope = scope.clone();
-        scope.step = Some(step.clone());
+        scope.step = Some(step);
         let (database, scan) = (args.database.clone(), scan.clone());
         state.meta_read_on(
             crate::state::Lane::Long,
@@ -344,8 +333,33 @@ pub async fn get_lineage_chunk(
             limit,
             move |s| Box::pin(async move { s.lineage_graph(&database, &scope, &scan).await }),
         )
-    }))
-    .await;
+    };
+    chunk_with(&state, &args, &key, is_cacheable(&scope), read).await
+}
+
+/// `get_lineage_chunk` past the driver: the chunks to read (the one asked for and, when its stage's
+/// chunks are known ahead, the ones after it), read at once through `read` (each on a session of the
+/// long lane of its own), merged in order onto the graph so far, and kept in memory and in the cache.
+pub(crate) async fn chunk_with<F, Fut>(
+    state: &AppState,
+    args: &LineageChunkArgs,
+    key: &str,
+    cacheable: bool,
+    read: F,
+) -> CommandResult<LineageGraph>
+where
+    F: Fn(LineageStep) -> Fut,
+    Fut: std::future::Future<Output = CommandResult<LineageGraph>>,
+{
+    let mem_key = chunk_key(&args.connection_id, &args.database, key);
+    let mut ask = args.step.clone().unwrap_or_else(LineageStep::start);
+    ask.skip = args.give_up;
+    let steps = if args.step.is_some() && !args.retry && !args.give_up {
+        batch_from(&ask, crate::state::LONG_SESSIONS)
+    } else {
+        vec![ask]
+    };
+    let reads = futures_util::future::join_all(steps.iter().cloned().map(&read)).await;
     let mut reads = reads.into_iter();
     // The chunk asked for: its failure is the call's (the UI asks it again, then gives it up).
     let chunk = reads.next().expect("one read per step")?;
@@ -360,7 +374,7 @@ pub async fn get_lineage_chunk(
                         &args.connection_id,
                         &args.database,
                         kinds::LINEAGE,
-                        &key,
+                        key,
                     )
                     .map(|(g, _)| g)
             })
@@ -383,7 +397,7 @@ pub async fn get_lineage_chunk(
             &args.connection_id,
             &args.database,
             kinds::LINEAGE,
-            &key,
+            key,
             &graph,
         );
     }
@@ -839,6 +853,167 @@ mod tests {
             merge_following(chunk(Some(other.clone()), "a"), &[b, c.clone()], reads()).unwrap();
         assert_eq!(kept.notes, ["a"]);
         assert_eq!(kept.next, Some(other));
+    }
+
+    // -- get_lineage_chunk past the driver (chunk_with), against a fake Power BI ------------------
+
+    fn chunk_args(connection: &str, step: Option<LineageStep>, retry: bool) -> LineageChunkArgs {
+        LineageChunkArgs {
+            connection_id: connection.into(),
+            database: "Indicadores".into(),
+            scope: LineageScope::default(),
+            step,
+            retry,
+            give_up: false,
+        }
+    }
+
+    /// A model of 6 dependency objects, 2 a chunk, then the consumers: each chunk's notes say which it
+    /// is and its `next` is the one after it, as the Power BI driver answers.
+    fn fake_chunk(at: &LineageStep) -> LineageGraph {
+        let next = if at.offset + 2 < 6 {
+            Some(step("dependencies", at.offset + 2))
+        } else {
+            Some(step("consumers", 0))
+        };
+        chunk(next, &format!("d{}", at.offset))
+    }
+
+    fn notes_of(g: &LineageGraph) -> Vec<String> {
+        g.notes.clone()
+    }
+
+    #[tokio::test]
+    async fn the_chunks_after_the_one_asked_are_read_at_once_and_merged_in_order() {
+        let state = state_with_cache();
+        let (_, key) = keyed_scope(LineageScope::default(), true);
+        // What the structure chunk left: the graph so far, next the first dependencies.
+        state.cache_put(
+            "pbi-batch",
+            "Indicadores",
+            kinds::LINEAGE,
+            &key,
+            &chunk(Some(step("dependencies", 0)), "s"),
+        );
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        // Every read waits for the other two: read one after the other, this never ends.
+        let together = std::sync::Arc::new(tokio::sync::Barrier::new(crate::state::LONG_SESSIONS));
+        let read = |s: LineageStep| {
+            let (asked, together) = (asked.clone(), together.clone());
+            async move {
+                asked.lock().unwrap().push(s.offset);
+                together.wait().await;
+                Ok(fake_chunk(&s))
+            }
+        };
+        let args = chunk_args("pbi-batch", Some(step("dependencies", 0)), false);
+        let g = tokio::time::timeout(
+            Duration::from_secs(5),
+            chunk_with(&state, &args, &key, true, read),
+        )
+        .await
+        .expect("the three chunks are read at once")
+        .unwrap();
+        let mut offsets = asked.lock().unwrap().clone();
+        offsets.sort();
+        assert_eq!(offsets, [0, 2, 4]);
+        assert_eq!(
+            notes_of(&g),
+            ["s", "d0", "d2", "d4"],
+            "in order, onto what was there"
+        );
+        assert_eq!(g.next, Some(step("consumers", 0)));
+        // Kept for the next call and the next opening.
+        let (kept, _) = state
+            .cache_get::<LineageGraph>("pbi-batch", "Indicadores", kinds::LINEAGE, &key)
+            .unwrap();
+        assert_eq!(notes_of(&kept), ["s", "d0", "d2", "d4"]);
+    }
+
+    #[tokio::test]
+    async fn a_chunk_that_fails_in_the_batch_is_where_the_next_call_starts() {
+        let state = state_with_cache();
+        let (_, key) = keyed_scope(LineageScope::default(), true);
+        state.cache_put(
+            "pbi-fail",
+            "Indicadores",
+            kinds::LINEAGE,
+            &key,
+            &chunk(Some(step("dependencies", 0)), "s"),
+        );
+        let read = |s: LineageStep| async move {
+            if s.offset == 2 {
+                Err(crate::error::CommandError::Busy("timeout".into()))
+            } else {
+                Ok(fake_chunk(&s))
+            }
+        };
+        let args = chunk_args("pbi-fail", Some(step("dependencies", 0)), false);
+        let g = chunk_with(&state, &args, &key, true, read).await.unwrap();
+        assert_eq!(
+            notes_of(&g),
+            ["s", "d0"],
+            "what came after the failure is not taken"
+        );
+        assert_eq!(
+            g.next,
+            Some(step("dependencies", 2)),
+            "the next call reads it again"
+        );
+        assert!(g.failed.is_empty(), "not given up: the UI retries it first");
+    }
+
+    #[tokio::test]
+    async fn the_chunk_asked_failing_is_the_calls_error_and_nothing_is_kept() {
+        let state = state_with_cache();
+        let (_, key) = keyed_scope(LineageScope::default(), true);
+        let before = chunk(Some(step("dependencies", 0)), "s");
+        state.cache_put("pbi-first", "Indicadores", kinds::LINEAGE, &key, &before);
+        let read = |s: LineageStep| async move {
+            if s.offset == 0 {
+                Err(crate::error::CommandError::Busy("timeout".into()))
+            } else {
+                Ok(fake_chunk(&s))
+            }
+        };
+        let args = chunk_args("pbi-first", Some(step("dependencies", 0)), false);
+        assert!(chunk_with(&state, &args, &key, true, read).await.is_err());
+        let (kept, _) = state
+            .cache_get::<LineageGraph>("pbi-first", "Indicadores", kinds::LINEAGE, &key)
+            .unwrap();
+        assert_eq!(notes_of(&kept), ["s"], "the graph so far is untouched");
+    }
+
+    #[tokio::test]
+    async fn a_retry_and_the_start_read_only_the_chunk_asked() {
+        let state = state_with_cache();
+        let (_, key) = keyed_scope(LineageScope::default(), true);
+        let mut so_far = chunk(Some(step("dependencies", 4)), "s");
+        so_far.failed.push(step("dependencies", 2));
+        state.cache_put("pbi-retry", "Indicadores", kinds::LINEAGE, &key, &so_far);
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let read = |s: LineageStep| {
+            let asked = asked.clone();
+            async move {
+                asked.lock().unwrap().push(s.clone());
+                Ok(fake_chunk(&s))
+            }
+        };
+        // "Reintentar" one chunk given up: only it, and it leaves `failed`.
+        let args = chunk_args("pbi-retry", Some(step("dependencies", 2)), true);
+        let g = chunk_with(&state, &args, &key, true, &read).await.unwrap();
+        assert_eq!(*asked.lock().unwrap(), [step("dependencies", 2)]);
+        assert!(g.failed.is_empty());
+        assert_eq!(
+            g.next,
+            Some(step("dependencies", 4)),
+            "the read goes on where it was"
+        );
+        // The start: only the structure.
+        asked.lock().unwrap().clear();
+        let args = chunk_args("pbi-retry", None, false);
+        chunk_with(&state, &args, &key, true, &read).await.unwrap();
+        assert_eq!(*asked.lock().unwrap(), [LineageStep::start()]);
     }
 
     #[test]
