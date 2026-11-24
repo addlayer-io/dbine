@@ -135,6 +135,29 @@ export function typesOf(nodes: Iterable<LineageNode>): { type: string; count: nu
 /** Objects in the model (not counting jobs nor outside sources). */
 export const objectCount = (m: DbModel) => [...m.nodes.values()].filter((n) => groupOf(n) !== null).length;
 
+type TypeCount = { type: string; count: number };
+
+/** The types checked in the "Tipos" list: those on the cards that aren't hidden. */
+export const checkedTypes = (types: TypeCount[], hidden: string[]): string[] =>
+  types.map((x) => x.type).filter((x) => !hidden.includes(x));
+
+/** What `hidden` becomes when the list's checked types are `checked`; `null` (no change) when nothing
+ *  would stay checked: at least one type always shows. */
+export function hiddenFor(types: TypeCount[], checked: string[]): string[] | null {
+  if (!checked.length) return null;
+  return types.map((x) => x.type).filter((x) => !checked.includes(x));
+}
+
+/** The only checked type: its checkbox can't be unchecked. */
+export const isLastChecked = (checked: string[], type: string) => checked.length === 1 && checked[0] === type;
+
+/** The button's "shown of total" when some types are hidden; `null` with every type shown. A hidden type
+ *  that is no longer on the cards (after a refresh) doesn't count. */
+export function typesCount(types: TypeCount[], hidden: string[]): { shown: number; total: number } | null {
+  const off = types.filter((x) => hidden.includes(x.type)).length;
+  return off ? { shown: types.length - off, total: types.length } : null;
+}
+
 export interface Filters {
   /** The types (`typeOf`) unchecked: their cards are hidden. A type that only arrives later (a chunk
    *  of a Power BI model's reports) shows, as it was never unchecked. */
