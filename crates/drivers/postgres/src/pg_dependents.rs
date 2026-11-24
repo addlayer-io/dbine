@@ -564,6 +564,7 @@ mod tests {
             foreign_keys: true,
             written_kinds: vec![],
             has_schemas: true,
+            databases: None,
         }
     }
 
