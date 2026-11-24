@@ -15,6 +15,7 @@ mod ddl;
 mod functions;
 mod index_usage;
 mod jobs;
+mod lineage;
 mod objects_page;
 mod permissions;
 mod plan;
@@ -987,6 +988,25 @@ impl Session for DremioSession {
             })),
             Err(e) => Err(e),
         }
+    }
+
+    /// What reads a table or view: Dremio's lineage graph of that one
+    /// dataset (see [`lineage`]); the contract's scan where it isn't there.
+    async fn dependents(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        self.dependents_native(target, scan).await
+    }
+
+    /// What a view reads: Dremio's lineage graph (see [`lineage`]).
+    async fn references(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        self.references_native(target, scan).await
     }
 
     async fn definition(&mut self, obj: &ObjectRef) -> Result<Option<String>> {

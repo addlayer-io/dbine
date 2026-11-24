@@ -4107,6 +4107,27 @@ Drivers whose engine records dependencies answer from their catalog instead:
   For `hive_metastore`, or without BROWSE or SELECT on the table, the
   definition and the keys are used and a note says so. Not yet tested against
   a real workspace.
+- **Dremio:** For a table or view, what reads it and (for a view) what it
+  reads come from the catalog's own lineage graph,
+  `GET /api/v3/catalog/{id}/graph` (its `parents` and `children`), after one
+  `GET /api/v3/catalog/by-path/…` for the id; both over the REST login the
+  driver already uses. Datasets of the target's own space or source are
+  **Confirmed** items; those of another space or source are listed as sources
+  outside the database. One object costs two calls and each expansion of a
+  card asks the same for that neighbor, so no definition is read.
+  Dremio documents the graph call for Enterprise and Cloud: where it isn't
+  there (the open-source edition answers 404), the login can't see the
+  dataset, or the target is a column or anything but a table or view, the
+  default scan of definitions runs, with a note. A table's own parents
+  (a table reads nothing) and the lineage of the whole database stay the
+  default version: Dremio has no call for the whole graph, it would be one
+  call per dataset. Column lineage and reflections' dependencies aren't read.
+
+  **Native vs generic (Dremio lineage):** per object, native (the graph
+  API); whole database, generic. Tested with a fake REST server (the two
+  calls, the parsing and the fallback), not against a real Dremio: there is
+  no Dremio test container, and the graph call is not in the open-source
+  edition.
 
 The engines not listed here use the default version. A driver process
 published before answers `References` with Unsupported, and the app runs the
