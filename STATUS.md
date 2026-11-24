@@ -29,9 +29,9 @@ Findings from the source-code review and CodeQL show only their kind and compone
 |---|---|---|---|---|
 | claude-security, release v1.7.0 | 2026-11-21 | 4fc9459c..78feff49, everything 1.7.0 adds since v1.6.3 up to the CodeQL fixes (vectors, lineage in both directions, the explorer by folders and its filter, results search, compare fixes, New notebook from the explorer; 3 MEDIUM and 1 LOW, fixed in #168); 78feff49..c1b4d9a9, server jobs in the lineage and #168 (1 MEDIUM, fixed in #170); c1b4d9a9..6f336538, the lineage of a whole database, the relations switch and #170 (no findings); plus the pre-merge scan of the vectors branch at 94805104 (2 MEDIUM in the Cypher read guard, fixed before it merged) | 0 open | the release commits d079d0ae and 533fab01 (versions, Cargo.lock and the changelogs; no code) |
 | codeql | 2026-11-24 | Rust, TypeScript/Vue and workflows | 0 open | — |
-| osv | 2026-11-24 | every lockfile (Cargo, npm) at [`32474a1d3`](https://github.com/addlayer-io/dbine/commit/32474a1d3fb9) | 5 open | — |
-| scorecard | 2026-11-24 | repository settings and workflows at [`51c311443`](https://github.com/addlayer-io/dbine/commit/51c3114436e8) | score 7.2/10 | — |
-| trivy | 2026-11-24 | whole repository at [`32474a1d3`](https://github.com/addlayer-io/dbine/commit/32474a1d3fb9) | 0 open | — |
+| osv | 2026-11-24 | every lockfile (Cargo, npm) at [`589c1f76d`](https://github.com/addlayer-io/dbine/commit/589c1f76d4cc) | 5 open | — |
+| scorecard | 2026-11-24 | repository settings and workflows at [`32474a1d3`](https://github.com/addlayer-io/dbine/commit/32474a1d3fb9) | score 7.3/10 | — |
+| trivy | 2026-11-24 | whole repository at [`589c1f76d`](https://github.com/addlayer-io/dbine/commit/589c1f76d4cc) | 0 open | — |
 
 ## Not counted, and why
 
@@ -403,15 +403,15 @@ Dependencies their authors no longer maintain. Not a vulnerability, so not count
 
 ## Repository practices
 
-OpenSSF Scorecard: **7.2/10** (2026-11-24). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
+OpenSSF Scorecard: **7.3/10** (2026-11-24). The checks below 10, with Scorecard's own risk level. They describe how the repository is run, not a vulnerability in DBine, and aren't counted in the badge.
 
 | Check | Risk | Docs |
 |---|---|---|
 | Binary-Artifacts: 9/10 — binaries present in source code | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts) |
 | Branch-Protection: 4/10 — branch protection is not maximal on development and all release branches | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection) |
-| Code-Review: 0/10 — Found 0/14 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
+| Code-Review: 0/10 — Found 0/13 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained) |
 | Vulnerabilities: 7/10 — 3 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities) |
-| CI-Tests: 2/10 — 3 out of 14 merged PRs checked by a CI test -- score normalized to 2 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
+| CI-Tests: 3/10 — 4 out of 13 merged PRs checked by a CI test -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices) |
 | Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors) |
