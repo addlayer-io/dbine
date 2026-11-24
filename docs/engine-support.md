@@ -4235,7 +4235,7 @@ Fabric and Babelfish (unit tests of the queries and the row mapping only).
 A semantic model with thousands of objects can't be read in one call: the dependencies of every measure and
 column in one `INFO.CALCDEPENDENCY()` is what ran past the limit and showed nothing. The lineage of a Power BI
 model is therefore read as a loop of short calls (`get_lineage_chunk`), each with its own limit (the
-`lineage_open_timeout_secs` setting, never more than 180 s, 90 s by default), and the diagram fills in:
+`lineage_open_timeout_secs` setting, 900 s by default and 3600 s at most), and the diagram fills in:
 
 | Chunk | What it reads | Cost |
 |---|---|---|

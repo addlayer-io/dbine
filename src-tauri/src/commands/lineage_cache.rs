@@ -163,11 +163,12 @@ pub fn user_is_reading() -> bool {
 
 // -- the graph read in chunks ----------------------------------------------------------------------
 
-/// A chunk of a graph is its own call with its own limit (the setting that bounds opening a lineage,
-/// at least this and at most [`CHUNK_LIMIT_MAX`]): no single call waits on a whole huge model.
-pub const CHUNK_LIMIT_DEFAULT: u64 = 90;
+/// A chunk of a graph is its own call with its own limit: the user's setting that bounds opening a lineage
+/// (Settings shows 900 s when it was never changed, so that is the default here too). The first stage
+/// reads the whole model's structure in one call, so no hidden ceiling below the setting's own maximum.
+pub const CHUNK_LIMIT_DEFAULT: u64 = 900;
 pub const CHUNK_LIMIT_MIN: u64 = 10;
-pub const CHUNK_LIMIT_MAX: u64 = 180;
+pub const CHUNK_LIMIT_MAX: u64 = 3600;
 /// The setting `get_lineage_graph` also uses for its single call.
 pub const OPEN_LIMIT_SETTING: &str = "lineage_open_timeout_secs";
 
@@ -843,10 +844,12 @@ mod tests {
     #[test]
     fn a_chunk_has_its_own_short_limit() {
         use serde_json::json;
-        assert_eq!(chunk_limit(None), Duration::from_secs(90));
+        assert_eq!(chunk_limit(None), Duration::from_secs(900));
         assert_eq!(chunk_limit(Some(&json!(30))), Duration::from_secs(30));
         // The setting bounds the whole opening (up to an hour): a chunk never waits that long.
-        assert_eq!(chunk_limit(Some(&json!(3600))), Duration::from_secs(180));
+        assert_eq!(chunk_limit(Some(&json!(3600))), Duration::from_secs(3600));
+        assert_eq!(chunk_limit(Some(&json!(600))), Duration::from_secs(600));
+        assert_eq!(chunk_limit(Some(&json!(99999))), Duration::from_secs(3600));
         assert_eq!(chunk_limit(Some(&json!(1))), Duration::from_secs(10));
     }
 
