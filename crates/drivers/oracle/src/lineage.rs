@@ -438,6 +438,7 @@ impl OracleSession {
         };
         g.job_notes.extend(list.notes);
         let total = list.jobs.len();
+        let scan = &dbine_driver::dependencies::with_databases(self, scan).await;
         for job in list.jobs.into_iter().take(JOBS_READ) {
             let r = match self.job_references(database, &job.id, scan).await {
                 Ok(r) => r,

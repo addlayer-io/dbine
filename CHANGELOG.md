@@ -11,6 +11,8 @@
 
 - **Searching Power BI no longer stops at 200 models:** the lineage search and the background warm-up read every model of the workspace. The wait per model (3 minutes by default) and the length of a search (15 minutes) are now **Settings** you can raise for very large models.
 
+- **Dependencies and lineage read less of the server:** the references of a table with no foreign keys no longer read the structure of the whole database to say so, and the lineage of a database with scheduled jobs lists the server's databases once instead of once per job.
+
 ### Improvements
 
 - **Faster "View dependencies…" on MySQL, MariaDB, ClickHouse, Db2, Firebird and Power BI:** what depends on a table, view, routine or column is read from the engine's own dependency catalog, filtered by the object, in a few queries, instead of reading the whole database's structure and every view, routine and trigger one by one. In Power BI only the dependency rows that reference the object are asked for. If the server refuses the catalog, DBine reads the definitions as before and says so.

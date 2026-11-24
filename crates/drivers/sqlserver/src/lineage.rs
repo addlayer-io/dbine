@@ -475,6 +475,7 @@ async fn jobs(
     };
     g.job_notes.extend(list.notes);
     let total = list.jobs.len();
+    let scan = &dbine_driver::dependencies::with_databases(s, scan).await;
     for job in list.jobs.into_iter().take(JOBS_READ) {
         let r = match s.job_references(database, &job.id, scan).await {
             Ok(r) => r,
@@ -547,6 +548,7 @@ mod tests {
             foreign_keys: true,
             written_kinds: vec!["view".into(), "procedure".into(), "trigger".into()],
             has_schemas: true,
+            databases: None,
         }
     }
 

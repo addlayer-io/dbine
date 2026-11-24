@@ -456,6 +456,7 @@ async fn graph_jobs<S: Session + ?Sized>(
     };
     g.job_notes.extend(list.notes);
     let total = list.jobs.len();
+    let ctx = &super::with_databases(s, ctx).await;
     for job in list.jobs.into_iter().take(JOBS_READ) {
         let r = match s.job_references(database, &job.id, ctx).await {
             Ok(r) => r,
@@ -570,6 +571,7 @@ mod tests {
             foreign_keys: true,
             written_kinds: vec!["procedure".into(), "view".into()],
             has_schemas: true,
+            databases: None,
         }
     }
 
@@ -705,5 +707,79 @@ mod tests {
         assert!(old.next.is_none() && old.failed.is_empty());
         let scope: LineageScope = serde_json::from_str("{}").unwrap();
         assert!(scope.step.is_none());
+    }
+
+    /// [`Fake`]'s objects plus three jobs; counts the `list_databases` calls.
+    struct WithJobs {
+        databases_listed: u32,
+    }
+
+    #[async_trait::async_trait]
+    impl Session for WithJobs {
+        async fn server_version(&mut self) -> Result<String> {
+            Ok(String::new())
+        }
+        async fn list_databases(&mut self) -> Result<Vec<String>> {
+            self.databases_listed += 1;
+            Ok(vec!["ventas".into()])
+        }
+        async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
+            Fake.list_objects().await
+        }
+        async fn columns(&mut self, o: &ObjectRef) -> Result<Vec<crate::ColumnInfo>> {
+            Fake.columns(o).await
+        }
+        async fn definition(&mut self, o: &ObjectRef) -> Result<Option<String>> {
+            Fake.definition(o).await
+        }
+        async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
+            Fake.database_schema().await
+        }
+        fn browse_query(&self, _: &ObjectRef, _: u32) -> String {
+            String::new()
+        }
+        async fn execute(&mut self, _: &str, _: usize, _: &mut crate::QueryOutcome) -> Result<()> {
+            Ok(())
+        }
+        async fn jobs(&mut self) -> Result<crate::jobs::JobList> {
+            let job = |id: &str| crate::jobs::ServerJob {
+                id: id.into(),
+                name: id.into(),
+                ..Default::default()
+            };
+            Ok(crate::jobs::JobList {
+                jobs: vec![job("a"), job("b"), job("c")],
+                notes: vec![],
+            })
+        }
+        async fn job_detail(&mut self, id: &str) -> Result<crate::jobs::JobDetail> {
+            Ok(crate::jobs::JobDetail {
+                job: crate::jobs::ServerJob {
+                    id: id.into(),
+                    name: id.into(),
+                    ..Default::default()
+                },
+                steps: vec![crate::jobs::JobStep {
+                    name: "Paso".into(),
+                    command: Some("SELECT * FROM dbo.v_ventas".into()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            })
+        }
+    }
+
+    #[test]
+    fn the_jobs_of_a_graph_list_the_databases_once() {
+        let mut s = WithJobs {
+            databases_listed: 0,
+        };
+        let scope = LineageScope {
+            jobs: true,
+            ..Default::default()
+        };
+        let g = ready(graph_scan(&mut s, "ventas", &scope, &ctx())).unwrap();
+        assert_eq!(g.jobs.len(), 3);
+        assert_eq!(s.databases_listed, 1);
     }
 }
