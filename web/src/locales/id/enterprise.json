@@ -1,5 +1,5 @@
 {
-  "header": "DBine Enterprise",
+  "header": "DBine Enterprise untuk tim",
   "headerSignedIn": "DBine Enterprise: {{organization}}",
   "offline": "DBine Enterprise tidak merespons: koneksi perusahaan belum dapat dibuka untuk saat ini.",
   "sync": "Sinkronkan",
@@ -83,5 +83,18 @@
     "seconds_other": "{{count}} detik",
     "minutes_other": "{{count}} menit",
     "hours": "{{h}} j {{m}} mnt"
+  },
+  "contact": {
+    "title": "DBine Enterprise untuk tim",
+    "intro": "Untuk perusahaan yang ingin timnya memakai DBine dengan kendali, tanpa membagikan kata sandi.",
+    "points": {
+      "connections": "Tim menerima koneksi yang siap dipakai; kata sandi tetap berada di infrastruktur perusahaan.",
+      "perPerson": "Akses per orang dan per basis data, dengan pengguna basis data tersendiri untuk setiap orang.",
+      "control": "Catatan dari apa yang dijalankan, dan akses dicabut seketika, disertai penghapusan data yang tersimpan di setiap komputer."
+    },
+    "cta": "Hubungi kami",
+    "subject": "DBine Enterprise",
+    "haveIt": "Apakah perusahaan Anda sudah memakai DBine Enterprise?",
+    "signIn": "Masuk"
   }
 }

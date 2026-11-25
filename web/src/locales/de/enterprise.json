@@ -1,5 +1,5 @@
 {
-  "header": "DBine Enterprise",
+  "header": "DBine Enterprise für Teams",
   "headerSignedIn": "DBine Enterprise: {{organization}}",
   "offline": "DBine Enterprise antwortet nicht: Die Verbindungen des Unternehmens können derzeit nicht geöffnet werden.",
   "sync": "Synchronisieren",
@@ -90,5 +90,18 @@
     "minutes_one": "{{count}} Minute",
     "minutes_other": "{{count}} Minuten",
     "hours": "{{h}} Std. {{m}} Min."
+  },
+  "contact": {
+    "title": "DBine Enterprise für Teams",
+    "intro": "Für Unternehmen, die möchten, dass ihr Team DBine kontrolliert nutzt, ohne Passwörter weiterzugeben.",
+    "points": {
+      "connections": "Das Team erhält die Verbindungen einsatzbereit; die Passwörter bleiben in der Infrastruktur des Unternehmens.",
+      "perPerson": "Zugriff pro Person und pro Datenbank, mit einem eigenen Datenbankbenutzer für jede Person.",
+      "control": "Protokoll der ausgeführten Aktionen, und der Zugriff wird sofort entzogen, wobei die auf jedem Rechner gespeicherten Daten gelöscht werden."
+    },
+    "cta": "Kontakt aufnehmen",
+    "subject": "DBine Enterprise",
+    "haveIt": "Hat Ihr Unternehmen bereits DBine Enterprise?",
+    "signIn": "Anmelden"
   }
 }

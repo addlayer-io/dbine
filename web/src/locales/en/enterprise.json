@@ -1,5 +1,5 @@
 {
-  "header": "DBine Enterprise",
+  "header": "DBine Enterprise for teams",
   "headerSignedIn": "DBine Enterprise: {{organization}}",
   "offline": "DBine Enterprise isn't responding: your company's connections can't be opened for now.",
   "sync": "Sync",
@@ -90,5 +90,18 @@
     "minutes_one": "{{count}} minute",
     "minutes_other": "{{count}} minutes",
     "hours": "{{h}} h {{m}} min"
+  },
+  "contact": {
+    "title": "DBine Enterprise for teams",
+    "intro": "For companies that want their team to use DBine with control, without handing out passwords.",
+    "points": {
+      "connections": "The team gets connections ready to use; passwords stay in the company's infrastructure.",
+      "perPerson": "Access per person and per database, with each person's own database user.",
+      "control": "A log of what runs, and access is revoked instantly, deleting what's saved on each computer."
+    },
+    "cta": "Contact us",
+    "subject": "DBine Enterprise",
+    "haveIt": "Does your company already have DBine Enterprise?",
+    "signIn": "Sign in"
   }
 }

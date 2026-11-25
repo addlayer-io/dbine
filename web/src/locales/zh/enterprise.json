@@ -1,5 +1,5 @@
 {
-  "header": "DBine Enterprise",
+  "header": "面向团队的 DBine Enterprise",
   "headerSignedIn": "DBine Enterprise：{{organization}}",
   "offline": "DBine Enterprise 无响应：暂时无法打开公司的连接。",
   "sync": "同步",
@@ -83,5 +83,18 @@
     "seconds_other": "{{count}} 秒",
     "minutes_other": "{{count}} 分钟",
     "hours": "{{h}} 小时 {{m}} 分钟"
+  },
+  "contact": {
+    "title": "面向团队的 DBine Enterprise",
+    "intro": "适用于希望团队在受控环境下使用 DBine、且不用分发密码的公司。",
+    "points": {
+      "connections": "团队获得开箱即用的连接；密码保留在公司的基础设施中。",
+      "perPerson": "按人员和数据库授权访问，每个人在数据库中使用各自独立的用户。",
+      "control": "记录所执行的操作，并可立即撤销访问权限，同时删除每台电脑上保存的数据。"
+    },
+    "cta": "联系我们",
+    "subject": "DBine Enterprise",
+    "haveIt": "您的公司已经在使用 DBine Enterprise？",
+    "signIn": "登录"
   }
 }

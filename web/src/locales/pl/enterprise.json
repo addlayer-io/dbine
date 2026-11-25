@@ -1,5 +1,5 @@
 {
-  "header": "DBine Enterprise",
+  "header": "DBine Enterprise dla zespołów",
   "headerSignedIn": "DBine Enterprise: {{organization}}",
   "offline": "DBine Enterprise nie odpowiada: połączeń firmy nie można na razie otworzyć.",
   "sync": "Synchronizuj",
@@ -104,5 +104,18 @@
     "minutes_many": "{{count}} minut",
     "minutes_other": "{{count}} minuty",
     "hours": "{{h}} godz. {{m}} min"
+  },
+  "contact": {
+    "title": "DBine Enterprise dla zespołów",
+    "intro": "Dla firm, które chcą, aby zespół korzystał z DBine pod kontrolą, bez rozdawania haseł.",
+    "points": {
+      "connections": "Zespół otrzymuje gotowe do użycia połączenia; hasła pozostają w infrastrukturze firmy.",
+      "perPerson": "Dostęp dla każdej osoby i do każdej bazy, z własnym użytkownikiem bazy danych dla każdego.",
+      "control": "Rejestr wykonywanych operacji, a dostęp jest cofany natychmiast, wraz z usunięciem danych zapisanych na każdym komputerze."
+    },
+    "cta": "Skontaktuj się z nami",
+    "subject": "DBine Enterprise",
+    "haveIt": "Czy Twoja firma ma już DBine Enterprise?",
+    "signIn": "Zaloguj"
   }
 }

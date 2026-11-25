@@ -1,5 +1,5 @@
 {
-  "header": "DBine Enterprise",
+  "header": "팀용 DBine Enterprise",
   "headerSignedIn": "DBine Enterprise: {{organization}}",
   "offline": "DBine Enterprise가 응답하지 않습니다. 지금은 회사 연결을 열 수 없습니다.",
   "sync": "동기화",
@@ -83,5 +83,18 @@
     "seconds_other": "{{count}}초",
     "minutes_other": "{{count}}분",
     "hours": "{{h}}시간 {{m}}분"
+  },
+  "contact": {
+    "title": "팀용 DBine Enterprise",
+    "intro": "비밀번호를 나눠 주지 않고 팀이 DBine을 통제된 방식으로 사용하기를 원하는 회사를 위한 서비스입니다.",
+    "points": {
+      "connections": "팀은 바로 사용할 수 있는 연결을 받으며, 비밀번호는 회사 인프라에 남아 있습니다.",
+      "perPerson": "사용자별, 데이터베이스별로 액세스를 부여하며, 각 사용자에게 전용 데이터베이스 사용자가 할당됩니다.",
+      "control": "실행된 작업을 기록하고, 액세스는 즉시 회수되며 각 컴퓨터에 저장된 데이터도 삭제됩니다."
+    },
+    "cta": "문의하기",
+    "subject": "DBine Enterprise",
+    "haveIt": "회사에서 이미 DBine Enterprise를 사용하고 있나요?",
+    "signIn": "로그인"
   }
 }
