@@ -19136,5 +19136,8 @@
   "DBine Bastion no respondió en {0} s": "DBine Bastionが{0}秒以内に応答しませんでした",
   "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastionが{0}秒以内に応答しませんでした：もう一度お試しください",
   "no se pudo abrir el canal con DBine Bastion: {0}": "DBine Bastionとのチャネルを開けませんでした：{0}",
-  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "DBine Bastionに接続できませんでした：HTTP error: {0}"
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "DBine Bastionに接続できませんでした：HTTP error: {0}",
+  "No se pudo leer el catálogo de dependencias (RDB$DEPENDENCIES): {0}": "依存関係カタログ(RDB$DEPENDENCIES)を読み取れませんでした: {0}",
+  "No se pudo leer el catálogo de dependencias de system.tables: se buscó en las definiciones que se pueden leer.": "system.tables の依存関係カタログを読み取れませんでした。読み取れる定義の中を検索しました。",
+  "no more {0} sessions for {1}/{2}: {3}": "no more {0} sessions for {1}/{2}: {3}"
 }

@@ -19136,5 +19136,8 @@
   "DBine Bastion no respondió en {0} s": "DBine Bastion не відповів за {0} с",
   "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastion не відповів за {0} с: повторіть спробу",
   "no se pudo abrir el canal con DBine Bastion: {0}": "не вдалося відкрити канал із DBine Bastion: {0}",
-  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "не вдалося зв'язатися з DBine Bastion: HTTP error: {0}"
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "не вдалося зв'язатися з DBine Bastion: HTTP error: {0}",
+  "No se pudo leer el catálogo de dependencias (RDB$DEPENDENCIES): {0}": "Не вдалося прочитати каталог залежностей (RDB$DEPENDENCIES): {0}",
+  "No se pudo leer el catálogo de dependencias de system.tables: se buscó en las definiciones que se pueden leer.": "Не вдалося прочитати каталог залежностей system.tables: пошук виконано в означеннях, які вдалося прочитати.",
+  "no more {0} sessions for {1}/{2}: {3}": "no more {0} sessions for {1}/{2}: {3}"
 }

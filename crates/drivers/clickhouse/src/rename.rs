@@ -99,7 +99,7 @@ fn in_key(t: &TableSchema, column: &str) -> bool {
 }
 
 /// A regular expression for `column` as a whole name in a query.
-fn word_regex(column: &str) -> String {
+pub(crate) fn word_regex(column: &str) -> String {
     let mut esc = String::new();
     for c in column.chars() {
         if !(c.is_alphanumeric() || c == '_') {

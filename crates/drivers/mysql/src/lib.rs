@@ -13,6 +13,7 @@ mod cells;
 #[path = "../../postgres/src/cloud_auth.rs"]
 pub(crate) mod cloud_auth;
 mod create_db;
+mod dependents;
 mod design;
 mod functions;
 mod health;
