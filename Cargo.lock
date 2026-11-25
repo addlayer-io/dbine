@@ -3026,7 +3026,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-elasticsearch"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "base64 0.22.1",
  "dbine-driver",
@@ -3314,7 +3314,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-redis"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "dbine-driver",
  "dbine-tls",

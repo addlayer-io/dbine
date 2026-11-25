@@ -251,9 +251,9 @@ async fn sqlserver() {
 }
 
 /// Execution plans against the same server: the estimated plan runs
-/// nothing; the actual one runs once and brings results plus plans.
-/// Needs a `ventas` database with `pedidos`/`clientes` (see the docker
-/// recipe in the module doc, plus any data).
+/// nothing; the actual one runs once and brings results plus plans. It makes
+/// its own `dbine_test_plans` database with `pedidos`/`clientes` and a few rows,
+/// and drops it at the end.
 #[tokio::test]
 #[ignore]
 async fn sqlserver_plans() {
@@ -264,8 +264,28 @@ async fn sqlserver_plans() {
     let mut cfg = parse_url(&url);
     cfg.trust_server_certificate = true;
     let d = dbine_driver_sqlserver::drivers().remove(0);
-    let mut s = d.connect(&cfg, Some("ventas")).await.expect("connect");
-    run(&mut s, "IF OBJECT_ID('dbo.plan_probe') IS NULL CREATE TABLE dbo.plan_probe(id int); DELETE dbo.plan_probe; INSERT dbo.plan_probe VALUES (1)").await.unwrap();
+    const DB: &str = "dbine_test_plans";
+    let drop_db = format!(
+        "IF DB_ID('{DB}') IS NOT NULL BEGIN ALTER DATABASE [{DB}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DROP DATABASE [{DB}]; END"
+    );
+    let mut master = d.connect(&cfg, None).await.expect("connect");
+    run(&mut master, &drop_db).await.unwrap();
+    run(&mut master, &format!("CREATE DATABASE [{DB}]"))
+        .await
+        .unwrap();
+    let mut s = d.connect(&cfg, Some(DB)).await.expect("connect");
+    run(
+        &mut s,
+        "CREATE TABLE dbo.clientes (id int PRIMARY KEY, ciudad nvarchar(40) NOT NULL);
+         CREATE TABLE dbo.pedidos (id int PRIMARY KEY, cliente_id int NOT NULL REFERENCES dbo.clientes(id),
+           estado varchar(20) NOT NULL, fecha date NOT NULL, total decimal(12, 2) NOT NULL);
+         INSERT dbo.clientes VALUES (1, N'Rosario'), (2, N'Córdoba'), (3, N'Mendoza');
+         INSERT dbo.pedidos VALUES (1, 1, 'pagado', '2026-02-01', 100), (2, 1, 'pagado', '2026-03-01', 50),
+           (3, 2, 'pagado', '2026-02-15', 70), (4, 3, 'pendiente', '2026-04-01', 20), (5, 2, 'pagado', '2025-12-31', 10);
+         CREATE TABLE dbo.plan_probe(id int); INSERT dbo.plan_probe VALUES (1);",
+    )
+    .await
+    .unwrap();
     let sql = "select c.ciudad, count(*) n, sum(p.total) total from pedidos p join clientes c on c.id = p.cliente_id \
                where p.estado = 'pagado' and p.fecha >= '2026-01-01' group by c.ciudad order by total desc;\n\
                delete from dbo.plan_probe;";
@@ -324,6 +344,8 @@ async fn sqlserver_plans() {
     // The session is back to normal: no showplan left switched on.
     let plain = run(&mut s, "select 1 as uno").await.unwrap();
     assert_eq!(plain.results[0].columns[0].name, "uno");
+    drop(s);
+    run(&mut master, &drop_db).await.unwrap();
 }
 
 fn driver(id: &str) -> std::sync::Arc<dyn dbine_driver::Driver> {

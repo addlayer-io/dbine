@@ -1899,9 +1899,23 @@ mod tests {
         };
         assert!(types.iter().any(|(t, _)| *t == "vectorset"));
         assert!(r.table_options.iter().any(|f| f.key == "index_prefix"));
-        // valkey-search: FLOAT32 only, no SVS, no vector sets.
+        // valkey-search: FLOAT32, FLOAT16 and BFLOAT16 (1.3), no SVS, no
+        // vector sets.
         let k = designer("valkey");
-        assert!(!k.data_types.contains(&"VECTOR(3, FLOAT64)"));
+        let vectors: Vec<&str> = k
+            .data_types
+            .iter()
+            .copied()
+            .filter(|t| t.starts_with("VECTOR"))
+            .collect();
+        assert_eq!(
+            vectors,
+            [
+                "VECTOR(3, FLOAT32)",
+                "VECTOR(3, FLOAT16)",
+                "VECTOR(3, BFLOAT16)"
+            ]
+        );
         assert_eq!(
             k.vector_indexes.as_ref().unwrap().algorithms,
             ["hnsw", "flat"]

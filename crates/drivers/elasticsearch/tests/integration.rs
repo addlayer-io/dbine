@@ -557,7 +557,12 @@ async fn bad_host_is_a_connect_error() {
         .await
         .err()
         .unwrap();
-    assert!(matches!(e, Error::Connect(_)), "{e:?}");
+    // A connect error, classified (refused) since connections say why they failed.
+    assert!(
+        matches!(e, Error::Connect(_))
+            || matches!(&e, Error::ConnectFailed(f) if f.kind == dbine_driver::ConnectFailureKind::Refused),
+        "{e:?}"
+    );
 }
 
 fn dump(n: &dbine_driver::PlanNode, depth: usize) {
