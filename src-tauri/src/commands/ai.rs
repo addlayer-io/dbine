@@ -780,7 +780,10 @@ pub async fn ai_api_remove(
 
 /// "Probar": what's in the form (else what's saved) against the provider.
 #[tauri::command(rename_all = "camelCase")]
-pub async fn ai_api_test(state: State<'_, AppState>, args: ApiKeyArgs) -> CommandResult<String> {
+pub async fn ai_api_test(
+    state: State<'_, AppState>,
+    args: ApiKeyArgs,
+) -> CommandResult<dbine_ai::api::TestOutcome> {
     let kind = args.provider()?;
     let (key, setting) = args.parts();
     let (saved_url, saved_model) =

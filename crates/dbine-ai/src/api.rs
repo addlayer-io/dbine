@@ -327,12 +327,27 @@ pub async fn chat(
 /// "Probar": the key opens the model list; an Azure deployment typed by
 /// hand (Azure lists models, not deployments) answers a one-word question
 /// when the list can't be read.
-pub async fn test(kind: ProviderKind, access: &ApiAccess) -> Result<String> {
+/// "Probar": what it says, and the models it found, so the form can offer
+/// them before anything is saved.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TestOutcome {
+    pub message: String,
+    pub models: Vec<String>,
+}
+
+pub async fn test(kind: ProviderKind, access: &ApiAccess) -> Result<TestOutcome> {
     match models(kind, access).await {
-        Ok(list) => Ok(format!(
-            "La clave funciona: hay {} modelo(s) disponibles",
-            list.len()
-        )),
+        Ok(list) => Ok(TestOutcome {
+            message: format!(
+                "La clave funciona: hay {} modelo(s) disponibles",
+                list.len()
+            ),
+            models: list
+                .into_iter()
+                .map(|m| m.id)
+                .filter(|id| !id.is_empty())
+                .collect(),
+        }),
         Err(e) => {
             let Some(model) = access
                 .model
@@ -352,9 +367,10 @@ pub async fn test(kind: ProviderKind, access: &ApiAccess) -> Result<String> {
                 lang: "es",
             };
             chat(kind, access, &req, &|_| {}).await?;
-            Ok(format!(
-                "La clave funciona: la implementación {model} responde"
-            ))
+            Ok(TestOutcome {
+                message: format!("La clave funciona: la implementación {model} responde"),
+                models: vec![model],
+            })
         }
     }
 }
@@ -642,6 +658,31 @@ mod tests {
         assert!(!e.contains(KEY), "{e}");
     }
 
+    /// "Probar" brings the models back, so the form offers them before saving.
+    #[tokio::test]
+    async fn the_test_returns_the_models_it_found() {
+        let (base, seen) = serve(vec![(
+            200,
+            "application/json",
+            r#"{"data":[{"id":"fake-sql-1","created":2},{"id":"fake-sql-2","created":1}]}"#.into(),
+        )])
+        .await;
+        let access = ApiAccess {
+            base,
+            key: Some(KEY.into()),
+            model: None,
+        };
+        let ok = test(ProviderKind::OpenAiCompatible, &access).await.unwrap();
+        assert_eq!(ok.models, ["fake-sql-1", "fake-sql-2"]);
+        assert!(
+            ok.message.starts_with("La clave funciona"),
+            "{}",
+            ok.message
+        );
+        assert!(!ok.message.contains(KEY));
+        assert_eq!(seen.lock().unwrap()[0].path, "/models");
+    }
+
     #[tokio::test]
     async fn detect_lists_models_or_says_what_is_missing() {
         let store = ApiStore::default();
@@ -706,7 +747,12 @@ mod tests {
             model: Some("gpt-dep".into()),
         };
         let ok = test(ProviderKind::AzureOpenAi, &access).await.unwrap();
-        assert!(ok.contains("gpt-dep"), "{ok}");
+        assert!(ok.message.contains("gpt-dep"), "{ok:?}");
+        assert_eq!(
+            ok.models,
+            ["gpt-dep"],
+            "the deployment that answered is offered"
+        );
         let s = seen.lock().unwrap();
         assert_eq!(s[1].path, "/chat/completions");
         assert_eq!(s[1].header("api-key"), Some(KEY));

@@ -101,5 +101,5 @@ export const aiApi = {
   apiRemove: (provider: AiProviderKind) => invoke<void>('ai_api_remove', { args: { provider } }),
   /** "Probar": what's in the form, else what's saved. */
   apiTest: (provider: AiProviderKind, key: string | null, url: string | null, model: string | null) =>
-    invoke<string>('ai_api_test', { args: { provider, key, url, model } }),
+    invoke<{ message: string; models: string[] }>('ai_api_test', { args: { provider, key, url, model } }),
 };

@@ -6,6 +6,7 @@ import { errorMessage } from '../api/client';
 import { tb } from '../i18n/backend';
 import { aiApi, apiSettingKey, vendorOf, type AiProvider, type ApiSetting } from '../api/ai';
 import { useSettingsStore } from '../stores/settings';
+import { offeredModels, providerAfterRemove } from '../composables/apiKeyForm';
 
 // The assistant with the user's own API key (docs/ai-assistant.md, "Your own
 // API key"): the key goes to the encrypted vault on this machine and never
@@ -53,8 +54,10 @@ async function test() {
   testing.value = true;
   result.value = null;
   try {
-    const text = await aiApi.apiTest(kind.value, nul(key.value), nul(url.value), nul(model.value));
-    result.value = { ok: true, text: tb(text) };
+    const r = await aiApi.apiTest(kind.value, nul(key.value), nul(url.value), nul(model.value));
+    result.value = { ok: true, text: tb(r.message) };
+    // Offered right away, before saving.
+    models.value = offeredModels(model.value, r.models, models.value);
   } catch (e) {
     result.value = { ok: false, text: errorMessage(e) };
   } finally {
@@ -98,6 +101,9 @@ async function remove() {
   try {
     await aiApi.apiRemove(kind.value);
     delete settings.values[apiSettingKey(kind.value)];
+    // The chat no longer points at it: it uses the first provider available.
+    const chosen = settings.get<string | null>('ai.provider', null);
+    if (providerAfterRemove(chosen, kind.value) !== chosen) await settings.set('ai.provider', null);
     emit('changed');
     emit('close');
   } catch (e) {
