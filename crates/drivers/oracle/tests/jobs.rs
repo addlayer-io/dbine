@@ -99,9 +99,13 @@ const CLEANUP: &str = r#"BEGIN
   END LOOP;
 END;"#;
 
+// DBINE_TEST_JOBS_OK starts tomorrow: created between 3:00 and 3:59 in the
+// scheduler's time zone, a start of now matches BYHOUR=3 and the job runs at
+// once, before the test says it never ran.
 const CREATE: &str = r#"BEGIN
   DBMS_SCHEDULER.CREATE_JOB('DBINE_TEST_JOBS_OK', job_type => 'PLSQL_BLOCK',
     job_action => 'BEGIN DBMS_OUTPUT.PUT_LINE(''dbine ok''); END;',
+    start_date => SYSTIMESTAMP + INTERVAL '1' DAY,
     repeat_interval => 'FREQ=DAILY;BYHOUR=3', enabled => TRUE, auto_drop => FALSE,
     comments => 'dbine test');
   DBMS_SCHEDULER.CREATE_JOB('DBINE_TEST_JOBS_FAIL', job_type => 'PLSQL_BLOCK',
