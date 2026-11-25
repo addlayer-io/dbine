@@ -7,7 +7,8 @@
 //! `cargo test -p dbine-driver-redis --test vectors -- --ignored --nocapture --test-threads=1`
 //! Addresses: `DBINE_TEST_REDIS8_URL` (localhost:27203, Redis 8 with its
 //! query engine and vector sets), `DBINE_TEST_VALKEY_SEARCH_URL`
-//! (localhost:27204, valkey-bundle with valkey-search),
+//! (localhost:27204, valkey-bundle 9.2 or later: valkey-search 1.3, with
+//! `BFLOAT16`),
 //! `DBINE_TEST_DRAGONFLY_URL` (localhost:25407).
 //!
 //! Search indexes live in database 0 on Redis and Dragonfly, so the test
@@ -104,6 +105,7 @@ fn f32_blob(v: &[f32]) -> Vec<u8> {
 fn vtype(id: &str) -> &'static str {
     match id {
         "redis" => "FLOAT16",
+        "valkey" => "BFLOAT16",
         "dragonfly" => "FLOAT64",
         _ => "FLOAT32",
     }
@@ -114,6 +116,10 @@ fn encode(id: &str, v: &[f64]) -> Vec<u8> {
         "FLOAT16" => v
             .iter()
             .flat_map(|x| dbine_driver::vector::f32_to_f16(*x as f32).to_le_bytes())
+            .collect(),
+        "BFLOAT16" => v
+            .iter()
+            .flat_map(|x| dbine_driver::vector::f32_to_bf16(*x as f32).to_le_bytes())
             .collect(),
         "FLOAT64" => v.iter().flat_map(|x| x.to_le_bytes()).collect(),
         _ => v.iter().flat_map(|x| (*x as f32).to_le_bytes()).collect(),
@@ -361,6 +367,7 @@ async fn body(id: &str, url: &str) {
         meta.element,
         match vtype(id) {
             "FLOAT16" => VectorElement::F16,
+            "BFLOAT16" => VectorElement::Bf16,
             "FLOAT64" => VectorElement::F64,
             _ => VectorElement::F32,
         }
@@ -612,6 +619,11 @@ async fn designer_types(id: &str, d: &Arc<dyn Driver>, s: &mut Box<dyn Session>)
             t.columns[3].data_type = ty.to_string();
             t.columns[3].default_value = Some("[0.5, 0.25, 1]".into());
             t.indexes[0].name = "dbvec_types".into();
+            // Keys of its own: valkey-search 1.3 refuses an index whose
+            // prefix overlaps another's with the field as another type.
+            t.name = "dbvec:types:1".into();
+            t.options
+                .insert("index_prefix".into(), "dbvec:types:".into());
             let v = t.indexes[0].vector.as_mut().unwrap();
             v.algorithm = Some(alg.to_string());
             // Each parameter the designer offers for it, at its default.
@@ -1022,11 +1034,14 @@ async fn index_options(id: &str, d: &Arc<dyn Driver>, s: &mut Box<dyn Session>) 
     if id == "valkey" {
         let e = try_run(
             s,
-            "FT.CREATE dbvec_bad ON HASH PREFIX 1 dbvec:bad: SCHEMA v VECTOR HNSW 6 TYPE FLOAT16 DIM 2 DISTANCE_METRIC L2",
+            "FT.CREATE dbvec_bad ON HASH PREFIX 1 dbvec:bad: SCHEMA v VECTOR HNSW 6 TYPE INT8 DIM 2 DISTANCE_METRIC L2",
         )
         .await
         .unwrap_err();
-        assert!(e.contains("valkey-search indexa vectores FLOAT32"), "{e}");
+        assert!(
+            e.contains("valkey-search indexa vectores FLOAT32, FLOAT16 y BFLOAT16 con HNSW o FLAT: no tiene INT8."),
+            "{e}"
+        );
     }
 }
 
@@ -1156,6 +1171,18 @@ async fn json_documents(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>) {
     );
 }
 
+/// A vector cell holds these numbers. A vector set keeps its vectors
+/// normalized and `VEMB` multiplies them back, so the last bit of a FLOAT32
+/// depends on the CPU: Redis 8.12 gives 0.1 on arm64 and 0.099999994 on
+/// amd64.
+fn near(cell: &Value, want: &[f32]) -> bool {
+    let got: Vec<f32> = cell
+        .as_str()
+        .and_then(|t| serde_json::from_str(t).ok())
+        .unwrap_or_default();
+    got.len() == want.len() && got.iter().zip(want).all(|(g, w)| (g - w).abs() < 1e-6)
+}
+
 /// Redis 8's vector sets: made from the designer, browsed with their
 /// vectors and attributes, searched, edited, read and guarded.
 async fn vector_sets(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, ro: &mut Box<dyn Session>) {
@@ -1210,19 +1237,19 @@ async fn vector_sets(d: &Arc<dyn Driver>, s: &mut Box<dyn Session>, ro: &mut Box
         ["element", "vector", "attributes"]
     );
     assert_eq!(r.columns[1].vector.as_ref().unwrap().dims, Some(3));
+    assert_eq!(r.rows.len(), 2, "{:?}", r.rows);
     assert_eq!(
-        r.rows,
-        [
-            vec![
-                json!("a"),
-                json!("[0.1,0.2,0.3]"),
-                json!("{\"lang\":\"es\"}")
-            ],
-            vec![json!("b"), json!("[1,0,0]"), Value::Null],
-        ]
+        (&r.rows[0][0], &r.rows[0][2]),
+        (&json!("a"), &json!("{\"lang\":\"es\"}"))
     );
+    assert!(near(&r.rows[0][1], &[0.1, 0.2, 0.3]), "{:?}", r.rows[0]);
+    assert_eq!(r.rows[1], [json!("b"), json!("[1,0,0]"), Value::Null]);
     let out = run(s, "VEMB dbvec:vs a").await;
-    assert_eq!(out.results[0].rows[0][0], json!("[0.1,0.2,0.3]"));
+    assert!(
+        near(&out.results[0].rows[0][0], &[0.1, 0.2, 0.3]),
+        "{:?}",
+        out.results[0].rows
+    );
     assert!(out.results[0].columns[0].vector.is_some());
     let out = run(s, "VSIM dbvec:vs VALUES 3 0.1 0.2 0.3 WITHSCORES COUNT 1").await;
     assert_eq!(out.results[0].rows[0][0], json!("a"));

@@ -599,7 +599,7 @@ Particularities:
 | Engine | Where vectors live | Vector index | Tested |
 |---|---|---|---|
 | Redis 8 and Redis Stack | Hash fields as packed blobs (`FLOAT32`, `FLOAT64`, `FLOAT16`, `BFLOAT16`, `INT8`, `UINT8`), arrays in JSON documents, Redis 8 vector sets (`vectorset`) | `FT.CREATE … VECTOR HNSW\|FLAT\|SVS-VAMANA`; `COSINE`, `L2`, `IP` | Live on Redis 8.10.3 |
-| Valkey (valkey-search) | Hash fields (`FLOAT32`) and JSON arrays | `HNSW`, `FLAT`; `FLOAT32` only | Live on 9.1.3 |
+| Valkey (valkey-search) | Hash fields (`FLOAT32`, and `FLOAT16`/`BFLOAT16` from valkey-search 1.3) and JSON arrays | `HNSW`, `FLAT`; `FLOAT32`, `FLOAT16`, `BFLOAT16` | Live on 9.1.3 and 9.2.0 (valkey-search 1.3) |
 | Dragonfly | Hash fields (all six types) and JSON arrays | `HNSW`, `FLAT`; database 0 only | Live on 2.0.0 |
 
 - **Search indexes are objects.** They are listed in the **Search indexes**

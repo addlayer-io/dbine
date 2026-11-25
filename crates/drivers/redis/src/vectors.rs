@@ -1231,8 +1231,8 @@ pub enum Server {
     /// RediSearch (Redis Stack, Redis 8): every type and algorithm, and
     /// vector sets.
     Redis,
-    /// valkey-search: `FLOAT32` only, HNSW and FLAT; indexes in any
-    /// database.
+    /// valkey-search: `FLOAT32`, and `FLOAT16` and `BFLOAT16` since 1.3,
+    /// HNSW and FLAT; indexes in any database.
     Valkey,
     /// Dragonfly: every type, HNSW and FLAT; indexes in database 0.
     Dragonfly,
@@ -1250,7 +1250,7 @@ impl Server {
     /// The vector types its indexes take.
     pub fn types(self) -> &'static [VType] {
         match self {
-            Server::Valkey => &[VType::F32],
+            Server::Valkey => &[VType::F32, VType::F16, VType::Bf16],
             _ => &VType::ALL,
         }
     }
@@ -1275,18 +1275,28 @@ impl Server {
 /// along with the server's error. `None` when it asked for none.
 pub fn create_hint(cmd: &[Vec<u8>], server: Server) -> Option<String> {
     let has = |w: &str| cmd.iter().any(|a| a.eq_ignore_ascii_case(w.as_bytes()));
-    let used: Vec<&str> = ["FLOAT16", "BFLOAT16", "INT8", "UINT8", "SVS-VAMANA"]
-        .into_iter()
-        .filter(|w| has(w))
-        .collect();
+    let asked = |words: &[&'static str]| -> Vec<&'static str> {
+        words.iter().copied().filter(|w| has(w)).collect()
+    };
+    if server == Server::Valkey {
+        let never = asked(&["FLOAT64", "INT8", "UINT8", "SVS-VAMANA"]);
+        if !never.is_empty() {
+            return Some(format!(
+                "valkey-search indexa vectores FLOAT32, FLOAT16 y BFLOAT16 con HNSW o FLAT: no tiene {}.",
+                never.join(", ")
+            ));
+        }
+        let newer = asked(&["FLOAT16", "BFLOAT16"]);
+        return (!newer.is_empty()).then(|| {
+            format!(
+                "Puede que este servidor no tenga {}: valkey-search indexa FLOAT16 y BFLOAT16 desde la versión 1.3.",
+                newer.join(", ")
+            )
+        });
+    }
+    let used = asked(&["FLOAT16", "BFLOAT16", "INT8", "UINT8", "SVS-VAMANA"]);
     if used.is_empty() {
         return None;
-    }
-    if server == Server::Valkey {
-        return Some(format!(
-            "valkey-search indexa vectores FLOAT32 con HNSW o FLAT: no tiene {}.",
-            used.join(", ")
-        ));
     }
     // SVS-VAMANA takes two of the types.
     if has("SVS-VAMANA")
@@ -2491,14 +2501,26 @@ mod tests {
             h.starts_with("Puede que este servidor no tenga FLOAT16:"),
             "{h}"
         );
+        // valkey-search: FLOAT16 and BFLOAT16 from 1.3, the rest never.
         let h = create_hint(&cmd, Server::Valkey).unwrap();
-        assert!(
-            h.starts_with("valkey-search indexa vectores FLOAT32"),
-            "{h}"
+        assert_eq!(
+            h,
+            "Puede que este servidor no tenga FLOAT16: valkey-search indexa FLOAT16 y BFLOAT16 desde la versión 1.3."
         );
+        for never in ["FLOAT64", "INT8", "UINT8"] {
+            let c = argv(&format!(
+                "FT.CREATE i SCHEMA v VECTOR FLAT 6 TYPE {never} DIM 2 DISTANCE_METRIC L2"
+            ));
+            let h = create_hint(&c, Server::Valkey).unwrap();
+            assert_eq!(
+                h,
+                format!("valkey-search indexa vectores FLOAT32, FLOAT16 y BFLOAT16 con HNSW o FLAT: no tiene {never}.")
+            );
+        }
         let plain =
             argv("FT.CREATE i SCHEMA v VECTOR HNSW 6 TYPE FLOAT32 DIM 2 DISTANCE_METRIC L2");
         assert_eq!(create_hint(&plain, Server::Redis), None);
+        assert_eq!(create_hint(&plain, Server::Valkey), None);
         let svs =
             argv("FT.CREATE i SCHEMA v VECTOR SVS-VAMANA 6 TYPE INT8 DIM 2 DISTANCE_METRIC L2");
         let h = create_hint(&svs, Server::Redis).unwrap();
