@@ -48,9 +48,10 @@ A notebook, **DBine tour**, walks through them:
 4. A last DataFrame SQL cell joins sales and targets by month and category and
    charts them.
 
-On a new installation the tour opens by itself the first time. Afterwards,
-**Open the tour** in the folder's context menu opens it again (it is written
-again if it was deleted).
+The tour never opens by itself: the first launch only offers to import
+connections from other tools. **Open the tour** in the folder's context menu,
+or **Sample databases tour** on the welcome screen (shown while the folder is
+there), opens it (it is written again if it was deleted).
 
 ## When the files are made
 

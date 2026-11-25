@@ -23,7 +23,8 @@ import { useSettingsStore } from '../stores/settings';
 import { readJson, writeJson } from '../stores/storage';
 import { confirmNative } from '../native';
 import { samplesApi } from '../api/samples';
-import { SAMPLE_CONNECTION_IDS, SAMPLES_FOLDER_ID, sampleTexts } from '../composables/sampleDatabases';
+import { openSampleTour } from '../composables/sampleTour';
+import { SAMPLE_CONNECTION_IDS, SAMPLES_FOLDER_ID } from '../composables/sampleDatabases';
 import { createDatabase, creatingDatabase, deleteQuery, dropDatabase, dropObjects, duplicateQuery, newFromTemplate, newQuery, renameQuery } from '../composables/actions';
 import {
   deleteSavedMigration, duplicateSavedMigration, newMigration, openSavedMigration, renameSavedMigration, savedMigrationState, type SavedMigrationState,
@@ -936,15 +937,6 @@ async function removeFolder(f: ConnectionFolder) {
     { title: t('explorer:confirm.deleteFolderTitle'), okLabel: t('common:delete') },
   );
   if (ok) await conns.deleteFolder(f.id);
-}
-
-/** The sample databases' folder: its tour, written again if it was deleted. */
-async function openSampleTour() {
-  try {
-    tabs.openNotebook({ path: await samplesApi.tour(sampleTexts(t)) });
-  } catch (e) {
-    ElMessage.error(errorMessage(e));
-  }
 }
 
 /** "Quitar las bases de ejemplo": their connections, folder and files, for good. */

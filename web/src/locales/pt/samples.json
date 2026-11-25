@@ -17,5 +17,6 @@
   "confirm": {
     "removeTitle": "Remover os bancos de exemplo",
     "remove": "As três conexões de exemplo, a pasta e os arquivos delas são excluídos. Elas não voltam a aparecer."
-  }
+  },
+  "welcomeTour": "Tour pelos bancos de exemplo"
 }

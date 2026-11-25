@@ -17,5 +17,6 @@
   "confirm": {
     "removeTitle": "Quitar las bases de ejemplo",
     "remove": "Se borran las tres conexiones de ejemplo, su carpeta y sus archivos. No vuelven a aparecer."
-  }
+  },
+  "welcomeTour": "Recorrido por las bases de ejemplo"
 }

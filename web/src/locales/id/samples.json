@@ -17,5 +17,6 @@
   "confirm": {
     "removeTitle": "Hapus basis data contoh",
     "remove": "Tiga koneksi contoh beserta folder dan berkasnya akan dihapus. Semuanya tidak akan muncul lagi."
-  }
+  },
+  "welcomeTour": "Tur basis data contoh"
 }

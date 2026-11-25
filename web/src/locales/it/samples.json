@@ -17,5 +17,6 @@
   "confirm": {
     "removeTitle": "Rimuovi i database di esempio",
     "remove": "Le tre connessioni di esempio, la loro cartella e i loro file vengono eliminati. Non riappariranno."
-  }
+  },
+  "welcomeTour": "Tour dei database di esempio"
 }

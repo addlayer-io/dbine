@@ -17,5 +17,6 @@
   "confirm": {
     "removeTitle": "Beispieldatenbanken entfernen",
     "remove": "Die drei Beispielverbindungen, ihr Ordner und ihre Dateien werden gelöscht. Sie erscheinen nicht wieder."
-  }
+  },
+  "welcomeTour": "Rundgang durch die Beispieldatenbanken"
 }

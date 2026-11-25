@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SAMPLE_CONNECTION_IDS, SAMPLES_FOLDER_ID, SAMPLES_INSTALLED, sampleTexts, tourToOpen } from './sampleDatabases.ts';
+import { SAMPLE_CONNECTION_IDS, SAMPLES_FOLDER_ID, SAMPLES_INSTALLED, isSampleConnection, sampleTexts } from './sampleDatabases.ts';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const locales = join(here, '../locales');
@@ -48,8 +48,8 @@ test('the ids are the backend\'s', () => {
   assert.deepEqual([constant('TIENDA_ID'), constant('ANALITICA_ID'), constant('ARCHIVOS_ID')], [...SAMPLE_CONNECTION_IDS]);
 });
 
-test('the tour opens by itself only on a new installation that just added it', () => {
-  assert.equal(tourToOpen(true, '/x/Recorrido.ipynb'), '/x/Recorrido.ipynb');
-  assert.equal(tourToOpen(false, '/x/Recorrido.ipynb'), null, 'an update adds the folder quietly');
-  assert.equal(tourToOpen(true, null), null, 'another window already added it');
+test('the sample connections are told apart, by their fixed ids only', () => {
+  for (const id of SAMPLE_CONNECTION_IDS) assert.ok(isSampleConnection(id), id);
+  assert.ok(!isSampleConnection('dbine-samples'), 'the folder is not a connection');
+  assert.ok(!isSampleConnection('my-tienda'));
 });

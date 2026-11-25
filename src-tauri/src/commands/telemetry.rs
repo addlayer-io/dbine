@@ -60,6 +60,9 @@ const FEATURES: &[&str] = &[
     "data_sync",
     "migration_run",
     "multi_db_run",
+    // A sample database connected, and the sample tour opened.
+    "sample_opened",
+    "sample_tour",
 ];
 
 /// The kind of AI provider an `ai_message` used (never the model or the text).
@@ -440,6 +443,11 @@ mod feature_tests {
         let p = feature_props(Some("schema_sync"), None).unwrap();
         assert_eq!(p.get("feature"), Some(&Value::String("schema_sync".into())));
         assert!(p.get("provider").is_none());
+        // The sample databases: connected, and their tour opened.
+        for f in ["sample_opened", "sample_tour"] {
+            let p = feature_props(Some(f), None).unwrap();
+            assert_eq!(p.get("feature"), Some(&Value::String(f.into())));
+        }
         let p = feature_props(Some("ai_message"), Some("embedded")).unwrap();
         assert_eq!(p.get("provider"), Some(&Value::String("embedded".into())));
         assert!(

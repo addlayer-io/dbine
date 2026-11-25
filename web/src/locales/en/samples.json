@@ -17,5 +17,6 @@
   "confirm": {
     "removeTitle": "Remove the sample databases",
     "remove": "The three sample connections, their folder and their files are deleted. They won't come back."
-  }
+  },
+  "welcomeTour": "Sample databases tour"
 }

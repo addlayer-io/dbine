@@ -17,5 +17,6 @@
   "confirm": {
     "removeTitle": "Usuń przykładowe bazy danych",
     "remove": "Trzy przykładowe połączenia, ich folder i pliki zostaną usunięte. Nie pojawią się ponownie."
-  }
+  },
+  "welcomeTour": "Przewodnik po przykładowych bazach danych"
 }

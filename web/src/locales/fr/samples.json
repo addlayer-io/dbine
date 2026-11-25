@@ -17,5 +17,6 @@
   "confirm": {
     "removeTitle": "Supprimer les bases d'exemple",
     "remove": "Les trois connexions d'exemple, leur dossier et leurs fichiers sont supprimés. Elles ne réapparaîtront pas."
-  }
+  },
+  "welcomeTour": "Visite des bases d'exemple"
 }

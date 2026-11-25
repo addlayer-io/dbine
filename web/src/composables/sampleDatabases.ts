@@ -37,7 +37,5 @@ export function sampleTexts(t: T): SampleTexts {
   };
 }
 
-/** The tour opens by itself only on a new installation, the first time. */
-export function tourToOpen(freshInstall: boolean, installedTour: string | null): string | null {
-  return freshInstall && installedTour ? installedTour : null;
-}
+/** One of the sample connections (telemetry counts them apart). */
+export const isSampleConnection = (id: string) => (SAMPLE_CONNECTION_IDS as readonly string[]).includes(id);
