@@ -9,12 +9,12 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@tauri-apps/api": "~2.12.0",
+    "@tauri-apps/api": "~2.12.5",
     "@tauri-apps/plugin-barcode-scanner": "~2.5.0",
     "@tauri-apps/plugin-biometric": "~2.5.0",
     "i18next": "^26.7.2",
     "i18next-vue": "^5.4.0",
-    "vue": "^3.5.45"
+    "vue": "^3.5.46"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.4",
