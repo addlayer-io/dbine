@@ -43,7 +43,7 @@
     {
       "source": "osv",
       "date": "2026-11-25",
-      "revision": "3f76d1cfbf3c",
+      "revision": "83959a7d796a",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
@@ -51,7 +51,7 @@
     {
       "source": "trivy",
       "date": "2026-11-25",
-      "revision": "3f76d1cfbf3c",
+      "revision": "83959a7d796a",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -62,15 +62,15 @@
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
-      "found": 0
+      "found": 1
     },
     {
       "source": "scorecard",
       "date": "2026-11-25",
-      "revision": "d9312b3d8fe9",
+      "revision": "3f76d1cfbf3c",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 7.4
+      "score": 7.5
     }
   ],
   "findings": [
@@ -4040,6 +4040,15 @@
       "by": "mpanichella"
     },
     {
+      "id": "CQ-471",
+      "source": "codeql",
+      "severity": "HIGH",
+      "kind": "Static analysis finding",
+      "component": "crates/drivers/postgres",
+      "found": "2026-11-25",
+      "status": "open"
+    },
+    {
       "id": "CQ-66",
       "source": "codeql",
       "severity": "HIGH",
@@ -4518,17 +4527,6 @@
       "status": "notice"
     },
     {
-      "id": "SC-Binary-Artifacts",
-      "source": "scorecard",
-      "severity": "HIGH",
-      "kind": "Repository practice",
-      "title": "Binary-Artifacts: 9/10 — binaries present in source code",
-      "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#binary-artifacts",
-      "found": "2026-11-23",
-      "status": "open"
-    },
-    {
       "id": "SC-Branch-Protection",
       "source": "scorecard",
       "severity": "HIGH",
@@ -4544,7 +4542,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "CI-Tests: 2/10 — 3 out of 12 merged PRs checked by a CI test -- score normalized to 2",
+      "title": "CI-Tests: 3/10 — 4 out of 11 merged PRs checked by a CI test -- score normalized to 3",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#ci-tests",
       "found": "2026-11-25",
@@ -4566,7 +4564,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/8 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/7 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#code-review",
       "found": "2026-10-21",
