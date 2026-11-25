@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- **A failed SQL format no longer covers the editor:** when the formatter could not parse the query, its message listed every token it expected and filled the window with no way to close it. Now the message shows only where it failed and what it did not expect, fits in the window, and has a close button; your SQL stays untouched.
 - **The lineage of a Power BI model honors the wait you set:** reading it in chunks gave up at 90 s whatever **Settings** said (the screen showed 15 minutes but the app used 90 s, and never more than 3 minutes). Each read now waits the time in Settings, 15 minutes by default.
 - **Opening a lineage no longer waits for another read of the same database:** opening the lineage of a database or Power BI model while DBine was reading it in the background (or while a schema compare or a search across models read it) waited for that read to end, and could fail with "the connection is still busy reading the structure". Long reads of the same database now run side by side, up to three at once, and the dependencies of a large Power BI model are read three batches at a time.
 - **The wait when opening a lineage is a setting:** opening the lineage, dependents or references of a very large model or database no longer gives up at 5 minutes. The limit is now 15 minutes by default and **Settings** lets you raise it.

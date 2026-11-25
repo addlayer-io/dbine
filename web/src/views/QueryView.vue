@@ -28,6 +28,7 @@ import { registerEditor } from '../stores/ai';
 import { useLibraryStore } from '../stores/library';
 import { readJson, writeJson } from '../stores/storage';
 import { formatCode, formatUnavailable } from '../composables/formatCode';
+import { formatErrorSummary } from '../composables/formatError';
 import MultiDbRunDialog from '../components/MultiDbRunDialog.vue';
 import { confirmMultiDb, multiDbOutcome, rememberSelection, runSummary, startMultiDbRun, type MultiDbLive } from '../composables/multiDb';
 import { useTasksStore } from '../stores/tasks';
@@ -494,7 +495,7 @@ async function formatQuery() {
   try {
     await editor.value?.format((t) => formatCode(t, driver.value?.language, driver.value?.dialect ?? ''));
   } catch (e) {
-    ElMessage.warning({ message: t('query:formatFailed', { error: errorMessage(e) }), duration: 4500 });
+    ElMessage.warning({ message: t('query:formatFailed', { error: formatErrorSummary(errorMessage(e)) }), duration: 8000, showClose: true });
   } finally {
     formatting.value = false;
   }
