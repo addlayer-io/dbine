@@ -10017,6 +10017,7 @@
   "no se pudo pedir el token de Google: {0}": "не вдалося запросити токен Google: {0}",
   "no se pudo preparar el clon {0}; no se clona": "не вдалося підготувати клон {0}; не клонується",
   "no se pudo preparar el índice local «{0}» del clon con los nombres de sus particiones; no se clona": "не вдалося підготувати локальний індекс «{0}» клона з назвами його партицій; не клонується",
+  "no se pudo preparar la base de ejemplo {0}: {1}": "не вдалося підготувати приклад бази даних {0}: {1}",
   "no se pudo preparar la carpeta temporal: {0}": "не вдалося підготувати тимчасову теку: {0}",
   "no se pudo preparar la clave primaria del clon con el estado del original; no se clona": "не вдалося підготувати первинний ключ клона зі станом оригіналу; не клонується",
   "no se pudo preparar la copia de «{0}»: {1}": "не вдалося підготувати копію «{0}»: {1}",

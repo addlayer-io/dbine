@@ -2,6 +2,7 @@
 import { ensureConnectedOrTell } from '../composables/connectionGate';
 import ImportConnectionsDialog from './ImportConnectionsDialog.vue';
 import ImportSuggestion from './ImportSuggestion.vue';
+import SampleDatabases from './SampleDatabases.vue';
 import SupportReminder from './SupportReminder.vue';
 import TelemetryConsent from './TelemetryConsent.vue';
 import UpdateNotice from './UpdateNotice.vue';
@@ -21,6 +22,8 @@ import { useUiStore } from '../stores/ui';
 import { useSettingsStore } from '../stores/settings';
 import { readJson, writeJson } from '../stores/storage';
 import { confirmNative } from '../native';
+import { samplesApi } from '../api/samples';
+import { SAMPLE_CONNECTION_IDS, SAMPLES_FOLDER_ID, sampleTexts } from '../composables/sampleDatabases';
 import { createDatabase, creatingDatabase, deleteQuery, dropDatabase, dropObjects, duplicateQuery, newFromTemplate, newQuery, renameQuery } from '../composables/actions';
 import {
   deleteSavedMigration, duplicateSavedMigration, newMigration, openSavedMigration, renameSavedMigration, savedMigrationState, type SavedMigrationState,
@@ -935,6 +938,27 @@ async function removeFolder(f: ConnectionFolder) {
   if (ok) await conns.deleteFolder(f.id);
 }
 
+/** The sample databases' folder: its tour, written again if it was deleted. */
+async function openSampleTour() {
+  try {
+    tabs.openNotebook({ path: await samplesApi.tour(sampleTexts(t)) });
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  }
+}
+
+/** "Quitar las bases de ejemplo": their connections, folder and files, for good. */
+async function removeSamples() {
+  const ok = await confirmNative(t('samples:confirm.remove'), { title: t('samples:confirm.removeTitle'), okLabel: t('common:delete') });
+  if (!ok) return;
+  for (const id of SAMPLE_CONNECTION_IDS) if (conns.live[id]) await disconnect(id);
+  try {
+    await samplesApi.remove();
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  }
+}
+
 async function disconnectAll(folderId: string) {
   const inside = (fid: string | null): boolean => {
     for (let f = conns.folders.find((x) => x.id === fid), g = 0; f && g < 50; f = conns.folders.find((x) => x.id === f!.parent_id), g++) {
@@ -1062,12 +1086,14 @@ async function onContext(e: MouseEvent, n: TNode) {
     }
     case 'group': {
       const f = n.folder!;
-      items.push({ label: t('explorer:menu.newConnectionHere'), action: () => ui.newConnection(f.id) });
+      if (f.id === SAMPLES_FOLDER_ID) items.push({ label: t('samples:menu.openTour'), action: openSampleTour });
+      items.push({ label: t('explorer:menu.newConnectionHere'), divided: f.id === SAMPLES_FOLDER_ID, action: () => ui.newConnection(f.id) });
       items.push({ label: t('explorer:menu.newSubfolder'), action: () => ui.newFolder(f.id) });
       items.push({ label: t('explorer:menu.editFolder'), action: () => ui.editFolder(f.id), divided: true });
       items.push({ label: t('explorer:menu.moveTo'), action: () => ui.moveItem({ kind: 'folder', id: f.id }) });
       items.push({ label: t('explorer:menu.disconnectAll'), action: () => disconnectAll(f.id) });
-      items.push({ label: t('explorer:menu.deleteFolder'), danger: true, divided: true, action: () => removeFolder(f) });
+      if (f.id === SAMPLES_FOLDER_ID) items.push({ label: t('samples:menu.remove'), danger: true, divided: true, action: removeSamples });
+      items.push({ label: t('explorer:menu.deleteFolder'), danger: true, divided: f.id !== SAMPLES_FOLDER_ID, action: () => removeFolder(f) });
       break;
     }
     case 'database':
@@ -2050,6 +2076,7 @@ const importSource = ref<'dbeaver' | 'dbgate' | 'datagrip' | 'azure_data_studio'
       <div v-if="tip" class="ex-tip" :style="{ left: `${tip.x}px`, top: `${tip.y}px` }">{{ tip.text }}</div>
     </Teleport>
     <ImportConnectionsDialog v-if="importing" :initial-source="importSource" @close="importing = false; importSource = null" />
+    <SampleDatabases />
     <ImportSuggestion @import="(s) => { importSource = s; importing = true; }" />
     <SupportReminder />
     <TelemetryConsent />

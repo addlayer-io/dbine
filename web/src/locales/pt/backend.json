@@ -7917,6 +7917,7 @@
   "no se pudo mover el IDENTITY del clon después de las filas copiadas; no se clona": "não foi possível mover o IDENTITY do clone para depois das linhas copiadas; não será clonado",
   "no se pudo preparar el clon {0}; no se clona": "não foi possível preparar o clone {0}; não será clonado",
   "no se pudo preparar el índice local «{0}» del clon con los nombres de sus particiones; no se clona": "não foi possível preparar o índice local «{0}» do clone com os nomes das suas partições; não será clonado",
+  "no se pudo preparar la base de ejemplo {0}: {1}": "não foi possível preparar o banco de exemplo {0}: {1}",
   "no se pudo preparar la clave primaria del clon con el estado del original; no se clona": "não foi possível preparar a chave primária do clone com o estado do original; não será clonado",
   "no se pudo preparar la restricción única sobre ({0}) del clon con un nombre del sistema, como en el original; no se clona": "não foi possível preparar a restrição única sobre ({0}) do clone com um nome do sistema, como no original; não será clonado",
   "no se pudo quitar la restricción {0} del clon para copiar las filas: {1}": "não foi possível remover a restrição {0} do clone para copiar as linhas: {1}",

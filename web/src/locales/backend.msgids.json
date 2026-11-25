@@ -58503,6 +58503,9 @@
  "no se pudo preparar el índice local «{0}» del clon con los nombres de sus particiones; no se clona": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
  ],
+ "no se pudo preparar la base de ejemplo {0}: {1}": [
+  "src-tauri/src/samples.rs"
+ ],
  "no se pudo preparar la carpeta temporal: {0}": [
   "src-tauri/src/notebook/remote.rs"
  ],

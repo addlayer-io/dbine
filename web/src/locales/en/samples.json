@@ -1,0 +1,21 @@
+{
+  "folder": "Sample databases",
+  "tienda": "Store (SQLite)",
+  "analitica": "Analytics (DuckDB)",
+  "archivos": "Files (CSV and Parquet)",
+  "tourFile": "DBine tour",
+  "tour": {
+    "intro": "# A tour of DBine\n\nThese sample databases live on your computer and need no server:\n\n- **{{tienda}}**: a shop's database, with clients, products, orders, invoices and events, foreign keys, views (one over another) and a trigger.\n- **{{analitica}}**: the same data, with a few differences on purpose.\n- **{{archivos}}**: sales targets in a CSV and the events in Parquet, queried with SQL.\n\nEach cell runs on its own connection; the **DataFrame SQL** cells cross the results of the cells above. Run the cells with ▶, one at a time or all together.\n\nTo go on, right-click a connection or a table: the database diagram, the data or schema compare between {{tienda}} and {{analitica}}, the migration from SQLite to DuckDB, or the dependencies of the view `v_kpis`, which builds on another view.",
+    "differences": "## Where do the two databases differ?\n\nThe first two cells read each database's clients. The third crosses them and counts, by city, those who changed city or e-mail and those in only one of the two.",
+    "onlyInAnalitica": "(only in {{analitica}})",
+    "targets": "## Sales against targets\n\nThe targets are in a CSV in {{archivos}}; the sales, in the view `v_ventas_mensuales` of {{tienda}}. The last cell joins them by month and category and charts them."
+  },
+  "menu": {
+    "openTour": "Open the tour",
+    "remove": "Remove the sample databases…"
+  },
+  "confirm": {
+    "removeTitle": "Remove the sample databases",
+    "remove": "The three sample connections, their folder and their files are deleted. They won't come back."
+  }
+}

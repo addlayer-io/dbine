@@ -7122,6 +7122,7 @@
   "no se pudo mover el IDENTITY del clon después de las filas copiadas; no se clona": "non è stato possibile spostare la IDENTITY del clone dopo le righe copiate; clonazione annullata",
   "no se pudo preparar el clon {0}; no se clona": "non è stato possibile preparare il clone {0}; clonazione annullata",
   "no se pudo preparar el índice local «{0}» del clon con los nombres de sus particiones; no se clona": "non è stato possibile preparare l'indice locale «{0}» del clone con i nomi delle sue partizioni; clonazione annullata",
+  "no se pudo preparar la base de ejemplo {0}: {1}": "impossibile preparare il database di esempio {0}: {1}",
   "no se pudo preparar la clave primaria del clon con el estado del original; no se clona": "non è stato possibile preparare la chiave primaria del clone con lo stato dell'originale; clonazione annullata",
   "no se pudo preparar la restricción única sobre ({0}) del clon con un nombre del sistema, como en el original; no se clona": "non è stato possibile preparare il vincolo univoco su ({0}) del clone con un nome di sistema, come nell'originale; clonazione annullata",
   "no se pudo quitar la restricción {0} del clon para copiar las filas: {1}": "non è stato possibile rimuovere il vincolo {0} dal clone per copiare le righe: {1}",

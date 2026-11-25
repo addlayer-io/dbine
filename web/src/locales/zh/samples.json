@@ -1,0 +1,21 @@
+{
+  "folder": "示例数据库",
+  "tienda": "商店 (SQLite)",
+  "analitica": "分析 (DuckDB)",
+  "archivos": "文件 (CSV 和 Parquet)",
+  "tourFile": "DBine 导览",
+  "tour": {
+    "intro": "# DBine 导览\n\n这些示例数据库保存在你的电脑上，不需要任何服务器：\n\n- **{{tienda}}**：一家商店的数据库，包含客户、商品、订单、发票和事件，以及外键、视图（一个建在另一个之上）和一个触发器。\n- **{{analitica}}**：相同的数据，但特意加入了一些差异。\n- **{{archivos}}**：CSV 中的销售目标和 Parquet 中的事件，用 SQL 查询。\n\n每个单元格在自己的连接上运行；**DataFrame SQL** 单元格会关联上方单元格的结果。用 ▶ 运行单元格，可以逐个运行，也可以全部一起运行。\n\n接下来，可以右键点击连接或表：查看数据库关系图，比较 {{tienda}} 和 {{analitica}} 的数据或架构，把 SQLite 迁移到 DuckDB，或查看建立在另一个视图之上的视图 `v_kpis` 的依赖关系。",
+    "differences": "## 两个数据库有哪些不同？\n\n前两个单元格分别读取两个数据库的客户。第三个单元格将它们关联起来，按城市统计更改了城市或电子邮件的客户，以及只存在于其中一个数据库中的客户。",
+    "onlyInAnalitica": "（仅在 {{analitica}} 中）",
+    "targets": "## 销售与目标\n\n目标在 {{archivos}} 的一个 CSV 文件中；销售数据在 {{tienda}} 的视图 `v_ventas_mensuales` 中。最后一个单元格按月份和类别将两者关联起来并绘制图表。"
+  },
+  "menu": {
+    "openTour": "打开导览",
+    "remove": "移除示例数据库…"
+  },
+  "confirm": {
+    "removeTitle": "移除示例数据库",
+    "remove": "将删除三个示例连接及其文件夹和文件。它们不会再出现。"
+  }
+}

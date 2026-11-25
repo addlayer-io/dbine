@@ -1,0 +1,21 @@
+{
+  "folder": "Przykładowe bazy danych",
+  "tienda": "Sklep (SQLite)",
+  "analitica": "Analityka (DuckDB)",
+  "archivos": "Pliki (CSV i Parquet)",
+  "tourFile": "Przewodnik po DBine",
+  "tour": {
+    "intro": "# Przewodnik po DBine\n\nTe przykładowe bazy danych są na Twoim komputerze i nie potrzebują żadnego serwera:\n\n- **{{tienda}}**: baza sklepu z klientami, produktami, zamówieniami, fakturami i zdarzeniami, kluczami obcymi, widokami (jeden na drugim) i wyzwalaczem.\n- **{{analitica}}**: te same dane, z kilkoma celowymi różnicami.\n- **{{archivos}}**: cele sprzedażowe w pliku CSV i zdarzenia w Parquet, odpytywane za pomocą SQL.\n\nKażda komórka działa na własnym połączeniu; komórki **DataFrame SQL** łączą wyniki komórek powyżej. Uruchamiaj komórki przyciskiem ▶, pojedynczo lub wszystkie razem.\n\nAby kontynuować, kliknij prawym przyciskiem połączenie lub tabelę: diagram bazy, porównanie danych lub schematów między {{tienda}} a {{analitica}}, migracja z SQLite do DuckDB albo zależności widoku `v_kpis`, który opiera się na innym widoku.",
+    "differences": "## Czym różnią się te dwie bazy?\n\nPierwsze dwie komórki odczytują klientów każdej bazy. Trzecia łączy je i liczy według miast tych, którzy zmienili miasto lub e-mail, oraz tych, którzy są tylko w jednej z nich.",
+    "onlyInAnalitica": "(tylko w {{analitica}})",
+    "targets": "## Sprzedaż a cele\n\nCele są w pliku CSV w {{archivos}}, sprzedaż — w widoku `v_ventas_mensuales` w {{tienda}}. Ostatnia komórka łączy je według miesiąca i kategorii i rysuje wykres."
+  },
+  "menu": {
+    "openTour": "Otwórz przewodnik",
+    "remove": "Usuń przykładowe bazy danych…"
+  },
+  "confirm": {
+    "removeTitle": "Usuń przykładowe bazy danych",
+    "remove": "Trzy przykładowe połączenia, ich folder i pliki zostaną usunięte. Nie pojawią się ponownie."
+  }
+}

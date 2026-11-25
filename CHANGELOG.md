@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### New
+
+- **Sample databases to try DBine right away:** a new **Sample databases** folder in the explorer holds a store in SQLite (clients, products, orders, invoices and events, with foreign keys, views and a trigger), the same data in DuckDB with a few differences on purpose, and a folder of CSV and Parquet files. A tour notebook crosses them and ends in charts; on a new installation it opens by itself. Nothing is downloaded until you open them, and they need no server. Right-click the folder to open the tour again or to remove them for good.
+
 ### Improvements
 
 - **FLOAT16 and BFLOAT16 vectors on Valkey:** the key designer offers FLOAT16 and BFLOAT16 vector fields for a Valkey search index, as well as FLOAT32 (valkey-search 1.3 or later). On an older valkey-search, the server's refusal comes with the version that brings them.

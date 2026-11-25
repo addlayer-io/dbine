@@ -10017,6 +10017,7 @@
   "no se pudo pedir el token de Google: {0}": "nie udało się zażądać tokenu Google: {0}",
   "no se pudo preparar el clon {0}; no se clona": "nie udało się przygotować klonu {0}; nie jest klonowany",
   "no se pudo preparar el índice local «{0}» del clon con los nombres de sus particiones; no se clona": "nie udało się przygotować lokalnego indeksu „{0}” klonu z nazwami jego partycji; nie jest klonowany",
+  "no se pudo preparar la base de ejemplo {0}: {1}": "nie udało się przygotować przykładowej bazy danych {0}: {1}",
   "no se pudo preparar la carpeta temporal: {0}": "nie udało się przygotować folderu tymczasowego: {0}",
   "no se pudo preparar la clave primaria del clon con el estado del original; no se clona": "nie udało się przygotować klucza głównego klonu ze stanem oryginału; nie jest klonowany",
   "no se pudo preparar la copia de «{0}»: {1}": "nie udało się przygotować kopii „{0}”: {1}",
