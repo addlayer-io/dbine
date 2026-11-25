@@ -28,15 +28,18 @@ function emit(event: string, payload: unknown) {
 const ANSWER = 'Esta query devuelve los clientes con más de 5 pedidos en 2025:\n\n```sql\nSELECT c.id, c.nombre, COUNT(*) AS pedidos\nFROM dbo.clientes c\nJOIN dbo.pedidos p ON p.cliente_id = c.id\nWHERE p.fecha >= \'2025-01-01\' AND p.fecha < \'2026-01-01\'\nGROUP BY c.id, c.nombre\nHAVING COUNT(*) > 5\nORDER BY pedidos DESC;\n```\n\nUsé un rango de fechas en lugar de `YEAR(p.fecha)` para que **pueda usar el índice** sobre `fecha`.';
 const providers = state === 'setup'
   ? [
-    { kind: 'embedded', label: 'Integrado en DBine', installed: true, available: false, local: true, status: 'sin instalar nada: descargá un modelo', models: [], action: 'download_model', path: null },
-    { kind: 'ollama', label: 'Ollama', installed: true, available: false, local: true, status: 'instalado, pero no está abierto', models: [], action: 'start_ollama', path: '/usr/local/bin/ollama' },
-    { kind: 'claude_code', label: 'Claude Code', installed: false, available: false, local: false, status: 'no instalado', models: [], action: null, path: null },
-    { kind: 'codex', label: 'Codex', installed: false, available: false, local: false, status: 'no instalado', models: [], action: null, path: null },
-    { kind: 'lm_studio', label: 'LM Studio', installed: false, available: false, local: true, status: 'no instalado', models: [], action: null, path: null },
+    { kind: 'embedded', label: 'Integrado en DBine', installed: true, available: false, local: true, status: 'sin instalar nada: descargá un modelo', models: [], action: 'download_model', path: null, key_saved: false, base_url: null, model: null },
+    { kind: 'ollama', label: 'Ollama', installed: true, available: false, local: true, status: 'instalado, pero no está abierto', models: [], action: 'start_ollama', path: '/usr/local/bin/ollama', key_saved: false, base_url: null, model: null },
+    { kind: 'claude_code', label: 'Claude Code', installed: false, available: false, local: false, status: 'no instalado', models: [], action: null, path: null, key_saved: false, base_url: null, model: null },
+    { kind: 'codex', label: 'Codex', installed: false, available: false, local: false, status: 'no instalado', models: [], action: null, path: null, key_saved: false, base_url: null, model: null },
+    { kind: 'lm_studio', label: 'LM Studio', installed: false, available: false, local: true, status: 'no instalado', models: [], action: null, path: null, key_saved: false, base_url: null, model: null },
+    { kind: 'openai', label: 'OpenAI', installed: false, available: false, local: false, status: 'sin configurar: pegá tu clave de API', models: [], action: 'configure_key', path: null, key_saved: false, base_url: null, model: null },
+    { kind: 'anthropic', label: 'Anthropic', installed: true, available: false, local: false, status: 'Anthropic: la clave de API no es válida o no tiene permiso para esto (HTTP 401)', models: [], action: 'configure_key', path: null, key_saved: true, base_url: 'https://api.anthropic.com', model: null },
+    { kind: 'azure_openai', label: 'Azure OpenAI', installed: false, available: false, local: false, status: 'falta la URL del servidor', models: [], action: 'configure_key', path: null, key_saved: true, base_url: null, model: 'gpt-dep' },
   ]
   : [
-    { kind: 'embedded', label: 'Integrado en DBine', installed: true, available: true, local: true, status: '1 modelo(s)', models: [{ id: 'qwen2.5-coder-3b', detail: 'rápido y liviano · 2,1 GB' }], action: null, path: null },
-    { kind: 'claude_code', label: 'Claude Code', installed: true, available: true, local: false, status: 'instalado · usa tu cuenta de Claude', models: [{ id: 'sonnet', detail: 'Sonnet: equilibrado' }, { id: 'haiku', detail: 'Haiku: el más rápido' }], action: null, path: '/x/claude' },
+    { kind: 'embedded', label: 'Integrado en DBine', installed: true, available: true, local: true, status: '1 modelo(s)', models: [{ id: 'qwen2.5-coder-3b', detail: 'rápido y liviano · 2,1 GB' }], action: null, path: null, key_saved: false, base_url: null, model: null },
+    { kind: 'claude_code', label: 'Claude Code', installed: true, available: true, local: false, status: 'instalado · usa tu cuenta de Claude', models: [{ id: 'sonnet', detail: 'Sonnet: equilibrado' }, { id: 'haiku', detail: 'Haiku: el más rápido' }], action: null, path: '/x/claude', key_saved: false, base_url: null, model: null },
   ];
 
 const sealed = new Map<string, string>();

@@ -78,7 +78,8 @@
   },
   "privacy": {
     "local": "Locale: nulla esce da questa macchina.",
-    "remote": "Va a {{vendor}} con il tuo account: la domanda, la struttura e l'editor, mai i dati."
+    "remote": "Va a {{vendor}} con il tuo account: la domanda, la struttura e l'editor, mai i dati.",
+    "remoteOwn": "Va al tuo server: la domanda, la struttura e l'editor, mai i dati."
   },
   "empty": {
     "lead": "Chiedigli query, di spiegare o correggere quella dell'editor, o chiedigli della struttura del database.",
@@ -168,5 +169,32 @@
     "cancelled": "Annullato: non è stato modificato nulla.",
     "again": "Analizza di nuovo",
     "failed": "Impossibile analizzare: {{error}}"
+  },
+  "api": {
+    "heading": "Con la tua chiave API",
+    "lead": "Usa il tuo account OpenAI, Anthropic, Azure OpenAI, Google Gemini o xAI Grok, o un server compatibile con OpenAI. Il provider addebita sul tuo account; DBine non addebita nulla.",
+    "configure": "Configura",
+    "edit": "Modifica",
+    "title": "{{provider}} con la tua chiave API",
+    "key": "Chiave API",
+    "keyOptional": "Chiave API (se il server la richiede)",
+    "keyPlaceholder": "Incolla la tua chiave",
+    "keySaved": "Salvata su questo computer: lasciala vuota per non cambiarla",
+    "keyWhere": "La ottieni su {{site}}.",
+    "azureUrl": "Endpoint della risorsa",
+    "baseUrl": "URL di base",
+    "model": "Modello",
+    "modelPlaceholder": "Scegline uno dall'elenco o scrivilo",
+    "deployment": "Distribuzione",
+    "deploymentPlaceholder": "Il nome della distribuzione in Azure",
+    "privacy": "A ogni domanda, {{vendor}} riceve la domanda, la struttura del database, il testo dell'editor e l'ultimo errore, secondo i suoi termini. Mai righe di dati.",
+    "privacyOwn": "A ogni domanda, quel server riceve la domanda, la struttura del database, il testo dell'editor e l'ultimo errore. Mai righe di dati.",
+    "cost": "{{vendor}} addebita sul tuo account in base all'uso. DBine non addebita nulla.",
+    "local": "La chiave resta cifrata su questo computer: non viaggia con il backup nel cloud.",
+    "test": "Prova",
+    "remove": "Rimuovi",
+    "removeConfirm": "Rimuovere la chiave e la configurazione di {{provider}} da questo computer?",
+    "urlRequired": "Scrivi l'URL.",
+    "keyRequired": "Incolla la chiave API."
   }
 }

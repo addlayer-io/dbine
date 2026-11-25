@@ -9,6 +9,8 @@ pub struct Endpoints {
     pub lmstudio: String,
     /// Where the built-in model's files go.
     pub models_dir: std::path::PathBuf,
+    /// The API-key providers the user configured (filled by the app).
+    pub api: crate::api::ApiStore,
 }
 
 impl Default for Endpoints {
@@ -27,6 +29,7 @@ impl Default for Endpoints {
                 .unwrap_or_else(|| "http://127.0.0.1:11434".into()),
             lmstudio: "http://127.0.0.1:1234".into(),
             models_dir: std::env::temp_dir().join("dbine-models"),
+            api: Default::default(),
         }
     }
 }
@@ -51,9 +54,16 @@ pub struct ProviderInfo {
     /// One line for the UI: why it isn't available, or what it has.
     pub status: String,
     pub models: Vec<ModelInfo>,
-    /// `start_ollama` / `pull_model`: what the UI can offer to fix it.
+    /// `start_ollama` / `pull_model` / `download_model` / `configure_key`:
+    /// what the UI can offer to fix it.
     pub action: Option<&'static str>,
     pub path: Option<String>,
+    /// API-key providers: a key is saved on this machine.
+    pub key_saved: bool,
+    /// API-key providers: the URL configured (Azure's resource, a custom server).
+    pub base_url: Option<String>,
+    /// API-key providers: the model typed by hand (an Azure deployment…).
+    pub model: Option<String>,
 }
 
 fn claude_models() -> Vec<ModelInfo> {
@@ -85,6 +95,9 @@ async fn detect_ollama(ep: &Endpoints) -> ProviderInfo {
         models: vec![],
         action: None,
         path: path.map(|p| p.display().to_string()),
+        key_saved: false,
+        base_url: None,
+        model: None,
     };
     match ollama::models(&ep.ollama).await {
         Ok(models) if models.is_empty() => {
@@ -124,6 +137,9 @@ async fn detect_lmstudio(ep: &Endpoints) -> ProviderInfo {
         models: vec![],
         action: None,
         path: cli.map(|p| p.display().to_string()),
+        key_saved: false,
+        base_url: None,
+        model: None,
     };
     match openai::models(&ep.lmstudio).await {
         Ok(models) if !models.is_empty() => {
@@ -172,6 +188,9 @@ fn detect_cli(kind: ProviderKind, bin: &str, account: &str) -> ProviderInfo {
         },
         action: None,
         path: path.map(|p| p.display().to_string()),
+        key_saved: false,
+        base_url: None,
+        model: None,
     }
 }
 
@@ -194,6 +213,9 @@ fn detect_embedded(ep: &Endpoints) -> ProviderInfo {
             .collect(),
         action: None,
         path: None,
+        key_saved: false,
+        base_url: None,
+        model: None,
     };
     p.status = if !embedded::ENABLED {
         "esta versión se compiló sin el modelo integrado".into()
@@ -220,12 +242,17 @@ pub async fn detect(ep: &Endpoints) -> Vec<ProviderInfo> {
     })
     .await
     .ok();
-    let (ollama, lmstudio) = tokio::join!(detect_ollama(ep), detect_lmstudio(ep));
+    let (ollama, lmstudio, api) = tokio::join!(
+        detect_ollama(ep),
+        detect_lmstudio(ep),
+        futures::future::join_all(ProviderKind::API.map(|k| crate::api::detect(k, &ep.api)))
+    );
     let mut out = vec![detect_embedded(ep), ollama];
     if let Some((claude, codex)) = clis {
         out.push(claude);
         out.push(codex);
     }
     out.push(lmstudio);
+    out.extend(api);
     out
 }

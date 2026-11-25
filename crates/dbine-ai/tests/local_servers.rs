@@ -504,6 +504,7 @@ fn endpoints(ollama: &str, lmstudio: &str, models_dir: &std::path::Path) -> Endp
         ollama: ollama.into(),
         lmstudio: lmstudio.into(),
         models_dir: models_dir.to_path_buf(),
+        api: Default::default(),
     }
 }
 
@@ -597,9 +598,23 @@ async fn detect_reports_what_each_local_server_has() {
             ProviderKind::Ollama,
             ProviderKind::ClaudeCode,
             ProviderKind::Codex,
-            ProviderKind::LmStudio
+            ProviderKind::LmStudio,
+            ProviderKind::OpenAi,
+            ProviderKind::Anthropic,
+            ProviderKind::AzureOpenAi,
+            ProviderKind::Gemini,
+            ProviderKind::Xai,
+            ProviderKind::OpenAiCompatible,
         ]
     );
+    // No key configured: offered, not usable, nothing called.
+    for p in &all[5..] {
+        assert!(
+            !p.available && !p.installed && !p.local && !p.key_saved,
+            "{p:?}"
+        );
+        assert_eq!(p.action, Some("configure_key"));
+    }
     let ollama = &all[1];
     assert!(ollama.installed && ollama.available && ollama.local);
     assert_eq!(ollama.models[0].id, "codellama");

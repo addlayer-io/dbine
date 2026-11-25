@@ -118,7 +118,7 @@ front (it would not fit in the context): it asks for it as it needs it.
 ## Providers
 
 DBine has no AI service of its own. It uses what is on the machine, in this
-order:
+order, or a provider with the user's own API key:
 
 | Provider | What it is | Privacy |
 |---|---|---|
@@ -127,6 +127,7 @@ order:
 | **Claude Code** | the `claude` CLI with the user's account | The question, the structure, the editor and the metadata the model asks for go to Anthropic |
 | **Codex** | the `codex` CLI with the user's account | Same, to OpenAI |
 | **LM Studio** | local OpenAI-compatible server (`localhost:1234`) | Local |
+| **OpenAI, Anthropic, Azure OpenAI, Google Gemini, xAI Grok, OpenAI-compatible** | the provider's API with the user's own key ([below](#your-own-api-key)) | The question, the structure, the editor and the metadata the model asks for go to that provider |
 
 **Detection:**
 - An app opened from the Finder does not inherit the terminal's PATH. That is
@@ -150,6 +151,48 @@ answer thinking. The 14B did not perform better than the 7B, so it is not in
 the catalog. In the same test, 24 legitimate requests that sound sensitive
 (passwords, permissions, personal data, deletions) had no refusals with any
 model.
+
+### Your own API key
+
+Settings in the assistant (the gear) › **With your API key**: paste a key and
+the assistant uses that provider. **The provider bills the user's account** for
+what is used; AddLayer charges nothing and sees nothing of it.
+
+| Provider | Address | Key |
+|---|---|---|
+| **OpenAI** | `https://api.openai.com/v1` | `Authorization: Bearer` |
+| **Anthropic** | `https://api.anthropic.com` (Messages API) | `x-api-key` and `anthropic-version: 2026-10-21` |
+| **Azure OpenAI** | the resource's endpoint (`https://<resource>.openai.azure.com`); DBine adds `/openai/v1` | `api-key` |
+| **Google Gemini** | `https://generativelanguage.googleapis.com/v1beta/openai` | `Authorization: Bearer` |
+| **xAI Grok** | `https://api.x.ai/v1` | `Authorization: Bearer` |
+| **Compatible with OpenAI** | the URL the user gives (OpenRouter, Mistral, DeepSeek, Groq, a company gateway, vLLM…) | `Authorization: Bearer`, optional |
+
+- **The key** goes to DBine's encrypted vault on this machine (the same as
+  connections' passwords, `ai-key:<provider>`). It never goes in the state
+  file, the logs, an error or the cloud backup: each machine has its own. The
+  URL and the model typed are settings and travel with the backup.
+- **Models:** listed from the provider (`/models`), newest first, without
+  embedding, speech or image models; a model can be typed by hand (Azure: the
+  deployment's name, since Azure lists models, not deployments). **Probar**
+  checks the key with the list; for an Azure deployment typed by hand it asks
+  it a one-word question.
+- **Errors:** a refused key (401/403) gets DBine's own message; any other
+  error, the provider's message with the key hidden if it was quoted.
+- **Anthropic:** streamed Messages API without `temperature`, `top_p`, `top_k`
+  or `thinking` (the current models think adaptively). The default model is
+  `claude-opus-5-5`. On the models that support it (Claude Fable 5.2 and 5.1,
+  Opus 5.5 and 5, Sonnet 5.5) the request asks for a server-side fallback
+  (`fallbacks: "default"`, beta `server-side-fallback-2026-07-01`): when the
+  model's safety classifier declines a legitimate request, Anthropic answers
+  with another model in the same call instead of ending the answer. A refusal
+  that stands is shown as such. An older model whose output cap is lower
+  than 64,000 tokens gets the request again with 8,192.
+- **What is sent:** the same as with Claude Code or Codex: the question, the
+  engine, the structure, the editor's text and the last error, and the
+  catalog reads the model asks for. Never rows: these are remote models,
+  so the data tools stay off for them.
+- **Company connections:** when the company doesn't allow the assistant on its
+  connections (`allow_ai`), these providers are refused too.
 
 ### Claude Code and Codex, without their own tools
 
@@ -271,7 +314,7 @@ apply on every engine and with every model.
 - **Size:** up to 6,000 characters in total with a local model and 40,000 with
   Claude Code or Codex. A context that doesn't fit stays out whole, the widest
   first, and the chat names it under the question. None is cut.
-- **Privacy:** with Claude Code or Codex they go to Anthropic or OpenAI with the
+- **Privacy:** with Claude Code, Codex or an API key they go to that provider with the
   rest of the prompt. The tab and Settings warn against writing secrets in them;
   DBine doesn't inspect the text.
 - **Files:** there is no `AGENTS.md`-style file: nothing in a folder can add
@@ -403,6 +446,9 @@ on disk and can't be read outside DBine:
 | `ai_start_ollama` | — | Opens Ollama and waits for it to respond |
 | `ai_pull_ollama` | `{ id }` | `ollama pull` with progress |
 | `ai_task_cancel` | `{ run_id }` | Stops a one-shot task (renames, explanation, filters, key) |
+| `ai_api_save` | `{ provider, key, url, model }` | Saves an API-key provider: the key to the vault (empty keeps it), the URL and model to the settings |
+| `ai_api_remove` | `{ provider }` | Removes its key and settings from this machine |
+| `ai_api_test` | `{ provider, key, url, model }` | "Probar": the form's values, else the saved ones, against the provider |
 
 To try a provider from the terminal:
 
