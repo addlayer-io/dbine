@@ -43,15 +43,15 @@
     {
       "source": "osv",
       "date": "2026-11-25",
-      "revision": "e97131071414",
+      "revision": "597a2d7ab74c",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
-      "found": 5
+      "found": 0
     },
     {
       "source": "trivy",
       "date": "2026-11-25",
-      "revision": "e97131071414",
+      "revision": "597a2d7ab74c",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -67,10 +67,10 @@
     {
       "source": "scorecard",
       "date": "2026-11-25",
-      "revision": "e97131071414",
+      "revision": "597a2d7ab74c",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 7.5
+      "score": 7.6
     }
   ],
   "findings": [
@@ -4518,66 +4518,6 @@
       "status": "notice"
     },
     {
-      "id": "OSV-RUSTSEC-2026-0592-url-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "url 2.5.8: Stack overflow in `Url::origin()` on nested `blob:` URLs",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0592",
-      "fixed_version": "2.5.9",
-      "found": "2026-11-22",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0592-url-9761a8",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "url 2.5.8: Stack overflow in `Url::origin()` on nested `blob:` URLs",
-      "component": "mobile/src-tauri/Cargo.lock",
-      "advisory": "RUSTSEC-2026-0592",
-      "fixed_version": "2.5.9",
-      "found": "2026-11-22",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0592-url-c4afe4",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "url 2.5.8: Stack overflow in `Url::origin()` on nested `blob:` URLs",
-      "component": "fuzz/Cargo.lock",
-      "advisory": "RUSTSEC-2026-0592",
-      "fixed_version": "2.5.9",
-      "found": "2026-11-22",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0594-cookie-13ee4b",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "cookie 0.18.2: Private cookie nonces can repeat in processes that fork",
-      "component": "Cargo.lock",
-      "advisory": "RUSTSEC-2026-0594",
-      "fixed_version": "0.12.0, 0.18.3",
-      "found": "2026-11-23",
-      "status": "open"
-    },
-    {
-      "id": "OSV-RUSTSEC-2026-0594-cookie-9761a8",
-      "source": "osv",
-      "severity": "MEDIUM",
-      "kind": "Vulnerable dependency",
-      "title": "cookie 0.18.2: Private cookie nonces can repeat in processes that fork",
-      "component": "mobile/src-tauri/Cargo.lock",
-      "advisory": "RUSTSEC-2026-0594",
-      "fixed_version": "0.12.0, 0.18.3",
-      "found": "2026-11-23",
-      "status": "open"
-    },
-    {
       "id": "SC-Binary-Artifacts",
       "source": "scorecard",
       "severity": "HIGH",
@@ -4615,7 +4555,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/6 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/7 approved changesets -- score normalized to 0",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#code-review",
       "found": "2026-10-21",
@@ -4648,7 +4588,7 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Vulnerabilities: 7/10 — 3 existing vulnerabilities detected",
+      "title": "Vulnerabilities: 9/10 — 1 existing vulnerabilities detected",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#vulnerabilities",
       "found": "2026-11-17",
