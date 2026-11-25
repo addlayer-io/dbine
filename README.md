@@ -409,8 +409,9 @@ editor's one and answers about the database's structure.
   open query or replace the editor's content with it, and whether to run it.
 - **Analyze with AI on a failed query:** when asked, it explains why the query
   failed and proposes a fix, shown as a diff over the editor, to accept or
-  reject. It sends the SQL that ran, the error and the database's structure,
-  never rows.
+  reject. It sends the SQL that ran, the error and the database's structure.
+  It never sends result rows, though a server's error message can quote a
+  value (a duplicate key, for example).
 - **It uses what is on the machine:**
   - the **built-in model** (llama.cpp with Qwen2.5-Coder 3B or 7B), which runs
     locally and is downloaded only once, the first time it is used;
