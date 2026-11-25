@@ -43,7 +43,7 @@
     {
       "source": "osv",
       "date": "2026-11-25",
-      "revision": "0108da595c1b",
+      "revision": "16df0b36f219",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 5
@@ -51,7 +51,7 @@
     {
       "source": "trivy",
       "date": "2026-11-25",
-      "revision": "0108da595c1b",
+      "revision": "16df0b36f219",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
@@ -67,10 +67,10 @@
     {
       "source": "scorecard",
       "date": "2026-11-25",
-      "revision": "626fb7cb8aeb",
+      "revision": "e97131071414",
       "kind": "full",
       "scope": "repository settings and workflows",
-      "score": 7.3
+      "score": 7.5
     }
   ],
   "findings": [
@@ -4584,7 +4584,7 @@
       "kind": "Repository practice",
       "title": "Binary-Artifacts: 9/10 — binaries present in source code",
       "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#binary-artifacts",
+      "advisory": "https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#binary-artifacts",
       "found": "2026-11-23",
       "status": "open"
     },
@@ -4595,19 +4595,8 @@
       "kind": "Repository practice",
       "title": "Branch-Protection: 4/10 — branch protection is not maximal on development and all release branches",
       "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#branch-protection",
+      "advisory": "https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#branch-protection",
       "found": "2026-10-21",
-      "status": "open"
-    },
-    {
-      "id": "SC-CI-Tests",
-      "source": "scorecard",
-      "severity": "LOW",
-      "kind": "Repository practice",
-      "title": "CI-Tests: 6/10 — 5 out of 8 merged PRs checked by a CI test -- score normalized to 6",
-      "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#ci-tests",
-      "found": "2026-11-23",
       "status": "open"
     },
     {
@@ -4617,7 +4606,7 @@
       "kind": "Repository practice",
       "title": "CII-Best-Practices: 5/10 — badge detected: Passing",
       "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#cii-best-practices",
+      "advisory": "https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#cii-best-practices",
       "found": "2026-10-21",
       "status": "open"
     },
@@ -4626,9 +4615,9 @@
       "source": "scorecard",
       "severity": "HIGH",
       "kind": "Repository practice",
-      "title": "Code-Review: 0/10 — Found 0/8 approved changesets -- score normalized to 0",
+      "title": "Code-Review: 0/10 — Found 0/6 approved changesets -- score normalized to 0",
       "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#code-review",
+      "advisory": "https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#code-review",
       "found": "2026-10-21",
       "status": "open"
     },
@@ -4639,7 +4628,7 @@
       "kind": "Repository practice",
       "title": "Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3",
       "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#contributors",
+      "advisory": "https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#contributors",
       "found": "2026-10-21",
       "status": "open"
     },
@@ -4650,7 +4639,7 @@
       "kind": "Repository practice",
       "title": "Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully",
       "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#maintained",
+      "advisory": "https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#maintained",
       "found": "2026-10-21",
       "status": "open"
     },
@@ -4661,7 +4650,7 @@
       "kind": "Repository practice",
       "title": "Vulnerabilities: 7/10 — 3 existing vulnerabilities detected",
       "component": "repository",
-      "advisory": "https://github.com/ossf/scorecard/blob/61e84743356275f6ffca23b1b2f2cb945e19eb96/docs/checks.md#vulnerabilities",
+      "advisory": "https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#vulnerabilities",
       "found": "2026-11-17",
       "status": "open"
     }
