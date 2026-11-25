@@ -581,7 +581,7 @@ impl PgSession {
             }
             _ => {
                 let rows = self
-                    .text(&uses_sql(c, v != Variant::Redshift, |col| self.filter(col)))
+                    .catalog_text(&uses_sql(c, v != Variant::Redshift, |col| self.filter(col)))
                     .await?;
                 let mut f = Found {
                     edges: rows.iter().filter_map(user_and_used).collect(),
@@ -589,7 +589,10 @@ impl PgSession {
                 };
                 self.add_foreign_keys(&mut f).await?;
                 if c.foreign_tables() {
-                    match self.text(&foreign_tables_sql(|col| self.filter(col))).await {
+                    match self
+                        .catalog_text(&foreign_tables_sql(|col| self.filter(col)))
+                        .await
+                    {
                         Ok(rows) => {
                             for r in &rows {
                                 let source = pr::foreign_source(
@@ -613,7 +616,9 @@ impl PgSession {
     }
 
     async fn add_foreign_keys(&self, f: &mut Found) -> Result<()> {
-        let rows = self.text(&foreign_keys_sql(|col| self.filter(col))).await?;
+        let rows = self
+            .catalog_text(&foreign_keys_sql(|col| self.filter(col)))
+            .await?;
         f.edges.extend(rows.iter().filter_map(user_and_used));
         Ok(())
     }
@@ -638,7 +643,7 @@ impl PgSession {
         let mut one_by_one = !batch;
         if batch {
             let sql = bodies_sql(self.pg_catalog(), |col| self.filter(col), GRAPH_DEFINITIONS);
-            match self.text(&sql).await {
+            match self.catalog_text(&sql).await {
                 Ok(rows) => {
                     let mut grouped: Vec<(ObjectRef, bool, Vec<String>)> = Vec::new();
                     for r in &rows {

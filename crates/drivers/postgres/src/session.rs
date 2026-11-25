@@ -4,9 +4,12 @@
 //! catalog query is optional: when a variant doesn't have it, the explorer
 //! shows what did work instead of failing.
 
-use crate::catalog::{cell, first_cell, info_type, lit, rows, system_schema, user_schema};
+use crate::catalog::{
+    cell, first_cell, info_type, lit, rows, statement_rows, system_schema, user_schema,
+};
 use crate::object_page::{self, Branch};
 use crate::plan::{self, StmtKind};
+use crate::references::trusts_catalog;
 use crate::rustls_connect::MakeRustlsConnect;
 use crate::script;
 use crate::{err, Variant};
@@ -21,6 +24,50 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_postgres::error::{DbError, SqlState};
 use tokio_postgres::{Client, SimpleQueryMessage, SimpleQueryRow};
+
+/// `sql` with the path set to the server's own schema ([`PgSession::catalog_text`])
+/// and put back after it; `restore` is the session's path, as a literal.
+/// `pg_temp` is named last: unnamed, it would be searched first for
+/// relations and types (openGauss keeps its own order and warns).
+fn pinned(v: Variant, sql: &str, restore: &str) -> String {
+    let own = if v == Variant::OpenGauss {
+        "pg_catalog"
+    } else {
+        "pg_catalog, pg_temp"
+    };
+    format!(
+        "SET LOCAL search_path TO {own};\n{sql}\n;\nSELECT pg_catalog.set_config('search_path', {restore}, true)"
+    )
+}
+
+/// [`PgSession::visible_schema`]'s query; `name` is a literal.
+fn visible_schema_sql(kind: &str, name: &str) -> String {
+    let (from, join, column, visible) = match kind {
+        dbine_driver::kinds::FUNCTION | dbine_driver::kinds::PROCEDURE => (
+            "pg_catalog.pg_proc o",
+            "o.pronamespace",
+            "o.proname",
+            "pg_catalog.pg_function_is_visible(o.oid)",
+        ),
+        dbine_driver::kinds::TRIGGER => (
+            "pg_catalog.pg_trigger g, pg_catalog.pg_class o",
+            "o.relnamespace",
+            "g.tgname",
+            "g.tgrelid OPERATOR(pg_catalog.=) o.oid AND pg_catalog.pg_table_is_visible(o.oid)",
+        ),
+        _ => (
+            "pg_catalog.pg_class o",
+            "o.relnamespace",
+            "o.relname",
+            "pg_catalog.pg_table_is_visible(o.oid)",
+        ),
+    };
+    format!(
+        "SELECT n.nspname::pg_catalog.text FROM {from}, pg_catalog.pg_namespace n
+         WHERE n.oid OPERATOR(pg_catalog.=) {join}
+           AND {column} OPERATOR(pg_catalog.=) {name}::pg_catalog.name AND {visible} LIMIT 1"
+    )
+}
 
 pub struct PgSession {
     pub(crate) client: Client,
@@ -145,6 +192,71 @@ impl PgSession {
     /// Rows of a text-protocol query.
     pub(crate) async fn text(&self, sql: &str) -> Result<Vec<SimpleQueryRow>> {
         Ok(rows(self.client.simple_query(sql).await.map_err(err)?))
+    }
+
+    /// A catalog read in which every function and operator is the
+    /// server's own. By the session's `search_path`, one that another user
+    /// created in a schema of that path wins over a built-in whose
+    /// arguments only match after a conversion, and would run as this
+    /// session's user. So `sql` (one statement) goes with the path set to
+    /// `pg_catalog` for that message alone: it must name every other
+    /// schema, and an unqualified object has to be resolved before
+    /// ([`Self::visible_schema`]). Only on the variants that keep
+    /// PostgreSQL's catalog ([`trusts_catalog`]); the rest read as before.
+    pub(crate) async fn catalog_text(&self, sql: &str) -> Result<Vec<SimpleQueryRow>> {
+        if !trusts_catalog(self.variant) {
+            return self.text(sql).await;
+        }
+        let now = self
+            .text("SELECT pg_catalog.current_setting('search_path')")
+            .await?;
+        let path = now.first().and_then(|r| r.get(0)).unwrap_or_default();
+        let path = lit(self.variant, path);
+        // The whole message runs on the server even if this future is
+        // dropped, and puts the path back itself: openGauss keeps a `SET
+        // LOCAL` after the message's transaction, and the user's open
+        // transaction would keep it on any server.
+        let message = pinned(self.variant, sql, &path);
+        match self.client.simple_query(&message).await {
+            Ok(msgs) => Ok(statement_rows(msgs, 1)),
+            Err(e) => {
+                // The statements after the failed one didn't run. In the
+                // user's transaction, the rollback it needs restores the path.
+                if self.tx == TxState::Idle && !self.tx_unsure {
+                    let reset =
+                        format!("SELECT pg_catalog.set_config('search_path', {path}, false)");
+                    if let Err(e) = self.text(&reset).await {
+                        tracing::debug!("{:?}: search_path not restored: {e}", self.variant);
+                    }
+                }
+                Err(err(e))
+            }
+        }
+    }
+
+    /// The schema the session's `search_path` finds `name` in: `schema` if
+    /// it says one, else asked with exact built-in operators only (this
+    /// read keeps the path). Empty when the path doesn't find it. `kind` is
+    /// the object's: a routine, a trigger or, otherwise, a relation.
+    pub(crate) async fn visible_schema(
+        &self,
+        kind: &str,
+        schema: Option<&str>,
+        name: &str,
+    ) -> Result<String> {
+        if let Some(s) = schema.filter(|s| !s.is_empty()) {
+            return Ok(s.to_string());
+        }
+        if !trusts_catalog(self.variant) {
+            return Ok(String::new());
+        }
+        let sql = visible_schema_sql(kind, &lit(self.variant, name));
+        let found = self.text(&sql).await?;
+        Ok(found
+            .first()
+            .and_then(|r| r.get(0))
+            .unwrap_or_default()
+            .to_string())
     }
 
     /// Like [`Self::text`], but a statement still running after `limit`
@@ -2627,6 +2739,23 @@ async fn run_script(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_catalog_read_pins_the_path_and_puts_it_back() {
+        let m = pinned(Variant::Postgres, "SELECT 1", "'public'");
+        assert_eq!(
+            m,
+            "SET LOCAL search_path TO pg_catalog, pg_temp;\nSELECT 1\n;\nSELECT pg_catalog.set_config('search_path', 'public', true)"
+        );
+        assert!(pinned(Variant::OpenGauss, "SELECT 1", "''")
+            .starts_with("SET LOCAL search_path TO pg_catalog;"));
+        // The unqualified lookup runs by the user's path: exact built-ins only.
+        for kind in ["table", "function", "trigger"] {
+            let q = visible_schema_sql(kind, "'x'");
+            assert!(!q.contains(" = "), "{q}");
+            assert!(q.contains("::pg_catalog.name"), "{q}");
+        }
+    }
+
     use super::*;
 
     #[test]

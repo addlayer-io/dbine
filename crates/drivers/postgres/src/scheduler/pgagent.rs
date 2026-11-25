@@ -1602,7 +1602,7 @@ async fn check_order(s: &PgSession, steps: &[StepSpec]) -> Result<()> {
     let names: Vec<String> = steps.iter().map(|st| lit(s.variant, &st.name)).collect();
     let sorted: Vec<usize> = s
         .text(&format!(
-            "SELECT t.i::text AS i FROM unnest(ARRAY[{}]::text[]) WITH ORDINALITY AS t(n, i) ORDER BY t.n, t.i",
+            "SELECT t.i::text AS i FROM pg_catalog.unnest(ARRAY[{}]::text[]) WITH ORDINALITY AS t(n, i) ORDER BY t.n, t.i",
             names.join(", ")
         ))
         .await?

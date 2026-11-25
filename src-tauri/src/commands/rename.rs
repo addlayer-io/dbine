@@ -145,6 +145,8 @@ pub(crate) struct Context {
     pub row_routines: Vec<usize>,
     /// Those that triggers on other tables run too.
     pub shared_routines: Vec<usize>,
+    /// Put back only what stays with its owner ([`owner_may_be_lost`]).
+    pub check_owner: bool,
 }
 
 /// Whether DBine puts back a dependent of `target` at all: an allowlist,
@@ -160,6 +162,109 @@ pub(crate) fn puts_back(spec: &RenameSpec, target: &RenameTarget) -> bool {
         ReferenceStyle::Pipeline => !matches!(target, RenameTarget::Column { .. }),
         ReferenceStyle::None => false,
     }
+}
+
+/// Engines whose dependents include other schemas' code and whose stored
+/// definitions may leave the owner out (Oracle's rebuilt from the
+/// dictionary, SAP HANA's as written): run, such a `CREATE OR REPLACE`
+/// makes or replaces the object in the renaming user's schema, with the
+/// other user's code in it.
+pub(crate) fn owner_may_be_lost(driver_id: &str) -> bool {
+    matches!(driver_id, "oracle" | "oracle_adb" | "hana")
+}
+
+/// Whether putting `definition` back leaves the dependent where it is. The
+/// drivers give no schema to the session's own objects: run there, they
+/// stay. Any other has to be in the target's schema and name that schema in
+/// each of its `CREATE` headers.
+fn stays_with_its_owner(
+    dependent: &Dependent,
+    definition: &str,
+    target: &RenameTarget,
+    dialect: &ScriptDialect,
+) -> bool {
+    let Some(schema) = dependent.schema.as_deref().filter(|s| !s.is_empty()) else {
+        return true;
+    };
+    let of_target = match target {
+        RenameTarget::Object { object, .. } => object.schema(),
+        _ => target.table().and_then(|t| t.schema()),
+    };
+    of_target == Some(schema) && headers_name(definition, dialect, schema, &dependent.name)
+}
+
+/// The first `CREATE` of `definition` makes a code object named
+/// `schema`.`name`, and so does every other one that makes a code object (a
+/// package's body). Unquoted names fold to upper case.
+fn headers_name(definition: &str, dialect: &ScriptDialect, schema: &str, name: &str) -> bool {
+    use dbine_driver::sql::TokenKind;
+    const MODIFIERS: &[&str] = &[
+        "or",
+        "replace",
+        "editionable",
+        "noneditionable",
+        "force",
+        "noforce",
+        "no",
+        "public",
+        "materialized",
+    ];
+    const CODE: &[&str] = &[
+        "view",
+        "procedure",
+        "function",
+        "trigger",
+        "package",
+        "type",
+        "synonym",
+    ];
+    let toks = dbine_driver::sql::name_tokens(definition, dialect);
+    let quoted = |i: usize| definition.as_bytes().get(toks[i].start) == Some(&b'"');
+    let word = |i: usize, list: &[&str]| {
+        toks.get(i).is_some_and(|t| {
+            t.kind == TokenKind::Name
+                && !quoted(i)
+                && list.iter().any(|w| t.text.eq_ignore_ascii_case(w))
+        })
+    };
+    let is = |i: usize, wanted: &str| {
+        toks.get(i).is_some_and(|t| {
+            let raw = &definition[t.start..t.end];
+            t.kind == TokenKind::Name
+                && match raw.strip_prefix('"').and_then(|r| r.strip_suffix('"')) {
+                    Some(inner) => inner.replace("\"\"", "\"") == wanted,
+                    None => raw.to_uppercase() == wanted,
+                }
+        })
+    };
+    let mut first = true;
+    for at in 0..toks.len() {
+        if !word(at, &["create"]) {
+            continue;
+        }
+        let mut i = at + 1;
+        while word(i, MODIFIERS) {
+            i += 1;
+        }
+        if !word(i, CODE) {
+            if first {
+                return false;
+            }
+            continue;
+        }
+        i += 1;
+        if word(i, &["body"]) {
+            i += 1;
+        }
+        let dot = toks
+            .get(i + 1)
+            .is_some_and(|t| t.kind == TokenKind::Punct && t.text == ".");
+        if !(is(i, schema) && dot && is(i + 2, name)) {
+            return false;
+        }
+        first = false;
+    }
+    !first
 }
 
 /// A trigger routine found through the triggers on the column's table.
@@ -290,6 +395,7 @@ pub async fn rename_impact(
     let collides = collides(&args.target, &new_name, table.as_ref(), &objects);
     let ctx = Context {
         database,
+        check_owner: owner_may_be_lost(driver.info().id),
         row_routines: found.iter().map(|(at, _, _)| *at).collect(),
         shared_routines: found
             .iter()
@@ -741,7 +847,12 @@ pub(crate) fn classify(
                 Action::Tracked
             } else if d.confidence == Confidence::Review {
                 manual(ManualReason::Dynamic)
-            } else if !rewrites {
+            } else if !rewrites
+                || (ctx.check_owner
+                    && def
+                        .as_deref()
+                        .is_some_and(|body| !stays_with_its_owner(&d, body, target, dialect)))
+            {
                 manual(ManualReason::NotRewritten)
             } else if let Some(body) = def.as_deref() {
                 let opts = RewriteOptions {
@@ -1259,6 +1370,123 @@ mod tests {
             confidence,
             detail: None,
             mentions: vec![],
+        }
+    }
+
+    /// What Oracle and SAP HANA give for dependents of other owners: none
+    /// of them is ever put back, so no script re-creates them in the
+    /// renaming user's schema.
+    #[test]
+    fn another_owners_code_is_never_put_back() {
+        let spec = RenameSpec {
+            kinds: vec!["table".into()],
+            replace: ReplaceStyle::CreateOrReplace,
+            references: ReferenceStyle::Sql,
+            ..Default::default()
+        };
+        let target = RenameTarget::Object {
+            object: ObjectRef {
+                kind: "table".into(),
+                schema: Some("APP".into()),
+                name: "ORDERS".into(),
+            },
+            parent: None,
+        };
+        let of = |schema: Option<&str>, kind: &str, name: &str| Dependent {
+            schema: schema.map(Into::into),
+            ..dependent(kind, name, Relation::Code, Confidence::Confirmed)
+        };
+        let cases: Vec<(Dependent, &str, bool)> = vec![
+            // Another schema, rebuilt without its owner.
+            (
+                of(Some("OTHER"), "procedure", "P"),
+                "CREATE OR REPLACE PROCEDURE p AS BEGIN DELETE FROM APP.ORDERS; END;\n/",
+                false,
+            ),
+            // Another schema, even naming its owner: left to the user.
+            (
+                of(Some("OTHER"), "procedure", "P"),
+                "CREATE OR REPLACE PROCEDURE \"OTHER\".\"P\" AS BEGIN DELETE FROM APP.ORDERS; END;\n/",
+                false,
+            ),
+            (
+                of(Some("OTHER"), "synonym", "S"),
+                "CREATE OR REPLACE SYNONYM \"S\" FOR \"APP\".\"ORDERS\";",
+                false,
+            ),
+            (
+                of(Some("PUBLIC"), "synonym", "ORDERS_S"),
+                "CREATE OR REPLACE PUBLIC SYNONYM \"ORDERS_S\" FOR \"APP\".\"ORDERS\";",
+                false,
+            ),
+            (
+                of(Some("OTHER"), "type", "T"),
+                "CREATE OR REPLACE TYPE t AS OBJECT (o APP.ORDERS%ROWTYPE);\n/",
+                false,
+            ),
+            // The target's schema, from a session on another one: only with
+            // the owner in every header.
+            (
+                of(Some("APP"), "procedure", "Q"),
+                "CREATE OR REPLACE PROCEDURE q AS BEGIN DELETE FROM APP.ORDERS; END;\n/",
+                false,
+            ),
+            (
+                of(Some("APP"), "procedure", "Q"),
+                "CREATE OR REPLACE EDITIONABLE PROCEDURE \"APP\".\"Q\" AS BEGIN DELETE FROM APP.ORDERS; END;\n/",
+                true,
+            ),
+            (
+                of(Some("APP"), "procedure", "Q"),
+                "CREATE PROCEDURE app.q AS BEGIN DELETE FROM APP.ORDERS; END",
+                true,
+            ),
+            (
+                of(Some("APP"), "procedure", "Q"),
+                "CREATE PROCEDURE \"OTHER\".\"Q\" AS BEGIN DELETE FROM APP.ORDERS; END",
+                false,
+            ),
+            (
+                of(Some("APP"), "package", "PK"),
+                "CREATE OR REPLACE PACKAGE \"APP\".\"PK\" AS PROCEDURE x; END;\n/\nCREATE OR REPLACE PACKAGE BODY pk AS PROCEDURE x IS BEGIN DELETE FROM APP.ORDERS; END; END;\n/",
+                false,
+            ),
+            // The session's own (no schema): runs where it is.
+            (
+                of(None, "procedure", "MINE"),
+                "CREATE OR REPLACE PROCEDURE mine AS BEGIN DELETE FROM APP.ORDERS; END;\n/",
+                true,
+            ),
+        ];
+        for driver in ["oracle", "oracle_adb", "hana"] {
+            assert!(owner_may_be_lost(driver), "{driver}");
+        }
+        assert!(!owner_may_be_lost("postgres"));
+        let ctx = Context {
+            check_owner: true,
+            ..Default::default()
+        };
+        for (d, def, rewritten) in cases {
+            let items = classify(
+                &ScriptDialect::generic(),
+                &spec,
+                &target,
+                "PEDIDOS",
+                true,
+                &report(vec![d.clone()]),
+                vec![Some(def.into())],
+                &ctx,
+            );
+            // Still listed, whatever happens to it.
+            assert_eq!(items.len(), 1);
+            match &items[0].action {
+                Action::Rewrite { .. } => assert!(rewritten, "rewritten: {def}"),
+                Action::Manual { reason, .. } => {
+                    assert!(!rewritten, "left out: {def}");
+                    assert_eq!(*reason, ManualReason::NotRewritten, "{def}");
+                }
+                other => panic!("{other:?}: {def}"),
+            }
         }
     }
 
@@ -2296,7 +2524,10 @@ mod live {
     }
 
     async fn ok(s: &mut Box<dyn Session>, sql: &str) {
-        run(s, sql).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+        // The statement isn't printed: some create a user with its password.
+        run(s, sql)
+            .await
+            .unwrap_or_else(|e| panic!("a test statement failed: {e}"));
     }
 
     /// Renames `table` to `new_name` the way the dialog does and runs it;
@@ -2388,6 +2619,105 @@ mod live {
             ok(s, st).await;
         }
         rewrites.into_iter().map(|r| r.object.name).collect()
+    }
+
+    /// Another user's code that reads the renamed table is listed and never
+    /// put back, also when its owner can't be read from its definition (no
+    /// privilege on DBMS_METADATA). `DBINE_TEST_ORACLE_URL` is an
+    /// administrator's (`oracle://system:…@localhost:25601/FREEPDB1`): the
+    /// test makes two users of its own and drops them, also when it fails.
+    #[tokio::test]
+    #[ignore]
+    async fn oracle_another_users_code_is_listed_not_rewritten() {
+        use futures_util::FutureExt;
+        let Some(mut c) = cfg("oracle", "DBINE_TEST_ORACLE_URL") else {
+            return eprintln!("skipping");
+        };
+        // The URL's path is the service, not a schema.
+        let service = std::mem::take(&mut c.database);
+        c.options.insert("service".into(), service);
+        let d = dbine_drivers::find("oracle").unwrap();
+        let mut admin = d.connect(&c, None).await.unwrap();
+        let tag = std::process::id();
+        let (app, other) = (format!("DBINE_RNA_{tag}"), format!("DBINE_RNB_{tag}"));
+        let password = "Dbine_rn_1234";
+        let result = std::panic::AssertUnwindSafe(async {
+            for user in [&app, &other] {
+                ok(&mut admin, &format!("CREATE USER {user} IDENTIFIED BY {password} QUOTA 10M ON USERS")).await;
+                ok(&mut admin, &format!("GRANT CREATE SESSION, CREATE TABLE, CREATE PROCEDURE, CREATE SYNONYM TO {user}")).await;
+            }
+            for sql in [
+                format!("CREATE TABLE {app}.ORDERS (id NUMBER)"),
+                format!("CREATE OR REPLACE PROCEDURE {app}.MINE AS n NUMBER; BEGIN SELECT COUNT(*) INTO n FROM {app}.ORDERS; END;\n/"),
+                format!("GRANT SELECT ON {app}.ORDERS TO {other}"),
+                format!("CREATE OR REPLACE PROCEDURE {other}.REFRESH_TOTALS AS n NUMBER; BEGIN SELECT COUNT(*) INTO n FROM {app}.ORDERS; END;\n/"),
+                format!("GRANT EXECUTE ON {other}.REFRESH_TOTALS TO PUBLIC"),
+                format!("CREATE SYNONYM {other}.ORDERS_S FOR {app}.ORDERS"),
+                format!("GRANT SELECT ON {app}.ORDERS TO PUBLIC"),
+            ] {
+                ok(&mut admin, &sql).await;
+            }
+            let mut mine = c.clone();
+            mine.username = Some(app.clone());
+            mine.password = Some(password.into());
+            let mut s = d.connect(&mine, None).await.unwrap();
+            let spec = d.rename_spec().unwrap();
+            let dialect = d.script_dialect();
+            let target = RenameTarget::Object {
+                object: ObjectRef {
+                    kind: "table".into(),
+                    schema: Some(app.clone()),
+                    name: "ORDERS".into(),
+                },
+                parent: None,
+            };
+            let scan = DependencyScan::new(d.info(), dialect, d.capabilities().foreign_keys);
+            let report = s.dependents(&target.dependency_target(), &scan).await.unwrap();
+            let mut defs = Vec::new();
+            for dep in &report.items {
+                let o = ObjectRef {
+                    kind: dep.kind.clone(),
+                    schema: dep.schema.clone(),
+                    name: dep.name.clone(),
+                };
+                let def = s.definition(&o).await.ok().flatten();
+                eprintln!("{:?} {} → {def:?}", dep.schema, dep.name);
+                defs.push(def);
+            }
+            let theirs = report
+                .items
+                .iter()
+                .position(|i| i.name == "REFRESH_TOTALS")
+                .expect("the other user's procedure is a dependent");
+            let ctx = Context {
+                check_owner: owner_may_be_lost(d.info().id),
+                ..Default::default()
+            };
+            let items = classify(&dialect, &spec, &target, "PEDIDOS", true, &report, defs, &ctx);
+            assert!(
+                matches!(items[theirs].action, Action::Manual { reason: ManualReason::NotRewritten, .. }),
+                "{:?}",
+                items[theirs].action
+            );
+            let mut put_back = Vec::new();
+            for i in &items {
+                if let Action::Rewrite { object, .. } = &i.action {
+                    assert!(i.dependent.schema.is_none(), "{} of another owner", object.name);
+                    put_back.push(object.name.clone());
+                }
+            }
+            assert_eq!(put_back, ["MINE"]);
+        })
+        .catch_unwind()
+        .await;
+        for user in [&other, &app] {
+            if let Err(e) = run(&mut admin, &format!("DROP USER {user} CASCADE")).await {
+                eprintln!("cleanup {user}: {e}");
+            }
+        }
+        if let Err(e) = result {
+            std::panic::resume_unwind(e);
+        }
     }
 
     #[tokio::test]

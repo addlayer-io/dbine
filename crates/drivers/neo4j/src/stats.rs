@@ -72,7 +72,7 @@ impl GraphSession {
                 let mut out = Vec::new();
                 for rel in [false, true] {
                     for name in self.labels(rel).await.unwrap_or_default() {
-                        let n = self.strings(&count_store_query(rel, &name)).await.ok();
+                        let n = self.read_strings(&count_store_query(rel, &name)).await.ok();
                         if let Some(n) = n
                             .and_then(|v| v.into_iter().next())
                             .and_then(|v| v.parse().ok())
@@ -84,7 +84,10 @@ impl GraphSession {
                 Ok(out)
             }
             Flavor::Memgraph => {
-                let rows = self.records("SHOW INDEX INFO").await.unwrap_or_default();
+                let rows = self
+                    .read_records("SHOW INDEX INFO")
+                    .await
+                    .unwrap_or_default();
                 Ok(memgraph_counts(&rows)
                     .into_iter()
                     .map(|(rel, name, n)| estimate(rel, name, n))

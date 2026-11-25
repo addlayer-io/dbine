@@ -237,7 +237,7 @@ async fn postgres(s: &PgSession) -> Result<Vec<BlockedSession>> {
         let rows = s
             .text_within(
                 "SELECT a.pid::text AS waiter, b.pid::text AS blocker, a.wait_event_type || ': ' || a.wait_event AS wait
-                 FROM pg_stat_activity a, unnest(pg_blocking_pids(a.pid)) WITH ORDINALITY AS b(pid, n)
+                 FROM pg_stat_activity a, pg_catalog.unnest(pg_catalog.pg_blocking_pids(a.pid)) WITH ORDINALITY AS b(pid, n)
                  WHERE a.wait_event_type = 'Lock'
                  ORDER BY a.pid, b.n",
                 QUERY_LIMIT,

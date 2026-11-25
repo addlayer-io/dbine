@@ -9,6 +9,9 @@
 ### Fixes
 
 - **Elasticsearch 8 without security:** the Security tab of an Elasticsearch 8 server with security turned off (`xpack.security.enabled=false`) showed the server's raw "Incorrect HTTP method" error; it now says that security is turned off on that server.
+- **Security, Neo4j:** node labels, relationship types, property names and index definitions that contain unusual characters are now always read as names, in the queries DBine writes and in the scripts it shows. The lineage prepared after connecting no longer queries each label and relationship type, catalog reads use read access mode, and the read-only check reads a statement the way Neo4j does. Update the Neo4j driver.
+- **Security, PostgreSQL:** reading dependencies, references, the lineage and a table's foreign keys uses only the server's built-in functions and operators, whatever objects the database's schemas hold. Update the PostgreSQL driver.
+- **Security, rename on Oracle and SAP HANA:** code that belongs to another schema is listed among what the rename affects but is no longer rewritten into the script; review it by hand. The same applies to a definition that doesn't name its owner when you rename an object of a schema other than the one you're working in.
 
 ## [1.7.1] - 2026-11-25
 

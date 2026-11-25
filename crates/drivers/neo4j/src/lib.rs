@@ -118,10 +118,25 @@ Los nodos y relaciones se muestran como JSON (~id, ~labels, ~properties).\n\
 EXPLAIN / PROFILE delante de una consulta muestran su plan (o usá los botones de plan).\n\
 :use base   cambia la base de datos de la sesión (Neo4j, Memgraph Enterprise).";
 
+/// A label's or relationship type's "definition" is text this driver
+/// writes (counts, sampled properties, indexes), not code someone wrote:
+/// the lineage and dependency scans don't read it, so connecting never
+/// sends a query per name.
+fn generated(mut kind: ObjectKindInfo) -> ObjectKindInfo {
+    kind.generated_definition = true;
+    kind
+}
+
 fn kinds_for(f: Flavor) -> Vec<ObjectKindInfo> {
     let mut v = vec![
-        ObjectKindInfo::new(LABEL, "Nodos", true, true, true),
-        ObjectKindInfo::new(RELATIONSHIP, "Relaciones", true, true, true),
+        generated(ObjectKindInfo::new(LABEL, "Nodos", true, true, true)),
+        generated(ObjectKindInfo::new(
+            RELATIONSHIP,
+            "Relaciones",
+            true,
+            true,
+            true,
+        )),
     ];
     if f != Flavor::Neptune {
         v.push(ObjectKindInfo::new(
@@ -657,20 +672,38 @@ impl GraphSession {
         Ok((ran.fields, rows))
     }
 
-    /// [`Self::records`] of a query with parameters.
-    async fn records_with(
+    /// A catalog read, in READ access mode on a writable connection too
+    /// (Neo4j: the server refuses a write there).
+    async fn read_with(&mut self, q: &str, params: Bolt) -> Result<(Vec<String>, Vec<Vec<Value>>)> {
+        let mut rows = Vec::new();
+        let ran = self
+            .run_with_as(q, None, params, true, &mut |_, r| rows.push(r))
+            .await?;
+        Ok((ran.fields, rows))
+    }
+
+    async fn read(&mut self, q: &str) -> Result<(Vec<String>, Vec<Vec<Value>>)> {
+        self.read_with(q, Bolt::Map(Vec::new())).await
+    }
+
+    async fn read_records(&mut self, q: &str) -> Result<Vec<serde_json::Map<String, Value>>> {
+        let (cols, rows) = self.read(q).await?;
+        Ok(keyed(&cols, rows))
+    }
+
+    async fn read_records_with(
         &mut self,
         q: &str,
         params: Bolt,
     ) -> Result<Vec<serde_json::Map<String, Value>>> {
-        let mut rows = Vec::new();
-        let ran = self
-            .run_with(q, None, params, &mut |_, r| rows.push(r))
-            .await?;
-        Ok(rows
-            .into_iter()
-            .map(|r| ran.fields.iter().cloned().zip(r).collect())
-            .collect())
+        let (cols, rows) = self.read_with(q, params).await?;
+        Ok(keyed(&cols, rows))
+    }
+
+    /// First column of each row of a catalog read, as text.
+    async fn read_strings(&mut self, q: &str) -> Result<Vec<String>> {
+        let (_, rows) = self.read(q).await?;
+        Ok(first_texts(rows))
     }
 
     /// A kind's whole list, with `list_objects`' own calls (the kinds
@@ -694,7 +727,7 @@ impl GraphSession {
                 .into_iter()
                 .map(|n| obj(n, None))
                 .collect(),
-            kinds::TRIGGER => match self.records("SHOW TRIGGERS").await {
+            kinds::TRIGGER => match self.read_records("SHOW TRIGGERS").await {
                 Ok(rows) => rows
                     .iter()
                     .map(|r| obj(r.get("trigger name").map(as_text).unwrap_or_default(), None))
@@ -727,11 +760,7 @@ impl GraphSession {
     /// First column of each row, as text.
     async fn strings(&mut self, q: &str) -> Result<Vec<String>> {
         let (_, rows) = self.query(q).await?;
-        Ok(rows
-            .into_iter()
-            .filter_map(|r| r.into_iter().next())
-            .map(|v| as_text(&v))
-            .collect())
+        Ok(first_texts(rows))
     }
 
     fn check_read_only(&self, stmt: &str) -> Result<()> {
@@ -827,20 +856,20 @@ impl GraphSession {
             Flavor::Neo4j => {
                 let mut out = Vec::new();
                 // `YIELD *`: the columns (options, propertyType…) vary by version.
-                let ix = self.records("SHOW INDEXES YIELD *").await?;
+                let ix = self.read_records("SHOW INDEXES YIELD *").await?;
                 for r in ix {
                     if !r.get("owningConstraint").is_none_or(Value::is_null) {
                         continue;
                     }
                     out.push(CatalogEntry::neo4j(kinds::INDEX, &r));
                 }
-                let cs = self.records("SHOW CONSTRAINTS YIELD *").await?;
+                let cs = self.read_records("SHOW CONSTRAINTS YIELD *").await?;
                 out.extend(cs.iter().map(|r| CatalogEntry::neo4j(CONSTRAINT, r)));
                 Ok(out)
             }
             Flavor::Memgraph => {
                 let mut out = Vec::new();
-                for r in self.records("SHOW INDEX INFO").await? {
+                for r in self.read_records("SHOW INDEX INFO").await? {
                     // Vector indexes: with their name and settings below.
                     if !r
                         .get("index type")
@@ -851,10 +880,10 @@ impl GraphSession {
                         out.push(CatalogEntry::memgraph_index(&r));
                     }
                 }
-                if let Ok(rows) = self.records("SHOW VECTOR INDEX INFO").await {
+                if let Ok(rows) = self.read_records("SHOW VECTOR INDEX INFO").await {
                     out.extend(rows.iter().map(CatalogEntry::memgraph_vector));
                 }
-                for r in self.records("SHOW CONSTRAINT INFO").await? {
+                for r in self.read_records("SHOW CONSTRAINT INFO").await? {
                     if let Some(e) = CatalogEntry::memgraph_constraint(&r) {
                         out.push(e);
                     }
@@ -873,7 +902,7 @@ impl GraphSession {
                 } else {
                     "CALL db.labels() YIELD label RETURN label"
                 };
-                self.strings(q).await?
+                self.read_strings(q).await?
             }
             Flavor::Memgraph => {
                 let q = if rel {
@@ -881,10 +910,10 @@ impl GraphSession {
                 } else {
                     "SHOW NODE_LABELS INFO"
                 };
-                match self.strings(q).await {
+                match self.read_strings(q).await {
                     Ok(v) => v,
                     // Needs --storage-enable-schema-metadata: scan a sample instead.
-                    Err(Error::Query(_)) => self.strings(scan_query(rel)).await?,
+                    Err(Error::Query(_)) => self.read_strings(scan_query(rel)).await?,
                     Err(e) => return Err(e),
                 }
             }
@@ -901,7 +930,7 @@ impl GraphSession {
                         })
                         .unwrap_or_default()
                 }
-                None => self.strings(scan_query(rel)).await?,
+                None => self.read_strings(scan_query(rel)).await?,
             },
         };
         names.retain(|n| !n.is_empty());
@@ -934,7 +963,7 @@ impl GraphSession {
                 cypher::ident(&obj.name)
             )
         };
-        let (_, rows) = self.query(&q).await?;
+        let (_, rows) = self.read(&q).await?;
         Ok(rows
             .into_iter()
             .filter_map(|r| r.into_iter().next())
@@ -1213,6 +1242,21 @@ fn notification_messages(meta: &Bolt) -> Vec<Message> {
                 ..Default::default()
             }
         })
+        .collect()
+}
+
+/// Rows as column → value.
+fn keyed(cols: &[String], rows: Vec<Vec<Value>>) -> Vec<serde_json::Map<String, Value>> {
+    rows.into_iter()
+        .map(|r| cols.iter().cloned().zip(r).collect())
+        .collect()
+}
+
+/// The first column of each row, as text.
+fn first_texts(rows: Vec<Vec<Value>>) -> Vec<String> {
+    rows.into_iter()
+        .filter_map(|r| r.into_iter().next())
+        .map(|v| as_text(&v))
         .collect()
 }
 
@@ -1556,7 +1600,9 @@ impl CatalogEntry {
             options: neo4j_options(&spec_kind, r),
             spec_kind,
             properties: strs(r.get("properties")),
-            definition: r.get("createStatement").map(as_text).unwrap_or_default(),
+            definition: cypher::server_statement(
+                r.get("createStatement").map(as_text).unwrap_or_default(),
+            ),
         }
     }
 
@@ -1945,11 +1991,11 @@ impl Session for GraphSession {
         out.extend(cat.into_iter().map(|e| obj(e.kind, e.name, Some(e.target))));
         let procs = match self.flavor {
             Flavor::Neo4j => {
-                self.strings("SHOW PROCEDURES YIELD name RETURN name ORDER BY name")
+                self.read_strings("SHOW PROCEDURES YIELD name RETURN name ORDER BY name")
                     .await
             }
             _ => {
-                self.strings("CALL mg.procedures() YIELD name RETURN name ORDER BY name")
+                self.read_strings("CALL mg.procedures() YIELD name RETURN name ORDER BY name")
                     .await
             }
         };
@@ -1960,7 +2006,7 @@ impl Session for GraphSession {
                 .map(|n| obj(kinds::PROCEDURE, n, None)),
         );
         if self.flavor == Flavor::Memgraph {
-            if let Ok(rows) = self.records("SHOW TRIGGERS").await {
+            if let Ok(rows) = self.read_records("SHOW TRIGGERS").await {
                 out.extend(rows.iter().map(|r| {
                     obj(
                         kinds::TRIGGER,
@@ -2005,10 +2051,10 @@ impl Session for GraphSession {
                     if let Some((cypher, params)) =
                         objects_page::plain_page(self.flavor, t, q, off[2 * i], size)
                     {
-                        parts[2 * i] = read(self.records_with(&cypher, params).await)?;
+                        parts[2 * i] = read(self.read_records_with(&cypher, params).await)?;
                     }
                     let (cypher, params) = objects_page::rest(self.flavor, t);
-                    let rest = read(self.records_with(&cypher, params).await)?;
+                    let rest = read(self.read_records_with(&cypher, params).await)?;
                     parts[2 * i + 1] = object_pages::slice(rest, q, off[2 * i + 1], size);
                 }
                 Origin::Whole => {
@@ -2039,7 +2085,7 @@ impl Session for GraphSession {
                     format!("MATCH (e:{n}) RETURN count(e)")
                 };
                 let count = self
-                    .strings(&count_q)
+                    .read_strings(&count_q)
                     .await?
                     .into_iter()
                     .next()
@@ -2095,12 +2141,16 @@ impl Session for GraphSession {
             k if k == kinds::PROCEDURE => {
                 let rows = match self.flavor {
                     Flavor::Neo4j => {
-                        self.records("SHOW PROCEDURES YIELD name, signature, description, mode")
-                            .await?
+                        self.read_records(
+                            "SHOW PROCEDURES YIELD name, signature, description, mode",
+                        )
+                        .await?
                     }
                     _ => {
-                        self.records("CALL mg.procedures() YIELD name, signature, is_write, path")
-                            .await?
+                        self.read_records(
+                            "CALL mg.procedures() YIELD name, signature, is_write, path",
+                        )
+                        .await?
                     }
                 };
                 Ok(rows
@@ -2133,7 +2183,7 @@ impl Session for GraphSession {
                     }))
             }
             k if k == kinds::TRIGGER => {
-                let rows = self.records("SHOW TRIGGERS").await?;
+                let rows = self.read_records("SHOW TRIGGERS").await?;
                 Ok(rows
                     .into_iter()
                     .find(|r| {
