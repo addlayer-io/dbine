@@ -632,7 +632,8 @@ async fn resolve_source_of(
     let status = status_of(&candidates).to_string();
     let prefill = (status == "none")
         .then(|| new_connection_from_source(&args.source))
-        .flatten();
+        .flatten()
+        .map(with_tls_defaults);
     let needs_login = prefill.as_ref().is_some_and(|p| needs_login(&p.driver));
     Ok(SourceMatch {
         status,
@@ -641,6 +642,29 @@ async fn resolve_source_of(
         prefill,
         needs_login,
     })
+}
+
+/// The TLS settings a new connection starts with, as the connection form seeds them: every TLS
+/// field of the engine at its own default (a verified connection, in the engine's own option
+/// names). A config built from a source has none, and an absent option falls back to the
+/// engine's legacy path (plaintext or an unchecked certificate), which a connection that carries
+/// a typed password must not use. Saved options win; the user relaxes it by editing the
+/// connection in the normal form.
+fn with_tls_defaults(mut cfg: ConnectionConfig) -> ConnectionConfig {
+    let Some(driver) = dbine_drivers::find(&cfg.driver) else {
+        return cfg;
+    };
+    let fields = &driver.info().fields;
+    for f in fields {
+        let typed = matches!(f.key, "encrypt" | "trust_server_certificate");
+        if f.tls.is_none() || typed || f.default.is_empty() || cfg.option(f.key).is_some() {
+            continue;
+        }
+        if crate::state::field_applies(fields, &cfg, f.key) {
+            cfg.options.insert(f.key.to_string(), f.default.to_string());
+        }
+    }
+    cfg
 }
 
 /// The connection that opens a source, ready to follow the lineage there.
@@ -2076,6 +2100,55 @@ mod tests {
         for d in ["databricks", "snowflake", "duckdb", "powerbi"] {
             assert!(!needs_login(d), "{d}");
         }
+    }
+
+    /// A connection made from a source starts verified like one from the form: the engine's own
+    /// TLS options, at their defaults, are there before any password is typed.
+    #[test]
+    fn a_connection_from_a_source_has_verified_tls() {
+        use dbine_driver::TlsLevel;
+        for (system, server, driver) in [
+            ("SQL Server", "srv.corp.com", "sqlserver"),
+            ("PostgreSQL", "pg.corp.com", "postgres"),
+            ("MySQL", "my.corp.com", "mysql"),
+            ("Oracle", "ora.corp.com:1521/ORCL", "oracle"),
+        ] {
+            let ext = ExternalRef {
+                system: Some(system.into()),
+                server: Some(server.into()),
+                database: Some("db".into()),
+                ..Default::default()
+            };
+            let cfg = with_tls_defaults(new_connection_from_source(&ext).unwrap());
+            assert_eq!(cfg.driver, driver);
+            let info = dbine_drivers::find(driver).unwrap().info();
+            let modes: Vec<_> = info
+                .fields
+                .iter()
+                .filter(|f| matches!(f.tls, Some(dbine_driver::TlsRole::Mode { .. })))
+                .collect();
+            assert!(!modes.is_empty(), "{driver} has a TLS mode field");
+            for f in modes {
+                assert_eq!(cfg.option(f.key), Some(f.default), "{driver} {}", f.key);
+            }
+            let level = cfg.tls_level(&info.fields);
+            assert!(
+                matches!(level, Some(TlsLevel::VerifyFull | TlsLevel::VerifyCa)),
+                "{driver}: {level:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn saved_tls_options_are_not_overwritten_by_the_defaults() {
+        let mut cfg = ConnectionConfig {
+            driver: "postgres".into(),
+            host: "pg".into(),
+            ..ConnectionConfig::default()
+        };
+        cfg.options.insert("sslmode".into(), "require".into());
+        let cfg = with_tls_defaults(cfg);
+        assert_eq!(cfg.option("sslmode"), Some("require"));
     }
 
     #[test]

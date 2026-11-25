@@ -4,6 +4,8 @@
 
 ### Fixes
 
+- **Following a lineage source is safer:** a connection DBine creates from a source in a lineage now uses verified TLS, like any new connection, instead of an unencrypted or unchecked one while you type a password. Sources that are files or paths (Access, dBase, SQLite, DuckDB, ODBC, network shares) or an engine DBine does not know are no longer opened from a lineage: add them by hand and confirm them yourself.
+
 - **A failed SQL format no longer covers the editor:** when the formatter could not parse the query, its message listed every token it expected and filled the window with no way to close it. Now the message shows only where it failed and what it did not expect, fits in the window, and has a close button; your SQL stays untouched.
 - **The lineage of a Power BI model honors the wait you set:** reading it in chunks gave up at 90 s whatever **Settings** said (the screen showed 15 minutes but the app used 90 s, and never more than 3 minutes). Each read now waits the time in Settings, 15 minutes by default.
 - **Opening a lineage no longer waits for another read of the same database:** opening the lineage of a database or Power BI model while DBine was reading it in the background (or while a schema compare or a search across models read it) waited for that read to end, and could fail with "the connection is still busy reading the structure". Long reads of the same database now run side by side, up to three at once, and the dependencies of a large Power BI model are read three batches at a time.
