@@ -494,7 +494,8 @@ No driver needs vendor libraries for the app to start:
 DBine is free and will stay that way. If it's useful to you, you can support it
 with whatever you like, once or every month, from
 [Buy Me a Coffee](https://buymeacoffee.com/addlayer). It is support, not
-a license: the app works the same.
+a license: the app works the same. DBine reminds you about it only after you
+have used it on 7 different days, and then once a month.
 
 ## Feedback and contributing
 

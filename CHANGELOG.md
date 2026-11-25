@@ -9,6 +9,7 @@
 
 ### Improvements
 
+- **A quieter first launch:** the first thing DBine offers is to import the connections of the other database tools on the computer, when it finds any, and the notice about usage data comes after it. The reminder to support the project no longer appears the first time; it waits until DBine has been used on 7 different days, then appears once a month.
 - **FLOAT16 and BFLOAT16 vectors on Valkey:** the key designer offers FLOAT16 and BFLOAT16 vector fields for a Valkey search index, as well as FLOAT32 (valkey-search 1.3 or later). On an older valkey-search, the server's refusal comes with the version that brings them.
 
 ### Fixes
