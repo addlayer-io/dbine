@@ -2524,7 +2524,10 @@ mod live {
     }
 
     async fn ok(s: &mut Box<dyn Session>, sql: &str) {
-        run(s, sql).await.unwrap_or_else(|e| panic!("{sql}: {e}"));
+        // The statement isn't printed: some create a user with its password.
+        run(s, sql)
+            .await
+            .unwrap_or_else(|e| panic!("a test statement failed: {e}"));
     }
 
     /// Renames `table` to `new_name` the way the dialog does and runs it;
