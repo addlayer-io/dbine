@@ -217,7 +217,7 @@ impl PgSession {
              WHERE con.contype IN ('p', 'f') AND c.relkind IN ('r', 'p') AND {filter}
              ORDER BY 1, 2, 3, k.ord"
         );
-        for r in self.text(&constraints).await? {
+        for r in self.catalog_text(&constraints).await? {
             let Some(t) = map.get_mut(&key(&r)) else {
                 continue;
             };

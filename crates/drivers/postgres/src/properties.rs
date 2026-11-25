@@ -920,7 +920,7 @@ impl PgSession {
         let name = lit(v, database);
         let set = self
             .first_column(&format!(
-                "SELECT unnest(s.setconfig) FROM pg_db_role_setting s JOIN pg_database d ON d.oid = s.setdatabase \
+                "SELECT pg_catalog.unnest(s.setconfig) FROM pg_db_role_setting s JOIN pg_database d ON d.oid = s.setdatabase \
                  WHERE s.setrole = 0 AND d.datname = {name}"
             ))
             .await;

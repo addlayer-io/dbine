@@ -289,13 +289,15 @@ impl PgSession {
     async fn pg_uses(&self, t: &ObjectRef) -> Result<Read> {
         let v = self.variant;
         let c = self.pg_catalog();
-        let (s, n) = (lit(v, t.schema().unwrap_or("")), lit(v, &t.name));
+        // The reads below run with the path set to `pg_catalog`.
+        let schema = self.visible_schema(&t.kind, t.schema(), &t.name).await?;
+        let (s, n) = (lit(v, &schema), lit(v, &t.name));
         let Some(sql) = pr::uses_sql(c, &t.kind, &s, &n, |col| self.filter(col)) else {
             return Ok(None);
         };
         let mut report = DependencyReport {
             items: self
-                .text(&sql)
+                .catalog_text(&sql)
                 .await?
                 .iter()
                 .filter_map(|r| pr::used(row5(r)))
@@ -305,13 +307,13 @@ impl PgSession {
         let mut complete = trusts_catalog(v);
         if t.kind == kinds::TABLE {
             let fks = self
-                .text(&foreign_keys_sql(&rel(v, t.schema(), &t.name)))
+                .catalog_text(&foreign_keys_sql(&rel(v, Some(&schema), &t.name)))
                 .await?;
             report
                 .items
                 .extend(foreign_key_parents(&group_foreign_keys(&fks), t));
             if let Some(sql) = pr::foreign_table_sql(c, &s, &n) {
-                match self.text(&sql).await {
+                match self.catalog_text(&sql).await {
                     Ok(rows) => report.external.extend(rows.iter().filter_map(|r| {
                         pr::foreign_source(
                             ["fdw", "srv", "srvopts", "ftopts", "sch", "name"].map(|k| cell(r, k)),
@@ -324,7 +326,7 @@ impl PgSession {
         if matches!(t.kind.as_str(), kinds::FUNCTION | kinds::PROCEDURE) {
             // Only SQL-standard bodies are in the catalog.
             let sql_bodies = match pr::sql_bodies_sql(c, &t.kind, &s, &n) {
-                Some(sql) => match self.text(&sql).await {
+                Some(sql) => match self.catalog_text(&sql).await {
                     Ok(rows) => rows.first().and_then(|r| r.get(0)) == Some("true"),
                     Err(e) => {
                         tracing::debug!("{v:?}: prosqlbody unavailable: {e}");
