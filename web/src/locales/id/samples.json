@@ -1,21 +1,21 @@
 {
-  "folder": "Database contoh",
+  "folder": "Basis data contoh",
   "tienda": "Toko (SQLite)",
   "analitica": "Analitik (DuckDB)",
   "archivos": "Berkas (CSV dan Parquet)",
   "tourFile": "Tur DBine",
   "tour": {
-    "intro": "# Tur DBine\n\nDatabase contoh ini ada di komputer Anda dan tidak memerlukan server apa pun:\n\n- **{{tienda}}**: database sebuah toko, dengan pelanggan, produk, pesanan, faktur, dan peristiwa, kunci asing, view (satu di atas yang lain), dan sebuah trigger.\n- **{{analitica}}**: data yang sama, dengan beberapa perbedaan yang disengaja.\n- **{{archivos}}**: target penjualan dalam CSV dan peristiwa dalam Parquet, yang dikueri dengan SQL.\n\nSetiap sel berjalan pada koneksinya sendiri; sel **DataFrame SQL** menggabungkan hasil sel-sel di atasnya. Jalankan sel dengan ▶, satu per satu atau semuanya sekaligus.\n\nUntuk melanjutkan, klik kanan sebuah koneksi atau tabel: diagram database, perbandingan data atau skema antara {{tienda}} dan {{analitica}}, migrasi dari SQLite ke DuckDB, atau dependensi view `v_kpis`, yang dibangun di atas view lain.",
-    "differences": "## Apa perbedaan kedua database?\n\nDua sel pertama membaca pelanggan dari masing-masing database. Sel ketiga menggabungkannya dan menghitung, per kota, pelanggan yang berganti kota atau email serta yang hanya ada di salah satunya.",
+    "intro": "# Tur DBine\n\nBasis data contoh ini ada di komputer Anda dan tidak memerlukan server apa pun:\n\n- **{{tienda}}**: basis data sebuah toko, dengan pelanggan, produk, pesanan, faktur, dan peristiwa, kunci asing, view (satu di atas yang lain), dan sebuah trigger.\n- **{{analitica}}**: data yang sama, dengan beberapa perbedaan yang disengaja.\n- **{{archivos}}**: target penjualan dalam CSV dan peristiwa dalam Parquet, yang dikueri dengan SQL.\n\nSetiap sel berjalan pada koneksinya sendiri; sel **DataFrame SQL** menggabungkan hasil sel-sel di atasnya. Jalankan sel dengan ▶, satu per satu atau semuanya sekaligus.\n\nUntuk melanjutkan, klik kanan sebuah koneksi atau tabel: diagram basis data, perbandingan data atau skema antara {{tienda}} dan {{analitica}}, migrasi dari SQLite ke DuckDB, atau dependensi view `v_kpis`, yang dibangun di atas view lain.",
+    "differences": "## Apa perbedaan kedua basis data?\n\nDua sel pertama membaca pelanggan dari masing-masing basis data. Sel ketiga menggabungkannya dan menghitung, per kota, pelanggan yang berganti kota atau email serta yang hanya ada di salah satunya.",
     "onlyInAnalitica": "(hanya di {{analitica}})",
     "targets": "## Penjualan dan target\n\nTarget ada dalam CSV di {{archivos}}; penjualan ada di view `v_ventas_mensuales` pada {{tienda}}. Sel terakhir menggabungkan keduanya per bulan dan kategori lalu menggambarnya dalam grafik."
   },
   "menu": {
     "openTour": "Buka tur",
-    "remove": "Hapus database contoh…"
+    "remove": "Hapus basis data contoh…"
   },
   "confirm": {
-    "removeTitle": "Hapus database contoh",
+    "removeTitle": "Hapus basis data contoh",
     "remove": "Tiga koneksi contoh beserta folder dan berkasnya akan dihapus. Semuanya tidak akan muncul lagi."
   }
 }
