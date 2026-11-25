@@ -56,5 +56,12 @@
     "plan": "Piano",
     "planTip": "Piano di esecuzione stimato di questa istruzione, senza eseguirla"
   },
-  "functionOverloads_many": "+{{count}} overload"
+  "functionOverloads_many": "+{{count}} overload",
+  "proposal": {
+    "title": "Modifiche proposte dall'IA: non vengono applicate finché non le accetti",
+    "accept": "Accetta",
+    "reject": "Rifiuta",
+    "acceptAll": "Accetta tutto",
+    "rejectAll": "Rifiuta tutto"
+  }
 }

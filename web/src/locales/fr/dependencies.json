@@ -53,7 +53,13 @@
     "calculation_group": "Groupe de calcul",
     "role": "Rôle",
     "expression": "Expression",
-    "model": "Modèle sémantique"
+    "model": "Modèle sémantique",
+    "notebook": "Notebook",
+    "pipeline": "Pipeline",
+    "query": "Requête",
+    "report": "Rapport",
+    "dashboard": "Tableau de bord",
+    "file": "Fichier"
   },
   "view": {
     "label": "Affichage",
@@ -90,6 +96,8 @@
     },
     "search": "Filtrer par nom",
     "kinds": "Types",
+    "allTypes": "Tous",
+    "typesCount": "Types : {{shown}} sur {{total}}",
     "onlyConfirmed": "Confirmées uniquement",
     "onlyConnected": "Uniquement avec dépendances",
     "expandAll": "Tout développer",
@@ -108,7 +116,18 @@
     "relationsTip": "Les clés étrangères (et les relations d’un modèle) vont en parallèle de la traçabilité : activez-les pour les voir à côté d’elle.",
     "updated": "Mis à jour {{ago}}",
     "updating": "mise à jour…",
-    "refreshFailed": "Impossible de mettre à jour : {{error}}. Affichage de la dernière version enregistrée."
+    "refreshFailed": "Impossible de mettre à jour : {{error}}. Affichage de la dernière version enregistrée.",
+    "partial": {
+      "title": "Lignage partiel :",
+      "stage": {
+        "structure": "lecture des tables et des sources…",
+        "dependencies": "lecture des dépendances des mesures et des colonnes {{done}}/{{total}}",
+        "consumers": "lecture des rapports et des tableaux de bord…"
+      },
+      "failed": "impossible de lire {{count}} objets.",
+      "complete": "Terminer",
+      "retry": "Réessayer {{from}}–{{to}}"
+    }
   },
   "cross": {
     "switch": "Inclure les autres connexions",

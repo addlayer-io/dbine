@@ -9704,6 +9704,7 @@
   "no hay un código de vinculación abierto": "brak otwartego kodu parowania",
   "no hay un dataset seleccionado": "nie wybrano datasetu",
   "no hay un driver descargable '{0}'": "nie ma pobieralnego sterownika '{0}'",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "brak częściowo odczytanego lineage do kontynuacji: otwórz go ponownie",
   "no hay un ticket de Kerberos vigente": "brak aktualnego biletu Kerberos",
   "no hay un token de Vault: escribilo en el formulario, definí VAULT_TOKEN o iniciá sesión con «vault login» (~/.vault-token)": "brak tokenu Vault: wpisz go w formularzu, zdefiniuj VAULT_TOKEN lub zaloguj się przez „vault login” (~/.vault-token)",
   "no hay un usuario ni un rol «{0}» en «{1}»": "nie ma użytkownika ani roli „{0}” w „{1}”",
@@ -19131,5 +19132,12 @@
   "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "trzeba być administratorem Power BI i autoryzować API administracyjne w Ustawieniach",
   "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "API administracyjne Power BI nie jest dostępne dla tego użytkownika: trzeba być administratorem Power BI i autoryzować API administracyjne w Ustawieniach",
   "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "API administracyjne Power BI nie jest dostępne: trzeba być administratorem Power BI i autoryzować API administracyjne w Ustawieniach; modele są odczytywane pojedynczo",
-  "la API de administración es de las conexiones de Power BI": "API administracyjne dotyczy połączeń Power BI"
+  "la API de administración es de las conexiones de Power BI": "API administracyjne dotyczy połączeń Power BI",
+  "DBine Bastion no respondió en {0} s": "DBine Bastion nie odpowiedział w ciągu {0} s",
+  "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastion nie odpowiedział w ciągu {0} s: spróbuj ponownie",
+  "no se pudo abrir el canal con DBine Bastion: {0}": "nie można otworzyć kanału z DBine Bastion: {0}",
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "nie można połączyć się z DBine Bastion: HTTP error: {0}",
+  "No se pudo leer el catálogo de dependencias (RDB$DEPENDENCIES): {0}": "Nie można odczytać katalogu zależności (RDB$DEPENDENCIES): {0}",
+  "No se pudo leer el catálogo de dependencias de system.tables: se buscó en las definiciones que se pueden leer.": "Nie można odczytać katalogu zależności system.tables: przeszukano definicje, które można odczytać.",
+  "no more {0} sessions for {1}/{2}: {3}": "no more {0} sessions for {1}/{2}: {3}"
 }

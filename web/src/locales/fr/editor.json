@@ -56,5 +56,12 @@
     "plan": "Plan",
     "planTip": "Plan d’exécution estimé de cette instruction, sans l’exécuter"
   },
-  "functionOverloads_many": "+{{count}} surcharges"
+  "functionOverloads_many": "+{{count}} surcharges",
+  "proposal": {
+    "title": "Modifications proposées par l'IA : elles ne sont appliquées qu'une fois acceptées",
+    "accept": "Accepter",
+    "reject": "Rejeter",
+    "acceptAll": "Tout accepter",
+    "rejectAll": "Tout rejeter"
+  }
 }

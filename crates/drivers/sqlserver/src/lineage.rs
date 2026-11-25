@@ -24,11 +24,11 @@ use crate::references::{
 use crate::variant::Variant;
 use crate::{text, SqlServerSession};
 use dbine_driver::dependencies::{
-    find_mentions, graph_scan, used_names, used_objects, Confidence, DependencyScan,
-    DependencyTarget, Dependent, ExternalRef, LineageEdge, LineageExternal, LineageGraph,
-    LineageJob, LineageScope, Relation, GRAPH_DEFINITIONS, GRAPH_OBJECTS, JOBS_READ,
+    find_mentions, graph_scan, used_names, used_objects, Confidence, DependencyReport,
+    DependencyScan, DependencyTarget, Dependent, ExternalRef, LineageEdge, LineageExternal,
+    LineageGraph, LineageJob, LineageScope, Relation, GRAPH_DEFINITIONS, GRAPH_OBJECTS, JOBS_READ,
 };
-use dbine_driver::{kinds, DbObject, ObjectRef, Result, Session};
+use dbine_driver::{kinds, DbObject, ObjectRef, Result, ServerJob, Session};
 
 /// The 11 columns `use_row` reads, then the referencing object's
 /// `sys.objects.type`, schema and name. Constraints are reported as their
@@ -475,6 +475,7 @@ async fn jobs(
     };
     g.job_notes.extend(list.notes);
     let total = list.jobs.len();
+    let scan = &dbine_driver::dependencies::with_databases(s, scan).await;
     for job in list.jobs.into_iter().take(JOBS_READ) {
         let r = match s.job_references(database, &job.id, scan).await {
             Ok(r) => r,
@@ -484,28 +485,38 @@ async fn jobs(
             }
         };
         g.scanned += 1;
-        let uses: Vec<Dependent> = r
-            .items
-            .into_iter()
-            .filter(|d| find(&g.objects, &as_ref(d)).is_some())
-            .collect();
-        if uses.is_empty() && r.external.is_empty() {
-            continue;
+        if let Some(j) = lineage_job(g, job, r) {
+            g.jobs.push(j);
         }
-        g.jobs.push(LineageJob {
-            id: job.id,
-            name: job.name,
-            kind: job.kind,
-            group: job.group,
-            uses,
-            external: r.external,
-        });
     }
-    if total > JOBS_READ {
-        g.job_notes.push(format!(
-            "se leyeron los primeros {JOBS_READ} jobs del servidor, de {total}"
-        ));
+    g.job_notes.extend(jobs_cap_note(total));
+}
+
+/// A job as the lineage shows it: what its steps use among the graph's objects, and outside the
+/// database. A job that touches neither is left out (`None`).
+fn lineage_job(g: &LineageGraph, job: ServerJob, r: DependencyReport) -> Option<LineageJob> {
+    let uses: Vec<Dependent> = r
+        .items
+        .into_iter()
+        .filter(|d| find(&g.objects, &as_ref(d)).is_some())
+        .collect();
+    if uses.is_empty() && r.external.is_empty() {
+        return None;
     }
+    Some(LineageJob {
+        id: job.id,
+        name: job.name,
+        kind: job.kind,
+        group: job.group,
+        uses,
+        external: r.external,
+    })
+}
+
+/// The note when the server has more jobs than the lineage reads.
+fn jobs_cap_note(total: usize) -> Option<String> {
+    (total > JOBS_READ)
+        .then(|| format!("se leyeron los primeros {JOBS_READ} jobs del servidor, de {total}"))
 }
 
 #[cfg(test)]
@@ -537,6 +548,7 @@ mod tests {
             foreign_keys: true,
             written_kinds: vec!["view".into(), "procedure".into(), "trigger".into()],
             has_schemas: true,
+            databases: None,
         }
     }
 
@@ -725,5 +737,102 @@ mod tests {
         assert!(!f.contains("sys.synonyms") && !f.contains("sys.triggers"));
         let s = edges_sql(Variant::SqlServer);
         assert!(s.contains("sys.servers") && s.contains("sys.synonyms"));
+    }
+
+    // -- the Agent's jobs ------------------------------------------------------------------------
+
+    fn job(id: &str, name: &str) -> ServerJob {
+        ServerJob {
+            id: id.into(),
+            name: name.into(),
+            kind: "sqlagent".into(),
+            group: Some("Database Maintenance".into()),
+            ..Default::default()
+        }
+    }
+
+    fn uses(kind: &str, name: &str) -> Dependent {
+        Dependent {
+            kind: kind.into(),
+            schema: Some("dbo".into()),
+            name: name.into(),
+            parent: None,
+            relation: Relation::Code,
+            confidence: Confidence::Probable,
+            detail: Some("paso 1".into()),
+            mentions: Vec::new(),
+        }
+    }
+
+    fn graph_of(objects: &[(&str, &str)]) -> LineageGraph {
+        LineageGraph {
+            objects: objects.iter().map(|(k, n)| r(k, n)).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_job_shows_what_its_steps_use_among_the_graphs_objects() {
+        let g = graph_of(&[("procedure", "sp_reporte"), ("table", "pedidos")]);
+        let report = DependencyReport {
+            items: vec![
+                uses("procedure", "SP_REPORTE"),
+                uses("table", "pedidos"),
+                // Not an object of this graph (another scope, or gone).
+                uses("table", "auditoria"),
+            ],
+            ..Default::default()
+        };
+        let j = lineage_job(&g, job("j1", "Cierre diario"), report).expect("kept");
+        assert_eq!(
+            (j.id.as_str(), j.name.as_str(), j.kind.as_str()),
+            ("j1", "Cierre diario", "sqlagent")
+        );
+        assert_eq!(j.group.as_deref(), Some("Database Maintenance"));
+        let names: Vec<&str> = j.uses.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, ["SP_REPORTE", "pedidos"], "names match without case");
+        assert_eq!(
+            j.uses[0].detail.as_deref(),
+            Some("paso 1"),
+            "the step it comes from"
+        );
+    }
+
+    #[test]
+    fn a_job_that_only_reaches_another_database_is_kept() {
+        let g = graph_of(&[("table", "pedidos")]);
+        let report = DependencyReport {
+            external: vec![ExternalRef {
+                database: Some("Contable".into()),
+                schema: Some("dbo".into()),
+                name: Some("asientos".into()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let j = lineage_job(&g, job("j2", "Pasaje contable"), report).expect("kept");
+        assert!(j.uses.is_empty());
+        assert_eq!(j.external[0].name.as_deref(), Some("asientos"));
+    }
+
+    #[test]
+    fn a_job_that_touches_nothing_of_the_database_is_left_out() {
+        let g = graph_of(&[("table", "pedidos")]);
+        let report = DependencyReport {
+            items: vec![uses("table", "otra_tabla")],
+            ..Default::default()
+        };
+        assert!(lineage_job(&g, job("j3", "Backup"), report).is_none());
+        assert!(lineage_job(&g, job("j4", "Vacío"), DependencyReport::default()).is_none());
+    }
+
+    #[test]
+    fn more_jobs_than_are_read_is_said() {
+        assert_eq!(jobs_cap_note(JOBS_READ), None);
+        let note = jobs_cap_note(JOBS_READ + 1).unwrap();
+        assert!(
+            note.contains(&JOBS_READ.to_string()) && note.contains(&(JOBS_READ + 1).to_string()),
+            "{note}"
+        );
     }
 }

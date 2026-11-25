@@ -1,7 +1,7 @@
 //! "Ver dependencias…" (spec §4.6 `dependents`, F12). Owned by part C.
 //!
-//! - Tier A with write permission: `INFO.CALCDEPENDENCY()` filtered on the
-//!   target (`Relation::Code`, `Confidence::Confirmed`): measures,
+//! - Tier A with write permission: `INFO.CALCDEPENDENCY()` filtered on what
+//!   it references being the target (`Relation::Code`, `Confidence::Confirmed`): measures,
 //!   calculated columns and tables, calculation items, RLS filters.
 //! - Tier B: a DAX-aware mention scan over the TMSL expressions with
 //!   [`crate::dax::lexer`] (`Confidence::Probable`).
@@ -20,8 +20,9 @@
 //! (they're the model's own structure on the column).
 
 use crate::dax::lexer::{tokenize, unquote, Token, TokenKind};
+use crate::dax::quote::string as dax_string;
 use crate::dax::quote::{column_ref, quote_column, quote_table};
-use crate::meta::info::{calc_dependencies_of, CalcDependency};
+use crate::meta::info::{calc_dependencies_query, CalcDependency};
 use crate::meta::service::{session_model, Service};
 use crate::meta::{hierarchy_name, relationship_name, same, ModelMeta, Tier};
 use crate::{Ctx, CALCULATION_GROUP, FUNCTION, HIERARCHY, MEASURE, ROLE, TABLE};
@@ -65,8 +66,13 @@ pub(crate) async fn dependents_in<S: Service>(
     let sources = sources(&meta);
     report.scanned = sources.len() as u32;
     let mut done = false;
-    if meta.tier == Tier::Info && m.write_permission {
-        match calc_dependencies_of(s, &m).await {
+    // Only the rows that reference the target come back, not the whole
+    // model's dependency table; what the engine can't filter on (a kind
+    // without a reference row) is read from the expressions' text.
+    if let (Tier::Info, true, Some(q)) =
+        (meta.tier, m.write_permission, calc_referenced_query(target))
+    {
+        match calc_dependencies_query(s, &m, &q).await {
             Ok(rows) => {
                 report.items.extend(from_calc(&meta, &rows, target));
                 done = true;
@@ -100,6 +106,30 @@ pub(crate) async fn dependents_in<S: Service>(
     }
     dedupe_and_sort(&mut report.items);
     Ok(report)
+}
+
+/// `INFO.CALCDEPENDENCY()` filtered on what it *references* being the
+/// target (the counterpart of `references`' filter on the dependent): the
+/// rows [`from_calc`] keeps. `None` for a kind the engine records no
+/// reference to.
+pub(crate) fn calc_referenced_query(target: &DependencyTarget) -> Option<String> {
+    let t = &target.object;
+    let n = dax_string(&t.name);
+    let filter = match (t.kind.as_str(), target.column.as_deref()) {
+        (TABLE | CALCULATION_GROUP, None) => format!(
+            "([REFERENCED_OBJECT_TYPE] IN {{\"TABLE\", \"CALC_TABLE\"}} && [REFERENCED_OBJECT] = {n}) || ([REFERENCED_OBJECT_TYPE] IN {{\"COLUMN\", \"CALC_COLUMN\"}} && [REFERENCED_TABLE] = {n})"
+        ),
+        (TABLE | CALCULATION_GROUP, Some(c)) => format!(
+            "[REFERENCED_OBJECT_TYPE] IN {{\"COLUMN\", \"CALC_COLUMN\"}} && [REFERENCED_TABLE] = {n} && [REFERENCED_OBJECT] = {}",
+            dax_string(c)
+        ),
+        (MEASURE, _) => format!("[REFERENCED_OBJECT_TYPE] = \"MEASURE\" && [REFERENCED_OBJECT] = {n}"),
+        (FUNCTION, _) => {
+            format!("CONTAINSSTRING([REFERENCED_OBJECT_TYPE], \"FUNCTION\") && [REFERENCED_OBJECT] = {n}")
+        }
+        _ => return None,
+    };
+    Some(format!("EVALUATE FILTER(INFO.CALCDEPENDENCY(), {filter})"))
 }
 
 /// An expression of the model and the object it belongs to.
@@ -759,5 +789,51 @@ mod tests {
             c.detail.as_deref(),
             Some("columna calculada 'Sales'[Margin]")
         );
+        // The engine is asked only for the rows that reference the column,
+        // not for the whole model's dependency table.
+        let asked: Vec<&String> = f
+            .dax_log
+            .iter()
+            .filter(|q| q.contains("INFO.CALCDEPENDENCY()"))
+            .collect();
+        assert_eq!(asked.len(), 1, "{asked:?}");
+        assert_eq!(
+            asked[0],
+            "EVALUATE FILTER(INFO.CALCDEPENDENCY(), [REFERENCED_OBJECT_TYPE] IN {\"COLUMN\", \"CALC_COLUMN\"} && [REFERENCED_TABLE] = \"Sales\" && [REFERENCED_OBJECT] = \"Amount\")"
+        );
+    }
+
+    #[test]
+    fn the_filter_asks_for_what_references_the_target() {
+        let q = |t: DependencyTarget| calc_referenced_query(&t);
+        assert_eq!(
+            q(target(TABLE, "Sales", None)).as_deref(),
+            Some("EVALUATE FILTER(INFO.CALCDEPENDENCY(), ([REFERENCED_OBJECT_TYPE] IN {\"TABLE\", \"CALC_TABLE\"} && [REFERENCED_OBJECT] = \"Sales\") || ([REFERENCED_OBJECT_TYPE] IN {\"COLUMN\", \"CALC_COLUMN\"} && [REFERENCED_TABLE] = \"Sales\"))")
+        );
+        assert_eq!(
+            q(target(MEASURE, "Total \"Sales\"", None)).as_deref(),
+            Some("EVALUATE FILTER(INFO.CALCDEPENDENCY(), [REFERENCED_OBJECT_TYPE] = \"MEASURE\" && [REFERENCED_OBJECT] = \"Total \"\"Sales\"\"\")")
+        );
+        assert_eq!(
+            q(target(FUNCTION, "AddTax", None)).as_deref(),
+            Some("EVALUATE FILTER(INFO.CALCDEPENDENCY(), CONTAINSSTRING([REFERENCED_OBJECT_TYPE], \"FUNCTION\") && [REFERENCED_OBJECT] = \"AddTax\")")
+        );
+        // Nothing references a role or a hierarchy: the text is read.
+        assert!(q(target(ROLE, "West", None)).is_none());
+        assert!(q(target(HIERARCHY, "H", None)).is_none());
+    }
+
+    #[tokio::test]
+    async fn a_kind_the_engine_has_no_reference_for_is_read_from_the_text() {
+        let mut f = Fake::writer();
+        f.definition(crate::definition::tmsl::tests::SAMPLE);
+        let r = dependents_in(&mut f, &target(ROLE, "West", None))
+            .await
+            .unwrap();
+        assert!(r.items.is_empty(), "{:?}", r.items);
+        assert!(!f
+            .dax_log
+            .iter()
+            .any(|q| q.contains("INFO.CALCDEPENDENCY()")));
     }
 }

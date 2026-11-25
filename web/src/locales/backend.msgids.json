@@ -10764,6 +10764,12 @@
  "DBine Bastion no permite «{0}»": [
   "src-tauri/src/enterprise/mod.rs"
  ],
+ "DBine Bastion no respondió en {0} s": [
+  "src-tauri/src/enterprise/gateway.rs"
+ ],
+ "DBine Bastion no respondió en {0} s: volvé a intentar": [
+  "src-tauri/src/enterprise/gateway.rs"
+ ],
  "DBine Bastion no tiene el driver «{0}»": [
   "src-tauri/src/enterprise/gateway.rs"
  ],
@@ -29668,11 +29674,18 @@
  "No se pudo leer el archivo «{0}»: {1}.": [
   "crates/drivers/odbc/src/monitor.rs"
  ],
+ "No se pudo leer el catálogo de dependencias (RDB$DEPENDENCIES): {0}": [
+  "crates/drivers/firebird/src/dependents.rs"
+ ],
  "No se pudo leer el catálogo de dependencias (SYSCAT): {0}": [
+  "crates/drivers/odbc/src/dependents.rs",
   "crates/drivers/odbc/src/lineage.rs"
  ],
  "No se pudo leer el catálogo de dependencias ({0}): se muestran solo sus claves foráneas y los nombres que usa su definición.": [
   "crates/drivers/postgres/src/pg_references.rs"
+ ],
+ "No se pudo leer el catálogo de dependencias de system.tables: se buscó en las definiciones que se pueden leer.": [
+  "crates/drivers/clickhouse/src/dependents.rs"
  ],
  "No se pudo leer el cluster manager ({0}): faltan CPU, memoria, disco y buckets (hace falta el rol de lectura del cluster).": [
   "crates/drivers/couchbase/src/lib.rs"
@@ -29927,10 +29940,13 @@
   "crates/drivers/duckdb/src/monitor.rs",
   "crates/drivers/firebird/src/monitor.rs",
   "crates/drivers/firebird/src/references.rs",
+  "crates/drivers/hana/src/dependents.rs",
   "crates/drivers/hana/src/references.rs",
   "crates/drivers/iotdb/src/lib.rs",
   "crates/drivers/odbc/src/references.rs",
+  "crates/drivers/oracle/src/dependents.rs",
   "crates/drivers/oracle/src/monitor.rs",
+  "crates/drivers/postgres/src/pg_dependents.rs",
   "crates/drivers/sqlserver/src/monitor.rs"
  ],
  "No se pudo leer «{0}»: no se revisaron sus índices ni su validador.": [
@@ -57334,6 +57350,9 @@
  "no hay un driver descargable '{0}'": [
   "src-tauri/src/commands/drivers.rs"
  ],
+ "no hay un linaje a medio leer para continuar: abrilo de nuevo": [
+  "src-tauri/src/commands/lineage_cache.rs"
+ ],
  "no hay un ticket de Kerberos vigente": [
   "crates/drivers/sqlserver/src/lib.rs"
  ],
@@ -57374,6 +57393,9 @@
  ],
  "no legacy backend": [
   "crates/drivers/sqlserver/src/legacy_tls_live.rs"
+ ],
+ "no more {0} sessions for {1}/{2}: {3}": [
+  "src-tauri/src/state.rs"
  ],
  "no parece una URL ni una cadena de conexión": [
   "crates/dbine-core/src/conn_import/urls.rs"
@@ -57615,6 +57637,9 @@
  ],
  "no se pudo abrir el archivo PKCS#12 (¿la frase de contraseña es la correcta?)": [
   "src-tauri/src/secret_sources/https.rs"
+ ],
+ "no se pudo abrir el canal con DBine Bastion: {0}": [
+  "src-tauri/src/enterprise/gateway.rs"
  ],
  "no se pudo abrir el catálogo «{0}»: {1}": [
   "crates/drivers/flightsql/src/lib.rs"
@@ -58409,6 +58434,9 @@
  ],
  "no se pudo llegar a DBine ({0}). Revisá que DBine esté abierto, con «Permitir celulares» activo, y que el celular esté en la misma red.": [
   "mobile/src-tauri/src/lib.rs"
+ ],
+ "no se pudo llegar a DBine Bastion: HTTP error: {0}": [
+  "src-tauri/src/enterprise/gateway.rs"
  ],
  "no se pudo llegar a DBine Bastion: {0}": [
   "src-tauri/src/enterprise/gateway.rs"

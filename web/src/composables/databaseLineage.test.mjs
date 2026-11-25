@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
+import { readFileSync } from 'node:fs';
 
 // The module imports its sibling without an extension (as Vite does): add it for Node.
 register('data:text/javascript,' + encodeURIComponent(
@@ -53,9 +54,11 @@ test('filters: kind, text with neighbours, only confirmed, only connected', () =
   const model = m.buildModel(graph());
   const none = { ...m.noFilters(), relations: true };
   assert.equal(m.applyFilters(model, none).nodes.length, 6);
-  assert.deepEqual(m.kindsOf(model.nodes.values()), ['external', 'job', 'table', 'view']);
+  assert.deepEqual(m.typesOf(model.nodes.values()), [
+    { type: 'table', count: 3 }, { type: 'view', count: 1 }, { type: 'job', count: 1 }, { type: 'external', count: 1 },
+  ]);
 
-  const views = m.applyFilters(model, { ...none, kinds: ['view'] });
+  const views = m.applyFilters(model, { ...none, hidden: ['table', 'job', 'external'] });
   assert.deepEqual(views.nodes.map((n) => n.name), ['v_ventas']);
   assert.equal(views.edges.length, 0);
 
@@ -172,4 +175,115 @@ test('what outside reads the database (reports, dashboards) is a grey card to th
   const rep = [...model.nodes.values()].find((n) => n.external?.system === 'Power BI report');
   assert.ok(rep);
   assert.ok(model.edges.some((e) => e.from === nodeId(o('view', 'rep', 'v_ventas')) && e.to === rep.id && e.relation === 'external'));
+});
+
+// -- the filter by type (a checkbox per type in the toolbar) -------------------------------------
+
+const outside = (system, name = 'x') => ({ id: `ext:${system}:${name}`, kind: 'external', schema: null, name, external: { system, name }, up: 'done', down: 'done' });
+
+test('each card has a type: its kind, or what the source outside is', () => {
+  const card = (kind) => ({ id: kind, kind, schema: 'dbo', name: kind, up: 'done', down: 'done' });
+  assert.equal(m.typeOf(card('measure')), 'measure');
+  assert.equal(m.typeOf(card('procedure')), 'procedure');
+  assert.equal(m.typeOf({ ...card('job'), jobId: 'J', jobKind: 'SQL Server Agent' }), 'job');
+  // Databricks: what ran, with the server's jobs.
+  for (const [system, type] of [
+    ['Databricks job', 'job'], ['Databricks notebook', 'notebook'], ['Databricks pipeline', 'pipeline'],
+    ['Databricks query', 'query'], ['Databricks dashboard', 'dashboard'], ['databricks NOTEBOOK', 'notebook'],
+  ]) assert.equal(m.typeOf(outside(system)), type, system);
+  // Power BI's readers.
+  assert.equal(m.typeOf(outside('Power BI report')), 'report');
+  assert.equal(m.typeOf(outside('Power BI dashboard')), 'dashboard');
+  // Files, wherever they live.
+  for (const system of ['Amazon S3', 'Azure Data Lake Storage', 'Google Cloud Storage', 'Unity Catalog volume', 'DBFS', 'File', 'Excel', 'CSV', 'Folder', 'SharePoint']) {
+    assert.equal(m.typeOf(outside(system)), 'file', system);
+  }
+  // Another database or system.
+  for (const system of ['SQL Server', 'Databricks', 'Snowflake', 'postgres_fdw', '']) assert.equal(m.typeOf(outside(system)), 'external', system);
+  // The card itself stays an outside source with its system (the detail panel reads it).
+  const n = outside('Databricks notebook');
+  m.typeOf(n);
+  assert.equal(n.kind, 'external');
+  assert.equal(n.external.system, 'Databricks notebook');
+});
+
+test('the types are counted, the database\'s own first, then jobs and what is outside', () => {
+  const nodes = [
+    { id: 'm1', kind: 'measure', schema: null, name: 'a' }, { id: 'm2', kind: 'measure', schema: null, name: 'b' },
+    { id: 't1', kind: 'table', schema: null, name: 'c' },
+    outside('Databricks notebook', 'n1'), outside('Databricks notebook', 'n2'), outside('Databricks job', 'j1'),
+    { id: 'J', kind: 'job', schema: null, name: 'Carga', jobId: 'J' },
+    outside('Power BI report', 'r'), outside('Amazon S3', 's3'), outside('SQL Server', 'dw'),
+  ];
+  assert.deepEqual(m.typesOf(nodes), [
+    { type: 'measure', count: 2 }, { type: 'table', count: 1 },
+    { type: 'job', count: 2 }, { type: 'notebook', count: 2 }, { type: 'report', count: 1 },
+    { type: 'file', count: 1 }, { type: 'external', count: 1 },
+  ]);
+});
+
+test('unchecking a type hides its cards and their lines; the rest stays', () => {
+  const nb = { system: 'Databricks notebook', name: 'carga_ventas' };
+  const job = { system: 'Databricks job', name: 'nightly' };
+  const model = m.buildModel(graph({
+    external: [
+      { source: { system: 'SQL Server', server: 'dw', name: 'origen' }, to: o('table', 'dbo', 'Clientes') },
+      { source: nb, to: o('table', 'dbo', 'Pedidos') },
+      { source: job, to: o('table', 'dbo', 'Pedidos') },
+    ],
+  }));
+  const all = { ...m.noFilters(), relations: true };
+  const every = m.typesOf(model.nodes.values()).map((t) => t.type);
+  assert.deepEqual(every, ['table', 'view', 'job', 'notebook', 'external']);
+  // Everything but the notebooks.
+  const noNotebooks = m.applyFilters(model, { ...all, hidden: ['notebook'] });
+  assert.ok(!noNotebooks.nodes.some((n) => n.name === 'carga_ventas'));
+  const notebook = [...model.nodes.values()].find((n) => n.name === 'carga_ventas');
+  assert.ok(model.edges.some((e) => e.from === notebook.id), 'the notebook had a line');
+  assert.ok(!noNotebooks.edges.some((e) => e.from === notebook.id || e.to === notebook.id), 'its lines go with it');
+  assert.equal(noNotebooks.nodes.length, model.nodes.size - 1);
+  // Only the jobs: the server's job and Databricks' job together.
+  const jobs = m.applyFilters(model, { ...all, hidden: every.filter((t) => t !== 'job') });
+  assert.deepEqual(jobs.nodes.map((n) => n.name).sort(), ['Carga', 'nightly']);
+  // Measures and tables of a Power BI model: the lines among them stay.
+  const tables = m.applyFilters(model, { ...all, hidden: ['job', 'notebook', 'external'] });
+  assert.deepEqual(tables.nodes.map((n) => n.name).sort(), ['Clientes', 'Pedidos', 'huerfana', 'v_ventas']);
+  assert.equal(tables.edges.length, 3);
+});
+
+test('the filter applies to cards that arrive in a later chunk', () => {
+  // The structure first, with the outside sources unchecked; then the consumers stage adds a Power BI report.
+  const f = { ...m.noFilters(), hidden: ['external'] };
+  const later = m.buildModel(graph({ consumers: [{ from: o('table', 'dbo', 'Pedidos'), consumer: { system: 'Power BI report', name: 'Ventas' } }] }));
+  const shown = m.applyFilters(later, f).nodes.map((n) => n.name);
+  assert.ok(!shown.includes('origen'), 'what was unchecked stays hidden in every chunk');
+  assert.ok(shown.includes('Ventas'), 'a type that arrives later was never unchecked: it shows');
+});
+
+test('the Tipos list: what is checked, what hiding leaves, the last one stays, the count', () => {
+  const types = [{ type: 'table', count: 3 }, { type: 'view', count: 1 }, { type: 'job', count: 1 }, { type: 'notebook', count: 2 }];
+  // Nothing hidden: every type checked, the button says just "Tipos".
+  assert.deepEqual(m.checkedTypes(types, []), ['table', 'view', 'job', 'notebook']);
+  assert.equal(m.typesCount(types, []), null);
+  // Unchecking notebooks and jobs.
+  const hidden = m.hiddenFor(types, ['table', 'view']);
+  assert.deepEqual(hidden, ['job', 'notebook']);
+  assert.deepEqual(m.checkedTypes(types, hidden), ['table', 'view']);
+  assert.deepEqual(m.typesCount(types, hidden), { shown: 2, total: 4 });
+  // Unchecking the last one changes nothing: at least one type shows, and its box is disabled.
+  assert.equal(m.hiddenFor(types, []), null);
+  assert.equal(m.isLastChecked(['view'], 'view'), true);
+  assert.equal(m.isLastChecked(['view'], 'table'), false);
+  assert.equal(m.isLastChecked(['view', 'table'], 'view'), false);
+  // A hidden type that is no longer on the cards (after a refresh) doesn't count.
+  assert.deepEqual(m.typesCount(types, ['job', 'pipeline']), { shown: 3, total: 4 });
+  assert.equal(m.typesCount(types, ['pipeline']), null);
+  // Checking every type again empties hidden.
+  assert.deepEqual(m.hiddenFor(types, ['table', 'view', 'job', 'notebook']), []);
+});
+
+test('the lineage panel uses these functions for the Tipos list', () => {
+  // Regression guard: the list's rules live here, tested, not inline in the component.
+  const vue = readFileSync(new URL('../components/DatabaseLineage.vue', import.meta.url), 'utf8');
+  for (const fn of ['checkedTypes(', 'hiddenFor(', 'typesCount(', 'isLastChecked(']) assert.ok(vue.includes(fn), fn);
 });

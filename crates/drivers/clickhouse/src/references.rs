@@ -158,7 +158,7 @@ pub(crate) struct Found {
 }
 
 impl Found {
-    fn want(&mut self, w: Wanted) {
+    pub(crate) fn want(&mut self, w: Wanted) {
         match self
             .wanted
             .iter_mut()

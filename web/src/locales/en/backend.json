@@ -6162,6 +6162,7 @@
   "este motor todavía no ordena en el servidor": "this engine doesn't sort on the server yet",
   "ningún certificado del archivo corresponde a su clave privada": "no certificate in the file matches its private key",
   "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET (o AZURE_CLIENT_CERTIFICATE_PATH)": "AZURE_TENANT_ID, AZURE_CLIENT_ID and AZURE_CLIENT_SECRET (or AZURE_CLIENT_CERTIFICATE_PATH) are not defined",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "there is no half-read lineage to continue: open it again",
   "no se pudo abrir el certificado: la contraseña no es la correcta, o el archivo no es un PEM ni un PFX": "couldn't open the certificate: the password is wrong, or the file is not a PEM or a PFX",
   "no se pudo abrir el certificado: si es un PFX con contraseña, escribila; si no, el archivo no es un PEM ni un PFX": "couldn't open the certificate: if it is a PFX with a password, enter it; otherwise, the file is not a PEM or a PFX",
   "no se pudo agregar el orden a la consulta de este objeto": "couldn't add the sort to this object's query",
@@ -19131,5 +19132,12 @@
   "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "you must be a Power BI admin and authorize the admin API in Settings",
   "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "the Power BI admin API isn't available for this user: you must be a Power BI admin and authorize the admin API in Settings",
   "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "the Power BI admin API isn't available: you must be a Power BI admin and authorize the admin API in Settings; models are read one at a time",
-  "la API de administración es de las conexiones de Power BI": "the admin API is only for Power BI connections"
+  "la API de administración es de las conexiones de Power BI": "the admin API is only for Power BI connections",
+  "DBine Bastion no respondió en {0} s": "DBine Bastion didn't respond in {0} s",
+  "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastion didn't respond in {0} s: try again",
+  "no se pudo abrir el canal con DBine Bastion: {0}": "couldn't open the channel with DBine Bastion: {0}",
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "couldn't reach DBine Bastion: HTTP error: {0}",
+  "No se pudo leer el catálogo de dependencias (RDB$DEPENDENCIES): {0}": "Couldn't read the dependency catalog (RDB$DEPENDENCIES): {0}",
+  "No se pudo leer el catálogo de dependencias de system.tables: se buscó en las definiciones que se pueden leer.": "Couldn't read the dependency catalog of system.tables: the definitions that can be read were searched instead.",
+  "no more {0} sessions for {1}/{2}: {3}": "no more {0} sessions for {1}/{2}: {3}"
 }

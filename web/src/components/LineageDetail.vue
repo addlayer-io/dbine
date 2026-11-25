@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // The side panel the lineage views share: the selected card, what it uses and what
 // uses it, each line with its confidence and the lines of source that name the other.
-// Buttons (open, recenter…) come in the `actions` slot; `extra` goes under the head.
+// Buttons (open, recenter…) come in the `actions` slot; `extra` goes under the head. A web address
+// in a line's detail (a Databricks job's, a Power BI report's) is a link to the browser.
 import { computed } from 'vue';
 import type { Lineage, LineageNode } from '../composables/lineage';
+import LinkText from './LinkText.vue';
 
 const props = defineProps<{ graph: Lineage; sel: LineageNode; kindLabel: (n: LineageNode) => string }>();
 const emit = defineEmits<{ select: [id: string] }>();
@@ -39,7 +41,7 @@ const edges = computed(() => {
           <span class="ln-badge" :class="e.confidence">{{ $t(`dependencies:confidence.${e.confidence}`) }}</span>
           <span v-if="(e.weight ?? 1) > 1" class="ln-dim"> · {{ $t('dependencies:database.weight', { count: e.weight }) }}</span>
         </div>
-        <div v-if="e.detail" class="ln-dim ln-mono">{{ e.detail }}</div>
+        <div v-if="e.detail" class="ln-dim ln-mono"><LinkText :text="e.detail" /></div>
         <div v-for="m in e.mentions" :key="m.line" class="ln-mention"><span class="ln-ln">{{ m.line }}</span><code>{{ m.text }}</code></div>
       </div>
     </template>

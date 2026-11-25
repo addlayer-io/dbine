@@ -114,7 +114,7 @@ const EXTERNAL_SQL: &str =
 const LINKS_SQL: &str = "SELECT owner, db_link, username, host FROM {view}";
 
 /// SQL that is true when the user `col` names is one Oracle maintains.
-fn maintained(col: &str, legacy: bool) -> String {
+pub(crate) fn maintained(col: &str, legacy: bool) -> String {
     if legacy {
         format!("{col} IN ({})", oracle_schemas_11g!())
     } else {
@@ -673,7 +673,7 @@ impl Catalog {
 }
 
 /// Confirmed first, then by relation and name (as the generic scan sorts).
-fn sort(items: &mut [Dependent]) {
+pub(crate) fn sort(items: &mut [Dependent]) {
     items.sort_by(|a, b| {
         (
             a.confidence,

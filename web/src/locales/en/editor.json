@@ -55,5 +55,12 @@
     "runTip": "Run only this statement",
     "plan": "Plan",
     "planTip": "Estimated execution plan of this statement, without running it"
+  },
+  "proposal": {
+    "title": "Changes proposed by the AI: they aren't applied until you accept them",
+    "accept": "Accept",
+    "reject": "Reject",
+    "acceptAll": "Accept all",
+    "rejectAll": "Reject all"
   }
 }

@@ -150,5 +150,23 @@
     "settingsNav": "Assistente IA",
     "globalHelp": "Queste istruzioni valgono in tutte le conversazioni dell'assistente, su qualsiasi connessione. Per ciò che vale su una connessione o un database, usa il nodo Contesti nell'esplora risorse.",
     "globalPlaceholder": "Ad esempio: rispondi in markdown e indica l'intervallo di date di ogni analisi."
+  },
+  "fix": {
+    "button": "Analizza con l'IA",
+    "tip": "Chiede all'IA perché è fallita. Invia la query, l'errore e la struttura del database; mai righe. Viene eseguita solo se la clicchi.",
+    "running": "{{model}} sta analizzando… {{seconds}} s",
+    "remote": "Inviato a {{provider}}: la query, l'errore e la struttura del database. Mai righe.",
+    "cancel": "Annulla",
+    "noProvider": "Nessuna IA è ancora configurata. Scegli un modello nel pannello dell'assistente.",
+    "openSetup": "Configura l'IA",
+    "proposed": "Modifica proposta nell'editor: accetta o rifiuta ogni modifica. Non è stato eseguito nulla.",
+    "stale": "Il testo dell'editor è cambiato dopo l'esecuzione della query, quindi la modifica non viene proposta.",
+    "noChange": "L'IA non propone modifiche alla query.",
+    "noCode": "La risposta non contiene una query corretta.",
+    "dropped": "La proposta è stata scartata perché hai modificato il testo.",
+    "resolved": "Proposta risolta.",
+    "cancelled": "Annullato: non è stato modificato nulla.",
+    "again": "Analizza di nuovo",
+    "failed": "Impossibile analizzare: {{error}}"
   }
 }

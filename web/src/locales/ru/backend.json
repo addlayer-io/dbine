@@ -5144,6 +5144,7 @@
   "este motor todavía no ordena en el servidor": "этот движок пока не сортирует на стороне сервера",
   "ningún certificado del archivo corresponde a su clave privada": "ни один сертификат в файле не соответствует его закрытому ключу",
   "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET (o AZURE_CLIENT_CERTIFICATE_PATH)": "не заданы AZURE_TENANT_ID, AZURE_CLIENT_ID и AZURE_CLIENT_SECRET (или AZURE_CLIENT_CERTIFICATE_PATH)",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "нет частично прочитанного происхождения данных для продолжения: откройте его снова",
   "no se pudo abrir el certificado: la contraseña no es la correcta, o el archivo no es un PEM ni un PFX": "не удалось открыть сертификат: неверный пароль или файл не является ни PEM, ни PFX",
   "no se pudo abrir el certificado: si es un PFX con contraseña, escribila; si no, el archivo no es un PEM ni un PFX": "не удалось открыть сертификат: если это PFX с паролем, введите пароль; иначе файл не является ни PEM, ни PFX",
   "no se pudo agregar el orden a la consulta de este objeto": "не удалось добавить сортировку в запрос этого объекта",
@@ -19131,5 +19132,12 @@
   "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "нужно быть администратором Power BI и авторизовать API администрирования в настройках",
   "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "API администрирования Power BI недоступен для этого пользователя: нужно быть администратором Power BI и авторизовать API администрирования в настройках",
   "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "API администрирования Power BI недоступен: нужно быть администратором Power BI и авторизовать API администрирования в настройках; модели читаются по одной",
-  "la API de administración es de las conexiones de Power BI": "API администрирования относится к подключениям Power BI"
+  "la API de administración es de las conexiones de Power BI": "API администрирования относится к подключениям Power BI",
+  "DBine Bastion no respondió en {0} s": "DBine Bastion не ответил за {0} с",
+  "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastion не ответил за {0} с: повторите попытку",
+  "no se pudo abrir el canal con DBine Bastion: {0}": "не удалось открыть канал с DBine Bastion: {0}",
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "не удалось связаться с DBine Bastion: HTTP error: {0}",
+  "No se pudo leer el catálogo de dependencias (RDB$DEPENDENCIES): {0}": "Не удалось прочитать каталог зависимостей (RDB$DEPENDENCIES): {0}",
+  "No se pudo leer el catálogo de dependencias de system.tables: se buscó en las definiciones que se pueden leer.": "Не удалось прочитать каталог зависимостей system.tables: поиск выполнен в определениях, которые удалось прочитать.",
+  "no more {0} sessions for {1}/{2}: {3}": "no more {0} sessions for {1}/{2}: {3}"
 }

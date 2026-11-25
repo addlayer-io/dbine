@@ -12,6 +12,7 @@ import { hasOtherKinds, LatestRead, readOtherKinds, type OtherKinds } from '../c
 import { t } from '../i18n';
 import { tb } from '../i18n/backend';
 import { rt } from '../composables/i18nLabels';
+import { connectingFrom } from './liveConnection';
 import { useOutputStore } from './output';
 import { trackConnectionOpened } from '../composables/telemetry';
 import { savedMigrationsApi, type SavedMigration } from '../api/savedMigrations';
@@ -421,9 +422,7 @@ export const useConnectionsStore = defineStore('connections', {
       // failed connect replaces them with its error.
       const gen = generation.get(id) ?? 0;
       const prev = this.live[id];
-      this.live[id] = {
-        status: 'connecting', serverVersion: '', databases: [], defaultDatabase: prev?.defaultDatabase ?? '', error: null,
-      };
+      this.live[id] = connectingFrom(prev);
       const primed = api.getCached<string[]>(id, '', 'databases').catch(() => null).then((dbs) => {
         const l = this.live[id];
         if (dbs?.length && l?.status === 'connecting' && !l.databases.length && (generation.get(id) ?? 0) === gen) l.databases = dbs;

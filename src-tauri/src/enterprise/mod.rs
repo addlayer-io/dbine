@@ -40,6 +40,10 @@ pub const PROFILE_OPTION: &str = "dbine.gateway.profile";
 /// The company connection it belongs to, and its profile's name (for the UI).
 pub const CONNECTION_OPTION: &str = "dbine.enterprise.connection";
 pub const PROFILE_NAME_OPTION: &str = "dbine.enterprise.profile";
+/// The databases the person may use of a managed connection, as a JSON list
+/// (absent: all of them). Kept in the row so the next sync can tell what was
+/// taken away, also after a restart.
+pub const DATABASES_OPTION: &str = "dbine.enterprise.databases";
 
 /// Where the server and who signed in are kept (a machine-local setting,
 /// never backed up); the token is in the keychain under [`KEYCHAIN_KEY`].
@@ -727,6 +731,17 @@ impl Enterprise {
             return Err(e);
         }
         let rows = managed_rows(&catalog);
+        // What the person lost since the last sync (a connection gone, or
+        // databases taken from one): its data goes now, even when the event
+        // that said so was missed. Before the rows change, to know what was.
+        let state = crate::state::app_state();
+        let before = reach_of(&self.store.list_managed_connections().unwrap_or_default());
+        let leftovers = self.store.company_connection_ids().unwrap_or_default();
+        let losses = purge::losses_from_catalogs(&before, &reach_of(&rows), &leftovers);
+        if !losses.is_empty() {
+            let gone = purge::apply_losses(&self.store, state.as_ref(), &losses).await;
+            let _ = self.app.emit("enterprise-narrowed", gone);
+        }
         self.store.set_managed_connections(&rows)?;
         // Profiles no longer granted: their sessions end here too.
         if let Some(state) = crate::state::app_state() {
@@ -838,6 +853,19 @@ enum Probe {
     Unreachable,
 }
 
+/// What each managed connection reaches (see [`purge::Reach`]).
+fn reach_of(rows: &[SavedConnection]) -> purge::Reach {
+    rows.iter()
+        .map(|r| {
+            let dbs = r
+                .config
+                .option(DATABASES_OPTION)
+                .and_then(|v| serde_json::from_str::<Vec<String>>(v).ok());
+            (r.id.clone(), dbs)
+        })
+        .collect()
+}
+
 /// One managed connection per profile the user may use now.
 fn managed_rows(c: &Catalog) -> Vec<SavedConnection> {
     let mut out = Vec::new();
@@ -853,7 +881,7 @@ fn managed_rows(c: &Catalog) -> Vec<SavedConnection> {
             } else {
                 conn.name.clone()
             };
-            let config = ConnectionConfig {
+            let mut config = ConnectionConfig {
                 driver: conn.driver.clone(),
                 read_only: p.read_only,
                 options: [
@@ -864,6 +892,17 @@ fn managed_rows(c: &Catalog) -> Vec<SavedConnection> {
                 .into(),
                 ..Default::default()
             };
+            if let Some(dbs) = p
+                .access
+                .as_ref()
+                .and_then(|a| a["databases"].as_array())
+                .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>())
+            {
+                config.options.insert(
+                    DATABASES_OPTION.to_string(),
+                    serde_json::to_string(&dbs).unwrap_or_default(),
+                );
+            }
             out.push(SavedConnection {
                 id: connection_id(&p.id),
                 name,
@@ -1142,5 +1181,42 @@ mod tests {
             r.config.host.is_empty() && r.config.username.is_none() && r.config.password.is_none()
         );
         assert_eq!(r.mcp_level.as_deref(), Some("disabled"));
+    }
+
+    #[test]
+    fn the_databases_a_person_may_use_are_kept_in_the_row_and_read_back() {
+        let cat: Catalog = serde_json::from_value(serde_json::json!({
+            "organization": "ACME", "settings": {}, "last_event": 3,
+            "connections": [
+                {"id": "c2", "name": "ERP", "driver": "sqlserver", "package": "sqlserver", "profiles": [
+                    {"id": "p4", "name": "Lectura", "access": {"databases": ["ERP", "HR"], "until": null}, "pending_request": null},
+                    {"id": "p5", "name": "Todo", "access": {"databases": null, "until": null}, "pending_request": null}
+                ]}
+            ]
+        }))
+        .unwrap();
+        let rows = managed_rows(&cat);
+        let reach = reach_of(&rows);
+        assert_eq!(
+            reach["ent-p4"],
+            Some(vec!["ERP".to_string(), "HR".to_string()])
+        );
+        assert_eq!(reach["ent-p5"], None, "every database");
+        // The sync then sees what a smaller catalog took away.
+        let mut smaller = reach.clone();
+        smaller.insert("ent-p4".into(), Some(vec!["HR".to_string()]));
+        smaller.remove("ent-p5");
+        let losses = purge::losses_from_catalogs(&reach, &smaller, &[]);
+        assert_eq!(
+            losses,
+            vec![
+                purge::Loss::Databases {
+                    connection_id: "ent-p4".into(),
+                    named: vec!["ERP".to_string()],
+                    keep: Some(vec!["HR".to_string()])
+                },
+                purge::Loss::Whole("ent-p5".into()),
+            ]
+        );
     }
 }

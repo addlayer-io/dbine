@@ -100,6 +100,183 @@ impl StateStore {
     }
 }
 
+/// Which databases of one connection a purge reaches.
+#[derive(Debug, Clone, Copy)]
+pub enum Databases<'a> {
+    /// Exactly these.
+    Named(&'a [String]),
+    /// Every named database except these (what was kept after the person's
+    /// access went from "all" to a list).
+    AllBut(&'a [String]),
+}
+
+impl Databases<'_> {
+    /// A SQL condition on `database`, with its parameters (`?2`, `?3`…:
+    /// `?1` is the connection).
+    fn condition(&self) -> (String, Vec<String>) {
+        let (list, negate) = match self {
+            Databases::Named(l) => (*l, false),
+            Databases::AllBut(l) => (*l, true),
+        };
+        let marks = |n: usize| {
+            (0..n)
+                .map(|i| format!("?{}", i + 2))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let sql = match (negate, list.is_empty()) {
+            (false, true) => "0".to_string(),
+            (false, false) => format!("database IN ({})", marks(list.len())),
+            (true, true) => "database <> ''".to_string(),
+            (true, false) => format!(
+                "(database <> '' AND database NOT IN ({}))",
+                marks(list.len())
+            ),
+        };
+        (sql, list.to_vec())
+    }
+}
+
+impl StateStore {
+    /// Every connection id the company has left something under: managed
+    /// rows and the ids of the rows that point at one (`ent-…`).
+    pub fn company_connection_ids(&self) -> Result<Vec<String>> {
+        let c = self.lock()?;
+        let mut ids: Vec<String> = Vec::new();
+        for sql in [
+            "SELECT id FROM connections WHERE temporary = 2 OR id LIKE 'ent-%'",
+            "SELECT DISTINCT connection_id FROM query_history WHERE connection_id LIKE 'ent-%'",
+            "SELECT DISTINCT connection_id FROM lineage_links WHERE connection_id LIKE 'ent-%'",
+            "SELECT DISTINCT connection_id FROM queries WHERE connection_id LIKE 'ent-%'",
+            "SELECT DISTINCT connection_id FROM migrations WHERE connection_id LIKE 'ent-%'",
+            "SELECT DISTINCT connection_id FROM contexts WHERE connection_id LIKE 'ent-%'",
+            "SELECT DISTINCT connection_id FROM backups WHERE connection_id LIKE 'ent-%'",
+        ] {
+            let mut st = c.prepare(sql).map_err(db_err)?;
+            let rows = st
+                .query_map([], |r| r.get::<_, String>(0))
+                .map_err(db_err)?;
+            for r in rows {
+                ids.push(r.map_err(db_err)?);
+            }
+        }
+        ids.sort();
+        ids.dedup();
+        Ok(ids)
+    }
+
+    /// Deletes one company connection as a whole: its row (when managed) and
+    /// everything stored about it, as [`StateStore::purge_company_data`] does
+    /// for all of them. Every other connection's data stays. Idempotent; not
+    /// a change to sync.
+    pub fn purge_connection_data(&self, id: &str) -> Result<()> {
+        {
+            let mut c = self.lock()?;
+            let tx = c.transaction().map_err(db_err)?;
+            tx.execute(
+                "DELETE FROM query_versions WHERE query_id IN (SELECT id FROM queries WHERE connection_id = ?1)",
+                [id],
+            )
+            .map_err(db_err)?;
+            for table in [
+                "queries",
+                "migrations",
+                "contexts",
+                "backups",
+                "query_history",
+                "lineage_links",
+            ] {
+                tx.execute(
+                    &format!("DELETE FROM {table} WHERE connection_id = ?1"),
+                    [id],
+                )
+                .map_err(db_err)?;
+            }
+            let needle = format!("\"connection_id\":\"{id}\"");
+            tx.execute(
+                "DELETE FROM task_runs WHERE task_id IN
+                   (SELECT id FROM scheduled_tasks WHERE instr(task_json, ?1) > 0)",
+                [&needle],
+            )
+            .map_err(db_err)?;
+            tx.execute(
+                "DELETE FROM scheduled_tasks WHERE instr(task_json, ?1) > 0",
+                [&needle],
+            )
+            .map_err(db_err)?;
+            tx.execute(
+                "DELETE FROM connections WHERE id = ?1 AND (temporary = 2 OR id LIKE 'ent-%')",
+                [id],
+            )
+            .map_err(db_err)?;
+            tx.commit().map_err(db_err)?;
+        }
+        self.notify(StateChange::new("connection", None));
+        Ok(())
+    }
+
+    /// Deletes what is stored about some databases of one company
+    /// connection (saved queries and their versions, migrations, contexts,
+    /// backups' rows, history, and the scheduled tasks that name the
+    /// database), leaving the connection and its other databases alone.
+    pub fn purge_database_data(&self, id: &str, which: Databases<'_>) -> Result<()> {
+        let (cond, dbs) = which.condition();
+        {
+            let mut c = self.lock()?;
+            let tx = c.transaction().map_err(db_err)?;
+            let params = |extra: &[&str]| -> Vec<String> {
+                std::iter::once(id.to_string())
+                    .chain(dbs.iter().cloned())
+                    .chain(extra.iter().map(|s| s.to_string()))
+                    .collect()
+            };
+            tx.execute(
+                &format!(
+                    "DELETE FROM query_versions WHERE query_id IN
+                       (SELECT id FROM queries WHERE connection_id = ?1 AND {cond})"
+                ),
+                rusqlite::params_from_iter(params(&[])),
+            )
+            .map_err(db_err)?;
+            for table in [
+                "queries",
+                "migrations",
+                "contexts",
+                "backups",
+                "query_history",
+            ] {
+                tx.execute(
+                    &format!("DELETE FROM {table} WHERE connection_id = ?1 AND {cond}"),
+                    rusqlite::params_from_iter(params(&[])),
+                )
+                .map_err(db_err)?;
+            }
+            // A task that names this connection and one of those databases.
+            if let Databases::Named(list) = which {
+                let conn_needle = format!("\"connection_id\":\"{id}\"");
+                for d in list {
+                    let db_needle = format!("\"database\":\"{d}\"");
+                    tx.execute(
+                        "DELETE FROM task_runs WHERE task_id IN
+                           (SELECT id FROM scheduled_tasks
+                             WHERE instr(task_json, ?1) > 0 AND instr(task_json, ?2) > 0)",
+                        [&conn_needle, &db_needle],
+                    )
+                    .map_err(db_err)?;
+                    tx.execute(
+                        "DELETE FROM scheduled_tasks WHERE instr(task_json, ?1) > 0 AND instr(task_json, ?2) > 0",
+                        [&conn_needle, &db_needle],
+                    )
+                    .map_err(db_err)?;
+                }
+            }
+            tx.commit().map_err(db_err)?;
+        }
+        self.notify(StateChange::new("connection", None));
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,5 +430,92 @@ mod tests {
         assert!(s.purge_company_data().unwrap().is_empty());
         assert_eq!(count(&s, "SELECT COUNT(*) FROM query_history"), 0);
         assert!(s.get_connection("c1").unwrap().is_some());
+    }
+
+    fn query_in(id: &str, conn: &str, db: &str) -> SavedQuery {
+        SavedQuery {
+            database: db.into(),
+            ..query(id, conn)
+        }
+    }
+
+    fn history(s: &StateStore, conn: &str, db: &str) {
+        s.lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO query_history (connection_id, connection_name, driver, host, database, sql, started_at, duration_ms)
+                 VALUES (?1, 'n', 'd', 'h', ?2, 'SELECT 1', 't', 1)",
+                [conn, db],
+            )
+            .unwrap();
+    }
+
+    fn rows(s: &StateStore, table: &str, conn: &str) -> i64 {
+        count(
+            s,
+            &format!("SELECT COUNT(*) FROM {table} WHERE connection_id = '{conn}'"),
+        )
+    }
+
+    fn setup() -> StateStore {
+        let s = StateStore::open_in_memory().unwrap();
+        s.save_connection(&conn("c1")).unwrap();
+        s.set_managed_connections(&[conn("ent-a"), conn("ent-b")])
+            .unwrap();
+        for c in ["c1", "ent-a", "ent-b"] {
+            for d in ["d1", "d2"] {
+                s.save_query(&query_in(&format!("q-{c}-{d}"), c, d))
+                    .unwrap();
+                history(&s, c, d);
+            }
+        }
+        s
+    }
+
+    #[test]
+    fn one_connection_goes_whole_and_the_others_stay() {
+        let s = setup();
+        s.purge_connection_data("ent-a").unwrap();
+        assert_eq!(rows(&s, "queries", "ent-a"), 0);
+        assert_eq!(rows(&s, "query_history", "ent-a"), 0);
+        assert!(s.get_connection("ent-a").unwrap().is_none());
+        for c in ["ent-b", "c1"] {
+            assert_eq!(rows(&s, "queries", c), 2, "{c}");
+            assert_eq!(rows(&s, "query_history", c), 2, "{c}");
+            assert!(s.get_connection(c).unwrap().is_some(), "{c}");
+        }
+        s.purge_connection_data("ent-a").unwrap();
+        assert_eq!(
+            s.company_connection_ids().unwrap(),
+            vec!["ent-b".to_string()]
+        );
+    }
+
+    #[test]
+    fn one_database_goes_and_its_neighbours_stay() {
+        let s = setup();
+        let d1 = vec!["d1".to_string()];
+        s.purge_database_data("ent-a", Databases::Named(&d1))
+            .unwrap();
+        assert_eq!(rows(&s, "queries", "ent-a"), 1);
+        assert_eq!(rows(&s, "query_history", "ent-a"), 1);
+        assert!(s.get_connection("ent-a").unwrap().is_some());
+        // Same database name on other connections: untouched.
+        for c in ["ent-b", "c1"] {
+            assert_eq!(rows(&s, "queries", c), 2, "{c}");
+            assert_eq!(rows(&s, "query_history", c), 2, "{c}");
+        }
+        // Everything but d2 (access went from all to [d2]).
+        s.purge_database_data("ent-b", Databases::AllBut(&["d2".to_string()]))
+            .unwrap();
+        assert_eq!(rows(&s, "queries", "ent-b"), 1);
+        assert_eq!(
+            count(
+                &s,
+                "SELECT COUNT(*) FROM queries WHERE connection_id = 'ent-b' AND database = 'd2'"
+            ),
+            1
+        );
+        assert_eq!(rows(&s, "queries", "c1"), 2);
     }
 }

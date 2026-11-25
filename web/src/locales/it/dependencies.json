@@ -53,7 +53,13 @@
     "calculation_group": "Gruppo di calcolo",
     "role": "Ruolo",
     "expression": "Espressione",
-    "model": "Modello semantico"
+    "model": "Modello semantico",
+    "notebook": "Notebook",
+    "pipeline": "Pipeline",
+    "query": "Query",
+    "report": "Report",
+    "dashboard": "Dashboard",
+    "file": "File"
   },
   "view": {
     "label": "Vista",
@@ -90,6 +96,8 @@
     },
     "search": "Filtra per nome",
     "kinds": "Tipi",
+    "allTypes": "Tutti",
+    "typesCount": "Tipi: {{shown}} di {{total}}",
     "onlyConfirmed": "Solo confermate",
     "onlyConnected": "Solo con dipendenze",
     "expandAll": "Espandi tutto",
@@ -108,7 +116,18 @@
     "relationsTip": "Le chiavi esterne (e le relazioni di un modello) corrono in parallelo al lineage: attivale per vederle accanto ad esso.",
     "updated": "Aggiornato {{ago}}",
     "updating": "aggiornamento…",
-    "refreshFailed": "Impossibile aggiornare: {{error}}. Viene mostrato l'ultimo salvataggio."
+    "refreshFailed": "Impossibile aggiornare: {{error}}. Viene mostrato l'ultimo salvataggio.",
+    "partial": {
+      "title": "Lineage parziale:",
+      "stage": {
+        "structure": "lettura di tabelle e origini…",
+        "dependencies": "lettura delle dipendenze di misure e colonne {{done}}/{{total}}",
+        "consumers": "lettura di report e dashboard…"
+      },
+      "failed": "impossibile leggere {{count}} oggetti.",
+      "complete": "Completa",
+      "retry": "Riprova {{from}}–{{to}}"
+    }
   },
   "cross": {
     "switch": "Includi altre connessioni",

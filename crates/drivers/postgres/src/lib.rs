@@ -33,6 +33,7 @@ mod lineage;
 mod monitor;
 mod object_page;
 mod permissions;
+mod pg_dependents;
 mod pg_functions;
 mod pg_references;
 mod plan;

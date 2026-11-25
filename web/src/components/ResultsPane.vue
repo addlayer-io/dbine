@@ -1250,6 +1250,8 @@ const liveText = computed(() => {
       </div>
       <div v-if="running" class="rp-msg rp-msg-status"><el-icon class="is-loading"><ei-loading /></el-icon> {{ $t('results:running') }}</div>
       <div v-else-if="statusText" class="rp-msg rp-msg-status">{{ statusText }}</div>
+      <!-- Next to the error: the parent's own action (QueryView: "Analizar con IA"). -->
+      <slot v-if="outcome?.error && !running" name="error-action" />
     </div>
     <AddDocumentDialog
       :open="docOpen"

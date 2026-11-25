@@ -1423,6 +1423,7 @@ mod tests {
                         foreign_keys: true,
                         written_kinds: vec!["view".into()],
                         has_schemas: true,
+                        databases: None,
                     },
                 },
                 "Dependents",
