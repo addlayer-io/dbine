@@ -2,6 +2,7 @@
 import { ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../stores/settings';
+import { importOfferDone } from '../composables/firstRun';
 
 // First run: if other database tools with connections are on this machine,
 // offer to import them. Shown once, whatever the answer (`import.suggested`,
@@ -23,7 +24,7 @@ const found = ref<{ source: Source; count: number }[]>([]);
 const open = ref(false);
 
 async function evaluate() {
-  if (settings.get(KEY, false)) return;
+  if (settings.get(KEY, false)) return importOfferDone();
   try {
     const detected = await invoke<Partial<Record<Source, string | null>>>('import_connections_detect');
     const out: { source: Source; count: number }[] = [];
@@ -37,13 +38,20 @@ async function evaluate() {
     }
     found.value = out;
     if (out.length) open.value = true;
-    else settings.set(KEY, true);
-  } catch { /* try again next start */ }
+    else {
+      settings.set(KEY, true);
+      importOfferDone();
+    }
+  } catch {
+    // Try again next start; meanwhile the rest may show.
+    importOfferDone();
+  }
 }
 
 function answer(source: Source | null) {
   settings.set(KEY, true);
   open.value = false;
+  importOfferDone();
   if (source) emit('import', source);
 }
 

@@ -1,0 +1,22 @@
+{
+  "folder": "Bancos de exemplo",
+  "tienda": "Loja (SQLite)",
+  "analitica": "Análise (DuckDB)",
+  "archivos": "Arquivos (CSV e Parquet)",
+  "tourFile": "Tour pelo DBine",
+  "tour": {
+    "intro": "# Tour pelo DBine\n\nEstes bancos de exemplo ficam no seu computador e não precisam de nenhum servidor:\n\n- **{{tienda}}**: o banco de uma loja, com clientes, produtos, pedidos, faturas e eventos, chaves estrangeiras, views (uma sobre outra) e um trigger.\n- **{{analitica}}**: os mesmos dados, com algumas diferenças de propósito.\n- **{{archivos}}**: metas de vendas em um CSV e os eventos em Parquet, consultados com SQL.\n\nCada célula roda na sua própria conexão; as de **DataFrame SQL** cruzam os resultados das células acima. Execute as células com ▶, uma de cada vez ou todas juntas.\n\nPara continuar, clique com o botão direito em uma conexão ou tabela: o diagrama do banco, a comparação de dados ou de esquemas entre {{tienda}} e {{analitica}}, a migração de SQLite para DuckDB ou as dependências da view `v_kpis`, que se apoia em outra view.",
+    "differences": "## Onde os dois bancos diferem?\n\nAs duas primeiras células leem os clientes de cada banco. A terceira os cruza e conta, por cidade, os que mudaram de cidade ou de e-mail e os que estão em só um dos dois.",
+    "onlyInAnalitica": "(só em {{analitica}})",
+    "targets": "## Vendas contra metas\n\nAs metas estão em um CSV de {{archivos}}; as vendas, na view `v_ventas_mensuales` de {{tienda}}. A última célula une as duas por mês e categoria e as mostra num gráfico."
+  },
+  "menu": {
+    "openTour": "Abrir o tour",
+    "remove": "Remover os bancos de exemplo…"
+  },
+  "confirm": {
+    "removeTitle": "Remover os bancos de exemplo",
+    "remove": "As três conexões de exemplo, a pasta e os arquivos delas são excluídos. Elas não voltam a aparecer."
+  },
+  "welcomeTour": "Tour pelos bancos de exemplo"
+}

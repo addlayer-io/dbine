@@ -82,7 +82,8 @@
   },
   "privacy": {
     "local": "Lokalnie: nic nie opuszcza tego komputera.",
-    "remote": "Trafia do {{vendor}} z Twoim kontem: pytanie, struktura i edytor, nigdy dane."
+    "remote": "Trafia do {{vendor}} z Twoim kontem: pytanie, struktura i edytor, nigdy dane.",
+    "remoteOwn": "Trafia do Twojego serwera: pytanie, struktura i edytor, nigdy dane."
   },
   "empty": {
     "lead": "Poproś o zapytania, o wyjaśnienie lub poprawienie zapytania z edytora albo zapytaj o strukturę bazy.",
@@ -175,5 +176,32 @@
     "cancelled": "Anulowano: nic nie zmieniono.",
     "again": "Analizuj ponownie",
     "failed": "Nie można przeanalizować: {{error}}"
+  },
+  "api": {
+    "heading": "Z Twoim kluczem API",
+    "lead": "Użyj swojego konta OpenAI, Anthropic, Azure OpenAI, Google Gemini lub xAI Grok albo serwera zgodnego z OpenAI. Opłaty nalicza dostawca na Twoim koncie; DBine nic nie pobiera.",
+    "configure": "Skonfiguruj",
+    "edit": "Edytuj",
+    "title": "{{provider}} z Twoim kluczem API",
+    "key": "Klucz API",
+    "keyOptional": "Klucz API (jeśli serwer go wymaga)",
+    "keyPlaceholder": "Wklej swój klucz",
+    "keySaved": "Zapisany na tym komputerze: zostaw puste, aby go nie zmieniać",
+    "keyWhere": "Uzyskasz go na {{site}}.",
+    "azureUrl": "Punkt końcowy zasobu",
+    "baseUrl": "Bazowy URL",
+    "model": "Model",
+    "modelPlaceholder": "Wybierz z listy lub wpisz",
+    "deployment": "Wdrożenie",
+    "deploymentPlaceholder": "Nazwa wdrożenia w Azure",
+    "privacy": "Z każdym pytaniem {{vendor}} otrzymuje pytanie, strukturę bazy, tekst edytora i ostatni błąd, na swoich warunkach. Nigdy wierszy danych.",
+    "privacyOwn": "Z każdym pytaniem ten serwer otrzymuje pytanie, strukturę bazy, tekst edytora i ostatni błąd. Nigdy wierszy danych.",
+    "cost": "{{vendor}} nalicza opłaty na Twoim koncie zależnie od użycia. DBine nic nie pobiera.",
+    "local": "Klucz pozostaje zaszyfrowany na tym komputerze: nie trafia do kopii zapasowej w chmurze.",
+    "test": "Testuj",
+    "remove": "Usuń",
+    "removeConfirm": "Usunąć klucz i konfigurację {{provider}} z tego komputera?",
+    "urlRequired": "Wpisz URL.",
+    "keyRequired": "Wklej klucz API."
   }
 }

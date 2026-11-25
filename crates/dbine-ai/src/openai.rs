@@ -90,6 +90,16 @@ pub(crate) async fn stream(
             .unwrap_or_default();
         return Err(AiError::Provider(format!("{who}: {msg}")));
     }
+    relay(resp, who, on_delta).await
+}
+
+/// A successful streaming chat-completion response, relayed to `on_delta`;
+/// returns the whole answer.
+pub(crate) async fn relay(
+    resp: reqwest::Response,
+    who: &str,
+    on_delta: OnDelta<'_>,
+) -> Result<String> {
     let mut out = String::new();
     let mut buf = Vec::<u8>::new();
     let mut stream = resp.bytes_stream();

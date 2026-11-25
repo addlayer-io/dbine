@@ -35,11 +35,31 @@ export interface McpActivity {
   at: string;
   client: string;
   connection: string;
+  /** The database the call named ("" when none). */
+  database: string;
   tool: string;
   summary: string;
+  /** The query or code, whole (run_query, explain, execute); null for the
+   *  other tools, older calls or past 64 KB. */
+  code: string | null;
   ok: boolean;
   rows: number | null;
   error: string | null;
+}
+
+/** A client's calls with no pause longer than 30 minutes (src-tauri mcp::activity::Session). */
+export interface McpSession {
+  client: string;
+  first_id: number;
+  last_id: number;
+  start: string;
+  end: string;
+  connections: string[];
+  calls: number;
+  reads: number;
+  writes: number;
+  rejected: number;
+  errors: number;
 }
 
 export const mcpApi = {
@@ -51,6 +71,11 @@ export const mcpApi = {
   revokeClient: (id: string) => invoke<void>('mcp_revoke_client', { args: { id } }),
   activity: (client: string | null, connection: string | null, limit = 200) =>
     invoke<McpActivity[]>('mcp_activity', { args: { client, connection, limit } }),
+  sessions: (client: string | null, connection: string | null, limit = 50) =>
+    invoke<McpSession[]>('mcp_sessions', { args: { client, connection, limit } }),
+  /** A session's calls, oldest first. */
+  sessionCalls: (s: McpSession) =>
+    invoke<McpActivity[]>('mcp_session_calls', { args: { client: s.client, firstId: s.first_id, lastId: s.last_id } }),
   pendingApprovals: () => invoke<McpApprovalRequest[]>('mcp_pending_approvals'),
   answerApproval: (id: string, decision: McpDecision) => invoke<void>('mcp_answer_approval', { args: { id, decision } }),
   /** Ask again before each write (or read) of this client; without `kind`, both. */

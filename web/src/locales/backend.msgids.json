@@ -2334,6 +2334,19 @@
  "Antes de 19c, los jobs de DBMS_JOB están aparte del Scheduler: se crean, cambian y borran con DBMS_JOB, y solo los del propio usuario.": [
   "crates/drivers/oracle/src/scheduler/mod.rs"
  ],
+ "Anthropic": [
+  "crates/dbine-ai/src/api.rs",
+  "crates/dbine-ai/src/lib.rs"
+ ],
+ "Anthropic: el modelo declinó responder esta solicitud": [
+  "crates/dbine-ai/src/anthropic.rs"
+ ],
+ "Anthropic: el modelo declinó responder esta solicitud ({0})": [
+  "crates/dbine-ai/src/anthropic.rs"
+ ],
+ "Anthropic: se cortó la respuesta ({0})": [
+  "crates/dbine-ai/src/anthropic.rs"
+ ],
  "Anual": [
   "crates/drivers/elasticsearch/src/scheduler/watch.rs",
   "crates/drivers/oracle/src/scheduler/timing.rs",
@@ -7772,6 +7785,9 @@
  ],
  "Compatibilidad": [
   "crates/drivers/sqlserver/src/monitor.rs"
+ ],
+ "Compatible con OpenAI": [
+  "crates/dbine-ai/src/lib.rs"
  ],
  "Compilaciones": [
   "crates/drivers/sqlserver/src/monitor.rs"
@@ -20526,6 +20542,7 @@
   "src-tauri/src/commands/datagen.rs"
  ],
  "Google": [
+  "crates/dbine-ai/src/api.rs",
   "crates/drivers/bigquery/src/gcp.rs",
   "crates/drivers/postgres/src/cloud_auth.rs"
  ],
@@ -23656,6 +23673,12 @@
  ],
  "La clave foránea hacia «{0}» no se convierte en relación: las propiedades ({1}) quedan con sus valores y la relación se puede crear después con MATCH … CREATE.": [
   "crates/dbine-schema/src/dialect/graph.rs"
+ ],
+ "La clave funciona: hay {0} modelo(s) disponibles": [
+  "crates/dbine-ai/src/api.rs"
+ ],
+ "La clave funciona: la implementación {0} responde": [
+  "crates/dbine-ai/src/api.rs"
  ],
  "La clave necesita un nombre.": [
   "crates/drivers/etcd/src/ddl.rs"
@@ -27808,6 +27831,9 @@
   "crates/drivers/sqlserver/src/backup.rs",
   "crates/drivers/sqlserver/src/create_db.rs",
   "crates/drivers/sqlserver/src/properties.rs"
+ ],
+ "Modelo escrito a mano": [
+  "crates/dbine-ai/src/api.rs"
  ],
  "Modelo semántico": [
   "crates/drivers/powerbi/src/lib.rs",
@@ -48778,6 +48804,9 @@
  "clave foránea": [
   "crates/dbine-transfer/src/clone_table.rs"
  ],
+ "clave guardada · lo cobra tu cuenta de {0}": [
+  "crates/dbine-ai/src/api.rs"
+ ],
  "clave nula en {0}": [
   "crates/drivers/dsql/src/transfer.rs"
  ],
@@ -49038,6 +49067,12 @@
  ],
  "configuración: «{0}» no tiene la forma nombre = valor": [
   "crates/drivers/clickhouse/src/properties.rs"
+ ],
+ "configurado · las preguntas van a ese servidor": [
+  "crates/dbine-ai/src/api.rs"
+ ],
+ "configurá tu clave de API de {0} en el asistente": [
+  "crates/dbine-ai/src/api.rs"
  ],
  "consulta": [
   "crates/drivers/cassandra/src/monitor.rs",
@@ -51658,6 +51693,9 @@
  "elegí un modelo de Ollama": [
   "crates/dbine-ai/src/ollama.rs"
  ],
+ "elegí un modelo de {0}": [
+  "crates/dbine-ai/src/api.rs"
+ ],
  "elegí un modelo integrado": [
   "crates/dbine-ai/src/embedded.rs"
  ],
@@ -52171,6 +52209,12 @@
  ],
  "escribí el scope con su bucket, «bucket.scope» (por ejemplo «mibucket.{0}»)": [
   "crates/drivers/couchbase/src/ddl.rs"
+ ],
+ "escribí la URL de {0}": [
+  "src-tauri/src/commands/ai.rs"
+ ],
+ "escribí la URL de {0} en el asistente": [
+  "crates/dbine-ai/src/api.rs"
  ],
  "escribí la consulta de {0}": [
   "src-tauri/src/commands/data_compare_query.rs"
@@ -53434,6 +53478,9 @@
   "src-tauri/src/commands/library_git.rs",
   "src-tauri/src/commands/projects.rs"
  ],
+ "falta la URL del servidor": [
+  "crates/dbine-ai/src/api.rs"
+ ],
  "falta la base": [
   "crates/drivers/clickhouse/src/backup.rs",
   "crates/drivers/snowflake/src/backup.rs"
@@ -53471,6 +53518,9 @@
  ],
  "falta la clave de API de Conjur: escribila en el formulario": [
   "src-tauri/src/secret_sources/cyberark.rs"
+ ],
+ "falta la clave de API en este equipo": [
+  "crates/dbine-ai/src/api.rs"
  ],
  "falta la clave del secreto de Vault (password)": [
   "crates/dbine-core/src/secret_sources.rs"
@@ -54711,6 +54761,9 @@
  ],
  "la clave foránea {0} de {1} quedó verificada, pero no se le pudo quitar la marca {2} ({3})": [
   "crates/drivers/sqlserver/src/delta.rs"
+ ],
+ "la clave funciona, pero no hay modelos: escribí uno": [
+  "crates/dbine-ai/src/api.rs"
  ],
  "la clave primaria": [
   "crates/dbine-schema/src/dialect/mssql.rs",
@@ -58380,6 +58433,9 @@
  "no se pudo leer la lista de consultas del coordinador (/v1/query): {0}": [
   "crates/drivers/trino/src/profiler.rs"
  ],
+ "no se pudo leer la lista de modelos ({0}); usa {1}": [
+  "crates/dbine-ai/src/api.rs"
+ ],
  "no se pudo leer la lista de procesos": [
   "crates/drivers/mysql/src/processes.rs"
  ],
@@ -58502,6 +58558,9 @@
  ],
  "no se pudo preparar el índice local «{0}» del clon con los nombres de sus particiones; no se clona": [
   "crates/dbine-transfer/src/clone_table/oracle.rs"
+ ],
+ "no se pudo preparar la base de ejemplo {0}: {1}": [
+  "src-tauri/src/samples.rs"
  ],
  "no se pudo preparar la carpeta temporal: {0}": [
   "src-tauri/src/notebook/remote.rs"
@@ -60390,6 +60449,9 @@
  ],
  "sin conexión al origen": [
   "crates/drivers/sqlserver/src/clone.rs"
+ ],
+ "sin configurar: pegá tu clave de API": [
+  "crates/dbine-ai/src/api.rs"
  ],
  "sin contraseña": [
   "crates/drivers/mysql/src/security/doris.rs"
@@ -62722,6 +62784,12 @@
  "{0} no renombra índices": [
   "crates/drivers/sqlserver/src/rename.rs"
  ],
+ "{0} no responde en {1} ({2})": [
+  "crates/dbine-ai/src/api.rs"
+ ],
+ "{0} no respondió a tiempo": [
+  "crates/dbine-ai/src/api.rs"
+ ],
  "{0} no respondió a {1}: {2}": [
   "crates/drivers/mongodb/src/monitor.rs"
  ],
@@ -62909,6 +62977,9 @@
  ],
  "{0} no tiene índices únicos: la unicidad solo la da la clave de la tabla.": [
   "crates/dbine-schema/src/dialect/starrocks.rs"
+ ],
+ "{0} no usa una clave de API": [
+  "src-tauri/src/commands/ai.rs"
  ],
  "{0} no vuelve a crear «{1}» desde DBine: lo que nombra lo renombrado solo se lista, porque recrearlo le cambiaría el dueño, los permisos o los datos; corregilo a mano": [
   "src-tauri/src/commands/rename.rs"
@@ -63757,6 +63828,9 @@
  "{0}: la clase de la que hereda (EXTENDS) cambia; no se modifica sola, revisala a mano.": [
   "crates/drivers/orientdb/src/sync.rs"
  ],
+ "{0}: la clave de API no es válida o no tiene permiso para esto (HTTP {1})": [
+  "crates/dbine-ai/src/api.rs"
+ ],
  "{0}: la clave foránea [{1}] apunta a {2}.{3}, que no se clona; no se crea": [
   "crates/drivers/sqlserver/src/clone.rs"
  ],
@@ -64082,6 +64156,7 @@
   "crates/drivers/iotdb/src/create_db.rs",
   "crates/drivers/mysql/src/create_db.rs",
   "crates/drivers/neo4j/src/create_db.rs",
+  "crates/drivers/neo4j/src/ddl.rs",
   "crates/drivers/neo4j/src/properties.rs",
   "crates/drivers/odbc/src/create_db.rs",
   "crates/drivers/odbc/src/properties.rs",

@@ -14,7 +14,8 @@ import { tb } from '../i18n/backend';
 import { rt } from '../composables/i18nLabels';
 import { connectingFrom } from './liveConnection';
 import { useOutputStore } from './output';
-import { trackConnectionOpened } from '../composables/telemetry';
+import { trackConnectionOpened, trackFeature } from '../composables/telemetry';
+import { isSampleConnection } from '../composables/sampleDatabases';
 import { savedMigrationsApi, type SavedMigration } from '../api/savedMigrations';
 import { lookupConnection } from '../composables/lineageSource';
 import { contextsApi, type SavedContext } from '../api/contexts';
@@ -445,6 +446,8 @@ export const useConnectionsStore = defineStore('connections', {
         for (const k of Object.keys(this.permissions)) if (k.startsWith(`${id}\u0000`)) delete this.permissions[k];
         useOutputStore().add('info', t('core:connections.connected', { version: r.server_version }), { where: conn.name });
         trackConnectionOpened(conn.config.driver);
+        // The sample databases, apart: whether trying them comes before a connection of one's own.
+        if (isSampleConnection(id)) trackFeature('sample_opened');
         return true;
       } catch (e) {
         if ((generation.get(id) ?? 0) !== gen) return false;

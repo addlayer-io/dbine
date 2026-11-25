@@ -116,5 +116,29 @@
     "vscode": "在终端中运行（Copilot 在代理模式下使用）。",
     "windsurf": "粘贴到 ~/.codeium/windsurf/mcp_config.json。",
     "chatgpt": "ChatGPT 无法连接：它从 OpenAI 的服务器调用 MCP 服务器，需要公网 URL，而 DBine 的服务器出于设计只在这台电脑上监听。要使用 OpenAI 模型，请使用 Codex。"
+  },
+  "sessions": {
+    "title": "智能体会话",
+    "help": "同一客户端连续的调用（间隔不超过 30 分钟）构成一个会话。将其作为笔记本打开，即可查看智能体做了什么并从那里继续：它的查询会成为所用连接上的 SQL 单元格，它的写入会成为文本，因此不会再次执行。",
+    "none": "还没有会话",
+    "connections": "连接",
+    "what": "做了什么",
+    "open": "作为笔记本打开",
+    "callsTitle": "所有调用",
+    "calls_other": "{{count}} 次调用",
+    "reads_other": "{{count}} 次读取",
+    "writes_other": "{{count}} 次写入",
+    "rejected_other": "{{count}} 次被拒绝",
+    "errors_other": "{{count}} 个错误",
+    "nbTitle": "{{client}} 的会话，{{when}}",
+    "nbConnections": "连接：{{names}}",
+    "nbExplored": "已查看：",
+    "nbPlan": "请求了此查询的执行计划：",
+    "nbWrote": "智能体执行了这次写入，批准时间 {{at}}：",
+    "nbWroteRows_other": "智能体执行了这次写入，批准时间 {{at}}（影响 {{count}} 行）：",
+    "nbRejected": "在 DBine 中被拒绝：未执行。",
+    "nbTimeout": "DBine 中无响应：未执行。",
+    "nbFailed": "失败：{{error}}",
+    "nbNotKept": "查询过长，无法完整保存：{{summary}}"
   }
 }
