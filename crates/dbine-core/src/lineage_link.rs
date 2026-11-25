@@ -490,6 +490,33 @@ fn match_with(key: &SourceKey, conns: &[SavedConnection], machine: &HashSet<Stri
 
 // -- creating a connection from a source --------------------------------------
 
+/// The network server engines (by driver id) a lineage may create a connection for besides the
+/// families it maps itself. Anything else (file engines, cloud services with ambient
+/// credentials, unknown ids) is not followed by the lineage: the user adds those by hand.
+const SERVER_ENGINES: &[&str] = &[
+    "cassandra",
+    "clickhouse",
+    "couchbase",
+    "couchdb",
+    "dremio",
+    "drill",
+    "elasticsearch",
+    "etcd",
+    "hana",
+    "influxdb",
+    "iotdb",
+    "kdb",
+    "ksqldb",
+    "mongodb",
+    "neo4j",
+    "orientdb",
+    "phoenix",
+    "redis",
+    "solr",
+    "tdengine",
+    "trino",
+];
+
 /// A connection's config prefilled from a source, to create it from "Crear
 /// conexión desde la fuente…": the engine, host, port and database; no
 /// credentials. `None` when the source is not a server.
@@ -503,6 +530,15 @@ pub fn new_connection_from_source(ext: &ExternalRef) -> Option<ConnectionConfig>
         .as_deref()
         .map(|d| unquote(d).to_string())
         .unwrap_or_default();
+    // The source is metadata somebody else wrote: a database that is a path (a UNC share, a
+    // file, `..`) is never a database name.
+    if database.contains(['/', '\\']) || database.contains("..") {
+        return None;
+    }
+    let raw = server.trim_matches(|c| c == '"' || c == '\'').trim_start();
+    if raw.starts_with("\\\\") || raw.starts_with("//") || p.instance.contains(['/', '\\']) {
+        return None;
+    }
     let mut cfg = ConnectionConfig {
         // A connection made to follow a lineage only reads: never a write nobody asked for.
         read_only: true,
@@ -578,8 +614,12 @@ pub fn new_connection_from_source(ext: &ExternalRef) -> Option<ConnectionConfig>
             cfg.options.insert("account".into(), key.host.clone());
             cfg.database = database;
         }
-        // Another engine: DBine has a driver of that id or it doesn't.
+        // Another network server engine; never a file engine (Access, dBase, SQLite, DuckDB,
+        // ODBC…: their "host" or "database" is a path, and following would read it).
         other => {
+            if !SERVER_ENGINES.contains(&other) {
+                return None;
+            }
             cfg.driver = other.to_string();
             cfg.host = p.host.clone();
             if let Some(port) = p.port {
@@ -1202,6 +1242,54 @@ mod tests {
         }
         let s = StateStore::open(&path).unwrap();
         assert_eq!(s.lineage_link_get("x").unwrap(), None);
+    }
+
+    /// Lineage metadata is written by others: a file engine, a UNC path or an unknown engine is
+    /// never turned into a connection.
+    #[test]
+    fn a_source_that_reads_a_file_or_a_path_is_not_followed() {
+        for system in [
+            "Access", "dBase", "SQLite", "DuckDB", "ODBC", "libsql", "firebird", "nope",
+        ] {
+            assert!(
+                new_connection_from_source(&ext(system, "srv.corp.com", Some("x"))).is_none(),
+                "{system}"
+            );
+        }
+        for server in [r"\\evil\share", "//evil/share", r"\\evil\share\a.accdb"] {
+            for system in ["Access", "SQL Server", "ClickHouse", "PostgreSQL"] {
+                assert!(
+                    new_connection_from_source(&ext(system, server, Some("x"))).is_none(),
+                    "{system} {server}"
+                );
+            }
+        }
+        for db in [
+            r"\\evil\share\a.accdb",
+            "//evil/share/a",
+            r"C:\x\a.db",
+            "../../etc/x",
+            "a/b",
+        ] {
+            for system in [
+                "SQL Server",
+                "PostgreSQL",
+                "MySQL",
+                "Oracle",
+                "ClickHouse",
+                "Databricks",
+            ] {
+                assert!(
+                    new_connection_from_source(&ext(system, "srv.corp.com", Some(db))).is_none(),
+                    "{system} {db}"
+                );
+            }
+        }
+        // A server engine the lineage knows still resolves.
+        for system in ["ClickHouse", "Redis", "MongoDB"] {
+            let c = new_connection_from_source(&ext(system, "srv.corp.com", Some("x"))).unwrap();
+            assert_eq!(c.driver, system.to_lowercase());
+        }
     }
 
     /// A connection made from a source only reads, whatever the engine: nothing asked for a write.
