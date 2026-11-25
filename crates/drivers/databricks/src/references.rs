@@ -24,9 +24,9 @@ use crate::catalog_api::HIVE_METASTORE;
 use crate::health::escape;
 use crate::DatabricksSession;
 use dbine_driver::dependencies::{
-    references_scan, used_names, used_objects, Confidence, DependencyReport, DependencyScan,
-    DependencyTarget, Dependent, ExternalRef, Mention, Relation, UsedName, LINE_CHARS, LOOKUP_CAP,
-    MAX_MENTIONS,
+    foreign_key_parents, references_scan, used_names, used_objects, Confidence, DependencyReport,
+    DependencyScan, DependencyTarget, Dependent, ExternalRef, Mention, Relation, UsedName,
+    LINE_CHARS, LOOKUP_CAP, MAX_MENTIONS,
 };
 use dbine_driver::{kinds, DbObject, Error, ObjectQuery, Result, Session};
 use serde_json::Value as Json;
@@ -320,8 +320,11 @@ impl DatabricksSession {
         } else {
             // A table: its foreign keys (on the warehouse). Lineage doesn't
             // need it: a failure only leaves the keys out.
-            match references_scan(self, target, scan).await {
-                Ok(r) => r,
+            match crate::index_usage::foreign_keys_read(self, &t).await {
+                Ok(fks) => DependencyReport {
+                    items: foreign_key_parents(&fks, &t),
+                    ..Default::default()
+                },
                 Err(e) => {
                     tracing::debug!("databricks foreign keys of {}: {e}", t.name);
                     DependencyReport {
@@ -879,6 +882,7 @@ mod tests {
                 kinds::FUNCTION.into(),
             ],
             has_schemas: true,
+            databases: None,
         }
     }
 

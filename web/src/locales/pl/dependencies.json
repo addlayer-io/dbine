@@ -53,7 +53,13 @@
     "calculation_group": "Grupa obliczeń",
     "role": "Rola",
     "expression": "Wyrażenie",
-    "model": "Model semantyczny"
+    "model": "Model semantyczny",
+    "notebook": "Notebook",
+    "pipeline": "Pipeline",
+    "query": "Zapytanie",
+    "report": "Raport",
+    "dashboard": "Pulpit",
+    "file": "Plik"
   },
   "view": {
     "label": "Widok",
@@ -90,6 +96,8 @@
     },
     "search": "Filtruj według nazwy",
     "kinds": "Typy",
+    "allTypes": "Wszystkie",
+    "typesCount": "Typy: {{shown}} z {{total}}",
     "onlyConfirmed": "Tylko potwierdzone",
     "onlyConnected": "Tylko z zależnościami",
     "expandAll": "Rozwiń wszystko",
@@ -108,7 +116,18 @@
     "relationsTip": "Klucze obce (i relacje modelu) biegną równolegle do lineage: włącz je, aby zobaczyć je obok niego.",
     "updated": "Zaktualizowano {{ago}}",
     "updating": "aktualizowanie…",
-    "refreshFailed": "Nie można zaktualizować: {{error}}. Wyświetlane są ostatnio zapisane dane."
+    "refreshFailed": "Nie można zaktualizować: {{error}}. Wyświetlane są ostatnio zapisane dane.",
+    "partial": {
+      "title": "Częściowy lineage:",
+      "stage": {
+        "structure": "odczyt tabel i źródeł…",
+        "dependencies": "odczyt zależności miar i kolumn {{done}}/{{total}}",
+        "consumers": "odczyt raportów i pulpitów…"
+      },
+      "failed": "nie można odczytać obiektów: {{count}}.",
+      "complete": "Dokończ",
+      "retry": "Ponów {{from}}–{{to}}"
+    }
   },
   "cross": {
     "switch": "Uwzględnij inne połączenia",

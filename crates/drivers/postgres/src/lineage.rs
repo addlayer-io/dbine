@@ -85,7 +85,7 @@ fn user_and_used(r: &SimpleQueryRow) -> Option<(ObjectRef, Dependent)> {
 }
 
 /// What a table's `pg_attrdef` row says, as the object lineage reads it.
-fn default_text(c: Catalog) -> String {
+pub(crate) fn default_text(c: Catalog) -> String {
     let expr = "pg_get_expr(d.adbin, d.adrelid)";
     if c.generated() {
         format!(
@@ -792,6 +792,7 @@ impl PgSession {
         };
         g.job_notes.extend(list.notes);
         let total = list.jobs.len();
+        let scan = &dbine_driver::dependencies::with_databases(self, scan).await;
         for job in list.jobs.into_iter().take(JOBS_READ) {
             let r = match Session::job_references(self, database, &job.id, scan).await {
                 Ok(r) => r,
@@ -933,6 +934,7 @@ mod tests {
             foreign_keys: true,
             written_kinds: vec!["view".into(), "function".into()],
             has_schemas: true,
+            databases: None,
         };
         let objects = [
             object("table", "ventas", "pedidos"),

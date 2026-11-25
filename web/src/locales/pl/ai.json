@@ -157,5 +157,23 @@
     "settingsNav": "Asystent AI",
     "globalHelp": "Te instrukcje obowiązują we wszystkich rozmowach asystenta, w każdym połączeniu. Dla tego, co dotyczy jednego połączenia lub bazy, użyj węzła Konteksty w eksploratorze.",
     "globalPlaceholder": "Na przykład: odpowiadaj w markdown i podawaj zakres dat każdej analizy."
+  },
+  "fix": {
+    "button": "Analizuj z AI",
+    "tip": "Pyta AI, dlaczego zapytanie się nie powiodło. Wysyła zapytanie, błąd i strukturę bazy danych; nigdy wierszy. Uruchamia się tylko po kliknięciu.",
+    "running": "{{model}} analizuje… {{seconds}} s",
+    "remote": "Wysyłane do {{provider}}: zapytanie, błąd i struktura bazy danych. Nigdy wiersze.",
+    "cancel": "Anuluj",
+    "noProvider": "AI nie jest jeszcze skonfigurowane. Wybierz model w panelu asystenta.",
+    "openSetup": "Skonfiguruj AI",
+    "proposed": "Zmiana zaproponowana w edytorze: zaakceptuj lub odrzuć każdą zmianę. Nic nie zostało wykonane.",
+    "stale": "Tekst w edytorze zmienił się od czasu wykonania zapytania, więc zmiana nie jest proponowana.",
+    "noChange": "AI nie proponuje zmian w zapytaniu.",
+    "noCode": "Odpowiedź nie zawiera poprawionego zapytania.",
+    "dropped": "Propozycję odrzucono, ponieważ tekst został zmieniony.",
+    "resolved": "Propozycja rozstrzygnięta.",
+    "cancelled": "Anulowano: nic nie zmieniono.",
+    "again": "Analizuj ponownie",
+    "failed": "Nie można przeanalizować: {{error}}"
   }
 }

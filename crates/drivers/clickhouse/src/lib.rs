@@ -9,6 +9,7 @@
 
 mod backup;
 mod create_db;
+mod dependents;
 mod functions;
 mod health;
 mod index_usage;
@@ -1685,6 +1686,16 @@ impl Session for ClickHouseSession {
         table: &ObjectRef,
     ) -> Result<Option<dbine_driver::IndexUsageReport>> {
         index_usage::report(self, table).await.map(Some)
+    }
+
+    /// What depends on the object, from `system.tables` filtered by it (see
+    /// `dependents`).
+    async fn dependents(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        self.dependents_of(target, scan).await
     }
 
     /// What the object uses, from `system.tables` (see [`references`]).

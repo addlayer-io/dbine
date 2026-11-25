@@ -157,6 +157,7 @@ async fn catalog_features() {
                 foreign_keys: true,
                 written_kinds: vec![],
                 has_schemas: false,
+                databases: None,
             },
         )
         .await

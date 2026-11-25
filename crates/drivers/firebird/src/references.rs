@@ -31,7 +31,7 @@ use dbine_driver::{
     Error, ForeignKeyDef, ObjectQuery, ObjectRef, Relation, Result, Session,
 };
 
-type Rows = Vec<Vec<Option<String>>>;
+pub(crate) type Rows = Vec<Vec<Option<String>>>;
 
 /// The depended-on objects of the target, once each: type, name, package
 /// (of a packaged routine) and, for a relation, 0 table / 1 view (-1: not
@@ -99,11 +99,11 @@ pub(crate) fn kind_of(dep_type: i64, packaged: bool, relation: i64) -> Option<&'
 }
 
 /// Firebird's own objects, and the domains it makes up for columns.
-fn system(name: &str) -> bool {
+pub(crate) fn system(name: &str) -> bool {
     ["RDB$", "MON$", "SEC$"].iter().any(|p| name.starts_with(p))
 }
 
-fn cell(r: &[Option<String>], i: usize) -> Option<String> {
+pub(crate) fn cell(r: &[Option<String>], i: usize) -> Option<String> {
     r.get(i)
         .cloned()
         .flatten()
@@ -111,7 +111,7 @@ fn cell(r: &[Option<String>], i: usize) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn number(r: &[Option<String>], i: usize) -> Option<i64> {
+pub(crate) fn number(r: &[Option<String>], i: usize) -> Option<i64> {
     cell(r, i)?.parse().ok()
 }
 

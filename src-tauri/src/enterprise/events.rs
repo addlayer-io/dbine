@@ -20,6 +20,7 @@ fn changes_catalog(kind: &str) -> bool {
         "catalog.changed"
             | "grant.added"
             | "grant.revoked"
+            | "access.narrowed"
             | "request.approved"
             | "request.rejected"
             | "request.expired"
@@ -112,6 +113,17 @@ async fn listen(e: &Arc<Enterprise>) -> Result<(), String> {
                     if kind_ends_access(&kind) {
                         e.end_access(Why::Revoked).await;
                         return Ok(());
+                    }
+                    // The person lost part of the access: only that goes, now.
+                    if kind == "access.narrowed" {
+                        let losses = super::purge::losses_from_event(&v["data"]);
+                        if !losses.is_empty() {
+                            let state = crate::state::app_state();
+                            let gone =
+                                super::purge::apply_losses(&e.store, state.as_ref(), &losses)
+                                    .await;
+                            let _ = e.app.emit("enterprise-narrowed", gone);
+                        }
                     }
                     if changes_catalog(&kind) {
                         let _ = e.sync().await;

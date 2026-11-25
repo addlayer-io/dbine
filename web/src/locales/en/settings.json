@@ -34,6 +34,8 @@
     "lineagePrecompute": "Precompute lineage when connecting",
     "lineageModelTimeout": "Lineage: maximum wait per model (seconds)",
     "lineageModelTimeoutHelp": "How long to wait for a Power BI model to be read before giving up on it. Raise it if you have very large models.",
+    "lineageOpenTimeout": "Lineage: maximum wait when opening an object or model (seconds)",
+    "lineageOpenTimeoutHelp": "How long to wait when opening the lineage or dependencies of an object, database or model. Raise it if the server is slow with very large models or databases.",
     "lineageSearchBudget": "Lineage: maximum duration of a search (seconds)",
     "lineageSearchBudgetHelp": "The longest a search across other connections can run. What was already read is kept, and the next search continues from there.",
     "lineagePrecomputeHelp": "Reads each database's lineage in the background after connecting, so it opens at once. Only structure is saved, no data.",

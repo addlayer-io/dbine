@@ -68,7 +68,7 @@ impl Catalog {
 /// The target's routines (every overload of the name), as `tgt`. `schema`
 /// and `name` are literals; an empty schema is whatever the search path
 /// finds.
-fn routine_target(c: Catalog, kind: &str, schema: &str, name: &str) -> String {
+pub(crate) fn routine_target(c: Catalog, kind: &str, schema: &str, name: &str) -> String {
     let prokind = match (c.prokind(), kind) {
         (true, kinds::PROCEDURE) => " AND p.prokind = 'p'",
         (true, _) => " AND p.prokind <> 'p'",

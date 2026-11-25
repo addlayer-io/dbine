@@ -12,6 +12,7 @@ import { openExternalLink } from '../composables/externalLink';
 import { loginReady, planForSource } from '../composables/lineageSource';
 import { useConnectionsStore } from '../stores/connections';
 import EngineIcon from './EngineIcon.vue';
+import LinkText from './LinkText.vue';
 
 const props = defineProps<{
   /** The connection whose lineage shows the card. */
@@ -169,7 +170,7 @@ async function connect() {
     <template v-if="consumer">
       <div class="ls-dim">{{ $t('dependencies:cross.reader') }}</div>
       <el-button v-if="link" size="small" @click="openExternalLink(link)">{{ $t('dependencies:cross.openLink') }}</el-button>
-      <div v-if="source.detail && !link" class="ls-dim">{{ source.detail }}</div>
+      <div v-if="source.detail && !link" class="ls-dim"><LinkText :text="source.detail" /></div>
     </template>
     <template v-else>
       <div v-if="loading" class="ls-dim"><el-icon class="is-loading"><ei-loading /></el-icon> {{ $t('dependencies:cross.resolving') }}</div>
@@ -214,6 +215,8 @@ async function connect() {
         </template>
         <template v-else>
           <div class="ls-dim">{{ $t('dependencies:cross.noServer') }}</div>
+          <!-- What ran it (a Databricks job, notebook…): its page in the workspace. -->
+          <div v-if="link" class="ls-link"><LinkText :text="link" /></div>
         </template>
         <div v-if="failed" class="ls-err">{{ failed }}</div>
       </template>
@@ -223,6 +226,7 @@ async function connect() {
 
 <style scoped>
 .ls { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; font-size: 12px; }
+.ls-link { font-family: var(--nm-mono); font-size: 11.5px; }
 .ls-dim { color: var(--nm-text-dim); }
 .ls-conn { display: flex; align-items: center; gap: 6px; color: var(--nm-text-strong); }
 .ls-actions { display: flex; gap: 6px; flex-wrap: wrap; }

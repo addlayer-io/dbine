@@ -133,3 +133,4 @@ backend:Pulsar
 backend:Redpanda
 backend:Snowflake stage
 backend:Timeplus
+backend:no more {0} sessions for {1}/{2}: {3}

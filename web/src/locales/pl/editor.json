@@ -57,5 +57,12 @@
     "planTip": "Szacowany plan wykonania tej instrukcji, bez jej uruchamiania"
   },
   "functionOverloads_few": "+{{count}} przeciążenia",
-  "functionOverloads_many": "+{{count}} przeciążeń"
+  "functionOverloads_many": "+{{count}} przeciążeń",
+  "proposal": {
+    "title": "Zmiany zaproponowane przez AI: nie są stosowane, dopóki ich nie zaakceptujesz",
+    "accept": "Zaakceptuj",
+    "reject": "Odrzuć",
+    "acceptAll": "Zaakceptuj wszystko",
+    "rejectAll": "Odrzuć wszystko"
+  }
 }

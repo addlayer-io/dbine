@@ -6,6 +6,7 @@
 //! Firebird connection is one database file, so there's a single namespace.
 
 mod create_db;
+mod dependents;
 mod functions;
 mod health;
 mod index_usage;
@@ -1214,6 +1215,15 @@ impl Session for FirebirdSession {
         Ok(Some(index_usage::report(
             tables.iter().find(|t| t.name == table.name),
         )))
+    }
+
+    /// From `RDB$DEPENDENCIES` filtered by the target (see `dependents`).
+    async fn dependents(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        dependents::dependents(self, target, scan).await
     }
 
     /// From `RDB$DEPENDENCIES` and the foreign keys (see `references`).

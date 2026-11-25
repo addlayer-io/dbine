@@ -53,7 +53,13 @@
     "calculation_group": "Berechnungsgruppe",
     "role": "Rolle",
     "expression": "Ausdruck",
-    "model": "Semantikmodell"
+    "model": "Semantikmodell",
+    "notebook": "Notebook",
+    "pipeline": "Pipeline",
+    "query": "Abfrage",
+    "report": "Bericht",
+    "dashboard": "Dashboard",
+    "file": "Datei"
   },
   "view": {
     "label": "Ansicht",
@@ -90,6 +96,8 @@
     },
     "search": "Nach Namen filtern",
     "kinds": "Typen",
+    "allTypes": "Alle",
+    "typesCount": "Typen: {{shown}} von {{total}}",
     "onlyConfirmed": "Nur bestätigte",
     "onlyConnected": "Nur mit Abhängigkeiten",
     "expandAll": "Alle erweitern",
@@ -108,7 +116,18 @@
     "relationsTip": "Fremdschlüssel (und die Beziehungen eines Modells) verlaufen parallel zum Lineage: Aktivieren Sie sie, um sie daneben zu sehen.",
     "updated": "Aktualisiert {{ago}}",
     "updating": "wird aktualisiert…",
-    "refreshFailed": "Aktualisierung fehlgeschlagen: {{error}}. Es wird der zuletzt gespeicherte Stand angezeigt."
+    "refreshFailed": "Aktualisierung fehlgeschlagen: {{error}}. Es wird der zuletzt gespeicherte Stand angezeigt.",
+    "partial": {
+      "title": "Teilweises Lineage:",
+      "stage": {
+        "structure": "Tabellen und Quellen werden gelesen…",
+        "dependencies": "Abhängigkeiten von Measures und Spalten werden gelesen {{done}}/{{total}}",
+        "consumers": "Berichte und Dashboards werden gelesen…"
+      },
+      "failed": "{{count}} Objekte konnten nicht gelesen werden.",
+      "complete": "Vervollständigen",
+      "retry": "Erneut versuchen {{from}}–{{to}}"
+    }
   },
   "cross": {
     "switch": "Andere Verbindungen einbeziehen",

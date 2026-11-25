@@ -10,17 +10,18 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vu
 import { useTranslation } from 'i18next-vue';
 import { api, errorMessage } from '../api/client';
 import { ElMessage } from 'element-plus';
-import type { LineageScope, SourceCandidate } from '../api/types';
+import type { LineageScope, LineageStep, SourceCandidate } from '../api/types';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
 import { useTabsStore } from '../stores/tabs';
 import { KIND_ICONS } from '../composables/kindIcons';
 import { ageParts } from '../composables/relativeAge';
-import { openLineage } from '../composables/lineageOpen';
+import { openLineage, panelCalls } from '../composables/lineageOpen';
+import { failedObjects, isPartial, retryChunk, runChunks } from '../composables/lineageChunks';
 import type { LineageGraph } from '../api/types';
 import { readerKind, type LineageNode } from '../composables/lineage';
 import {
-  OVERVIEW_ABOVE, applyFilters, buildModel, buildView, groupOf, hasCatalogLineage, isRelation, kindsOf, layoutDb, noFilters, objectCount, schemaId, schemasOf,
+  OVERVIEW_ABOVE, applyFilters, buildModel, buildView, groupOf, hasCatalogLineage, isRelation, typesOf, checkedTypes, hiddenFor, isLastChecked, typesCount, layoutDb, noFilters, objectCount, schemaId, schemasOf,
   type DbModel, type Filters,
 } from '../composables/databaseLineage';
 import LineageCanvas from './LineageCanvas.vue';
@@ -70,21 +71,100 @@ const updatedText = computed(() => {
   return t('dependencies:database.updated', { ago: t(`dependencies:age.${unit}`, { n }) });
 });
 
-let run = 0;
-/** `force` (the "Actualizar" button) skips the cache and keeps the drawn graph while the server answers. */
-async function load(force = false) {
+// A big model (Power BI) is read in chunks, each its own short call, and the diagram fills in as they
+// come (laid out again at each stage, not at each chunk); the cache holds what was read so far.
+const CHUNKED = new Set(['powerbi']);
+const chunked = computed(() => CHUNKED.has(driver.value?.id ?? ''));
+/** A complete cached graph younger than this is shown as it is, not read again. */
+const FRESH_MS = 6 * 60 * 60 * 1000;
+const next = ref<LineageStep | null>(null);
+const failed = ref<LineageStep[]>([]);
+const retrying = ref(false);
+const partial = computed(() => isPartial({ next: next.value, failed: failed.value } as LineageGraph));
+const failedCount = computed(() => failedObjects({ failed: failed.value } as LineageGraph));
+const progressText = computed(() => {
+  const n = next.value;
+  if (!n) return '';
+  return t(`dependencies:database.partial.stage.${n.stage}`, { done: n.offset, total: n.total, defaultValue: n.stage });
+});
+const percent = computed(() => {
+  const n = next.value;
+  if (!n || n.stage === 'structure') return 0;
+  if (n.stage === 'consumers') return 95;
+  return Math.min(90, Math.round((n.offset / Math.max(n.total, 1)) * 90));
+});
+function track(g: LineageGraph) {
+  next.value = g.next ?? null;
+  failed.value = g.failed ?? [];
+}
+/** The graph so far drawn again, keeping what the user opened, selected or typed. */
+function refresh(g: LineageGraph) {
+  if (!model.value) return show(g);
+  model.value = buildModel(g);
+  phase.value = 'ready';
+}
+async function loadChunked(force: boolean) {
   const mine = ++run;
   const shown = force && !!model.value;
   if (!shown) phase.value = 'loading';
   refreshing.value = true;
   error.value = null;
   refreshError.value = null;
-  const scope = { ...props.scope, jobs: true };
-  await openLineage(
+  const calls = panelCalls(api, props.connectionId, props.database, props.scope);
+  await runChunks(
+    { cached: calls.cached, chunk: calls.chunk },
     {
-      cached: () => api.lineageGraphCached(props.connectionId, props.database, props.scope),
-      fetch: () => api.getLineageGraph(props.connectionId, props.database, scope),
+      cached: (g, at) => { show(g); track(g); updatedAt.value = at; },
+      progress: (g) => track(g),
+      stage: (g) => refresh(g),
+      done: (g) => {
+        track(g);
+        refresh(g);
+        if (!isPartial(g)) updatedAt.value = new Date().toISOString();
+        now.value = Date.now();
+      },
+      failed: (e, kept) => {
+        if (kept || model.value) refreshError.value = errorMessage(e);
+        else { error.value = errorMessage(e); phase.value = 'error'; }
+      },
     },
+    {
+      useCache: !force,
+      reuseComplete: (at) => !!at && Date.now() - Date.parse(at) < FRESH_MS,
+      cancelled: () => mine !== run,
+    },
+  );
+  if (mine === run) refreshing.value = false;
+}
+/** "Reintentar": just one chunk that was given up. */
+async function retryOne(step: LineageStep) {
+  if (retrying.value) return;
+  retrying.value = true;
+  try {
+    const { chunk } = panelCalls(api, props.connectionId, props.database, props.scope);
+    const g = await retryChunk({ cached: async () => ({ graph: null, updated_at: null }), chunk }, step);
+    track(g);
+    refresh(g);
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  } finally {
+    retrying.value = false;
+  }
+}
+
+let run = 0;
+/** `force` (the "Actualizar" button) skips the cache and keeps the drawn graph while the server answers. */
+async function load(force = false) {
+  if (chunked.value) return loadChunked(force);
+  const mine = ++run;
+  const shown = force && !!model.value;
+  if (!shown) phase.value = 'loading';
+  refreshing.value = true;
+  error.value = null;
+  refreshError.value = null;
+  const calls = panelCalls(api, props.connectionId, props.database, props.scope);
+  await openLineage(
+    { cached: calls.cached, fetch: calls.fetch },
     {
       cached: (g, at) => { if (mine === run) { show(g); updatedAt.value = at; } },
       fresh: (g) => {
@@ -122,7 +202,19 @@ watch(text, (v) => {
 });
 onBeforeUnmount(() => clearTimeout(timer));
 
-const kinds = computed(() => (model.value ? kindsOf(model.value.nodes.values()) : []));
+/** The types on the cards and how many of each (the "Tipos" list). */
+const types = computed(() => (model.value ? typesOf(model.value.nodes.values()) : []));
+const shownTypes = computed(() => checkedTypes(types.value, filters.value.hidden));
+/** The checked types: the others are hidden. At least one stays checked. */
+function showTypes(list: string[]) {
+  const hidden = hiddenFor(types.value, list);
+  if (hidden) filters.value = { ...filters.value, hidden };
+}
+const showAllTypes = () => { filters.value = { ...filters.value, hidden: [] }; };
+const typesLabel = computed(() => {
+  const n = typesCount(types.value, filters.value.hidden);
+  return n ? t('dependencies:database.typesCount', n) : t('dependencies:database.kinds');
+});
 const schemas = computed(() => (model.value ? schemasOf(model.value.nodes.values()) : []));
 const filtered = computed(() => (model.value ? applyFilters(model.value, filters.value) : { nodes: [], edges: [] }));
 const view = computed(() => buildView(filtered.value.nodes, filtered.value.edges, expanded.value));
@@ -201,7 +293,7 @@ const summary = computed(() => t('dependencies:database.summary', {
   objects: objects.value, lines: model.value?.edges.length ?? 0, scanned: model.value?.scanned ?? 0,
 }));
 const relationCount = computed(() => (model.value?.edges ?? []).filter(isRelation).length);
-const filtering = computed(() => !!(filters.value.kinds.length || filters.value.text || filters.value.onlyConfirmed || filters.value.onlyConnected));
+const filtering = computed(() => !!(filters.value.hidden.length || filters.value.text || filters.value.onlyConfirmed || filters.value.onlyConnected));
 </script>
 
 <template>
@@ -229,9 +321,21 @@ const filtering = computed(() => !!(filters.value.kinds.length || filters.value.
     <template v-else-if="model">
       <div class="dl-bar">
         <el-input v-model="text" size="small" clearable :placeholder="$t('dependencies:database.search')" style="width: 200px" />
-        <el-select v-model="filters.kinds" size="small" multiple collapse-tags collapse-tags-tooltip clearable :placeholder="$t('dependencies:database.kinds')" style="width: 190px">
-          <el-option v-for="k in kinds" :key="k" :value="k" :label="kindText(k)" />
-        </el-select>
+        <el-popover v-if="types.length > 1" placement="bottom-start" trigger="click" :width="250">
+          <template #reference>
+            <el-button size="small" :type="filters.hidden.length ? 'primary' : undefined" :plain="!!filters.hidden.length" data-test="lineage-types">
+              {{ typesLabel }}<el-icon class="el-icon--right"><ei-arrow-down /></el-icon>
+            </el-button>
+          </template>
+          <div class="dl-types">
+            <el-checkbox :model-value="!filters.hidden.length" :indeterminate="!!filters.hidden.length" @change="showAllTypes">{{ $t('dependencies:database.allTypes') }}</el-checkbox>
+            <el-checkbox-group :model-value="shownTypes" @update:model-value="(v: unknown) => showTypes(v as string[])">
+              <el-checkbox v-for="x in types" :key="x.type" :value="x.type" :disabled="isLastChecked(shownTypes, x.type)">
+                {{ kindText(x.type) }}<span class="dl-type-count">{{ x.count }}</span>
+              </el-checkbox>
+            </el-checkbox-group>
+          </div>
+        </el-popover>
         <el-checkbox v-model="filters.onlyConfirmed" size="small">{{ $t('dependencies:database.onlyConfirmed') }}</el-checkbox>
         <el-checkbox v-model="filters.onlyConnected" size="small">{{ $t('dependencies:database.onlyConnected') }}</el-checkbox>
         <el-tooltip :content="$t('dependencies:database.relationsTip')" placement="bottom" :show-after="300">
@@ -242,6 +346,16 @@ const filtering = computed(() => !!(filters.value.kinds.length || filters.value.
         <span class="dl-legend"><i class="dl-key dashed" />{{ $t('dependencies:confidence.probable') }}</span>
       </div>
       <p class="dl-note">{{ summary }}<template v-if="updatedText"> · {{ updatedText }}<template v-if="refreshing"> · {{ $t('dependencies:database.updating') }}</template></template></p>
+      <div v-if="partial" class="dl-note warn dl-partial">
+        <strong>{{ $t('dependencies:database.partial.title') }}</strong>
+        <span v-if="next">{{ progressText }}</span>
+        <span v-if="failedCount">{{ $t('dependencies:database.partial.failed', { count: failedCount }) }}</span>
+        <el-progress v-if="refreshing && next" :percentage="percent" :stroke-width="6" style="width: 160px" />
+        <el-button v-if="!refreshing" size="small" type="primary" @click="load()">{{ $t('dependencies:database.partial.complete') }}</el-button>
+        <el-button v-for="f in failed" :key="`${f.stage}@${f.offset}`" size="small" :loading="retrying" @click="retryOne(f)">
+          {{ $t('dependencies:database.partial.retry', { from: f.offset + 1, to: f.offset + f.len }) }}
+        </el-button>
+      </div>
       <p v-if="refreshError" class="dl-note dl-error">{{ $t('dependencies:database.refreshFailed', { error: refreshError }) }}</p>
       <p v-if="overview && !expanded.size" class="dl-note">{{ $t('dependencies:database.overview', { objects, schemas: schemas.length }) }}</p>
       <p v-if="model.truncated" class="dl-note warn">{{ $t('dependencies:database.truncated') }}</p>
@@ -290,6 +404,13 @@ const filtering = computed(() => !!(filters.value.kinds.length || filters.value.
 .dl-head h2 { margin: 0; font-size: 15px; color: var(--nm-text-strong); }
 .dl-dim { color: var(--nm-text-dim); font-size: 12px; }
 .dl-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 6px 0; font-size: 12px; color: var(--nm-text-dim); }
+.dl-types { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; }
+.dl-types :deep(.el-checkbox-group) { display: flex; flex-direction: column; border-top: 1px solid var(--el-border-color-lighter); margin-top: 2px; padding-top: 2px; }
+.dl-types :deep(.el-checkbox) { margin-right: 0; height: 26px; }
+.dl-types :deep(.el-checkbox__label) { display: flex; flex: 1; gap: 8px; }
+.dl-types :deep(.el-checkbox) { width: 100%; }
+.dl-type-count { margin-left: auto; color: var(--nm-text-dim); font-variant-numeric: tabular-nums; }
+.dl-types :deep(.el-checkbox__input.is-checked + .el-checkbox__label) { color: var(--el-text-color-regular); }
 .dl-legend { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; }
 .dl-legend + .dl-legend { margin-left: 0; }
 .dl-key { display: inline-block; width: 22px; border-top: 2px solid var(--nm-text-dim); }
@@ -301,4 +422,5 @@ const filtering = computed(() => !!(filters.value.kinds.length || filters.value.
 .dl-center p { max-width: 520px; margin: 0; }
 .dl-wait { min-height: 160px; }
 .dl-error { color: var(--nm-danger); }
+.dl-partial { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 </style>

@@ -370,4 +370,366 @@ mod tests {
         assert!(LINEAGE_SQL.contains("FROM system.access.table_lineage"));
         assert!(LINEAGE_SQL.contains("target_table_catalog = :p0"));
     }
+
+    // -- the pieces of a row --------------------------------------------------------------------
+
+    #[test]
+    fn what_ran_gets_its_kind_and_a_link_to_it() {
+        assert_eq!(entity_kind("DBSQL_QUERY"), "query");
+        assert_eq!(entity_kind("DBSQL_DASHBOARD"), "dashboard");
+        assert_eq!(entity_kind("LAKEVIEW_DASHBOARD"), "dashboard");
+        assert_eq!(entity_kind("DASHBOARD_V3"), "dashboard");
+        assert_eq!(entity_kind("Notebook"), "notebook");
+        assert_eq!(entity_kind("JOB"), "job");
+        let mut g = LineageGraph {
+            objects: vec![o("table", "gold", "kpis")],
+            ..Default::default()
+        };
+        let data = raw(&[
+            &["", "", "", "", "gold", "kpis", "LAKEVIEW_DASHBOARD", "d3"],
+            &["", "", "", "", "gold", "kpis", "DBSQL_DASHBOARD", "d1"],
+            &["", "", "", "", "gold", "kpis", "DBSQL_QUERY", "q1"],
+            &["", "", "", "", "gold", "kpis", "NOTEBOOK", "n1"],
+            &["", "", "", "", "gold", "kpis", "PIPELINE", "p1"],
+        ]);
+        add_lineage(&mut g, "main", &data, "https://w.example.com/", &[]);
+        let links: Vec<(String, String)> = g
+            .external
+            .iter()
+            .map(|x| {
+                (
+                    x.source.system.clone().unwrap(),
+                    x.source.detail.clone().unwrap_or_default(),
+                )
+            })
+            .collect();
+        for want in [
+            (
+                "Databricks dashboard",
+                "https://w.example.com/dashboardsv3/d3",
+            ),
+            (
+                "Databricks dashboard",
+                "https://w.example.com/sql/dashboards/d1",
+            ),
+            ("Databricks query", "https://w.example.com/sql/editor/q1"),
+            ("Databricks notebook", "https://w.example.com/#notebook/n1"),
+            ("Databricks pipeline", "https://w.example.com/pipelines/p1"),
+        ] {
+            assert!(
+                links.contains(&(want.0.to_string(), want.1.to_string())),
+                "{want:?} in {links:?}"
+            );
+        }
+        assert!(
+            g.edges.is_empty(),
+            "what ran is a source outside, not an edge"
+        );
+    }
+
+    #[test]
+    fn names_match_without_case_and_a_table_never_feeds_itself() {
+        let mut g = LineageGraph {
+            objects: vec![
+                o("table", "Bronze", "Orders"),
+                o("table", "silver", "orders"),
+            ],
+            ..Default::default()
+        };
+        let data = raw(&[
+            &["MAIN", "bronze", "ORDERS", "", "SILVER", "Orders", "", ""],
+            // A MERGE into itself.
+            &[
+                "main", "silver", "orders", "", "silver", "orders", "JOB", "1",
+            ],
+        ]);
+        add_lineage(&mut g, "main", &data, "https://w", &[]);
+        assert_eq!(g.edges.len(), 1);
+        assert_eq!(g.edges[0].from.name, "Orders", "the graph's own name");
+        assert_eq!(g.edges[0].to.name, "orders");
+    }
+
+    #[test]
+    fn a_line_the_code_guessed_is_confirmed_with_every_job_that_carried_it_once() {
+        let (from, to) = (
+            o("table", "bronze", "orders"),
+            o("table", "silver", "orders"),
+        );
+        let mut g = LineageGraph {
+            objects: vec![from.clone(), to.clone()],
+            edges: vec![LineageEdge {
+                from,
+                to,
+                relation: Relation::Code,
+                confidence: Confidence::Probable,
+                detail: None,
+                mentions: Vec::new(),
+            }],
+            ..Default::default()
+        };
+        let data = raw(&[
+            &[
+                "main", "bronze", "orders", "", "silver", "orders", "JOB", "7",
+            ],
+            &[
+                "main", "bronze", "orders", "", "silver", "orders", "JOB", "7",
+            ],
+            &[
+                "main", "bronze", "orders", "", "silver", "orders", "NOTEBOOK", "9",
+            ],
+        ]);
+        add_lineage(&mut g, "main", &data, "https://w", &[]);
+        assert_eq!(g.edges.len(), 1, "no second edge for the same pair");
+        assert_eq!(g.edges[0].confidence, Confidence::Confirmed);
+        assert_eq!(g.edges[0].detail.as_deref(), Some("job 7 · notebook 9"));
+        let jobs = g
+            .external
+            .iter()
+            .filter(|x| x.source.system.as_deref() == Some("Databricks job"))
+            .count();
+        assert_eq!(jobs, 1, "the job is one source outside, however many rows");
+    }
+
+    #[test]
+    fn storage_paths_name_their_service() {
+        let mut g = LineageGraph {
+            objects: vec![o("table", "bronze", "orders")],
+            ..Default::default()
+        };
+        let data = raw(&[
+            &[
+                "",
+                "",
+                "",
+                "abfss://raw@lake.dfs.core.windows.net/orders",
+                "bronze",
+                "orders",
+                "",
+                "",
+            ],
+            &["", "", "", "gs://bucket/orders", "bronze", "orders", "", ""],
+            &[
+                "",
+                "",
+                "",
+                "/Volumes/main/raw/files/orders.csv",
+                "bronze",
+                "orders",
+                "",
+                "",
+            ],
+        ]);
+        add_lineage(&mut g, "main", &data, "https://w", &[]);
+        let systems: Vec<&str> = g
+            .external
+            .iter()
+            .filter_map(|x| x.source.system.as_deref())
+            .collect();
+        assert!(systems.contains(&"Azure Data Lake Storage"), "{systems:?}");
+        assert!(systems.contains(&"Google Cloud Storage"), "{systems:?}");
+        assert_eq!(systems.len(), 3, "{systems:?}");
+    }
+
+    // -- the whole read, against a fake workspace ------------------------------------------------
+
+    use crate::transfer::tests::{serve, session};
+    use std::sync::{Arc, Mutex};
+
+    const DONE: &str =
+        r#"{"statement_id":"s","status":{"state":"SUCCEEDED"},"result":{"data_array":[]}}"#;
+    const FAILED: &str = r#"{"statement_id":"s","status":{"state":"FAILED","error":{"error_code":"PERMISSION_DENIED","message":"no SELECT on system.access.table_lineage"}}}"#;
+
+    /// The catalog `main` (bronze.orders, silver.orders, the view gold.v_sales) and its lineage
+    /// rows (`None`: the system table can't be read). `fk_fail`: the foreign keys' query fails.
+    /// Gives the base URL and the statements asked.
+    async fn workspace(
+        lineage: Option<&'static str>,
+        fk_fail: bool,
+    ) -> (String, Arc<Mutex<Vec<String>>>) {
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let seen = asked.clone();
+        let base = serve(Arc::new(move |m, p, body| {
+            let (path, _) = p.split_once('?').unwrap_or((p, ""));
+            match (m, path) {
+                ("GET", "/api/2.1/unity-catalog/catalogs/main") => (200, r#"{"name":"main"}"#.into()),
+                ("GET", "/api/2.1/unity-catalog/table-summaries") => (
+                    200,
+                    r#"{"tables":[{"full_name":"main.bronze.orders","table_type":"MANAGED"},{"full_name":"main.silver.orders","table_type":"MANAGED"},{"full_name":"main.gold.v_sales","table_type":"VIEW"}]}"#.into(),
+                ),
+                ("GET", "/api/2.1/unity-catalog/schemas") => (
+                    200,
+                    r#"{"schemas":[{"name":"bronze"},{"name":"silver"},{"name":"gold"}]}"#.into(),
+                ),
+                ("GET", "/api/2.1/jobs/get") => (200, r#"{"job_id":774,"settings":{"name":"nightly load"}}"#.into()),
+                ("POST", "/api/2.0/sql/statements") => {
+                    let st: serde_json::Value = serde_json::from_str(body).unwrap();
+                    let text = st["statement"].as_str().unwrap_or("").to_string();
+                    seen.lock().unwrap().push(body.to_string());
+                    if text.contains("system.access.table_lineage") {
+                        match lineage {
+                            Some(rows) => (
+                                200,
+                                format!(r#"{{"statement_id":"s","status":{{"state":"SUCCEEDED"}},"result":{{"data_array":{rows}}}}}"#),
+                            ),
+                            None => (200, FAILED.into()),
+                        }
+                    } else if fk_fail && text.contains("update_rule") {
+                        (200, FAILED.into())
+                    } else {
+                        (200, DONE.into())
+                    }
+                }
+                _ => (404, r#"{"message":"unexpected"}"#.into()),
+            }
+        }))
+        .await;
+        (base, asked)
+    }
+
+    fn scan() -> DependencyScan {
+        DependencyScan {
+            source_kinds: vec![kinds::VIEW.into()],
+            dialect: crate::script::dialect(),
+            foreign_keys: true,
+            written_kinds: vec![
+                kinds::VIEW.into(),
+                kinds::MATERIALIZED_VIEW.into(),
+                kinds::FUNCTION.into(),
+            ],
+            has_schemas: true,
+            databases: None,
+        }
+    }
+
+    fn lineage_asked(asked: &Arc<Mutex<Vec<String>>>) -> Vec<serde_json::Value> {
+        asked
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|b| serde_json::from_str::<serde_json::Value>(b).unwrap())
+            .filter(|b| {
+                b["statement"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("table_lineage")
+            })
+            .collect()
+    }
+
+    const ROWS: &str = r#"[
+        ["main","bronze","orders",null,"silver","orders","JOB","774"],
+        ["main","silver","orders",null,"gold","v_sales",null,null],
+        ["crm","public","leads",null,"gold","v_sales",null,null]
+    ]"#;
+
+    #[tokio::test]
+    async fn the_catalogs_lineage_confirms_the_lines_and_names_what_ran() {
+        let (base, asked) = workspace(Some(ROWS), false).await;
+        let mut s = session(base.clone());
+        s.catalog = Some("main".into());
+        let g = s
+            .lineage_of("main", &LineageScope::default(), &scan())
+            .await
+            .unwrap();
+        assert_eq!(g.objects.len(), 3, "{:?}", g.objects);
+        assert!(
+            !g.notes.iter().any(|n| n == NO_SYSTEM_LINEAGE),
+            "{:?}",
+            g.notes
+        );
+        let mut edges: Vec<String> = g
+            .edges
+            .iter()
+            .map(|e| format!("{}>{}:{:?}", e.from.name, e.to.name, e.confidence))
+            .collect();
+        edges.sort();
+        assert_eq!(
+            edges,
+            ["orders>orders:Confirmed", "orders>v_sales:Confirmed"]
+        );
+        let job = g
+            .external
+            .iter()
+            .find(|x| x.source.system.as_deref() == Some("Databricks job"))
+            .expect("the job that loads silver.orders");
+        assert_eq!(
+            job.source.name.as_deref(),
+            Some("nightly load"),
+            "named from the Jobs API"
+        );
+        assert_eq!(
+            job.source.detail.as_deref(),
+            Some(format!("{base}/jobs/774").as_str())
+        );
+        assert!(g
+            .external
+            .iter()
+            .any(|x| x.source.database.as_deref() == Some("crm") && x.to.name == "v_sales"));
+        // One query for the catalog: the last year, with the catalog as a parameter.
+        let q = lineage_asked(&asked);
+        assert_eq!(q.len(), 1);
+        assert_eq!(q[0]["parameters"][0]["value"], "main");
+        assert!(LINEAGE_SQL.contains("365") && LINEAGE_SQL.contains("LIMIT 200000"));
+    }
+
+    #[tokio::test]
+    async fn without_the_system_table_the_definitions_and_a_note() {
+        let (base, _) = workspace(None, false).await;
+        let mut s = session(base);
+        s.catalog = Some("main".into());
+        let g = s
+            .lineage_of("main", &LineageScope::default(), &scan())
+            .await
+            .unwrap();
+        assert_eq!(g.objects.len(), 3, "the graph is still there");
+        assert!(
+            g.notes.iter().any(|n| n == NO_SYSTEM_LINEAGE),
+            "{:?}",
+            g.notes
+        );
+        assert!(g
+            .edges
+            .iter()
+            .all(|e| e.confidence != Confidence::Confirmed));
+    }
+
+    #[tokio::test]
+    async fn hive_metastore_has_no_system_lineage_and_is_not_asked() {
+        let (base, asked) = workspace(Some(ROWS), false).await;
+        let mut s = session(base);
+        s.catalog = Some(HIVE_METASTORE.into());
+        let g = s
+            .lineage_of(HIVE_METASTORE, &LineageScope::default(), &scan())
+            .await
+            .unwrap();
+        assert!(
+            g.notes.iter().any(|n| n == NO_SYSTEM_LINEAGE),
+            "{:?}",
+            g.notes
+        );
+        assert!(lineage_asked(&asked).is_empty());
+    }
+
+    #[tokio::test]
+    async fn foreign_keys_that_cannot_be_read_leave_the_rest() {
+        let (base, asked) = workspace(Some(ROWS), true).await;
+        let mut s = session(base);
+        s.catalog = Some("main".into());
+        let g = s
+            .lineage_of("main", &LineageScope::default(), &scan())
+            .await
+            .unwrap();
+        assert_eq!(g.objects.len(), 3);
+        assert_eq!(g.edges.len(), 2, "the catalog's lineage still comes");
+        let fk_queries = asked
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|b| b.contains("update_rule"))
+            .count();
+        assert_eq!(
+            fk_queries, 1,
+            "the foreign keys are asked once, then left out"
+        );
+    }
 }
