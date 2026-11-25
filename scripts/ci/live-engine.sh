@@ -178,6 +178,13 @@ SQL
     export DBINE_TEST_OS_BACKUP_URL=http://localhost:25521
     run_tests elasticsearch
     ;;
+  neo4j)
+    # Only the suite that needs this one server: the rest also take Memgraph, TLS or Enterprise.
+    start neo4j -p 17687:7687 -e NEO4J_AUTH=neo4j/dbine-test-pass neo4j:5
+    ready neo4j docker exec dbine-test-ci-neo4j cypher-shell -u neo4j -p dbine-test-pass 'RETURN 1'
+    export DBINE_TEST_NEO4J_URL=neo4j:dbine-test-pass@localhost:17687
+    cargo test -p dbine-driver-neo4j --test hostile_names -- --ignored
+    ;;
   *)
     echo "unknown engine: $engine" >&2
     exit 2

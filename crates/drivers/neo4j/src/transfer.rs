@@ -390,7 +390,7 @@ impl GraphSession {
     /// sorted.
     async fn property_keys(&mut self, pat: &str, where_: &str) -> Result<Vec<String>> {
         let (_, rows) = self
-            .query(&format!(
+            .read(&format!(
                 "MATCH {pat}{where_} UNWIND keys(n) AS k RETURN DISTINCT k"
             ))
             .await?;

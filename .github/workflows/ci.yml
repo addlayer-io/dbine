@@ -182,7 +182,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        engine: [postgres, mysql, sqlserver, mongodb, redis, oracle, elasticsearch]
+        engine: [postgres, mysql, sqlserver, mongodb, redis, oracle, elasticsearch, neo4j]
     env:
       CARGO_PROFILE_DEV_DEBUG: 0
       CARGO_INCREMENTAL: 0

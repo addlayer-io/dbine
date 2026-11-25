@@ -55,11 +55,6 @@ pub(crate) fn count(v: &str, what: &str, min: u32) -> Result<u32> {
         .ok_or_else(|| bad(what, v))
 }
 
-/// A Cypher string literal.
-fn literal(s: &str) -> String {
-    format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'"))
-}
-
 /// The statement that creates `name` (on `system` for Neo4j).
 pub(crate) fn script(f: Flavor, name: &str, o: &BTreeMap<String, String>) -> Result<String> {
     let n = cypher::ident(name.trim());
@@ -112,7 +107,10 @@ pub(crate) fn script(f: Flavor, name: &str, o: &BTreeMap<String, String>) -> Res
         if !scheme_ok || u.chars().any(char::is_control) {
             return Err(bad("sembrar desde", u));
         }
-        options.push(format!("existingData: 'use', seedURI: {}", literal(u)));
+        options.push(format!(
+            "existingData: 'use', seedURI: {}",
+            cypher::string(u)
+        ));
     }
     if !options.is_empty() {
         out.push_str(&format!(" OPTIONS {{{}}}", options.join(", ")));
