@@ -49,6 +49,7 @@ import { VIM_SETTING, bindingLabel, commandForEvent, freedDefault, recordingKeys
 import { useSettingsStore } from '../stores/settings';
 import type { HoverItem, TableHoverState, TableHoverTarget } from '../composables/tableHover';
 import type { RunLens } from '../composables/resultNames';
+import { acceptAll as acceptProposal, cancelProposal, proposalExtension, propose, type ProposalEnd } from '../composables/editorProposal';
 
 // CodeMirror 6 wrapped for DBine: the language comes from the driver
 // (`language` + `dialect`), `schema` feeds table/column completion and
@@ -148,6 +149,8 @@ const emit = defineEmits<{
   /** Completion was asked for while `schema` is empty. The list reopens
    *  when `schema` brings names. */
   needNames: [];
+  /** A proposed edit ended: every change decided, the text edited (`stale`) or dropped. */
+  proposalEnd: [why: ProposalEnd];
   /** The editor took the focus, or completion was asked for, while
    *  `functions` is null. The list reopens when they arrive. */
   needFunctions: [];
@@ -875,6 +878,7 @@ onMounted(() => {
         insertTheme,
         tableHoverExt,
         lensExt,
+        proposalExtension((why) => emit('proposalEnd', why)),
       ],
     }),
   });
@@ -1120,6 +1124,19 @@ defineExpose({
   appendText,
   replaceAll,
   format,
+  /** The text from `from` to `to` (what a run took, to see it is still there). */
+  sliceText: (from: number, to: number) => (view ? view.state.sliceDoc(from, to) : props.modelValue.slice(from, to)),
+  /** Show `corrected` over `original` (which sits at `from`) as changes to accept or reject; the text stays as it is until then. False: nothing to propose or the text moved. */
+  proposeEdit: (o: { from: number; original: string; corrected: string }) => {
+    if (!view) return false;
+    const labels = {
+      title: t('editor:proposal.title'), accept: t('editor:proposal.accept'), reject: t('editor:proposal.reject'),
+      acceptAll: t('editor:proposal.acceptAll'), rejectAll: t('editor:proposal.rejectAll'),
+    };
+    return propose(view, { ...o, labels });
+  },
+  acceptProposal: () => { if (view) acceptProposal(view); },
+  cancelProposal: () => { if (view) cancelProposal(view); },
 });
 </script>
 

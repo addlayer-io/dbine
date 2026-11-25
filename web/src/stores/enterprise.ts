@@ -10,7 +10,7 @@ import {
 import { useConnectionsStore } from './connections';
 import { runningStatements, useTabsStore } from './tabs';
 import { useAiStore } from './ai';
-import { isCompanyId } from './companyData';
+import { databaseLost, isCompanyId, type Lost } from './companyData';
 import type { SavedConnection } from '../api/types';
 
 // Signed in to DBine Enterprise: the company's catalog (the explorer's
@@ -64,6 +64,9 @@ export const useEnterpriseStore = defineStore('enterprise', {
       // offline): the backend already closed the sessions and deleted the
       // company's data; nothing of it may stay on screen.
       await listen('enterprise-purged', () => void this.purged());
+      // Only part of it ended (a connection or some databases): the backend
+      // already forgot exactly that; the window forgets the same.
+      await listen<Lost>('enterprise-narrowed', (e) => void this.narrowed(e.payload));
       // Back in front: the server confirms the access now, not at the next check.
       let lastCheck = 0;
       window.addEventListener('focus', () => {
@@ -81,6 +84,16 @@ export const useEnterpriseStore = defineStore('enterprise', {
       const gone = new Set(tabs.tabs.map((t) => t.connectionId).filter(isCompanyId));
       if (gone.size) tabs.forgetConnections(gone);
       await useAiStore().forgetCompany();
+      await useConnectionsStore().load();
+    },
+
+    /** After the backend's targeted purge: the tabs on what was lost close,
+     *  the AI conversations that quoted it go; every other connection and
+     *  database stays as it was. */
+    async narrowed(lost: Lost) {
+      const tabs = useTabsStore();
+      tabs.forgetWhere((c, d) => databaseLost(lost, c, d));
+      await useAiStore().forgetLost(lost);
       await useConnectionsStore().load();
     },
 

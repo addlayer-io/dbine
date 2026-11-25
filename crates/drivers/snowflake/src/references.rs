@@ -18,9 +18,9 @@
 
 use crate::SnowflakeSession;
 use dbine_driver::dependencies::{
-    references_scan, used_names, used_objects, Confidence, DependencyReport, DependencyScan,
-    DependencyTarget, Dependent, ExternalRef, Mention, Relation, UsedName, LINE_CHARS, LOOKUP_CAP,
-    MAX_MENTIONS,
+    foreign_key_parents, references_scan, used_names, used_objects, Confidence, DependencyReport,
+    DependencyScan, DependencyTarget, Dependent, ExternalRef, Mention, Relation, UsedName,
+    LINE_CHARS, LOOKUP_CAP, MAX_MENTIONS,
 };
 use dbine_driver::sql::{qualified_name, Quote};
 use dbine_driver::{kinds, DbObject, Error, ObjectQuery, Result, Session};
@@ -301,7 +301,13 @@ impl SnowflakeSession {
             r
         } else {
             // A table: its foreign keys.
-            references_scan(self, target, scan).await?
+            DependencyReport {
+                items: foreign_key_parents(
+                    &crate::index_usage::foreign_keys_read(self, t).await?,
+                    t,
+                ),
+                ..Default::default()
+            }
         };
         let from_code = report.items.len() + report.external.len();
         match self
@@ -745,6 +751,7 @@ mod tests {
             foreign_keys: true,
             written_kinds: vec![kinds::VIEW.into()],
             has_schemas: true,
+            databases: None,
         };
         let mut r = DependencyReport::default();
         code_refs(&mut s, &target, &scan, "SALES", "Snowflake", &mut r)

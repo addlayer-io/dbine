@@ -15,7 +15,7 @@
 
 use super::{
     foreign_key_parents, same_object, used_names, used_objects, Confidence, DependencyScan,
-    Dependent, ExternalRef, Mention, Relation, JOBS_READ,
+    Dependent, ExternalRef, Mention, Relation, JOBS_READ, MAX_MENTIONS,
 };
 use crate::model::{DbObject, ObjectRef};
 use crate::{kinds, Result, Session};
@@ -57,6 +57,47 @@ pub struct LineageScope {
     /// A driver without such a read, or a user without the right for it, answers `Error::Unsupported`.
     #[serde(default)]
     pub tenant_sources: bool,
+    /// Read one chunk of the graph instead of all of it (see [`LineageStep`]); `None`: the whole graph
+    /// in one call, as always. A driver that doesn't read in chunks ignores it and answers the whole graph
+    /// (with `next` empty), so the loop that follows `next` ends after the first call.
+    #[serde(default)]
+    pub step: Option<LineageStep>,
+}
+
+/// One chunk of a graph read in pieces, each its own short call: the stage ("structure": the objects and
+/// what the model says itself; "dependencies": the code's dependencies, `len` objects from `offset`;
+/// "consumers": the reports and dashboards), where it starts and how many objects the stage has in all
+/// (for a progress label). A driver names its own stages.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineageStep {
+    pub stage: String,
+    #[serde(default)]
+    pub offset: u32,
+    #[serde(default)]
+    pub len: u32,
+    #[serde(default)]
+    pub total: u32,
+    /// Don't read it: answer only which chunk follows (the host gives a chunk up and goes on).
+    #[serde(default)]
+    pub skip: bool,
+}
+
+impl LineageStep {
+    /// The first chunk of any graph: the host starts a chunked read with it.
+    pub fn start() -> Self {
+        LineageStep {
+            stage: "structure".into(),
+            ..Default::default()
+        }
+    }
+
+    /// The same chunk, as a record of what wasn't read (it carries no `skip`).
+    pub fn as_failed(&self) -> Self {
+        LineageStep {
+            skip: false,
+            ..self.clone()
+        }
+    }
 }
 
 /// A dependency between two objects of the database.
@@ -138,6 +179,13 @@ pub struct LineageGraph {
     /// The same for the jobs read.
     #[serde(default)]
     pub job_notes: Vec<String>,
+    /// The chunk to read next to finish the graph (`None`: it is complete, or the driver reads it whole).
+    /// Set on the graph a chunked read has so far, so a cached one resumes where it stopped.
+    #[serde(default)]
+    pub next: Option<LineageStep>,
+    /// Chunks that couldn't be read (after a retry): the graph lacks what they hold, and says so.
+    #[serde(default)]
+    pub failed: Vec<LineageStep>,
 }
 
 /// Kinds that can be a node: what is read from or written to, and what has
@@ -167,6 +215,106 @@ fn object_ref(o: &DbObject) -> ObjectRef {
 
 fn has(nodes: &[ObjectRef], o: &ObjectRef) -> bool {
     nodes.iter().any(|n| same_object(n, o))
+}
+
+/// Adds `e` to `edges`, one edge per (from, to, relation): when it is there already the confidence is the
+/// strongest, the details and the lines are joined (a detail that is the start of a longer one is the
+/// longer one). `same` says when two nodes are the same.
+pub fn merge_edge(
+    edges: &mut Vec<LineageEdge>,
+    e: LineageEdge,
+    same: impl Fn(&ObjectRef, &ObjectRef) -> bool,
+) {
+    let found = edges
+        .iter_mut()
+        .find(|x| x.relation == e.relation && same(&x.from, &e.from) && same(&x.to, &e.to));
+    let Some(x) = found else {
+        edges.push(e);
+        return;
+    };
+    x.confidence = x.confidence.min(e.confidence);
+    if let Some(d) = e.detail {
+        let mut parts: Vec<String> = x
+            .detail
+            .as_deref()
+            .map(|t| t.split("; ").map(str::to_string).collect())
+            .unwrap_or_default();
+        let at = parts
+            .iter()
+            .position(|p| *p == d || d.starts_with(&format!("{p}: ")));
+        match at {
+            Some(k) => parts[k] = d,
+            None if parts.iter().any(|p| p.starts_with(&format!("{d}: "))) => {}
+            None => parts.push(d),
+        }
+        x.detail = Some(parts.join("; "));
+    }
+    for m in e.mentions {
+        if !x.mentions.contains(&m) && x.mentions.len() < MAX_MENTIONS {
+            x.mentions.push(m);
+        }
+    }
+}
+
+fn same_name(a: &ObjectRef, b: &ObjectRef) -> bool {
+    a.kind == b.kind && a.schema == b.schema && a.name.eq_ignore_ascii_case(&b.name)
+}
+
+impl LineageGraph {
+    /// Adds what a chunk read ([`LineageScope::step`]) to the graph so far. `next` and `failed` are the
+    /// caller's to set: they say what is left, not what was read.
+    pub fn absorb(&mut self, chunk: LineageGraph) {
+        for o in chunk.objects {
+            if !self.objects.iter().any(|x| same_name(x, &o)) {
+                self.objects.push(o);
+            }
+        }
+        for e in chunk.edges {
+            merge_edge(&mut self.edges, e, same_name);
+        }
+        for e in chunk.external {
+            let seen = self.external.iter().any(|x| {
+                same_name(&x.to, &e.to)
+                    && (
+                        &x.source.system,
+                        &x.source.server,
+                        &x.source.database,
+                        &x.source.schema,
+                        &x.source.name,
+                        &x.source.detail,
+                    ) == (
+                        &e.source.system,
+                        &e.source.server,
+                        &e.source.database,
+                        &e.source.schema,
+                        &e.source.name,
+                        &e.source.detail,
+                    )
+            });
+            if !seen {
+                self.external.push(e);
+            }
+        }
+        self.consumers.extend(chunk.consumers);
+        self.jobs.extend(chunk.jobs);
+        self.scanned += chunk.scanned;
+        for u in chunk.unreadable {
+            if !self.unreadable.contains(&u) {
+                self.unreadable.push(u);
+            }
+        }
+        self.truncated |= chunk.truncated;
+        for n in chunk.notes {
+            if !self.notes.contains(&n) {
+                self.notes.push(n);
+            }
+        }
+        for n in chunk.job_notes {
+            if !self.job_notes.contains(&n) {
+                self.job_notes.push(n);
+            }
+        }
+    }
 }
 
 fn push_edge(edges: &mut Vec<LineageEdge>, e: LineageEdge) {
@@ -308,6 +456,7 @@ async fn graph_jobs<S: Session + ?Sized>(
     };
     g.job_notes.extend(list.notes);
     let total = list.jobs.len();
+    let ctx = &super::with_databases(s, ctx).await;
     for job in list.jobs.into_iter().take(JOBS_READ) {
         let r = match s.job_references(database, &job.id, ctx).await {
             Ok(r) => r,
@@ -422,6 +571,7 @@ mod tests {
             foreign_keys: true,
             written_kinds: vec!["procedure".into(), "view".into()],
             has_schemas: true,
+            databases: None,
         }
     }
 
@@ -503,5 +653,133 @@ mod tests {
         };
         let g = ready(graph_scan(&mut Fake, "ventas", &scope, &ctx())).unwrap();
         assert!(g.jobs.is_empty() && g.job_notes.is_empty());
+    }
+
+    fn obj(name: &str) -> ObjectRef {
+        ObjectRef {
+            kind: "table".into(),
+            schema: None,
+            name: name.into(),
+        }
+    }
+
+    fn edge(from: &str, to: &str, c: Confidence, detail: &str) -> LineageEdge {
+        LineageEdge {
+            from: obj(from),
+            to: obj(to),
+            relation: Relation::Code,
+            confidence: c,
+            detail: Some(detail.into()),
+            mentions: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn chunks_absorb_into_one_graph() {
+        let mut g = LineageGraph {
+            objects: vec![obj("A"), obj("B")],
+            edges: vec![edge("A", "B", Confidence::Probable, "filtro")],
+            scanned: 3,
+            notes: vec!["n".into()],
+            ..Default::default()
+        };
+        g.absorb(LineageGraph {
+            objects: vec![obj("a"), obj("C")],
+            edges: vec![
+                edge("a", "b", Confidence::Confirmed, "filtro: x"),
+                edge("B", "C", Confidence::Confirmed, "y"),
+            ],
+            scanned: 2,
+            notes: vec!["n".into(), "m".into()],
+            ..Default::default()
+        });
+        assert_eq!(
+            g.objects.len(),
+            3,
+            "a name is one object, whatever its case"
+        );
+        assert_eq!(g.edges.len(), 2);
+        assert_eq!(g.edges[0].confidence, Confidence::Confirmed);
+        assert_eq!(g.edges[0].detail.as_deref(), Some("filtro: x"));
+        assert_eq!((g.scanned, g.notes.len()), (5, 2));
+        // The new fields default: a graph from before chunks is complete.
+        let old: LineageGraph = serde_json::from_str(r#"{"objects":[],"edges":[]}"#).unwrap();
+        assert!(old.next.is_none() && old.failed.is_empty());
+        let scope: LineageScope = serde_json::from_str("{}").unwrap();
+        assert!(scope.step.is_none());
+    }
+
+    /// [`Fake`]'s objects plus three jobs; counts the `list_databases` calls.
+    struct WithJobs {
+        databases_listed: u32,
+    }
+
+    #[async_trait::async_trait]
+    impl Session for WithJobs {
+        async fn server_version(&mut self) -> Result<String> {
+            Ok(String::new())
+        }
+        async fn list_databases(&mut self) -> Result<Vec<String>> {
+            self.databases_listed += 1;
+            Ok(vec!["ventas".into()])
+        }
+        async fn list_objects(&mut self) -> Result<Vec<DbObject>> {
+            Fake.list_objects().await
+        }
+        async fn columns(&mut self, o: &ObjectRef) -> Result<Vec<crate::ColumnInfo>> {
+            Fake.columns(o).await
+        }
+        async fn definition(&mut self, o: &ObjectRef) -> Result<Option<String>> {
+            Fake.definition(o).await
+        }
+        async fn database_schema(&mut self) -> Result<Vec<TableSchema>> {
+            Fake.database_schema().await
+        }
+        fn browse_query(&self, _: &ObjectRef, _: u32) -> String {
+            String::new()
+        }
+        async fn execute(&mut self, _: &str, _: usize, _: &mut crate::QueryOutcome) -> Result<()> {
+            Ok(())
+        }
+        async fn jobs(&mut self) -> Result<crate::jobs::JobList> {
+            let job = |id: &str| crate::jobs::ServerJob {
+                id: id.into(),
+                name: id.into(),
+                ..Default::default()
+            };
+            Ok(crate::jobs::JobList {
+                jobs: vec![job("a"), job("b"), job("c")],
+                notes: vec![],
+            })
+        }
+        async fn job_detail(&mut self, id: &str) -> Result<crate::jobs::JobDetail> {
+            Ok(crate::jobs::JobDetail {
+                job: crate::jobs::ServerJob {
+                    id: id.into(),
+                    name: id.into(),
+                    ..Default::default()
+                },
+                steps: vec![crate::jobs::JobStep {
+                    name: "Paso".into(),
+                    command: Some("SELECT * FROM dbo.v_ventas".into()),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            })
+        }
+    }
+
+    #[test]
+    fn the_jobs_of_a_graph_list_the_databases_once() {
+        let mut s = WithJobs {
+            databases_listed: 0,
+        };
+        let scope = LineageScope {
+            jobs: true,
+            ..Default::default()
+        };
+        let g = ready(graph_scan(&mut s, "ventas", &scope, &ctx())).unwrap();
+        assert_eq!(g.jobs.len(), 3);
+        assert_eq!(s.databases_listed, 1);
     }
 }

@@ -9704,6 +9704,7 @@
   "no hay un código de vinculación abierto": "код прив'язки не відкрито",
   "no hay un dataset seleccionado": "набір даних не вибрано",
   "no hay un driver descargable '{0}'": "немає драйвера '{0}', який можна завантажити",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "немає частково прочитаного походження даних для продовження: відкрийте його знову",
   "no hay un ticket de Kerberos vigente": "немає чинного квитка Kerberos",
   "no hay un token de Vault: escribilo en el formulario, definí VAULT_TOKEN o iniciá sesión con «vault login» (~/.vault-token)": "немає токена Vault: введіть його у формі, визначте VAULT_TOKEN або увійдіть через «vault login» (~/.vault-token)",
   "no hay un usuario ni un rol «{0}» en «{1}»": "немає користувача чи ролі «{0}» у «{1}»",
@@ -19131,5 +19132,12 @@
   "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "потрібно бути адміністратором Power BI і авторизувати API адміністрування в налаштуваннях",
   "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "API адміністрування Power BI недоступний для цього користувача: потрібно бути адміністратором Power BI і авторизувати API адміністрування в налаштуваннях",
   "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "API адміністрування Power BI недоступний: потрібно бути адміністратором Power BI і авторизувати API адміністрування в налаштуваннях; моделі читаються по одній",
-  "la API de administración es de las conexiones de Power BI": "API адміністрування стосується підключень Power BI"
+  "la API de administración es de las conexiones de Power BI": "API адміністрування стосується підключень Power BI",
+  "DBine Bastion no respondió en {0} s": "DBine Bastion не відповів за {0} с",
+  "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastion не відповів за {0} с: повторіть спробу",
+  "no se pudo abrir el canal con DBine Bastion: {0}": "не вдалося відкрити канал із DBine Bastion: {0}",
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "не вдалося зв'язатися з DBine Bastion: HTTP error: {0}",
+  "No se pudo leer el catálogo de dependencias (RDB$DEPENDENCIES): {0}": "Не вдалося прочитати каталог залежностей (RDB$DEPENDENCIES): {0}",
+  "No se pudo leer el catálogo de dependencias de system.tables: se buscó en las definiciones que se pueden leer.": "Не вдалося прочитати каталог залежностей system.tables: пошук виконано в означеннях, які вдалося прочитати.",
+  "no more {0} sessions for {1}/{2}: {3}": "no more {0} sessions for {1}/{2}: {3}"
 }

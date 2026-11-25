@@ -53,7 +53,13 @@
     "calculation_group": "계산 그룹",
     "role": "역할",
     "expression": "식",
-    "model": "의미 체계 모델"
+    "model": "의미 체계 모델",
+    "notebook": "노트북",
+    "pipeline": "파이프라인",
+    "query": "쿼리",
+    "report": "보고서",
+    "dashboard": "대시보드",
+    "file": "파일"
   },
   "view": {
     "label": "보기",
@@ -90,6 +96,8 @@
     },
     "search": "이름으로 필터링",
     "kinds": "유형",
+    "allTypes": "전체",
+    "typesCount": "유형: {{shown}}/{{total}}",
     "onlyConfirmed": "확인된 항목만",
     "onlyConnected": "종속성이 있는 항목만",
     "expandAll": "모두 펼치기",
@@ -108,7 +116,18 @@
     "relationsTip": "외래 키(및 모델의 관계)는 계보와 별개로 이어집니다. 켜면 계보 옆에서 함께 볼 수 있습니다.",
     "updated": "{{ago}} 업데이트됨",
     "updating": "업데이트 중…",
-    "refreshFailed": "업데이트할 수 없습니다: {{error}}. 마지막으로 저장된 내용을 표시합니다."
+    "refreshFailed": "업데이트할 수 없습니다: {{error}}. 마지막으로 저장된 내용을 표시합니다.",
+    "partial": {
+      "title": "부분 리니지:",
+      "stage": {
+        "structure": "테이블과 원본을 읽는 중…",
+        "dependencies": "측정값과 열의 종속성을 읽는 중 {{done}}/{{total}}",
+        "consumers": "보고서와 대시보드를 읽는 중…"
+      },
+      "failed": "개체 {{count}}개를 읽지 못했습니다.",
+      "complete": "완료",
+      "retry": "다시 시도 {{from}}–{{to}}"
+    }
   },
   "cross": {
     "switch": "다른 연결 포함",

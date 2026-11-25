@@ -3055,6 +3055,16 @@ impl Session for MySqlSession {
         crate::references::references(self, target, scan).await
     }
 
+    /// What depends on the object: catalog queries filtered by it (see
+    /// `dependents`), not the contract's scan of every definition.
+    async fn dependents(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        crate::dependents::dependents(self, target, scan).await
+    }
+
     /// The whole database's lineage: the catalog's views, foreign keys and
     /// triggers, and the code of routines (see `lineage`).
     async fn lineage_graph(

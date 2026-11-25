@@ -53,7 +53,13 @@
     "calculation_group": "Grupo de cálculo",
     "role": "Rol",
     "expression": "Expresión",
-    "model": "Modelo semántico"
+    "model": "Modelo semántico",
+    "notebook": "Notebook",
+    "pipeline": "Pipeline",
+    "query": "Consulta",
+    "report": "Reporte",
+    "dashboard": "Panel",
+    "file": "Archivo"
   },
   "view": {
     "label": "Vista",
@@ -128,6 +134,8 @@
     },
     "search": "Filtrar por nombre",
     "kinds": "Tipos",
+    "allTypes": "Todos",
+    "typesCount": "Tipos: {{shown}} de {{total}}",
     "onlyConfirmed": "Solo confirmadas",
     "onlyConnected": "Solo con dependencias",
     "expandAll": "Expandir todo",
@@ -146,7 +154,18 @@
     "relationsTip": "Las claves foráneas (y las relaciones de un modelo) van en paralelo al linaje: activalas para verlas junto a él.",
     "updated": "Actualizado {{ago}}",
     "updating": "actualizando…",
-    "refreshFailed": "No se pudo actualizar: {{error}}. Se muestra lo último guardado."
+    "refreshFailed": "No se pudo actualizar: {{error}}. Se muestra lo último guardado.",
+    "partial": {
+      "title": "Linaje parcial:",
+      "stage": {
+        "structure": "leyendo tablas y orígenes…",
+        "dependencies": "leyendo dependencias de medidas y columnas {{done}}/{{total}}",
+        "consumers": "leyendo reportes y tableros…"
+      },
+      "failed": "no se pudieron leer {{count}} objetos.",
+      "complete": "Completar",
+      "retry": "Reintentar {{from}}–{{to}}"
+    }
   },
   "sources": {
     "nav": "Fuentes del linaje",

@@ -150,5 +150,23 @@
     "settingsNav": "Assistant IA",
     "globalHelp": "Ces instructions s'appliquent à toutes les conversations de l'assistant, sur n'importe quelle connexion. Pour ce qui vaut sur une connexion ou une base, utilisez le nœud Contextes dans l'explorateur.",
     "globalPlaceholder": "Par exemple : réponds en markdown et précise la plage de dates de chaque analyse."
+  },
+  "fix": {
+    "button": "Analyser avec l'IA",
+    "tip": "Demande à l'IA pourquoi la requête a échoué. Envoie la requête, l'erreur et la structure de la base ; jamais de lignes. Ne s'exécute que si vous cliquez.",
+    "running": "{{model}} analyse… {{seconds}} s",
+    "remote": "Envoyé à {{provider}} : la requête, l'erreur et la structure de la base. Jamais de lignes.",
+    "cancel": "Annuler",
+    "noProvider": "Aucune IA n'est encore configurée. Choisissez un modèle dans le panneau de l'assistant.",
+    "openSetup": "Configurer l'IA",
+    "proposed": "Modification proposée dans l'éditeur : acceptez ou rejetez chaque modification. Rien n'a été exécuté.",
+    "stale": "Le texte de l'éditeur a changé depuis l'exécution de la requête ; la modification n'est donc pas proposée.",
+    "noChange": "L'IA ne propose aucune modification de la requête.",
+    "noCode": "La réponse ne contient pas de requête corrigée.",
+    "dropped": "La proposition a été abandonnée car vous avez modifié le texte.",
+    "resolved": "Proposition traitée.",
+    "cancelled": "Annulé : rien n'a été modifié.",
+    "again": "Analyser à nouveau",
+    "failed": "Impossible d'analyser : {{error}}"
   }
 }

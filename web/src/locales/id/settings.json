@@ -52,6 +52,8 @@
     "lineagePrecompute": "Prakomputasi lineage saat terhubung",
     "lineageModelTimeout": "Lineage: waktu tunggu maksimum per model (detik)",
     "lineageModelTimeoutHelp": "Berapa lama menunggu pembacaan model Power BI sebelum dianggap belum terbaca. Naikkan jika Anda memiliki model yang sangat besar.",
+    "lineageOpenTimeout": "Lineage: waktu tunggu maksimum saat membuka objek atau model (detik)",
+    "lineageOpenTimeoutHelp": "Berapa lama menunggu saat membuka lineage atau dependensi suatu objek, basis data, atau model. Naikkan jika server lambat dengan model atau basis data yang sangat besar.",
     "lineageSearchBudget": "Lineage: durasi maksimum satu pencarian (detik)",
     "lineageSearchBudgetHelp": "Durasi terlama pencarian di koneksi lain. Yang sudah dibaca tetap tersimpan dan pencarian berikutnya melanjutkan dari sana.",
     "lineagePrecomputeHelp": "Membaca lineage basis data di latar belakang saat terhubung, sehingga langsung terbuka. Hanya struktur yang disimpan, tanpa data.",

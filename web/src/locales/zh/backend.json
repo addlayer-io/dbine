@@ -5965,6 +5965,7 @@
   "este motor no filtra en el servidor": "此引擎不在服务器上过滤",
   "este motor no ordena en el servidor": "此引擎不在服务器上排序",
   "este motor todavía no ordena en el servidor": "此引擎暂时不在服务器上排序",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "没有可继续的未读完血缘：请重新打开",
   "no se pudo agregar el orden a la consulta de este objeto": "无法将排序添加到此对象的查询中",
   "este motor no filtra la lectura por lotes": "此引擎不过滤分批读取",
   "este motor no genera DDL de tablas": "此引擎不生成表 DDL",
@@ -19131,5 +19132,12 @@
   "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "需要是 Power BI 管理员，并在设置中授权管理 API",
   "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "此用户无法使用 Power BI 管理 API：需要是 Power BI 管理员，并在设置中授权管理 API",
   "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "Power BI 管理 API 不可用：需要是 Power BI 管理员，并在设置中授权管理 API；将逐个读取模型",
-  "la API de administración es de las conexiones de Power BI": "管理 API 仅适用于 Power BI 连接"
+  "la API de administración es de las conexiones de Power BI": "管理 API 仅适用于 Power BI 连接",
+  "DBine Bastion no respondió en {0} s": "DBine Bastion 在 {0} 秒内未响应",
+  "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastion 在 {0} 秒内未响应：请重试",
+  "no se pudo abrir el canal con DBine Bastion: {0}": "无法与 DBine Bastion 建立通道：{0}",
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "无法连接到 DBine Bastion：HTTP error: {0}",
+  "No se pudo leer el catálogo de dependencias (RDB$DEPENDENCIES): {0}": "无法读取依赖关系目录（RDB$DEPENDENCIES）：{0}",
+  "No se pudo leer el catálogo de dependencias de system.tables: se buscó en las definiciones que se pueden leer.": "无法读取 system.tables 的依赖关系目录：已改为在可读取的定义中搜索。",
+  "no more {0} sessions for {1}/{2}: {3}": "no more {0} sessions for {1}/{2}: {3}"
 }

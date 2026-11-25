@@ -16,6 +16,7 @@ import { locale } from '../i18n';
 import { markdownParts, withDestinations } from '../composables/markdown';
 import { confirmExternalLink, onMarkdownClick } from '../composables/externalLink';
 import { vKeyActivate } from '../composables/keyActivate';
+import { destructive } from '../composables/fixError';
 
 // The AI assistant (right sidebar, ⌘I). It writes code; it never runs it:
 // its code goes into the open query (appended, or replacing it when it
@@ -151,14 +152,6 @@ function visible(m: UiMessage) {
 function thinkingOf(m: UiMessage) {
   const inlined = /<think>([\s\S]*?)(<\/think>|$)/.exec(m.content)?.[1] ?? '';
   return (m.thinking ?? '') + inlined;
-}
-
-/** Statements that change data or structure: flagged whatever the model says. */
-const DESTRUCTIVE = /\b(drop|delete|truncate|alter|update|insert|merge|create|rename|grant|revoke|flushall|flushdb|del|dropdatabase|deletemany|remove)\b/i;
-function destructive(code: string) {
-  // Ignore comments and string literals.
-  const bare = code.replace(/--[^\n]*|\/\*[\s\S]*?\*\/|'(?:[^']|'')*'/g, ' ');
-  return DESTRUCTIVE.test(bare);
 }
 
 // -- code actions (never run) -----------------------------------------------------------

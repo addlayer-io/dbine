@@ -316,7 +316,7 @@ pub(crate) fn trigger_sql(db: &str, trigger: &str) -> String {
 }
 
 /// A catalog row's cells, for the parsers (and their tests).
-trait Cells {
+pub(crate) trait Cells {
     fn cell(&self, i: usize) -> Option<String>;
 }
 

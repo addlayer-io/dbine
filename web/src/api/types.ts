@@ -1029,6 +1029,15 @@ export interface LineageScope {
   jobs?: boolean;
 }
 
+/** One chunk of a lineage read in pieces (`dbine_driver::dependencies::LineageStep`). */
+export interface LineageStep {
+  stage: string;
+  offset: number;
+  len: number;
+  total: number;
+  skip?: boolean;
+}
+
 /** An edge of the database lineage: `from` is used by `to`. */
 export interface LineageEdge {
   from: ObjectRef;
@@ -1070,6 +1079,10 @@ export interface LineageGraph {
   /** What to tell the user, each a whole message (translate with `tb`). */
   notes: string[];
   job_notes?: string[];
+  /** The chunk to read to finish the graph; none: it is complete. */
+  next?: LineageStep | null;
+  /** Chunks that couldn't be read: the graph lacks what they hold. */
+  failed?: LineageStep[];
 }
 
 /** A server job whose steps run or name the target

@@ -52,6 +52,8 @@
     "lineagePrecompute": "Pré-calcular a linhagem ao conectar",
     "lineageModelTimeout": "Linhagem: espera máxima por modelo (segundos)",
     "lineageModelTimeoutHelp": "Quanto tempo esperar a leitura de um modelo do Power BI antes de considerá-lo não lido. Aumente se você tiver modelos enormes.",
+    "lineageOpenTimeout": "Linhagem: espera máxima ao abrir um objeto ou modelo (segundos)",
+    "lineageOpenTimeoutHelp": "Quanto tempo esperar ao abrir a linhagem ou as dependências de um objeto, banco ou modelo. Aumente se o servidor demorar com modelos ou bancos muito grandes.",
     "lineageSearchBudget": "Linhagem: duração máxima de uma busca (segundos)",
     "lineageSearchBudgetHelp": "Quanto tempo, no máximo, a busca em outras conexões pode durar. O que já foi lido fica salvo e a próxima busca continua a partir daí.",
     "lineagePrecomputeHelp": "Lê a linhagem dos bancos em segundo plano ao conectar, para que abra na hora. Só a estrutura é salva, sem dados.",

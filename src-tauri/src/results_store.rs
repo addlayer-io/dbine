@@ -531,6 +531,19 @@ impl Store {
         Ok(ids.len())
     }
 
+    /// Drops the runs of one company connection (see [`Self::purge_company`]).
+    async fn purge_connection(&mut self, id: &str) -> CommandResult<usize> {
+        let needle = format!("\"connection_id\":\"{id}\"");
+        let ids = self
+            .ids(&format!(
+                "SELECT id FROM runs WHERE instr(meta, {}) > 0",
+                lit(&needle)
+            ))
+            .await?;
+        self.remove(&ids).await?;
+        Ok(ids.len())
+    }
+
     /// Space the results take (blocks in use plus the WAL).
     async fn bytes(&mut self) -> CommandResult<u64> {
         let out = exec(
@@ -979,6 +992,19 @@ pub async fn purge_company() -> CommandResult<usize> {
         return Ok(0);
     };
     let r = s.purge_company().await;
+    let r = after(&mut slot, r).await;
+    drop_if_empty(&mut slot).await;
+    r
+}
+
+/// Delete the stored runs of one company connection (its access was taken
+/// away); every other run stays.
+pub async fn purge_connection(id: &str) -> CommandResult<usize> {
+    let mut slot = lock_existing().await;
+    let Slot::Open(s) = &mut *slot else {
+        return Ok(0);
+    };
+    let r = s.purge_connection(id).await;
     let r = after(&mut slot, r).await;
     drop_if_empty(&mut slot).await;
     r

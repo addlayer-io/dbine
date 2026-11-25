@@ -9,6 +9,8 @@ import type { QueryMessage, QueryOutcome, QueryProgress, ScriptUnit, TxState, Un
 import CodeEditor from '../components/CodeEditor.vue';
 import ContextMenu, { type MenuItem } from '../components/ContextMenu.vue';
 import ResultsPane from '../components/ResultsPane.vue';
+import AiFixError from '../components/AiFixError.vue';
+import { fixProposals, type FixStatus } from '../composables/fixProposal';
 import PinIcon from '../components/PinIcon.vue';
 import ConnectionState from '../components/ConnectionState.vue';
 import { useConnectionGate } from '../composables/connectionGate';
@@ -167,6 +169,27 @@ const unregisterAi = registerEditor(props.tab.id, {
   rename: (name) => (doc.rename ? doc.rename(name) : Promise.resolve()),
 });
 onBeforeUnmount(unregisterAi);
+
+// -- "Analizar con IA": the corrected query goes into the editor as a proposal ----------------
+/** The run whose proposal the editor shows now. */
+let proposalKey: string | null = null;
+/** The failed script is still in the editor where it ran: the corrected
+ *  query is proposed there (the text isn't touched until the user accepts). */
+function proposeFix(r: ResultRun, corrected: string): 'ok' | 'same' | 'stale' {
+  const ed = editor.value;
+  const from = r.runBase;
+  if (!ed || ed.sliceText(from, from + r.script.length) !== r.script) return 'stale';
+  const key = `${props.tab.id}:${r.id}`;
+  if (proposalKey && proposalKey !== key) fixProposals[proposalKey] = 'cancelled';
+  if (!ed.proposeEdit({ from, original: r.script, corrected })) return 'same';
+  proposalKey = key;
+  fixProposals[key] = 'pending';
+  return 'ok';
+}
+function onProposalEnd(why: Exclude<FixStatus, 'pending'>) {
+  if (proposalKey) fixProposals[proposalKey] = why;
+  proposalKey = null;
+}
 
 async function save() {
   await doc.save();
@@ -1795,6 +1818,7 @@ function runOverflow(i: number) {
           :lint="lintSource"
           @run="(t: string, from: number) => run(t, 'none', from)"
           @run-statement="runStatement"
+          @proposal-end="onProposalEnd"
           @plan="(t: string, actual: boolean, from: number) => run(t, actual ? 'actual' : 'estimated', from)"
           @save="save"
           @format="formatQuery"
@@ -1907,6 +1931,17 @@ function runOverflow(i: number) {
               @goto="goTo"
               @applied="persistRun(r)"
             >
+              <template v-if="!r.multi && r.outcome?.error" #error-action>
+                <AiFixError
+                  :proposal-key="`${tab.id}:${r.id}`"
+                  :connection-id="r.connectionId"
+                  :database="r.database"
+                  :sql="r.script"
+                  :error="tb(r.outcome.error)"
+                  :engine="driver?.name ?? ''"
+                  :propose="(c: string) => proposeFix(r, c)"
+                />
+              </template>
               <template v-if="!showRunStrip" #lead>
                 <button
                   class="qv-pin-one ide-icon-btn"

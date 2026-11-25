@@ -60,6 +60,12 @@ fn target() -> CommandResult<Target> {
     })
 }
 
+/// The longest DBine waits for Bastion to answer a connect or the manifest.
+/// A stream that stopped answering without closing would otherwise leave
+/// the connection in "Conectando…" for ever; after this the cached stream is
+/// dropped and the next try dials a new one.
+const BASTION_ANSWER: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Opens a session of a managed connection through Bastion. `dedicated`:
 /// a long job's session, on a stream of its own.
 pub async fn open_session(
@@ -75,15 +81,15 @@ pub async fn open_session(
         CommandError::AuthFailed("ya no tenés acceso a esta conexión de DBine Enterprise".into())
     })?;
     let t = target()?;
+    let key = format!("{}\u{0}{package}\u{0}{}", t.url, cfg.driver);
     let driver = if dedicated {
         Arc::new(driver_for(&t, &package, &cfg.driver).await?)
     } else {
-        let key = format!("{}\u{0}{package}\u{0}{}", t.url, cfg.driver);
         match drivers().get(&key).map(|d| d.clone()) {
             Some(d) => d,
             None => {
                 let d = Arc::new(driver_for(&t, &package, &cfg.driver).await?);
-                drivers().insert(key, d.clone());
+                drivers().insert(key.clone(), d.clone());
                 d
             }
         }
@@ -95,14 +101,33 @@ pub async fn open_session(
         options: [(PROFILE_OPTION.to_string(), profile.to_string())].into(),
         ..Default::default()
     };
-    Ok(driver.connect(&wire, database).await?)
+    match tokio::time::timeout(BASTION_ANSWER, driver.connect(&wire, database)).await {
+        Ok(session) => Ok(session?),
+        Err(_) => {
+            if !dedicated {
+                drivers().remove(&key);
+            }
+            Err(CommandError::Connect(format!(
+                "DBine Bastion no respondió en {} s: volvé a intentar",
+                BASTION_ANSWER.as_secs()
+            )))
+        }
+    }
 }
 
 /// The engine's driver as Bastion's host describes it.
 pub(crate) async fn driver_for(t: &Target, package: &str, engine: &str) -> Result<RemoteDriver> {
     let launcher = Launcher::dialed(package, Arc::new(BastionDialer(t.clone())));
     let host = launcher.get().await?;
-    let metas = match host.call(Call::Manifest).await? {
+    let asked = tokio::time::timeout(BASTION_ANSWER, host.call(Call::Manifest))
+        .await
+        .map_err(|_| {
+            Error::Connect(format!(
+                "DBine Bastion no respondió en {} s",
+                BASTION_ANSWER.as_secs()
+            ))
+        })?;
+    let metas = match asked? {
         Reply::Manifest(m) => m,
         _ => return Err(Error::State("respuesta inesperada de DBine Bastion".into())),
     };
@@ -117,6 +142,43 @@ pub(crate) async fn driver_for(t: &Target, package: &str, engine: &str) -> Resul
 
 struct BastionDialer(Target);
 
+/// The runtime where the streams to Bastion live: their sockets and the
+/// task that pumps frames between the socket and the driver host's reader.
+///
+/// It is not the app's: `Session::browse_query` (and any other call a
+/// `Session` makes without `async`) waits for its reply on the thread it runs
+/// on, which for a command of the app is one of the app runtime's workers.
+/// The reply comes in through the pump; a pump on that same runtime can sit
+/// behind the very call that waits for it (a wake from a worker queues the
+/// task on that worker), and then every call of the stream hangs: the
+/// connection stays in "Conectando…" and Bastion never hears of them. A
+/// local host has no pump (a pipe to a process), which is why only the
+/// company's connections hit it.
+fn pump_runtime() -> &'static tokio::runtime::Runtime {
+    static R: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    R.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("dbine-gateway")
+            .enable_all()
+            .build()
+            .expect("the gateway's runtime")
+    })
+}
+
+/// What `connect` couldn't do: Bastion's HTTP refusal is judged by `dial`,
+/// on the app's runtime.
+enum Refused {
+    Http(tokio_tungstenite::tungstenite::http::StatusCode),
+    Failed(Error),
+}
+
+impl From<Error> for Refused {
+    fn from(e: Error) -> Self {
+        Refused::Failed(e)
+    }
+}
+
 #[async_trait::async_trait]
 impl Dialer for BastionDialer {
     async fn dial(&self, package: &str) -> Result<(Box<dyn Write + Send>, Box<dyn Read + Send>)> {
@@ -129,152 +191,174 @@ impl Dialer for BastionDialer {
                 .await
                 .map_err(|e| Error::AuthFailed(e.to_string()))?,
         };
-        let ws_url = format!("{}/v1/{package}", t.url.trim_end_matches('/'));
-        let mut req = ws_url
-            .into_client_request()
-            .map_err(|e| Error::Connect(e.to_string()))?;
-        req.headers_mut().insert(
-            "authorization",
-            format!("Bearer {token}")
-                .parse()
-                .map_err(|_| Error::Connect("token inválido".into()))?,
-        );
-        let connected = tokio_tungstenite::connect_async_tls_with_config(
-            req,
-            None,
-            false,
-            Some(tokio_tungstenite::Connector::Rustls(tls())),
-        )
-        .await;
-        let (mut ws, _) = match connected {
-            Ok(c) => c,
+        let (target, package) = (t.clone(), package.to_string());
+        let dialed = pump_runtime()
+            .spawn(async move { connect(&target, &package, &token).await })
+            .await
+            .map_err(|e| {
+                Error::Connect(format!("no se pudo abrir el canal con DBine Bastion: {e}"))
+            })?;
+        match dialed {
+            Ok(streams) => Ok(streams),
             // Bastion refuses the token: the access may have ended (a 401
             // does; a 403 when DBine Enterprise, asked again, refuses it too).
-            Err(tokio_tungstenite::tungstenite::Error::Http(r))
+            Err(Refused::Http(status))
                 if t.token.is_none()
                     && !matches!(
-                        super::purge::refusal(r.status().as_u16()),
+                        super::purge::refusal(status.as_u16()),
                         super::purge::Refusal::Not
                     ) =>
             {
                 let ended = match get() {
-                    Ok(e) => e.refused(r.status().as_u16()).await,
-                    Err(_) => r.status() == 401,
+                    Ok(e) => e.refused(status.as_u16()).await,
+                    Err(_) => status == 401,
                 };
-                return Err(if ended {
+                Err(if ended {
                     Error::AuthFailed(super::purge::Why::Revoked.message().into())
                 } else {
-                    Error::Connect(format!("DBine Bastion respondió {}", r.status()))
-                });
+                    Error::Connect(format!("DBine Bastion respondió {status}"))
+                })
             }
-            Err(tokio_tungstenite::tungstenite::Error::Http(r)) if r.status() == 401 => {
-                return Err(Error::AuthFailed(
-                    "la sesión de DBine Enterprise terminó: volvé a iniciarla".into(),
-                ))
-            }
-            Err(other) => {
-                return Err(Error::Connect(format!(
-                    "no se pudo llegar a DBine Bastion: {other}"
-                )))
-            }
-        };
-        // The end-to-end channel, before anything of the protocol.
-        let refused = || {
-            Error::AuthFailed(
+            Err(Refused::Http(status)) if status == 401 => Err(Error::AuthFailed(
+                "la sesión de DBine Enterprise terminó: volvé a iniciarla".into(),
+            )),
+            Err(Refused::Http(status)) => Err(Error::Connect(format!(
+                "no se pudo llegar a DBine Bastion: HTTP error: {status}"
+            ))),
+            Err(Refused::Failed(e)) => Err(e),
+        }
+    }
+}
+
+/// Opens the stream to Bastion for `package` (on [`pump_runtime`]).
+async fn connect(
+    t: &Target,
+    package: &str,
+    token: &str,
+) -> std::result::Result<(Box<dyn Write + Send>, Box<dyn Read + Send>), Refused> {
+    let ws_url = format!("{}/v1/{package}", t.url.trim_end_matches('/'));
+    let mut req = ws_url
+        .into_client_request()
+        .map_err(|e| Error::Connect(e.to_string()))?;
+    req.headers_mut().insert(
+        "authorization",
+        format!("Bearer {token}")
+            .parse()
+            .map_err(|_| Error::Connect("token inválido".into()))?,
+    );
+    let connected = tokio_tungstenite::connect_async_tls_with_config(
+        req,
+        None,
+        false,
+        Some(tokio_tungstenite::Connector::Rustls(tls())),
+    )
+    .await;
+    let (mut ws, _) = match connected {
+        Ok(c) => c,
+        Err(tokio_tungstenite::tungstenite::Error::Http(r)) => {
+            return Err(Refused::Http(r.status()))
+        }
+        Err(other) => {
+            return Err(
+                Error::Connect(format!("no se pudo llegar a DBine Bastion: {other}")).into(),
+            )
+        }
+    };
+    // The end-to-end channel, before anything of the protocol.
+    let refused = || {
+        Error::AuthFailed(
                 "DBine Bastion no aceptó este equipo o no es el Bastion de la empresa: volvé a iniciar sesión".into(),
             )
-        };
-        let (first, hs) = channel::initiate(&t.device_private, &t.bastion_key)
-            .map_err(|e| Error::Connect(e.to_string()))?;
-        ws.send(Message::Binary(first.into()))
-            .await
-            .map_err(|e| Error::Connect(e.to_string()))?;
-        let answer = match tokio::time::timeout(std::time::Duration::from_secs(15), ws.next()).await
-        {
-            Ok(Some(Ok(Message::Binary(b)))) => b,
-            _ => return Err(refused()),
-        };
-        let mut ch = channel::finish(hs, &answer).map_err(|_| refused())?;
+    };
+    let (first, hs) = channel::initiate(&t.device_private, &t.bastion_key)
+        .map_err(|e| Error::Connect(e.to_string()))?;
+    ws.send(Message::Binary(first.into()))
+        .await
+        .map_err(|e| Error::Connect(e.to_string()))?;
+    let answer = match tokio::time::timeout(std::time::Duration::from_secs(15), ws.next()).await {
+        Ok(Some(Ok(Message::Binary(b)))) => b,
+        _ => return Err(refused().into()),
+    };
+    let mut ch = channel::finish(hs, &answer).map_err(|_| refused())?;
 
-        let (to_ws, mut out) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
-        let (into_reader, from_ws) = std::sync::mpsc::sync_channel::<Vec<u8>>(READ_AHEAD);
-        let (mut sink, mut stream) = ws.split();
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    msg = stream.next() => match msg {
-                        Some(Ok(Message::Binary(b))) => {
-                            #[cfg(test)]
-                            WIRE.fetch_add(b.len() as u64, std::sync::atomic::Ordering::Relaxed);
-                            // Decrypting and decompressing an export is CPU
-                            // work: off the threads the rest of DBine runs on.
-                            let Ok(frames) = heavy(|| ch.open_all(&b)) else { break };
-                            // A full reader holds the stream back: it stops
-                            // being read and the sender slows down.
-                            let mut gone = false;
-                            for body in frames {
-                                match into_reader.try_send(body) {
-                                    Ok(()) => {}
-                                    Err(std::sync::mpsc::TrySendError::Full(body)) => {
-                                        let tx = into_reader.clone();
-                                        let sent = tokio::task::spawn_blocking(move || tx.send(body)).await;
-                                        if !matches!(sent, Ok(Ok(()))) {
-                                            gone = true;
-                                            break;
-                                        }
-                                    }
-                                    Err(_) => {
+    let (to_ws, mut out) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    let (into_reader, from_ws) = std::sync::mpsc::sync_channel::<Vec<u8>>(READ_AHEAD);
+    let (mut sink, mut stream) = ws.split();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                msg = stream.next() => match msg {
+                    Some(Ok(Message::Binary(b))) => {
+                        #[cfg(test)]
+                        WIRE.fetch_add(b.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                        // Decrypting and decompressing an export is CPU
+                        // work: off the threads the rest of DBine runs on.
+                        let Ok(frames) = heavy(|| ch.open_all(&b)) else { break };
+                        // A full reader holds the stream back: it stops
+                        // being read and the sender slows down.
+                        let mut gone = false;
+                        for body in frames {
+                            match into_reader.try_send(body) {
+                                Ok(()) => {}
+                                Err(std::sync::mpsc::TrySendError::Full(body)) => {
+                                    let tx = into_reader.clone();
+                                    let sent = tokio::task::spawn_blocking(move || tx.send(body)).await;
+                                    if !matches!(sent, Ok(Ok(()))) {
                                         gone = true;
                                         break;
                                     }
                                 }
-                            }
-                            if gone {
-                                break;
-                            }
-                        }
-                        Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
-                        // Closed, an error or text: the stream ends, and the
-                        // host with it (its calls fail, the next one dials).
-                        _ => break,
-                    },
-                    body = out.recv() => match body {
-                        Some(b) => {
-                            // Whatever else is ready goes in the same message.
-                            let mut size = b.len();
-                            let mut batch = vec![b];
-                            while size < channel::PACK {
-                                match out.try_recv() {
-                                    Ok(more) => {
-                                        size += more.len();
-                                        batch.push(more);
-                                    }
-                                    Err(_) => break,
+                                Err(_) => {
+                                    gone = true;
+                                    break;
                                 }
                             }
-                            let Ok(sealed) = heavy(|| ch.seal_all(&batch)) else { break };
-                            if sink.send(Message::Binary(sealed.into())).await.is_err() {
-                                break;
+                        }
+                        if gone {
+                            break;
+                        }
+                    }
+                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
+                    // Closed, an error or text: the stream ends, and the
+                    // host with it (its calls fail, the next one dials).
+                    _ => break,
+                },
+                body = out.recv() => match body {
+                    Some(b) => {
+                        // Whatever else is ready goes in the same message.
+                        let mut size = b.len();
+                        let mut batch = vec![b];
+                        while size < channel::PACK {
+                            match out.try_recv() {
+                                Ok(more) => {
+                                    size += more.len();
+                                    batch.push(more);
+                                }
+                                Err(_) => break,
                             }
                         }
-                        None => break,
-                    },
-                }
+                        let Ok(sealed) = heavy(|| ch.seal_all(&batch)) else { break };
+                        if sink.send(Message::Binary(sealed.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    None => break,
+                },
             }
-            let _ = sink.close().await;
-        });
-        Ok((
-            Box::new(FrameWriter {
-                buf: Vec::new(),
-                out: to_ws,
-            }),
-            Box::new(FrameReader {
-                from: from_ws,
-                cur: Vec::new(),
-                pos: 0,
-            }),
-        ))
-    }
+        }
+        let _ = sink.close().await;
+    });
+    Ok((
+        Box::new(FrameWriter {
+            buf: Vec::new(),
+            out: to_ws,
+        }),
+        Box::new(FrameReader {
+            from: from_ws,
+            cur: Vec::new(),
+            pos: 0,
+        }),
+    ))
 }
 
 /// The server's certificate checked like the OS does (a company CA works).
@@ -604,5 +688,133 @@ mod tests {
             lat.last().unwrap(),
             lat.len()
         );
+    }
+
+    /// A Bastion that answers every call with a text, on threads of its own,
+    /// so it answers while the test's runtime has no free thread. Returns
+    /// its port and its public key.
+    fn fake_bastion(device_public: String) -> (u16, Vec<u8>) {
+        use dbine_plugin::proto::{FromHost, Hello, Ready, Reply, PROTOCOL};
+        let (private, public) = channel::keypair();
+        let (port_tx, port_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async move {
+                let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                port_tx.send(l.local_addr().unwrap().port()).unwrap();
+                loop {
+                    let (sock, _) = l.accept().await.unwrap();
+                    let (private, device) = (private.clone(), device_public.clone());
+                    tokio::spawn(async move {
+                        let mut ws = tokio_tungstenite::accept_async(sock).await.unwrap();
+                        let Some(Ok(Message::Binary(first))) = ws.next().await else {
+                            return;
+                        };
+                        let (mut ch, answer) = channel::accept(&private, &first, &device).unwrap();
+                        ws.send(Message::Binary(answer.into())).await.unwrap();
+                        let mut greeted = false;
+                        while let Some(Ok(Message::Binary(m))) = ws.next().await {
+                            for body in ch.open_all(&m).unwrap() {
+                                let out = if !greeted {
+                                    greeted = true;
+                                    let _: Hello = rmp_serde::from_slice(&body).unwrap();
+                                    rmp_serde::to_vec_named(&Ready {
+                                        protocol: PROTOCOL,
+                                        version: "fake".into(),
+                                        drivers: vec![],
+                                    })
+                                } else {
+                                    let ToHost::Call { id, .. } =
+                                        rmp_serde::from_slice(&body).unwrap()
+                                    else {
+                                        continue;
+                                    };
+                                    rmp_serde::to_vec_named(&FromHost::Reply {
+                                        id,
+                                        result: Ok(Reply::Text("ok".into())),
+                                    })
+                                }
+                                .unwrap();
+                                let sealed = ch.seal(&out).unwrap();
+                                ws.send(Message::Binary(sealed.into())).await.unwrap();
+                            }
+                        }
+                    });
+                }
+            });
+        });
+        (port_rx.recv().unwrap(), public)
+    }
+
+    /// `Session::browse_query` is not async: it waits for the host's reply
+    /// on the thread it runs on, which for a command of the app is one of
+    /// the runtime's workers. The reply comes in through the stream's pump;
+    /// a pump that needs a worker too waits behind the call that waits for
+    /// it, for ever (every call of that stream hangs from then on, the
+    /// connection stays in "Conectando…", and no audit row is ever written).
+    #[test]
+    fn calls_that_block_every_worker_still_get_their_replies() {
+        use dbine_plugin::proto::Reply;
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let b64 = base64::engine::general_purpose::STANDARD;
+        let (device_private, device_public) = channel::keypair();
+        let (port, bastion_key) = fake_bastion(b64.encode(&device_public));
+        let target = Target {
+            url: format!("ws://127.0.0.1:{port}"),
+            bastion_key,
+            device_private,
+            token: Some("a token".into()),
+        };
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap();
+        // On a thread of its own: with every worker blocked, nothing on the
+        // runtime (not even a timeout) runs, so the test waits from outside.
+        let (done, replies) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let got = rt.block_on(async {
+                let host = Launcher::dialed("postgres", Arc::new(BastionDialer(target)))
+                    .get()
+                    .await
+                    .unwrap();
+                // As many blocked calls as the runtime has workers.
+                let calls: Vec<_> = (0..2)
+                    .map(|_| {
+                        let host = host.clone();
+                        tokio::spawn(async move {
+                            host.call_blocking(Call::BrowseQuery {
+                                session: 1,
+                                obj: dbine_driver::ObjectRef {
+                                    schema: None,
+                                    name: "t".into(),
+                                    kind: "table".into(),
+                                },
+                                limit: 10,
+                            })
+                        })
+                    })
+                    .collect();
+                let mut got = Vec::new();
+                for call in calls {
+                    got.push(match call.await.unwrap() {
+                        Ok(Reply::Text(t)) => t,
+                        other => format!("{other:?}"),
+                    });
+                }
+                got
+            });
+            let _ = done.send(got);
+            rt.shutdown_background();
+        });
+        let got = replies
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .expect("no reply: the stream's pump waits for a worker that the calls hold");
+        assert_eq!(got, ["ok", "ok"]);
     }
 }

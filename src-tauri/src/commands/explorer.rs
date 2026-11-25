@@ -443,7 +443,7 @@ pub async fn get_dependents(
             Lane::Long,
             &args.connection_id,
             &args.database,
-            DEPENDENTS_LIMIT,
+            dependents_limit(&state),
             move |s| {
                 Box::pin(async move {
                     let mut report = s.dependents(&target, &scan).await?;
@@ -507,7 +507,7 @@ pub async fn get_job_references(
             Lane::Long,
             &args.connection_id,
             &args.database,
-            DEPENDENTS_LIMIT,
+            dependents_limit(&state),
             move |s| Box::pin(async move { s.job_references(&database, &job_id, &scan).await }),
         )
         .await
@@ -542,18 +542,17 @@ pub async fn get_lineage_graph(
         driver.script_dialect(),
         driver.capabilities().foreign_keys,
     );
-    let scope = lineage_cache::effective_scope(args.scope, driver.capabilities().jobs);
+    let (scope, key) = lineage_cache::keyed_scope(args.scope, driver.capabilities().jobs);
     let database = args.database.clone();
     // The precompute lets this read go first.
     let _reading = lineage_cache::UserRead::begin();
     let cacheable = lineage_cache::is_cacheable(&scope);
-    let key = lineage_cache::scope_key(&scope);
     let graph = state
         .meta_read_on(
             Lane::Long,
             &args.connection_id,
             &args.database,
-            DEPENDENTS_LIMIT,
+            dependents_limit(&state),
             move |s| Box::pin(async move { s.lineage_graph(&database, &scope, &scan).await }),
         )
         .await?;
@@ -570,7 +569,14 @@ pub async fn get_lineage_graph(
     Ok(graph)
 }
 
-const DEPENDENTS_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
+/// Setting (seconds): the longest the lineage, the dependents and the references of an object are waited
+/// for. A very large model or database can need more than the default; the user raises it.
+pub const OPEN_LIMIT_SETTING: &str = "lineage_open_timeout_secs";
+
+fn dependents_limit(state: &AppState) -> std::time::Duration {
+    let v = state.store.get_setting(OPEN_LIMIT_SETTING).ok().flatten();
+    super::cross::secs_setting(v.as_ref(), 900)
+}
 
 /// What an object itself uses (the lineage's sources): the tables a view
 /// reads, the routines a procedure calls, a table's foreign keys' tables and
@@ -599,7 +605,7 @@ pub async fn get_references(
             Lane::Long,
             &args.connection_id,
             &args.database,
-            DEPENDENTS_LIMIT,
+            dependents_limit(&state),
             move |s| Box::pin(async move { s.references(&target, &scan).await }),
         )
         .await

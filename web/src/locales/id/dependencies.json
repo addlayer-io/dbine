@@ -53,7 +53,13 @@
     "calculation_group": "Grup kalkulasi",
     "role": "Peran",
     "expression": "Ekspresi",
-    "model": "Model semantik"
+    "model": "Model semantik",
+    "notebook": "Notebook",
+    "pipeline": "Pipeline",
+    "query": "Kueri",
+    "report": "Laporan",
+    "dashboard": "Dasbor",
+    "file": "File"
   },
   "view": {
     "label": "Tampilan",
@@ -90,6 +96,8 @@
     },
     "search": "Filter berdasarkan nama",
     "kinds": "Jenis",
+    "allTypes": "Semua",
+    "typesCount": "Jenis: {{shown}} dari {{total}}",
     "onlyConfirmed": "Hanya yang terkonfirmasi",
     "onlyConnected": "Hanya yang memiliki dependensi",
     "expandAll": "Perluas semua",
@@ -108,7 +116,18 @@
     "relationsTip": "Kunci asing (dan relasi sebuah model) berjalan paralel dengan lineage: aktifkan untuk melihatnya berdampingan.",
     "updated": "Diperbarui {{ago}}",
     "updating": "memperbarui…",
-    "refreshFailed": "Tidak dapat memperbarui: {{error}}. Menampilkan data yang terakhir disimpan."
+    "refreshFailed": "Tidak dapat memperbarui: {{error}}. Menampilkan data yang terakhir disimpan.",
+    "partial": {
+      "title": "Lineage parsial:",
+      "stage": {
+        "structure": "membaca tabel dan sumber…",
+        "dependencies": "membaca dependensi measure dan kolom {{done}}/{{total}}",
+        "consumers": "membaca laporan dan dasbor…"
+      },
+      "failed": "{{count}} objek tidak dapat dibaca.",
+      "complete": "Lengkapi",
+      "retry": "Coba lagi {{from}}–{{to}}"
+    }
   },
   "cross": {
     "switch": "Sertakan koneksi lain",

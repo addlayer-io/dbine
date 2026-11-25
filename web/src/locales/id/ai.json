@@ -136,5 +136,23 @@
     "settingsNav": "Asisten AI",
     "globalHelp": "Instruksi ini berlaku di semua percakapan asisten, pada koneksi mana pun. Untuk yang hanya berlaku pada satu koneksi atau basis data, gunakan node Konteks di penjelajah.",
     "globalPlaceholder": "Contoh: jawab dalam markdown dan sebutkan rentang tanggal setiap analisis."
+  },
+  "fix": {
+    "button": "Analisis dengan AI",
+    "tip": "Menanyakan kepada AI mengapa kueri gagal. Yang dikirim adalah kueri, kesalahan, dan struktur basis data; tidak pernah baris. Hanya berjalan jika Anda mengkliknya.",
+    "running": "{{model}} sedang menganalisis… {{seconds}} dtk",
+    "remote": "Dikirim ke {{provider}}: kueri, kesalahan, dan struktur basis data. Tidak pernah baris.",
+    "cancel": "Batal",
+    "noProvider": "AI belum dikonfigurasi. Pilih model di panel asisten.",
+    "openSetup": "Konfigurasi AI",
+    "proposed": "Perubahan diusulkan di editor: terima atau tolak setiap perubahan. Tidak ada yang dijalankan.",
+    "stale": "Teks editor berubah sejak kueri dijalankan, sehingga perubahan tidak diusulkan.",
+    "noChange": "AI tidak mengusulkan perubahan pada kueri.",
+    "noCode": "Respons tidak memuat kueri yang sudah diperbaiki.",
+    "dropped": "Usulan dibuang karena teks diedit.",
+    "resolved": "Usulan selesai ditangani.",
+    "cancelled": "Dibatalkan: tidak ada yang diubah.",
+    "again": "Analisis ulang",
+    "failed": "Tidak dapat menganalisis: {{error}}"
   }
 }

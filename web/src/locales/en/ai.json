@@ -148,5 +148,23 @@
     "settingsNav": "AI assistant",
     "globalHelp": "These instructions apply to all assistant conversations, on any connection. For what holds on one connection or database, use the Contexts node in the explorer.",
     "globalPlaceholder": "For example: answer in markdown and state the date range of each analysis."
+  },
+  "fix": {
+    "button": "Analyze with AI",
+    "tip": "Asks the AI why it failed. Sends the query, the error and the database structure; never rows. Runs only when you click it.",
+    "running": "{{model}} is analyzing… {{seconds}} s",
+    "remote": "Sent to {{provider}}: the query, the error and the database structure. Never rows.",
+    "cancel": "Cancel",
+    "noProvider": "No AI is set up yet. Pick a model in the assistant panel.",
+    "openSetup": "Set up AI",
+    "proposed": "Change proposed in the editor: accept or reject each change. Nothing was run.",
+    "stale": "The editor text changed since the query ran, so the change isn't proposed.",
+    "noChange": "The AI proposes no changes to the query.",
+    "noCode": "The response has no corrected query.",
+    "dropped": "The proposal was discarded because you edited the text.",
+    "resolved": "Proposal resolved.",
+    "cancelled": "Cancelled: nothing was changed.",
+    "again": "Analyze again",
+    "failed": "Couldn't analyze: {{error}}"
   }
 }

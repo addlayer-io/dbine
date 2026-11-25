@@ -301,6 +301,47 @@ question to the panel. Its reads then ask for approval as usual.
 `DBINE_AI_LIVE_MODEL=<an Ollama model> cargo test -p dbine ai_task_live --
 --ignored --nocapture` tries the prompts against a real local model.
 
+## Fixing a failed query
+
+When a query fails, the **Messages** tab of its results shows **Analizar con
+IA** under the error. Nothing is automatic: the model is asked only on the click
+(a local model can take 30 seconds).
+
+- **What is sent:** the SQL that ran (the statement, the selection or the whole
+  editor, whichever ran), the engine and dialect, the exact error message and
+  the context the chat already sends for that tab: the connection's structure
+  (a local model also gets the compact structure here, the tables the SQL names
+  first, because it has no tools to ask for columns with) and the user's
+  contexts. **Never rows.** The error text is the server's own and may quote a
+  value (`Duplicate entry 'x@y.com'`), as in the chat's "last error".
+- **Same plumbing as the chat:** the `ai_fix_error` command (`ai.rs`) uses the
+  same provider and model, the same `build_system`, and `ai_cancel`, but no
+  tools and no reads: one answer, streamed as `ai-delta` events. Without a
+  provider, the button says so and opens the assistant's panel.
+- **Enterprise:** `refuse_ai_if_not_allowed` runs first, so a managed
+  (`ent-`) connection follows the company's `allow_ai` policy, as in the chat.
+- **The wait:** the card shows the model, the seconds and **Cancelar**, which
+  stops the request; nothing is applied. The answer streams with Ollama, LM
+  Studio, the built-in model and Claude Code; Codex answers whole, so it shows
+  only the progress until the end.
+- **The answer:** `<explanation>…</explanation>` and one fenced code block
+  (`web/src/composables/fixError.ts` builds the question and reads it, also while
+  it streams). Without a readable corrected query, only the explanation shows.
+- **The correction is a proposal in the editor** (`composables/editorProposal.ts`,
+  `CodeEditor.proposeEdit`): removed text in red, added text in green, with
+  **Aceptar** / **Rechazar** on each change and **Aceptar todo** /
+  **Rechazar todo** in a bar. The editor's text is not touched until a change is
+  accepted; accepting edits only the text (⌘Z reverts it), rejecting leaves it
+  as it was. If the user edits the text, or the text at the place where the
+  query ran is no longer the query that failed, the proposal is dropped and the
+  card says so. A correction that changes data or structure shows the same fixed
+  warning as the chat's code blocks. It is never run.
+- **Why not `@codemirror/merge`:** its unified view diffs the *document* against
+  an original, so the corrected text would have to sit in the document (and in
+  the saved query's autosave) before the user accepts it. The diff here
+  (`composables/textDiff.ts`, on words) is drawn with decorations over the
+  untouched text.
+
 ## If the model refuses
 
 A small model sometimes answers "Sorry, I can't help you with that" to a
@@ -355,7 +396,8 @@ on disk and can't be read outside DBine:
 |---|---|---|
 | `ai_detect` | — | Providers, built-in model catalog and recommended one |
 | `ai_chat` | `{ chat_id, provider, model, messages, context }` | Answers streaming (events `ai-delta` and `ai-status`) |
-| `ai_cancel` | `{ id }` | Stops a chat or pauses a download |
+| `ai_fix_error` | `{ chat_id, provider, model, messages, context, ui_language, with_structure }` | "Analizar con IA" on a failed query: one answer without tools, streaming (`ai-delta`) |
+| `ai_cancel` | `{ id }` | Stops a chat, a failed-query analysis or pauses a download |
 | `ai_download_model` | `{ id }` | Downloads a built-in model (event `ai-download`) |
 | `ai_delete_model` | `{ id }` | Deletes a built-in model |
 | `ai_start_ollama` | — | Opens Ollama and waits for it to respond |

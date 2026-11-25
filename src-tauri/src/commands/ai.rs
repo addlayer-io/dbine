@@ -175,6 +175,11 @@ pub struct ChatArgs {
     /// it (English when unknown).
     #[serde(default)]
     pub ui_language: Option<String>,
+    /// A local model gets the compact structure too (the tables the SQL
+    /// names first), not only the names: the failed-query analysis has no
+    /// tools to ask for columns with.
+    #[serde(default)]
+    pub with_structure: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -482,6 +487,66 @@ pub async fn ai_chat(
     result
 }
 
+/// "Analizar con IA" on a failed query: one answer, no tools and no reads.
+/// It goes through the assistant's context (`build_system`: engine, dialect,
+/// the tab's structure, the user's contexts) and the same enterprise check;
+/// the question (built by the UI) carries the SQL and the error, never rows.
+/// The answer streams as `ai-delta` events under `chat_id`; `ai_cancel`
+/// stops it. Nothing is run: the UI shows the correction as a proposal.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn ai_fix_error(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ai: State<'_, AiRuntime>,
+    args: ChatArgs,
+) -> CommandResult<ChatOut> {
+    if let Some(c) = args.context.connection_id.as_deref() {
+        crate::enterprise::refuse_ai_if_not_allowed(&state.store, c)?;
+    }
+    let cancel = Cancel::new();
+    ai.chats.insert(args.chat_id.clone(), cancel.clone());
+    let id = args.chat_id.clone();
+    let result = async {
+        let p = prompts::get(args.ui_language.as_deref().unwrap_or(""));
+        let (system, summary) = build_system(&app, &state, &ai, &args, p).await;
+        if args.provider == ProviderKind::Embedded {
+            embedded::ensure_engine(&ai.endpoints.models_dir, &|_, _| {}, &cancel).await?;
+        }
+        let _ = app.emit(
+            "ai-status",
+            StatusEvent {
+                chat_id: &id,
+                phase: "thinking",
+                note: None,
+            },
+        );
+        let req = ChatRequest {
+            kind: args.provider,
+            model: args.model.clone(),
+            system,
+            messages: args.messages.clone(),
+            lang: p.lang(),
+        };
+        let emit = |d: Delta| {
+            let _ = app.emit(
+                "ai-delta",
+                DeltaEvent {
+                    chat_id: &id,
+                    delta: d,
+                },
+            );
+        };
+        let text = dbine_ai::chat(&req, &ai.endpoints, &emit, &cancel).await?;
+        Ok(ChatOut {
+            text,
+            context: summary,
+        })
+    }
+    .await;
+    ai.chats.remove(&args.chat_id);
+    result
+}
+
 #[derive(Deserialize)]
 pub struct IdArgs {
     pub id: String,
@@ -779,7 +844,8 @@ async fn build_system(
                     )
                 )),
             }
-        } else {
+        }
+        if !args.provider.local() || args.with_structure {
             // Claude Code and Codex get the tab's database structure as
             // context; other databases only through the catalog tools,
             // when the model asks for them.
@@ -1467,6 +1533,18 @@ fn compact_schema(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_failed_query_analysis_asks_for_structure_only_when_told_to() {
+        let base = r#"{"chat_id":"c","provider":"ollama","messages":[]}"#;
+        let args: ChatArgs = serde_json::from_str(base).unwrap();
+        assert!(!args.with_structure, "the chat's default is names only");
+        let args: ChatArgs = serde_json::from_str(
+            r#"{"chat_id":"c","provider":"ollama","messages":[],"with_structure":true}"#,
+        )
+        .unwrap();
+        assert!(args.with_structure);
+    }
 
     #[test]
     fn the_summary_lists_a_dax_models_measures() {

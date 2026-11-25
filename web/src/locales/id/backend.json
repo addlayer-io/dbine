@@ -5307,6 +5307,7 @@
   "este motor no filtra en el servidor": "mesin ini tidak memfilter di server",
   "este motor no ordena en el servidor": "mesin ini tidak mengurutkan di server",
   "este motor todavía no ordena en el servidor": "mesin ini belum mengurutkan di server",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "tidak ada lineage yang setengah terbaca untuk dilanjutkan: buka kembali",
   "no se pudo agregar el orden a la consulta de este objeto": "pengurutan tidak dapat ditambahkan ke kueri objek ini",
   "este motor no filtra la lectura por lotes": "mesin ini tidak memfilter pembacaan per batch",
   "este motor no genera DDL de tablas": "mesin ini tidak membuat DDL tabel",
@@ -19131,5 +19132,12 @@
   "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "diperlukan peran administrator Power BI dan otorisasi API admin di Pengaturan",
   "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "API admin Power BI tidak tersedia untuk pengguna ini: diperlukan peran administrator Power BI dan otorisasi API admin di Pengaturan",
   "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "API admin Power BI tidak tersedia: diperlukan peran administrator Power BI dan otorisasi API admin di Pengaturan; model dibaca satu per satu",
-  "la API de administración es de las conexiones de Power BI": "API admin hanya untuk koneksi Power BI"
+  "la API de administración es de las conexiones de Power BI": "API admin hanya untuk koneksi Power BI",
+  "DBine Bastion no respondió en {0} s": "DBine Bastion tidak merespons dalam {0} dtk",
+  "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastion tidak merespons dalam {0} dtk: coba lagi",
+  "no se pudo abrir el canal con DBine Bastion: {0}": "tidak dapat membuka kanal dengan DBine Bastion: {0}",
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "tidak dapat menjangkau DBine Bastion: HTTP error: {0}",
+  "No se pudo leer el catálogo de dependencias (RDB$DEPENDENCIES): {0}": "Tidak dapat membaca katalog dependensi (RDB$DEPENDENCIES): {0}",
+  "No se pudo leer el catálogo de dependencias de system.tables: se buscó en las definiciones que se pueden leer.": "Tidak dapat membaca katalog dependensi system.tables: pencarian dilakukan pada definisi yang dapat dibaca.",
+  "no more {0} sessions for {1}/{2}: {3}": "no more {0} sessions for {1}/{2}: {3}"
 }
