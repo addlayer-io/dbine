@@ -3,11 +3,11 @@ import { watch } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { api } from '../api/client';
-import type { ConnectionConfig, LineageScope, ObjectRef, ProjectTarget, SavedQuery } from '../api/types';
+import type { ConnectionConfig, LineageScope, Notebook, ObjectRef, ProjectTarget, SavedQuery } from '../api/types';
 import { emptySpec, type QuerySpec } from '../api/queryBuilder';
 import { t as tr } from '../i18n';
 import { readJson, writeJson } from './storage';
-import { forgetDraft, settleDrafts } from '../composables/notebookDrafts';
+import { forgetDraft, saveDraft, settleDrafts } from '../composables/notebookDrafts';
 import { initWindowRole, windowRole } from '../composables/windowRole';
 import type { ParamValue } from '../composables/queryParams';
 import * as eg from './editorGroups';
@@ -592,12 +592,26 @@ export const useTabsStore = defineStore('tabs', {
     /** "Archivo › Nuevo notebook": an untitled one ("Notebook N"). From the
      *  explorer, on a connection and database: its cells run there. */
     newNotebook(target?: { connectionId: string; database: string }) {
+      this.place({
+        id: newId(), kind: 'notebook', connectionId: target?.connectionId ?? '', database: target?.database ?? '', preview: false,
+        untitled: this.nextUntitled(),
+      });
+    },
+
+    /** An untitled notebook that starts as `nb` (an MCP session's, from
+     *  Settings › MCP): its draft is stored first, so the tab opens with it. */
+    async newNotebookWith(nb: Notebook) {
+      const id = newId();
+      await saveDraft(id, nb);
+      this.place({ id, kind: 'notebook', connectionId: '', database: '', preview: false, untitled: this.nextUntitled() });
+    },
+
+    /** The lowest "Notebook N" no open tab uses. */
+    nextUntitled(): number {
       const used = new Set(this.tabs.flatMap((t) => (t.kind === 'notebook' && t.untitled ? [t.untitled] : [])));
       let n = 1;
       while (used.has(n)) n++;
-      this.place({
-        id: newId(), kind: 'notebook', connectionId: target?.connectionId ?? '', database: target?.database ?? '', preview: false, untitled: n,
-      });
+      return n;
     },
 
     /** An untitled notebook was saved: it's that file from now on. */

@@ -6,8 +6,8 @@
 use super::activity::ActivityEntry;
 use super::approvals::{ApprovalKind, ApprovalRequest, Outcome, APPROVAL_TIMEOUT};
 use super::tools::{
-    arg, arg_num, failure, find_connection, results_text, run_on, summary, Op, TIMEOUT_DEFAULT,
-    TIMEOUT_MAX,
+    arg, arg_num, code_of, database_of, failure, find_connection, results_text, run_on, summary,
+    Op, TIMEOUT_DEFAULT, TIMEOUT_MAX,
 };
 use super::{effective_level, load_config, Cap, Inner, McpClient, McpLevel};
 use dbine_core::SavedConnection;
@@ -53,8 +53,10 @@ pub async fn call(inner: &Inner, client: &McpClient, args: &Value) -> (String, b
             at: chrono::Utc::now().to_rfc3339(),
             client: client.name.clone(),
             connection: connection.to_string(),
+            database: database_of(args),
             tool: tool.to_string(),
             summary: summary(TOOL, args),
+            code: code_of(TOOL, args),
             ok,
             rows,
             error,

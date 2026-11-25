@@ -629,6 +629,8 @@ pub fn run() {
             mcp::commands::mcp_create_client,
             mcp::commands::mcp_revoke_client,
             mcp::commands::mcp_activity,
+            mcp::commands::mcp_sessions,
+            mcp::commands::mcp_session_calls,
             mcp::commands::mcp_pending_approvals,
             mcp::commands::mcp_answer_approval,
             mcp::commands::mcp_clear_approve_all,

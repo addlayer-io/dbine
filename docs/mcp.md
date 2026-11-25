@@ -260,14 +260,42 @@ created, and the port is the one listed in Settings → MCP server.
 ## Activity
 
 Every call is recorded on this machine with the time, the client, the
-connection, the tool, a summary (the query, trimmed) and the result with the
-number of rows. The last 10,000 are kept and shown in Settings › MCP,
-filterable by client or by connection.
+connection, the database, the tool, a summary (the query, trimmed), the
+whole query or code of `run_query`, `explain` and `execute` (up to 64 KB),
+and the result with the number of rows. Never the rows themselves. The last
+10,000 are kept and shown in Settings › MCP, filterable by client or by
+connection.
 
 The tool says how a read or a write was allowed: `run_query · read enforced
 by the server`, `run_query · approved`, `run_query · approved (approve all)`,
 `run_query · approved in the chat` (DBine's assistant), and the request,
 rejection or lack of response of the ones that asked.
+
+## Sessions
+
+MCP has no sessions of its own: each call arrives separately. DBine groups a
+client's calls with no pause longer than 30 minutes into a session: what an
+agent did. Settings › MCP lists them, newest first, with the same filters as
+the activity: the client, when, the connections it used and what it did (calls,
+reads, writes, rejected and failed ones).
+
+**Open as notebook** turns a session into an untitled notebook to continue the
+work from:
+
+- A first text cell with the client, the time and the counts.
+- What it only looked at (connections, databases, objects, their structure,
+  sample rows) in one text cell, as a list, without repeats.
+- Each query it read with (`run_query`, `explain`) as a SQL cell on the
+  connection and database it used, in order. A failed one keeps its cell, after
+  the error. A rejected one is text. No results come from the agent: you run
+  the cells.
+- Each write as text with its code, approved or not ("the agent ran this
+  write, approved at 14:32"): never a SQL cell, so "Run all" doesn't run it
+  again.
+- New cells go to the connection and database of its first query.
+
+The notebook is like any other: it can be edited, run, charted and saved.
+Calls recorded before DBine kept whole queries show their summary instead.
 
 ## Security
 

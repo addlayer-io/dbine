@@ -270,11 +270,13 @@ fn logged(
         at: chrono::Utc::now().to_rfc3339(),
         client: client.to_string(),
         connection,
+        database: database_of(args),
         tool: match phase {
             Some(p) => format!("{tool}:{p}"),
             None => tool.to_string(),
         },
         summary: summary(tool, args),
+        code: code_of(tool, args),
         ok,
         rows,
         error,
@@ -317,6 +319,25 @@ pub(super) fn summary(tool: &str, args: &Value) -> String {
         }
         _ => where_,
     }
+}
+
+/// The query or code a call ran or asked to run, whole, for the log (and a
+/// session's notebook); `None` for the other tools.
+pub(super) fn code_of(tool: &str, args: &Value) -> Option<String> {
+    let key = match tool {
+        "run_query" | "explain" => "query",
+        super::write::TOOL => "code",
+        _ => return None,
+    };
+    args.get(key).and_then(Value::as_str).map(str::to_string)
+}
+
+/// The database a call named ("" when none).
+pub(super) fn database_of(args: &Value) -> String {
+    args.get("database")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string()
 }
 
 pub(super) fn cut(s: &str, max: usize) -> String {
@@ -1217,8 +1238,10 @@ pub(super) async fn approve_read(
         at: chrono::Utc::now().to_rfc3339(),
         client: client.name.clone(),
         connection: conn.name.clone(),
+        database: database_of(args),
         tool: format!("{tool}:request"),
         summary: summary(tool, args),
+        code: code_of(tool, args),
         ok: true,
         rows: None,
         error: None,

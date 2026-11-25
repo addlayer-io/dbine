@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### New
+
+- **An AI agent's work, as a notebook:** Settings › MCP lists the sessions of each MCP client (Claude Code, Cursor, Codex…): its calls with no pause longer than 30 minutes, with the connections it used and how many reads, writes, rejected and failed calls it made. **Open as notebook** turns one into a notebook to continue from: what it explored in one line, each query as a SQL cell on the connection and database it used, and each write as text with its code, so it never runs again. The activity log now keeps each query whole (up to 64 KB), never its rows.
+
 ### Improvements
 
 - **FLOAT16 and BFLOAT16 vectors on Valkey:** the key designer offers FLOAT16 and BFLOAT16 vector fields for a Valkey search index, as well as FLOAT32 (valkey-search 1.3 or later). On an older valkey-search, the server's refusal comes with the version that brings them.
