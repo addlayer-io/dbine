@@ -240,6 +240,12 @@ async fn checks(
     assert_eq!(conf(&r, "v_pedidos"), Some(view_conf), "{id}");
     assert_eq!(conf(&r, "p_alta"), Some(Confidence::Probable), "{id}");
     assert_eq!(r.items.len(), 2, "{id}: {:?}", r.items);
+    // Named with the session's database, as the app may send it: the same
+    // answer, and never the function itself.
+    let mut named = target(kinds::FUNCTION, "f_doble", None);
+    named.object.schema = Some(db.clone());
+    let again = s.dependents(&named, &scan).await.unwrap();
+    assert_eq!(names(&again), names(&r), "{id}: with its database");
 
     // A view: the view over it (the catalog, not the text, on MySQL).
     let r = s
