@@ -55,5 +55,12 @@
     "runTip": "Ejecutar solo esta sentencia",
     "plan": "Plan",
     "planTip": "Plan de ejecución estimado de esta sentencia, sin ejecutarla"
+  },
+  "proposal": {
+    "title": "Cambios propuestos por la IA: no se aplican hasta que los aceptes",
+    "accept": "Aceptar",
+    "reject": "Rechazar",
+    "acceptAll": "Aceptar todo",
+    "rejectAll": "Rechazar todo"
   }
 }

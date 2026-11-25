@@ -3776,12 +3776,85 @@ routines, triggers, packages, synonyms, aliases, streams, tasks and sinks
   `INFO.CALCDEPENDENCY()` (**Confirmed**) when the account has write
   permission on a model on capacity, else from a DAX-aware scan of the
   definitions (**Probable** / **Review**); the default scan can't read DAX.
-  A model read with only `COLUMNSTATISTICS()` has nothing readable but its
-  tables and columns, and the report says so.
+  The `INFO.CALCDEPENDENCY()` query is filtered on what references the
+  object, so only those rows travel. A model read with only
+  `COLUMNSTATISTICS()` has nothing readable but its tables and columns, and
+  the report says so. Native.
+- **MySQL and MariaDB** (native): the keys that point at the table
+  (`KEY_COLUMN_USAGE`, **Confirmed**); the views from `VIEW_TABLE_USAGE` /
+  `VIEW_ROUTINE_USAGE` on MySQL 8.0.13+ (**Confirmed**, the same query
+  brings the definition for the lines), else the `VIEWS` definitions that
+  contain the name (`LIKE`, in the server) confirmed by the code
+  (**Probable**); routines and triggers the same way (`ROUTINES`,
+  `TRIGGERS`; the engines do not record them); a column's indexes
+  (`STATISTICS`) and checks. Schema, index and constraint targets, other
+  engines of the family (TiDB, OceanBase…) and a refused catalog use the
+  default version, with a note.
+- **ClickHouse**: one `system.tables` read filtered by the object:
+  `dependencies_*` of the target (materialized views, **Confirmed**),
+  `loading_dependencies_*` (dictionaries and defaults, **Confirmed**), and
+  the rows whose `create_table_query` or `engine_full` contain the name,
+  read as `references` reads them (views: **Probable**; Buffer, Dictionary,
+  Distributed on a cluster that has the server). Merge tables show only when
+  their pattern names the table literally. A column also looks at the
+  sorting, partition, primary and sampling keys and the skipping indexes.
+  Native.
+- **Db2 LUW** (ODBC preset): `SYSCAT.VIEWDEP`, `ROUTINEDEP` (and the
+  package's `PACKAGEDEP`), `TRIGDEP`, the triggers on the table, aliases
+  and `SYSCAT.REFERENCES`, filtered by the object and with each source
+  (**Confirmed**); dynamic SQL is found by one `LIKE` over routine and
+  trigger text (**Probable** / **Review**); a column's indexes and checks
+  from `INDEXCOLUSE` and `COLCHECKS`. Native. The other ODBC presets use the
+  default version.
+- **Firebird**: `RDB$DEPENDENCIES WHERE RDB$DEPENDED_ON_NAME = object`
+  (**Confirmed**, per column too: views, routines, packages, triggers,
+  CHECK constraints, expression indexes, computed columns), the foreign
+  keys, and one query for the source that contains the name (lines, and
+  `EXECUTE STATEMENT` text as **Probable** / **Review**). Native.
 - **The other engines**: the default version. In a database with thousands
   of routines it is slow, because it reads each definition separately. The
-  versions with the PostgreSQL catalog (`pg_depend`), Oracle
-  (`ALL_DEPENDENCIES`) and MySQL (`VIEW_TABLE_USAGE`) are pending.
+  PostgreSQL (`pg_depend`) and Oracle (`ALL_DEPENDENCIES`) versions are
+  pending here.
+  A model read with only `COLUMNSTATISTICS()` has nothing readable but its
+  tables and columns, and the report says so.
+- **PostgreSQL and the forks that keep its catalog** (TimescaleDB, AlloyDB,
+  Cloud SQL, Aurora, EDB, Fujitsu, YugabyteDB, Greenplum, Cloudberry,
+  Greengage, KingbaseES, openGauss): native, two queries filtered by the
+  object. `pg_depend` rows whose referenced object is the table, view,
+  materialized view, sequence or routine (or its column) give the views, rules,
+  routines, triggers, defaults, generated columns, checks, unique and
+  exclusion constraints, indexes and policies that use it; `pg_constraint`
+  gives the foreign keys and `pg_inherits` the inheriting tables (**Confirmed**).
+  A routine that takes a table's row type is followed through the type. A
+  routine whose body the catalog does not track (PL/pgSQL, any body before
+  PostgreSQL 14) is searched by text: the server keeps only the bodies that
+  hold the name and DBine parses those (**Probable** / **Review**). Other
+  variants (Redshift, Yellowbrick, CockroachDB, Materialize, RisingWave,
+  Denodo, CrateDB, H2) and the kinds the catalog does not answer for (a schema,
+  an index, a constraint, a type) use the default version; so does a login
+  that cannot read the catalog, and the tab says why.
+- **Oracle and Oracle Autonomous Database**: native. `ALL_DEPENDENCIES` filtered
+  by the referenced object gives the views, materialized views, routines,
+  packages, triggers, types, synonyms (public ones too) and tables that use
+  it, and `ALL_CONSTRAINTS` the foreign keys (**Confirmed**). It records no
+  columns: for a column, only the dependents of its table are read and kept
+  when their source names it (**Probable**), plus the column's own indexes and
+  checks. What the dictionary cannot resolve (dynamic SQL, an invalid unit) is
+  found by one `ALL_SOURCE` query that keeps, on the server, the PL/SQL whose text
+  holds the name; only those are read (**Probable** / **Review**). Views have
+  no source in `ALL_SOURCE`, so an invalid view is not searched. At most 300
+  definitions are read; the rest are listed as unreadable.
+- **SAP HANA**: native. `SYS.OBJECT_DEPENDENCIES` filtered by the base object
+  gives the views, procedures, functions, triggers, synonyms and sequences
+  that use it, and `SYS.REFERENTIAL_CONSTRAINTS` the foreign keys
+  (**Confirmed**). A column is handled as in Oracle (the table's dependents
+  whose source names it, plus its indexes and primary key), and dynamic SQL
+  is searched in the definitions of the object's schema and the session's with
+  one server-side `LIKE`. Verified with unit tests only: there is no HANA
+  container to run it against.
+- **The other engines**: the default version. In a database with thousands
+  of routines it is slow, because it reads each definition separately. The
+  version with MySQL's `VIEW_TABLE_USAGE` is pending.
 
 Drivers that run in their own process (those downloaded on demand) answer
 `Dependents` through the protocol; a process published earlier answers that
@@ -4208,7 +4281,7 @@ does and an **Analizar** button, because reading every definition can take long.
 | Snowflake | `ACCOUNT_USAGE.OBJECT_DEPENDENCIES` (**Confirmed**, with its latency), external tables' files; tasks stay nodes |
 | Databricks | `system.access.table_lineage` (**Confirmed**, last 365 days, up to 200,000 rows): jobs, notebooks, pipelines, queries and dashboards as external sources; definitions and foreign keys from the default scan |
 | MongoDB | the views' `viewOn` and pipelines (`$lookup`, `$graphLookup`, `$unionWith`) (**Confirmed**) |
-| Power BI | `INFO.CALCDEPENDENCY()` for the whole model (**Confirmed** with write permission on a model on capacity; else the DAX is resolved against the model: **Probable**), relationships, roles' table filters, and each partition's Power Query sources as external sources |
+| Power BI | `INFO.CALCDEPENDENCY()` for the whole model in the lineage (and filtered by the object in dependents) (**Confirmed** with write permission on a model on capacity; else the DAX is resolved against the model: **Probable**), relationships, roles' table filters, and each partition's Power Query sources as external sources |
 
 Every other engine with **View dependencies…** uses the default version. What
 is left out, and why:
@@ -4229,6 +4302,35 @@ the PostgreSQL test also against YugabyteDB and TimescaleDB. Not against a
 real server: SAP HANA, Snowflake, Databricks, Power BI, Materialize, RisingWave,
 Redshift, Yellowbrick, Greenplum, EDB and the other PostgreSQL forks, Azure SQL,
 Fabric and Babelfish (unit tests of the queries and the row mapping only).
+
+### Lineage in chunks (Power BI)
+
+A semantic model with thousands of objects can't be read in one call: the dependencies of every measure and
+column in one `INFO.CALCDEPENDENCY()` is what ran past the limit and showed nothing. The lineage of a Power BI
+model is therefore read as a loop of short calls (`get_lineage_chunk`), each with its own limit (the
+`lineage_open_timeout_secs` setting, 900 s by default and 3600 s at most), and the diagram fills in:
+
+| Chunk | What it reads | Cost |
+|---|---|---|
+| `structure` | the nodes, relationships, roles, Power Query sources and names; DAX as tokens when the engine's dependencies aren't asked | the model's metadata (cached 60 s, kept alive while the loop runs); no DAX call |
+| `dependencies` (50 expressions each) | `INFO.CALCDEPENDENCY()` filtered on those expressions' names (`Confirmed`); the tokens (`Probable`) if the engine refuses that batch | one DAX query per batch |
+| `consumers` | the reports and dashboards that read the model | one request per report list and per dashboard (cached 60 s) |
+
+After each chunk the host merges it into the graph so far (`LineageGraph::absorb`) and saves it in the explorer
+cache (`lineage`, same key as the whole graph). `LineageGraph.next` says which chunk follows, so a graph left
+half way resumes there at the next opening; `failed` lists the chunks that failed twice (the loop goes on, the
+banner says how many objects are missing and offers to read just that chunk again). A graph with `next` or
+`failed` is never shown as complete ("Linaje parcial: ..."). Merged, the chunks are the graph the single call
+(`get_lineage_graph`, still used by the search and the precompute) answers: a test checks it with the fake service.
+A complete saved graph younger than 6 h is shown as it is; "Actualizar" reads everything again.
+
+Contract: `LineageScope.step`, `LineageGraph.next` and `LineageGraph.failed` are new fields with
+`#[serde(default)]`; no new `Call` (Bastion's `classify` is unchanged). A driver that doesn't read in chunks
+ignores `step` and answers the whole graph with nothing `next`. Only Power BI reads in chunks so far.
+
+Not covered: against a real tenant the per-batch cost, whether the filtered `INFO.CALCDEPENDENCY()` is cheaper
+than the whole-model query on a model with thousands of expressions, and the 50-expression batch size are
+inferences; nothing here was run on the DBA's 1,700-model tenant.
 
 ### Lineage cache
 
@@ -5992,6 +6094,35 @@ catalogs and kept object lists; the cross-lineage index and what it resolved to
 company connections; the gateway's drivers and streams; the token; the open
 tabs on those connections, and the AI conversations that used them. The data of
 every other connection is left as it is.
+
+### When only part of the access ends
+
+The company can take away less than everything: one grant, a profile, a
+connection, or a group the person was in. Then the person keeps the rest, and
+DBine forgets **exactly what was lost and nothing else**. Revocation matches
+reality: lose database X or connection X, lose X; lose the user, lose
+everything.
+
+| What the person loses | What DBine deletes | What stays |
+|---|---|---|
+| A whole connection (`ent-<profile>`: its last grant, the profile or its connection deleted, a group that gave it) | that connection as in the full purge: sessions, tunnels, secrets, its row, saved queries, history, migrations, contexts, backups' rows, lineage links, scheduled tasks naming it, explorer and lineage cache, kept lists, index entries, stored results, tabs and AI conversations about it | every other company connection and everything of the person's own |
+| Some databases of a connection (the person keeps others on it) | the sessions on them, their explorer and lineage cache (and the connection's list of databases, which can name them), saved queries, history, migrations, contexts and backups' rows of those databases, scheduled tasks naming them, kept object lists, tabs and AI conversations about them | the connection, its other databases, every other connection |
+| Everything (user disabled or deleted, token refused, sign-out, another account) | the full purge above | nothing of the company |
+
+How DBine finds out: the server sends `access.narrowed` on the events stream
+(wire format in the server's docs/events.md): it lists each profile that lost
+something, whole or by database, and DBine purges exactly that, within about
+2 seconds of the revocation. The **catalog sync is the safety net**: each sync
+compares the connections and databases it now gets with the ones DBine had
+(kept in the managed rows, also across restarts, in the
+`dbine.enterprise.databases` option) and purges what disappeared, so an event
+that was missed or arrived while offline ends in the same purge at the next
+sync: at most 60 seconds with a company session open, 10 minutes with none
+(nothing is live then; only stored data waits), and at once when the window
+comes back in front. Data of company connections that no catalog lists any
+more (leftovers) goes in the same sync. Not covered by databases: lineage
+links (a link from a source to a connection has no database); a scheduled task
+is deleted with a database only when it names it explicitly.
 
 **Validation.** The access is validated when the app starts, when its window
 comes back in front, every minute while a company session is open and every ten

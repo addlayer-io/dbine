@@ -9,7 +9,7 @@ import { readJson } from './storage';
 import { useSettingsStore } from './settings';
 import { ownsSavedState, useTabsStore } from './tabs';
 import { trackFeature } from '../composables/telemetry';
-import { isCompanyId, usedCompany, withoutCompanyChats } from './companyData';
+import { isCompanyId, usedCompany, usedLost, withoutCompanyChats, withoutLostChats, type Lost } from './companyData';
 
 // The AI assistant's state: detected providers, the chosen one, and the
 // conversation. The assistant never runs anything: its code goes into the
@@ -47,6 +47,9 @@ export interface UiMessage extends ChatMessage {
   context?: string;
   /** It was asked about a DBine Enterprise connection: it goes with the company's access. */
   company?: boolean;
+  /** Which company connection and database it was about (to forget only that when part of the access goes). */
+  companyConnection?: string;
+  companyDatabase?: string;
   error?: string;
   pending?: boolean;
   provider?: string;
@@ -374,6 +377,19 @@ export const useAiStore = defineStore('ai', {
       }
       await this.changeArchive(withoutCompanyChats);
     },
+    /** Part of the company's access ended: only the conversations that
+     *  quoted what was lost go (current and archived). */
+    async forgetLost(lost: Lost) {
+      await this.ready();
+      if (usedLost(this.messages, lost)) {
+        this.stop();
+        this.messages = [];
+        this.chatId = newId();
+        this.approveReads = false;
+        this.persist();
+      }
+      await this.changeArchive((list) => withoutLostChats(list, lost));
+    },
     /** "Nueva conversación": the current one goes to the history. */
     async clear() {
       await this.ready();
@@ -427,7 +443,11 @@ export const useAiStore = defineStore('ai', {
       const tab = tabs.active;
       const b = this.activeBridge;
       const user: UiMessage = { id: newId(), role: 'user', content: text.trim() };
-      if (isCompanyId(this.target?.connectionId)) user.company = true;
+      if (isCompanyId(this.target?.connectionId)) {
+        user.company = true;
+        user.companyConnection = this.target?.connectionId;
+        user.companyDatabase = this.target?.database ?? '';
+      }
       const answer: UiMessage = { id: newId(), role: 'assistant', content: '', pending: true, provider: p.label };
       this.messages.push(user, answer);
       const history: ChatMessage[] = this.messages

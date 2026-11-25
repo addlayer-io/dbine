@@ -530,6 +530,7 @@ mod tests {
             foreign_keys: true,
             written_kinds: Vec::new(),
             has_schemas: true,
+            databases: None,
         }
     }
 

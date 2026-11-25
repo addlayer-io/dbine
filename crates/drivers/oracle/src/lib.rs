@@ -21,6 +21,7 @@ mod backup;
 mod blocking;
 mod create_db;
 mod ddl;
+mod dependents;
 mod functions;
 mod health;
 mod index_usage;
@@ -1953,6 +1954,16 @@ impl Session for OracleSession {
         let name = table.name.clone();
         self.run(move |c| index_usage::report(c, &owner, &name).map(Some))
             .await
+    }
+
+    /// ALL_DEPENDENCIES and the foreign keys filtered by the object, and a
+    /// source search for what the dictionary can't resolve (see `dependents`).
+    async fn dependents(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        self.dependents_impl(target, scan).await
     }
 
     /// ALL_DEPENDENCIES, the foreign keys, ALL_SYNONYMS, the database

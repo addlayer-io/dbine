@@ -136,8 +136,25 @@ pub enum Lane {
     /// the user is waiting to see, never behind the editor or a long read.
     Tree,
     /// Reads that may take minutes on a big database: a whole schema (a
-    /// compare, a migration, a snapshot) or a dependents scan.
+    /// compare, a migration, a snapshot), a dependents scan, the lineage.
+    /// It holds up to [`LONG_SESSIONS`] sessions, so two of them (the
+    /// lineage the user opens while the background precompute reads the
+    /// same database) run side by side instead of one waiting for the other.
     Long,
+}
+
+/// Sessions the long lane may open per database. A long read takes a free
+/// one, opens another when all are busy, and waits only once this many are
+/// busy (or the server or the company won't let one more open).
+pub const LONG_SESSIONS: usize = 3;
+
+impl Lane {
+    fn sessions(self) -> usize {
+        match self {
+            Lane::Long => LONG_SESSIONS,
+            Lane::Default | Lane::Tree => 1,
+        }
+    }
 }
 
 /// The session key of a database's structure reads on `lane`.
@@ -147,6 +164,16 @@ pub fn meta_lane_key(connection_id: &str, database: &str, lane: Lane) -> String 
         Lane::Default => base,
         Lane::Tree => format!("{base}\u{1}tree"),
         Lane::Long => format!("{base}\u{1}long"),
+    }
+}
+
+/// The key of the lane's `slot`-th session (the first is `meta_lane_key`).
+fn meta_slot_key(connection_id: &str, database: &str, lane: Lane, slot: usize) -> String {
+    let key = meta_lane_key(connection_id, database, lane);
+    if slot == 0 {
+        key
+    } else {
+        format!("{key}\u{1}{slot}")
     }
 }
 
@@ -613,6 +640,13 @@ impl AppState {
         connection_id: &str,
         database: &str,
     ) -> CommandResult<Arc<SessionEntry>> {
+        // A test makes a server that won't take one more session.
+        #[cfg(test)]
+        if tests::refused(key) {
+            return Err(CommandError::Connect(format!(
+                "{key}: no more sessions (test)"
+            )));
+        }
         let mut cfg = self.connect_config(connection_id).await?;
         // The server a pin learned here belongs to (a tunnel reroutes cfg).
         let server = pin_server(&cfg);
@@ -665,7 +699,8 @@ impl AppState {
     }
 
     /// `meta_read` on one of the database's lanes (see [`Lane`]): each lane
-    /// queues only its own reads.
+    /// queues only its own reads, and the long lane only once all of its
+    /// sessions are busy.
     pub async fn meta_read_on<T, F>(
         &self,
         lane: Lane,
@@ -681,18 +716,51 @@ impl AppState {
             Box<dyn std::future::Future<Output = dbine_driver::Result<T>> + Send + 'a>,
         >,
     {
-        let key = meta_lane_key(connection_id, database, lane);
-        let entry = self.session(&key, connection_id, database).await?;
+        // The lane's sessions up to the first free one: those already open,
+        // then a new one while the lane may hold more. One that can't be
+        // opened (the server's or the company's limit on sessions) leaves the
+        // read waiting for those that are.
+        let mut slots: Vec<(String, Arc<SessionEntry>)> = Vec::new();
+        for slot in 0..lane.sessions() {
+            let key = meta_slot_key(connection_id, database, lane, slot);
+            let entry = match self.session(&key, connection_id, database).await {
+                Ok(e) => e,
+                Err(e) if slots.is_empty() || matches!(e, CommandError::Cancelled) => {
+                    return Err(e)
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        "no more {lane:?} sessions for {connection_id}/{database}: {e}"
+                    );
+                    break;
+                }
+            };
+            let free = entry.session.try_lock().is_ok();
+            slots.push((key, entry));
+            if free {
+                break;
+            }
+        }
         let on = if database.is_empty() {
             String::new()
         } else {
             format!(" de «{database}»")
         };
-        let Ok(mut s) = tokio::time::timeout(limit, entry.session.lock()).await else {
+        // The free one, else whichever frees first.
+        let waits = slots
+            .iter()
+            .enumerate()
+            .map(|(i, (_, e))| Box::pin(async move { (i, e.session.lock().await) }));
+        let Ok(((i, mut s), _, others)) =
+            tokio::time::timeout(limit, futures_util::future::select_all(waits)).await
+        else {
             return Err(CommandError::Busy(format!(
                 "la conexión sigue ocupada leyendo la estructura{on} (por ejemplo, una comparación de esquemas en curso); volvé a intentar en un momento."
             )));
         };
+        // Out of the other sessions' queues.
+        drop(others);
+        let (key, entry) = slots[i].clone();
         match tokio::time::timeout(limit, f(&mut s)).await {
             Ok(Err(
                 e @ (dbine_driver::Error::Connect(_)
@@ -837,6 +905,52 @@ impl AppState {
         ids
     }
 
+    /// One company connection lost as a whole (its access was taken away,
+    /// the person keeps the rest): its sessions, tunnels, typed and
+    /// keychain-read secrets and cached tree go from memory; every other
+    /// connection stays.
+    pub fn forget_connection_memory(&self, id: &str) {
+        self.close_connection_sessions(id);
+        self.typed_secrets.remove(id);
+        self.keychain_cache.remove(id);
+        if let Some(cache) = self.cache.get() {
+            let _ = cache.forget_connection(id);
+        }
+    }
+
+    /// Some databases of a company connection lost (`named`, and every one
+    /// not in `keep` when given): the sessions on them close (and the ones
+    /// whose database isn't known), and their kept object lists go. The
+    /// connection and its other databases stay.
+    pub fn forget_database_memory(&self, id: &str, named: &[String], keep: Option<&[String]>) {
+        use crate::enterprise::purge::database_goes;
+        self.functions.forget_connection(id);
+        self.sessions.retain(|_, e| {
+            if e.connection_id != id {
+                return true;
+            }
+            let switched = e.switched_to.lock().ok().and_then(|s| s.clone());
+            let goes = database_goes(&e.database, named, keep)
+                || switched.is_some_and(|d| database_goes(&d, named, keep));
+            if goes {
+                e.cancel.notify_waiters();
+            }
+            !goes
+        });
+        let prefix = meta_key(id, "");
+        self.object_lists.retain(|k, _| {
+            k.strip_prefix(&prefix)
+                .is_none_or(|db| !database_goes(db, named, keep))
+        });
+        if let Some(app) = APP.get() {
+            use tauri::Emitter;
+            let _ = app.emit(
+                "state-changed",
+                serde_json::json!({ "kind": "sessions-closed", "id": null, "connection_id": id, "database": null }),
+            );
+        }
+    }
+
     /// Drop every session of a connection (disconnect, edit, delete). Every
     /// window hears it (`state-changed`, kind `sessions-closed`): a tab of
     /// another window on that connection is now disconnected too.
@@ -960,14 +1074,17 @@ mod tests {
         assert!(!password_applies(&[Field::host()], &cfg));
     }
 
-    /// A long read (a schema compare) holding its lane doesn't queue the
-    /// tree: the tree's read answers at once, while another read on the long
-    /// lane waits and gives up "busy". Disconnecting drops every lane.
-    #[tokio::test]
-    async fn a_long_read_does_not_queue_the_tree() {
-        use std::time::Duration;
+    /// Session keys a test's server won't open (`open_session_now`).
+    static REFUSED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+    pub(super) fn refused(key: &str) -> bool {
+        REFUSED.lock().unwrap().iter().any(|k| k == key)
+    }
+
+    /// A state with the SQLite connection `id` (one table, `t`), and the folder to remove after.
+    fn lanes_state(id: &str) -> (Arc<AppState>, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!(
-            "dbine-lanes-{}-{}",
+            "dbine-lanes-{id}-{}-{}",
             std::process::id(),
             chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
         ));
@@ -981,8 +1098,8 @@ mod tests {
         state
             .store
             .save_connection(&dbine_core::SavedConnection {
-                id: "lanes".into(),
-                name: "lanes".into(),
+                id: id.into(),
+                name: id.into(),
                 color: None,
                 config: ConnectionConfig {
                     driver: "sqlite".into(),
@@ -996,29 +1113,96 @@ mod tests {
                 updated_at: String::new(),
             })
             .unwrap();
+        (state, dir)
+    }
+
+    /// A long read on `id` that holds its session until released: (held, release, the read).
+    fn hold_long(
+        state: Arc<AppState>,
+        id: &'static str,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+        tokio::task::JoinHandle<CommandResult<()>>,
+    ) {
         let (held_tx, held_rx) = tokio::sync::oneshot::channel::<()>();
         let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
-        let long = {
+        let read = tokio::spawn(async move {
+            state
+                .meta_read_on(
+                    Lane::Long,
+                    id,
+                    "",
+                    std::time::Duration::from_secs(30),
+                    move |_s| {
+                        Box::pin(async move {
+                            let _ = held_tx.send(());
+                            let _ = release_rx.await;
+                            Ok(())
+                        })
+                    },
+                )
+                .await
+        });
+        (held_rx, release_tx, read)
+    }
+
+    /// When the server (or the company's limit per person) won't open another session, a long read
+    /// waits for the ones open instead of failing: it gives up "busy" only after its limit, and runs
+    /// as soon as one frees.
+    #[tokio::test]
+    async fn a_long_read_waits_for_the_open_sessions_when_another_cannot_open() {
+        use std::time::Duration;
+        let id = "lanes-refused";
+        let (state, dir) = lanes_state(id);
+        let (held, release, first) = hold_long(state.clone(), id);
+        held.await.unwrap();
+        REFUSED
+            .lock()
+            .unwrap()
+            .push(meta_slot_key(id, "", Lane::Long, 1));
+        let queued = state
+            .meta_read_on(Lane::Long, id, "", Duration::from_millis(200), |s| {
+                Box::pin(s.list_objects())
+            })
+            .await;
+        assert!(
+            matches!(queued, Err(CommandError::Busy(_))),
+            "it waited, not failed with the open's error: {queued:?}"
+        );
+        let waiting = {
             let state = state.clone();
             tokio::spawn(async move {
                 state
-                    .meta_read_on(
-                        Lane::Long,
-                        "lanes",
-                        "",
-                        Duration::from_secs(30),
-                        move |_s| {
-                            Box::pin(async move {
-                                let _ = held_tx.send(());
-                                let _ = release_rx.await;
-                                Ok(())
-                            })
-                        },
-                    )
+                    .meta_read_on(Lane::Long, id, "", Duration::from_secs(10), |s| {
+                        Box::pin(s.list_objects())
+                    })
                     .await
             })
         };
-        held_rx.await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        release.send(()).unwrap();
+        first.await.unwrap().unwrap();
+        let objects = waiting.await.unwrap().unwrap();
+        assert!(objects.iter().any(|o| o.name == "t"), "{objects:?}");
+        assert_eq!(state.sessions.len(), 1, "only the session that could open");
+        REFUSED.lock().unwrap().clear();
+        state.close_connection_sessions(id);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A long read (a schema compare, the background lineage precompute)
+    /// holding its lane doesn't queue the tree, nor another long read: that
+    /// one opens another session of the long lane and runs side by side. Only
+    /// with all the long lane's sessions busy does a long read wait (and give
+    /// up "busy"). Disconnecting drops every lane.
+    #[tokio::test]
+    async fn a_long_read_queues_neither_the_tree_nor_another_long_read() {
+        use std::time::Duration;
+        let (state, dir) = lanes_state("lanes");
+        let hold = |state: Arc<AppState>| hold_long(state, "lanes");
+        let (held, release, first) = hold(state.clone());
+        held.await.unwrap();
         let objects = state
             .meta_read_on(Lane::Tree, "lanes", "", Duration::from_secs(5), |s| {
                 Box::pin(s.list_objects())
@@ -1026,6 +1210,24 @@ mod tests {
             .await
             .unwrap();
         assert!(objects.iter().any(|o| o.name == "t"), "{objects:?}");
+        // The lineage the user opens while the precompute reads: at once.
+        let beside = state
+            .meta_read_on(Lane::Long, "lanes", "", Duration::from_millis(200), |s| {
+                Box::pin(s.list_objects())
+            })
+            .await;
+        assert!(
+            beside
+                .as_ref()
+                .is_ok_and(|o| o.iter().any(|o| o.name == "t")),
+            "a second long read runs beside the first: {beside:?}"
+        );
+        let mut held_reads = vec![(release, first)];
+        for _ in 1..LONG_SESSIONS {
+            let (held, release, read) = hold(state.clone());
+            held.await.unwrap();
+            held_reads.push((release, read));
+        }
         let queued = state
             .meta_read_on(Lane::Long, "lanes", "", Duration::from_millis(200), |s| {
                 Box::pin(s.list_objects())
@@ -1033,11 +1235,17 @@ mod tests {
             .await;
         assert!(
             matches!(queued, Err(CommandError::Busy(_))),
-            "a read on the held lane waits: {queued:?}"
+            "with every long session busy a long read waits: {queued:?}"
         );
-        release_tx.send(()).unwrap();
-        long.await.unwrap().unwrap();
-        assert_eq!(state.sessions.len(), 2, "one session per lane used");
+        for (release, read) in held_reads {
+            release.send(()).unwrap();
+            read.await.unwrap().unwrap();
+        }
+        assert_eq!(
+            state.sessions.len(),
+            1 + LONG_SESSIONS,
+            "the tree's session and the long lane's"
+        );
         state.close_connection_sessions("lanes");
         assert!(state.sessions.is_empty(), "disconnect drops every lane");
         std::fs::remove_dir_all(&dir).ok();

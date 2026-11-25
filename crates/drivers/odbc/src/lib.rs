@@ -10,6 +10,7 @@ mod backup;
 mod blocking;
 mod connstr;
 mod create_db;
+mod dependents;
 mod design;
 mod explain;
 mod ffi;
@@ -1712,6 +1713,19 @@ impl Session for OdbcSession {
                 Ok(Some(report))
             }
         }
+    }
+
+    /// Db2 LUW from its dependency catalog filtered by the target (see
+    /// `dependents`); the other presets, the contract's scan.
+    async fn dependents(
+        &mut self,
+        target: &dbine_driver::DependencyTarget,
+        scan: &dbine_driver::DependencyScan,
+    ) -> Result<dbine_driver::DependencyReport> {
+        if design::eng(self.preset) == design::Eng::Db2 {
+            return dependents::db2(self, target, scan).await;
+        }
+        dbine_driver::dependencies::scan(self, target, scan).await
     }
 
     /// Db2 LUW from its dependency catalog (see `references`); the other

@@ -19,9 +19,19 @@
 //! | the gateway's drivers and their streams | memory | `gateway::forget_drivers` |
 //! | the token and the sign-in | keychain, `local.enterprise` | `Enterprise::end_access` |
 //! | the UI's open tabs, drafts and AI chats about company connections | the window | the `enterprise-purged` event |
+//!
+//! When the person loses only part of the access (one connection, or some
+//! databases of one: the server's `access.narrowed` event, or the catalog
+//! sync showing them gone), the same stores are cleared for **only** what was
+//! lost: [`Loss`], [`purge_connection`] and [`purge_databases`]. Everything
+//! else of the company stays. The full purge stays for the end of the whole
+//! access (user disabled or deleted, token refused, sign-out, other account).
 
 use chrono::{DateTime, Utc};
+use dbine_core::purge::Databases;
 use dbine_core::{ExplorerCache, StateStore};
+use serde_json::Value;
+use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -175,6 +185,202 @@ pub async fn purge_company_data(store: &StateStore, state: Option<&AppState>) ->
     ids
 }
 
+/// What the person lost of the company's access when they keep the rest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Loss {
+    /// A whole managed connection (`ent-<profile>`).
+    Whole(String),
+    /// Some databases of one managed connection: the `named` ones, and (when
+    /// `keep` is given) every database not in `keep`.
+    Databases {
+        connection_id: String,
+        named: Vec<String>,
+        keep: Option<Vec<String>>,
+    },
+}
+
+/// What a managed connection reaches: `None` every database, else a list.
+pub type Reach = BTreeMap<String, Option<Vec<String>>>;
+
+/// What the server's `access.narrowed` event says was lost (its `lost`
+/// list, see docs/events.md). Anything unreadable is skipped: the catalog
+/// sync that follows corrects it.
+pub fn losses_from_event(data: &Value) -> Vec<Loss> {
+    let list = |v: &Value| -> Option<Vec<String>> {
+        v.as_array().map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
+    };
+    let mut out = Vec::new();
+    for l in data["lost"].as_array().into_iter().flatten() {
+        let Some(profile) = l["profile_id"].as_str().filter(|p| !p.is_empty()) else {
+            continue;
+        };
+        let id = super::connection_id(profile);
+        match list(&l["databases"]) {
+            None => out.push(Loss::Whole(id)),
+            Some(named) => {
+                let keep = list(&l["kept"]);
+                if !named.is_empty() || keep.is_some() {
+                    out.push(Loss::Databases {
+                        connection_id: id,
+                        named,
+                        keep,
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
+/// What is lost going from the catalog DBine had to the one the server
+/// sends now: the safety net behind the event (a missed one ends in the same
+/// purge at the next sync). `leftovers` are connections with data stored and
+/// in neither catalog.
+pub fn losses_from_catalogs(before: &Reach, after: &Reach, leftovers: &[String]) -> Vec<Loss> {
+    let mut out = Vec::new();
+    for (id, was) in before {
+        match (was, after.get(id)) {
+            (_, None) => out.push(Loss::Whole(id.clone())),
+            (_, Some(None)) => {}
+            (None, Some(Some(kept))) => out.push(Loss::Databases {
+                connection_id: id.clone(),
+                named: Vec::new(),
+                keep: Some(kept.clone()),
+            }),
+            (Some(was), Some(Some(kept))) => {
+                let named: Vec<String> =
+                    was.iter().filter(|d| !kept.contains(d)).cloned().collect();
+                if !named.is_empty() {
+                    out.push(Loss::Databases {
+                        connection_id: id.clone(),
+                        named,
+                        keep: Some(kept.clone()),
+                    });
+                }
+            }
+        }
+    }
+    for id in leftovers {
+        if !before.contains_key(id) && !after.contains_key(id) {
+            out.push(Loss::Whole(id.clone()));
+        }
+    }
+    out
+}
+
+/// What the stores that need no app hold of one loss, gone (state and
+/// explorer cache). Idempotent and best effort, like the full purge.
+pub fn purge_loss_stores(store: &StateStore, cache: Option<&ExplorerCache>, loss: &Loss) {
+    match loss {
+        Loss::Whole(id) => {
+            if let Err(e) = store.purge_connection_data(id) {
+                tracing::warn!("purging {id}: {e}");
+            }
+            if let Some(cache) = cache {
+                let _ = cache.forget_connection(id);
+            }
+        }
+        Loss::Databases {
+            connection_id,
+            named,
+            keep,
+        } => {
+            if !named.is_empty() {
+                if let Err(e) = store.purge_database_data(connection_id, Databases::Named(named)) {
+                    tracing::warn!("purging databases of {connection_id}: {e}");
+                }
+            }
+            if let Some(keep) = keep {
+                if let Err(e) = store.purge_database_data(connection_id, Databases::AllBut(keep)) {
+                    tracing::warn!("purging databases of {connection_id}: {e}");
+                }
+            }
+            if let Some(cache) = cache {
+                let _ = cache.forget_databases(connection_id, named, keep.as_deref());
+            }
+        }
+    }
+}
+
+/// One whole company connection goes: its sessions and memory first, then
+/// its rows, cache, index entries and results. Every other connection stays.
+pub async fn purge_connection(store: &StateStore, state: Option<&AppState>, id: &str) {
+    if let Some(state) = state {
+        state.forget_connection_memory(id);
+    }
+    crate::commands::cross::forget_connection(id);
+    purge_loss_stores(
+        store,
+        state.and_then(|s| s.cache.get()),
+        &Loss::Whole(id.to_string()),
+    );
+    if let Err(e) = crate::results_store::purge_connection(id).await {
+        tracing::warn!("purging the results of {id}: {e}");
+    }
+}
+
+/// Some databases of one company connection go (sessions on them, cache,
+/// saved data, kept lists); the connection and its other databases stay.
+pub fn purge_databases(
+    store: &StateStore,
+    state: Option<&AppState>,
+    connection_id: &str,
+    named: &[String],
+    keep: Option<&[String]>,
+) {
+    if let Some(state) = state {
+        state.forget_database_memory(connection_id, named, keep);
+    }
+    crate::commands::cross::forget_connection(connection_id);
+    purge_loss_stores(
+        store,
+        state.and_then(|s| s.cache.get()),
+        &Loss::Databases {
+            connection_id: connection_id.to_string(),
+            named: named.to_vec(),
+            keep: keep.map(<[String]>::to_vec),
+        },
+    );
+}
+
+/// Applies each loss. Returns what the window has to forget too (see the
+/// `enterprise-narrowed` event).
+pub async fn apply_losses(store: &StateStore, state: Option<&AppState>, losses: &[Loss]) -> Value {
+    let mut connections = Vec::new();
+    let mut databases = Vec::new();
+    for l in losses {
+        match l {
+            Loss::Whole(id) => {
+                purge_connection(store, state, id).await;
+                connections.push(id.clone());
+            }
+            Loss::Databases {
+                connection_id,
+                named,
+                keep,
+            } => {
+                purge_databases(store, state, connection_id, named, keep.as_deref());
+                databases.push(serde_json::json!({
+                    "connection_id": connection_id, "databases": named, "keep": keep,
+                }));
+            }
+        }
+    }
+    serde_json::json!({ "connections": connections, "databases": databases })
+}
+
+/// Whether `database` is one the loss reaches. An empty one (the connection's
+/// default, not named) counts: it can be the one that was removed.
+pub fn database_goes(database: &str, named: &[String], keep: Option<&[String]>) -> bool {
+    database.is_empty()
+        || named.iter().any(|d| d == database)
+        || keep.is_some_and(|k| !k.iter().any(|d| d == database))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,7 +523,7 @@ mod tests {
             .is_empty());
     }
 
-    use crate::state::SessionEntry;
+    use crate::state::{meta_key, SessionEntry};
     use dbine_driver::{async_trait, ColumnInfo, DbObject, ObjectRef, QueryOutcome, Session};
     use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
@@ -356,9 +562,13 @@ mod tests {
     }
 
     fn entry(connection: &str) -> Arc<SessionEntry> {
+        entry_in(connection, "d")
+    }
+
+    fn entry_in(connection: &str, database: &str) -> Arc<SessionEntry> {
         Arc::new(SessionEntry {
             connection_id: connection.into(),
-            database: "d".into(),
+            database: database.into(),
             session: Mutex::new(Box::new(Idle)),
             cancel: Notify::new(),
             cancelled: Default::default(),
@@ -366,5 +576,191 @@ mod tests {
             autocommit: AtomicBool::new(true),
             switched_to: Default::default(),
         })
+    }
+
+    fn strings(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_event_says_what_was_lost() {
+        let data = serde_json::json!({ "reason": "grant_revoked", "lost": [
+            { "connection_id": "c1", "profile_id": "p1", "databases": null, "kept": null },
+            { "connection_id": "c2", "profile_id": "p2", "databases": ["d1"], "kept": ["d2"] },
+            { "connection_id": "c2", "profile_id": "p3", "databases": [], "kept": ["d3"] },
+            { "connection_id": "c2", "profile_id": "", "databases": null },
+            { "connection_id": "c2", "profile_id": "p4", "databases": [], "kept": null },
+        ]});
+        assert_eq!(
+            losses_from_event(&data),
+            vec![
+                Loss::Whole("ent-p1".into()),
+                Loss::Databases {
+                    connection_id: "ent-p2".into(),
+                    named: strings(&["d1"]),
+                    keep: Some(strings(&["d2"]))
+                },
+                Loss::Databases {
+                    connection_id: "ent-p3".into(),
+                    named: vec![],
+                    keep: Some(strings(&["d3"]))
+                },
+            ]
+        );
+        assert!(losses_from_event(&serde_json::json!({})).is_empty());
+    }
+
+    #[test]
+    fn a_catalog_that_lost_something_says_what() {
+        let reach = |items: &[(&str, Option<&[&str]>)]| -> Reach {
+            items
+                .iter()
+                .map(|(id, d)| (id.to_string(), d.map(strings)))
+                .collect()
+        };
+        let before = reach(&[
+            ("ent-a", Some(&["d1", "d2"])),
+            ("ent-b", None),
+            ("ent-c", None),
+            ("ent-d", Some(&["x"])),
+        ]);
+        let after = reach(&[
+            ("ent-a", Some(&["d2"])),
+            ("ent-b", Some(&["d9"])),
+            ("ent-d", None),
+        ]);
+        let losses = losses_from_catalogs(&before, &after, &strings(&["ent-old", "ent-b"]));
+        assert_eq!(
+            losses,
+            vec![
+                Loss::Databases {
+                    connection_id: "ent-a".into(),
+                    named: strings(&["d1"]),
+                    keep: Some(strings(&["d2"]))
+                },
+                Loss::Databases {
+                    connection_id: "ent-b".into(),
+                    named: vec![],
+                    keep: Some(strings(&["d9"]))
+                },
+                Loss::Whole("ent-c".into()),
+                Loss::Whole("ent-old".into()),
+            ]
+        );
+        assert!(losses_from_catalogs(&before, &before, &[]).is_empty());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_database_a_connection_and_everything_go_each_at_its_own_size() {
+        let state = AppState::new(StateStore::open_in_memory().unwrap());
+        let store = &state.store;
+        store.save_connection(&conn("c1")).unwrap();
+        store
+            .set_managed_connections(&[conn("ent-a"), conn("ent-b")])
+            .unwrap();
+        let cache = ExplorerCache::open_in_memory().unwrap();
+        for id in ["ent-a", "ent-b", "c1"] {
+            cache
+                .put(id, "", kinds::DATABASES, "", r#"["d1","d2"]"#)
+                .unwrap();
+            for d in ["d1", "d2"] {
+                cache.put(id, d, kinds::OBJECTS, "", "[]").unwrap();
+                cache.put(id, d, "lineage", "i", "{}").unwrap();
+                store
+                    .save_query(&dbine_core::SavedQuery {
+                        id: format!("q-{id}-{d}"),
+                        connection_id: id.into(),
+                        database: d.into(),
+                        name: "q".into(),
+                        sql: "SELECT 1".into(),
+                        updated_at: String::new(),
+                        last_run_at: None,
+                    })
+                    .unwrap();
+                state
+                    .sessions
+                    .insert(format!("s-{id}-{d}"), entry_in(id, d));
+                state.object_lists.insert(
+                    meta_key(id, d),
+                    (std::time::Instant::now(), Arc::new(Vec::new())),
+                );
+            }
+            state.typed_secrets.insert(id.into(), Default::default());
+        }
+        let _ = state.cache.set(cache);
+        let cache = state.cache.get().unwrap();
+        let queries = |id: &str| {
+            ["d1", "d2"]
+                .iter()
+                .map(|d| store.list_queries(id, d).map(|q| q.len()).unwrap_or(0))
+                .sum::<usize>()
+        };
+
+        // Database d1 of ent-a: the rest stays.
+        let sent = apply_losses(
+            store,
+            Some(&state),
+            &[Loss::Databases {
+                connection_id: "ent-a".into(),
+                named: strings(&["d1"]),
+                keep: Some(strings(&["d2"])),
+            }],
+        )
+        .await;
+        assert_eq!(sent["databases"][0]["connection_id"], "ent-a");
+        assert!(state.sessions.get("s-ent-a-d1").is_none());
+        assert!(state.sessions.get("s-ent-a-d2").is_some());
+        assert!(state.sessions.get("s-ent-b-d1").is_some());
+        assert!(state.sessions.get("s-c1-d1").is_some());
+        assert!(state.object_lists.get(&meta_key("ent-a", "d1")).is_none());
+        assert!(state.object_lists.get(&meta_key("ent-a", "d2")).is_some());
+        assert!(cache
+            .get("ent-a", "d1", kinds::OBJECTS, "")
+            .unwrap()
+            .is_none());
+        assert!(cache.get("ent-a", "d1", "lineage", "i").unwrap().is_none());
+        assert!(cache
+            .get("ent-a", "d2", kinds::OBJECTS, "")
+            .unwrap()
+            .is_some());
+        assert!(cache
+            .get("ent-b", "d1", kinds::OBJECTS, "")
+            .unwrap()
+            .is_some());
+        assert_eq!(queries("ent-a"), 1);
+        assert_eq!(queries("ent-b"), 2);
+        assert!(state.typed_secrets.get("ent-a").is_some());
+        assert!(store.get_connection("ent-a").unwrap().is_some());
+
+        // The whole connection ent-a: ent-b and the normal one stay.
+        let sent = apply_losses(store, Some(&state), &[Loss::Whole("ent-a".into())]).await;
+        assert_eq!(sent["connections"], serde_json::json!(["ent-a"]));
+        assert!(state.sessions.iter().all(|e| e.connection_id != "ent-a"));
+        assert!(state.typed_secrets.get("ent-a").is_none());
+        assert!(state.typed_secrets.get("ent-b").is_some());
+        assert!(cache
+            .get("ent-a", "d2", kinds::OBJECTS, "")
+            .unwrap()
+            .is_none());
+        assert!(cache
+            .get("ent-b", "d2", kinds::OBJECTS, "")
+            .unwrap()
+            .is_some());
+        assert_eq!(queries("ent-a"), 0);
+        assert_eq!(queries("ent-b"), 2);
+        assert!(store.get_connection("ent-a").unwrap().is_none());
+        assert!(store.get_connection("ent-b").unwrap().is_some());
+
+        // The user gone: everything of the company, nothing of c1.
+        purge_company_data(store, Some(&state)).await;
+        assert!(state.sessions.iter().all(|e| e.connection_id == "c1"));
+        assert_eq!(queries("ent-b"), 0);
+        assert_eq!(queries("c1"), 2);
+        assert!(cache
+            .get("ent-b", "d1", kinds::OBJECTS, "")
+            .unwrap()
+            .is_none());
+        assert!(cache.get("c1", "d1", kinds::OBJECTS, "").unwrap().is_some());
+        assert!(store.get_connection("c1").unwrap().is_some());
     }
 }

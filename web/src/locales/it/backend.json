@@ -5378,6 +5378,7 @@
   "este motor todavía no ordena en el servidor": "questo motore non ordina ancora sul server",
   "ningún certificado del archivo corresponde a su clave privada": "nessun certificato del file corrisponde alla sua chiave privata",
   "no están definidas AZURE_TENANT_ID, AZURE_CLIENT_ID y AZURE_CLIENT_SECRET (o AZURE_CLIENT_CERTIFICATE_PATH)": "AZURE_TENANT_ID, AZURE_CLIENT_ID e AZURE_CLIENT_SECRET (o AZURE_CLIENT_CERTIFICATE_PATH) non sono definite",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "non c'è un lineage letto a metà da proseguire: aprilo di nuovo",
   "no se pudo abrir el certificado: la contraseña no es la correcta, o el archivo no es un PEM ni un PFX": "impossibile aprire il certificato: la password non è corretta, oppure il file non è un PEM né un PFX",
   "no se pudo abrir el certificado: si es un PFX con contraseña, escribila; si no, el archivo no es un PEM ni un PFX": "impossibile aprire il certificato: se è un PFX con password, inseriscila; altrimenti il file non è un PEM né un PFX",
   "no se pudo agregar el orden a la consulta de este objeto": "impossibile aggiungere l'ordinamento alla query di questo oggetto",
@@ -19131,5 +19132,12 @@
   "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "serve essere amministratore di Power BI e autorizzare l'API di amministrazione in Impostazioni",
   "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "l'API di amministrazione di Power BI non è disponibile per questo utente: serve essere amministratore di Power BI e autorizzare l'API di amministrazione in Impostazioni",
   "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "l'API di amministrazione di Power BI non è disponibile: serve essere amministratore di Power BI e autorizzare l'API di amministrazione in Impostazioni; i modelli vengono letti uno alla volta",
-  "la API de administración es de las conexiones de Power BI": "l'API di amministrazione riguarda le connessioni Power BI"
+  "la API de administración es de las conexiones de Power BI": "l'API di amministrazione riguarda le connessioni Power BI",
+  "DBine Bastion no respondió en {0} s": "DBine Bastion non ha risposto in {0} s",
+  "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastion non ha risposto in {0} s: riprova",
+  "no se pudo abrir el canal con DBine Bastion: {0}": "impossibile aprire il canale con DBine Bastion: {0}",
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "impossibile raggiungere DBine Bastion: HTTP error: {0}",
+  "No se pudo leer el catálogo de dependencias (RDB$DEPENDENCIES): {0}": "Impossibile leggere il catalogo delle dipendenze (RDB$DEPENDENCIES): {0}",
+  "No se pudo leer el catálogo de dependencias de system.tables: se buscó en las definiciones que se pueden leer.": "Impossibile leggere il catalogo delle dipendenze di system.tables: la ricerca è stata fatta nelle definizioni leggibili.",
+  "no more {0} sessions for {1}/{2}: {3}": "no more {0} sessions for {1}/{2}: {3}"
 }

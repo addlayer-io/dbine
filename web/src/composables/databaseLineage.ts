@@ -5,7 +5,7 @@
 // the layout with the objects that have no line in a column at the side.
 
 import type { Confidence, ExternalRef, LineageGraph } from '../api/types';
-import { externalId, jobNodeId, layout, nodeId, type Lineage, type LineageEdge, type LineageNode, type Placed } from './lineage';
+import { externalId, jobNodeId, layout, nodeId, readerKind, type Lineage, type LineageEdge, type LineageNode, type Placed } from './lineage';
 
 /** Above this many objects the diagram opens as an overview by schema. */
 export const OVERVIEW_ABOVE = 200;
@@ -98,19 +98,70 @@ export function schemasOf(nodes: Iterable<LineageNode>): string[] {
   return [...set].sort((a, b) => a.localeCompare(b));
 }
 
-/** The kinds on the cards, for the filter's choices. */
-export function kindsOf(nodes: Iterable<LineageNode>): string[] {
-  const set = new Set<string>();
-  for (const n of nodes) set.add(n.kind);
-  return [...set].sort((a, b) => a.localeCompare(b));
+/** Where files live, as the drivers name a source's system (Databricks' storage, Power BI's file sources). */
+const FILE_SYSTEMS = new Set([
+  'amazon s3', 'azure data lake storage', 'google cloud storage', 'unity catalog volume', 'dbfs', 'file',
+  'excel', 'csv', 'folder', 'sharepoint',
+]);
+/** The types outside the database's own objects, in the order the filter lists them. */
+export const OUTSIDE_TYPES = ['job', 'notebook', 'pipeline', 'query', 'report', 'dashboard', 'file', 'external'];
+
+/** A card's type for the filter: an object's kind, a server job; and for a source outside the database
+ *  what it is: a Databricks job (with the server's jobs), notebook, pipeline, query or dashboard, a
+ *  Power BI report or dashboard, a file, or another database or system. The card keeps its kind and
+ *  its source (`LineageSource` reads the system). */
+export function typeOf(n: LineageNode): string {
+  if (n.kind !== 'external' || !n.external) return n.kind;
+  const system = (n.external.system ?? '').trim();
+  const reader = readerKind(n);
+  if (reader) return reader;
+  const databricks = /^Databricks (job|notebook|pipeline|query|dashboard)$/i.exec(system);
+  if (databricks) return databricks[1].toLowerCase();
+  if (FILE_SYSTEMS.has(system.toLowerCase())) return 'file';
+  return 'external';
+}
+
+/** The types on the cards and how many of each, for the filter's choices: the database's own kinds
+ *  first (alphabetically), then jobs and what is outside it. */
+export function typesOf(nodes: Iterable<LineageNode>): { type: string; count: number }[] {
+  const count = new Map<string, number>();
+  for (const n of nodes) count.set(typeOf(n), (count.get(typeOf(n)) ?? 0) + 1);
+  const rank = (t: string) => (OUTSIDE_TYPES.includes(t) ? 1 + OUTSIDE_TYPES.indexOf(t) : 0);
+  return [...count]
+    .map(([type, n]) => ({ type, count: n }))
+    .sort((a, b) => rank(a.type) - rank(b.type) || a.type.localeCompare(b.type));
 }
 
 /** Objects in the model (not counting jobs nor outside sources). */
 export const objectCount = (m: DbModel) => [...m.nodes.values()].filter((n) => groupOf(n) !== null).length;
 
+type TypeCount = { type: string; count: number };
+
+/** The types checked in the "Tipos" list: those on the cards that aren't hidden. */
+export const checkedTypes = (types: TypeCount[], hidden: string[]): string[] =>
+  types.map((x) => x.type).filter((x) => !hidden.includes(x));
+
+/** What `hidden` becomes when the list's checked types are `checked`; `null` (no change) when nothing
+ *  would stay checked: at least one type always shows. */
+export function hiddenFor(types: TypeCount[], checked: string[]): string[] | null {
+  if (!checked.length) return null;
+  return types.map((x) => x.type).filter((x) => !checked.includes(x));
+}
+
+/** The only checked type: its checkbox can't be unchecked. */
+export const isLastChecked = (checked: string[], type: string) => checked.length === 1 && checked[0] === type;
+
+/** The button's "shown of total" when some types are hidden; `null` with every type shown. A hidden type
+ *  that is no longer on the cards (after a refresh) doesn't count. */
+export function typesCount(types: TypeCount[], hidden: string[]): { shown: number; total: number } | null {
+  const off = types.filter((x) => hidden.includes(x.type)).length;
+  return off ? { shown: types.length - off, total: types.length } : null;
+}
+
 export interface Filters {
-  /** Only these kinds (empty: every one). */
-  kinds: string[];
+  /** The types (`typeOf`) unchecked: their cards are hidden. A type that only arrives later (a chunk
+   *  of a Power BI model's reports) shows, as it was never unchecked. */
+  hidden: string[];
   /** Part of the name or the schema; the cards that match show with their neighbours. */
   text: string;
   onlyConfirmed: boolean;
@@ -120,14 +171,14 @@ export interface Filters {
    *  two concepts side by side, so they start hidden and the lineage shows alone. */
   relations: boolean;
 }
-export const noFilters = (): Filters => ({ kinds: [], text: '', onlyConfirmed: false, onlyConnected: false, relations: false });
+export const noFilters = (): Filters => ({ hidden: [], text: '', onlyConfirmed: false, onlyConnected: false, relations: false });
 
 /** The lines that are relations (foreign keys, a model's relationships), not lineage. */
 export const isRelation = (e: { relation: string }) => e.relation === 'foreign_key';
 
 /** What the filters leave: the cards that pass and the lines among them. */
 export function applyFilters(m: DbModel, f: Filters): { nodes: LineageNode[]; edges: LineageEdge[] } {
-  const kindOk = (n: LineageNode) => !f.kinds.length || f.kinds.includes(n.kind);
+  const kindOk = (n: LineageNode) => !f.hidden.includes(typeOf(n));
   let edges = f.onlyConfirmed ? m.edges.filter((e) => e.confidence === 'confirmed') : m.edges;
   if (!f.relations) edges = edges.filter((e) => !isRelation(e));
   const pool = new Map([...m.nodes].filter(([, n]) => kindOk(n)));

@@ -52,6 +52,8 @@
     "lineagePrecompute": "连接时预先计算沿袭",
     "lineageModelTimeout": "血缘：每个模型的最长等待时间（秒）",
     "lineageModelTimeoutHelp": "读取 Power BI 模型时最多等待多久，超时则视为未读取。如果模型非常大，请调大该值。",
+    "lineageOpenTimeout": "血缘：打开对象或模型时的最长等待时间（秒）",
+    "lineageOpenTimeoutHelp": "打开对象、数据库或模型的血缘或依赖关系时等待的最长时间。如果服务器处理超大模型或数据库较慢，请调大该值。",
     "lineageSearchBudget": "血缘：单次搜索的最长时长（秒）",
     "lineageSearchBudgetHelp": "在其他连接中搜索的最长持续时间。已读取的内容会保留，下次搜索将从中断处继续。",
     "lineagePrecomputeHelp": "连接时在后台读取各数据库的沿袭，以便立即打开。只保存结构，不保存数据。",

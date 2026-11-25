@@ -739,6 +739,19 @@ fn keep<S: Service>(s: &mut S, m: &Model, meta: Arc<ModelMeta>) {
     st.at = Some(Instant::now());
 }
 
+/// Keeps the model's metadata fresh while a chunked lineage goes on: every chunk is its own call and a
+/// big model's read is what the loop must not repeat when the pause between two chunks passes [`TTL`].
+pub(crate) fn touch<S: Service>(s: &mut S, m: &Model) {
+    s.meta_state().at = Some(Instant::now());
+    if let Some(k) = host_key(s, m) {
+        if let Ok(mut host) = HOST.lock() {
+            if let Some(c) = host.get_mut(&k) {
+                c.at = Instant::now();
+            }
+        }
+    }
+}
+
 /// An error that ends the read (the sign-in, the network, a cancel), as
 /// opposed to a tier the user can't read, which falls to the next one.
 pub(crate) fn is_fatal(e: &Error) -> bool {

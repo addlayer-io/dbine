@@ -6327,6 +6327,7 @@
   "no está su columna «{0}»": "列「{0}」がありません",
   "no hace falta: Solr indexa cada campo por su definición": "不要です: Solr は各フィールドをその定義でインデックス化します",
   "no hace falta: cada campo se indexa por su propio mapping": "不要です: 各フィールドはそれぞれの mapping でインデックス化されます",
+  "no hay un linaje a medio leer para continuar: abrilo de nuevo": "続行できる途中までのリネージがありません。もう一度開いてください",
   "no se pudo agregar el orden a la consulta de este objeto": "このオブジェクトのクエリに並べ替えを追加できませんでした",
   "este motor no filtra la lectura por lotes": "このエンジンは読み取りをバッチでフィルターしません",
   "este motor no genera DDL de tablas": "このエンジンはテーブルの DDL を生成しません",
@@ -19131,5 +19132,12 @@
   "hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "Power BI の管理者であること、および設定で管理 API を承認することが必要です",
   "la API de administración de Power BI no está disponible para este usuario: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes": "このユーザーは Power BI 管理 API を利用できません。Power BI の管理者であること、および設定で管理 API を承認することが必要です",
   "la API de administración de Power BI no está disponible: hace falta ser administrador de Power BI y autorizar la API de administración en Ajustes; se leen los modelos de a uno": "Power BI 管理 API は利用できません。Power BI の管理者であること、および設定で管理 API を承認することが必要です。モデルは1つずつ読み取ります",
-  "la API de administración es de las conexiones de Power BI": "管理 API は Power BI 接続用です"
+  "la API de administración es de las conexiones de Power BI": "管理 API は Power BI 接続用です",
+  "DBine Bastion no respondió en {0} s": "DBine Bastionが{0}秒以内に応答しませんでした",
+  "DBine Bastion no respondió en {0} s: volvé a intentar": "DBine Bastionが{0}秒以内に応答しませんでした：もう一度お試しください",
+  "no se pudo abrir el canal con DBine Bastion: {0}": "DBine Bastionとのチャネルを開けませんでした：{0}",
+  "no se pudo llegar a DBine Bastion: HTTP error: {0}": "DBine Bastionに接続できませんでした：HTTP error: {0}",
+  "No se pudo leer el catálogo de dependencias (RDB$DEPENDENCIES): {0}": "依存関係カタログ(RDB$DEPENDENCIES)を読み取れませんでした: {0}",
+  "No se pudo leer el catálogo de dependencias de system.tables: se buscó en las definiciones que se pueden leer.": "system.tables の依存関係カタログを読み取れませんでした。読み取れる定義の中を検索しました。",
+  "no more {0} sessions for {1}/{2}: {3}": "no more {0} sessions for {1}/{2}: {3}"
 }
