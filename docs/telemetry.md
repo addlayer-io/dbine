@@ -7,7 +7,8 @@ systems it runs on.
 ## How to turn it off
 
 - It is **on by default**. On first launch, a notice explains what is sent and
-  what isn't, and how to turn it off.
+  what isn't, and how to turn it off. It comes after the offer to import
+  connections from other tools, when there is one.
 - It is turned off in **Settings › General › Share anonymous usage data**.
   From that moment nothing more is sent.
 - It is just another preference: it travels with sync to the same user's

@@ -3,17 +3,19 @@ import { ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { useSettingsStore } from '../stores/settings';
 import { updateOffer } from '../composables/updates';
+import { EVERY_DAYS, countDay, localDay, supportDue } from '../composables/supportSchedule';
 
 // "Apoyá el proyecto": voluntary support through Buy Me a Coffee, not a
 // license (nothing in the app depends on it, and the app can't see who
-// supports it). One reminder: a little after the app is first opened, then
-// once a month, whatever the person answers.
-// The date is a preference: it travels with the cloud backup, so it doesn't
-// repeat on every machine of the same person.
+// supports it). Never on the first launch: once DBine was used on a few
+// different days (supportSchedule.ts), then once a month, whatever the person
+// answers. The date and the days of use are preferences: they travel with the
+// cloud backup, so it doesn't repeat on every machine of the same person.
 
 const NEXT = 'support.next';
+const DAYS_USED = 'support.daysUsed';
+const LAST_DAY = 'support.lastDay';
 const DAY = 86_400_000;
-const EVERY_DAYS = 30;
 
 const settings = useSettingsStore();
 const open = ref(false);
@@ -21,10 +23,13 @@ const open = ref(false);
 const later = (days: number) => new Date(Date.now() + days * DAY).toISOString();
 
 function evaluate() {
-  const next = Date.parse(settings.get<string | null>(NEXT, null) ?? '');
-  // First time (no date yet) or due: a little after opening the app, not
-  // over what the user is starting to do.
-  if (!Number.isFinite(next) || Date.now() >= next) setTimeout(show, 8000);
+  const counted = countDay(settings.get<number>(DAYS_USED, 0), settings.get<string | null>(LAST_DAY, null), localDay());
+  if (counted.lastDay !== settings.get<string | null>(LAST_DAY, null)) {
+    settings.set(DAYS_USED, counted.daysUsed);
+    settings.set(LAST_DAY, counted.lastDay);
+  }
+  // Due: a little after opening the app, not over what the user is starting to do.
+  if (supportDue(counted.daysUsed, settings.get<string | null>(NEXT, null), Date.now())) setTimeout(show, 8000);
 }
 
 /** Not over the update notice: wait until it's closed. */

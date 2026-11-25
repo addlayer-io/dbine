@@ -8,6 +8,7 @@ import {
   TELEMETRY_CONSENT, TELEMETRY_NOTICE, newDayOfUse, telemetryAllowed, trackAppStarted, trackConnectionOpened, trackModuleOpened,
 } from '../composables/telemetry';
 import { initWindowRole } from '../composables/windowRole';
+import { importOfferPending } from '../composables/firstRun';
 
 // Telemetry is on by default. Once, this notice tells what's sent and that
 // Configuración › General turns it off; it doesn't ask. Both the choice and
@@ -26,8 +27,12 @@ watch(() => settings.loaded, async (l) => {
   // Not for whoever already chose (an earlier version asked), and only in
   // the primary window: another one opened meanwhile doesn't repeat it.
   if (!noticeDue() || !(await initWindowRole()).primary) return;
-  // A moment after opening, not over the first thing the user does.
-  setTimeout(() => { if (noticeDue()) open.value = true; }, 2500);
+  // A moment after opening, not over the first thing the user does, and
+  // after the offer to import connections (the first launch starts there).
+  setTimeout(() => {
+    if (!importOfferPending.value) { if (noticeDue()) open.value = true; return; }
+    const stop = watch(importOfferPending, (p) => { if (!p) { stop(); if (noticeDue()) open.value = true; } });
+  }, 2500);
 }, { immediate: true });
 
 // A module counts as used when its tab is shown, not when it's restored in
