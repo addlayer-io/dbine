@@ -116,5 +116,29 @@
     "vscode": "터미널에서 실행하세요(Copilot의 에이전트 모드에서 사용합니다).",
     "windsurf": "~/.codeium/windsurf/mcp_config.json에 붙여넣으세요.",
     "chatgpt": "ChatGPT는 연결할 수 없습니다. OpenAI 서버에서 MCP 서버를 호출하므로 공개 URL이 필요한데, DBine의 서버는 의도적으로 이 컴퓨터에서만 수신 대기합니다. OpenAI 모델을 사용하려면 Codex를 사용하세요."
+  },
+  "sessions": {
+    "title": "에이전트 세션",
+    "help": "같은 클라이언트의 연속된 호출은 30분을 넘는 중단이 없으면 하나의 세션이 됩니다. 노트북으로 열면 에이전트가 한 작업을 확인하고 거기서 이어갈 수 있습니다. 쿼리는 사용한 연결의 SQL 셀이 되고, 쓰기는 텍스트가 되어 다시 실행되지 않습니다.",
+    "none": "아직 세션이 없습니다",
+    "connections": "연결",
+    "what": "수행한 작업",
+    "open": "노트북으로 열기",
+    "callsTitle": "모든 호출",
+    "calls_other": "호출 {{count}}건",
+    "reads_other": "읽기 {{count}}건",
+    "writes_other": "쓰기 {{count}}건",
+    "rejected_other": "거부 {{count}}건",
+    "errors_other": "오류 {{count}}건",
+    "nbTitle": "{{client}} 세션, {{when}}",
+    "nbConnections": "연결: {{names}}",
+    "nbExplored": "살펴본 항목:",
+    "nbPlan": "이 쿼리의 실행 계획을 요청했습니다:",
+    "nbWrote": "에이전트가 이 쓰기를 실행했으며, {{at}}에 승인되었습니다:",
+    "nbWroteRows_other": "에이전트가 이 쓰기를 실행했으며, {{at}}에 승인되었습니다({{count}}개 행 영향):",
+    "nbRejected": "DBine에서 거부됨: 실행되지 않았습니다.",
+    "nbTimeout": "DBine에서 응답 없음: 실행되지 않았습니다.",
+    "nbFailed": "실패: {{error}}",
+    "nbNotKept": "전체를 저장하기에는 너무 긴 쿼리: {{summary}}"
   }
 }

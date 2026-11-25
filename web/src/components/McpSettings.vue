@@ -4,10 +4,13 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
-import { MCP_APPROVALS_EVENT, mcpApi, mcpSnippets, type McpActivity, type McpClient, type McpLevel, type McpStatus } from '../api/mcp';
+import { MCP_APPROVALS_EVENT, mcpApi, mcpSnippets, type McpActivity, type McpClient, type McpLevel, type McpSession, type McpStatus } from '../api/mcp';
+import { sessionNotebook, type SessionText } from '../composables/mcpSessionNotebook';
 import { locale } from '../i18n';
 import { tb } from '../i18n/backend';
 import { useConnectionsStore } from '../stores/connections';
+import { useTabsStore } from '../stores/tabs';
+import { useUiStore } from '../stores/ui';
 import McpClientSetup from './McpClientSetup.vue';
 
 // Configuración › MCP (docs/mcp.md): the local server, its clients and what
@@ -117,11 +120,68 @@ const loadingActivity = ref(false);
 async function loadActivity() {
   loadingActivity.value = true;
   try {
-    activity.value = await mcpApi.activity(filterClient.value || null, filterConnection.value || null);
+    const [calls, s] = await Promise.all([
+      mcpApi.activity(filterClient.value || null, filterConnection.value || null),
+      mcpApi.sessions(filterClient.value || null, filterConnection.value || null),
+    ]);
+    activity.value = calls;
+    sessions.value = s;
   } catch (e) {
     ElMessage.error(errorMessage(e));
   } finally {
     loadingActivity.value = false;
+  }
+}
+
+// -- sessions: what an agent did, as a notebook -----------------------------------------
+const sessions = ref<McpSession[]>([]);
+const opening = ref<number | null>(null);
+const tabs = useTabsStore();
+const ui = useUiStore();
+
+function fmtTime(iso: string) {
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? iso : d.toLocaleTimeString(locale(), { timeStyle: 'short' });
+}
+
+function sessionWhen(s: McpSession) {
+  return `${fmtDate(s.start)} – ${fmtTime(s.end)}`;
+}
+
+/** "12 llamadas · 4 lecturas · 1 escritura · 1 rechazada · 1 error". */
+function sessionCounts(s: McpSession) {
+  return [
+    t('mcp:sessions.calls', { count: s.calls }),
+    s.reads ? t('mcp:sessions.reads', { count: s.reads }) : '',
+    s.writes ? t('mcp:sessions.writes', { count: s.writes }) : '',
+    s.rejected ? t('mcp:sessions.rejected', { count: s.rejected }) : '',
+    s.errors ? t('mcp:sessions.errors', { count: s.errors }) : '',
+  ].filter(Boolean).join(' · ');
+}
+
+const sessionText: SessionText = {
+  title: (s) => t('mcp:sessions.nbTitle', { client: s.client, when: sessionWhen(s) }),
+  summary: (s) => [sessionCounts(s), s.connections.length ? t('mcp:sessions.nbConnections', { names: s.connections.join(', ') }) : '']
+    .filter(Boolean).join('\n\n'),
+  explored: (items) => `${t('mcp:sessions.nbExplored')}\n\n${items}`,
+  plan: () => t('mcp:sessions.nbPlan'),
+  wrote: (at, rows) => (rows === null ? t('mcp:sessions.nbWrote', { at }) : t('mcp:sessions.nbWroteRows', { at, count: rows })),
+  rejected: (timeout) => t(timeout ? 'mcp:sessions.nbTimeout' : 'mcp:sessions.nbRejected'),
+  failed: (error) => t('mcp:sessions.nbFailed', { error: tb(error) }),
+  notKept: (summary) => t('mcp:sessions.nbNotKept', { summary }),
+};
+
+/** The session as an untitled notebook, in a tab (Settings closes to show it). */
+async function openSession(s: McpSession) {
+  opening.value = s.first_id;
+  try {
+    const calls = await mcpApi.sessionCalls(s);
+    await tabs.newNotebookWith(sessionNotebook(s, calls, sessionText, fmtTime));
+    ui.closeSettings();
+  } catch (e) {
+    ElMessage.error(errorMessage(e));
+  } finally {
+    opening.value = null;
   }
 }
 
@@ -237,6 +297,29 @@ onBeforeUnmount(() => unlisten?.());
         </el-select>
         <el-button :loading="loadingActivity" @click="loadActivity"><el-icon><ei-refresh /></el-icon>&nbsp;{{ $t('mcp:refresh') }}</el-button>
       </div>
+      <h5>{{ $t('mcp:sessions.title') }}</h5>
+      <p class="mcp-muted">{{ $t('mcp:sessions.help') }}</p>
+      <el-table :data="sessions" size="small" max-height="260" :empty-text="$t('mcp:sessions.none')" class="mcp-log" data-test="mcp-sessions">
+        <el-table-column :label="$t('mcp:col.at')" width="190">
+          <template #default="{ row }">{{ sessionWhen(row) }}</template>
+        </el-table-column>
+        <el-table-column prop="client" :label="$t('mcp:col.client')" width="110" show-overflow-tooltip />
+        <el-table-column :label="$t('mcp:sessions.connections')" width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.connections.join(', ') }}</template>
+        </el-table-column>
+        <el-table-column :label="$t('mcp:sessions.what')" min-width="160" show-overflow-tooltip>
+          <template #default="{ row }">{{ sessionCounts(row) }}</template>
+        </el-table-column>
+        <el-table-column width="150" align="right">
+          <template #default="{ row }">
+            <el-button size="small" :loading="opening === row.first_id" data-test="mcp-session-open" @click="openSession(row)">
+              <el-icon><ei-notebook /></el-icon>&nbsp;{{ $t('mcp:sessions.open') }}
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <h5>{{ $t('mcp:sessions.callsTitle') }}</h5>
       <el-table :data="activity" size="small" max-height="320" :empty-text="$t('mcp:noActivity')" class="mcp-log">
         <el-table-column :label="$t('mcp:col.at')" width="150">
           <template #default="{ row }">{{ fmtDate(row.at) }}</template>
@@ -278,6 +361,7 @@ onBeforeUnmount(() => unlisten?.());
 <style scoped>
 .mcp h3 { margin: 0 0 4px; font-size: 16px; color: var(--nm-text-strong); }
 .mcp h4 { margin: 20px 0 8px; font-size: 13px; color: var(--nm-text-strong); }
+.mcp h5 { margin: 14px 0 6px; font-size: 12.5px; color: var(--nm-text-strong); }
 .mcp-muted { color: var(--nm-text-dim); font-size: 12.5px; line-height: 1.5; margin: 0 0 10px; }
 .mcp-small { font-size: 12px; }
 .mcp-warn {

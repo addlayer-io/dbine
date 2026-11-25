@@ -450,6 +450,41 @@ async fn mcp_write_needs_the_level_and_the_users_approval() {
     assert!(req_seen
         .iter()
         .any(|e| e.tool == "execute:approved" && e.ok && e.rows == Some(1)));
+    // The log keeps each call's whole code: what the session's notebook shows.
+    let approved = req_seen
+        .iter()
+        .find(|e| e.tool == "execute:approved")
+        .unwrap();
+    assert_eq!(
+        approved.code.as_deref(),
+        Some("insert into people (name) values ('carla')")
+    );
+    let read = req_seen
+        .iter()
+        .find(|e| e.tool.starts_with("run_query:") && e.ok)
+        .unwrap();
+    assert_eq!(
+        read.code.as_deref(),
+        Some("select count(*) as n from people")
+    );
+    // All of it, so far, is one session of Claude Code's.
+    let sessions =
+        s.rt.inner
+            .activity
+            .sessions(Some("Claude Code"), None, 10)
+            .unwrap();
+    assert_eq!(sessions.len(), 1, "{sessions:#?}");
+    assert!(sessions[0].writes >= 1 && sessions[0].rejected >= 1 && sessions[0].reads >= 1);
+    assert!(sessions[0].connections.contains(&"escritura".to_string()));
+    let calls =
+        s.rt.inner
+            .activity
+            .calls("Claude Code", sessions[0].first_id, sessions[0].last_id)
+            .unwrap();
+    assert!(calls.windows(2).all(|w| w[0].id < w[1].id), "oldest first");
+    assert!(calls
+        .iter()
+        .any(|e| e.tool == "execute:rejected" && e.code.as_deref() == Some("delete from people")));
 
     // Approve all: the next one runs without asking, until it's removed.
     let (r, _) = tokio::join!(

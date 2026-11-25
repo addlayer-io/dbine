@@ -2,7 +2,7 @@
 //! clients and their tokens, the activity log, and the answers to the
 //! writes waiting for approval.
 
-use super::activity::ActivityEntry;
+use super::activity::{ActivityEntry, Session};
 use super::approvals::{ApprovalKind, ApprovalRequest, Decision};
 use super::{check_level, load_clients, load_config, save_config, McpLevel, McpRuntime};
 use crate::error::{CommandError, CommandResult};
@@ -165,6 +165,45 @@ pub async fn mcp_activity(
             connection.as_deref(),
             args.limit.unwrap_or(200),
         )
+        .map_err(|e| CommandError::State(e.to_string()))
+}
+
+/// The agents' sessions, newest first (the same filters as the activity).
+#[tauri::command(rename_all = "camelCase")]
+pub async fn mcp_sessions(
+    rt: State<'_, McpRuntime>,
+    args: ActivityArgs,
+) -> CommandResult<Vec<Session>> {
+    let client = args.client.filter(|c| !c.is_empty());
+    let connection = args.connection.filter(|c| !c.is_empty());
+    rt.inner
+        .activity
+        .sessions(
+            client.as_deref(),
+            connection.as_deref(),
+            args.limit.unwrap_or(50),
+        )
+        .map_err(|e| CommandError::State(e.to_string()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCallsArgs {
+    pub client: String,
+    pub first_id: i64,
+    pub last_id: i64,
+}
+
+/// A session's calls, oldest first, with their whole queries: what its
+/// notebook is made of.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn mcp_session_calls(
+    rt: State<'_, McpRuntime>,
+    args: SessionCallsArgs,
+) -> CommandResult<Vec<ActivityEntry>> {
+    rt.inner
+        .activity
+        .calls(&args.client, args.first_id, args.last_id)
         .map_err(|e| CommandError::State(e.to_string()))
 }
 

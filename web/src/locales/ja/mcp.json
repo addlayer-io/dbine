@@ -116,5 +116,29 @@
     "vscode": "ターミナルで実行してください(Copilot のエージェントモードで使用されます)。",
     "windsurf": "~/.codeium/windsurf/mcp_config.json に貼り付けてください。",
     "chatgpt": "ChatGPT は接続できません。ChatGPT は OpenAI のサーバーから MCP サーバーを呼び出すため公開 URL が必要ですが、DBine の MCP サーバーは意図的にこのマシンでのみ待ち受けています。OpenAI のモデルを使うには Codex を使用してください。"
+  },
+  "sessions": {
+    "title": "エージェントのセッション",
+    "help": "同じクライアントからの連続した呼び出しは、30 分を超える間隔がない限り 1 つのセッションとしてまとめられます。ノートブックとして開くと、エージェントの操作内容を確認し、そこから続けられます。クエリは使用した接続の SQL セルになり、書き込みはテキストになるため、再実行されません。",
+    "none": "セッションはまだありません",
+    "connections": "接続",
+    "what": "実行内容",
+    "open": "ノートブックとして開く",
+    "callsTitle": "すべての呼び出し",
+    "calls_other": "{{count}} 件の呼び出し",
+    "reads_other": "{{count}} 件の読み取り",
+    "writes_other": "{{count}} 件の書き込み",
+    "rejected_other": "{{count}} 件が拒否",
+    "errors_other": "{{count}} 件のエラー",
+    "nbTitle": "{{client}} のセッション、{{when}}",
+    "nbConnections": "接続: {{names}}",
+    "nbExplored": "調査した内容:",
+    "nbPlan": "このクエリの実行プランを要求しました:",
+    "nbWrote": "エージェントが実行した書き込みです({{at}} に承認):",
+    "nbWroteRows_other": "エージェントが実行した書き込みです({{at}} に承認、{{count}} 行が影響を受けました):",
+    "nbRejected": "DBine で拒否されました: 実行されていません。",
+    "nbTimeout": "DBine で応答がありませんでした: 実行されていません。",
+    "nbFailed": "失敗しました: {{error}}",
+    "nbNotKept": "長すぎて全体を保存できなかったクエリ: {{summary}}"
   }
 }
