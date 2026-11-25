@@ -507,3 +507,5 @@ dependencies.json:kind.notebook
 dependencies.json:kind.pipeline
 dependencies.json:kind.file
 backend:no more {0} sessions for {1}/{2}: {3}
+ai.json:api.model
+ai.json:api.deployment

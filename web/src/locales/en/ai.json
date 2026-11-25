@@ -77,7 +77,8 @@
   },
   "privacy": {
     "local": "Local: nothing leaves this machine.",
-    "remote": "Goes to {{vendor}} with your account: the question, the structure and the editor, never the data."
+    "remote": "Goes to {{vendor}} with your account: the question, the structure and the editor, never the data.",
+    "remoteOwn": "Goes to your server: the question, the structure and the editor, never the data."
   },
   "empty": {
     "lead": "Ask it for queries, to explain or fix the one in the editor, or ask about the database structure.",
@@ -166,5 +167,32 @@
     "cancelled": "Cancelled: nothing was changed.",
     "again": "Analyze again",
     "failed": "Couldn't analyze: {{error}}"
+  },
+  "api": {
+    "heading": "With your API key",
+    "lead": "Use your OpenAI, Anthropic, Azure OpenAI, Google Gemini or xAI Grok account, or an OpenAI-compatible server. The provider bills your account; DBine charges nothing.",
+    "configure": "Set up",
+    "edit": "Edit",
+    "title": "{{provider}} with your API key",
+    "key": "API key",
+    "keyOptional": "API key (if the server asks for one)",
+    "keyPlaceholder": "Paste your key",
+    "keySaved": "Saved on this computer: leave it empty to keep it",
+    "keyWhere": "Get it at {{site}}.",
+    "azureUrl": "Resource endpoint",
+    "baseUrl": "Base URL",
+    "model": "Model",
+    "modelPlaceholder": "Pick one from the list or type it",
+    "deployment": "Deployment",
+    "deploymentPlaceholder": "The deployment's name in Azure",
+    "privacy": "With each question, {{vendor}} gets the question, the database structure, the editor's text and the last error, under its terms. Never rows of data.",
+    "privacyOwn": "With each question, that server gets the question, the database structure, the editor's text and the last error. Never rows of data.",
+    "cost": "{{vendor}} bills your account for what you use. DBine charges nothing.",
+    "local": "The key stays encrypted on this computer: it doesn't travel with the cloud backup.",
+    "test": "Test",
+    "remove": "Remove",
+    "removeConfirm": "Remove the key and settings of {{provider}} from this computer?",
+    "urlRequired": "Enter the URL.",
+    "keyRequired": "Paste the API key."
   }
 }

@@ -78,7 +78,8 @@
   },
   "privacy": {
     "local": "Local: nada sai desta máquina.",
-    "remote": "Vai para a {{vendor}} com sua conta: a pergunta, a estrutura e o editor, nunca os dados."
+    "remote": "Vai para a {{vendor}} com sua conta: a pergunta, a estrutura e o editor, nunca os dados.",
+    "remoteOwn": "Vai para o seu servidor: a pergunta, a estrutura e o editor, nunca os dados."
   },
   "empty": {
     "lead": "Peça consultas, que explique ou corrija a do editor, ou pergunte sobre a estrutura do banco.",
@@ -168,5 +169,32 @@
     "cancelled": "Cancelado: nada foi alterado.",
     "again": "Analisar novamente",
     "failed": "Não foi possível analisar: {{error}}"
+  },
+  "api": {
+    "heading": "Com sua chave de API",
+    "lead": "Use sua conta da OpenAI, Anthropic, Azure OpenAI, Google Gemini ou xAI Grok, ou um servidor compatível com OpenAI. O provedor cobra na sua conta; o DBine não cobra nada.",
+    "configure": "Configurar",
+    "edit": "Editar",
+    "title": "{{provider}} com sua chave de API",
+    "key": "Chave de API",
+    "keyOptional": "Chave de API (se o servidor pedir)",
+    "keyPlaceholder": "Cole sua chave",
+    "keySaved": "Salva neste computador: deixe vazia para não alterá-la",
+    "keyWhere": "Obtenha em {{site}}.",
+    "azureUrl": "Endpoint do recurso",
+    "baseUrl": "URL base",
+    "model": "Modelo",
+    "modelPlaceholder": "Escolha um da lista ou digite",
+    "deployment": "Implantação",
+    "deploymentPlaceholder": "O nome da implantação no Azure",
+    "privacy": "A cada pergunta, {{vendor}} recebe a pergunta, a estrutura do banco, o texto do editor e o último erro, sob os termos dela. Nunca linhas de dados.",
+    "privacyOwn": "A cada pergunta, esse servidor recebe a pergunta, a estrutura do banco, o texto do editor e o último erro. Nunca linhas de dados.",
+    "cost": "{{vendor}} cobra na sua conta conforme o uso. O DBine não cobra nada.",
+    "local": "A chave fica criptografada neste computador: não vai junto no backup na nuvem.",
+    "test": "Testar",
+    "remove": "Remover",
+    "removeConfirm": "Remover a chave e a configuração de {{provider}} deste computador?",
+    "urlRequired": "Digite a URL.",
+    "keyRequired": "Cole a chave de API."
   }
 }

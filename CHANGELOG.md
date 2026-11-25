@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### New
+
+- **The assistant with your own API key:** besides the built-in model, Ollama, LM Studio, Claude Code and Codex, the assistant works with your own key for OpenAI, Anthropic, Azure OpenAI, Google Gemini, xAI Grok or any OpenAI-compatible server (OpenRouter, Mistral, DeepSeek, a company gateway…). Paste the key in the assistant's settings, test it and pick a model from the list or type it (an Azure deployment). The provider bills your account; DBine charges nothing. The key stays encrypted on this computer and never travels with the cloud backup, and, as with the other remote models, data rows are never sent.
+
 ### Improvements
 
 - **FLOAT16 and BFLOAT16 vectors on Valkey:** the key designer offers FLOAT16 and BFLOAT16 vector fields for a Valkey search index, as well as FLOAT32 (valkey-search 1.3 or later). On an older valkey-search, the server's refusal comes with the version that brings them.

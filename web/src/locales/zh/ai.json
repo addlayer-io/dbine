@@ -70,7 +70,8 @@
   },
   "privacy": {
     "local": "本地：没有任何内容离开这台电脑。",
-    "remote": "将通过你的账号发送给 {{vendor}}：问题、结构和编辑器内容，绝不包含数据。"
+    "remote": "将通过你的账号发送给 {{vendor}}：问题、结构和编辑器内容，绝不包含数据。",
+    "remoteOwn": "发送到你的服务器：问题、结构和编辑器内容，绝不包含数据。"
   },
   "empty": {
     "lead": "可以让它写查询、解释或修复编辑器中的查询，也可以询问数据库结构。",
@@ -154,5 +155,32 @@
     "cancelled": "已取消：未更改任何内容。",
     "again": "重新分析",
     "failed": "无法分析：{{error}}"
+  },
+  "api": {
+    "heading": "使用你的 API 密钥",
+    "lead": "使用你的 OpenAI、Anthropic、Azure OpenAI、Google Gemini 或 xAI Grok 账号，或兼容 OpenAI 的服务器。由提供商向你的账号计费；DBine 不收取任何费用。",
+    "configure": "配置",
+    "edit": "编辑",
+    "title": "使用你的 API 密钥的 {{provider}}",
+    "key": "API 密钥",
+    "keyOptional": "API 密钥（如果服务器需要）",
+    "keyPlaceholder": "粘贴你的密钥",
+    "keySaved": "已保存在这台电脑上：留空则保持不变",
+    "keyWhere": "可在 {{site}} 获取。",
+    "azureUrl": "资源终结点",
+    "baseUrl": "基础 URL",
+    "model": "模型",
+    "modelPlaceholder": "从列表中选择或直接输入",
+    "deployment": "部署",
+    "deploymentPlaceholder": "Azure 中的部署名称",
+    "privacy": "每次提问时，{{vendor}} 会按其条款收到问题、数据库结构、编辑器文本和最近的错误。绝不包含数据行。",
+    "privacyOwn": "每次提问时，该服务器会收到问题、数据库结构、编辑器文本和最近的错误。绝不包含数据行。",
+    "cost": "{{vendor}} 按使用量向你的账号计费。DBine 不收取任何费用。",
+    "local": "密钥加密保存在这台电脑上，不会随云备份同步。",
+    "test": "测试",
+    "remove": "移除",
+    "removeConfirm": "要从这台电脑移除 {{provider}} 的密钥和配置吗？",
+    "urlRequired": "请输入 URL。",
+    "keyRequired": "请粘贴 API 密钥。"
   }
 }

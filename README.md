@@ -407,7 +407,10 @@ editor's one and answers about the database's structure.
   - the **built-in model** (llama.cpp with Qwen2.5-Coder 3B or 7B), which runs
     locally and is downloaded only once, the first time it is used;
   - Ollama or LM Studio;
-  - Claude Code or Codex with the user's account, without tools.
+  - Claude Code or Codex with the user's account, without tools;
+  - or the user's own API key for OpenAI, Anthropic, Azure OpenAI, Google
+    Gemini, xAI Grok or any OpenAI-compatible server, billed by the provider to
+    the user's account. The key stays encrypted on the machine.
 - **It never sends data rows.** As context it receives the engine, the
   structure and the editor.
 - **Contexts:** notes per connection or database, and instructions for every

@@ -70,7 +70,8 @@
   },
   "privacy": {
     "local": "로컬: 어떤 데이터도 이 컴퓨터 밖으로 나가지 않습니다.",
-    "remote": "사용자 계정으로 {{vendor}}에 전송됩니다. 질문, 구조, 편집기 내용이 전송되며 데이터는 전송되지 않습니다."
+    "remote": "사용자 계정으로 {{vendor}}에 전송됩니다. 질문, 구조, 편집기 내용이 전송되며 데이터는 전송되지 않습니다.",
+    "remoteOwn": "사용자 서버로 전송됩니다. 질문, 구조, 편집기 내용이 전송되며 데이터는 전송되지 않습니다."
   },
   "empty": {
     "lead": "쿼리를 요청하거나, 편집기의 쿼리를 설명하거나 수정해 달라고 하거나, 데이터베이스 구조에 대해 질문해 보세요.",
@@ -154,5 +155,32 @@
     "cancelled": "취소되었습니다. 변경된 내용이 없습니다.",
     "again": "다시 분석",
     "failed": "분석할 수 없습니다: {{error}}"
+  },
+  "api": {
+    "heading": "내 API 키로",
+    "lead": "OpenAI, Anthropic, Azure OpenAI, Google Gemini, xAI Grok 계정 또는 OpenAI 호환 서버를 사용하세요. 요금은 공급자가 사용자 계정에 청구하며, DBine은 아무것도 청구하지 않습니다.",
+    "configure": "설정",
+    "edit": "편집",
+    "title": "내 API 키로 {{provider}} 사용",
+    "key": "API 키",
+    "keyOptional": "API 키(서버가 요구하는 경우)",
+    "keyPlaceholder": "키를 붙여 넣으세요",
+    "keySaved": "이 컴퓨터에 저장됨: 바꾸지 않으려면 비워 두세요",
+    "keyWhere": "{{site}}에서 받을 수 있습니다.",
+    "azureUrl": "리소스 엔드포인트",
+    "baseUrl": "기본 URL",
+    "model": "모델",
+    "modelPlaceholder": "목록에서 고르거나 직접 입력하세요",
+    "deployment": "배포",
+    "deploymentPlaceholder": "Azure의 배포 이름",
+    "privacy": "질문할 때마다 {{vendor}}에 질문, 데이터베이스 구조, 편집기 텍스트, 마지막 오류가 해당 약관에 따라 전송됩니다. 데이터 행은 전송되지 않습니다.",
+    "privacyOwn": "질문할 때마다 해당 서버에 질문, 데이터베이스 구조, 편집기 텍스트, 마지막 오류가 전송됩니다. 데이터 행은 전송되지 않습니다.",
+    "cost": "사용량에 따라 {{vendor}}이(가) 사용자 계정에 청구합니다. DBine은 아무것도 청구하지 않습니다.",
+    "local": "키는 이 컴퓨터에 암호화되어 저장되며 클라우드 백업에 포함되지 않습니다.",
+    "test": "테스트",
+    "remove": "제거",
+    "removeConfirm": "이 컴퓨터에서 {{provider}}의 키와 설정을 제거할까요?",
+    "urlRequired": "URL을 입력하세요.",
+    "keyRequired": "API 키를 붙여 넣으세요."
   }
 }

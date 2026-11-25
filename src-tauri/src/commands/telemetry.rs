@@ -63,7 +63,19 @@ const FEATURES: &[&str] = &[
 ];
 
 /// The kind of AI provider an `ai_message` used (never the model or the text).
-const PROVIDERS: &[&str] = &["embedded", "ollama", "lm_studio", "claude_code", "codex"];
+const PROVIDERS: &[&str] = &[
+    "embedded",
+    "ollama",
+    "lm_studio",
+    "claude_code",
+    "codex",
+    "openai",
+    "anthropic",
+    "azure_openai",
+    "gemini",
+    "xai",
+    "openai_compatible",
+];
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -447,6 +459,12 @@ mod feature_tests {
             "a model name never leaves"
         );
         assert!(feature_props(Some("ai_message"), None).is_none());
+        // The API-key providers by their kind only (never the URL, the model or the key).
+        for kind in dbine_ai::ProviderKind::API {
+            let p = feature_props(Some("ai_message"), Some(kind.id())).unwrap();
+            assert_eq!(p["provider"], kind.id());
+        }
+        assert!(feature_props(Some("ai_message"), Some("https://acme.openai.azure.com")).is_none());
         assert!(feature_props(Some("select * from people"), None).is_none());
         assert!(MODULES.contains(&"ai") && MODULES.contains(&"indexes"));
     }

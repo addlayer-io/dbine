@@ -74,7 +74,8 @@
   },
   "privacy": {
     "local": "Lokal: Nichts verlässt diesen Rechner.",
-    "remote": "Geht mit Ihrem Konto an {{vendor}}: die Frage, die Struktur und der Editor, nie die Daten."
+    "remote": "Geht mit Ihrem Konto an {{vendor}}: die Frage, die Struktur und der Editor, nie die Daten.",
+    "remoteOwn": "Geht an Ihren Server: die Frage, die Struktur und der Editor, nie die Daten."
   },
   "empty": {
     "lead": "Bitten Sie ihn um Abfragen, lassen Sie die Abfrage im Editor erklären oder korrigieren, oder fragen Sie nach der Datenbankstruktur.",
@@ -161,5 +162,32 @@
     "cancelled": "Abgebrochen: Es wurde nichts geändert.",
     "again": "Erneut analysieren",
     "failed": "Analyse nicht möglich: {{error}}"
+  },
+  "api": {
+    "heading": "Mit Ihrem API-Schlüssel",
+    "lead": "Verwenden Sie Ihr Konto bei OpenAI, Anthropic, Azure OpenAI, Google Gemini oder xAI Grok oder einen OpenAI-kompatiblen Server. Der Anbieter berechnet es Ihrem Konto; DBine berechnet nichts.",
+    "configure": "Einrichten",
+    "edit": "Bearbeiten",
+    "title": "{{provider}} mit Ihrem API-Schlüssel",
+    "key": "API-Schlüssel",
+    "keyOptional": "API-Schlüssel (falls der Server einen verlangt)",
+    "keyPlaceholder": "Fügen Sie Ihren Schlüssel ein",
+    "keySaved": "Auf diesem Computer gespeichert: leer lassen, um ihn zu behalten",
+    "keyWhere": "Sie erhalten ihn unter {{site}}.",
+    "azureUrl": "Endpunkt der Ressource",
+    "baseUrl": "Basis-URL",
+    "model": "Modell",
+    "modelPlaceholder": "Wählen Sie eines aus der Liste oder geben Sie es ein",
+    "deployment": "Bereitstellung",
+    "deploymentPlaceholder": "Der Name der Bereitstellung in Azure",
+    "privacy": "Mit jeder Frage erhält {{vendor}} die Frage, die Struktur der Datenbank, den Text des Editors und den letzten Fehler, gemäß seinen Bedingungen. Nie Datenzeilen.",
+    "privacyOwn": "Mit jeder Frage erhält dieser Server die Frage, die Struktur der Datenbank, den Text des Editors und den letzten Fehler. Nie Datenzeilen.",
+    "cost": "{{vendor}} berechnet Ihrem Konto die Nutzung. DBine berechnet nichts.",
+    "local": "Der Schlüssel bleibt verschlüsselt auf diesem Computer: Er reist nicht mit der Cloud-Sicherung.",
+    "test": "Testen",
+    "remove": "Entfernen",
+    "removeConfirm": "Schlüssel und Einstellungen von {{provider}} von diesem Computer entfernen?",
+    "urlRequired": "Geben Sie die URL ein.",
+    "keyRequired": "Fügen Sie den API-Schlüssel ein."
   }
 }

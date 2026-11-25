@@ -2,7 +2,25 @@ import { invoke } from '@tauri-apps/api/core';
 
 // AI assistant (src-tauri/src/commands/ai.rs, docs/ai-assistant.md).
 
-export type AiProviderKind = 'embedded' | 'ollama' | 'claude_code' | 'codex' | 'lm_studio';
+export type AiProviderKind = 'embedded' | 'ollama' | 'claude_code' | 'codex' | 'lm_studio'
+  | 'openai' | 'anthropic' | 'azure_openai' | 'gemini' | 'xai' | 'openai_compatible';
+
+/** The providers used with the user's own API key (src-tauri commands/ai.rs, dbine_ai::api). */
+export const API_PROVIDERS: AiProviderKind[] = ['openai', 'anthropic', 'azure_openai', 'gemini', 'xai', 'openai_compatible'];
+export const isApiProvider = (k: AiProviderKind) => API_PROVIDERS.includes(k);
+
+/** Who gets the question and bills the user; null: the user's own server. */
+export function vendorOf(k: AiProviderKind): string | null {
+  const v: Partial<Record<AiProviderKind, string>> = {
+    claude_code: 'Anthropic', codex: 'OpenAI', openai: 'OpenAI', anthropic: 'Anthropic',
+    azure_openai: 'Microsoft Azure', gemini: 'Google', xai: 'xAI',
+  };
+  return v[k] ?? null;
+}
+
+/** What a provider's API-key form keeps in the settings (never the key, which goes to the vault). */
+export interface ApiSetting { url?: string; model?: string }
+export const apiSettingKey = (k: AiProviderKind) => `ai.api.${k}`;
 
 export interface AiModel { id: string; detail: string | null }
 
@@ -15,8 +33,14 @@ export interface AiProvider {
   local: boolean;
   status: string;
   models: AiModel[];
-  action: 'start_ollama' | 'pull_model' | 'download_model' | null;
+  action: 'start_ollama' | 'pull_model' | 'download_model' | 'configure_key' | null;
   path: string | null;
+  /** API-key providers: a key is saved on this machine. */
+  key_saved: boolean;
+  /** API-key providers: the base URL in use. */
+  base_url: string | null;
+  /** API-key providers: the model typed by hand. */
+  model: string | null;
 }
 
 export interface CatalogModel {
@@ -71,4 +95,11 @@ export const aiApi = {
   deleteModel: (id: string) => invoke<void>('ai_delete_model', { args: { id } }),
   startOllama: () => invoke<void>('ai_start_ollama'),
   pullOllama: (model: string) => invoke<void>('ai_pull_ollama', { args: { id: model } }),
+  /** The key goes to the vault (never with the cloud backup); `key` null or empty keeps the saved one. */
+  apiSave: (provider: AiProviderKind, key: string | null, url: string | null, model: string | null) =>
+    invoke<void>('ai_api_save', { args: { provider, key, url, model } }),
+  apiRemove: (provider: AiProviderKind) => invoke<void>('ai_api_remove', { args: { provider } }),
+  /** "Probar": what's in the form, else what's saved. */
+  apiTest: (provider: AiProviderKind, key: string | null, url: string | null, model: string | null) =>
+    invoke<string>('ai_api_test', { args: { provider, key, url, model } }),
 };
