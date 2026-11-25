@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Improvements
+
+- **FLOAT16 and BFLOAT16 vectors on Valkey:** the key designer offers FLOAT16 and BFLOAT16 vector fields for a Valkey search index, as well as FLOAT32 (valkey-search 1.3 or later). On an older valkey-search, the server's refusal comes with the version that brings them.
+
 ### Fixes
 
 - **Elasticsearch 8 without security:** the Security tab of an Elasticsearch 8 server with security turned off (`xpack.security.enabled=false`) showed the server's raw "Incorrect HTTP method" error; it now says that security is turned off on that server.

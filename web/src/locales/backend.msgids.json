@@ -34984,6 +34984,9 @@
  "Puede que este servidor no tenga {0}: FLOAT16 y BFLOAT16 están desde Redis Stack 7.4 (RediSearch 2.10), INT8 y UINT8 desde Redis 8.0, y SVS-VAMANA desde Redis 8.2.": [
   "crates/drivers/redis/src/vectors.rs"
  ],
+ "Puede que este servidor no tenga {0}: valkey-search indexa FLOAT16 y BFLOAT16 desde la versión 1.3.": [
+  "crates/drivers/redis/src/vectors.rs"
+ ],
  "Puede ser el mismo nombre; no puede repetir el de otro repositorio archivado.": [
   "crates/drivers/couchbase/src/backup/repo.rs"
  ],
@@ -61652,7 +61655,7 @@
  "valkey-search devuelve como mucho {0} documentos por consulta KNN: el índice puede tener más, que no se leyeron.": [
   "crates/drivers/redis/src/vectors.rs"
  ],
- "valkey-search indexa vectores FLOAT32 con HNSW o FLAT: no tiene {0}.": [
+ "valkey-search indexa vectores FLOAT32, FLOAT16 y BFLOAT16 con HNSW o FLAT: no tiene {0}.": [
   "crates/drivers/redis/src/vectors.rs"
  ],
  "valor": [

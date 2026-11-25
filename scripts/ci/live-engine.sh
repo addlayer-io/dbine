@@ -144,6 +144,19 @@ case $engine in
     start oracle -p 25601:1521 -e ORACLE_PASSWORD=Secret123 -e APP_USER=dbine \
       -e APP_USER_PASSWORD=dbine gvenzl/oracle-free:23-slim
     ready oracle docker exec dbine-test-ci-oracle healthcheck.sh
+    # The vector memory pool (HNSW indexes, tests/vectors.rs) takes a restart; the Data Pump grants
+    # (tests/backup.rs) bring CREATE USER and DROP USER too, which tests/vectors.rs uses.
+    docker exec -i dbine-test-ci-oracle sqlplus -s / as sysdba <<'SQL'
+ALTER SYSTEM SET vector_memory_size = 128M SCOPE = SPFILE;
+SHUTDOWN IMMEDIATE
+STARTUP
+ALTER PLUGGABLE DATABASE ALL OPEN;
+WHENEVER SQLERROR EXIT FAILURE
+ALTER SESSION SET CONTAINER = FREEPDB1;
+GRANT READ, WRITE ON DIRECTORY DATA_PUMP_DIR TO dbine;
+GRANT DATAPUMP_EXP_FULL_DATABASE, DATAPUMP_IMP_FULL_DATABASE TO dbine;
+SQL
+    ready oracle docker exec dbine-test-ci-oracle healthcheck.sh
     export DBINE_TEST_ORACLE_URL=oracle://dbine:dbine@localhost:25601/FREEPDB1
     export DBINE_TEST_ORACLE_ADMIN_URL=oracle://system:Secret123@localhost:25601/FREEPDB1
     export DBINE_TEST_ORACLE_SYSDBA_URL=oracle://sys:Secret123@localhost:25601/FREE
