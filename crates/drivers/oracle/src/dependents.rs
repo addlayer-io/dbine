@@ -272,14 +272,6 @@ fn object(kind: &'static str, owner: &str, session: &str, name: &str) -> ObjectR
     }
 }
 
-fn same(a: &ObjectRef, b: &ObjectRef) -> bool {
-    a.kind == b.kind
-        && a.schema()
-            .unwrap_or("")
-            .eq_ignore_ascii_case(b.schema().unwrap_or(""))
-        && a.name.eq_ignore_ascii_case(&b.name)
-}
-
 fn dependent(o: ObjectRef, parent: Option<String>, confidence: Confidence) -> Dependent {
     Dependent {
         kind: o.kind,
@@ -298,14 +290,20 @@ fn dependent(o: ObjectRef, parent: Option<String>, confidence: Confidence) -> De
 /// dictionary says the target is used there.
 pub(crate) fn candidates(read: &Read, session: &str, target: &ObjectRef) -> Vec<(Dependent, bool)> {
     let mut out: Vec<(Dependent, bool)> = Vec::new();
+    // The target itself (its own source holds its name) is out. Compared
+    // by owner: the target may name the session's schema or leave it out.
+    let target_owner = target.schema().unwrap_or(session);
     let mut add = |ty: &str, owner: &str, name: &str, table: Option<&String>, recorded: bool| {
         let Some(kind) = ref_kind(ty, false) else {
             return;
         };
-        let o = object(kind, owner, session, name);
-        if same(&o, target) {
+        if kind == target.kind
+            && owner.eq_ignore_ascii_case(target_owner)
+            && name.eq_ignore_ascii_case(&target.name)
+        {
             return;
         }
+        let o = object(kind, owner, session, name);
         match out.iter_mut().find(|(d, _)| {
             d.kind == o.kind
                 && d.schema
@@ -649,6 +647,51 @@ mod tests {
         assert_eq!(by("P_DIN").0.confidence, Confidence::Probable);
         assert!(c.iter().all(|(d, _)| d.kind != "table"), "{c:?}");
         assert!(c.iter().all(|(d, _)| d.name != "J"));
+    }
+
+    /// Its own source names it: the target is left out whether it comes
+    /// with the session's schema or without one (the app sends both).
+    #[test]
+    fn the_target_is_never_its_own_dependent() {
+        let read = Read {
+            hits: vec![
+                ("APP".into(), "P_USA".into(), "PROCEDURE".into()),
+                ("APP".into(), "P_LLAMA".into(), "PROCEDURE".into()),
+                ("OTRO".into(), "P_USA".into(), "PROCEDURE".into()),
+            ],
+            ..Default::default()
+        };
+        let names = |t: &ObjectRef| -> Vec<(Option<String>, String)> {
+            candidates(&read, "APP", t)
+                .into_iter()
+                .map(|(d, _)| (d.schema, d.name))
+                .collect()
+        };
+        for schema in [None, Some("APP"), Some("app")] {
+            let t = ObjectRef {
+                kind: kinds::PROCEDURE.into(),
+                schema: schema.map(Into::into),
+                name: "P_USA".into(),
+            };
+            assert_eq!(
+                names(&t),
+                [
+                    (None, "P_LLAMA".to_string()),
+                    (Some("OTRO".to_string()), "P_USA".to_string())
+                ],
+                "{schema:?}"
+            );
+        }
+        // Another schema's P_USA: the session's one of that name is a dependent.
+        let other = ObjectRef {
+            kind: kinds::PROCEDURE.into(),
+            schema: Some("OTRO".into()),
+            name: "P_USA".into(),
+        };
+        assert_eq!(
+            names(&other),
+            [(None, "P_USA".to_string()), (None, "P_LLAMA".to_string())]
+        );
     }
 
     #[test]
