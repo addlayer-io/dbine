@@ -1,0 +1,22 @@
+{
+  "folder": "Bases de ejemplo",
+  "tienda": "Tienda (SQLite)",
+  "analitica": "Analítica (DuckDB)",
+  "archivos": "Archivos (CSV y Parquet)",
+  "tourFile": "Recorrido por DBine",
+  "tour": {
+    "intro": "# Recorrido por DBine\n\nEstas bases de ejemplo están en tu computadora y no necesitan ningún servidor:\n\n- **{{tienda}}**: la base de un comercio, con clientes, productos, pedidos, facturas y eventos, claves foráneas, vistas (una sobre otra) y un trigger.\n- **{{analitica}}**: los mismos datos, con algunas diferencias a propósito.\n- **{{archivos}}**: metas de ventas en un CSV y los eventos en Parquet, consultados con SQL.\n\nCada celda corre en su propia conexión; las de **DataFrame SQL** cruzan los resultados de las celdas de arriba. Corré las celdas con ▶, de a una o todas juntas.\n\nPara seguir, hacé clic derecho en una conexión o una tabla: el diagrama de la base, la comparación de datos o de esquemas entre {{tienda}} y {{analitica}}, la migración de SQLite a DuckDB o las dependencias de la vista `v_kpis`, que se apoya en otra vista.",
+    "differences": "## ¿En qué difieren las dos bases?\n\nLas dos primeras celdas leen los clientes de cada base. La tercera los cruza y cuenta, por ciudad, los que cambiaron de ciudad o de correo y los que están en una sola de las dos.",
+    "onlyInAnalitica": "(solo en {{analitica}})",
+    "targets": "## Ventas contra metas\n\nLas metas están en un CSV de {{archivos}}; las ventas, en la vista `v_ventas_mensuales` de {{tienda}}. La última celda las une por mes y categoría y las dibuja."
+  },
+  "menu": {
+    "openTour": "Abrir el recorrido",
+    "remove": "Quitar las bases de ejemplo…"
+  },
+  "confirm": {
+    "removeTitle": "Quitar las bases de ejemplo",
+    "remove": "Se borran las tres conexiones de ejemplo, su carpeta y sus archivos. No vuelven a aparecer."
+  },
+  "welcomeTour": "Recorrido por las bases de ejemplo"
+}

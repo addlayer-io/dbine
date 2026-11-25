@@ -5,6 +5,7 @@
 ### New
 
 - **An AI agent's work, as a notebook:** Settings › MCP lists the sessions of each MCP client (Claude Code, Cursor, Codex…): its calls with no pause longer than 30 minutes, with the connections it used and how many reads, writes, rejected and failed calls it made. **Open as notebook** turns one into a notebook to continue from: what it explored in one line, each query as a SQL cell on the connection and database it used, and each write as text with its code, so it never runs again. The activity log now keeps each query whole (up to 64 KB), never its rows.
+- **Sample databases to try DBine right away:** a new **Sample databases** folder in the explorer holds a store in SQLite (clients, products, orders, invoices and events, with foreign keys, views and a trigger), the same data in DuckDB with a few differences on purpose, and a folder of CSV and Parquet files. A tour notebook crosses them and ends in charts; it opens from the folder's menu or the welcome screen. Nothing is downloaded until you open them, and they need no server. Right-click the folder to open the tour again or to remove them for good.
 
 ### Improvements
 

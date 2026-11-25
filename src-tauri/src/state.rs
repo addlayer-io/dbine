@@ -387,6 +387,8 @@ impl AppState {
             crate::secret_sources::fill(&self.store, &mut s.config, &p.sources, &p.tokens, origin)
                 .await?;
         }
+        // A sample database is made the first time it opens (samples.rs).
+        crate::samples::ensure(connection_id, &s.config).await?;
         Ok(s.config)
     }
 

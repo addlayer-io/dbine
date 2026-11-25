@@ -6878,6 +6878,7 @@
   "no se pudo mover el IDENTITY del clon después de las filas copiadas; no se clona": "не удалось сдвинуть IDENTITY клона за скопированные строки; не клонируется",
   "no se pudo preparar el clon {0}; no se clona": "не удалось подготовить клон {0}; не клонируется",
   "no se pudo preparar el índice local «{0}» del clon con los nombres de sus particiones; no se clona": "не удалось подготовить локальный индекс клона «{0}» с именами его разделов; не клонируется",
+  "no se pudo preparar la base de ejemplo {0}: {1}": "не удалось подготовить пример базы данных {0}: {1}",
   "no se pudo preparar la clave primaria del clon con el estado del original; no se clona": "не удалось подготовить первичный ключ клона с состоянием оригинала; не клонируется",
   "no se pudo preparar la restricción única sobre ({0}) del clon con un nombre del sistema, como en el original; no se clona": "не удалось подготовить ограничение уникальности клона по ({0}) с системным именем, как в оригинале; не клонируется",
   "no se pudo quitar la restricción {0} del clon para copiar las filas: {1}": "не удалось убрать ограничение {0} из клона для копирования строк: {1}",

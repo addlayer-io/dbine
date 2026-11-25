@@ -80,7 +80,7 @@ export function trackConnectionOpened(engine: string) {
 /** Features used (an action, not a screen): once a day per feature and,
  *  for the assistant, per kind of provider. The backend drops anything not
  *  on its lists (src-tauri/src/commands/telemetry.rs). */
-export type Feature = 'ai_message' | 'schema_sync' | 'data_sync' | 'migration_run' | 'multi_db_run';
+export type Feature = 'ai_message' | 'schema_sync' | 'data_sync' | 'migration_run' | 'multi_db_run' | 'sample_opened' | 'sample_tour';
 export function trackFeature(feature: Feature, provider?: string) {
   const key = `${feature}|${provider ?? ''}`;
   if (features.has(key) || !telemetryAllowed()) return;

@@ -1,0 +1,22 @@
+{
+  "folder": "Beispieldatenbanken",
+  "tienda": "Laden (SQLite)",
+  "analitica": "Analyse (DuckDB)",
+  "archivos": "Dateien (CSV und Parquet)",
+  "tourFile": "DBine-Rundgang",
+  "tour": {
+    "intro": "# Ein Rundgang durch DBine\n\nDiese Beispieldatenbanken liegen auf Ihrem Computer und brauchen keinen Server:\n\n- **{{tienda}}**: die Datenbank eines Geschäfts mit Kunden, Produkten, Bestellungen, Rechnungen und Ereignissen, Fremdschlüsseln, Sichten (eine auf einer anderen) und einem Trigger.\n- **{{analitica}}**: dieselben Daten, mit einigen absichtlichen Unterschieden.\n- **{{archivos}}**: Umsatzziele in einer CSV-Datei und die Ereignisse als Parquet, mit SQL abgefragt.\n\nJede Zelle läuft auf ihrer eigenen Verbindung; die Zellen mit **DataFrame SQL** verknüpfen die Ergebnisse der Zellen darüber. Führen Sie die Zellen mit ▶ aus, einzeln oder alle zusammen.\n\nUm weiterzumachen, klicken Sie mit der rechten Maustaste auf eine Verbindung oder Tabelle: das Datenbankdiagramm, der Daten- oder Schemavergleich zwischen {{tienda}} und {{analitica}}, die Migration von SQLite nach DuckDB oder die Abhängigkeiten der Sicht `v_kpis`, die auf einer anderen Sicht aufbaut.",
+    "differences": "## Worin unterscheiden sich die beiden Datenbanken?\n\nDie ersten beiden Zellen lesen die Kunden jeder Datenbank. Die dritte verknüpft sie und zählt pro Stadt die Kunden, die Stadt oder E-Mail geändert haben, und die, die nur in einer der beiden stehen.",
+    "onlyInAnalitica": "(nur in {{analitica}})",
+    "targets": "## Umsatz und Ziele\n\nDie Ziele stehen in einer CSV-Datei in {{archivos}}, der Umsatz in der Sicht `v_ventas_mensuales` von {{tienda}}. Die letzte Zelle verknüpft beides nach Monat und Kategorie und zeigt es als Diagramm."
+  },
+  "menu": {
+    "openTour": "Rundgang öffnen",
+    "remove": "Beispieldatenbanken entfernen…"
+  },
+  "confirm": {
+    "removeTitle": "Beispieldatenbanken entfernen",
+    "remove": "Die drei Beispielverbindungen, ihr Ordner und ihre Dateien werden gelöscht. Sie erscheinen nicht wieder."
+  },
+  "welcomeTour": "Rundgang durch die Beispieldatenbanken"
+}

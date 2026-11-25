@@ -7074,6 +7074,7 @@
   "no se pudo mover el IDENTITY del clon después de las filas copiadas; no se clona": "IDENTITY klon tidak dapat dipindahkan setelah baris yang disalin; tidak dikloning",
   "no se pudo preparar el clon {0}; no se clona": "klon {0} tidak dapat disiapkan; tidak dikloning",
   "no se pudo preparar el índice local «{0}» del clon con los nombres de sus particiones; no se clona": "indeks lokal \"{0}\" klon tidak dapat disiapkan dengan nama partisinya; tidak dikloning",
+  "no se pudo preparar la base de ejemplo {0}: {1}": "tidak dapat menyiapkan basis data contoh {0}: {1}",
   "no se pudo preparar la clave primaria del clon con el estado del original; no se clona": "primary key klon tidak dapat disiapkan dengan status yang asli; tidak dikloning",
   "no se pudo preparar la restricción única sobre ({0}) del clon con un nombre del sistema, como en el original; no se clona": "batasan unik pada ({0}) klon tidak dapat disiapkan dengan nama sistem, seperti pada yang asli; tidak dikloning",
   "no se pudo quitar la restricción {0} del clon para copiar las filas: {1}": "batasan {0} tidak dapat dihapus dari klon untuk menyalin baris: {1}",

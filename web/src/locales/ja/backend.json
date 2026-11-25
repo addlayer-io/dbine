@@ -8194,6 +8194,7 @@
   "no se pudo mover el IDENTITY del clon después de las filas copiadas; no se clona": "コピーした行の後にクローンの IDENTITY を移動できませんでした。クローンされません",
   "no se pudo preparar el clon {0}; no se clona": "クローン {0} を準備できませんでした。クローンされません",
   "no se pudo preparar el índice local «{0}» del clon con los nombres de sus particiones; no se clona": "クローンのローカルインデックス「{0}」を、パーティション名付きで準備できませんでした。クローンされません",
+  "no se pudo preparar la base de ejemplo {0}: {1}": "サンプルデータベース {0} を準備できませんでした: {1}",
   "no se pudo preparar la clave primaria del clon con el estado del original; no se clona": "クローンの主キーを元の状態で準備できませんでした。クローンされません",
   "no se pudo preparar la restricción única sobre ({0}) del clon con un nombre del sistema, como en el original; no se clona": "クローンの({0})の一意制約を、元と同じくシステム名で準備できませんでした。クローンされません",
   "no se pudo quitar la restricción {0} del clon para copiar las filas: {1}": "行をコピーするためにクローンから制約 {0} を外せませんでした: {1}",

@@ -7931,6 +7931,7 @@
   "no se pudo mover el IDENTITY del clon después de las filas copiadas; no se clona": "복사된 행 뒤로 복제본의 IDENTITY를 옮기지 못했습니다. 복제하지 않습니다",
   "no se pudo preparar el clon {0}; no se clona": "복제본 {0}을(를) 준비하지 못했습니다. 복제하지 않습니다",
   "no se pudo preparar el índice local «{0}» del clon con los nombres de sus particiones; no se clona": "파티션 이름이 포함된 복제본의 로컬 인덱스 「{0}」을(를) 준비하지 못했습니다. 복제하지 않습니다",
+  "no se pudo preparar la base de ejemplo {0}: {1}": "예제 데이터베이스 {0}을(를) 준비할 수 없습니다: {1}",
   "no se pudo preparar la clave primaria del clon con el estado del original; no se clona": "원본의 상태로 복제본의 기본 키를 준비하지 못했습니다. 복제하지 않습니다",
   "no se pudo preparar la restricción única sobre ({0}) del clon con un nombre del sistema, como en el original; no se clona": "원본처럼 시스템 이름으로 복제본의 ({0})에 대한 고유 제약 조건을 준비하지 못했습니다. 복제하지 않습니다",
   "no se pudo quitar la restricción {0} del clon para copiar las filas: {1}": "행을 복사하기 위해 복제본의 제약 조건 {0}을(를) 제거하지 못했습니다: {1}",

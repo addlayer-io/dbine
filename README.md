@@ -55,6 +55,10 @@ and queries are organized inside each database.
   [`docs/engine-support.md`](docs/engine-support.md#dependencies).
 - **Folders and groups**, for example per client or per environment. They can
   be nested and colored, and servers are moved between them by dragging.
+- **Sample databases** to try DBine before connecting your own: a store in
+  SQLite, the same data with differences in DuckDB, CSV and Parquet files, and
+  a tour notebook that crosses them. Details:
+  [`docs/sample-databases.md`](docs/sample-databases.md).
 - **Import connections** from DBeaver, DbGate, DataGrip / JetBrains, Azure Data
   Studio and SSMS, or by pasting connection URLs. DBine reads those tools'
   files, shows what it found and saves the ones you pick. Passwords go

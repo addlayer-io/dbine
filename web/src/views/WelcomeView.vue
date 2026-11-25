@@ -7,6 +7,8 @@ import { useConnectionsStore } from '../stores/connections';
 import { useUiStore } from '../stores/ui';
 import { pickAndOpen } from '../composables/openFiles';
 import { useTabsStore } from '../stores/tabs';
+import { SAMPLES_FOLDER_ID } from '../composables/sampleDatabases';
+import { openSampleTour } from '../composables/sampleTour';
 
 const tabs = useTabsStore();
 
@@ -15,6 +17,8 @@ const tabs = useTabsStore();
 const conns = useConnectionsStore();
 const ui = useUiStore();
 const { t } = useTranslation();
+// The sample databases are there (not removed): their tour is one click away.
+const hasSamples = computed(() => conns.folders.some((f) => f.id === SAMPLES_FOLDER_ID));
 
 const families = computed(() => {
   const m = new Map<Family, string[]>();
@@ -35,6 +39,7 @@ const families = computed(() => {
       <el-button type="primary" @click="ui.newConnection()"><el-icon><ei-plus /></el-icon>&nbsp;{{ $t('workbench:welcome.newConnection') }}</el-button>
       <el-button :title="$t('notebook:newTip')" @click="tabs.newNotebook()"><el-icon><ei-notebook /></el-icon>&nbsp;{{ $t('notebook:new') }}</el-button>
       <el-button :title="$t('workbench:welcome.openFileTitle')" @click="pickAndOpen()"><el-icon><ei-folder-opened /></el-icon>&nbsp;{{ $t('workbench:welcome.openFile') }}</el-button>
+      <el-button v-if="hasSamples" data-test="welcome-sample-tour" @click="openSampleTour()"><el-icon><ei-notebook /></el-icon>&nbsp;{{ $t('samples:welcomeTour') }}</el-button>
     </div>
     <div class="nm-card wv-tips">
       <div class="nm-section-title">{{ $t('workbench:welcome.howTo') }}</div>

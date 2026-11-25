@@ -21,6 +21,7 @@ mod notebook;
 mod open_files;
 mod optimizer;
 mod results_store;
+mod samples;
 mod sealed_store;
 mod secret_sources;
 mod ssh_config;
@@ -297,6 +298,8 @@ pub fn run() {
             // 7. Engine libraries downloaded on first use (DuckDB) go in
             //    `components/`; their progress reaches the UI as an event.
             dbine_driver::runtime::set_components_dir(data_dir.join("components"));
+            // The sample databases' files (samples.rs).
+            samples::set_dir(data_dir.join("samples"));
             let handle = app.handle().clone();
             dbine_driver::runtime::set_progress_sink(move |p| {
                 use tauri::Emitter;
@@ -721,6 +724,9 @@ pub fn run() {
             commands::notebook::notebook_file_grants_clear,
             open_files::open_files_take,
             open_files::open_file,
+            samples::samples_install,
+            samples::samples_tour,
+            samples::samples_remove,
         ])
         .build(context)
         .expect("error building tauri app")
