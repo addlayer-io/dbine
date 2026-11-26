@@ -133,6 +133,7 @@
     "dialogTitle": "Buka berkas",
     "filterName": "Basis data dan berkas data",
     "saved": "«{{name}}» disimpan di koneksi Anda",
+    "keptForQuery": "«{{name}}» disimpan di koneksi Anda agar kuerinya tetap tersimpan",
     "dropTitle": "Lepaskan untuk membuka",
     "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON, atau Excel. Setiap berkas dibuka sebagai koneksi sementara."
   }

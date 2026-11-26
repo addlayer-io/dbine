@@ -133,6 +133,7 @@
     "dialogTitle": "Datei öffnen",
     "filterName": "Datenbanken und Datendateien",
     "saved": "„{{name}}“ ist jetzt in Ihren Verbindungen gespeichert",
+    "keptForQuery": "„{{name}}“ ist jetzt in Ihren Verbindungen gespeichert, damit die zugehörigen Abfragen erhalten bleiben",
     "dropTitle": "Zum Öffnen ablegen",
     "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON oder Excel. Jede Datei wird als temporäre Verbindung geöffnet."
   }

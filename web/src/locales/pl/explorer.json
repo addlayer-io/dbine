@@ -65,7 +65,7 @@
     "projectChanges_many": "{{count}} niezatwierdzonych zmian",
     "projectChanges_other": "{{count}} niezatwierdzonej zmiany",
     "file": "Plik",
-    "fileTitle": "Otwarto z {{path}}. Nie zostanie zapisane po zamknięciu DBine: kliknij prawym przyciskiem › Zapisz połączenie, aby je zachować.",
+    "fileTitle": "Otwarto z {{path}}. Nie zostanie zapisane po zamknięciu DBine, chyba że napiszesz w nim zapytanie lub wybierzesz: kliknij prawym przyciskiem › Zapisz połączenie.",
     "contexts": "Konteksty",
     "noContexts": "Brak kontekstów: kliknij prawym przyciskiem › Nowy kontekst"
   },

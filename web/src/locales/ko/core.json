@@ -133,6 +133,7 @@
     "dialogTitle": "파일 열기",
     "filterName": "데이터베이스 및 데이터 파일",
     "saved": "「{{name}}」이(가) 연결에 저장되었습니다",
+    "keptForQuery": "쿼리를 유지할 수 있도록 「{{name}}」이(가) 연결에 저장되었습니다",
     "dropTitle": "놓아서 열기",
     "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON 또는 Excel. 각 파일은 임시 연결로 열립니다."
   }

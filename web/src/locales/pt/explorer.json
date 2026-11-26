@@ -63,7 +63,7 @@
     "projectChanges_other": "{{count}} alterações sem commit",
     "projectChanges_many": "{{count}} alterações sem commit",
     "file": "Arquivo",
-    "fileTitle": "Aberto de {{path}}. Não fica salvo ao fechar o DBine: clique direito › Salvar conexão para mantê-lo.",
+    "fileTitle": "Aberto de {{path}}. Não fica salvo ao fechar o DBine, a menos que você escreva uma consulta nele ou escolha clique direito › Salvar conexão.",
     "contexts": "Contextos",
     "noContexts": "Sem contextos: clique direito › Novo contexto"
   },
