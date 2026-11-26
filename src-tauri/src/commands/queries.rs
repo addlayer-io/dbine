@@ -1,7 +1,7 @@
 use crate::error::{CommandError, CommandResult};
 use crate::state::AppState;
 use dbine_core::{QueryVersion, SavedQuery};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri::State;
 
 #[derive(Deserialize)]
@@ -40,10 +40,22 @@ pub struct SaveArgs {
     /// most one version a minute while typing.
     #[serde(default)]
     pub checkpoint: bool,
+    /// The query DBine writes when it opens a data file, not the user's.
+    #[serde(default)]
+    pub generated: bool,
+}
+
+#[derive(Serialize)]
+pub struct SaveResult {
+    #[serde(flatten)]
+    pub query: SavedQuery,
+    /// This save kept an opened file's connection: its name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kept_connection: Option<String>,
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub async fn save_query(state: State<'_, AppState>, args: SaveArgs) -> CommandResult<SavedQuery> {
+pub async fn save_query(state: State<'_, AppState>, args: SaveArgs) -> CommandResult<SaveResult> {
     let mut q = args.query;
     if q.id.is_empty() {
         q.id = uuid::Uuid::new_v4().to_string();
@@ -62,7 +74,19 @@ pub async fn save_query(state: State<'_, AppState>, args: SaveArgs) -> CommandRe
     {
         tracing::warn!(%e, "could not record the query's version");
     }
-    Ok(saved)
+    // Nor does keeping the file's connection: the query is already saved.
+    let kept_connection = state
+        .store
+        .keep_opened_file_for_query(before.as_ref(), &saved, args.generated)
+        .unwrap_or_else(|e| {
+            tracing::warn!(%e, "could not keep the opened file's connection");
+            None
+        })
+        .map(|c| c.name);
+    Ok(SaveResult {
+        query: saved,
+        kept_connection,
+    })
 }
 
 // -- versions (the query tab's timeline, docs/history.md) ------------------------------

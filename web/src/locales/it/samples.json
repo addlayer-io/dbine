@@ -1,0 +1,22 @@
+{
+  "folder": "Database di esempio",
+  "tienda": "Negozio (SQLite)",
+  "analitica": "Analisi (DuckDB)",
+  "archivos": "File (CSV e Parquet)",
+  "tourFile": "Tour di DBine",
+  "tour": {
+    "intro": "# Tour di DBine\n\nQuesti database di esempio sono sul tuo computer e non hanno bisogno di alcun server:\n\n- **{{tienda}}**: il database di un negozio, con clienti, prodotti, ordini, fatture ed eventi, chiavi esterne, viste (una sopra l'altra) e un trigger.\n- **{{analitica}}**: gli stessi dati, con alcune differenze volute.\n- **{{archivos}}**: obiettivi di vendita in un CSV e gli eventi in Parquet, interrogati con SQL.\n\nOgni cella viene eseguita sulla propria connessione; le celle **DataFrame SQL** incrociano i risultati delle celle sopra. Esegui le celle con ▶, una alla volta o tutte insieme.\n\nPer continuare, fai clic destro su una connessione o una tabella: il diagramma del database, il confronto dei dati o degli schemi tra {{tienda}} e {{analitica}}, la migrazione da SQLite a DuckDB o le dipendenze della vista `v_kpis`, che si basa su un'altra vista.",
+    "differences": "## In cosa differiscono i due database?\n\nLe prime due celle leggono i clienti di ciascun database. La terza li incrocia e conta, per città, quelli che hanno cambiato città o e-mail e quelli presenti in uno solo dei due.",
+    "onlyInAnalitica": "(solo in {{analitica}})",
+    "targets": "## Vendite rispetto agli obiettivi\n\nGli obiettivi sono in un CSV di {{archivos}}; le vendite, nella vista `v_ventas_mensuales` di {{tienda}}. L'ultima cella le unisce per mese e categoria e le rappresenta in un grafico."
+  },
+  "menu": {
+    "openTour": "Apri il tour",
+    "remove": "Rimuovi i database di esempio…"
+  },
+  "confirm": {
+    "removeTitle": "Rimuovi i database di esempio",
+    "remove": "Le tre connessioni di esempio, la loro cartella e i loro file vengono eliminati. Non riappariranno."
+  },
+  "welcomeTour": "Tour dei database di esempio"
+}

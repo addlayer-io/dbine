@@ -158,6 +158,21 @@ pub fn rows(msgs: Vec<SimpleQueryMessage>) -> Vec<SimpleQueryRow> {
         .collect()
 }
 
+/// The rows of one statement (0 for the first) of a message that sent several.
+pub fn statement_rows(msgs: Vec<SimpleQueryMessage>, statement: usize) -> Vec<SimpleQueryRow> {
+    let mut done = 0;
+    msgs.into_iter()
+        .filter_map(|m| match m {
+            SimpleQueryMessage::Row(r) if done == statement => Some(r),
+            SimpleQueryMessage::CommandComplete(_) => {
+                done += 1;
+                None
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// The first cell of the first row.
 pub fn first_cell(msgs: &[SimpleQueryMessage]) -> Option<String> {
     msgs.iter().find_map(|m| match m {

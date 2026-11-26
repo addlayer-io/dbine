@@ -570,9 +570,21 @@ impl PgSession {
             })
             .collect();
         // Materialize has no foreign keys (nor pg_constraint rows).
-        let foreign_keys = match self.optional("foreign keys", &foreign_keys_sql(&rel)).await {
-            Some(rows) => group_foreign_keys(&rows),
-            None => Vec::new(),
+        // Read with the path set to `pg_catalog`: an unqualified table is
+        // resolved first.
+        let fk_rel = match self
+            .visible_schema(dbine_driver::kinds::TABLE, schema, &table.name)
+            .await
+        {
+            Ok(s) => crate::index_usage::rel(v, Some(&s), &table.name),
+            Err(_) => rel.clone(),
+        };
+        let foreign_keys = match self.catalog_text(&foreign_keys_sql(&fk_rel)).await {
+            Ok(rows) => group_foreign_keys(&rows),
+            Err(e) => {
+                tracing::debug!("{v:?}: index usage, foreign keys unavailable: {e}");
+                Vec::new()
+            }
         };
         let mut report = IndexUsageReport {
             foreign_keys,

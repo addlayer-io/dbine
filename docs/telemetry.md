@@ -7,7 +7,8 @@ systems it runs on.
 ## How to turn it off
 
 - It is **on by default**. On first launch, a notice explains what is sent and
-  what isn't, and how to turn it off.
+  what isn't, and how to turn it off. It comes after the offer to import
+  connections from other tools, when there is one.
 - It is turned off in **Settings › General › Share anonymous usage data**.
   From that moment nothing more is sent.
 - It is just another preference: it travels with sync to the same user's
@@ -29,7 +30,7 @@ Four events, nothing else:
 | `app_started` | once per day the app is used, for all its windows | `first_run`: `true` only on the first launch after installing (absent otherwise) |
 | `connection_opened` | the first time each engine is connected to in a day | `engine`: the driver id (`postgres`, `sqlserver`, `redis`…) |
 | `module_opened` | the first time each module is shown in a day | `module`: the tab type (`query`, `object`, `designer`, `diagram`, `monitor`, `profiler`, `migration`, `connection`, `compare`, `dataCompare`, `security`, `backups`, `indexes`, `dependencies`, `file`, `fileDiff`) or the side panel (`ai`, `projects`, `library`, `history`) |
-| `feature_used` | the first time each feature is used in a day | `feature`: `ai_message` (a question to the assistant), `mcp_tool` (an MCP client used a tool), `schema_sync` (a schema sync was applied), `data_sync` (data), `migration_run` (a migration was run), `multi_db_run` (a query on several databases). With `ai_message`, also `provider`: the provider type (`embedded`, `ollama`, `lm_studio`, `claude_code`, `codex`), never the model or the text |
+| `feature_used` | the first time each feature is used in a day | `feature`: `ai_message` (a question to the assistant), `mcp_tool` (an MCP client used a tool), `schema_sync` (a schema sync was applied), `data_sync` (data), `migration_run` (a migration was run), `multi_db_run` (a query on several databases), `sample_opened` (a sample database was connected to), `sample_tour` (the sample databases' tour was opened). With `ai_message`, also `provider`: the provider type (`embedded`, `ollama`, `lm_studio`, `claude_code`, `codex`, `openai`, `anthropic`, `azure_openai`, `gemini`, `xai`, `openai_compatible`), never the model, the URL, the key or the text |
 
 With `connection_opened` and `module_opened` you see which engines and
 modules are really used, and which never appear; with `feature_used`, whether

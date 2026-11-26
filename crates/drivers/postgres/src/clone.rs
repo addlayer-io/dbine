@@ -659,7 +659,7 @@ async fn functions(s: &PgSession, schemas: &[String], extra: &[u32]) -> Result<V
         "SELECT p.oid, {kind}, quote_ident(n.nspname) || '.' || quote_ident(p.proname) || '(' || pg_get_function_identity_arguments(p.oid) || ')',
                 CASE WHEN {kind} <> 'a' THEN pg_get_functiondef(p.oid) END,
                 {body} OR EXISTS (
-                    SELECT 1 FROM unnest(ARRAY[p.prorettype] || p.proargtypes::oid[] || COALESCE(p.proallargtypes, '{{}}'::oid[])) u(t)
+                    SELECT 1 FROM pg_catalog.unnest(ARRAY[p.prorettype] || p.proargtypes::oid[] || COALESCE(p.proallargtypes, '{{}}'::oid[])) u(t)
                     JOIN pg_type ty ON ty.oid = u.t OR ty.typarray = u.t
                     JOIN pg_class rc ON rc.oid = ty.typrelid WHERE rc.relkind IN ('r', 'p', 'v', 'm', 'f')),
                 obj_description(p.oid, 'pg_proc'),
@@ -818,7 +818,7 @@ impl UserType {
 
 async fn user_types(s: &PgSession, seed: &[u32]) -> Result<Vec<UserType>> {
     let sql = "WITH RECURSIVE t(oid) AS (
-                   SELECT unnest($1::oid[])
+                   SELECT pg_catalog.unnest($1::oid[])
                    UNION
                    SELECT x.oid FROM t JOIN pg_type ty ON ty.oid = t.oid
                    CROSS JOIN LATERAL (
@@ -960,14 +960,14 @@ async fn extensions(
     types: &[u32],
 ) -> Result<Vec<(String, String)>> {
     let sql = "WITH objs(classid, objid) AS (
-                   SELECT 'pg_class'::regclass::oid, x FROM unnest($1::oid[]) x
+                   SELECT 'pg_class'::regclass::oid, x FROM pg_catalog.unnest($1::oid[]) x
                    UNION ALL SELECT 'pg_class'::regclass::oid, i.indexrelid FROM pg_index i WHERE i.indrelid = ANY($1::oid[])
                    UNION ALL SELECT 'pg_attrdef'::regclass::oid, d.oid FROM pg_attrdef d WHERE d.adrelid = ANY($1::oid[])
                    UNION ALL SELECT 'pg_constraint'::regclass::oid, c.oid FROM pg_constraint c WHERE c.conrelid = ANY($1::oid[])
                    UNION ALL SELECT 'pg_trigger'::regclass::oid, t.oid FROM pg_trigger t WHERE t.tgrelid = ANY($1::oid[])
                    UNION ALL SELECT 'pg_rewrite'::regclass::oid, r.oid FROM pg_rewrite r WHERE r.ev_class = ANY($1::oid[])
-                   UNION ALL SELECT 'pg_proc'::regclass::oid, x FROM unnest($2::oid[]) x
-                   UNION ALL SELECT 'pg_type'::regclass::oid, x FROM unnest($3::oid[]) x
+                   UNION ALL SELECT 'pg_proc'::regclass::oid, x FROM pg_catalog.unnest($2::oid[]) x
+                   UNION ALL SELECT 'pg_type'::regclass::oid, x FROM pg_catalog.unnest($3::oid[]) x
                ), refs AS (
                    SELECT d.refclassid, d.refobjid FROM pg_depend d JOIN objs o ON o.classid = d.classid AND o.objid = d.objid
                ), refs2 AS (

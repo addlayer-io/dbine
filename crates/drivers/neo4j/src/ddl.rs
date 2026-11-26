@@ -518,7 +518,7 @@ fn index_options(s: &IndexSpec) -> String {
         .options
         .iter()
         .filter(|(k, _)| own(k))
-        .map(|(k, v)| format!("`{}`: {}", k.replace('`', "``"), option_literal(v)))
+        .map(|(k, v)| format!("{}: {}", crate::cypher::quoted(k), option_literal(v)))
         .collect();
     if cfg.is_empty() {
         String::new()
@@ -532,8 +532,10 @@ impl IndexSpec {
         matches!(self.kind.as_str(), "UNIQUE" | "EXISTS" | "KEY" | "TYPE")
     }
 
+    /// It goes into the statement as is, so only a type's characters pass.
     fn property_type(&self) -> Result<&str> {
-        self.options
+        let t = self
+            .options
             .get(PROPERTY_TYPE)
             .map(|t| t.trim())
             .filter(|t| !t.is_empty())
@@ -542,7 +544,14 @@ impl IndexSpec {
                     "La restricción de tipo {} no dice el tipo ({PROPERTY_TYPE}).",
                     self.name
                 ))
-            })
+            })?;
+        let ok = |c: char| c.is_ascii_alphanumeric() || " _<>|(),".contains(c);
+        if !t.chars().all(ok) {
+            return Err(Error::Query(format!(
+                "{PROPERTY_TYPE}: «{t}» no es un valor válido"
+            )));
+        }
+        Ok(t)
     }
 
     fn from_designer(f: Flavor, t: &TableSchema) -> Result<Self> {

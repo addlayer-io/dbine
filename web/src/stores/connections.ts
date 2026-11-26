@@ -1,5 +1,5 @@
 import { acceptHMRUpdate, defineStore } from 'pinia';
-import { ElMessageBox } from 'element-plus';
+import { ElMessage, ElMessageBox } from 'element-plus';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { api, errorDetail, errorKind, errorMessage } from '../api/client';
@@ -14,7 +14,8 @@ import { tb } from '../i18n/backend';
 import { rt } from '../composables/i18nLabels';
 import { connectingFrom } from './liveConnection';
 import { useOutputStore } from './output';
-import { trackConnectionOpened } from '../composables/telemetry';
+import { trackConnectionOpened, trackFeature } from '../composables/telemetry';
+import { isSampleConnection } from '../composables/sampleDatabases';
 import { savedMigrationsApi, type SavedMigration } from '../api/savedMigrations';
 import { lookupConnection } from '../composables/lineageSource';
 import { contextsApi, type SavedContext } from '../api/contexts';
@@ -445,6 +446,8 @@ export const useConnectionsStore = defineStore('connections', {
         for (const k of Object.keys(this.permissions)) if (k.startsWith(`${id}\u0000`)) delete this.permissions[k];
         useOutputStore().add('info', t('core:connections.connected', { version: r.server_version }), { where: conn.name });
         trackConnectionOpened(conn.config.driver);
+        // The sample databases, apart: whether trying them comes before a connection of one's own.
+        if (isSampleConnection(id)) trackFeature('sample_opened');
         return true;
       } catch (e) {
         if ((generation.get(id) ?? 0) !== gen) return false;
@@ -1047,8 +1050,14 @@ export const useConnectionsStore = defineStore('connections', {
     },
 
     /** Save and keep the explorer's list in step. */
-    async saveQuery(q: SavedQuery, checkpoint = false): Promise<SavedQuery> {
-      const saved = await api.saveQuery(q, checkpoint);
+    async saveQuery(q: SavedQuery, checkpoint = false, generated = false): Promise<SavedQuery> {
+      const { kept_connection, ...saved } = await api.saveQuery(q, checkpoint, generated);
+      if (kept_connection !== undefined) {
+        // An opened file's connection is now a regular one.
+        const c = this.byId(saved.connection_id);
+        if (c) c.temporary = false;
+        ElMessage.success({ message: t('core:openFiles.keptForQuery', { name: kept_connection }), duration: 6000, showClose: true });
+      }
       const k = dbKey(saved.connection_id, saved.database);
       // It may have moved to another database: drop it from the old list.
       for (const [key, l] of Object.entries(this.queries)) {

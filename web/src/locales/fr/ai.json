@@ -78,7 +78,8 @@
   },
   "privacy": {
     "local": "Local : rien ne quitte cette machine.",
-    "remote": "Envoyé à {{vendor}} avec votre compte : la question, la structure et l'éditeur, jamais les données."
+    "remote": "Envoyé à {{vendor}} avec votre compte : la question, la structure et l'éditeur, jamais les données.",
+    "remoteOwn": "Envoyé à votre serveur : la question, la structure et l'éditeur, jamais les données."
   },
   "empty": {
     "lead": "Demandez-lui des requêtes, d'expliquer ou de corriger celle de l'éditeur, ou interrogez-le sur la structure de la base.",
@@ -168,5 +169,32 @@
     "cancelled": "Annulé : rien n'a été modifié.",
     "again": "Analyser à nouveau",
     "failed": "Impossible d'analyser : {{error}}"
+  },
+  "api": {
+    "heading": "Avec votre clé d'API",
+    "lead": "Utilisez votre compte OpenAI, Anthropic, Azure OpenAI, Google Gemini ou xAI Grok, ou un serveur compatible OpenAI. Le fournisseur facture votre compte ; DBine ne facture rien.",
+    "configure": "Configurer",
+    "edit": "Modifier",
+    "title": "{{provider}} avec votre clé d'API",
+    "key": "Clé d'API",
+    "keyOptional": "Clé d'API (si le serveur en demande une)",
+    "keyPlaceholder": "Collez votre clé",
+    "keySaved": "Enregistrée sur cet ordinateur : laissez vide pour la conserver",
+    "keyWhere": "Obtenez-la sur {{site}}.",
+    "azureUrl": "Point de terminaison de la ressource",
+    "baseUrl": "URL de base",
+    "model": "Modèle",
+    "modelPlaceholder": "Choisissez-en un dans la liste ou saisissez-le",
+    "deployment": "Déploiement",
+    "deploymentPlaceholder": "Le nom du déploiement dans Azure",
+    "privacy": "À chaque question, {{vendor}} reçoit la question, la structure de la base, le texte de l'éditeur et la dernière erreur, selon ses conditions. Jamais de lignes de données.",
+    "privacyOwn": "À chaque question, ce serveur reçoit la question, la structure de la base, le texte de l'éditeur et la dernière erreur. Jamais de lignes de données.",
+    "cost": "{{vendor}} facture votre compte selon votre utilisation. DBine ne facture rien.",
+    "local": "La clé reste chiffrée sur cet ordinateur : elle ne voyage pas avec la sauvegarde dans le cloud.",
+    "test": "Tester",
+    "remove": "Retirer",
+    "removeConfirm": "Retirer la clé et la configuration de {{provider}} de cet ordinateur ?",
+    "urlRequired": "Saisissez l'URL.",
+    "keyRequired": "Collez la clé d'API."
   }
 }

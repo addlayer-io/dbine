@@ -1,0 +1,22 @@
+{
+  "folder": "Bases d'exemple",
+  "tienda": "Boutique (SQLite)",
+  "analitica": "Analytique (DuckDB)",
+  "archivos": "Fichiers (CSV et Parquet)",
+  "tourFile": "Visite de DBine",
+  "tour": {
+    "intro": "# Visite de DBine\n\nCes bases d'exemple sont sur votre ordinateur et n'ont besoin d'aucun serveur :\n\n- **{{tienda}}** : la base d'un commerce, avec clients, produits, commandes, factures et événements, clés étrangères, vues (l'une sur l'autre) et un déclencheur.\n- **{{analitica}}** : les mêmes données, avec quelques différences volontaires.\n- **{{archivos}}** : des objectifs de ventes dans un CSV et les événements en Parquet, interrogés en SQL.\n\nChaque cellule s'exécute sur sa propre connexion ; les cellules **DataFrame SQL** croisent les résultats des cellules du dessus. Exécutez les cellules avec ▶, une à une ou toutes ensemble.\n\nPour continuer, faites un clic droit sur une connexion ou une table : le diagramme de la base, la comparaison des données ou des schémas entre {{tienda}} et {{analitica}}, la migration de SQLite vers DuckDB ou les dépendances de la vue `v_kpis`, qui repose sur une autre vue.",
+    "differences": "## En quoi les deux bases diffèrent-elles ?\n\nLes deux premières cellules lisent les clients de chaque base. La troisième les croise et compte, par ville, ceux qui ont changé de ville ou d'e-mail et ceux qui ne sont que dans l'une des deux.",
+    "onlyInAnalitica": "(seulement dans {{analitica}})",
+    "targets": "## Ventes face aux objectifs\n\nLes objectifs sont dans un CSV de {{archivos}} ; les ventes, dans la vue `v_ventas_mensuales` de {{tienda}}. La dernière cellule les relie par mois et par catégorie et les trace."
+  },
+  "menu": {
+    "openTour": "Ouvrir la visite",
+    "remove": "Supprimer les bases d'exemple…"
+  },
+  "confirm": {
+    "removeTitle": "Supprimer les bases d'exemple",
+    "remove": "Les trois connexions d'exemple, leur dossier et leurs fichiers sont supprimés. Elles ne réapparaîtront pas."
+  },
+  "welcomeTour": "Visite des bases d'exemple"
+}

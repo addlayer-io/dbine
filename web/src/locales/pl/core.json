@@ -133,6 +133,7 @@
     "dialogTitle": "Otwórz plik",
     "filterName": "Bazy i pliki danych",
     "saved": "„{{name}}” została zapisana w Twoich połączeniach",
+    "keptForQuery": "„{{name}}” została zapisana w Twoich połączeniach, aby zachować jej zapytania",
     "dropTitle": "Upuść, aby otworzyć",
     "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON lub Excel. Każdy plik jest otwierany jako połączenie tymczasowe."
   }

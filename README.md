@@ -59,6 +59,10 @@ and queries are organized inside each database.
   [lineage across connections](docs/engine-support.md#lineage-across-connections).
 - **Folders and groups**, for example per client or per environment. They can
   be nested and colored, and servers are moved between them by dragging.
+- **Sample databases** to try DBine before connecting your own: a store in
+  SQLite, the same data with differences in DuckDB, CSV and Parquet files, and
+  a tour notebook that crosses them. Details:
+  [`docs/sample-databases.md`](docs/sample-databases.md).
 - **Import connections** from DBeaver, DbGate, DataGrip / JetBrains, Azure Data
   Studio and SSMS, or by pasting connection URLs. DBine reads those tools'
   files, shows what it found and saves the ones you pick. Passwords go
@@ -416,7 +420,10 @@ editor's one and answers about the database's structure.
   - the **built-in model** (llama.cpp with Qwen2.5-Coder 3B or 7B), which runs
     locally and is downloaded only once, the first time it is used;
   - Ollama or LM Studio;
-  - Claude Code or Codex with the user's account, without tools.
+  - Claude Code or Codex with the user's account, without tools;
+  - or the user's own API key for OpenAI, Anthropic, Azure OpenAI, Google
+    Gemini, xAI Grok or any OpenAI-compatible server, billed by the provider to
+    the user's account. The key stays encrypted on the machine.
 - **It never sends data rows.** As context it receives the engine, the
   structure and the editor.
 - **Contexts:** notes per connection or database, and instructions for every
@@ -519,7 +526,8 @@ No driver needs vendor libraries for the app to start:
 DBine is free and will stay that way. If it's useful to you, you can support it
 with whatever you like, once or every month, from
 [Buy Me a Coffee](https://buymeacoffee.com/addlayer). It is support, not
-a license: the app works the same.
+a license: the app works the same. DBine reminds you about it only after you
+have used it on 7 different days, and then once a month.
 
 ## Feedback and contributing
 

@@ -61,7 +61,7 @@
     "projectChanges_one": "{{count}} nicht committete Änderung",
     "projectChanges_other": "{{count}} nicht committete Änderungen",
     "file": "Datei",
-    "fileTitle": "Geöffnet von {{path}}. Sie wird beim Schließen von DBine nicht behalten: Rechtsklick › Verbindung speichern, um sie zu behalten.",
+    "fileTitle": "Geöffnet von {{path}}. Sie wird beim Schließen von DBine nicht behalten, außer Sie schreiben darin eine Abfrage oder wählen Rechtsklick › Verbindung speichern.",
     "contexts": "Kontexte",
     "noContexts": "Keine Kontexte: Rechtsklick › Neuer Kontext"
   },

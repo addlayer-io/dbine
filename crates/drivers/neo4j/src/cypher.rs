@@ -328,9 +328,50 @@ const READ_PROCEDURES: &[&str] = &[
     "VECTOR_SEARCH.SHOW_INDEX_INFO",
 ];
 
-/// Why a statement isn't a read, or `None` when it only reads.
+/// Why a statement isn't a read, or `None` when it only reads. It is
+/// checked as written (Memgraph, Neptune) and as Neo4j parses it, with the
+/// unicode escapes decoded: a clause written with them is still that clause.
 pub fn write_reason(stmt: &str) -> Option<String> {
-    let w = words(stmt);
+    words_write_reason(words(stmt)).or_else(|| words_write_reason(words(&decode_escapes(stmt))))
+}
+
+/// `stmt` after Neo4j's pre-parse pass: `\uXXXX` becomes its character
+/// anywhere in the text, unless its backslash is itself escaped (an even
+/// run of backslashes). One pass: what it produces isn't read again.
+/// Several `u`s are read too (Java's rule), which can only refuse more.
+fn decode_escapes(stmt: &str) -> String {
+    let b: Vec<char> = stmt.chars().collect();
+    let mut o = String::with_capacity(stmt.len());
+    let (mut i, mut run) = (0, 0usize);
+    while i < b.len() {
+        if b[i] == '\\' {
+            if run % 2 == 0 && b.get(i + 1) == Some(&'u') {
+                let mut at = i + 1;
+                while b.get(at) == Some(&'u') {
+                    at += 1;
+                }
+                let hex: String = b.iter().skip(at).take(4).collect();
+                let c = (hex.len() == 4 && hex.chars().all(|c| c.is_ascii_hexdigit()))
+                    .then(|| u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32))
+                    .flatten();
+                if let Some(c) = c {
+                    o.push(c);
+                    i = at + 4;
+                    run = 0;
+                    continue;
+                }
+            }
+            run += 1;
+        } else {
+            run = 0;
+        }
+        o.push(b[i]);
+        i += 1;
+    }
+    o
+}
+
+fn words_write_reason(w: Vec<String>) -> Option<String> {
     for (i, word) in w.iter().enumerate() {
         // `SHOW …` and `EXPLAIN` are reads; `CALL {…} IN TRANSACTIONS` only
         // matters when its body writes (caught by the words inside).
@@ -352,17 +393,47 @@ pub fn write_reason(stmt: &str) -> Option<String> {
 
 /// Text for a `//` comment line: a server-controlled name can't end the
 /// comment and turn the rest of the line into a statement. Line breaks
-/// (CR, LF, NEL, U+2028/U+2029) and other control characters become `?`.
+/// (CR, LF, NEL, U+2028/U+2029), other control characters and the
+/// backslash of a `\u` (Neo4j decodes unicode escapes in comments too, a
+/// line break among them) become `?`.
 pub fn comment_text(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
+    let mut chars = s.chars().peekable();
+    std::iter::from_fn(|| {
+        chars.next().map(|c| {
+            let escape = c == '\\' && chars.peek() == Some(&'u');
+            if escape || c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') {
                 '?'
             } else {
                 c
             }
         })
-        .collect()
+    })
+    .collect()
+}
+
+/// Text that Neo4j parses exactly as written. Before parsing, it decodes
+/// `\uXXXX` over the whole statement (backticked names included), so a name
+/// holding those characters would stand for other ones, a closing backtick
+/// among them. When there is a `\u`, every backslash goes as `\u005C`: that
+/// pass turns each back into one backslash and doesn't read it again.
+fn verbatim_escapes(s: String) -> String {
+    if s.contains("\\u") {
+        s.replace('\\', "\\u005C")
+    } else {
+        s
+    }
+}
+
+/// A statement the server generated from catalog names (`createStatement`
+/// doubles their backticks but leaves their backslashes), to be parsed as
+/// written.
+pub fn server_statement(s: String) -> String {
+    verbatim_escapes(s)
+}
+
+/// A name between backticks, whatever it holds.
+pub fn quoted(name: &str) -> String {
+    verbatim_escapes(format!("`{}`", name.replace('`', "``")))
 }
 
 /// A name between backticks when it isn't a plain identifier.
@@ -376,7 +447,7 @@ pub fn ident(name: &str) -> String {
     if plain {
         name.to_string()
     } else {
-        format!("`{}`", name.replace('`', "``"))
+        quoted(name)
     }
 }
 
@@ -519,6 +590,87 @@ pub fn vector_coordinate(type_name: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What Neo4j reads between a quoted name's backticks: the unicode
+    /// escapes decoded first, then the name up to a backtick that isn't
+    /// doubled. `None` when the name ends before the text does.
+    fn neo4j_reads(quoted: &str) -> Option<String> {
+        let text = decode_escapes(quoted);
+        let inner = text.strip_prefix('`')?.strip_suffix('`')?;
+        let parts: Vec<&str> = inner.split("``").collect();
+        parts
+            .iter()
+            .all(|p| !p.contains('`'))
+            .then(|| parts.join("`"))
+    }
+
+    #[test]
+    fn a_name_never_decodes_into_a_backtick() {
+        for name in [
+            r"a\u0060) RETURN 1 //",
+            r"a\uuuu0060) RETURN 1 //",
+            r"a\\u0060",
+            r"a\\\u0060",
+            r"a\u005C\u0060",
+            r"a\u005Cu0060",
+            r"\u0060\u0060",
+            r"a\`u0060",
+            r"a`\u0060`b",
+            r"a\u",
+            r"a\u00",
+            r"trailing\",
+        ] {
+            let q = ident(name);
+            assert_eq!(neo4j_reads(&q).as_deref(), Some(name), "{name} -> {q}");
+            assert_eq!(quoted(name), q);
+            // With a `\u`, no backslash starts anything but our own escape.
+            if name.contains(r"\u") {
+                assert_eq!(q.matches('\\').count(), q.matches(r"\u005C").count(), "{q}");
+            }
+        }
+        // Names without a `\u` are written as before (Memgraph reads no escapes).
+        assert_eq!(ident("a b"), "`a b`");
+        assert_eq!(ident(r"a\n"), r"`a\n`");
+        assert_eq!(ident(r"a\U0060"), r"`a\U0060`");
+        assert_eq!(ident("a`b"), "`a``b`");
+    }
+
+    #[test]
+    fn a_literal_never_decodes_into_a_quote() {
+        for text in [
+            r"a\u0027 + 1 //",
+            r"a\uuuu0027",
+            r"a\\u0027",
+            r"a\u000A",
+            r"a\'\u0027",
+        ] {
+            let q = string(text);
+            // Every backslash of the value is doubled, so each `\u` keeps an
+            // even run of backslashes before its `u`: no escape.
+            assert_eq!(decode_escapes(&q), q, "{q}");
+        }
+    }
+
+    #[test]
+    fn comments_and_server_statements_hold_no_live_escape() {
+        let c = comment_text(r"x\u000A MATCH (n) RETURN n \uuuu000d \n");
+        assert!(!c.contains(r"\u"), "{c}");
+        assert!(c.ends_with(r"\n"), "{c}");
+        assert!(!decode_escapes(&c).contains('\n'));
+        let server = r"CREATE INDEX `i` FOR (n:`a\u0060b`) ON (n.`a\u0060b`)";
+        let safe = server_statement(server.into());
+        assert_ne!(safe, server);
+        assert_eq!(decode_escapes(&safe), server);
+    }
+
+    #[test]
+    fn the_read_only_check_sees_clauses_written_as_escapes() {
+        assert!(write_reason(r"MATCH (n) \u0044ELETE n").is_some());
+        assert!(write_reason(r"\u004COAD CSV FROM 'x' AS l RETURN l").is_some());
+        assert!(write_reason(r"RETURN 1 // x\u000A CREATE (:A)").is_some());
+        assert!(write_reason(r"RETURN '\\u0044ELETE'").is_none());
+        assert!(write_reason("MATCH (n) RETURN n").is_none());
+    }
 
     #[test]
     fn typed_vector_columns_take_vectors() {

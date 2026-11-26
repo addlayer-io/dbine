@@ -118,7 +118,7 @@ pub(crate) fn dependents_sql(
     let cols_of = |tbl: &str, arr: &str| {
         format!(
             "(SELECT string_agg(a.attname::text, ', ' ORDER BY u.ord)
-                FROM unnest({arr}) WITH ORDINALITY u(attnum, ord)
+                FROM pg_catalog.unnest({arr}) WITH ORDINALITY u(attnum, ord)
                 JOIN pg_attribute a ON a.attrelid = {tbl} AND a.attnum = u.attnum)"
         )
     };
@@ -177,7 +177,7 @@ pub(crate) fn dependents_sql(
         format!(
             "SELECT 'table', n.nspname::text, tc.relname::text, NULL::text, 'index',
                     i.relname::text || ' (' || (SELECT string_agg(pg_get_indexdef(x.indexrelid, k, true), ', ' ORDER BY k)
-                                                  FROM generate_series(1, x.{index_keys}) k) || ')', tc.oid
+                                                  FROM pg_catalog.generate_series(1, x.{index_keys}::pg_catalog.int4) k) || ')', tc.oid
                FROM refs r JOIN pg_class i ON r.classid = 'pg_class'::regclass AND i.oid = r.objid AND i.relkind IN ('i', 'I')
                JOIN pg_index x ON x.indexrelid = i.oid
                JOIN pg_class tc ON tc.oid = x.indrelid JOIN pg_namespace n ON n.oid = tc.relnamespace
@@ -391,7 +391,9 @@ impl PgSession {
             return scan(self, target, ctx).await;
         }
         let c = self.pg_catalog();
-        let (s, n) = (lit(v, t.schema().unwrap_or("")), lit(v, &t.name));
+        // The reads below run with the path set to `pg_catalog`.
+        let schema = self.visible_schema(&t.kind, t.schema(), &t.name).await?;
+        let (s, n) = (lit(v, &schema), lit(v, &t.name));
         let col = target.column.as_deref().map(|x| lit(v, x));
         let pattern = lit(v, target.column.as_deref().unwrap_or(&t.name));
         let routine = matches!(t.kind.as_str(), kinds::FUNCTION | kinds::PROCEDURE).then_some((
@@ -405,8 +407,8 @@ impl PgSession {
         };
         let bodies = bodies_sql(c, routine, &pattern, |x| self.filter(x));
         let read = async {
-            let items = self.text(&deps).await?;
-            let bodies = self.text(&bodies).await?;
+            let items = self.catalog_text(&deps).await?;
+            let bodies = self.catalog_text(&bodies).await?;
             Result::Ok((items, bodies))
         }
         .await;
@@ -514,6 +516,16 @@ mod tests {
         assert!(q.contains("u.hold NOT IN (SELECT oid FROM tgt)"));
         // Row type: a routine that takes the row depends on the type.
         assert!(q.contains("pg_type"));
+    }
+
+    #[test]
+    fn set_returning_calls_name_pg_catalog() {
+        let q = sql("table", Some("'id'"));
+        assert_eq!(
+            q.matches("unnest(").count(),
+            q.matches("pg_catalog.unnest(").count()
+        );
+        assert!(q.contains("pg_catalog.generate_series(1, x.indnkeyatts::pg_catalog.int4)"));
     }
 
     #[test]

@@ -133,6 +133,7 @@
     "dialogTitle": "ファイルを開く",
     "filterName": "データベースとデータファイル",
     "saved": "「{{name}}」を接続に保存しました",
+    "keptForQuery": "クエリを保持するため、「{{name}}」を接続に保存しました",
     "dropTitle": "ドロップして開く",
     "dropHint": "SQLite、DuckDB、CSV、TSV、Parquet、JSON、Excel に対応しています。各ファイルは一時的な接続として開かれます。"
   }

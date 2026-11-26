@@ -59,7 +59,7 @@
     "noProjects": "Tanpa proyek: klik kanan › Tautkan proyek…",
     "projectChanges_other": "{{count}} perubahan belum di-commit",
     "file": "Berkas",
-    "fileTitle": "Dibuka dari {{path}}. Tidak tersimpan saat DBine ditutup: klik kanan › Simpan koneksi untuk mempertahankannya.",
+    "fileTitle": "Dibuka dari {{path}}. Tidak tersimpan saat DBine ditutup, kecuali Anda menulis kueri di dalamnya atau memilih klik kanan › Simpan koneksi.",
     "contexts": "Konteks",
     "noContexts": "Tanpa konteks: klik kanan › Konteks baru"
   },

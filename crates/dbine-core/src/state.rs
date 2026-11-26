@@ -795,21 +795,81 @@ impl StateStore {
     }
 
     /// Drop the temporary connections a previous run left (with their
-    /// queries and migrations), and the lineage's internal connections
+    /// queries and migrations; an opened file with an edited query is kept
+    /// instead, which an earlier version did not do while it ran), and the lineage's internal connections
     /// that keep no password: one with a remembered password stays, it is
     /// the user's choice ("Recordar en este equipo") and its keychain
     /// secret would otherwise be left orphaned. Only the app calls it,
     /// when it starts: a scheduled task opening the store meanwhile must
     /// not.
     pub fn purge_temporary_connections(&self) -> Result<usize> {
+        let (kept, n) = {
+            let c = self.lock()?;
+            let kept = c
+                .execute(
+                    "UPDATE connections SET temporary = 0
+                      WHERE temporary = 1 AND id IN (
+                          SELECT connection_id FROM queries
+                           WHERE updated_at <> created_at AND TRIM(sql) <> '')",
+                    [],
+                )
+                .map_err(db_err)?;
+            let n = c
+                .execute(
+                    "DELETE FROM connections WHERE temporary = 1 OR (temporary = 3 AND save_password = 0)",
+                    [],
+                )
+                .map_err(db_err)?;
+            (kept, n)
+        };
+        if kept > 0 {
+            self.touch()?;
+        }
+        Ok(n)
+    }
+
+    /// An opened file's connection becomes a regular one once a query on it
+    /// is the user's: a new one with text, or one edited, renamed or moved
+    /// here. Else
+    /// the next start would drop the query with the connection. `before` is
+    /// the query as it was; `generated`, the one DBine writes for a data
+    /// file. Returns the connection when this call kept it.
+    ///
+    /// The connection stays as it is, `updated_at` included (the explorer
+    /// takes a new one for an edit and drops what it has open).
+    pub fn keep_opened_file_for_query(
+        &self,
+        before: Option<&SavedQuery>,
+        saved: &SavedQuery,
+        generated: bool,
+    ) -> Result<Option<SavedConnection>> {
+        let users = match before {
+            // Or moved here from another connection.
+            Some(old) => {
+                old.sql != saved.sql
+                    || old.name != saved.name
+                    || (old.connection_id != saved.connection_id && !saved.sql.trim().is_empty())
+            }
+            None => !generated && !saved.sql.trim().is_empty(),
+        };
+        if !users {
+            return Ok(None);
+        }
         let n = self
             .lock()?
             .execute(
-                "DELETE FROM connections WHERE temporary = 1 OR (temporary = 3 AND save_password = 0)",
-                [],
+                "UPDATE connections SET temporary = 0,
+                     sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM connections WHERE folder_id IS NULL AND temporary = 0)
+                  WHERE id = ?1 AND temporary = 1",
+                [&saved.connection_id],
             )
             .map_err(db_err)?;
-        Ok(n)
+        if n == 0 {
+            return Ok(None);
+        }
+        self.touch()?;
+        self.notify(StateChange::new("connection", Some(&saved.connection_id)));
+        self.get_connection(&saved.connection_id)
     }
 
     // -- the lineage's internal connections -----------------------------------
@@ -2871,6 +2931,141 @@ mod tests {
         // A regular one is not purged, and not offered for "Olvidar".
         assert_eq!(s.purge_temporary_connections().unwrap(), 0);
         assert!(!s.delete_lineage_connection("lin").unwrap());
+    }
+
+    /// A query on `conn`, as the app saves it.
+    fn file_query(conn: &str, name: &str, sql: &str) -> SavedQuery {
+        SavedQuery {
+            id: format!("q-{conn}"),
+            connection_id: conn.into(),
+            database: "main".into(),
+            name: name.into(),
+            sql: sql.into(),
+            updated_at: String::new(),
+            last_run_at: None,
+        }
+    }
+
+    /// Saves as the `save_query` command does.
+    fn save_as_app(s: &StateStore, q: &SavedQuery, generated: bool) -> bool {
+        let before = s.get_query(&q.id).unwrap();
+        let saved = s.save_query(q).unwrap();
+        s.keep_opened_file_for_query(before.as_ref(), &saved, generated)
+            .unwrap()
+            .is_some()
+    }
+
+    /// #227: queries written on an opened file were gone at the next start.
+    #[test]
+    fn editing_a_query_keeps_the_opened_files_connection() {
+        let s = StateStore::open_in_memory().unwrap();
+        s.save_connection(&conn("saved")).unwrap();
+        let tmp = s.add_temporary_connection(&conn("tmp")).unwrap();
+        // The query DBine makes for a data file is not the user's.
+        assert!(!save_as_app(&s, &file_query("tmp", "q", "SELECT 1"), true));
+        // Nor is saving it as it is, or following a `USE`.
+        assert!(!save_as_app(&s, &file_query("tmp", "q", "SELECT 1"), false));
+        let moved = SavedQuery {
+            database: "other".into(),
+            ..file_query("tmp", "q", "SELECT 1")
+        };
+        assert!(!save_as_app(&s, &moved, false));
+        assert!(s.is_temporary_connection("tmp").unwrap());
+
+        let rev = s.revision().unwrap();
+        assert!(save_as_app(&s, &file_query("tmp", "q", "SELECT 2"), false));
+        assert!(!s.is_temporary_connection("tmp").unwrap());
+        let ids: Vec<String> = s
+            .list_connections()
+            .unwrap()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(ids, ["saved", "tmp"]);
+        // The same connection: a new `updated_at` would make the explorer
+        // drop what it has open. And now it is something to sync.
+        assert_eq!(
+            s.get_connection("tmp").unwrap().unwrap().updated_at,
+            tmp.updated_at
+        );
+        assert!(s.revision().unwrap() > rev);
+        // Said once.
+        assert!(!save_as_app(&s, &file_query("tmp", "q", "SELECT 3"), false));
+
+        assert_eq!(s.purge_temporary_connections().unwrap(), 0);
+        assert_eq!(s.list_queries("tmp", "main").unwrap()[0].sql, "SELECT 3");
+    }
+
+    #[test]
+    fn a_new_or_renamed_query_keeps_the_opened_files_connection() {
+        let s = StateStore::open_in_memory().unwrap();
+        // "New query" starts empty: nothing of the user's yet.
+        s.add_temporary_connection(&conn("empty")).unwrap();
+        assert!(!save_as_app(&s, &file_query("empty", "q", "  "), false));
+        // Made with its text (the assistant, the query builder).
+        s.add_temporary_connection(&conn("made")).unwrap();
+        assert!(save_as_app(&s, &file_query("made", "q", "SELECT 1"), false));
+        // Renamed.
+        s.add_temporary_connection(&conn("named")).unwrap();
+        assert!(!save_as_app(
+            &s,
+            &file_query("named", "q", "SELECT 1"),
+            true
+        ));
+        assert!(save_as_app(
+            &s,
+            &file_query("named", "totals", "SELECT 1"),
+            false
+        ));
+    }
+
+    #[test]
+    fn a_query_moved_onto_an_opened_file_keeps_its_connection() {
+        let s = StateStore::open_in_memory().unwrap();
+        s.save_connection(&conn("saved")).unwrap();
+        s.add_temporary_connection(&conn("tmp")).unwrap();
+        let q = file_query("saved", "q", "SELECT 1");
+        assert!(!save_as_app(&s, &q, false));
+        let moved = SavedQuery {
+            connection_id: "tmp".into(),
+            ..q
+        };
+        assert!(save_as_app(&s, &moved, false));
+        assert!(!s.is_temporary_connection("tmp").unwrap());
+    }
+
+    #[test]
+    fn only_an_opened_files_connection_is_kept_by_a_query() {
+        let s = StateStore::open_in_memory().unwrap();
+        s.save_connection(&conn("saved")).unwrap();
+        assert!(!save_as_app(
+            &s,
+            &file_query("saved", "q", "SELECT 1"),
+            false
+        ));
+        s.set_managed_connections(&[conn("ent")]).unwrap();
+        assert!(!save_as_app(&s, &file_query("ent", "q", "SELECT 1"), false));
+        assert!(s.is_managed_connection("ent").unwrap());
+    }
+
+    /// A version without the above left edited queries on temporary
+    /// connections: the first start after updating must not drop them.
+    #[test]
+    fn the_start_up_purge_keeps_an_opened_file_with_an_edited_query() {
+        let s = StateStore::open_in_memory().unwrap();
+        s.add_temporary_connection(&conn("edited")).unwrap();
+        s.save_query(&file_query("edited", "q", "SELECT 1"))
+            .unwrap();
+        s.save_query(&file_query("edited", "q", "SELECT 2"))
+            .unwrap();
+        s.add_temporary_connection(&conn("untouched")).unwrap();
+        s.save_query(&file_query("untouched", "q", "SELECT 1"))
+            .unwrap();
+
+        assert_eq!(s.purge_temporary_connections().unwrap(), 1);
+        assert!(s.get_connection("untouched").unwrap().is_none());
+        assert!(!s.is_temporary_connection("edited").unwrap());
+        assert_eq!(s.list_queries("edited", "main").unwrap()[0].sql, "SELECT 2");
     }
 
     #[test]

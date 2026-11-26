@@ -4,7 +4,8 @@ import { ElMessage, ElMessageBox } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
 import { errorMessage } from '../api/client';
 import { tb } from '../i18n/backend';
-import { aiApi, type AiModel, type AiProvider, type AiProviderKind } from '../api/ai';
+import { aiApi, isApiProvider, vendorOf, type AiModel, type AiProvider, type AiProviderKind } from '../api/ai';
+import AiApiKeyDialog from './AiApiKeyDialog.vue';
 import { newQuery } from '../composables/actions';
 import SparklesIcon from './SparklesIcon.vue';
 import { useAiStore, type UiMessage } from '../stores/ai';
@@ -179,6 +180,8 @@ async function copy(code: string) {
 
 // -- setup -------------------------------------------------------------------------------
 const busy = ref<string | null>(null);
+/** The API-key provider whose form is open. */
+const keyFor = ref<AiProvider | null>(null);
 async function download(id: string) {
   try { await ai.downloadModel(id); } catch (e) { ElMessage.error(errorMessage(e)); }
 }
@@ -282,7 +285,7 @@ const phaseText = computed(() => ({
         </div>
 
         <h4>{{ $t('ai:setup.detected') }}</h4>
-        <div v-for="p in ai.providers.filter((x) => x.kind !== 'embedded')" :key="p.kind" class="ai-prov">
+        <div v-for="p in ai.providers.filter((x) => x.kind !== 'embedded' && !isApiProvider(x.kind))" :key="p.kind" class="ai-prov">
           <span class="ai-dot" :class="{ ok: p.available, warn: p.installed && !p.available }" />
           <div>
             <strong>{{ tb(p.label) }}</strong>
@@ -298,6 +301,18 @@ const phaseText = computed(() => ({
         <p class="ai-muted ai-small">
           {{ $t('ai:setup.cliNote') }}
         </p>
+
+        <h4>{{ $t('ai:api.heading') }}</h4>
+        <p class="ai-muted ai-small">{{ $t('ai:api.lead') }}</p>
+        <div v-for="p in ai.providers.filter((x) => isApiProvider(x.kind))" :key="p.kind" class="ai-prov" :data-test="`ai-api-${p.kind}`">
+          <span class="ai-dot" :class="{ ok: p.available, warn: (p.key_saved || !!p.base_url) && !p.available }" />
+          <div>
+            <strong>{{ tb(p.label) }}</strong>
+            <span class="ai-muted">{{ tb(p.status) }}</span>
+          </div>
+          <el-button size="small" text @click="keyFor = p">{{ $t(p.key_saved || p.base_url ? 'ai:api.edit' : 'ai:api.configure') }}</el-button>
+          <el-button v-if="p.available" size="small" text @click="ai.choose(p.kind); showSetup = false">{{ $t('ai:setup.use') }}</el-button>
+        </div>
         <el-button size="small" :loading="ai.detecting" @click="ai.refresh()"><el-icon><ei-refresh /></el-icon>&nbsp;{{ $t('ai:setup.redetect') }}</el-button>
       </template>
     </section>
@@ -310,7 +325,8 @@ const phaseText = computed(() => ({
       <div class="ai-privacy" :class="{ local: provider.local }">
         <el-icon><ei-lock /></el-icon>
         <span v-if="provider.local">{{ $t('ai:privacy.local') }}</span>
-        <span v-else>{{ $t('ai:privacy.remote', { vendor: provider.kind === 'claude_code' ? 'Anthropic' : 'OpenAI' }) }}</span>
+        <span v-else-if="vendorOf(provider.kind)">{{ $t('ai:privacy.remote', { vendor: vendorOf(provider.kind) }) }}</span>
+        <span v-else>{{ $t('ai:privacy.remoteOwn') }}</span>
       </div>
       <div v-if="chatContexts.length" class="ai-contexts">
         <span class="ai-contexts-label">{{ $t('ai:contexts.inUse') }}</span>
@@ -415,6 +431,7 @@ const phaseText = computed(() => ({
         <el-button v-else class="ai-send" type="primary" :disabled="!input.trim()" @click="send()"><el-icon><ei-promotion /></el-icon>&nbsp;{{ $t('ai:compose.send') }}</el-button>
       </div>
     </template>
+    <AiApiKeyDialog :provider="keyFor" @close="keyFor = null" @changed="ai.refresh()" />
   </aside>
 </template>
 

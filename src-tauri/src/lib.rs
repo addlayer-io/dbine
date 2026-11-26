@@ -21,6 +21,7 @@ mod notebook;
 mod open_files;
 mod optimizer;
 mod results_store;
+mod samples;
 mod sealed_store;
 mod secret_sources;
 mod ssh_config;
@@ -297,6 +298,8 @@ pub fn run() {
             // 7. Engine libraries downloaded on first use (DuckDB) go in
             //    `components/`; their progress reaches the UI as an event.
             dbine_driver::runtime::set_components_dir(data_dir.join("components"));
+            // The sample databases' files (samples.rs).
+            samples::set_dir(data_dir.join("samples"));
             let handle = app.handle().clone();
             dbine_driver::runtime::set_progress_sink(move |p| {
                 use tauri::Emitter;
@@ -629,6 +632,8 @@ pub fn run() {
             mcp::commands::mcp_create_client,
             mcp::commands::mcp_revoke_client,
             mcp::commands::mcp_activity,
+            mcp::commands::mcp_sessions,
+            mcp::commands::mcp_session_calls,
             mcp::commands::mcp_pending_approvals,
             mcp::commands::mcp_answer_approval,
             mcp::commands::mcp_clear_approve_all,
@@ -692,6 +697,9 @@ pub fn run() {
             commands::profiler::profiler_poll,
             commands::profiler::profiler_stop,
             commands::ai::ai_detect,
+            commands::ai::ai_api_save,
+            commands::ai::ai_api_remove,
+            commands::ai::ai_api_test,
             commands::ai::ai_chat,
             commands::ai::ai_fix_error,
             commands::ai::ai_approve,
@@ -719,6 +727,9 @@ pub fn run() {
             commands::notebook::notebook_file_grants_clear,
             open_files::open_files_take,
             open_files::open_file,
+            samples::samples_install,
+            samples::samples_tour,
+            samples::samples_remove,
         ])
         .build(context)
         .expect("error building tauri app")

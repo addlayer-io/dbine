@@ -267,7 +267,9 @@ export const api = {
   getQuery: (id: string) => invoke<SavedQuery>('get_query', { args: { id } }),
   /** `checkpoint`: always keep the text as a version (an explicit save);
    *  otherwise at most one a minute while typing. */
-  saveQuery: (query: SavedQuery, checkpoint = false) => invoke<SavedQuery>('save_query', { args: { query, checkpoint } }),
+  /** `generated`: the query DBine writes for an opened data file. `kept_connection`: this save kept an opened file's connection. */
+  saveQuery: (query: SavedQuery, checkpoint = false, generated = false) =>
+    invoke<SavedQuery & { kept_connection?: string }>('save_query', { args: { query, checkpoint, generated } }),
   deleteQuery: (id: string) => invoke<void>('delete_query', { args: { id } }),
 
   getLogDir: () => invoke<string | null>('get_log_dir'),

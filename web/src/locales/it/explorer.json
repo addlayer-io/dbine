@@ -63,7 +63,7 @@
     "projectChanges_other": "{{count}} modifiche non committate",
     "projectChanges_many": "{{count}} modifiche non committate",
     "file": "File",
-    "fileTitle": "Aperto da {{path}}. Non viene conservato alla chiusura di DBine: clic destro › Salva connessione per tenerlo.",
+    "fileTitle": "Aperto da {{path}}. Non viene conservato alla chiusura di DBine, a meno che tu non vi scriva una query o scelga clic destro › Salva connessione.",
     "contexts": "Contesti",
     "noContexts": "Nessun contesto: clic destro › Nuovo contesto"
   },

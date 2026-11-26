@@ -31,6 +31,32 @@ pub struct AiRuntime {
 }
 
 impl AiRuntime {
+    /// The API-key providers configured on this machine, for every chat: their
+    /// settings (the URL and the model typed, which travel with the cloud
+    /// backup) and their keys (in the encrypted vault, which never travel).
+    pub fn load_api(&self, store: &dbine_core::StateStore) {
+        let mut all = std::collections::HashMap::new();
+        for kind in ProviderKind::API {
+            let (url, model) = api_setting(
+                store
+                    .get_setting(&api_setting_key(kind))
+                    .ok()
+                    .flatten()
+                    .as_ref(),
+            );
+            let key = dbine_core::secrets::get_vault_only(&api_key_name(kind))
+                .ok()
+                .flatten()
+                .filter(|k| !k.is_empty());
+            if url.is_none() && model.is_none() && key.is_none() {
+                continue;
+            }
+            let base = dbine_ai::api::base_url(kind, url.as_deref()).unwrap_or_default();
+            all.insert(kind, dbine_ai::api::ApiAccess { base, key, model });
+        }
+        self.endpoints.api.replace(all);
+    }
+
     pub fn new(models_dir: std::path::PathBuf) -> Self {
         Self {
             endpoints: Endpoints {
@@ -105,7 +131,11 @@ fn ram_gb() -> u64 {
 }
 
 #[tauri::command]
-pub async fn ai_detect(ai: State<'_, AiRuntime>) -> CommandResult<DetectOut> {
+pub async fn ai_detect(
+    state: State<'_, AppState>,
+    ai: State<'_, AiRuntime>,
+) -> CommandResult<DetectOut> {
+    ai.load_api(&state.store);
     let providers = dbine_ai::detect(&ai.endpoints).await;
     let installed = embedded::installed(&ai.endpoints.models_dir);
     let ram = ram_gb();
@@ -643,6 +673,136 @@ pub async fn ai_pull_ollama(
     Ok(dbine_ai::ollama::pull(&ai.endpoints.ollama, &args.id, &progress).await?)
 }
 
+// -- the user's own API keys ---------------------------------------------------------
+
+/// The setting with a provider's URL and model typed by hand (no secret: it
+/// travels with the cloud backup).
+fn api_setting_key(kind: ProviderKind) -> String {
+    format!("ai.api.{}", kind.id())
+}
+
+/// The vault entry with a provider's key: on this machine only (the cloud
+/// backup carries only connections' and SSH profiles' secrets).
+fn api_key_name(kind: ProviderKind) -> String {
+    format!("ai-key:{}", kind.id())
+}
+
+/// The URL and the model of the setting, each when not empty.
+fn api_setting(v: Option<&serde_json::Value>) -> (Option<String>, Option<String>) {
+    let get = |k: &str| {
+        v.and_then(|v| v.get(k))
+            .and_then(|x| x.as_str())
+            .map(str::trim)
+            .filter(|x| !x.is_empty())
+            .map(str::to_string)
+    };
+    (get("url"), get("model"))
+}
+
+#[derive(Deserialize)]
+pub struct ApiKeyArgs {
+    pub provider: ProviderKind,
+    /// A new key; none (or empty) keeps the one saved.
+    #[serde(default)]
+    pub key: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+impl ApiKeyArgs {
+    fn provider(&self) -> CommandResult<ProviderKind> {
+        if self.provider.api_key() {
+            Ok(self.provider)
+        } else {
+            Err(CommandError::BadRequest(format!(
+                "{} no usa una clave de API",
+                self.provider.label()
+            )))
+        }
+    }
+
+    /// The new key (trimmed), and the setting: the URL and the model, never
+    /// the key. `None`: nothing to keep.
+    fn parts(&self) -> (Option<String>, Option<serde_json::Value>) {
+        let key = self
+            .key
+            .as_deref()
+            .map(str::trim)
+            .filter(|k| !k.is_empty())
+            .map(str::to_string);
+        let mut setting = serde_json::Map::new();
+        for (k, v) in [("url", &self.url), ("model", &self.model)] {
+            if let Some(v) = v.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+                setting.insert(k.into(), v.into());
+            }
+        }
+        (
+            key,
+            (!setting.is_empty()).then_some(serde_json::Value::Object(setting)),
+        )
+    }
+}
+
+/// "Guardar": the key to the vault, the URL and model to the settings.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn ai_api_save(
+    state: State<'_, AppState>,
+    ai: State<'_, AiRuntime>,
+    args: ApiKeyArgs,
+) -> CommandResult<()> {
+    let kind = args.provider()?;
+    let (key, setting) = args.parts();
+    if let Some(k) = key {
+        dbine_core::secrets::set_raw(&api_key_name(kind), &k)?;
+    }
+    state
+        .store
+        .set_setting(&api_setting_key(kind), setting.as_ref())?;
+    ai.load_api(&state.store);
+    Ok(())
+}
+
+/// "Quitar": the key and the settings of a provider.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn ai_api_remove(
+    state: State<'_, AppState>,
+    ai: State<'_, AiRuntime>,
+    args: ApiKeyArgs,
+) -> CommandResult<()> {
+    let kind = args.provider()?;
+    dbine_core::secrets::delete_raw(&api_key_name(kind))?;
+    state.store.set_setting(&api_setting_key(kind), None)?;
+    ai.load_api(&state.store);
+    Ok(())
+}
+
+/// "Probar": what's in the form (else what's saved) against the provider.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn ai_api_test(
+    state: State<'_, AppState>,
+    args: ApiKeyArgs,
+) -> CommandResult<dbine_ai::api::TestOutcome> {
+    let kind = args.provider()?;
+    let (key, setting) = args.parts();
+    let (saved_url, saved_model) =
+        api_setting(state.store.get_setting(&api_setting_key(kind))?.as_ref());
+    let (url, model) = api_setting(setting.as_ref());
+    let key = match key {
+        Some(k) => Some(k),
+        None => dbine_core::secrets::get_vault_only(&api_key_name(kind))?,
+    };
+    let base = dbine_ai::api::base_url(kind, url.or(saved_url).as_deref())
+        .ok_or_else(|| CommandError::BadRequest(format!("escribí la URL de {}", kind.label())))?;
+    let access = dbine_ai::api::ApiAccess {
+        base,
+        key,
+        model: model.or(saved_model),
+    };
+    Ok(dbine_ai::api::test(kind, &access).await?)
+}
+
 // -- context ----------------------------------------------------------------------
 
 /// Object names a local model gets up front; it asks for the rest.
@@ -652,7 +812,15 @@ const SUMMARY_NAMES: usize = 400;
 fn schema_budget(kind: ProviderKind) -> usize {
     match kind {
         ProviderKind::Embedded | ProviderKind::Ollama | ProviderKind::LmStudio => 24_000,
-        ProviderKind::ClaudeCode | ProviderKind::Codex => 150_000,
+        ProviderKind::ClaudeCode
+        | ProviderKind::Codex
+        | ProviderKind::OpenAi
+        | ProviderKind::Anthropic
+        | ProviderKind::AzureOpenAi
+        | ProviderKind::Gemini
+        | ProviderKind::Xai => 150_000,
+        // Any server: it may run a small model.
+        ProviderKind::OpenAiCompatible => 40_000,
     }
 }
 
@@ -1533,6 +1701,123 @@ fn compact_schema(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn key_args(
+        provider: ProviderKind,
+        key: Option<&str>,
+        url: Option<&str>,
+        model: Option<&str>,
+    ) -> ApiKeyArgs {
+        ApiKeyArgs {
+            provider,
+            key: key.map(str::to_string),
+            url: url.map(str::to_string),
+            model: model.map(str::to_string),
+        }
+    }
+
+    /// The key goes to the vault only: the setting (which travels with the
+    /// cloud backup) holds the URL and the model, never it.
+    #[test]
+    fn an_api_key_never_goes_in_the_setting() {
+        let a = key_args(
+            ProviderKind::AzureOpenAi,
+            Some("  sk-secret-123  "),
+            Some(" https://acme.openai.azure.com "),
+            Some("gpt-dep"),
+        );
+        let (key, setting) = a.parts();
+        assert_eq!(key.as_deref(), Some("sk-secret-123"));
+        let setting = setting.unwrap();
+        assert!(!setting.to_string().contains("sk-secret"), "{setting}");
+        assert_eq!(
+            api_setting(Some(&setting)),
+            (
+                Some("https://acme.openai.azure.com".into()),
+                Some("gpt-dep".into())
+            )
+        );
+        // Empty fields: no new key, nothing to keep.
+        let (key, setting) = key_args(ProviderKind::OpenAi, Some(" "), Some(""), None).parts();
+        assert_eq!((key, setting), (None, None));
+        assert_eq!(api_setting(None), (None, None));
+        assert_eq!(api_key_name(ProviderKind::Xai), "ai-key:xai");
+        assert_eq!(
+            api_setting_key(ProviderKind::OpenAiCompatible),
+            "ai.api.openai_compatible"
+        );
+    }
+
+    #[test]
+    fn only_api_providers_take_a_key() {
+        assert!(key_args(ProviderKind::Gemini, None, None, None)
+            .provider()
+            .is_ok());
+        for k in [
+            ProviderKind::Ollama,
+            ProviderKind::ClaudeCode,
+            ProviderKind::Embedded,
+        ] {
+            assert!(
+                key_args(k, Some("x"), None, None).provider().is_err(),
+                "{k:?}"
+            );
+        }
+    }
+
+    /// The company's `allow_ai` is per connection, before any provider is
+    /// picked: a managed connection is refused whatever the model (the
+    /// API-key ones too).
+    #[test]
+    fn the_companys_ai_policy_doesnt_depend_on_the_provider() {
+        let store = dbine_core::StateStore::open_in_memory().unwrap();
+        let managed = dbine_core::SavedConnection {
+            id: crate::enterprise::connection_id("p1"),
+            name: "empresa".into(),
+            color: None,
+            config: dbine_driver::ConnectionConfig {
+                driver: "postgres".into(),
+                ..Default::default()
+            },
+            save_password: false,
+            folder_id: None,
+            tags: vec![],
+            mcp_level: None,
+            updated_at: String::new(),
+        };
+        store
+            .set_managed_connections(std::slice::from_ref(&managed))
+            .unwrap();
+        // No company signed in here: what it allows is unknown, so refused.
+        let e = crate::enterprise::refuse_ai_if_not_allowed(&store, &managed.id).unwrap_err();
+        assert!(e.to_string().contains("no permite"), "{e}");
+        assert!(crate::enterprise::refuse_ai_if_not_allowed(&store, "my-own").is_ok());
+    }
+
+    /// Every command that sends a connection's content to a model checks the
+    /// company's policy first: any provider, the API-key ones included.
+    #[test]
+    fn every_ai_entry_point_checks_the_companys_policy() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands");
+        for name in ["ai.rs", "compare.rs", "data_compare_ai.rs", "optimizer.rs"] {
+            let src = std::fs::read_to_string(dir.join(name)).unwrap();
+            let asks =
+                src.matches("dbine_ai::chat(").count() + src.matches("ai_task::ask(").count();
+            assert!(asks > 0, "{name} no longer asks a model: update this test");
+            assert!(
+                src.contains("refuse_ai_if_not_allowed"),
+                "{name} asks a model without the company's policy"
+            );
+        }
+        // ai_task only runs for those callers: its one command cancels.
+        let task = std::fs::read_to_string(dir.join("ai_task.rs")).unwrap();
+        assert_eq!(
+            task.matches("#[tauri::command").count(),
+            1,
+            "ai_task gained a command: check its policy"
+        );
+        assert!(task.contains("pub async fn ai_task_cancel"));
+    }
 
     #[test]
     fn the_failed_query_analysis_asks_for_structure_only_when_told_to() {

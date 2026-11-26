@@ -116,5 +116,29 @@
     "vscode": "Jalankan di terminal (digunakan oleh Copilot dalam mode agen).",
     "windsurf": "Tempel di ~/.codeium/windsurf/mcp_config.json.",
     "chatgpt": "ChatGPT tidak dapat terhubung: ia memanggil server MCP dari server OpenAI dan membutuhkan URL publik, sedangkan server DBine sengaja hanya mendengarkan di mesin ini. Untuk memakai model OpenAI, gunakan Codex."
+  },
+  "sessions": {
+    "title": "Sesi agen",
+    "help": "Panggilan berturut-turut dari klien yang sama, tanpa jeda lebih dari 30 menit, membentuk satu sesi. Buka sebagai notebook untuk melihat apa yang dilakukan agen dan melanjutkan dari sana: kuerinya menjadi sel SQL pada koneksi yang digunakan, dan penulisannya menjadi teks agar tidak dijalankan lagi.",
+    "none": "Belum ada sesi",
+    "connections": "Koneksi",
+    "what": "Yang dilakukan",
+    "open": "Buka sebagai notebook",
+    "callsTitle": "Semua panggilan",
+    "calls_other": "{{count}} panggilan",
+    "reads_other": "{{count}} pembacaan",
+    "writes_other": "{{count}} penulisan",
+    "rejected_other": "{{count}} ditolak",
+    "errors_other": "{{count}} kesalahan",
+    "nbTitle": "Sesi {{client}}, {{when}}",
+    "nbConnections": "Koneksi: {{names}}",
+    "nbExplored": "Dijelajahi:",
+    "nbPlan": "Meminta rencana eksekusi kueri ini:",
+    "nbWrote": "Agen menjalankan penulisan ini, disetujui pukul {{at}}:",
+    "nbWroteRows_other": "Agen menjalankan penulisan ini, disetujui pukul {{at}} ({{count}} baris terpengaruh):",
+    "nbRejected": "Ditolak di DBine: tidak dijalankan.",
+    "nbTimeout": "Tidak ada respons di DBine: tidak dijalankan.",
+    "nbFailed": "Gagal: {{error}}",
+    "nbNotKept": "Kueri yang terlalu panjang untuk disimpan utuh: {{summary}}"
   }
 }

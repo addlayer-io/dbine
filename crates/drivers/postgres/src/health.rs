@@ -190,7 +190,7 @@ impl PgSession {
                 &format!(
                     "SELECT n.nspname, c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                      WHERE c.relkind IN ('r', 'm') AND {filter}
-                       AND EXISTS (SELECT 1 FROM unnest(c.reloptions) o
+                       AND EXISTS (SELECT 1 FROM pg_catalog.unnest(c.reloptions) o
                                    WHERE lower(o) ~ '^autovacuum_enabled=(f|fa|fal|fals|false|n|no|of|off|0)$')
                      ORDER BY 1, 2 LIMIT {MAX_OBJECTS}"
                 ),
@@ -521,7 +521,7 @@ impl PgSession {
                 "fk without index",
                 &format!(
                     "SELECT n.nspname, t.relname, c.conname,
-                            array_to_string(ARRAY(SELECT a.attname::text FROM generate_subscripts(c.conkey, 1) k
+                            array_to_string(ARRAY(SELECT a.attname::text FROM pg_catalog.generate_subscripts(c.conkey, 1) k
                                                   JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = c.conkey[k] ORDER BY k), chr(31))
                      FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid JOIN pg_namespace n ON n.oid = t.relnamespace
                      WHERE c.contype = 'f' AND t.relkind IN ('r', 'p') {own} AND {filter}

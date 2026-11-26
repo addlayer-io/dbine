@@ -759,6 +759,37 @@ mod tests {
         assert!(b.secrets.read(&unused.id).unwrap().is_empty());
     }
 
+    /// The assistant's API keys live in the same vault under their own names
+    /// (`ai-key:<provider>`): the backup reads only connections' and SSH
+    /// profiles' secrets, so they stay on the machine; the provider's URL
+    /// and model, plain settings, travel.
+    #[tokio::test]
+    async fn ai_api_keys_never_travel_but_their_settings_do() {
+        let cloud_dir = tempfile::tempdir().unwrap();
+        let cloud = FolderStore::new(cloud_dir.path());
+        let a = machine("a");
+        let mut key = Secrets::new();
+        key.insert("key".into(), "sk-never-in-the-backup".into());
+        a.secrets.write("ai-key:openai", &key).unwrap();
+        let setting =
+            serde_json::json!({ "url": "https://acme.openai.azure.com", "model": "gpt-dep" });
+        a.engine
+            .store
+            .set_setting("ai.api.azure_openai", Some(&setting))
+            .unwrap();
+        a.engine.store.save_connection(&conn("c1")).unwrap();
+        let built = serde_json::to_string(&a.engine.build().unwrap()).unwrap();
+        assert!(!built.contains("sk-never-in-the-backup") && !built.contains("ai-key:"));
+        a.engine.push(&cloud, "p", false).await.unwrap();
+        let b = machine("b");
+        b.engine.pull(&cloud, "p").await.unwrap();
+        assert!(b.secrets.read("ai-key:openai").unwrap().is_empty());
+        assert_eq!(
+            b.engine.store.get_setting("ai.api.azure_openai").unwrap(),
+            Some(setting)
+        );
+    }
+
     #[tokio::test]
     async fn a_new_passphrase_rekeys() {
         let cloud_dir = tempfile::tempdir().unwrap();

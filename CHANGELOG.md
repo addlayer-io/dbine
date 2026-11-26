@@ -2,13 +2,24 @@
 
 ## [Unreleased]
 
+### New
+
+- **An AI agent's work, as a notebook:** Settings › MCP lists the sessions of each MCP client (Claude Code, Cursor, Codex…): its calls with no pause longer than 30 minutes, with the connections it used and how many reads, writes, rejected and failed calls it made. **Open as notebook** turns one into a notebook to continue from: what it explored in one line, each query as a SQL cell on the connection and database it used, and each write as text with its code, so it never runs again. The activity log now keeps each query whole (up to 64 KB), never its rows.
+- **Sample databases to try DBine right away:** a new **Sample databases** folder in the explorer holds a store in SQLite (clients, products, orders, invoices and events, with foreign keys, views and a trigger), the same data in DuckDB with a few differences on purpose, and a folder of CSV and Parquet files. A tour notebook crosses them and ends in charts; it opens from the folder's menu or the welcome screen. Nothing is downloaded until you open them, and they need no server. Right-click the folder to open the tour again or to remove them for good.
+- **The assistant with your own API key:** besides the built-in model, Ollama, LM Studio, Claude Code and Codex, the assistant works with your own key for OpenAI, Anthropic, Azure OpenAI, Google Gemini, xAI Grok or any OpenAI-compatible server (OpenRouter, Mistral, DeepSeek, a company gateway…). Paste the key in the assistant's settings, test it and pick a model from the list or type it (an Azure deployment). The provider bills your account; DBine charges nothing. The key stays encrypted on this computer and never travels with the cloud backup, and, as with the other remote models, data rows are never sent.
+
 ### Improvements
 
+- **A quieter first launch:** the first thing DBine offers is to import the connections of the other database tools on the computer, when it finds any, and the notice about usage data comes after it. The reminder to support the project no longer appears the first time; it waits until DBine has been used on 7 different days, then appears once a month.
 - **FLOAT16 and BFLOAT16 vectors on Valkey:** the key designer offers FLOAT16 and BFLOAT16 vector fields for a Valkey search index, as well as FLOAT32 (valkey-search 1.3 or later). On an older valkey-search, the server's refusal comes with the version that brings them.
 
 ### Fixes
 
+- **Queries on an opened file are no longer lost:** opening a database or data file (File › Open, double-click, drag and drop or the command line) makes a temporary connection, and the next start removed it together with its saved queries. DBine now saves that connection as soon as you write, edit or rename a query on it, and says so. Opening a file only to look at it still leaves nothing behind. Queries you had edited on a file that is still open when you update are kept too ([#227](https://github.com/addlayer-io/dbine/issues/227)).
 - **Elasticsearch 8 without security:** the Security tab of an Elasticsearch 8 server with security turned off (`xpack.security.enabled=false`) showed the server's raw "Incorrect HTTP method" error; it now says that security is turned off on that server.
+- **Security, Neo4j:** node labels, relationship types, property names and index definitions that contain unusual characters are now always read as names, in the queries DBine writes and in the scripts it shows. The lineage prepared after connecting no longer queries each label and relationship type, catalog reads use read access mode, and the read-only check reads a statement the way Neo4j does. Update the Neo4j driver.
+- **Security, PostgreSQL:** reading dependencies, references, the lineage and a table's foreign keys uses only the server's built-in functions and operators, whatever objects the database's schemas hold. Update the PostgreSQL driver.
+- **Security, rename on Oracle and SAP HANA:** code that belongs to another schema is listed among what the rename affects but is no longer rewritten into the script; review it by hand. The same applies to a definition that doesn't name its owner when you rename an object of a schema other than the one you're working in.
 
 ## [1.7.1] - 2026-11-25
 

@@ -78,7 +78,8 @@
   },
   "privacy": {
     "local": "Local: nada sale de esta máquina.",
-    "remote": "Va a {{vendor}} con tu cuenta: la pregunta, la estructura y el editor, nunca los datos."
+    "remote": "Va a {{vendor}} con tu cuenta: la pregunta, la estructura y el editor, nunca los datos.",
+    "remoteOwn": "Va a tu servidor: la pregunta, la estructura y el editor, nunca los datos."
   },
   "empty": {
     "lead": "Pedile queries, que te explique o corrija la del editor, o preguntale por la estructura de la base.",
@@ -168,5 +169,32 @@
     "cancelled": "Se canceló: no se cambió nada.",
     "again": "Analizar de nuevo",
     "failed": "No se pudo analizar: {{error}}"
+  },
+  "api": {
+    "heading": "Con tu clave de API",
+    "lead": "Usá tu cuenta de OpenAI, Anthropic, Azure OpenAI, Google Gemini, xAI Grok o un servidor compatible con OpenAI. Lo cobra el proveedor en tu cuenta; DBine no cobra nada.",
+    "configure": "Configurar",
+    "edit": "Editar",
+    "title": "{{provider}} con tu clave de API",
+    "key": "Clave de API",
+    "keyOptional": "Clave de API (si el servidor la pide)",
+    "keyPlaceholder": "Pegá tu clave",
+    "keySaved": "Guardada en este equipo: dejala vacía para no cambiarla",
+    "keyWhere": "La sacás en {{site}}.",
+    "azureUrl": "Endpoint del recurso",
+    "baseUrl": "URL base",
+    "model": "Modelo",
+    "modelPlaceholder": "Elegí uno de la lista o escribilo",
+    "deployment": "Implementación",
+    "deploymentPlaceholder": "El nombre de la implementación en Azure",
+    "privacy": "Con cada pregunta van a {{vendor}} la pregunta, la estructura de la base, el texto del editor y el último error, bajo sus términos. Nunca filas de datos.",
+    "privacyOwn": "Con cada pregunta van a ese servidor la pregunta, la estructura de la base, el texto del editor y el último error. Nunca filas de datos.",
+    "cost": "Lo cobra {{vendor}} en tu cuenta, según cuánto lo uses. DBine no cobra nada.",
+    "local": "La clave queda cifrada en este equipo: no viaja con la copia en la nube.",
+    "test": "Probar",
+    "remove": "Quitar",
+    "removeConfirm": "¿Quitar la clave y la configuración de {{provider}} de este equipo?",
+    "urlRequired": "Escribí la URL.",
+    "keyRequired": "Pegá la clave de API."
   }
 }
