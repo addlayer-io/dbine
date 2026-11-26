@@ -51,8 +51,12 @@ and queries are organized inside each database.
   [`docs/explorer-cache.md`](docs/explorer-cache.md#the-filter).
 - **Dependencies and lineage:** what an object uses and what uses it (tables,
   views, routines, foreign keys and sources outside the database), as a list
-  or as a lineage diagram that opens level by level. Details:
-  [`docs/engine-support.md`](docs/engine-support.md#dependencies).
+  or as a lineage diagram that opens level by level. The lineage also crosses
+  connections: it follows an outside source into the connection that holds it
+  (from a Power BI table to the SQL database it reads, for example) and shows
+  which Power BI tables read an object. Details:
+  [`docs/engine-support.md`](docs/engine-support.md#dependencies) and
+  [lineage across connections](docs/engine-support.md#lineage-across-connections).
 - **Folders and groups**, for example per client or per environment. They can
   be nested and colored, and servers are moved between them by dragging.
 - **Sample databases** to try DBine before connecting your own: a store in
@@ -405,8 +409,13 @@ never sees the data. Details: [`docs/sync.md`](docs/sync.md).
 A chat in the right sidebar (⌘I). It writes queries, explains or fixes the
 editor's one and answers about the database's structure.
 
-- **It never runs anything.** Its code is appended to the open query, or
-  replaces it when fixing it, and the user decides whether to run it.
+- **It never runs anything.** The user chooses whether to add its code to the
+  open query or replace the editor's content with it, and whether to run it.
+- **Analyze with AI on a failed query:** when asked, it explains why the query
+  failed and proposes a fix, shown as a diff over the editor, to accept or
+  reject. It sends the SQL that ran, the error and the database's structure.
+  It never sends result rows, though a server's error message can quote a
+  value (a duplicate key, for example).
 - **It uses what is on the machine:**
   - the **built-in model** (llama.cpp with Qwen2.5-Coder 3B or 7B), which runs
     locally and is downloaded only once, the first time it is used;
@@ -444,6 +453,26 @@ while DBine is open. It ships turned off.
   connection. It doesn't store passwords or secrets.
 
 Details: [`docs/mcp.md`](docs/mcp.md).
+
+### Phone app (Android)
+
+A companion app, paired with DBine by scanning a QR code, to follow your
+databases away from the computer. It works while DBine is open.
+
+- It shows each connection's Monitor, blocking chains, running statements and
+  health check, plus the queries running in DBine's editor and the scheduled
+  tasks with their runs.
+- It notifies you when a long query finishes and when a scheduled task fails or
+  raises an alert.
+- With permission given to that phone, it ends sessions, cancels queries, and
+  runs or cancels tasks, each action confirmed with the phone's biometrics or
+  PIN.
+- Connections and passwords stay on the computer, and the channel is
+  end-to-end encrypted. It works on the local network; access from outside it
+  is optional, through your own relay or iroh's public servers.
+
+Details: [`docs/mobile-companion.md`](docs/mobile-companion.md) and
+[`docs/mobile-security.md`](docs/mobile-security.md).
 
 ### Security
 
@@ -521,6 +550,8 @@ The installers are in
   `brew install --cask addlayer-io/tap/dbine`.
 - **Linux:** `.AppImage`, `.deb`, `.rpm` or `.flatpak`
   ([how to install the `.flatpak`](docs/flathub.md#downloadable-flatpak)).
+- **Android (phone app):** the `-android.apk`, also at
+  [dbine.com/download/android](https://dbine.com/download/android).
 
 The macOS app is signed with an Apple Developer ID and notarized by Apple, and
 the Windows installer and app are signed with a code-signing certificate.
