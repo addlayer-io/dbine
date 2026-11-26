@@ -5,7 +5,7 @@ import { useSettingsStore } from '../stores/settings';
 import { updateOffer } from '../composables/updates';
 import { EVERY_DAYS, countDay, localDay, supportDue } from '../composables/supportSchedule';
 
-// "Apoyá el proyecto": voluntary support through Buy Me a Coffee, not a
+// "Apoyá el proyecto": voluntary support through GitHub Sponsors, not a
 // license (nothing in the app depends on it, and the app can't see who
 // supports it). Never on the first launch: once DBine was used on a few
 // different days (supportSchedule.ts), then once a month, whatever the person
