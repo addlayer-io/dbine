@@ -133,6 +133,7 @@
     "dialogTitle": "Abrir arquivo",
     "filterName": "Bancos e arquivos de dados",
     "saved": "“{{name}}” foi salva nas suas conexões",
+    "keptForQuery": "“{{name}}” foi salva nas suas conexões para manter as consultas dela",
     "dropTitle": "Solte para abrir",
     "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON ou Excel. Cada arquivo abre como uma conexão temporária."
   }

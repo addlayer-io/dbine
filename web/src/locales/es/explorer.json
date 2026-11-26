@@ -63,7 +63,7 @@
     "projectChanges_other": "{{count}} cambios sin confirmar",
     "projectChanges_many": "{{count}} cambios sin confirmar",
     "file": "Archivo",
-    "fileTitle": "Abierto desde {{path}}. No queda guardado al cerrar DBine: clic derecho › Guardar conexión para conservarlo.",
+    "fileTitle": "Abierto desde {{path}}. No queda guardado al cerrar DBine, salvo que escribas una consulta en él o elijas clic derecho › Guardar conexión.",
     "contexts": "Contextos",
     "noContexts": "Sin contextos: clic derecho › Nuevo contexto"
   },

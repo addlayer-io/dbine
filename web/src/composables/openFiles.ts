@@ -15,7 +15,8 @@ import { useUiStore } from '../stores/ui';
 
 // Data files opened from the OS (src-tauri/src/open_files.rs): Finder /
 // Explorer, a drop on the window, File › Open…. Each one is a temporary
-// connection (the explorer's "Archivo" badge) until "Guardar conexión"; a
+// connection (the explorer's "Archivo" badge) until "Guardar conexión" or a
+// query of the user's on it (`save_query` then keeps it); a
 // data file (CSV, Parquet, JSON, Excel) lands in a new query with its first
 // rows already shown.
 //
@@ -83,7 +84,7 @@ async function openOne(path: string) {
     const q = await conns.saveQuery({
       id: '', connection_id: id, database, sql: opened.sql,
       name: conns.nextQueryName(id, database), updated_at: '', last_run_at: null,
-    });
+    }, false, true);
     runWhenOpened.add(q.id);
     tabs.openQuery(q);
   } catch (e) {

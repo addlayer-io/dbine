@@ -133,6 +133,7 @@
     "dialogTitle": "Ouvrir un fichier",
     "filterName": "Bases et fichiers de données",
     "saved": "« {{name}} » est enregistrée dans vos connexions",
+    "keptForQuery": "« {{name}} » est enregistrée dans vos connexions pour conserver ses requêtes",
     "dropTitle": "Déposez pour ouvrir",
     "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON ou Excel. Chaque fichier s’ouvre comme une connexion temporaire."
   }

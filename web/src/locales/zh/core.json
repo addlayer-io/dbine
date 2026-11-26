@@ -133,6 +133,7 @@
     "dialogTitle": "打开文件",
     "filterName": "数据库和数据文件",
     "saved": "“{{name}}”现已保存到你的连接中",
+    "keptForQuery": "“{{name}}”现已保存到你的连接中，以保留它的查询",
     "dropTitle": "拖放以打开",
     "dropHint": "SQLite、DuckDB、CSV、TSV、Parquet、JSON 或 Excel。每个文件都会作为临时连接打开。"
   }

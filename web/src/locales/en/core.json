@@ -133,6 +133,7 @@
     "dialogTitle": "Open file",
     "filterName": "Databases and data files",
     "saved": "\"{{name}}\" is now saved in your connections",
+    "keptForQuery": "\"{{name}}\" is now saved in your connections to keep its queries",
     "dropTitle": "Drop to open",
     "dropHint": "SQLite, DuckDB, CSV, TSV, Parquet, JSON or Excel. Each file opens as a temporary connection."
   }
