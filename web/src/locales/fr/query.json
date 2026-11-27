@@ -106,6 +106,7 @@
   },
   "moreActions": "Plus d'actions",
   "runs": {
+    "pauseLost": "Impossible de récupérer les lignes enregistrées de ce résultat pendant que l'onglet était en pause. Exécutez à nouveau la requête pour les voir.",
     "label": "Résultats des exécutions",
     "pin": "Épingler",
     "unpin": "Désépingler",

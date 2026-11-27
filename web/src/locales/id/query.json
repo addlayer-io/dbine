@@ -102,6 +102,7 @@
   },
   "moreActions": "Tindakan lainnya",
   "runs": {
+    "pauseLost": "Baris tersimpan dari hasil ini tidak dapat dipulihkan selama tab dijeda. Jalankan lagi kueri untuk melihatnya.",
     "label": "Hasil eksekusi",
     "pin": "Sematkan",
     "unpin": "Lepas sematan",

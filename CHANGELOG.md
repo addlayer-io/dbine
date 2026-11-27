@@ -10,6 +10,7 @@
 
 ### Improvements
 
+- **Less memory with many tabs open:** a query editor you haven't looked at for 30 minutes now frees its results from memory, and brings them back when you open its tab, from the encrypted copy on your computer and without running anything again. Sort, scroll, columns, selection and chart stay as you left them, and the editor keeps its text and undo history. Tabs running a query or with unapplied edits are never paused, and neither is any result that couldn't be saved, for example with "Keep results when closing DBine" turned off ([#216](https://github.com/addlayer-io/dbine/issues/216)).
 - **A quieter first launch:** the first thing DBine offers is to import the connections of the other database tools on the computer, when it finds any, and the notice about usage data comes after it. The reminder to support the project no longer appears the first time; it waits until DBine has been used on 7 different days, then appears once a month.
 - **FLOAT16 and BFLOAT16 vectors on Valkey:** the key designer offers FLOAT16 and BFLOAT16 vector fields for a Valkey search index, as well as FLOAT32 (valkey-search 1.3 or later). On an older valkey-search, the server's refusal comes with the version that brings them.
 
@@ -17,6 +18,8 @@
 
 - **Queries on an opened file are no longer lost:** opening a database or data file (File › Open, double-click, drag and drop or the command line) makes a temporary connection, and the next start removed it together with its saved queries. DBine now saves that connection as soon as you write, edit or rename a query on it, and says so. Opening a file only to look at it still leaves nothing behind. Queries you had edited on a file that is still open when you update are kept too ([#227](https://github.com/addlayer-io/dbine/issues/227)).
 - **A renamed query keeps its new name:** renaming a query from the explorer while it was open in a tab was undone by the next thing typed there, because the tab saved the old name again ([#229](https://github.com/addlayer-io/dbine/issues/229)).
+- **"No sort" restores the original order:** after sorting a query's results by a column, the third click on its header now puts the rows back in the order they arrived.
+- **Saved results aren't dropped for space that's already free:** saving a result again when the saved results were close to their size limit could delete older ones that still fit.
 - **Elasticsearch 8 without security:** the Security tab of an Elasticsearch 8 server with security turned off (`xpack.security.enabled=false`) showed the server's raw "Incorrect HTTP method" error; it now says that security is turned off on that server.
 - **Security, Neo4j:** node labels, relationship types, property names and index definitions that contain unusual characters are now always read as names, in the queries DBine writes and in the scripts it shows. The lineage prepared after connecting no longer queries each label and relationship type, catalog reads use read access mode, and the read-only check reads a statement the way Neo4j does. Update the Neo4j driver.
 - **Security, PostgreSQL:** reading dependencies, references, the lineage and a table's foreign keys uses only the server's built-in functions and operators, whatever objects the database's schemas hold. Update the PostgreSQL driver.

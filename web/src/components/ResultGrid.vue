@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { GridState } from '../composables/paneState';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { locale, t } from '../i18n';
@@ -82,6 +83,8 @@ const props = defineProps<{
   onlyColumns?: Set<number> | null;
   /** Rows with matches (ascending): marked beside the scroll bar. */
   marks?: ArrayLike<number> | null;
+  /** How the grid looked before its tab was paused: it starts that way. */
+  initialState?: GridState | null;
 }>();
 const emit = defineEmits<{
   /** A cell's new value; `undefined` reverts it. */
@@ -166,6 +169,39 @@ watch(
   },
   { immediate: true },
 );
+
+// A paused tab's grid, as it was (after the column watcher above set the
+// defaults); the scroll waits for the rows to be laid out.
+const initial = props.initialState;
+/** The left scroll, kept while the grid is hidden (the element then says 0). */
+let scrollLeft = 0;
+if (initial && initial.widths.length === props.columns.length) {
+  widths.value = [...initial.widths];
+  hiddenNames.value = new Set(initial.hidden);
+  selection.value = initial.selection;
+  anchor.value = initial.anchor;
+  rowSel.value = initial.rowSel;
+  cellExtra.value = [...initial.cellExtra];
+  rowExtra.value = [...initial.rowExtra];
+  scrollTop.value = initial.top;
+  scrollLeft = initial.left;
+  onMounted(() => { void nextTick(() => scroller.value?.scrollTo({ top: initial.top, left: initial.left })); });
+}
+
+function viewState(): GridState {
+  return {
+    top: scrollTop.value, left: scrollLeft, widths: [...widths.value], hidden: [...hiddenNames.value],
+    selection: selection.value, anchor: anchor.value, rowSel: rowSel.value,
+    cellExtra: [...cellExtra.value], rowExtra: [...rowExtra.value],
+  };
+}
+
+function onScroll(e: Event) {
+  const el = e.target as HTMLDivElement;
+  scrollTop.value = el.scrollTop;
+  scrollLeft = el.scrollLeft;
+  hideSoon(0);
+}
 
 // Another grid font size: the columns keep their proportions at the new size.
 watch(gridFontSize, (n, o) => { widths.value = widths.value.map((w) => Math.round((w * n) / o)); });
@@ -729,7 +765,7 @@ const selectionStats = computed(() => {
   return { cells: cells.length, count, numbers: n, sum, avg: n ? sum / n : 0, min, max };
 });
 
-defineExpose({ editRow, selectionStats, goTo });
+defineExpose({ editRow, selectionStats, goTo, viewState });
 
 // -- deleting rows (marked here; the DELETE code comes with the UPDATEs) -----------------
 function selectedRows(): number[] {
@@ -1105,7 +1141,7 @@ function columnsMenu(e: MouseEvent) {
     class="rg"
     tabindex="0"
     :style="{ '--rg-row': rowH + 'px', '--rg-head': head.names + 'px' }"
-    @scroll="scrollTop = ($event.target as HTMLDivElement).scrollTop; hideSoon(0)"
+    @scroll="onScroll"
     @keydown="hideSoon(0); onKey($event)"
     @mousedown="hideSoon(0)"
   >

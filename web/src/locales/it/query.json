@@ -106,6 +106,7 @@
   },
   "moreActions": "Altre azioni",
   "runs": {
+    "pauseLost": "Non è stato possibile recuperare le righe salvate di questo risultato mentre la scheda era in pausa. Esegui di nuovo la query per visualizzarle.",
     "label": "Risultati delle esecuzioni",
     "pin": "Fissa",
     "unpin": "Rimuovi fissaggio",
