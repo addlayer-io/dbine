@@ -2,7 +2,7 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-11-26._
+_Updated 2026-11-27._
 
 ## Open findings
 
@@ -24,10 +24,10 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.7.0 | 2026-11-21 | 4fc9459c..78feff49, everything 1.7.0 adds since v1.6.3 up to the CodeQL fixes (vectors, lineage in both directions, the explorer by folders and its filter, results search, compare fixes, New notebook from the explorer; 3 MEDIUM and 1 LOW, fixed in #168); 78feff49..c1b4d9a9, server jobs in the lineage and #168 (1 MEDIUM, fixed in #170); c1b4d9a9..6f336538, the lineage of a whole database, the relations switch and #170 (no findings); plus the pre-merge scan of the vectors branch at 94805104 (2 MEDIUM in the Cypher read guard, fixed before it merged) | 0 open | the release commits d079d0ae and 533fab01 (versions, Cargo.lock and the changelogs; no code) |
-| codeql | 2026-11-26 | Rust, TypeScript/Vue and workflows | 1 open | — |
-| osv | 2026-11-26 | every lockfile (Cargo, npm) at [`c1a096584`](https://github.com/addlayer-io/dbine/commit/c1a0965842d1) | 0 open | — |
-| scorecard | 2026-11-26 | repository settings and workflows at [`b6246e291`](https://github.com/addlayer-io/dbine/commit/b6246e29122b) | score 7.5/10 | — |
-| trivy | 2026-11-26 | whole repository at [`c1a096584`](https://github.com/addlayer-io/dbine/commit/c1a0965842d1) | 0 open | — |
+| codeql | 2026-11-27 | Rust, TypeScript/Vue and workflows | 1 open | — |
+| osv | 2026-11-27 | every lockfile (Cargo, npm) at [`7f31fcc62`](https://github.com/addlayer-io/dbine/commit/7f31fcc62f37) | 0 open | — |
+| scorecard | 2026-11-26 | repository settings and workflows at [`c1a096584`](https://github.com/addlayer-io/dbine/commit/c1a0965842d1) | score 7.5/10 | — |
+| trivy | 2026-11-27 | whole repository at [`7f31fcc62`](https://github.com/addlayer-io/dbine/commit/7f31fcc62f37) | 0 open | — |
 
 ## Not counted, and why
 

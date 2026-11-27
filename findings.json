@@ -42,23 +42,23 @@
     },
     {
       "source": "osv",
-      "date": "2026-11-26",
-      "revision": "c1a0965842d1",
+      "date": "2026-11-27",
+      "revision": "7f31fcc62f37",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
     },
     {
       "source": "trivy",
-      "date": "2026-11-26",
-      "revision": "c1a0965842d1",
+      "date": "2026-11-27",
+      "revision": "7f31fcc62f37",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
     },
     {
       "source": "codeql",
-      "date": "2026-11-26",
+      "date": "2026-11-27",
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
@@ -67,7 +67,7 @@
     {
       "source": "scorecard",
       "date": "2026-11-26",
-      "revision": "b6246e29122b",
+      "revision": "c1a0965842d1",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.5
