@@ -10,6 +10,7 @@
 
 ### Improvements
 
+- **Sort the Monitor's tables by any column:** sessions, running queries, waits, databases, objects and every other table in the Monitor sort with a click on a header (one way, the other, then back to the order the server sent). Sizes and times such as "800 MB" and "1.5 GB" sort by what they measure, and the sort stays while the Monitor refreshes. It sorts the rows on screen, so in a list that shows only the top entries it reorders those.
 - **A quieter first launch:** the first thing DBine offers is to import the connections of the other database tools on the computer, when it finds any, and the notice about usage data comes after it. The reminder to support the project no longer appears the first time; it waits until DBine has been used on 7 different days, then appears once a month.
 - **FLOAT16 and BFLOAT16 vectors on Valkey:** the key designer offers FLOAT16 and BFLOAT16 vector fields for a Valkey search index, as well as FLOAT32 (valkey-search 1.3 or later). On an older valkey-search, the server's refusal comes with the version that brings them.
 
