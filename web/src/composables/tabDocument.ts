@@ -5,10 +5,11 @@ import { timelineApi } from '../api/timeline';
 import { projectsApi } from '../api/projects';
 import type { DriverInfo, FileStat, Language, SavedQuery } from '../api/types';
 import { t } from '../i18n';
-import { useConnectionsStore } from '../stores/connections';
+import { dbKey, useConnectionsStore } from '../stores/connections';
 import { useProjectsStore } from '../stores/projects';
 import { baseName, useTabsStore, type FileTab, type QueryTab } from '../stores/tabs';
 import { useUiStore } from '../stores/ui';
+import { followRename } from './followRename';
 import { timelineSeq } from './timeline';
 
 // What the query editor (QueryView) edits: a saved query (its text in the
@@ -72,6 +73,10 @@ export function useQueryDocument(tab: QueryTab): TabDocument & { query: Ref<Save
     }
   }
   watch(() => tab.queryId, load, { immediate: true });
+  followRename(query, () => {
+    const q = query.value;
+    return q ? conns.queries[dbKey(q.connection_id, q.database)]?.items.find((x) => x.id === q.id) : undefined;
+  });
   // A restore from the cloud backup may have changed it (not while editing).
   watch(() => ui.syncSeq, () => { if (saveState.value === 'saved') load(); });
 
