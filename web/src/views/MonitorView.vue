@@ -10,6 +10,7 @@ import type { Metric, MonitorSnapshot, MonitorTable } from '../api/types';
 import EngineIcon from '../components/EngineIcon.vue';
 import Sparkline from '../components/Sparkline.vue';
 import { vKeyActivate } from '../composables/keyActivate';
+import { clickSort, numericColumn, sortTable, type TableSort } from '../composables/tableSort';
 import { readJson, writeJson } from '../stores/storage';
 // ECharts loads only when a metric is enlarged.
 const MetricChartDialog = defineAsyncComponent(() => import('../components/MetricChartDialog.vue'));
@@ -261,11 +262,20 @@ function cell(v: unknown): string {
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
 }
+/** Each table's sort, kept across refreshes while the view is open. */
+const sorts = ref<Record<string, TableSort | null>>({});
+const sort = computed(() => sorts.value[tableKey.value] ?? null);
+function sortOn(column: string) {
+  const t = table.value;
+  if (!t) return;
+  sorts.value[t.key] = clickSort(sort.value, column, numericColumn(t.rows, t.columns.indexOf(column)));
+}
 const rows = computed(() => {
   const t = table.value;
   if (!t) return [];
   const q = filter.value.trim().toLowerCase();
-  const all = t.rows.map((r) => r.map(cell));
+  // Sorted on the values as read, then written for the screen.
+  const all = sortTable(t.rows, t.columns, sort.value).map((r) => r.map(cell));
   return q ? all.filter((r) => r.some((c) => c.toLowerCase().includes(q))) : all;
 });
 
@@ -422,7 +432,18 @@ const ago = computed(() => {
             <div v-if="table" class="mv-table-wrap">
               <table class="mv-table">
                 <thead>
-                  <tr><th v-for="c in table.columns" :key="c">{{ tb(c) }}</th></tr>
+                  <tr>
+                    <th
+                      v-for="c in table.columns"
+                      :key="c"
+                      v-key-activate.native
+                      :class="{ sorted: sort?.column === c }"
+                      :aria-sort="sort?.column === c ? (sort.descending ? 'descending' : 'ascending') : undefined"
+                      @click="sortOn(c)"
+                    >
+                      {{ tb(c) }}<span v-if="sort?.column === c" class="mv-sort">{{ sort.descending ? '↓' : '↑' }}</span>
+                    </th>
+                  </tr>
                 </thead>
                 <tbody>
                   <tr v-for="(r, i) in rows" :key="i">
@@ -554,6 +575,9 @@ const ago = computed(() => {
   background: var(--nm-bg-elev); color: var(--nm-text-dim); border-bottom: 1px solid var(--nm-border);
   white-space: nowrap;
 }
+.mv-table th { cursor: pointer; user-select: none; }
+.mv-table th:hover, .mv-table th.sorted { color: var(--nm-text-strong); }
+.mv-sort { margin-left: 3px; }
 .mv-table td {
   padding: 4px 10px; border-bottom: 1px solid var(--nm-border-soft); color: var(--nm-text);
   max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
