@@ -351,6 +351,69 @@ async fn the_space_cap_drops_the_oldest_unpinned_first() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_held_run_outlives_the_space_cap_until_released() {
+    let dir = temp_dir("held");
+    let mut s = open_at(&dir, &key('e')).await.unwrap();
+    for (id, at) in [("paused-run", 1), ("free-run", 2)] {
+        s.save(meta(id, "t", at, false), sample(3_000), DEFAULT_MAX_BYTES)
+            .await
+            .unwrap();
+    }
+    exec(s.session.as_mut(), "CHECKPOINT").await.unwrap();
+    let cap = s.bytes().await.unwrap() + 1;
+    hold(&["paused-run".to_string()], true);
+    // No room for a third: the oldest goes, but not the paused one.
+    s.save(meta("next-run", "t", 3, false), sample(3_000), cap)
+        .await
+        .unwrap();
+    let ids: Vec<String> = s
+        .runs("t")
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| r.id)
+        .collect();
+    assert!(ids.contains(&"paused-run".to_string()), "{ids:?}");
+    assert!(!ids.contains(&"free-run".to_string()), "{ids:?}");
+    // Shown again, it's like any other.
+    hold(&["paused-run".to_string()], false);
+    s.save(meta("last-run", "t", 4, false), sample(3_000), cap)
+        .await
+        .unwrap();
+    let ids: Vec<String> = s
+        .runs("t")
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|r| r.id)
+        .collect();
+    assert!(!ids.contains(&"paused-run".to_string()), "{ids:?}");
+    let _ = s_close(s.session).await;
+}
+
+/// Pausing writes the same run again: that mustn't push others out.
+#[tokio::test(flavor = "multi_thread")]
+async fn writing_a_run_again_keeps_the_others() {
+    let dir = temp_dir("again");
+    let mut s = open_at(&dir, &key('f')).await.unwrap();
+    for (id, at) in [("a-run", 1), ("b-run", 2)] {
+        s.save(meta(id, "t", at, false), sample(3_000), DEFAULT_MAX_BYTES)
+            .await
+            .unwrap();
+    }
+    exec(s.session.as_mut(), "CHECKPOINT").await.unwrap();
+    // Some slack, but not a whole run's.
+    let cap = s.bytes().await.unwrap() * 5 / 4;
+    let saved = s
+        .save(meta("b-run", "t", 2, false), sample(3_000), cap)
+        .await
+        .unwrap();
+    assert!(saved.stored);
+    assert_eq!(s.runs("t").await.unwrap().len(), 2);
+    let _ = s_close(s.session).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn the_public_api_keeps_and_forgets_tabs() {
     let dir = temp_dir("api");
     let _ = DIR.set(dir.to_path_buf());

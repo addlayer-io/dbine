@@ -171,12 +171,36 @@ on, and checks both.
   tab loads it when it's shown, without connecting to the database.
 - Phase 2 adds `results_page(run, result, offset, limit, sort, filter)`.
 
+## Paused editors
+
+An editor that hasn't been shown for 30 minutes releases its results from the
+window's memory: the result panes go and so do their rows. The code editor
+stays, with its cursor and undo history. Showing it again reads the rows from
+the store, without connecting, and each pane looks as it was left: result
+sub-tab, view, sort, scroll, column widths, hidden columns, selection, chart
+and map settings. The search bar and the open nodes of the JSON tree start
+over. It applies to query and project-file editors, and there's no setting.
+
+- At that moment the editor's copy is written again (`results_hold`), and the
+  rows go only if the store answers that it has it. So nothing is released
+  when keeping results is off, without a keychain, for a connection an
+  organization manages, or when the run doesn't fit in the space.
+- A held run is out of the space cap's reach until the editor reads it back or
+  closes (`results_release`).
+- Never paused: the shown editor, a run in progress, a pane with edits not
+  applied or with its export, apply or add-document dialog open, and results
+  with an error or without rows.
+- **Clear now** and turning keeping off first read paused results back, in the
+  window that asks. A paused editor in another window then says its rows
+  couldn't be read and to run the query again; it never shows an empty result
+  as the real one, nor stores it.
+
 ## Lifecycle
 
 - **Closing results:** closing a result tab, trimming past "Results each
   editor keeps" or closing an editor removes those runs and their tables.
 - **Disk cap:** a setting, 2 GB by default. Past it, the oldest unpinned
-  results go first. A run that wouldn't fit alone stops storing and is
+  results go first (not a paused editor's). A run that wouldn't fit alone stops storing and is
   marked partial.
 - **At start:** runs whose editor tab no longer exists (closed during a
   crash) are removed.

@@ -68,6 +68,21 @@ pub async fn results_save(args: SaveArgs) -> CommandResult<Option<Saved>> {
     results_store::save(args.store.run, args.outcome, max, started).await
 }
 
+/// A paused editor is about to release a run's rows: they're written again
+/// as it has them and held. `false`: not stored, so it keeps them.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn results_hold(args: SaveArgs) -> CommandResult<bool> {
+    let max = args.store.max_bytes();
+    results_store::save_held(args.store.run, args.outcome, max).await
+}
+
+/// A held run's rows are in the editor again.
+#[tauri::command(rename_all = "camelCase")]
+pub async fn results_release(args: DeleteArgs) -> CommandResult<()> {
+    results_store::release(&args.ids);
+    Ok(())
+}
+
 #[derive(Deserialize)]
 pub struct PinArgs {
     pub id: String,

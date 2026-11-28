@@ -32,6 +32,7 @@ use dbine_driver::{ObjectRef, QueryOutcome, Session};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::LazyLock;
@@ -95,6 +96,25 @@ static SLOT: LazyLock<Mutex<Slot>> = LazyLock::new(|| Mutex::new(Slot::Closed));
 /// Goes up with every [`clear`]: a run that started before it isn't
 /// stored when it ends.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Runs a paused editor released from memory: the store is their only copy
+/// while DBine runs, so the space cap leaves them.
+static HELD: LazyLock<std::sync::Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+
+fn held_ids() -> std::sync::MutexGuard<'static, HashSet<String>> {
+    HELD.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn hold(ids: &[String], held: bool) {
+    let mut set = held_ids();
+    for id in ids {
+        if held {
+            set.insert(id.clone());
+        } else {
+            set.remove(id);
+        }
+    }
+}
+
 /// Where the store lives instead of next to the vault (tests only).
 #[cfg(test)]
 static DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -619,18 +639,28 @@ impl Store {
         self.fit(&meta.id, max_bytes).await
     }
 
-    /// Past `max_bytes`, the oldest unpinned runs go (never `keep`); if
-    /// `keep` alone is still too big, it goes too.
+    /// Past `max_bytes`, the oldest unpinned runs go (never `keep`, nor a
+    /// held one); if there's still no room for `keep`, it goes too.
     async fn fit(&mut self, keep: &str, max_bytes: u64) -> CommandResult<Saved> {
         if self.bytes().await? <= max_bytes {
             return Ok(Saved { stored: true });
         }
-        let old = self
+        // A run written again leaves its earlier blocks and the WAL counted
+        // until a checkpoint: nothing goes for space that's already free.
+        exec(self.session.as_mut(), "CHECKPOINT").await?;
+        if self.bytes().await? <= max_bytes {
+            return Ok(Saved { stored: true });
+        }
+        let mut old = self
             .ids(&format!(
                 "SELECT id FROM runs WHERE NOT pinned AND id <> {} ORDER BY ran_at, id",
                 lit(keep)
             ))
             .await?;
+        {
+            let held = held_ids();
+            old.retain(|id| !held.contains(id));
+        }
         for id in old {
             self.remove(std::slice::from_ref(&id)).await?;
             exec(self.session.as_mut(), "CHECKPOINT").await?;
@@ -894,6 +924,25 @@ pub async fn save(
     after(&mut slot, r).await.map(Some)
 }
 
+/// Writes what a paused editor is about to release, and keeps it from the
+/// space cap until [`release`]. `true`: the store has it, so the editor can
+/// let its rows go.
+pub async fn save_held(meta: RunMeta, out: QueryOutcome, max_bytes: u64) -> CommandResult<bool> {
+    let id = [meta.id.clone()];
+    hold(&id, true);
+    let r = save(meta, out, max_bytes, generation()).await;
+    let stored = matches!(&r, Ok(Some(s)) if s.stored);
+    if !stored {
+        hold(&id, false);
+    }
+    r.map(|_| stored)
+}
+
+/// The editor has these runs' rows in memory again (or closed them).
+pub fn release(ids: &[String]) {
+    hold(ids, false);
+}
+
 /// [`save`] in the background: the run's answer doesn't wait for it, and a
 /// failure only loses that run's copy on disk. `started`: the
 /// [`generation`] when the run started.
@@ -937,6 +986,7 @@ pub async fn set_pinned(id: String, pinned: bool) -> CommandResult<()> {
 }
 
 pub async fn delete(ids: Vec<String>) -> CommandResult<()> {
+    release(&ids);
     let mut slot = lock_existing().await;
     let Slot::Open(s) = &mut *slot else {
         return Ok(());
@@ -1017,6 +1067,7 @@ pub async fn purge_connection(id: &str) -> CommandResult<usize> {
 pub async fn clear() -> CommandResult<()> {
     let mut slot = SLOT.lock().await;
     GENERATION.fetch_add(1, Ordering::SeqCst);
+    held_ids().clear();
     if let Slot::Open(store) = std::mem::replace(&mut *slot, Slot::Closed) {
         let _ = s_close(store.session).await;
     }

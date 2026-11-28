@@ -1,4 +1,5 @@
 <script lang="ts">
+import { wakeAll } from '../composables/pauseRuns';
 import { ref as moduleRef, shallowRef as moduleShallowRef } from 'vue';
 import type { TaskHandle as ModuleTaskHandle } from '../stores/tasks';
 import type { ResultsStatus } from '../api/types';
@@ -149,6 +150,8 @@ async function clearStoredResults(ask = true) {
     } catch { return; }
   }
   try {
+    // Paused editors have those rows only there: they read them back first.
+    await wakeAll();
     // A run going on now doesn't store its results when it ends.
     noteResultsClear();
     await api.resultsClear();

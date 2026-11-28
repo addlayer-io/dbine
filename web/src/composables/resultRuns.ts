@@ -1,6 +1,6 @@
 import type { QueryOutcome } from '../api/types';
 import type { MultiDbExport } from './multiDbParts';
-
+import type { PaneState } from './paneState';
 // A query editor's result tabs: each run of the editor keeps its own results
 // (with the script, connection and database they came from) until it's
 // closed. A new run closes the oldest unpinned ones beyond the setting's
@@ -17,6 +17,10 @@ export interface ResultRun {
   id: number;
   /** Its id in the results store (composables/resultsStore.ts). */
   key: string;
+  /** Its rows were released while its editor wasn't shown (pauseRuns.ts),
+   *  and how its pane looked, which the pane starts from again. */
+  paused?: boolean;
+  pane?: PaneState | null;
   /** Read back from the store: its outcome loads when it's shown. */
   restored?: boolean;
   outcome: QueryOutcome | null;

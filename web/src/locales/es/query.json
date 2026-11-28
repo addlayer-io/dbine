@@ -106,6 +106,7 @@
   },
   "moreActions": "Más acciones",
   "runs": {
+    "pauseLost": "No se pudieron recuperar las filas guardadas de este resultado mientras la pestaña estaba en pausa. Volvé a ejecutar la consulta para verlas.",
     "label": "Resultados de las ejecuciones",
     "pin": "Fijar",
     "unpin": "Quitar fijación",

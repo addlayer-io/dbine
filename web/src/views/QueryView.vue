@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { PAUSE_AFTER_MS, onWakeAll, pauseRuns, wakeRun } from '../composables/pauseRuns';
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -988,7 +989,10 @@ function splitRun(r: ResultRun, o: QueryOutcome, naming: RunNaming, clears: numb
       resultSql: places.has(p.unit) ? p.outcome.results.map((x) => ownSql(p.unit, x.offset == null ? null : x.offset + u.start)) : null,
     };
     let tab = runs.value.find((x) => x !== r && x.name === p.name);
-    if (tab) Object.assign(tab, fields, { at: Date.now(), restored: false });
+    if (tab) {
+      unpause(tab);
+      Object.assign(tab, fields, { at: Date.now(), restored: false });
+    }
     else {
       runs.value.splice(at, 0, { ...fields, name: p.name, id: nextRunId++, key: crypto.randomUUID(), at: Date.now(), pinned: false });
       tab = runs.value[at++];
@@ -1077,6 +1081,9 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean,
   const named = !into && naming?.whole ? naming.whole : null;
   const target = into ?? (named ? runs.value.find((x) => x.name === named) : undefined);
   const again = target && runs.value.includes(target) ? target : null;
+  // A paused one reads its rows back first: a run that doesn't happen puts
+  // them back as they were.
+  if (again?.paused) await ensureRows(again);
   const before = again ? { ...again } : null;
   const fields = {
     script, plan, connectionId: props.tab.connectionId, database: props.tab.database,
@@ -1085,6 +1092,7 @@ async function execute(script: string, plan: PlanMode, confirmedUnsafe: boolean,
   let r: ResultRun;
   if (again) {
     r = again;
+    unpause(r);
     r.restored = false;
     r.outcome = blank;
     r.at = Date.now();
@@ -1370,7 +1378,64 @@ async function restoreRuns() {
   if (activeRunId.value == null) activeRunId.value = back[back.length - 1].id;
 }
 // A restored tab's rows load when it's shown.
-watch(activeRun, (r) => { if (r?.restored) void loadRestored(r); });
+watch(activeRun, (r) => { if (r?.restored) void ensureRows(r); });
+
+// -- paused while not shown (composables/pauseRuns.ts) ---------------------------------------
+const panes = new Map<number, InstanceType<typeof ResultsPane>>();
+function setPane(id: number, el: unknown) {
+  if (el) panes.set(id, el as InstanceType<typeof ResultsPane>);
+  else panes.delete(id);
+}
+const shown = computed(() => tabs.isShown(props.tab));
+const releaseRuns = (keys: string[]) => { void api.resultsRelease(keys).catch(() => {}); };
+
+/** A restored or paused run's rows, in memory. False: they couldn't be read. */
+async function ensureRows(r: ResultRun): Promise<boolean> {
+  if (!r.paused) return loadRestored(r);
+  await wakeRun(r, { load: loadRestored, release: releaseRuns, lost: t('query:runs.pauseLost') });
+  return !r.restored;
+}
+
+/** A run that gets new rows is no longer a paused one. */
+function unpause(r: ResultRun) {
+  if (r.paused) releaseRuns([r.key]);
+  r.paused = false;
+  r.pane = null;
+}
+
+let pauseTimer: ReturnType<typeof setTimeout> | null = null;
+function armPause() {
+  if (pauseTimer) clearTimeout(pauseTimer);
+  pauseTimer = null;
+  if (!shown.value && !unmounted) pauseTimer = setTimeout(() => void pauseNow(), PAUSE_AFTER_MS);
+}
+async function pauseNow() {
+  pauseTimer = null;
+  if (shown.value || unmounted || !storing.value) return;
+  const later = await pauseRuns(runs.value, {
+    live: () => liveRun,
+    hidden: () => !shown.value && !unmounted && storing.value,
+    busy: (r) => !!panes.get(r.id)?.busy(),
+    capture: (r) => panes.get(r.id)?.capture() ?? { pane: null, outcome: r.outcome! },
+    hold: (r, o) => api.resultsHold(storeArgs(r, props.tab.id, resultsSpace(settings.values[RESULTS_SPACE_SETTING])), o),
+    release: releaseRuns,
+  });
+  // Something stayed (a run going on, pending edits…): again later.
+  if (later && !pauseTimer) armPause();
+}
+watch(shown, (now) => {
+  armPause();
+  if (now && activeRun.value?.restored) void ensureRows(activeRun.value);
+}, { immediate: true });
+const offWake = onWakeAll(async () => {
+  await Promise.all(runs.value.filter((r) => r.paused).map(ensureRows));
+});
+onBeforeUnmount(() => {
+  offWake();
+  if (pauseTimer) clearTimeout(pauseTimer);
+  const held = runs.value.filter((r) => r.paused).map((r) => r.key);
+  if (held.length) releaseRuns(held);
+});
 
 /** Why "Volver a ejecutar" can't run a tab's script here, or null. */
 function rerunBlocked(r: ResultRun): string | null {
@@ -1446,7 +1511,7 @@ function cancelRename() {
  *  rows that can't be read leave the stored copy as it is, never empty). */
 async function storeName(r: ResultRun) {
   if (!storing.value || r === liveRun) return;
-  if (r.restored && !(await loadRestored(r))) return;
+  if (r.restored && !(await ensureRows(r))) return;
   persistRun(r);
 }
 const runMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null);
@@ -1913,10 +1978,13 @@ function runOverflow(i: number) {
           </div>
           <div class="qv-panes">
             <!-- Kept mounted (v-show): each tab keeps its sort, view, chart and pending edits. -->
+            <!-- A paused run's pane mounts again once its rows are back. -->
+            <template v-for="r in runs" :key="r.id">
             <ResultsPane
-              v-for="r in runs"
+              v-if="!r.paused || r.outcome"
               v-show="r.id === activeRunId"
-              :key="r.id"
+              :ref="(el: unknown) => setPane(r.id, el)"
+              :restore="r.pane ?? null"
               :outcome="r.outcome"
               :running="r.id === liveRunId"
               :source="r.multi ? null : { connectionId: r.connectionId, database: r.database, sql: r.script }"
@@ -1954,6 +2022,7 @@ function runOverflow(i: number) {
                 </button>
               </template>
             </ResultsPane>
+            </template>
             <ResultsPane v-if="!runs.length" :outcome="null" :running="false" hide-status />
           </div>
           <ContextMenu v-if="runMenu" :x="runMenu.x" :y="runMenu.y" :items="runMenu.items" @close="runMenu = null" />
