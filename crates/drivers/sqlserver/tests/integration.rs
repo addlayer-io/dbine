@@ -432,6 +432,17 @@ async fn monitor() {
         );
     }
     assert!(snap.info.iter().any(|(k, _)| k == "Edición"));
+    // On every version: `CURRENT_TIMEZONE()` doesn't exist before 2022.
+    assert!(
+        snap.info.iter().any(|(k, _)| k == "Zona horaria"),
+        "{:?}",
+        snap.notes
+    );
+    assert!(
+        !snap.notes.iter().any(|n| n.contains("zona horaria")),
+        "{:?}",
+        snap.notes
+    );
     // Counters go up between snapshots.
     run(&mut s, "SELECT COUNT(*) FROM sys.objects")
         .await

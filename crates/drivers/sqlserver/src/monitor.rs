@@ -149,7 +149,19 @@ const INFO: &str = "SELECT CAST(SERVERPROPERTY('ProductVersion') AS nvarchar(128
        CAST(SERVERPROPERTY('Babelfish') AS int),
        DB_NAME()";
 
-const TIMEZONE: &str = "SELECT CAST(CURRENT_TIMEZONE() AS nvarchar(128))";
+/// The zone's name where the server has `CURRENT_TIMEZONE()` (2022, Azure),
+/// its current offset before that. Naming the function straight would stop the
+/// whole batch from compiling, so it goes in a batch of its own that TRY can
+/// catch.
+const TIMEZONE: &str = "SET NOCOUNT ON;
+DECLARE @zone nvarchar(128);
+BEGIN TRY
+  EXEC sys.sp_executesql N'SELECT @z = CAST(CURRENT_TIMEZONE() AS nvarchar(128))',
+       N'@z nvarchar(128) OUTPUT', @z = @zone OUTPUT;
+END TRY
+BEGIN CATCH
+END CATCH;
+SELECT COALESCE(@zone, N'UTC' + DATENAME(TZOFFSET, SYSDATETIMEOFFSET()));";
 
 const SYS_INFO: &str =
     "SELECT CAST(DATEDIFF(SECOND, sqlserver_start_time, SYSDATETIME()) AS float),
@@ -1598,6 +1610,15 @@ pub(crate) fn assert_described(metrics: &[Metric]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// CI's server is the newest one: this is what keeps older ones (2017,
+    /// 2019) from being handed a function they can't compile.
+    #[test]
+    fn the_time_zone_names_newer_functions_only_in_a_batch_try_can_catch() {
+        let direct: String = TIMEZONE.split('\'').step_by(2).collect();
+        assert!(!direct.contains("CURRENT_TIMEZONE"), "{direct}");
+        assert!(direct.contains("BEGIN TRY") && direct.contains("BEGIN CATCH"));
+    }
 
     #[test]
     fn permission_errors_fold_into_one_note() {
