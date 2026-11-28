@@ -311,6 +311,9 @@ export const api = {
   /** An outcome the editor put together or changed (several databases, saved edits). */
   resultsSave: (store: StoreArgs, outcome: QueryOutcome) =>
     invoke<{ stored: boolean } | null>('results_save', { args: { ...store, outcome } }),
+  /** A paused editor's run: written as it is in memory and kept from the space cap. */
+  resultsHold: (store: StoreArgs, outcome: QueryOutcome) => invoke<boolean>('results_hold', { args: { ...store, outcome } }),
+  resultsRelease: (ids: string[]) => invoke<void>('results_release', { args: { ids } }),
   resultsPin: (id: string, pinned: boolean) => invoke<void>('results_pin', { args: { id, pinned } }),
   resultsDelete: (ids: string[]) => invoke<void>('results_delete', { args: { ids } }),
   resultsDeleteTab: (tabId: string) => invoke<void>('results_delete_tab', { args: { tab_id: tabId } }),

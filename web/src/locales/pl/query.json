@@ -108,6 +108,7 @@
   },
   "moreActions": "Więcej akcji",
   "runs": {
+    "pauseLost": "Nie można było odzyskać zapisanych wierszy tego wyniku, gdy karta była wstrzymana. Uruchom zapytanie ponownie, aby je zobaczyć.",
     "label": "Wyniki uruchomień",
     "pin": "Przypnij",
     "unpin": "Odepnij",

@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { arrivalOrder } from '../composables/arrivalOrder';
+import type { GridState, PaneState } from '../composables/paneState';
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, shallowRef } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { ElMessage } from 'element-plus';
 import { useTranslation } from 'i18next-vue';
@@ -92,6 +94,9 @@ const props = defineProps<{
   chartKey?: string | number;
   /** The map view's source to start from (by column name). */
   mapSettings?: MapSettings | null;
+  /** How this pane looked before its tab was paused (pauseRuns.ts): it
+   *  starts that way. Read once, with the outcome already there. */
+  restore?: PaneState | null;
 }>();
 const emit = defineEmits<{
   'update:view': [view: View];
@@ -196,7 +201,7 @@ const pending = computed(() => editCount.value + deleteCount.value + newCount.va
 /** A query's results sorted on the loaded rows, per result set. */
 const localSort = reactive<Record<number, SortKey[]>>({});
 /** Each result set's rows in the order they arrived ("no sort" again). */
-const arrived = new WeakMap<object, Cell[][]>();
+const arrived = arrivalOrder<Cell[]>();
 /** Bumped on each local sort: the rows are replaced in the result object,
  *  which needn't be reactive. */
 const sortTick = ref(0);
@@ -211,19 +216,10 @@ function onSort(keys: SortKey[]) {
   const r = current.value;
   const i = active.value;
   if (!r || typeof i !== 'number') return;
-  if (!arrived.has(r.rows)) arrived.set(r.rows, r.rows.slice());
-  const first = arrived.get(r.rows)!;
   const before = r.rows;
-  let after: Cell[][];
-  if (keys.length) {
-    after = sortRows(before, r.columns, keys);
-  } else {
-    // Back to the arrival order; rows that came later (saved inserts) stay last.
-    const live = new Set(before);
-    const known = new Set(first);
-    after = first.filter((row) => live.has(row)).concat(before.filter((row) => !known.has(row)));
-  }
-  arrived.set(after, first);
+  // No keys: back to the arrival order.
+  const after: Cell[][] = keys.length ? sortRows(before, r.columns, keys) : arrived.of(before);
+  arrived.moved(before, after);
   // Pending edits and deletions follow their rows; new rows stay at the end.
   const at = new Map(after.map((row, k) => [row, k]));
   const move = (k: number) => (k < before.length ? at.get(before[k]) ?? k : k);
@@ -1052,6 +1048,54 @@ const liveText = computed(() => {
   const err = props.outcome?.error ?? props.outcome?.errors?.[0]?.message;
   return statusText.value && err ? `${statusText.value}. ${tb(err)}` : statusText.value;
 });
+
+// -- paused tabs: what the pane shows, kept while its rows are released ----------------------
+/** The chart and map as the user left them. */
+const chartKept = shallowRef<ChartState | null>(props.restore?.chart ?? null);
+const mapKept = shallowRef<MapSettings | null>(props.restore?.map ?? null);
+function onChartSettings(s: ChartState) {
+  chartKept.value = s;
+  emit('update:chartSettings', s);
+}
+function onMapSettings(m: MapSettings) {
+  mapKept.value = m;
+  emit('update:mapSettings', m);
+}
+/** The restored grid's start, for its first mount only. */
+const gridStart = shallowRef<GridState | null>(props.restore?.grid ?? null);
+if (props.restore) {
+  const r = props.restore;
+  show.value = r.view;
+  picked.value = true;
+  for (const [i, keys] of Object.entries(r.sorts)) {
+    active.value = Number(i);
+    onSort(keys);
+  }
+  active.value = r.active;
+  // A grid mounted later (another sub-result) starts as any other.
+  onMounted(() => { void nextTick(() => { gridStart.value = null; }); });
+}
+
+/** Something here would be lost with the pane: edits not applied, an open dialog. */
+function busy() {
+  return pending.value || applyOpen.value || applying.value || docOpen.value || !!exporting.value;
+}
+
+/** What the pane shows, and its outcome with the rows as they arrived (so
+ *  "no sort" still goes back to that order after a pause). */
+function capture(): { pane: PaneState; outcome: QueryOutcome } {
+  const outcome = props.outcome!;
+  const sorts: PaneState['sorts'] = {};
+  for (const [i, keys] of Object.entries(localSort)) if (keys.length) sorts[Number(i)] = keys.map((k) => ({ ...k }));
+  return {
+    pane: {
+      active: active.value, view: show.value, sorts, grid: grid.value?.viewState() ?? null,
+      chart: chartKept.value, map: mapKept.value,
+    },
+    outcome: { ...outcome, results: outcome.results.map((x) => ({ ...x, rows: arrived.of(x.rows) })) },
+  };
+}
+defineExpose({ busy, capture });
 </script>
 
 <template>
@@ -1167,12 +1211,12 @@ const liveText = computed(() => {
         :key="`${active}:${chartKey ?? ''}`"
         :columns="current.columns"
         :rows="current.rows"
-        :settings="chartSettings"
-        :stored-points="chartPoints"
-        :stored-aggregate="chartAggregate"
+        :settings="chartKept ?? chartSettings"
+        :stored-points="chartKept?.points ?? chartPoints"
+        :stored-aggregate="chartKept ? chartKept.aggregate : chartAggregate"
         :source="chartSource"
         :whole-by-default="chartWholeByDefault"
-        @update:settings="(s: ChartState) => emit('update:chartSettings', s)"
+        @update:settings="onChartSettings"
       />
       <MapView
         v-else-if="view === 'map'"
@@ -1180,8 +1224,8 @@ const liveText = computed(() => {
         :columns="current.columns"
         :rows="current.rows"
         :detected="spatial"
-        :settings="mapSettings"
-        @update:settings="(m: MapSettings) => emit('update:mapSettings', m)"
+        :settings="mapKept ?? mapSettings"
+        @update:settings="onMapSettings"
       />
       <JsonTreeView
         v-else-if="view === 'tree'"
@@ -1203,6 +1247,7 @@ const liveText = computed(() => {
       <template v-else>
       <ResultGrid
         ref="grid"
+        :initial-state="gridStart"
         :columns="current.columns"
         :rows="shownRows"
         :copy-context="{ table: table ?? null, dialect: dialect ?? '', keyColumns, script: copyScript }"

@@ -106,6 +106,7 @@
   },
   "moreActions": "More actions",
   "runs": {
+    "pauseLost": "The saved rows of this result couldn't be recovered while the tab was paused. Run the query again to see them.",
     "label": "Run results",
     "pin": "Pin",
     "unpin": "Unpin",

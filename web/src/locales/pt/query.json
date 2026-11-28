@@ -106,6 +106,7 @@
   },
   "moreActions": "Mais ações",
   "runs": {
+    "pauseLost": "Não foi possível recuperar as linhas salvas deste resultado enquanto a aba estava em pausa. Execute a consulta novamente para vê-las.",
     "label": "Resultados das execuções",
     "pin": "Fixar",
     "unpin": "Desafixar",

@@ -104,6 +104,7 @@
   },
   "moreActions": "Weitere Aktionen",
   "runs": {
+    "pauseLost": "Die gespeicherten Zeilen dieses Ergebnisses konnten nicht wiederhergestellt werden, während der Tab pausiert war. Führen Sie die Abfrage erneut aus, um sie anzuzeigen.",
     "label": "Ergebnisse der Ausführungen",
     "pin": "Anheften",
     "unpin": "Lösen",

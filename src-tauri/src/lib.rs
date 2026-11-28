@@ -465,6 +465,8 @@ pub fn run() {
             commands::results::results_runs,
             commands::results::results_outcome,
             commands::results::results_save,
+            commands::results::results_hold,
+            commands::results::results_release,
             commands::results::results_pin,
             commands::results::results_delete,
             commands::results::results_delete_tab,
