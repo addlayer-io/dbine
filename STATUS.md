@@ -2,7 +2,7 @@
 
 The security findings open in DBine right now, from every tool that looks for them. A finding leaves this page when it's fixed. How the checks work and how to report a vulnerability: [SECURITY.md](https://github.com/addlayer-io/dbine/blob/main/SECURITY.md).
 
-_Updated 2026-11-27._
+_Updated 2026-11-28._
 
 ## Open findings
 
@@ -24,10 +24,10 @@ Findings from the source-code review and CodeQL show only their kind and compone
 | Tool | Date | Covered | Result | Not covered yet |
 |---|---|---|---|---|
 | claude-security, release v1.7.0 | 2026-11-21 | 4fc9459c..78feff49, everything 1.7.0 adds since v1.6.3 up to the CodeQL fixes (vectors, lineage in both directions, the explorer by folders and its filter, results search, compare fixes, New notebook from the explorer; 3 MEDIUM and 1 LOW, fixed in #168); 78feff49..c1b4d9a9, server jobs in the lineage and #168 (1 MEDIUM, fixed in #170); c1b4d9a9..6f336538, the lineage of a whole database, the relations switch and #170 (no findings); plus the pre-merge scan of the vectors branch at 94805104 (2 MEDIUM in the Cypher read guard, fixed before it merged) | 0 open | the release commits d079d0ae and 533fab01 (versions, Cargo.lock and the changelogs; no code) |
-| codeql | 2026-11-27 | Rust, TypeScript/Vue and workflows | 1 open | — |
-| osv | 2026-11-27 | every lockfile (Cargo, npm) at [`42c342bcf`](https://github.com/addlayer-io/dbine/commit/42c342bcfb9f) | 0 open | — |
-| scorecard | 2026-11-27 | repository settings and workflows at [`7f31fcc62`](https://github.com/addlayer-io/dbine/commit/7f31fcc62f37) | score 7.5/10 | — |
-| trivy | 2026-11-27 | whole repository at [`42c342bcf`](https://github.com/addlayer-io/dbine/commit/42c342bcfb9f) | 0 open | — |
+| codeql | 2026-11-28 | Rust, TypeScript/Vue and workflows | 1 open | — |
+| osv | 2026-11-28 | every lockfile (Cargo, npm) at [`3d13a8bb6`](https://github.com/addlayer-io/dbine/commit/3d13a8bb6bb6) | 0 open | — |
+| scorecard | 2026-11-27 | repository settings and workflows at [`42c342bcf`](https://github.com/addlayer-io/dbine/commit/42c342bcfb9f) | score 7.5/10 | — |
+| trivy | 2026-11-28 | whole repository at [`3d13a8bb6`](https://github.com/addlayer-io/dbine/commit/3d13a8bb6bb6) | 0 open | — |
 
 ## Not counted, and why
 
@@ -408,6 +408,6 @@ OpenSSF Scorecard: **7.5/10** (2026-11-27). The checks below 10, with Scorecard'
 | Code-Review: 0/10 — Found 0/6 approved changesets -- score normalized to 0 | HIGH | [link](https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#code-review) |
 | Maintained: 0/10 — project was created within the last 90 days. Please review its contents carefully | HIGH | [link](https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#maintained) |
 | Vulnerabilities: 9/10 — 1 existing vulnerabilities detected | HIGH | [link](https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#vulnerabilities) |
-| CI-Tests: 6/10 — 4 out of 6 merged PRs checked by a CI test -- score normalized to 6 | LOW | [link](https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#ci-tests) |
+| CI-Tests: 5/10 — 3 out of 6 merged PRs checked by a CI test -- score normalized to 5 | LOW | [link](https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#ci-tests) |
 | CII-Best-Practices: 5/10 — badge detected: Passing | LOW | [link](https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#cii-best-practices) |
 | Contributors: 3/10 — project has 1 contributing companies or organizations -- score normalized to 3 | LOW | [link](https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#contributors) |

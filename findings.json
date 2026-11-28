@@ -42,23 +42,23 @@
     },
     {
       "source": "osv",
-      "date": "2026-11-27",
-      "revision": "42c342bcfb9f",
+      "date": "2026-11-28",
+      "revision": "3d13a8bb6bb6",
       "kind": "full",
       "scope": "every lockfile (Cargo, npm)",
       "found": 0
     },
     {
       "source": "trivy",
-      "date": "2026-11-27",
-      "revision": "42c342bcfb9f",
+      "date": "2026-11-28",
+      "revision": "3d13a8bb6bb6",
       "kind": "full",
       "scope": "whole repository",
       "found": 0
     },
     {
       "source": "codeql",
-      "date": "2026-11-27",
+      "date": "2026-11-28",
       "revision": "",
       "kind": "full",
       "scope": "Rust, TypeScript/Vue and workflows",
@@ -67,7 +67,7 @@
     {
       "source": "scorecard",
       "date": "2026-11-27",
-      "revision": "7f31fcc62f37",
+      "revision": "42c342bcfb9f",
       "kind": "full",
       "scope": "repository settings and workflows",
       "score": 7.5
@@ -4553,7 +4553,7 @@
       "source": "scorecard",
       "severity": "LOW",
       "kind": "Repository practice",
-      "title": "CI-Tests: 6/10 — 4 out of 6 merged PRs checked by a CI test -- score normalized to 6",
+      "title": "CI-Tests: 5/10 — 3 out of 6 merged PRs checked by a CI test -- score normalized to 5",
       "component": "repository",
       "advisory": "https://github.com/ossf/scorecard/blob/d7552fb3cdc05e9f6426177d3328887304fce554/docs/checks.md#ci-tests",
       "found": "2026-11-26",
