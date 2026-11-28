@@ -3380,7 +3380,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-sqlserver"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3402,7 +3402,7 @@ dependencies = [
 
 [[package]]
 name = "dbine-driver-sqlserver_legacy"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "dbine-driver",
  "dbine-driver-sqlserver",
